@@ -11,9 +11,9 @@ from __future__ import annotations
 import re
 from typing import Any, List, Optional
 
-from openjarvis.agents._stubs import AgentContext, AgentResult, BaseAgent
+from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
 from openjarvis.agents.rlm_repl import RLMRepl
-from openjarvis.core.events import EventBus, EventType
+from openjarvis.core.events import EventBus
 from openjarvis.core.registry import AgentRegistry
 from openjarvis.core.types import Message, Role, ToolCall, ToolResult
 from openjarvis.engine._stubs import InferenceEngine
@@ -72,7 +72,7 @@ RLM_SYSTEM_PROMPT = (
 
 
 @AgentRegistry.register("rlm")
-class RLMAgent(BaseAgent):
+class RLMAgent(ToolUsingAgent):
     """Recursive Language Model agent using a persistent REPL.
 
     The agent generates Python code that runs in a sandboxed REPL with
@@ -100,14 +100,14 @@ class RLMAgent(BaseAgent):
         max_output_chars: int = 10000,
         system_prompt: Optional[str] = None,
     ) -> None:
-        self._engine = engine
-        self._model = model
-        self._tools = tools or []
-        self._executor = ToolExecutor(self._tools, bus=bus) if self._tools else None
-        self._bus = bus
-        self._max_turns = max_turns
-        self._temperature = temperature
-        self._max_tokens = max_tokens
+        super().__init__(
+            engine, model, tools=tools, bus=bus,
+            max_turns=max_turns, temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        # Override executor: RLM only creates one if tools are provided
+        if not self._tools:
+            self._executor = None  # type: ignore[assignment]
         self._sub_model = sub_model or model
         self._sub_temperature = sub_temperature
         self._sub_max_tokens = sub_max_tokens
@@ -124,14 +124,7 @@ class RLMAgent(BaseAgent):
         context: Optional[AgentContext] = None,
         **kwargs: Any,
     ) -> AgentResult:
-        bus = self._bus
-
-        # Emit agent start
-        if bus:
-            bus.publish(
-                EventType.AGENT_TURN_START,
-                {"agent": self.agent_id, "input": input},
-            )
+        self._emit_turn_start(input)
 
         # Create REPL with sub-LM callbacks
         repl = RLMRepl(
@@ -146,12 +139,9 @@ class RLMAgent(BaseAgent):
             repl.set_variable("context", ctx_text)
 
         # Build conversation
-        messages: list[Message] = [
-            Message(role=Role.SYSTEM, content=self._system_prompt),
-        ]
-        if context and context.conversation.messages:
-            messages.extend(context.conversation.messages)
-        messages.append(Message(role=Role.USER, content=input))
+        messages = self._build_messages(
+            input, context, system_prompt=self._system_prompt,
+        )
 
         all_tool_results: list[ToolResult] = []
         turns = 0
@@ -159,12 +149,7 @@ class RLMAgent(BaseAgent):
         for _turn in range(self._max_turns):
             turns += 1
 
-            result = self._engine.generate(
-                messages,
-                model=self._model,
-                temperature=self._temperature,
-                max_tokens=self._max_tokens,
-            )
+            result = self._generate(messages)
             content = result.get("content", "")
 
             # Strip <think> tags
@@ -173,13 +158,9 @@ class RLMAgent(BaseAgent):
             # Extract code block
             code = self._extract_code(content)
 
-            # No code block → return content as final answer
+            # No code block -> return content as final answer
             if code is None:
-                if bus:
-                    bus.publish(
-                        EventType.AGENT_TURN_END,
-                        {"agent": self.agent_id, "turns": turns},
-                    )
+                self._emit_turn_end(turns=turns)
                 return AgentResult(
                     content=content,
                     tool_results=all_tool_results,
@@ -204,11 +185,7 @@ class RLMAgent(BaseAgent):
             if repl.is_terminated:
                 final = repl.final_answer
                 final_str = str(final) if final is not None else ""
-                if bus:
-                    bus.publish(
-                        EventType.AGENT_TURN_END,
-                        {"agent": self.agent_id, "turns": turns},
-                    )
+                self._emit_turn_end(turns=turns)
                 return AgentResult(
                     content=final_str,
                     tool_results=all_tool_results,
@@ -224,29 +201,14 @@ class RLMAgent(BaseAgent):
             )
             messages.append(Message(role=Role.USER, content=feedback))
 
-        # Max turns exceeded — check answer dict for partial result
+        # Max turns exceeded -- check answer dict for partial result
         answer = repl.get_variable("answer")
         if isinstance(answer, dict) and answer.get("value") is not None:
             final_content = str(answer["value"])
         else:
-            final_content = "Maximum turns reached without a final answer."
+            final_content = ""
 
-        if bus:
-            bus.publish(
-                EventType.AGENT_TURN_END,
-                {
-                    "agent": self.agent_id,
-                    "turns": turns,
-                    "max_turns_exceeded": True,
-                },
-            )
-
-        return AgentResult(
-            content=final_content,
-            tool_results=all_tool_results,
-            turns=turns,
-            metadata={"max_turns_exceeded": True},
-        )
+        return self._max_turns_result(all_tool_results, turns, content=final_content)
 
     # ------------------------------------------------------------------
     # Sub-LM callbacks
@@ -329,11 +291,6 @@ class RLMAgent(BaseAgent):
         if m:
             return m.group(1).strip()
         return None
-
-    @staticmethod
-    def _strip_think_tags(text: str) -> str:
-        """Remove ``<think>...</think>`` blocks from model output."""
-        return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
 
     @staticmethod
     def _resolve_context(context: Optional[AgentContext]) -> Optional[str]:

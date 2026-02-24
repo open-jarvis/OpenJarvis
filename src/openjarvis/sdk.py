@@ -363,7 +363,7 @@ class Jarvis:
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
-        if agent_name == "orchestrator":
+        if getattr(agent_cls, "accepts_tools", False):
             agent_kwargs["tools"] = tool_objects
             agent_kwargs["max_turns"] = self._config.agent.max_turns
 

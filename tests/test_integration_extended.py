@@ -22,14 +22,14 @@ from openjarvis.core.types import (
 
 def _register_all():
     """Ensure agents and tools are registered."""
-    from openjarvis.agents.openhands import OpenHandsAgent
-    from openjarvis.agents.react import ReActAgent
+    from openjarvis.agents.native_openhands import NativeOpenHandsAgent
+    from openjarvis.agents.native_react import NativeReActAgent
     from openjarvis.tools.calculator import CalculatorTool
     from openjarvis.tools.think import ThinkTool
 
     for key, cls in [
-        ("react", ReActAgent),
-        ("openhands", OpenHandsAgent),
+        ("native_react", NativeReActAgent),
+        ("native_openhands", NativeOpenHandsAgent),
     ]:
         if not AgentRegistry.contains(key):
             AgentRegistry.register_value(key, cls)
@@ -78,7 +78,7 @@ class TestReActPipeline:
 
     def test_react_with_calculator_e2e(self):
         _register_all()
-        from openjarvis.agents.react import ReActAgent
+        from openjarvis.agents.native_react import NativeReActAgent
         from openjarvis.tools.calculator import CalculatorTool
 
         responses = [
@@ -94,7 +94,7 @@ class TestReActPipeline:
         ]
         engine = _make_engine(responses)
         bus = EventBus(record_history=True)
-        agent = ReActAgent(
+        agent = NativeReActAgent(
             engine, "test-model",
             tools=[CalculatorTool()], bus=bus,
         )
@@ -108,7 +108,7 @@ class TestReActPipeline:
 
     def test_react_with_think_tool(self):
         _register_all()
-        from openjarvis.agents.react import ReActAgent
+        from openjarvis.agents.native_react import NativeReActAgent
         from openjarvis.tools.think import ThinkTool
 
         responses = [
@@ -123,7 +123,7 @@ class TestReActPipeline:
             ),
         ]
         engine = _make_engine(responses)
-        agent = ReActAgent(
+        agent = NativeReActAgent(
             engine, "test-model", tools=[ThinkTool()],
         )
         result = agent.run("Analyze this.")
@@ -133,7 +133,7 @@ class TestReActPipeline:
     def test_react_direct_answer(self):
         """ReAct returns immediately when no tool use is needed."""
         _register_all()
-        from openjarvis.agents.react import ReActAgent
+        from openjarvis.agents.native_react import NativeReActAgent
 
         engine = _make_engine(
             _simple_response(
@@ -141,7 +141,7 @@ class TestReActPipeline:
                 "Final Answer: Hello!"
             )
         )
-        agent = ReActAgent(engine, "test-model")
+        agent = NativeReActAgent(engine, "test-model")
         result = agent.run("Say hello")
         assert result.content == "Hello!"
         assert result.turns == 1
@@ -153,7 +153,7 @@ class TestReActPipeline:
         not by agents directly.
         """
         _register_all()
-        from openjarvis.agents.react import ReActAgent
+        from openjarvis.agents.native_react import NativeReActAgent
 
         engine = _make_engine(
             _simple_response(
@@ -161,7 +161,7 @@ class TestReActPipeline:
             )
         )
         bus = EventBus(record_history=True)
-        agent = ReActAgent(
+        agent = NativeReActAgent(
             engine, "test-model", bus=bus,
         )
         agent.run("Test")
@@ -181,7 +181,7 @@ class TestOpenHandsPipeline:
 
     def test_openhands_code_execution_e2e(self):
         _register_all()
-        from openjarvis.agents.openhands import OpenHandsAgent
+        from openjarvis.agents.native_openhands import NativeOpenHandsAgent
         from openjarvis.tools.code_interpreter import (
             CodeInterpreterTool,
         )
@@ -199,7 +199,7 @@ class TestOpenHandsPipeline:
             _simple_response("The result is 4."),
         ]
         engine = _make_engine(responses)
-        agent = OpenHandsAgent(
+        agent = NativeOpenHandsAgent(
             engine, "test-model",
             tools=[CodeInterpreterTool()],
         )
@@ -214,12 +214,12 @@ class TestOpenHandsPipeline:
     def test_openhands_direct_answer(self):
         """OpenHands returns directly when no code is needed."""
         _register_all()
-        from openjarvis.agents.openhands import OpenHandsAgent
+        from openjarvis.agents.native_openhands import NativeOpenHandsAgent
 
         engine = _make_engine(
             _simple_response("Hello! How can I help?")
         )
-        agent = OpenHandsAgent(engine, "test-model")
+        agent = NativeOpenHandsAgent(engine, "test-model")
         result = agent.run("Say hello")
         assert result.content == "Hello! How can I help?"
         assert result.turns == 1
@@ -227,13 +227,13 @@ class TestOpenHandsPipeline:
     def test_openhands_event_chain(self):
         """Verify event chain through OpenHands run."""
         _register_all()
-        from openjarvis.agents.openhands import OpenHandsAgent
+        from openjarvis.agents.native_openhands import NativeOpenHandsAgent
 
         engine = _make_engine(
             _simple_response("Direct answer.")
         )
         bus = EventBus(record_history=True)
-        agent = OpenHandsAgent(
+        agent = NativeOpenHandsAgent(
             engine, "test-model", bus=bus,
         )
         agent.run("Test")
@@ -344,7 +344,7 @@ class TestCrossEngineConsistency:
     def test_same_query_same_format(self):
         """All engines return the same result dict shape."""
         _register_all()
-        from openjarvis.agents.react import ReActAgent
+        from openjarvis.agents.native_react import NativeReActAgent
 
         for engine_name in ["vllm", "ollama", "mock"]:
             engine = _make_engine(
@@ -354,7 +354,7 @@ class TestCrossEngineConsistency:
                 )
             )
             engine.engine_id = engine_name
-            agent = ReActAgent(engine, "test-model")
+            agent = NativeReActAgent(engine, "test-model")
             result = agent.run("Test query")
             assert isinstance(result, AgentResult)
             assert result.content == "Result"
@@ -362,7 +362,7 @@ class TestCrossEngineConsistency:
     def test_tool_calls_across_engines(self):
         """Tool calling works regardless of engine mock."""
         _register_all()
-        from openjarvis.agents.react import ReActAgent
+        from openjarvis.agents.native_react import NativeReActAgent
         from openjarvis.tools.calculator import CalculatorTool
 
         for engine_name in ["vllm", "ollama"]:
@@ -379,7 +379,7 @@ class TestCrossEngineConsistency:
             ]
             engine = _make_engine(responses)
             engine.engine_id = engine_name
-            agent = ReActAgent(
+            agent = NativeReActAgent(
                 engine, "test-model",
                 tools=[CalculatorTool()],
             )
@@ -496,7 +496,7 @@ class TestAgentRoutingMatrix:
     """Agents run consistently across different configurations."""
 
     @pytest.mark.parametrize(
-        "agent_key", ["react", "openhands"],
+        "agent_key", ["native_react", "native_openhands"],
     )
     def test_agent_returns_valid_result(self, agent_key):
         _register_all()
@@ -504,7 +504,7 @@ class TestAgentRoutingMatrix:
         engine = _make_engine(
             _simple_response(
                 "Thought: done.\nFinal Answer: ok"
-                if agent_key == "react"
+                if agent_key == "native_react"
                 else "The answer is ok"
             )
         )
@@ -517,7 +517,7 @@ class TestAgentRoutingMatrix:
         assert len(result.content) > 0
 
     @pytest.mark.parametrize(
-        "agent_key", ["react", "openhands"],
+        "agent_key", ["native_react", "native_openhands"],
     )
     def test_agent_emits_events(self, agent_key):
         _register_all()
@@ -525,7 +525,7 @@ class TestAgentRoutingMatrix:
         engine = _make_engine(
             _simple_response(
                 "Thought: done.\nFinal Answer: ok"
-                if agent_key == "react"
+                if agent_key == "native_react"
                 else "Direct answer"
             )
         )
@@ -541,7 +541,7 @@ class TestAgentRoutingMatrix:
     def test_context_passing(self):
         """Agents accept and use AgentContext."""
         _register_all()
-        from openjarvis.agents.react import ReActAgent
+        from openjarvis.agents.native_react import NativeReActAgent
 
         engine = _make_engine(
             _simple_response(
@@ -555,7 +555,7 @@ class TestAgentRoutingMatrix:
             content="You are helpful.",
         ))
         ctx = AgentContext(conversation=conv)
-        agent = ReActAgent(engine, "test-model")
+        agent = NativeReActAgent(engine, "test-model")
         result = agent.run("Hello", context=ctx)
         assert result.content == "Got context."
 

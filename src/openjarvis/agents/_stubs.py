@@ -1,16 +1,21 @@
 """ABC for agent implementations.
 
 Adapted from IPW's ``BaseAgent`` at ``src/agents/base.py``.
-Phase 3 will provide concrete implementations (SimpleAgent, OrchestratorAgent, etc.).
+Provides ``BaseAgent`` with concrete helper methods for event emission,
+message building, and generation, plus ``ToolUsingAgent`` intermediate
+base for agents that accept tools.
 """
 
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from openjarvis.core.types import Conversation, ToolResult
+from openjarvis.core.events import EventBus, EventType
+from openjarvis.core.types import Conversation, Message, Role, ToolResult
+from openjarvis.engine._stubs import InferenceEngine
 
 
 @dataclass(slots=True)
@@ -38,9 +43,115 @@ class BaseAgent(ABC):
 
     Subclasses must be registered via
     ``@AgentRegistry.register("name")`` to become discoverable.
+
+    Provides concrete helper methods that eliminate boilerplate in
+    subclasses:
+
+    - :meth:`_emit_turn_start` / :meth:`_emit_turn_end` -- event bus
+    - :meth:`_build_messages` -- conversation + system prompt assembly
+    - :meth:`_generate` -- delegates to engine with stored defaults
+    - :meth:`_max_turns_result` -- standard max-turns-exceeded result
+    - :meth:`_strip_think_tags` -- remove ``<think>`` blocks
     """
 
     agent_id: str
+    accepts_tools: bool = False
+
+    def __init__(
+        self,
+        engine: InferenceEngine,
+        model: str,
+        *,
+        bus: Optional[EventBus] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+    ) -> None:
+        self._engine = engine
+        self._model = model
+        self._bus = bus
+        self._temperature = temperature
+        self._max_tokens = max_tokens
+
+    # ------------------------------------------------------------------
+    # Concrete helpers
+    # ------------------------------------------------------------------
+
+    def _emit_turn_start(self, input: str) -> None:
+        """Publish ``AGENT_TURN_START`` if an event bus is available."""
+        if self._bus:
+            self._bus.publish(
+                EventType.AGENT_TURN_START,
+                {"agent": self.agent_id, "input": input},
+            )
+
+    def _emit_turn_end(self, **data: Any) -> None:
+        """Publish ``AGENT_TURN_END`` if an event bus is available."""
+        if self._bus:
+            payload: Dict[str, Any] = {"agent": self.agent_id}
+            payload.update(data)
+            self._bus.publish(EventType.AGENT_TURN_END, payload)
+
+    def _build_messages(
+        self,
+        input: str,
+        context: Optional[AgentContext] = None,
+        *,
+        system_prompt: Optional[str] = None,
+    ) -> list[Message]:
+        """Assemble the message list for a generate call.
+
+        Optionally prepends a system prompt, then appends any context
+        conversation messages, and finally the user input.
+        """
+        messages: list[Message] = []
+        if system_prompt:
+            messages.append(Message(role=Role.SYSTEM, content=system_prompt))
+        if context and context.conversation.messages:
+            messages.extend(context.conversation.messages)
+        messages.append(Message(role=Role.USER, content=input))
+        return messages
+
+    def _generate(self, messages: list[Message], **extra_kwargs: Any) -> dict:
+        """Call ``engine.generate()`` with stored defaults.
+
+        Extra kwargs (e.g. ``tools``) are forwarded to the engine.
+        """
+        return self._engine.generate(
+            messages,
+            model=self._model,
+            temperature=self._temperature,
+            max_tokens=self._max_tokens,
+            **extra_kwargs,
+        )
+
+    def _max_turns_result(
+        self,
+        tool_results: list[ToolResult],
+        turns: int,
+        content: str = "",
+    ) -> AgentResult:
+        """Build the standard result for when ``max_turns`` is exceeded."""
+        self._emit_turn_end(turns=turns, max_turns_exceeded=True)
+        return AgentResult(
+            content=content or "Maximum turns reached without a final answer.",
+            tool_results=tool_results,
+            turns=turns,
+            metadata={"max_turns_exceeded": True},
+        )
+
+    @staticmethod
+    def _strip_think_tags(text: str) -> str:
+        """Remove ``<think>...</think>`` blocks from model output.
+
+        Handles both ``<think>...</think>`` and the common distilled-model
+        pattern where the opening ``<think>`` is absent and the response
+        begins directly with reasoning text followed by ``</think>``.
+        """
+        # Full <think>...</think> blocks
+        text = re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL)
+        # Leading content before a bare </think> (no opening tag)
+        text = re.sub(r"^.*?</think>\s*", "", text, flags=re.DOTALL)
+        return text.strip()
 
     @abstractmethod
     def run(
@@ -52,4 +163,35 @@ class BaseAgent(ABC):
         """Execute the agent on *input* and return an ``AgentResult``."""
 
 
-__all__ = ["AgentContext", "AgentResult", "BaseAgent"]
+class ToolUsingAgent(BaseAgent):
+    """Intermediate base for agents that accept and use tools.
+
+    Sets ``accepts_tools = True`` for CLI/SDK introspection, and
+    initialises a :class:`ToolExecutor` from the provided tools.
+    """
+
+    accepts_tools: bool = True
+
+    def __init__(
+        self,
+        engine: InferenceEngine,
+        model: str,
+        *,
+        tools: Optional[List["BaseTool"]] = None,  # noqa: F821
+        bus: Optional[EventBus] = None,
+        max_turns: int = 10,
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+    ) -> None:
+        super().__init__(
+            engine, model, bus=bus,
+            temperature=temperature, max_tokens=max_tokens,
+        )
+        from openjarvis.tools._stubs import ToolExecutor
+
+        self._tools = tools or []
+        self._executor = ToolExecutor(self._tools, bus=bus)
+        self._max_turns = max_turns
+
+
+__all__ = ["AgentContext", "AgentResult", "BaseAgent", "ToolUsingAgent"]

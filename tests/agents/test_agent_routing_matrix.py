@@ -7,9 +7,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from openjarvis.agents._stubs import AgentResult
-from openjarvis.agents.openhands import OpenHandsAgent
+from openjarvis.agents.native_openhands import NativeOpenHandsAgent
+from openjarvis.agents.native_react import NativeReActAgent
 from openjarvis.agents.orchestrator import OrchestratorAgent
-from openjarvis.agents.react import ReActAgent
 from openjarvis.agents.simple import SimpleAgent
 from openjarvis.core.events import EventBus, EventType
 
@@ -40,15 +40,15 @@ _ORCHESTRATOR_RESPONSE = "Hello!"
 AGENT_FACTORIES = {
     "simple": lambda e, m, bus: SimpleAgent(e, m, bus=bus),
     "orchestrator": lambda e, m, bus: OrchestratorAgent(e, m, bus=bus),
-    "react": lambda e, m, bus: ReActAgent(e, m, bus=bus),
-    "openhands": lambda e, m, bus: OpenHandsAgent(e, m, bus=bus),
+    "native_react": lambda e, m, bus: NativeReActAgent(e, m, bus=bus),
+    "native_openhands": lambda e, m, bus: NativeOpenHandsAgent(e, m, bus=bus),
 }
 
 AGENT_RESPONSES = {
     "simple": _SIMPLE_RESPONSE,
     "orchestrator": _ORCHESTRATOR_RESPONSE,
-    "react": _REACT_RESPONSE,
-    "openhands": _OPENHANDS_RESPONSE,
+    "native_react": _REACT_RESPONSE,
+    "native_openhands": _OPENHANDS_RESPONSE,
 }
 
 
@@ -57,7 +57,7 @@ AGENT_RESPONSES = {
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("agent_key", ["simple", "orchestrator", "react", "openhands"])
+@pytest.mark.parametrize("agent_key", ["simple", "orchestrator", "native_react", "native_openhands"])
 class TestAgentCommon:
     def test_runs_with_mock_engine(self, agent_key):
         """Each agent type can run with a mock engine."""
@@ -114,8 +114,8 @@ class TestAgentCommon:
     [
         ("simple", "simple"),
         ("orchestrator", "orchestrator"),
-        ("react", "react"),
-        ("openhands", "openhands"),
+        ("native_react", "native_react"),
+        ("native_openhands", "native_openhands"),
     ],
 )
 def test_agent_id(agent_key, expected_id):
@@ -129,7 +129,7 @@ def test_agent_id(agent_key, expected_id):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("agent_key", ["simple", "orchestrator", "react", "openhands"])
+@pytest.mark.parametrize("agent_key", ["simple", "orchestrator", "native_react", "native_openhands"])
 @pytest.mark.parametrize("model", ["qwen3:8b", "llama3:70b", "gpt-oss:120b"])
 def test_model_passthrough(agent_key, model):
     """Each agent passes the model name through to the engine."""
@@ -145,7 +145,7 @@ def test_model_passthrough(agent_key, model):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("agent_key", ["simple", "orchestrator", "react", "openhands"])
+@pytest.mark.parametrize("agent_key", ["simple", "orchestrator", "native_react", "native_openhands"])
 def test_no_bus(agent_key):
     """All agents work without an event bus."""
     engine = _make_mock_engine(AGENT_RESPONSES[agent_key])
@@ -160,7 +160,7 @@ def test_no_bus(agent_key):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("agent_key", ["simple", "orchestrator", "react", "openhands"])
+@pytest.mark.parametrize("agent_key", ["simple", "orchestrator", "native_react", "native_openhands"])
 def test_single_turn_count(agent_key):
     """All agents report at least 1 turn for a simple query."""
     engine = _make_mock_engine(AGENT_RESPONSES[agent_key])
@@ -174,7 +174,7 @@ def test_single_turn_count(agent_key):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("agent_key", ["simple", "orchestrator", "react", "openhands"])
+@pytest.mark.parametrize("agent_key", ["simple", "orchestrator", "native_react", "native_openhands"])
 def test_no_tool_results_for_simple_query(agent_key):
     """When no tools are used, tool_results should be empty."""
     engine = _make_mock_engine(AGENT_RESPONSES[agent_key])

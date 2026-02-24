@@ -15,16 +15,16 @@ from __future__ import annotations
 import re
 from typing import Any, List, Optional
 
-from openjarvis.agents._stubs import AgentContext, AgentResult, BaseAgent
-from openjarvis.core.events import EventBus, EventType
+from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
+from openjarvis.core.events import EventBus
 from openjarvis.core.registry import AgentRegistry
 from openjarvis.core.types import Message, Role, ToolCall, ToolResult
 from openjarvis.engine._stubs import InferenceEngine
-from openjarvis.tools._stubs import BaseTool, ToolExecutor
+from openjarvis.tools._stubs import BaseTool
 
 
 @AgentRegistry.register("orchestrator")
-class OrchestratorAgent(BaseAgent):
+class OrchestratorAgent(ToolUsingAgent):
     """Multi-turn agent that routes between tools and the LLM.
 
     Implements a tool-calling loop:
@@ -54,14 +54,11 @@ class OrchestratorAgent(BaseAgent):
         mode: str = "function_calling",
         system_prompt: Optional[str] = None,
     ) -> None:
-        self._engine = engine
-        self._model = model
-        self._tools = tools or []
-        self._executor = ToolExecutor(self._tools, bus=bus)
-        self._bus = bus
-        self._max_turns = max_turns
-        self._temperature = temperature
-        self._max_tokens = max_tokens
+        super().__init__(
+            engine, model, tools=tools, bus=bus,
+            max_turns=max_turns, temperature=temperature,
+            max_tokens=max_tokens,
+        )
         self._mode = mode
         self._system_prompt = system_prompt
 
@@ -85,13 +82,7 @@ class OrchestratorAgent(BaseAgent):
         context: Optional[AgentContext] = None,
         **kwargs: Any,
     ) -> AgentResult:
-        bus = self._bus
-
-        if bus:
-            bus.publish(
-                EventType.AGENT_TURN_START,
-                {"agent": self.agent_id, "input": input},
-            )
+        self._emit_turn_start(input)
 
         # Build system prompt
         if self._system_prompt:
@@ -103,12 +94,7 @@ class OrchestratorAgent(BaseAgent):
             tool_names = [t.spec.name for t in self._tools]
             sys_prompt = build_system_prompt(tool_names)
 
-        messages: list[Message] = [
-            Message(role=Role.SYSTEM, content=sys_prompt),
-        ]
-        if context and context.conversation.messages:
-            messages.extend(context.conversation.messages)
-        messages.append(Message(role=Role.USER, content=input))
+        messages = self._build_messages(input, context, system_prompt=sys_prompt)
 
         all_tool_results: list[ToolResult] = []
         turns = 0
@@ -116,30 +102,21 @@ class OrchestratorAgent(BaseAgent):
         for _turn in range(self._max_turns):
             turns += 1
 
-            result = self._engine.generate(
-                messages,
-                model=self._model,
-                temperature=self._temperature,
-                max_tokens=self._max_tokens,
-            )
+            result = self._generate(messages)
             content = result.get("content", "")
 
             parsed = self._parse_structured_response(content)
 
-            # FINAL_ANSWER → done
+            # FINAL_ANSWER -> done
             if parsed["final_answer"]:
-                if bus:
-                    bus.publish(
-                        EventType.AGENT_TURN_END,
-                        {"agent": self.agent_id, "turns": turns},
-                    )
+                self._emit_turn_end(turns=turns)
                 return AgentResult(
                     content=parsed["final_answer"],
                     tool_results=all_tool_results,
                     turns=turns,
                 )
 
-            # TOOL → execute
+            # TOOL -> execute
             if parsed["tool"]:
                 messages.append(
                     Message(role=Role.ASSISTANT, content=content)
@@ -161,12 +138,8 @@ class OrchestratorAgent(BaseAgent):
                 )
                 continue
 
-            # Neither → treat content as final answer
-            if bus:
-                bus.publish(
-                    EventType.AGENT_TURN_END,
-                    {"agent": self.agent_id, "turns": turns},
-                )
+            # Neither -> treat content as final answer
+            self._emit_turn_end(turns=turns)
             return AgentResult(
                 content=content,
                 tool_results=all_tool_results,
@@ -174,21 +147,7 @@ class OrchestratorAgent(BaseAgent):
             )
 
         # Max turns exceeded
-        if bus:
-            bus.publish(
-                EventType.AGENT_TURN_END,
-                {
-                    "agent": self.agent_id,
-                    "turns": turns,
-                    "max_turns_exceeded": True,
-                },
-            )
-        return AgentResult(
-            content="Maximum turns reached without a final answer.",
-            tool_results=all_tool_results,
-            turns=turns,
-            metadata={"max_turns_exceeded": True},
-        )
+        return self._max_turns_result(all_tool_results, turns)
 
     @staticmethod
     def _parse_structured_response(text: str) -> dict:
@@ -243,20 +202,10 @@ class OrchestratorAgent(BaseAgent):
         context: Optional[AgentContext] = None,
         **kwargs: Any,
     ) -> AgentResult:
-        bus = self._bus
-
-        # Emit agent start
-        if bus:
-            bus.publish(EventType.AGENT_TURN_START, {
-                "agent": self.agent_id,
-                "input": input,
-            })
+        self._emit_turn_start(input)
 
         # Build initial messages
-        messages: list[Message] = []
-        if context and context.conversation.messages:
-            messages.extend(context.conversation.messages)
-        messages.append(Message(role=Role.USER, content=input))
+        messages = self._build_messages(input, context)
 
         # Get OpenAI-format tool definitions
         openai_tools = self._executor.get_openai_tools() if self._tools else []
@@ -272,25 +221,14 @@ class OrchestratorAgent(BaseAgent):
             if openai_tools:
                 gen_kwargs["tools"] = openai_tools
 
-            result = self._engine.generate(
-                messages,
-                model=self._model,
-                temperature=self._temperature,
-                max_tokens=self._max_tokens,
-                **gen_kwargs,
-            )
+            result = self._generate(messages, **gen_kwargs)
 
             content = result.get("content", "")
             raw_tool_calls = result.get("tool_calls", [])
 
-            # No tool calls → final answer
+            # No tool calls -> final answer
             if not raw_tool_calls:
-                if bus:
-                    bus.publish(EventType.AGENT_TURN_END, {
-                        "agent": self.agent_id,
-                        "turns": turns,
-                        "content_length": len(content),
-                    })
+                self._emit_turn_end(turns=turns, content_length=len(content))
                 return AgentResult(
                     content=content,
                     tool_results=all_tool_results,
@@ -328,23 +266,8 @@ class OrchestratorAgent(BaseAgent):
                 ))
 
         # Max turns exceeded
-        if bus:
-            bus.publish(EventType.AGENT_TURN_END, {
-                "agent": self.agent_id,
-                "turns": turns,
-                "max_turns_exceeded": True,
-            })
-
-        # Try to provide last content or a warning
-        final_content = content if content else (
-            "Maximum turns reached without a final answer."
-        )
-        return AgentResult(
-            content=final_content,
-            tool_results=all_tool_results,
-            turns=turns,
-            metadata={"max_turns_exceeded": True},
-        )
+        final_content = content if content else ""
+        return self._max_turns_result(all_tool_results, turns, content=final_content)
 
 
 __all__ = ["OrchestratorAgent"]

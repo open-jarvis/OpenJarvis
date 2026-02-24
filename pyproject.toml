@@ -54,6 +54,7 @@ server = [
     "pydantic>=2.0",
 ]
 agents = []
+openhands = ["openhands-sdk>=1.0; python_version >= '3.12'"]
 learning = []
 orchestrator-training = ["torch>=2.0", "transformers>=4.40"]
 channel-telegram = ["python-telegram-bot>=21.0"]

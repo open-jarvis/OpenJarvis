@@ -116,7 +116,7 @@ def _run_agent(
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
-    if agent_name == "orchestrator":
+    if getattr(agent_cls, "accepts_tools", False):
         agent_kwargs["tools"] = tools
         agent_kwargs["max_turns"] = config.agent.max_turns
 

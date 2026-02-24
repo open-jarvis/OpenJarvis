@@ -30,7 +30,6 @@ def _mock_engine(content="Hello from engine"):
 
 def _register_agents():
     """Re-register agents after registry clear."""
-    from openjarvis.agents.custom import CustomAgent
     from openjarvis.agents.orchestrator import OrchestratorAgent
     from openjarvis.agents.simple import SimpleAgent
     from openjarvis.core.registry import AgentRegistry
@@ -38,7 +37,6 @@ def _register_agents():
     for name, cls in [
         ("simple", SimpleAgent),
         ("orchestrator", OrchestratorAgent),
-        ("custom", CustomAgent),
     ]:
         if not AgentRegistry.contains(name):
             AgentRegistry.register_value(name, cls)
