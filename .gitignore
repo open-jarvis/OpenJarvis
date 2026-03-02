@@ -43,6 +43,7 @@ Thumbs.db
 *.sqlite
 *.db
 results/
+get-pip.py
 
 # MkDocs build output
 site/
