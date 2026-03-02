@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import openjarvis.engine.llamacpp  # noqa: F401
-import openjarvis.engine.mlx  # noqa: F401
+import importlib
 
 # Import engine modules to trigger @EngineRegistry.register() decorators
 import openjarvis.engine.ollama  # noqa: F401
-import openjarvis.engine.sglang  # noqa: F401
-import openjarvis.engine.vllm  # noqa: F401
+import openjarvis.engine.openai_compat_engines  # noqa: F401
 from openjarvis.engine._base import (
     EngineConnectionError,
     InferenceEngine,
@@ -16,17 +14,12 @@ from openjarvis.engine._base import (
 )
 from openjarvis.engine._discovery import discover_engines, discover_models, get_engine
 
-# Cloud engine is optional — only register if SDK deps are present
-try:
-    import openjarvis.engine.cloud  # noqa: F401
-except ImportError:
-    pass
-
-# LiteLLM engine is optional — only register if litellm is installed
-try:
-    import openjarvis.engine.litellm  # noqa: F401
-except ImportError:
-    pass
+# Optional engines — only register if their SDK deps are present
+for _optional in ("cloud", "litellm"):
+    try:
+        importlib.import_module(f".{_optional}", __name__)
+    except ImportError:
+        pass
 
 __all__ = [
     "EngineConnectionError",

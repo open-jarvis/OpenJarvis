@@ -9,7 +9,7 @@ import respx
 from openjarvis.core.registry import EngineRegistry
 from openjarvis.core.types import Message, Role
 from openjarvis.engine._base import EngineConnectionError
-from openjarvis.engine.mlx import MLXEngine
+from openjarvis.engine.openai_compat_engines import MLXEngine
 
 
 @pytest.fixture()
