@@ -830,6 +830,17 @@ class OperatorsConfig:
     auto_activate: str = ""  # Comma-separated operator IDs
 
 
+@dataclass(slots=True)
+class SpeechConfig:
+    """Speech-to-text settings."""
+
+    backend: str = "auto"  # "auto", "faster-whisper", "whisper-cpp", "openai", "deepgram"
+    model: str = "base"  # Whisper model size: tiny, base, small, medium, large-v3
+    language: str = ""  # Empty = auto-detect
+    device: str = "auto"  # "auto", "cpu", "cuda"
+    compute_type: str = "float16"  # "float16", "int8", "float32"
+
+
 @dataclass
 class JarvisConfig:
     """Top-level configuration for OpenJarvis."""
@@ -851,6 +862,7 @@ class JarvisConfig:
     sessions: SessionConfig = field(default_factory=SessionConfig)
     a2a: A2AConfig = field(default_factory=A2AConfig)
     operators: OperatorsConfig = field(default_factory=OperatorsConfig)
+    speech: SpeechConfig = field(default_factory=SpeechConfig)
 
     @property
     def memory(self) -> StorageConfig:
@@ -945,6 +957,7 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
             "server", "telemetry", "traces", "security",
             "channel", "tools", "sandbox", "scheduler",
             "workflow", "sessions", "a2a", "operators",
+            "speech",
         )
         for section_name in top_sections:
             if section_name in data:
@@ -1196,6 +1209,7 @@ __all__ = [
     "SessionConfig",
     "SignalChannelConfig",
     "SlackChannelConfig",
+    "SpeechConfig",
     "StorageConfig",
     "TeamsChannelConfig",
     "TelegramChannelConfig",
