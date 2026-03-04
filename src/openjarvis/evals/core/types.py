@@ -71,6 +71,13 @@ class RunConfig:
     gpu_metrics: bool = False
     metadata: Dict[str, Any] = field(default_factory=dict)
     warmup_samples: int = 0
+    wandb_project: str = ""
+    wandb_entity: str = ""
+    wandb_tags: str = ""
+    wandb_group: str = ""
+    sheets_spreadsheet_id: str = ""
+    sheets_worksheet: str = "Results"
+    sheets_credentials_path: str = ""
 
 
 @dataclass(slots=True)
@@ -176,6 +183,13 @@ class ExecutionConfig:
     gpu_metrics: bool = False
     warmup_samples: int = 0
     energy_vendor: str = ""
+    wandb_project: str = ""
+    wandb_entity: str = ""
+    wandb_tags: str = ""
+    wandb_group: str = ""
+    sheets_spreadsheet_id: str = ""
+    sheets_worksheet: str = "Results"
+    sheets_credentials_path: str = ""
 
 
 @dataclass(slots=True)

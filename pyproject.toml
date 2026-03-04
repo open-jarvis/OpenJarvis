@@ -80,6 +80,8 @@ sandbox-wasm = ["wasmtime>=25"]
 dashboard = ["textual>=0.80"]
 speech = ["faster-whisper>=1.0"]
 speech-deepgram = ["deepgram-sdk>=3.0"]
+eval-wandb = ["wandb>=0.17"]
+eval-sheets = ["gspread>=6.0", "google-auth>=2.0"]
 docs = [
     "mkdocs>=1.6",
     "mkdocs-material>=9.5",

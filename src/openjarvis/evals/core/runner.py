@@ -14,7 +14,14 @@ from typing import Any, Callable, Dict, List, Optional
 from openjarvis.evals.core.backend import InferenceBackend
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.scorer import Scorer
-from openjarvis.evals.core.types import EvalRecord, EvalResult, MetricStats, RunConfig, RunSummary
+from openjarvis.evals.core.tracker import ResultTracker
+from openjarvis.evals.core.types import (
+    EvalRecord,
+    EvalResult,
+    MetricStats,
+    RunConfig,
+    RunSummary,
+)
 
 try:
     from openjarvis.telemetry.efficiency import compute_efficiency
@@ -33,11 +40,13 @@ class EvalRunner:
         dataset: DatasetProvider,
         backend: InferenceBackend,
         scorer: Scorer,
+        trackers: Optional[List[ResultTracker]] = None,
     ) -> None:
         self._config = config
         self._dataset = dataset
         self._backend = backend
         self._scorer = scorer
+        self._trackers: List[ResultTracker] = trackers or []
         self._results: List[EvalResult] = []
         self._output_file: Optional[Any] = None
 
@@ -79,6 +88,16 @@ class EvalRunner:
             output_path.parent.mkdir(parents=True, exist_ok=True)
             self._output_file = open(output_path, "w")
 
+        # Notify trackers of run start
+        for tracker in self._trackers:
+            try:
+                tracker.on_run_start(cfg)
+            except Exception as exc:
+                LOGGER.warning(
+                    "Tracker %s.on_run_start failed: %s",
+                    type(tracker).__name__, exc,
+                )
+
         total = len(records)
         try:
             with ThreadPoolExecutor(max_workers=cfg.max_workers) as pool:
@@ -98,6 +117,23 @@ class EvalRunner:
 
         ended_at = time.time()
         summary = self._compute_summary(records, started_at, ended_at)
+
+        # Notify trackers of summary and run end
+        for tracker in self._trackers:
+            try:
+                tracker.on_summary(summary)
+            except Exception as exc:
+                LOGGER.warning(
+                    "Tracker %s.on_summary failed: %s",
+                    type(tracker).__name__, exc,
+                )
+            try:
+                tracker.on_run_end()
+            except Exception as exc:
+                LOGGER.warning(
+                    "Tracker %s.on_run_end failed: %s",
+                    type(tracker).__name__, exc,
+                )
 
         # Write summary JSON alongside JSONL
         traces_dir: Optional[Path] = None
@@ -254,6 +290,16 @@ class EvalRunner:
         }
         self._output_file.write(json.dumps(record_dict) + "\n")
         self._output_file.flush()
+
+        # Notify trackers of each result
+        for tracker in self._trackers:
+            try:
+                tracker.on_result(result, self._config)
+            except Exception as exc:
+                LOGGER.warning(
+                    "Tracker %s.on_result failed: %s",
+                    type(tracker).__name__, exc,
+                )
 
     def _resolve_output_path(self) -> Optional[Path]:
         """Determine the output file path."""

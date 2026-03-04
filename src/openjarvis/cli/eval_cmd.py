@@ -114,6 +114,34 @@ def eval_list() -> None:
     help="Output JSONL path.",
 )
 @click.option(
+    "--wandb-project", "wandb_project", default="",
+    help="W&B project name (enables W&B tracking).",
+)
+@click.option(
+    "--wandb-entity", "wandb_entity", default="",
+    help="W&B entity (team or user).",
+)
+@click.option(
+    "--wandb-tags", "wandb_tags", default="",
+    help="Comma-separated W&B tags.",
+)
+@click.option(
+    "--wandb-group", "wandb_group", default="",
+    help="W&B run group.",
+)
+@click.option(
+    "--sheets-id", "sheets_spreadsheet_id", default="",
+    help="Google Sheets spreadsheet ID.",
+)
+@click.option(
+    "--sheets-worksheet", "sheets_worksheet", default="Results",
+    help="Google Sheets worksheet name.",
+)
+@click.option(
+    "--sheets-creds", "sheets_credentials_path", default="",
+    help="Path to Google service account JSON.",
+)
+@click.option(
     "-v", "--verbose", "verbose", is_flag=True, default=False,
     help="Verbose logging.",
 )
@@ -127,6 +155,13 @@ def eval_run(
     tools: str,
     telemetry: bool,
     output_path: Optional[str],
+    wandb_project: str,
+    wandb_entity: str,
+    wandb_tags: str,
+    wandb_group: str,
+    sheets_spreadsheet_id: str,
+    sheets_worksheet: str,
+    sheets_credentials_path: str,
     verbose: bool,
 ) -> None:
     """Run evaluation benchmarks."""
@@ -216,6 +251,13 @@ def eval_run(
         tools=tool_list,
         output_path=output_path,
         telemetry=telemetry,
+        wandb_project=wandb_project,
+        wandb_entity=wandb_entity,
+        wandb_tags=wandb_tags,
+        wandb_group=wandb_group,
+        sheets_spreadsheet_id=sheets_spreadsheet_id,
+        sheets_worksheet=sheets_worksheet,
+        sheets_credentials_path=sheets_credentials_path,
     )
 
     try:

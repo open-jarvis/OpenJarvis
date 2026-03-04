@@ -217,6 +217,39 @@ def _print_summary(
     print_completion(console, summary, output_path, traces_dir)
 
 
+def _build_trackers(config) -> list:
+    """Build tracker instances from RunConfig fields."""
+    trackers = []
+    if getattr(config, "wandb_project", ""):
+        try:
+            from openjarvis.evals.trackers.wandb_tracker import WandbTracker
+            trackers.append(WandbTracker(
+                project=config.wandb_project,
+                entity=getattr(config, "wandb_entity", ""),
+                tags=getattr(config, "wandb_tags", ""),
+                group=getattr(config, "wandb_group", ""),
+            ))
+        except ImportError as exc:
+            raise click.ClickException(
+                f"wandb not installed: {exc}\n"
+                "Install with: pip install 'openjarvis[eval-wandb]'"
+            ) from exc
+    if getattr(config, "sheets_spreadsheet_id", ""):
+        try:
+            from openjarvis.evals.trackers.sheets_tracker import SheetsTracker
+            trackers.append(SheetsTracker(
+                spreadsheet_id=config.sheets_spreadsheet_id,
+                worksheet=getattr(config, "sheets_worksheet", "Results"),
+                credentials_path=getattr(config, "sheets_credentials_path", ""),
+            ))
+        except ImportError as exc:
+            raise click.ClickException(
+                f"gspread not installed: {exc}\n"
+                "Install with: pip install 'openjarvis[eval-sheets]'"
+            ) from exc
+    return trackers
+
+
 def _run_single(config, console: Optional[Console] = None) -> object:
     """Run a single eval from a RunConfig and return the summary."""
     from openjarvis.evals.core.runner import EvalRunner
@@ -236,7 +269,8 @@ def _run_single(config, console: Optional[Console] = None) -> object:
     judge_backend = _build_judge_backend(config.judge_model)
     scorer = _build_scorer(config.benchmark, judge_backend, config.judge_model)
 
-    runner = EvalRunner(config, dataset, eval_backend, scorer)
+    trackers = _build_trackers(config)
+    runner = EvalRunner(config, dataset, eval_backend, scorer, trackers=trackers)
     try:
         num_samples = config.max_samples or 0
         # Use progress bar if we know the sample count
@@ -291,6 +325,11 @@ def _run_from_config(config_path: str, verbose: bool) -> None:
     # Ensure output directory exists
     output_dir = Path(suite.run.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Auto-set wandb_group to suite name if W&B enabled and no explicit group
+    for rc in run_configs:
+        if rc.wandb_project and not rc.wandb_group:
+            rc.wandb_group = suite_name
 
     summaries = []
     for i, rc in enumerate(run_configs, 1):
@@ -355,12 +394,30 @@ def main():
               help="Enable GPU metrics collection")
 @click.option("--compact", is_flag=True, default=False, help="Dense single-table output")
 @click.option("--trace-detail", is_flag=True, default=False, help="Full per-step trace listing")
+@click.option("--wandb-project", default="",
+              help="W&B project name (enables tracking)")
+@click.option("--wandb-entity", default="",
+              help="W&B entity (team or user)")
+@click.option("--wandb-tags", default="",
+              help="Comma-separated W&B tags")
+@click.option("--wandb-group", default="",
+              help="W&B run group")
+@click.option("--sheets-id", "sheets_spreadsheet_id", default="",
+              help="Google Sheets spreadsheet ID")
+@click.option("--sheets-worksheet", default="Results",
+              help="Google Sheets worksheet name")
+@click.option("--sheets-creds", "sheets_credentials_path",
+              default="",
+              help="Service account JSON path")
 @click.option("-v", "--verbose", is_flag=True, help="Verbose logging")
 @click.pass_context
 def run(ctx, config_path, benchmark, backend, model, engine_key, agent_name,
         tools, max_samples, max_workers, judge_model, output_path, seed,
         dataset_split, temperature, max_tokens, telemetry, gpu_metrics,
-        compact, trace_detail, verbose):
+        compact, trace_detail,
+        wandb_project, wandb_entity, wandb_tags, wandb_group,
+        sheets_spreadsheet_id, sheets_worksheet, sheets_credentials_path,
+        verbose):
     """Run a single benchmark evaluation, or a full suite from a TOML config."""
     _setup_logging(verbose)
 
@@ -404,6 +461,13 @@ def run(ctx, config_path, benchmark, backend, model, engine_key, agent_name,
         dataset_split=dataset_split,
         telemetry=telemetry,
         gpu_metrics=gpu_metrics,
+        wandb_project=wandb_project,
+        wandb_entity=wandb_entity,
+        wandb_tags=wandb_tags,
+        wandb_group=wandb_group,
+        sheets_spreadsheet_id=sheets_spreadsheet_id,
+        sheets_worksheet=sheets_worksheet,
+        sheets_credentials_path=sheets_credentials_path,
     )
 
     # Banner + config
@@ -493,7 +557,8 @@ def run_all(model, engine_key, max_samples, max_workers, judge_model,
         judge_backend = _build_judge_backend(judge_model)
         scorer = _build_scorer(bench_name, judge_backend, judge_model)
 
-        runner = EvalRunner(config, dataset, eval_backend, scorer)
+        trackers = _build_trackers(config)
+        runner = EvalRunner(config, dataset, eval_backend, scorer, trackers=trackers)
         try:
             if max_samples and max_samples > 0:
                 with Progress(

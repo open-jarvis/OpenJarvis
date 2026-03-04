@@ -99,6 +99,13 @@ def load_eval_config(path: str | Path) -> EvalSuiteConfig:
         gpu_metrics=bool(run_raw.get("gpu_metrics", False)),
         warmup_samples=int(run_raw.get("warmup_samples", 0)),
         energy_vendor=run_raw.get("energy_vendor", ""),
+        wandb_project=run_raw.get("wandb_project", ""),
+        wandb_entity=run_raw.get("wandb_entity", ""),
+        wandb_tags=run_raw.get("wandb_tags", ""),
+        wandb_group=run_raw.get("wandb_group", ""),
+        sheets_spreadsheet_id=run_raw.get("sheets_spreadsheet_id", ""),
+        sheets_worksheet=run_raw.get("sheets_worksheet", "Results"),
+        sheets_credentials_path=run_raw.get("sheets_credentials_path", ""),
     )
 
     # Parse [[models]]
@@ -243,6 +250,13 @@ def expand_suite(suite: EvalSuiteConfig) -> List[RunConfig]:
                 gpu_metrics=suite.run.gpu_metrics,
                 metadata=model_meta,
                 warmup_samples=suite.run.warmup_samples,
+                wandb_project=suite.run.wandb_project,
+                wandb_entity=suite.run.wandb_entity,
+                wandb_tags=suite.run.wandb_tags,
+                wandb_group=suite.run.wandb_group,
+                sheets_spreadsheet_id=suite.run.sheets_spreadsheet_id,
+                sheets_worksheet=suite.run.sheets_worksheet,
+                sheets_credentials_path=suite.run.sheets_credentials_path,
             ))
 
     return configs
