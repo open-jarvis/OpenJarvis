@@ -14,11 +14,13 @@ from openjarvis.cli.chat_cmd import chat
 from openjarvis.cli.daemon_cmd import restart, start, status, stop
 from openjarvis.cli.doctor_cmd import doctor
 from openjarvis.cli.eval_cmd import eval_group
+from openjarvis.cli.feedback_cmd import feedback_group
 from openjarvis.cli.host_cmd import host
 from openjarvis.cli.init_cmd import init
 from openjarvis.cli.memory_cmd import memory
 from openjarvis.cli.model import model
 from openjarvis.cli.operators_cmd import operators
+from openjarvis.cli.optimize_cmd import optimize_group
 from openjarvis.cli.quickstart_cmd import quickstart
 from openjarvis.cli.scheduler_cmd import scheduler
 from openjarvis.cli.serve import serve
@@ -67,6 +69,8 @@ cli.add_command(operators, "operators")
 cli.add_command(eval_group, "eval")
 cli.add_command(host, "host")
 cli.add_command(quickstart, "quickstart")
+cli.add_command(optimize_group, "optimize")
+cli.add_command(feedback_group, "feedback")
 
 
 def main() -> None:

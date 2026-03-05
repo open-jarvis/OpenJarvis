@@ -841,6 +841,20 @@ class SpeechConfig:
     compute_type: str = "float16"  # "float16", "int8", "float32"
 
 
+@dataclass(slots=True)
+class OptimizeConfig:
+    """Configuration optimization settings."""
+
+    max_trials: int = 20
+    early_stop_patience: int = 5
+    optimizer_model: str = "claude-sonnet-4-6"
+    optimizer_provider: str = "anthropic"
+    benchmark: str = ""
+    max_samples: int = 50
+    judge_model: str = "gpt-5-mini-2025-08-07"
+    db_path: str = str(DEFAULT_CONFIG_DIR / "optimize.db")
+
+
 @dataclass
 class JarvisConfig:
     """Top-level configuration for OpenJarvis."""
@@ -863,6 +877,7 @@ class JarvisConfig:
     a2a: A2AConfig = field(default_factory=A2AConfig)
     operators: OperatorsConfig = field(default_factory=OperatorsConfig)
     speech: SpeechConfig = field(default_factory=SpeechConfig)
+    optimize: OptimizeConfig = field(default_factory=OptimizeConfig)
 
     @property
     def memory(self) -> StorageConfig:
@@ -957,7 +972,7 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
             "server", "telemetry", "traces", "security",
             "channel", "tools", "sandbox", "scheduler",
             "workflow", "sessions", "a2a", "operators",
-            "speech",
+            "speech", "optimize",
         )
         for section_name in top_sections:
             if section_name in data:
@@ -1200,6 +1215,7 @@ __all__ = [
     "MemoryConfig",
     "MetricsConfig",
     "OllamaEngineConfig",
+    "OptimizeConfig",
     "RoutingLearningConfig",
     "SGLangEngineConfig",
     "SandboxConfig",

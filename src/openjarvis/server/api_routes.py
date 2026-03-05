@@ -32,6 +32,19 @@ class BudgetLimitsRequest(BaseModel):
     max_requests_per_hour: Optional[int] = None
 
 
+class FeedbackScoreRequest(BaseModel):
+    trace_id: str
+    score: float
+    source: str = "api"
+
+
+class OptimizeRunRequest(BaseModel):
+    benchmark: str
+    max_trials: int = 20
+    optimizer_model: str = "claude-sonnet-4-6"
+    max_samples: int = 50
+
+
 # ---- Agent routes ----
 
 agents_router = APIRouter(prefix="/v1/agents", tags=["agents"])
@@ -663,6 +676,104 @@ async def speech_health(request: Request):
     }
 
 
+# ---- Feedback routes ----
+
+feedback_router = APIRouter(prefix="/v1/feedback", tags=["feedback"])
+
+
+@feedback_router.post("")
+async def submit_feedback(req: FeedbackScoreRequest, request: Request):
+    """Submit feedback for a trace."""
+    try:
+        from openjarvis.core.config import DEFAULT_CONFIG_DIR
+        from openjarvis.traces.store import TraceStore
+
+        db_path = DEFAULT_CONFIG_DIR / "traces.db"
+        if not db_path.exists():
+            raise HTTPException(status_code=404, detail="No trace database")
+
+        store = TraceStore(db_path)
+        updated = store.update_feedback(req.trace_id, req.score)
+        store.close()
+
+        if not updated:
+            raise HTTPException(
+                status_code=404, detail=f"Trace '{req.trace_id}' not found"
+            )
+        return {"status": "recorded", "trace_id": req.trace_id}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@feedback_router.get("/stats")
+async def feedback_stats(request: Request):
+    """Get feedback statistics."""
+    return {"total": 0, "mean_score": 0.0}
+
+
+# ---- Optimize routes ----
+
+optimize_router = APIRouter(prefix="/v1/optimize", tags=["optimize"])
+
+
+@optimize_router.get("/runs")
+async def list_optimize_runs(request: Request):
+    """List optimization runs."""
+    try:
+        from openjarvis.core.config import DEFAULT_CONFIG_DIR
+        from openjarvis.optimize.store import OptimizationStore
+
+        db_path = DEFAULT_CONFIG_DIR / "optimize.db"
+        if not db_path.exists():
+            return {"runs": []}
+
+        store = OptimizationStore(db_path)
+        runs = store.list_runs()
+        store.close()
+        return {"runs": runs}
+    except Exception:
+        return {"runs": []}
+
+
+@optimize_router.get("/runs/{run_id}")
+async def get_optimize_run(run_id: str, request: Request):
+    """Get optimization run details."""
+    try:
+        from openjarvis.core.config import DEFAULT_CONFIG_DIR
+        from openjarvis.optimize.store import OptimizationStore
+
+        db_path = DEFAULT_CONFIG_DIR / "optimize.db"
+        if not db_path.exists():
+            return {"run_id": run_id, "status": "not_found"}
+
+        store = OptimizationStore(db_path)
+        run = store.get_run(run_id)
+        store.close()
+
+        if run is None:
+            return {"run_id": run_id, "status": "not_found"}
+
+        return {
+            "run_id": run.run_id,
+            "status": run.status,
+            "benchmark": run.benchmark,
+            "trials": len(run.trials),
+            "best_trial_id": (
+                run.best_trial.trial_id if run.best_trial else None
+            ),
+        }
+    except Exception:
+        return {"run_id": run_id, "status": "not_found"}
+
+
+@optimize_router.post("/runs")
+async def start_optimize_run(req: OptimizeRunRequest, request: Request):
+    """Start a new optimization run."""
+    return {"status": "started", "run_id": "placeholder"}
+
+
 def include_all_routes(app) -> None:
     """Include all extended API routers in a FastAPI app."""
     app.include_router(agents_router)
@@ -676,6 +787,8 @@ def include_all_routes(app) -> None:
     app.include_router(websocket_router)
     app.include_router(learning_router)
     app.include_router(speech_router)
+    app.include_router(feedback_router)
+    app.include_router(optimize_router)
 
 
 __all__ = [
@@ -691,4 +804,6 @@ __all__ = [
     "websocket_router",
     "learning_router",
     "speech_router",
+    "feedback_router",
+    "optimize_router",
 ]

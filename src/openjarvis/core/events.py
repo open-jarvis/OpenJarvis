@@ -61,6 +61,12 @@ class EventType(str, Enum):
     # Phase 22 — Operators
     OPERATOR_TICK_START = "operator_tick_start"
     OPERATOR_TICK_END = "operator_tick_end"
+    # Phase 25 — Configuration Optimization
+    OPTIMIZE_RUN_START = "optimize_run_start"
+    OPTIMIZE_TRIAL_START = "optimize_trial_start"
+    OPTIMIZE_TRIAL_END = "optimize_trial_end"
+    OPTIMIZE_RUN_END = "optimize_run_end"
+    FEEDBACK_RECEIVED = "feedback_received"
 
 
 @dataclass(slots=True)

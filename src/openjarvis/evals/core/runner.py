@@ -50,6 +50,11 @@ class EvalRunner:
         self._results: List[EvalResult] = []
         self._output_file: Optional[Any] = None
 
+    @property
+    def results(self) -> List[EvalResult]:
+        """Return a copy of collected evaluation results."""
+        return list(self._results)
+
     def run(
         self,
         progress_callback: Optional[Callable[[int, int], None]] = None,

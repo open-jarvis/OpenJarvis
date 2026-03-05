@@ -166,6 +166,18 @@ class TraceStore:
         if isinstance(trace, Trace):
             self.save(trace)
 
+    def update_feedback(self, trace_id: str, score: float) -> bool:
+        """Update the feedback score for a trace.
+
+        Returns True if the trace was found and updated, False otherwise.
+        """
+        cursor = self._conn.execute(
+            "UPDATE traces SET feedback = ? WHERE trace_id = ?",
+            (score, trace_id),
+        )
+        self._conn.commit()
+        return cursor.rowcount > 0
+
     def close(self) -> None:
         """Close the underlying SQLite connection."""
         self._conn.close()
