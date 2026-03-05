@@ -20,3 +20,6 @@ openjarvis-mcp = { path = "../openjarvis-mcp" }
 pyo3 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tokio = { workspace = true }
+once_cell = { workspace = true }
+parking_lot = { workspace = true }

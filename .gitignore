@@ -69,3 +69,6 @@ docs/plans/
 
 # Tauri auto-generated schemas
 **/src-tauri/gen/schemas/
+
+# Rust build artifacts
+rust/target/

@@ -8,15 +8,18 @@ use serde_json::Value;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-pub struct InstrumentedEngine {
-    inner: Arc<dyn InferenceEngine>,
+/// Wraps any `InferenceEngine` with telemetry recording.
+///
+/// Generic over `E` for static dispatch when the engine type is known.
+pub struct InstrumentedEngine<E: InferenceEngine> {
+    inner: E,
     store: Arc<TelemetryStore>,
     agent_name: String,
 }
 
-impl InstrumentedEngine {
+impl<E: InferenceEngine> InstrumentedEngine<E> {
     pub fn new(
-        inner: Arc<dyn InferenceEngine>,
+        inner: E,
         store: Arc<TelemetryStore>,
         agent_name: String,
     ) -> Self {
@@ -36,7 +39,7 @@ impl InstrumentedEngine {
 }
 
 #[async_trait::async_trait]
-impl InferenceEngine for InstrumentedEngine {
+impl<E: InferenceEngine> InferenceEngine for InstrumentedEngine<E> {
     fn engine_id(&self) -> &str {
         self.inner.engine_id()
     }

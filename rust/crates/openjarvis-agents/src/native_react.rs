@@ -1,29 +1,33 @@
 //! NativeReActAgent — Thought-Action-Observation loop with regex parsing.
+//!
+//! Keeps custom ReAct loop (rig-core has no built-in ReAct).
+//! Uses rig-core's `CompletionModel` via `Agent.chat()` for generation.
 
-use crate::helpers::AgentHelpers;
 use crate::loop_guard::LoopGuard;
-use crate::traits::Agent;
-use openjarvis_core::{AgentContext, AgentResult, Message, OpenJarvisError, ToolResult};
-use openjarvis_engine::traits::InferenceEngine;
+use crate::traits::OjAgent;
+use crate::utils::strip_think_tags;
+use openjarvis_core::{AgentContext, AgentResult, OpenJarvisError, ToolResult};
 use openjarvis_tools::executor::ToolExecutor;
 use regex::Regex;
+use rig::agent::AgentBuilder;
+use rig::completion::message::Message as RigMessage;
+use rig::completion::request::{Chat, CompletionModel};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-pub struct NativeReActAgent {
-    helpers: AgentHelpers,
+/// ReAct agent with Thought-Action-Observation loop.
+pub struct NativeReActAgent<M: CompletionModel> {
+    agent: rig::agent::Agent<M>,
     executor: Arc<ToolExecutor>,
     max_turns: usize,
 }
 
-impl NativeReActAgent {
+impl<M: CompletionModel> NativeReActAgent<M> {
     pub fn new(
-        engine: Arc<dyn InferenceEngine>,
-        model: String,
+        model: M,
         executor: Arc<ToolExecutor>,
         max_turns: usize,
         temperature: f64,
-        max_tokens: i64,
     ) -> Self {
         let system_prompt = format!(
             "You are a helpful assistant that uses the ReAct framework.\n\
@@ -36,13 +40,15 @@ impl NativeReActAgent {
              When you have the final answer, output:\n\
              Thought: I now know the answer.\n\
              Final Answer: <your answer>",
-            executor
-                .list_tools()
-                .join(", ")
+            executor.list_tools().join(", ")
         );
 
+        let agent = AgentBuilder::new(model)
+            .preamble(&system_prompt)
+            .temperature(temperature)
+            .build();
         Self {
-            helpers: AgentHelpers::new(engine, model, system_prompt, temperature, max_tokens),
+            agent,
             executor,
             max_turns,
         }
@@ -75,7 +81,8 @@ impl NativeReActAgent {
     }
 }
 
-impl Agent for NativeReActAgent {
+#[async_trait::async_trait]
+impl<M: CompletionModel + 'static> OjAgent for NativeReActAgent<M> {
     fn agent_id(&self) -> &str {
         "native_react"
     }
@@ -84,22 +91,45 @@ impl Agent for NativeReActAgent {
         true
     }
 
-    fn run(
+    async fn run(
         &self,
         input: &str,
         context: Option<&AgentContext>,
     ) -> Result<AgentResult, OpenJarvisError> {
-        let history = context
-            .map(|c| c.conversation.messages.as_slice())
-            .unwrap_or(&[]);
-        let mut messages = self.helpers.build_messages(input, history);
+        let mut history: Vec<RigMessage> = context
+            .map(|ctx| {
+                ctx.conversation
+                    .messages
+                    .iter()
+                    .filter_map(|m| match m.role {
+                        openjarvis_core::Role::User => {
+                            Some(RigMessage::user(&m.content))
+                        }
+                        openjarvis_core::Role::Assistant => {
+                            Some(RigMessage::assistant(&m.content))
+                        }
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
 
         let mut all_tool_results = Vec::new();
         let mut guard = LoopGuard::default();
+        let mut current_input = input.to_string();
 
         for turn in 1..=self.max_turns {
-            let result = self.helpers.generate(&messages, None)?;
-            let text = AgentHelpers::strip_think_tags(&result.content);
+            let response = self
+                .agent
+                .chat(&current_input, history.clone())
+                .await
+                .map_err(|e| {
+                    OpenJarvisError::Agent(openjarvis_core::error::AgentError::Execution(
+                        e.to_string(),
+                    ))
+                })?;
+
+            let text = strip_think_tags(&response);
 
             if let Some(answer) = Self::parse_final_answer(&text) {
                 return Ok(AgentResult {
@@ -133,11 +163,8 @@ impl Agent for NativeReActAgent {
                     Err(e) => ToolResult::failure(&action, e.to_string()),
                 };
 
-                messages.push(Message::assistant(&text));
-                messages.push(Message::user(format!(
-                    "Observation: {}",
-                    tool_result.content
-                )));
+                history.push(RigMessage::assistant(&text));
+                current_input = format!("Observation: {}", tool_result.content);
 
                 all_tool_results.push(tool_result);
             } else {
@@ -163,10 +190,14 @@ impl Agent for NativeReActAgent {
 mod tests {
     use super::*;
 
+    // Use RigModelAdapter<Engine> as a concrete CompletionModel type for parse tests
+    use openjarvis_engine::rig_adapter::RigModelAdapter;
+    type ReactAgent = NativeReActAgent<RigModelAdapter<openjarvis_engine::Engine>>;
+
     #[test]
     fn test_parse_action() {
         let text = "Thought: I need to calculate\nAction: calculator\nAction Input: {\"expression\": \"2+2\"}";
-        let (action, input) = NativeReActAgent::parse_action(text).unwrap();
+        let (action, input) = ReactAgent::parse_action(text).unwrap();
         assert_eq!(action, "calculator");
         assert!(input.contains("2+2"));
     }
@@ -174,7 +205,7 @@ mod tests {
     #[test]
     fn test_parse_final_answer() {
         let text = "Thought: I know the answer\nFinal Answer: 42";
-        let answer = NativeReActAgent::parse_final_answer(text).unwrap();
+        let answer = ReactAgent::parse_final_answer(text).unwrap();
         assert_eq!(answer, "42");
     }
 }

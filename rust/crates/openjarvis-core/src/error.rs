@@ -188,6 +188,9 @@ pub enum AgentError {
 
     #[error("Context overflow")]
     ContextOverflow,
+
+    #[error("Execution error: {0}")]
+    Execution(String),
 }
 
 /// Trace recording errors.

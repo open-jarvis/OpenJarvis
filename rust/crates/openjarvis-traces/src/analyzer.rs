@@ -4,7 +4,7 @@ use crate::store::TraceStore;
 use openjarvis_core::OpenJarvisError;
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct TraceStats {
     pub count: usize,
     pub success_count: usize,

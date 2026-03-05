@@ -56,33 +56,43 @@ pub fn discover_engines(config: &JarvisConfig) -> Vec<EngineInfo> {
     found
 }
 
-/// Get a configured engine instance by key.
+/// Get a configured engine instance by key (dynamic dispatch).
 pub fn get_engine(
     config: &JarvisConfig,
     engine_key: Option<&str>,
 ) -> Result<Arc<dyn InferenceEngine>, OpenJarvisError> {
+    Ok(Arc::new(get_engine_static(config, engine_key)?))
+}
+
+/// Get a configured engine instance by key (static dispatch via `Engine` enum).
+pub fn get_engine_static(
+    config: &JarvisConfig,
+    engine_key: Option<&str>,
+) -> Result<crate::engine_enum::Engine, OpenJarvisError> {
+    use crate::engine_enum::Engine;
+
     let key = engine_key
         .map(String::from)
         .unwrap_or_else(|| config.engine.default.clone());
 
     match key.as_str() {
-        "ollama" => Ok(Arc::new(OllamaEngine::new(
+        "ollama" => Ok(Engine::Ollama(OllamaEngine::new(
             &config.engine.ollama.host,
             120.0,
         ))),
-        "vllm" => Ok(Arc::new(OpenAICompatEngine::vllm(
+        "vllm" => Ok(Engine::Vllm(OpenAICompatEngine::vllm(
             &config.engine.vllm.host,
         ))),
-        "sglang" => Ok(Arc::new(OpenAICompatEngine::sglang(
+        "sglang" => Ok(Engine::Sglang(OpenAICompatEngine::sglang(
             &config.engine.sglang.host,
         ))),
-        "llamacpp" => Ok(Arc::new(OpenAICompatEngine::llamacpp(
+        "llamacpp" => Ok(Engine::LlamaCpp(OpenAICompatEngine::llamacpp(
             &config.engine.llamacpp.host,
         ))),
-        "mlx" => Ok(Arc::new(OpenAICompatEngine::mlx(
+        "mlx" => Ok(Engine::Mlx(OpenAICompatEngine::mlx(
             &config.engine.mlx.host,
         ))),
-        "lmstudio" => Ok(Arc::new(OpenAICompatEngine::lmstudio(
+        "lmstudio" => Ok(Engine::LmStudio(OpenAICompatEngine::lmstudio(
             &config.engine.lmstudio.host,
         ))),
         other => Err(OpenJarvisError::Engine(

@@ -37,6 +37,12 @@ def is_private_ip(ip_str: str) -> bool:
 
 def check_ssrf(url: str) -> Optional[str]:
     """Check a URL for SSRF vulnerabilities. Returns error message or None if safe."""
+    from openjarvis._rust_bridge import get_rust_module
+
+    _rust = get_rust_module()
+    if _rust is not None:
+        return _rust.check_ssrf(url)
+
     from urllib.parse import urlparse
 
     parsed = urlparse(url)

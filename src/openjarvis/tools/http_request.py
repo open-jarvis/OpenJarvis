@@ -100,6 +100,28 @@ class HttpRequestTool(BaseTool):
         body = params.get("body")
         timeout = params.get("timeout", 30)
 
+        # Try Rust backend for simple requests (no custom headers)
+        from openjarvis._rust_bridge import get_rust_module
+        _rust = get_rust_module()
+        if _rust is not None and not headers:
+            try:
+                content = _rust.HttpRequestTool().execute(url, method, body)
+                return ToolResult(
+                    tool_name="http_request",
+                    content=(
+                        content[:_MAX_RESPONSE_BYTES]
+                        if len(content) > _MAX_RESPONSE_BYTES
+                        else content
+                    ),
+                    success=True,
+                    metadata={
+                        "status_code": 200,
+                        "truncated": len(content) > _MAX_RESPONSE_BYTES,
+                    },
+                )
+            except Exception:
+                pass  # Fall through to Python httpx
+
         try:
             t0 = time.time()
             response = httpx.request(

@@ -1,30 +1,31 @@
 //! SimpleAgent — single-turn generation without tools.
+//!
+//! Wraps a rig-core `Agent<M>` for single-turn completion.
 
-use crate::helpers::AgentHelpers;
-use crate::traits::Agent;
+use crate::traits::OjAgent;
+use crate::utils::strip_think_tags;
 use openjarvis_core::{AgentContext, AgentResult, OpenJarvisError};
-use openjarvis_engine::traits::InferenceEngine;
-use std::sync::Arc;
+use rig::agent::AgentBuilder;
+use rig::completion::request::{Chat, CompletionModel};
+use std::collections::HashMap;
 
-pub struct SimpleAgent {
-    helpers: AgentHelpers,
+/// Single-turn agent that delegates to rig-core's agent builder.
+pub struct SimpleAgent<M: CompletionModel> {
+    agent: rig::agent::Agent<M>,
 }
 
-impl SimpleAgent {
-    pub fn new(
-        engine: Arc<dyn InferenceEngine>,
-        model: String,
-        system_prompt: String,
-        temperature: f64,
-        max_tokens: i64,
-    ) -> Self {
-        Self {
-            helpers: AgentHelpers::new(engine, model, system_prompt, temperature, max_tokens),
-        }
+impl<M: CompletionModel> SimpleAgent<M> {
+    pub fn new(model: M, system_prompt: &str, temperature: f64) -> Self {
+        let agent = AgentBuilder::new(model)
+            .preamble(system_prompt)
+            .temperature(temperature)
+            .build();
+        Self { agent }
     }
 }
 
-impl Agent for SimpleAgent {
+#[async_trait::async_trait]
+impl<M: CompletionModel + 'static> OjAgent for SimpleAgent<M> {
     fn agent_id(&self) -> &str {
         "simple"
     }
@@ -33,24 +34,46 @@ impl Agent for SimpleAgent {
         false
     }
 
-    fn run(
+    async fn run(
         &self,
         input: &str,
         context: Option<&AgentContext>,
     ) -> Result<AgentResult, OpenJarvisError> {
-        let history = context
-            .map(|c| c.conversation.messages.as_slice())
-            .unwrap_or(&[]);
-        let messages = self.helpers.build_messages(input, history);
+        let history: Vec<rig::completion::message::Message> = context
+            .map(|ctx| {
+                ctx.conversation
+                    .messages
+                    .iter()
+                    .filter_map(|m| match m.role {
+                        openjarvis_core::Role::User => {
+                            Some(rig::completion::message::Message::user(&m.content))
+                        }
+                        openjarvis_core::Role::Assistant => {
+                            Some(rig::completion::message::Message::assistant(&m.content))
+                        }
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
 
-        let result = self.helpers.generate(&messages, None)?;
-        let content = AgentHelpers::strip_think_tags(&result.content);
+        let response = self
+            .agent
+            .chat(input, history)
+            .await
+            .map_err(|e| {
+                OpenJarvisError::Agent(openjarvis_core::error::AgentError::Execution(
+                    e.to_string(),
+                ))
+            })?;
+
+        let content = strip_think_tags(&response);
 
         Ok(AgentResult {
             content,
             tool_results: vec![],
             turns: 1,
-            metadata: std::collections::HashMap::new(),
+            metadata: HashMap::new(),
         })
     }
 }

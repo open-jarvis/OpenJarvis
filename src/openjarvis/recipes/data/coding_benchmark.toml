@@ -1,0 +1,36 @@
+[recipe]
+name = "coding-benchmark"
+kind = "discrete"
+description = "ReAct coding agent benchmarked against TerminalBench and SWE-bench"
+version = "1.0.0"
+
+[intelligence]
+model = "qwen3:8b"
+quantization = "q4_K_M"
+
+[engine]
+key = "ollama"
+
+[agent]
+type = "native_react"
+max_turns = 20
+temperature = 0.2
+tools = ["file_read", "file_write", "shell_exec", "code_interpreter", "apply_patch", "think"]
+system_prompt = """You are an expert programmer and systems engineer. You solve coding tasks by reasoning through problems step-by-step, reading code, writing solutions, and verifying them with tests.
+
+Approach each task methodically:
+1. Understand what is being asked
+2. Explore relevant files and code
+3. Plan your solution
+4. Implement changes carefully
+5. Test and verify your work
+
+Use the tools available to read files, write code, execute commands, and apply patches. Always verify that your changes work correctly before concluding."""
+
+[learning]
+routing = "heuristic"
+
+[eval]
+benchmarks = ["terminalbench", "swebench"]
+backend = "jarvis-agent"
+max_samples = 50

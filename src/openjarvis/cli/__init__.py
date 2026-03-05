@@ -11,6 +11,7 @@ from openjarvis.cli.ask import ask
 from openjarvis.cli.bench_cmd import bench
 from openjarvis.cli.channel_cmd import channel
 from openjarvis.cli.chat_cmd import chat
+from openjarvis.cli.compose_cmd import compose
 from openjarvis.cli.daemon_cmd import restart, start, status, stop
 from openjarvis.cli.doctor_cmd import doctor
 from openjarvis.cli.eval_cmd import eval_group
@@ -71,6 +72,7 @@ cli.add_command(host, "host")
 cli.add_command(quickstart, "quickstart")
 cli.add_command(optimize_group, "optimize")
 cli.add_command(feedback_group, "feedback")
+cli.add_command(compose, "compose")
 
 
 def main() -> None:

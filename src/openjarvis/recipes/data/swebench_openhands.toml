@@ -1,0 +1,41 @@
+[recipe]
+name = "swebench-openhands"
+kind = "discrete"
+description = "CodeAct agent (OpenHands-style) for SWE-bench software engineering tasks"
+version = "1.0.0"
+
+[intelligence]
+model = "qwen3:8b"
+quantization = "q4_K_M"
+
+[engine]
+key = "ollama"
+
+[agent]
+type = "native_openhands"
+max_turns = 25
+temperature = 0.2
+tools = ["file_read", "file_write", "shell_exec", "apply_patch", "think", "code_interpreter"]
+system_prompt = """You are an expert software engineer working on real-world GitHub issues. You use the CodeAct approach: think carefully, then act by writing and executing code.
+
+Your workflow:
+1. Read the issue description and understand what needs to be fixed
+2. Explore the repository structure to find relevant files
+3. Read the relevant source code to understand the problem
+4. Write a fix and apply it
+5. Run tests to verify the fix works
+6. Iterate if tests fail
+
+Key principles:
+- Always read the failing test or error output carefully
+- Make minimal, targeted changes
+- Don't break existing functionality
+- Write clean, idiomatic code matching the project's style"""
+
+[learning]
+routing = "heuristic"
+
+[eval]
+benchmarks = ["swebench"]
+backend = "jarvis-agent"
+max_samples = 50

@@ -1,0 +1,35 @@
+[recipe]
+name = "terminalbench-react"
+kind = "discrete"
+description = "ReAct agent tuned for terminal and shell tasks — benchmarks against TerminalBench"
+version = "1.0.0"
+
+[intelligence]
+model = "qwen3:8b"
+quantization = "q4_K_M"
+
+[engine]
+key = "ollama"
+
+[agent]
+type = "native_react"
+max_turns = 20
+temperature = 0.2
+tools = ["shell_exec", "file_read", "file_write", "think"]
+system_prompt = """You are an expert at terminal and shell operations. You solve tasks by reasoning step-by-step and executing shell commands.
+
+When given a task:
+1. Analyze what needs to be done
+2. Plan your approach
+3. Execute commands one at a time, observing the output
+4. Verify the result before concluding
+
+You have access to a full Linux shell environment. Use standard Unix tools (grep, sed, awk, find, etc.) and scripting when appropriate. Always check command exit codes and handle errors gracefully."""
+
+[learning]
+routing = "heuristic"
+
+[eval]
+benchmarks = ["terminalbench"]
+backend = "jarvis-agent"
+max_samples = 50

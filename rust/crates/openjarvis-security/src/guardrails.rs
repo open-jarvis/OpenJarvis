@@ -9,8 +9,10 @@ use serde_json::Value;
 use std::sync::Arc;
 
 /// Wraps an existing `InferenceEngine` with security scanning on I/O.
-pub struct GuardrailsEngine {
-    engine: Arc<dyn InferenceEngine>,
+///
+/// Generic over `E` for static dispatch when the engine type is known.
+pub struct GuardrailsEngine<E: InferenceEngine> {
+    engine: E,
     secret_scanner: SecretScanner,
     pii_scanner: PIIScanner,
     mode: RedactionMode,
@@ -19,9 +21,9 @@ pub struct GuardrailsEngine {
     bus: Option<Arc<EventBus>>,
 }
 
-impl GuardrailsEngine {
+impl<E: InferenceEngine> GuardrailsEngine<E> {
     pub fn new(
-        engine: Arc<dyn InferenceEngine>,
+        engine: E,
         mode: RedactionMode,
         scan_input: bool,
         scan_output: bool,
@@ -125,7 +127,7 @@ impl GuardrailsEngine {
 }
 
 #[async_trait::async_trait]
-impl InferenceEngine for GuardrailsEngine {
+impl<E: InferenceEngine> InferenceEngine for GuardrailsEngine<E> {
     fn engine_id(&self) -> &str {
         self.engine.engine_id()
     }
@@ -231,7 +233,7 @@ mod tests {
 
     #[test]
     fn test_guardrails_warn_mode() {
-        let engine = Arc::new(MockEngine);
+        let engine = MockEngine;
         let guardrails =
             GuardrailsEngine::new(engine, RedactionMode::Warn, false, true, None);
         let result = guardrails
@@ -242,7 +244,7 @@ mod tests {
 
     #[test]
     fn test_guardrails_redact_mode() {
-        let engine = Arc::new(MockEngine);
+        let engine = MockEngine;
         let guardrails =
             GuardrailsEngine::new(engine, RedactionMode::Redact, false, true, None);
         let result = guardrails
@@ -254,7 +256,7 @@ mod tests {
 
     #[test]
     fn test_guardrails_block_mode() {
-        let engine = Arc::new(MockEngine);
+        let engine = MockEngine;
         let guardrails =
             GuardrailsEngine::new(engine, RedactionMode::Block, false, true, None);
         let err = guardrails

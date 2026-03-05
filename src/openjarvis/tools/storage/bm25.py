@@ -2,21 +2,28 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
-try:
-    from rank_bm25 import BM25Okapi
-except ImportError as exc:
-    raise ImportError(
-        "The 'rank_bm25' package is required for the BM25 memory "
-        "backend. Install it with:\n\n"
-        "    pip install rank-bm25\n"
-    ) from exc
-
+from openjarvis._rust_bridge import get_rust_module
 from openjarvis.core.events import EventType, get_event_bus
 from openjarvis.core.registry import MemoryRegistry
 from openjarvis.tools.storage._stubs import MemoryBackend, RetrievalResult
+
+_rust = get_rust_module()
+
+# rank_bm25 is only needed when Rust backend is unavailable.
+BM25Okapi: Any = None
+if _rust is None:
+    try:
+        from rank_bm25 import BM25Okapi  # type: ignore[no-redef]  # noqa: E402
+    except ImportError as exc:
+        raise ImportError(
+            "The 'rank_bm25' package is required for the BM25 memory "
+            "backend. Install it with:\n\n"
+            "    pip install rank-bm25\n"
+        ) from exc
 
 
 def _tokenize(text: str) -> List[str]:
@@ -36,13 +43,16 @@ class BM25Memory(MemoryBackend):
     backend_id: str = "bm25"
 
     def __init__(self) -> None:
+        _r = get_rust_module()
+        self._rust_impl = _r.BM25Memory() if _r else None
+
         # id -> (content, source, metadata)
         self._documents: Dict[
             str, Tuple[str, str, Dict[str, Any]]
         ] = {}
         self._corpus: List[List[str]] = []
         self._doc_ids: List[str] = []
-        self._bm25: Optional[BM25Okapi] = None
+        self._bm25: Optional[Any] = None
 
     # -- ABC implementation -------------------------------------------------
 
@@ -54,6 +64,17 @@ class BM25Memory(MemoryBackend):
         metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Persist *content* and return a unique document id."""
+        if self._rust_impl is not None:
+            meta_json = json.dumps(metadata) if metadata else None
+            doc_id = self._rust_impl.store(content, source, meta_json)
+            bus = get_event_bus()
+            bus.publish(EventType.MEMORY_STORE, {
+                "backend": self.backend_id,
+                "doc_id": doc_id,
+                "source": source,
+            })
+            return doc_id
+
         doc_id = uuid.uuid4().hex
         self._documents[doc_id] = (
             content,
@@ -78,6 +99,21 @@ class BM25Memory(MemoryBackend):
         **kwargs: Any,
     ) -> List[RetrievalResult]:
         """Search for *query* and return the top-k results."""
+        if self._rust_impl is not None:
+            if not query.strip():
+                return []
+            from openjarvis._rust_bridge import retrieval_results_from_json
+            results = retrieval_results_from_json(
+                self._rust_impl.retrieve(query, top_k),
+            )
+            bus = get_event_bus()
+            bus.publish(EventType.MEMORY_RETRIEVE, {
+                "backend": self.backend_id,
+                "query": query,
+                "num_results": len(results),
+            })
+            return results
+
         if not query.strip() or self._bm25 is None:
             bus = get_event_bus()
             bus.publish(EventType.MEMORY_RETRIEVE, {
@@ -126,6 +162,9 @@ class BM25Memory(MemoryBackend):
 
     def delete(self, doc_id: str) -> bool:
         """Delete a document by id. Return ``True`` if it existed."""
+        if self._rust_impl is not None:
+            # Rust BM25Memory doesn't expose delete; fall through to Python.
+            pass
         if doc_id not in self._documents:
             return False
         del self._documents[doc_id]
@@ -143,6 +182,8 @@ class BM25Memory(MemoryBackend):
 
     def count(self) -> int:
         """Return the number of stored documents."""
+        if self._rust_impl is not None:
+            return self._rust_impl.count()
         return len(self._documents)
 
     def _rebuild_index(self) -> None:

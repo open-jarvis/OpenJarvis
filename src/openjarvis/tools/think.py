@@ -40,6 +40,15 @@ class ThinkTool(BaseTool):
 
     def execute(self, **params: Any) -> ToolResult:
         thought = params.get("thought", "")
+        from openjarvis._rust_bridge import get_rust_module
+        _rust = get_rust_module()
+        if _rust is not None:
+            content = _rust.ThinkTool().execute(thought)
+            return ToolResult(
+                tool_name="think",
+                content=content,
+                success=True,
+            )
         return ToolResult(
             tool_name="think",
             content=thought,

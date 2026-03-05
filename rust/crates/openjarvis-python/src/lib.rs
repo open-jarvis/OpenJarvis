@@ -1,218 +1,33 @@
-//! PyO3 bridge — exposes Rust backend to Python.
+//! PyO3 bridge — exposes ~50 Rust classes to Python via `openjarvis_rust`.
 
+use once_cell::sync::Lazy;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
-use std::collections::HashMap;
 
-// Re-export core types as Python classes
+// Shared tokio runtime for async-to-sync bridge (agents, future async APIs).
+pub(crate) static RUNTIME: Lazy<tokio::runtime::Runtime> = Lazy::new(|| {
+    tokio::runtime::Runtime::new().expect("Failed to create tokio runtime")
+});
 
-#[pyclass(name = "Message")]
-#[derive(Clone)]
-struct PyMessage {
-    #[pyo3(get, set)]
-    role: String,
-    #[pyo3(get, set)]
-    content: String,
-    #[pyo3(get, set)]
-    name: Option<String>,
-    #[pyo3(get, set)]
-    tool_call_id: Option<String>,
-}
-
-#[pymethods]
-impl PyMessage {
-    #[new]
-    fn new(role: String, content: String) -> Self {
-        Self {
-            role,
-            content,
-            name: None,
-            tool_call_id: None,
-        }
-    }
-}
-
-impl PyMessage {
-    fn to_core(&self) -> openjarvis_core::Message {
-        let role = match self.role.as_str() {
-            "system" => openjarvis_core::Role::System,
-            "assistant" => openjarvis_core::Role::Assistant,
-            "tool" => openjarvis_core::Role::Tool,
-            _ => openjarvis_core::Role::User,
-        };
-        openjarvis_core::Message {
-            role,
-            content: self.content.clone(),
-            name: self.name.clone(),
-            tool_calls: None,
-            tool_call_id: self.tool_call_id.clone(),
-            metadata: HashMap::new(),
-        }
-    }
-}
-
-#[pyclass(name = "ToolResult")]
-#[derive(Clone)]
-struct PyToolResult {
-    #[pyo3(get)]
-    tool_name: String,
-    #[pyo3(get)]
-    content: String,
-    #[pyo3(get)]
-    success: bool,
-}
-
-#[pyclass(name = "Config")]
-struct PyConfig {
-    inner: openjarvis_core::JarvisConfig,
-}
-
-#[pymethods]
-impl PyConfig {
-    #[new]
-    fn new() -> Self {
-        Self {
-            inner: openjarvis_core::JarvisConfig::default(),
-        }
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "Config(engine={}, model={})",
-            self.inner.engine.default, self.inner.intelligence.default_model
-        )
-    }
-}
-
-#[pyclass(name = "OllamaEngine")]
-struct PyOllamaEngine {
-    inner: openjarvis_engine::OllamaEngine,
-}
-
-#[pymethods]
-impl PyOllamaEngine {
-    #[new]
-    #[pyo3(signature = (host="http://localhost:11434", timeout=120.0))]
-    fn new(host: &str, timeout: f64) -> Self {
-        Self {
-            inner: openjarvis_engine::OllamaEngine::new(host, timeout),
-        }
-    }
-
-    fn engine_id(&self) -> &str {
-        use openjarvis_engine::InferenceEngine;
-        self.inner.engine_id()
-    }
-
-    fn health(&self) -> bool {
-        use openjarvis_engine::InferenceEngine;
-        self.inner.health()
-    }
-
-    fn list_models(&self) -> PyResult<Vec<String>> {
-        use openjarvis_engine::InferenceEngine;
-        self.inner
-            .list_models()
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
-    }
-
-    #[pyo3(signature = (messages, model, temperature=0.7, max_tokens=1024))]
-    fn generate(
-        &self,
-        messages: Vec<PyMessage>,
-        model: &str,
-        temperature: f64,
-        max_tokens: i64,
-    ) -> PyResult<String> {
-        use openjarvis_engine::InferenceEngine;
-        let core_msgs: Vec<openjarvis_core::Message> =
-            messages.iter().map(|m| m.to_core()).collect();
-        let result = self
-            .inner
-            .generate(&core_msgs, model, temperature, max_tokens, None)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
-        Ok(serde_json::to_string(&result).unwrap_or_default())
-    }
-}
-
-#[pyclass(name = "SecretScanner")]
-struct PySecretScanner {
-    inner: openjarvis_security::SecretScanner,
-}
-
-#[pymethods]
-impl PySecretScanner {
-    #[new]
-    fn new() -> Self {
-        Self {
-            inner: openjarvis_security::SecretScanner::new(),
-        }
-    }
-
-    fn scan(&self, text: &str) -> PyResult<String> {
-        let result = self.inner.scan(text);
-        Ok(serde_json::to_string(&result).unwrap_or_default())
-    }
-
-    fn redact(&self, text: &str) -> String {
-        self.inner.redact(text)
-    }
-}
-
-#[pyclass(name = "PIIScanner")]
-struct PyPIIScanner {
-    inner: openjarvis_security::PIIScanner,
-}
-
-#[pymethods]
-impl PyPIIScanner {
-    #[new]
-    fn new() -> Self {
-        Self {
-            inner: openjarvis_security::PIIScanner::new(),
-        }
-    }
-
-    fn scan(&self, text: &str) -> PyResult<String> {
-        let result = self.inner.scan(text);
-        Ok(serde_json::to_string(&result).unwrap_or_default())
-    }
-
-    fn redact(&self, text: &str) -> String {
-        self.inner.redact(text)
-    }
-}
-
-#[pyclass(name = "CalculatorTool")]
-struct PyCalculatorTool;
-
-#[pymethods]
-impl PyCalculatorTool {
-    #[new]
-    fn new() -> Self {
-        Self
-    }
-
-    fn execute(&self, expression: &str) -> PyResult<String> {
-        use openjarvis_tools::traits::BaseTool;
-        let tool = openjarvis_tools::builtin::calculator::CalculatorTool;
-        let params = serde_json::json!({"expression": expression});
-        let result = tool
-            .execute(&params)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
-        Ok(result.content)
-    }
-}
+pub mod agents;
+pub mod core;
+pub mod engine;
+pub mod learning;
+pub mod mcp;
+pub mod security;
+pub mod storage;
+pub mod telemetry;
+pub mod tools;
+pub mod traces;
 
 // Module-level functions
 
 #[pyfunction]
 #[pyo3(signature = (path=None))]
-fn load_config(path: Option<&str>) -> PyResult<PyConfig> {
+fn load_config(path: Option<&str>) -> PyResult<core::PyConfig> {
     let p = path.map(std::path::Path::new);
     let config = openjarvis_core::load_config(p)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
-    Ok(PyConfig { inner: config })
+    Ok(core::PyConfig { inner: config })
 }
 
 #[pyfunction]
@@ -233,16 +48,77 @@ fn is_sensitive_file(path: &str) -> bool {
 
 #[pymodule]
 fn openjarvis_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<PyMessage>()?;
-    m.add_class::<PyToolResult>()?;
-    m.add_class::<PyConfig>()?;
-    m.add_class::<PyOllamaEngine>()?;
-    m.add_class::<PySecretScanner>()?;
-    m.add_class::<PyPIIScanner>()?;
-    m.add_class::<PyCalculatorTool>()?;
+    // --- Core types ---
+    m.add_class::<core::PyMessage>()?;
+    m.add_class::<core::PyToolResult>()?;
+    m.add_class::<core::PyToolCall>()?;
+    m.add_class::<core::PyConfig>()?;
+    m.add_class::<core::PyEventBus>()?;
+    m.add_class::<core::PyModelSpec>()?;
+    m.add_class::<core::PyRoutingContext>()?;
+    m.add_class::<core::PyAgentContext>()?;
+    m.add_class::<core::PyAgentResult>()?;
+
+    // --- Engines ---
+    m.add_class::<engine::PyEngine>()?;
+    m.add_class::<engine::PyOllamaEngine>()?;
+
+    // --- Agents ---
+    m.add_class::<agents::PySimpleAgent>()?;
+    m.add_class::<agents::PyOrchestratorAgent>()?;
+    m.add_class::<agents::PyNativeReActAgent>()?;
+    m.add_class::<agents::PyLoopGuard>()?;
+
+    // --- Tools ---
+    m.add_class::<tools::PyToolExecutor>()?;
+    m.add_class::<tools::PyCalculatorTool>()?;
+    m.add_class::<tools::PyThinkTool>()?;
+    m.add_class::<tools::PyFileReadTool>()?;
+    m.add_class::<tools::PyFileWriteTool>()?;
+    m.add_class::<tools::PyShellExecTool>()?;
+    m.add_class::<tools::PyHttpRequestTool>()?;
+    m.add_class::<tools::PyGitStatusTool>()?;
+    m.add_class::<tools::PyGitDiffTool>()?;
+    m.add_class::<tools::PyGitLogTool>()?;
+
+    // --- Storage / Memory ---
+    m.add_class::<storage::PySQLiteMemory>()?;
+    m.add_class::<storage::PyBM25Memory>()?;
+    m.add_class::<storage::PyKnowledgeGraphMemory>()?;
+
+    // --- Security ---
+    m.add_class::<security::PySecretScanner>()?;
+    m.add_class::<security::PyPIIScanner>()?;
+    m.add_class::<security::PyGuardrailsEngine>()?;
+    m.add_class::<security::PyAuditLogger>()?;
+    m.add_class::<security::PyCapabilityPolicy>()?;
+    m.add_class::<security::PyInjectionScanner>()?;
+    m.add_class::<security::PyRateLimiter>()?;
+    m.add_class::<security::PyTaintSet>()?;
+
+    // --- Telemetry ---
+    m.add_class::<telemetry::PyTelemetryStore>()?;
+    m.add_class::<telemetry::PyTelemetryAggregator>()?;
+    m.add_class::<telemetry::PyInstrumentedEngine>()?;
+
+    // --- Traces ---
+    m.add_class::<traces::PyTraceStore>()?;
+    m.add_class::<traces::PyTraceCollector>()?;
+    m.add_class::<traces::PyTraceAnalyzer>()?;
+
+    // --- Learning ---
+    m.add_class::<learning::PyHeuristicRouter>()?;
+    m.add_class::<learning::PyBanditRouterPolicy>()?;
+    m.add_class::<learning::PyGRPORouterPolicy>()?;
+
+    // --- MCP ---
+    m.add_class::<mcp::PyMcpServer>()?;
+
+    // --- Module-level functions ---
     m.add_function(wrap_pyfunction!(load_config, m)?)?;
     m.add_function(wrap_pyfunction!(detect_hardware, m)?)?;
     m.add_function(wrap_pyfunction!(check_ssrf, m)?)?;
     m.add_function(wrap_pyfunction!(is_sensitive_file, m)?)?;
+
     Ok(())
 }

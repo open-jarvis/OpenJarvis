@@ -1,8 +1,11 @@
-//! Agent helpers — shared utilities replacing BaseAgent concrete methods.
+//! Agent helpers — legacy utilities (use `utils` module instead).
+//!
+//! Kept for backward compatibility with code that references `AgentHelpers`.
+//! New code should use `crate::utils::strip_think_tags()` and
+//! `crate::utils::check_continuation()` directly.
 
-use openjarvis_core::{GenerateResult, Message, OpenJarvisError, Role};
+use openjarvis_core::{GenerateResult, Message};
 use openjarvis_engine::traits::InferenceEngine;
-use regex::Regex;
 use std::sync::Arc;
 
 pub struct AgentHelpers {
@@ -44,7 +47,7 @@ impl AgentHelpers {
         &self,
         messages: &[Message],
         extra: Option<&serde_json::Value>,
-    ) -> Result<GenerateResult, OpenJarvisError> {
+    ) -> Result<GenerateResult, openjarvis_core::OpenJarvisError> {
         self.engine
             .generate(messages, &self.model, self.temperature, self.max_tokens, extra)
     }
@@ -57,15 +60,14 @@ impl AgentHelpers {
         &self.model
     }
 
-    /// Strip <think>...</think> tags from output.
+    /// Strip `<think>...</think>` tags from output (delegates to `utils`).
     pub fn strip_think_tags(text: &str) -> String {
-        let re = Regex::new(r"(?s)<think>.*?</think>").unwrap();
-        re.replace_all(text, "").trim().to_string()
+        crate::utils::strip_think_tags(text)
     }
 
-    /// Check if generation was cut off and needs continuation.
+    /// Check if generation was cut off (delegates to `utils`).
     pub fn check_continuation(result: &GenerateResult) -> bool {
-        result.finish_reason == "length"
+        crate::utils::check_continuation(result)
     }
 }
 

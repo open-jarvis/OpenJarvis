@@ -2,6 +2,7 @@
 
 pub mod builtin;
 pub mod executor;
+pub mod rig_tools;
 pub mod storage;
 pub mod traits;
 

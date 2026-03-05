@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import Dict, Tuple
 
+from openjarvis._rust_bridge import get_rust_module, scan_result_from_json
 from openjarvis.security._stubs import BaseScanner
 from openjarvis.security.types import ScanFinding, ScanResult, ThreatLevel
 
@@ -17,6 +18,10 @@ class SecretScanner(BaseScanner):
     """Detect API keys, tokens, passwords, and other secrets in text."""
 
     scanner_id = "secrets"
+
+    def __init__(self) -> None:
+        _rust = get_rust_module()
+        self._rust_impl = _rust.SecretScanner() if _rust else None
 
     PATTERNS: Dict[str, Tuple[str, ThreatLevel, str]] = {
         "openai_key": (
@@ -73,6 +78,8 @@ class SecretScanner(BaseScanner):
 
     def scan(self, text: str) -> ScanResult:
         """Scan *text* for secret patterns."""
+        if self._rust_impl is not None:
+            return scan_result_from_json(self._rust_impl.scan(text))
         findings = []
         for name, (pattern, threat, desc) in self.PATTERNS.items():
             for match in re.finditer(pattern, text):
@@ -90,6 +97,8 @@ class SecretScanner(BaseScanner):
 
     def redact(self, text: str) -> str:
         """Replace secret matches with ``[REDACTED:{pattern_name}]``."""
+        if self._rust_impl is not None:
+            return self._rust_impl.redact(text)
         result = text
         for name, (pattern, _threat, _desc) in self.PATTERNS.items():
             result = re.sub(pattern, f"[REDACTED:{name}]", result)
@@ -105,6 +114,10 @@ class PIIScanner(BaseScanner):
     """Detect personally identifiable information in text."""
 
     scanner_id = "pii"
+
+    def __init__(self) -> None:
+        _rust = get_rust_module()
+        self._rust_impl = _rust.PIIScanner() if _rust else None
 
     PATTERNS: Dict[str, Tuple[str, ThreatLevel, str]] = {
         "email": (
@@ -146,6 +159,8 @@ class PIIScanner(BaseScanner):
 
     def scan(self, text: str) -> ScanResult:
         """Scan *text* for PII patterns."""
+        if self._rust_impl is not None:
+            return scan_result_from_json(self._rust_impl.scan(text))
         findings = []
         for name, (pattern, threat, desc) in self.PATTERNS.items():
             for match in re.finditer(pattern, text):
@@ -163,6 +178,8 @@ class PIIScanner(BaseScanner):
 
     def redact(self, text: str) -> str:
         """Replace PII matches with ``[REDACTED:{pattern_name}]``."""
+        if self._rust_impl is not None:
+            return self._rust_impl.redact(text)
         result = text
         for name, (pattern, _threat, _desc) in self.PATTERNS.items():
             result = re.sub(pattern, f"[REDACTED:{name}]", result)

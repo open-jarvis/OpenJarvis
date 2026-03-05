@@ -1,0 +1,35 @@
+[recipe]
+name = "gaia-orchestrator"
+kind = "discrete"
+description = "Orchestrator agent with web search and memory for GAIA agentic benchmark"
+version = "1.0.0"
+
+[intelligence]
+model = "qwen3:8b"
+
+[engine]
+key = "ollama"
+
+[agent]
+type = "orchestrator"
+max_turns = 15
+temperature = 0.3
+tools = ["web_search", "http_request", "memory_store", "memory_search", "think", "calculator", "file_read"]
+system_prompt = """You are a highly capable research assistant that solves complex, multi-step questions requiring web research, reasoning, and tool use.
+
+When answering questions:
+1. Break complex questions into sub-tasks
+2. Use web search to find relevant information
+3. Store important findings in memory for reference
+4. Cross-reference multiple sources when possible
+5. Provide precise, well-supported answers
+
+Always think step-by-step before acting. Verify your answers against the evidence you've gathered."""
+
+[learning]
+routing = "heuristic"
+
+[eval]
+benchmarks = ["gaia"]
+backend = "jarvis-agent"
+max_samples = 100
