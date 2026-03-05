@@ -37,6 +37,15 @@ class SQLiteMemory(MemoryBackend):
             db_path = str(DEFAULT_CONFIG_DIR / "memory.db")
 
         self._db_path = str(db_path)
+
+        from openjarvis._rust_bridge import get_rust_module
+        _rust = get_rust_module()
+        if _rust is not None:
+            self._rust_impl = _rust.SQLiteMemory(self._db_path)
+            self._conn = None  # type: ignore[assignment]
+            return
+
+        self._rust_impl = None
         self._conn = sqlite3.connect(self._db_path)
         self._conn.row_factory = sqlite3.Row
 
@@ -100,6 +109,17 @@ class SQLiteMemory(MemoryBackend):
         metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Persist *content* and return a unique document id."""
+        if self._rust_impl is not None:
+            meta_json = json.dumps(metadata) if metadata else None
+            doc_id = self._rust_impl.store(content, source, meta_json)
+            bus = get_event_bus()
+            bus.publish(EventType.MEMORY_STORE, {
+                "backend": self.backend_id,
+                "doc_id": doc_id,
+                "source": source,
+            })
+            return doc_id
+
         import time
 
         doc_id = uuid.uuid4().hex
@@ -129,6 +149,19 @@ class SQLiteMemory(MemoryBackend):
         """Search via FTS5 MATCH with BM25 ranking."""
         if not query.strip():
             return []
+
+        if self._rust_impl is not None:
+            from openjarvis._rust_bridge import retrieval_results_from_json
+            results = retrieval_results_from_json(
+                self._rust_impl.retrieve(query, top_k),
+            )
+            bus = get_event_bus()
+            bus.publish(EventType.MEMORY_RETRIEVE, {
+                "backend": self.backend_id,
+                "query": query,
+                "num_results": len(results),
+            })
+            return results
 
         # Escape FTS5 special characters
         safe_query = self._escape_fts_query(query)
@@ -171,6 +204,8 @@ class SQLiteMemory(MemoryBackend):
 
     def delete(self, doc_id: str) -> bool:
         """Delete a document by id. Return True if it existed."""
+        if self._rust_impl is not None:
+            return self._rust_impl.delete(doc_id)
         cursor = self._conn.execute(
             "DELETE FROM documents WHERE id = ?", (doc_id,)
         )
@@ -179,11 +214,16 @@ class SQLiteMemory(MemoryBackend):
 
     def clear(self) -> None:
         """Remove all stored documents."""
+        if self._rust_impl is not None:
+            self._rust_impl.clear()
+            return
         self._conn.execute("DELETE FROM documents")
         self._conn.commit()
 
     def count(self) -> int:
         """Return the number of stored documents."""
+        if self._rust_impl is not None:
+            return self._rust_impl.count()
         row = self._conn.execute(
             "SELECT COUNT(*) FROM documents"
         ).fetchone()
@@ -191,7 +231,8 @@ class SQLiteMemory(MemoryBackend):
 
     def close(self) -> None:
         """Close the database connection."""
-        self._conn.close()
+        if self._conn is not None:
+            self._conn.close()
 
     @staticmethod
     def _escape_fts_query(query: str) -> str:

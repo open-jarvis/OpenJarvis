@@ -6,6 +6,7 @@ import shutil
 import subprocess
 from typing import Any
 
+from openjarvis._rust_bridge import get_rust_module
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
 from openjarvis.tools._stubs import BaseTool, ToolSpec
@@ -130,6 +131,18 @@ class GitStatusTool(BaseTool):
 
     def execute(self, **params: Any) -> ToolResult:
         repo_path = params.get("repo_path", ".")
+        _rust = get_rust_module()
+        if _rust is not None:
+            try:
+                output = _rust.GitStatusTool().execute(repo_path)
+                return ToolResult(
+                    tool_name="git_status",
+                    content=output or "(no output)",
+                    success=True,
+                    metadata={"returncode": 0},
+                )
+            except Exception:
+                pass  # Fall through to subprocess
         return _run_git(["git", "status", "--porcelain"], cwd=repo_path)
 
 
@@ -187,6 +200,19 @@ class GitDiffTool(BaseTool):
         repo_path = params.get("repo_path", ".")
         staged = params.get("staged", False)
         file_path = params.get("path")
+
+        _rust = get_rust_module()
+        if _rust is not None and not staged and not file_path:
+            try:
+                output = _rust.GitDiffTool().execute(repo_path)
+                return ToolResult(
+                    tool_name="git_diff",
+                    content=output or "(no output)",
+                    success=True,
+                    metadata={"returncode": 0},
+                )
+            except Exception:
+                pass  # Fall through to subprocess
 
         cmd = ["git", "diff"]
         if staged:
@@ -339,6 +365,19 @@ class GitLogTool(BaseTool):
         repo_path = params.get("repo_path", ".")
         count = params.get("count", 10)
         oneline = params.get("oneline", True)
+
+        _rust = get_rust_module()
+        if _rust is not None:
+            try:
+                output = _rust.GitLogTool().execute(repo_path, count)
+                return ToolResult(
+                    tool_name="git_log",
+                    content=output or "(no output)",
+                    success=True,
+                    metadata={"returncode": 0},
+                )
+            except Exception:
+                pass  # Fall through to subprocess
 
         cmd = ["git", "log", f"-{count}"]
         if oneline:

@@ -66,10 +66,22 @@ class RateLimiter:
         self._buckets: Dict[str, TokenBucket] = {}
         self._lock = threading.Lock()
 
+        from openjarvis._rust_bridge import get_rust_module
+        _rust = get_rust_module()
+        if _rust and self._config.enabled:
+            self._rust_impl = _rust.RateLimiter(
+                requests_per_minute=self._config.requests_per_minute,
+                burst_size=self._config.burst_size,
+            )
+        else:
+            self._rust_impl = None
+
     def check(self, key: str) -> Tuple[bool, float]:
         """Check if request is allowed for key. Returns (allowed, wait_seconds)."""
         if not self._config.enabled:
             return True, 0.0
+        if self._rust_impl is not None:
+            return self._rust_impl.check(key)
 
         bucket = self._get_bucket(key)
         return bucket.consume()
@@ -87,6 +99,9 @@ class RateLimiter:
 
     def reset(self, key: Optional[str] = None) -> None:
         """Reset rate limit state for a key or all keys."""
+        if self._rust_impl is not None:
+            self._rust_impl.reset(key)
+            return
         with self._lock:
             if key:
                 self._buckets.pop(key, None)

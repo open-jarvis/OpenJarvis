@@ -48,8 +48,29 @@ class LoopGuard:
         # Track per-tool call counts (for polling budget)
         self._per_tool_counts: dict[str, int] = {}
 
+        from openjarvis._rust_bridge import get_rust_module
+        _rust = get_rust_module()
+        if _rust:
+            self._rust_impl = _rust.LoopGuard(
+                max_identical=config.max_identical_calls,
+                max_ping_pong=(
+                    config.ping_pong_window // 2
+                    if config.ping_pong_window > 1
+                    else 2
+                ),
+                poll_budget=config.poll_tool_budget,
+            )
+        else:
+            self._rust_impl = None
+
     def check_call(self, tool_name: str, arguments: str) -> LoopVerdict:
         """Check whether a tool call should proceed or be blocked."""
+        if self._rust_impl is not None:
+            reason = self._rust_impl.check(tool_name, arguments)
+            if reason is not None:
+                self._emit_triggered("rust_guard", tool_name)
+                return LoopVerdict(blocked=True, reason=reason)
+            return LoopVerdict()
         # 1. Hash tracking — identical calls
         call_hash = hashlib.sha256(
             f"{tool_name}:{arguments}".encode()
@@ -167,6 +188,8 @@ class LoopGuard:
         self._call_counts.clear()
         self._tool_sequence.clear()
         self._per_tool_counts.clear()
+        if self._rust_impl is not None:
+            self._rust_impl.reset()
 
     def _detect_ping_pong(self) -> bool:
         """Detect repeating patterns in tool call sequence."""

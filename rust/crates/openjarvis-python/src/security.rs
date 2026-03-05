@@ -177,13 +177,8 @@ impl PyInjectionScanner {
 
     fn scan(&self, text: &str) -> PyResult<String> {
         let result = self.inner.scan(text);
-        // InjectionScanResult doesn't derive Serialize, so format manually.
-        Ok(serde_json::json!({
-            "is_clean": result.is_clean,
-            "threat_level": format!("{:?}", result.threat_level),
-            "findings_count": result.findings.len(),
-        })
-        .to_string())
+        serde_json::to_string(&result)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
     }
 }
 

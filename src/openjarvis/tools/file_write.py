@@ -155,25 +155,50 @@ class FileWriteTool(BaseTool):
                     success=False,
                 )
 
-        # Write content
-        try:
-            if mode == "append":
+        # Write content — delegate to Rust for write mode if available
+        from openjarvis._rust_bridge import get_rust_module
+        _rust = get_rust_module()
+        if _rust is not None and mode == "write":
+            try:
+                _rust.FileWriteTool().execute(str(path), content)
+            except Exception as exc:
+                return ToolResult(
+                    tool_name="file_write",
+                    content=f"Write error: {exc}",
+                    success=False,
+                )
+        elif mode == "write":
+            try:
+                path.write_text(content, encoding="utf-8")
+            except PermissionError as exc:
+                return ToolResult(
+                    tool_name="file_write",
+                    content=f"Permission denied: {exc}",
+                    success=False,
+                )
+            except OSError as exc:
+                return ToolResult(
+                    tool_name="file_write",
+                    content=f"Write error: {exc}",
+                    success=False,
+                )
+        else:
+            # append mode — always Python
+            try:
                 with open(path, "a", encoding="utf-8") as f:
                     f.write(content)
-            else:
-                path.write_text(content, encoding="utf-8")
-        except PermissionError as exc:
-            return ToolResult(
-                tool_name="file_write",
-                content=f"Permission denied: {exc}",
-                success=False,
-            )
-        except OSError as exc:
-            return ToolResult(
-                tool_name="file_write",
-                content=f"Write error: {exc}",
-                success=False,
-            )
+            except PermissionError as exc:
+                return ToolResult(
+                    tool_name="file_write",
+                    content=f"Permission denied: {exc}",
+                    success=False,
+                )
+            except OSError as exc:
+                return ToolResult(
+                    tool_name="file_write",
+                    content=f"Write error: {exc}",
+                    success=False,
+                )
 
         # Get final file size
         try:

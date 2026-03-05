@@ -105,7 +105,7 @@ static INJECTION_PATTERNS: Lazy<Vec<InjectionPattern>> = Lazy::new(|| {
 });
 
 /// Result of an injection scan.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct InjectionScanResult {
     pub is_clean: bool,
     pub findings: Vec<ScanFinding>,

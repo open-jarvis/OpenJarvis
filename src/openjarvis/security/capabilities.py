@@ -58,6 +58,15 @@ class CapabilityPolicy:
     ) -> None:
         self._policies: Dict[str, AgentPolicy] = {}
         self._default_deny = default_deny
+
+        from openjarvis._rust_bridge import get_rust_module
+        _rust = get_rust_module()
+        self._rust_impl = (
+            _rust.CapabilityPolicy(default_deny=default_deny)
+            if _rust
+            else None
+        )
+
         if policy_path:
             self._load_file(Path(policy_path))
 
@@ -67,6 +76,8 @@ class CapabilityPolicy:
             agent_id, AgentPolicy(agent_id=agent_id),
         )
         policy.grants.append(CapabilityGrant(capability=capability, pattern=pattern))
+        if self._rust_impl is not None:
+            self._rust_impl.grant(agent_id, capability, pattern)
 
     def deny(self, agent_id: str, capability: str) -> None:
         """Explicitly deny a capability to an agent."""
@@ -74,12 +85,16 @@ class CapabilityPolicy:
             agent_id, AgentPolicy(agent_id=agent_id),
         )
         policy.deny.append(capability)
+        if self._rust_impl is not None:
+            self._rust_impl.deny(agent_id, capability)
 
     def check(self, agent_id: str, capability: str, resource: str = "") -> bool:
         """Check whether *agent_id* has *capability* for *resource*.
 
         Returns True if allowed, False if denied.
         """
+        if self._rust_impl is not None:
+            return self._rust_impl.check(agent_id, capability, resource)
         policy = self._policies.get(agent_id)
         if policy is None:
             # No explicit policy — use default
