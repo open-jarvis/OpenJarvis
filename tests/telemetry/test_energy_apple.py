@@ -65,6 +65,7 @@ class TestEnergyMethod:
         from openjarvis.telemetry.energy_apple import AppleEnergyMonitor
 
         monitor = AppleEnergyMonitor.__new__(AppleEnergyMonitor)
+        monitor._zeus_ok = True
         assert monitor.energy_method() == "zeus"
 
 
@@ -91,7 +92,8 @@ class TestSampleComponentBreakdown:
         monitor = AppleEnergyMonitor.__new__(AppleEnergyMonitor)
         monitor._poll_interval_ms = 50
         monitor._monitor = mock_zeus_monitor
-        monitor._initialized = True
+        monitor._zeus_ok = True
+        monitor._chip_name = "M1"
 
         with monitor.sample() as result:
             time.sleep(0.01)
@@ -123,7 +125,8 @@ class TestSampleComponentBreakdown:
         monitor = AppleEnergyMonitor.__new__(AppleEnergyMonitor)
         monitor._poll_interval_ms = 50
         monitor._monitor = mock_zeus_monitor
-        monitor._initialized = True
+        monitor._zeus_ok = True
+        monitor._chip_name = "M1"
 
         with monitor.sample() as result:
             pass
@@ -145,15 +148,19 @@ class TestSampleUninitialized:
         monitor = AppleEnergyMonitor.__new__(AppleEnergyMonitor)
         monitor._poll_interval_ms = 50
         monitor._monitor = None
-        monitor._initialized = False
+        monitor._zeus_ok = False
+        monitor._chip_name = "Apple Silicon"
+        monitor._tdp_watts = 20.0
 
         with monitor.sample() as result:
             pass
 
-        assert result.energy_joules == 0.0
-        assert result.cpu_energy_joules == 0.0
-        assert result.gpu_energy_joules == 0.0
-        assert result.dram_energy_joules == 0.0
-        assert result.ane_energy_joules == 0.0
+        # CPU-time fallback produces small but non-zero estimates
+        assert result.energy_joules >= 0.0
+        assert result.cpu_energy_joules >= 0.0
+        assert result.gpu_energy_joules >= 0.0
+        assert result.dram_energy_joules >= 0.0
+        assert result.ane_energy_joules >= 0.0
         assert result.duration_seconds >= 0
         assert result.vendor == "apple"
+        assert result.energy_method == "cpu_time_estimate"
