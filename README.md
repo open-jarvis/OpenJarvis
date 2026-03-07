@@ -1,9 +1,5 @@
 <div align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/openjarvis-logo-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="assets/openjarvis-logo-light.svg">
-    <img alt="OpenJarvis" src="assets/openjarvis-logo-light.svg" width="400">
-  </picture>
+  <img alt="OpenJarvis" src="assets/OpenJarvis_Horizontal_Logo.png" width="400">
 
   <p><i>Programming abstractions for on-device AI.</i></p>
 
