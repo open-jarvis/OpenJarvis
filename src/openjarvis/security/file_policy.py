@@ -35,15 +35,7 @@ def is_sensitive_file(path: Union[str, Path]) -> bool:
     from openjarvis._rust_bridge import get_rust_module
 
     _rust = get_rust_module()
-    if _rust is not None:
-        return _rust.is_sensitive_file(str(path))
-
-    p = Path(path)
-    name = p.name
-    for pattern in DEFAULT_SENSITIVE_PATTERNS:
-        if fnmatch.fnmatch(name, pattern):
-            return True
-    return False
+    return _rust.is_sensitive_file(str(path))
 
 
 def filter_sensitive_paths(paths: Iterable[Union[str, Path]]) -> List[Path]:

@@ -132,18 +132,20 @@ class GitStatusTool(BaseTool):
     def execute(self, **params: Any) -> ToolResult:
         repo_path = params.get("repo_path", ".")
         _rust = get_rust_module()
-        if _rust is not None:
-            try:
-                output = _rust.GitStatusTool().execute(repo_path)
-                return ToolResult(
-                    tool_name="git_status",
-                    content=output or "(no output)",
-                    success=True,
-                    metadata={"returncode": 0},
-                )
-            except Exception:
-                pass  # Fall through to subprocess
-        return _run_git(["git", "status", "--porcelain"], cwd=repo_path)
+        try:
+            output = _rust.GitStatusTool().execute(repo_path)
+            return ToolResult(
+                tool_name="git_status",
+                content=output or "(no output)",
+                success=True,
+                metadata={"returncode": 0},
+            )
+        except Exception as exc:
+            return ToolResult(
+                tool_name="git_status",
+                content=f"Git status error: {exc}",
+                success=False,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +204,7 @@ class GitDiffTool(BaseTool):
         file_path = params.get("path")
 
         _rust = get_rust_module()
-        if _rust is not None and not staged and not file_path:
+        if not staged and not file_path:
             try:
                 output = _rust.GitDiffTool().execute(repo_path)
                 return ToolResult(
@@ -211,8 +213,12 @@ class GitDiffTool(BaseTool):
                     success=True,
                     metadata={"returncode": 0},
                 )
-            except Exception:
-                pass  # Fall through to subprocess
+            except Exception as exc:
+                return ToolResult(
+                    tool_name="git_diff",
+                    content=f"Git diff error: {exc}",
+                    success=False,
+                )
 
         cmd = ["git", "diff"]
         if staged:
@@ -367,17 +373,16 @@ class GitLogTool(BaseTool):
         oneline = params.get("oneline", True)
 
         _rust = get_rust_module()
-        if _rust is not None:
-            try:
-                output = _rust.GitLogTool().execute(repo_path, count)
-                return ToolResult(
-                    tool_name="git_log",
-                    content=output or "(no output)",
-                    success=True,
-                    metadata={"returncode": 0},
-                )
-            except Exception:
-                pass  # Fall through to subprocess
+        try:
+            output = _rust.GitLogTool().execute(repo_path, count)
+            return ToolResult(
+                tool_name="git_log",
+                content=output or "(no output)",
+                success=True,
+                metadata={"returncode": 0},
+            )
+        except Exception:
+            pass
 
         cmd = ["git", "log", f"-{count}"]
         if oneline:

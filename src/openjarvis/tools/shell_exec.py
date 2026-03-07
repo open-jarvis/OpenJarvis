@@ -125,10 +125,9 @@ class ShellExecTool(BaseTool):
             if val is not None:
                 env[key] = val
 
-        # Execute — try Rust backend first
         from openjarvis._rust_bridge import get_rust_module
         _rust = get_rust_module()
-        if _rust is not None:
+        if True:
             try:
                 output = _rust.ShellExecTool().execute(command, working_dir)
                 return ToolResult(

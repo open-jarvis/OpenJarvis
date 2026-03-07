@@ -17,6 +17,13 @@ openjarvis-traces = { path = "../openjarvis-traces" }
 openjarvis-telemetry = { path = "../openjarvis-telemetry" }
 openjarvis-learning = { path = "../openjarvis-learning" }
 openjarvis-mcp = { path = "../openjarvis-mcp" }
+openjarvis-sessions = { path = "../openjarvis-sessions" }
+openjarvis-workflow = { path = "../openjarvis-workflow" }
+openjarvis-skills = { path = "../openjarvis-skills" }
+openjarvis-recipes = { path = "../openjarvis-recipes" }
+openjarvis-templates = { path = "../openjarvis-templates" }
+openjarvis-a2a = { path = "../openjarvis-a2a" }
+openjarvis-scheduler = { path = "../openjarvis-scheduler" }
 pyo3 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

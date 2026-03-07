@@ -1,0 +1,11 @@
+[package]
+name = "openjarvis-sessions"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+openjarvis-core = { path = "../openjarvis-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rusqlite = { workspace = true }
+uuid = { workspace = true }

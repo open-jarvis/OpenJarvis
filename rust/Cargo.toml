@@ -11,6 +11,13 @@ members = [
     "crates/openjarvis-security",
     "crates/openjarvis-mcp",
     "crates/openjarvis-python",
+    "crates/openjarvis-sessions",
+    "crates/openjarvis-workflow",
+    "crates/openjarvis-skills",
+    "crates/openjarvis-recipes",
+    "crates/openjarvis-templates",
+    "crates/openjarvis-a2a",
+    "crates/openjarvis-scheduler",
 ]
 
 [workspace.dependencies]

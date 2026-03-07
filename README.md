@@ -70,6 +70,25 @@ jarvis doctor
 
 `jarvis init` auto-detects your hardware and recommends the best engine. After init, it prints engine-specific next steps. Run `jarvis doctor` at any time to diagnose configuration or connectivity issues.
 
+## Development
+
+From source, you need the Rust extension for full functionality (security, tools, agents, etc.):
+
+```bash
+# 1. Clone and install Python deps
+git clone https://github.com/HazyResearch/OpenJarvis.git
+cd OpenJarvis
+uv sync --extra dev
+
+# 2. Build and install the Rust extension (requires Rust toolchain)
+uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml
+
+# 3. Run tests
+uv run pytest tests/ -v
+```
+
+See [Contributing](docs/development/contributing.md) for more.
+
 ## The Five Pillars
 
 | Pillar | What it does | Key abstractions |

@@ -100,10 +100,9 @@ class HttpRequestTool(BaseTool):
         body = params.get("body")
         timeout = params.get("timeout", 30)
 
-        # Try Rust backend for simple requests (no custom headers)
         from openjarvis._rust_bridge import get_rust_module
         _rust = get_rust_module()
-        if _rust is not None and not headers:
+        if not headers:
             try:
                 content = _rust.HttpRequestTool().execute(url, method, body)
                 return ToolResult(
@@ -120,7 +119,7 @@ class HttpRequestTool(BaseTool):
                     },
                 )
             except Exception:
-                pass  # Fall through to Python httpx
+                pass
 
         try:
             t0 = time.time()

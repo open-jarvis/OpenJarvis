@@ -8,16 +8,23 @@ pub(crate) static RUNTIME: Lazy<tokio::runtime::Runtime> = Lazy::new(|| {
     tokio::runtime::Runtime::new().expect("Failed to create tokio runtime")
 });
 
+pub mod a2a;
 pub mod agents;
 pub mod core;
 pub mod engine;
 pub mod learning;
 pub mod mcp;
+pub mod recipes;
+pub mod scheduler;
 pub mod security;
+pub mod sessions;
+pub mod skills;
 pub mod storage;
 pub mod telemetry;
+pub mod templates;
 pub mod tools;
 pub mod traces;
+pub mod workflow;
 
 // Module-level functions
 
@@ -44,6 +51,16 @@ fn check_ssrf(url: &str) -> Option<String> {
 #[pyfunction]
 fn is_sensitive_file(path: &str) -> bool {
     openjarvis_security::is_sensitive_file(std::path::Path::new(path))
+}
+
+#[pyfunction]
+fn register_builtin_models() {
+    openjarvis_core::model_catalog::register_builtin_models();
+}
+
+#[pyfunction]
+fn classify_query(query: &str) -> &'static str {
+    openjarvis_learning::classify_query(query)
 }
 
 #[pymodule]
@@ -116,15 +133,55 @@ fn openjarvis_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<learning::PyHeuristicRouter>()?;
     m.add_class::<learning::PyBanditRouterPolicy>()?;
     m.add_class::<learning::PyGRPORouterPolicy>()?;
+    m.add_class::<learning::PySFTRouterPolicy>()?;
+    m.add_class::<learning::PyHeuristicRewardFunction>()?;
+    m.add_class::<learning::PySkillDiscovery>()?;
+    m.add_class::<learning::PyTraceDrivenPolicy>()?;
+    m.add_class::<learning::PyAgentAdvisorPolicy>()?;
+    m.add_class::<learning::PyICLUpdaterPolicy>()?;
+    m.add_class::<learning::PyTrainingDataMiner>()?;
+    m.add_class::<learning::PyAgentConfigEvolver>()?;
+    m.add_class::<learning::PyMultiObjectiveReward>()?;
+    m.add_class::<learning::PyLearningOrchestrator>()?;
 
     // --- MCP ---
     m.add_class::<mcp::PyMcpServer>()?;
+
+    // --- Sessions ---
+    m.add_class::<sessions::PySessionStore>()?;
+
+    // --- Workflow ---
+    m.add_class::<workflow::PyWorkflowGraph>()?;
+    m.add_class::<workflow::PyWorkflowBuilder>()?;
+
+    // --- Skills ---
+    m.add_class::<skills::PySkillManifest>()?;
+
+    // --- Recipes ---
+    m.add_class::<recipes::PyRecipe>()?;
+
+    // --- Templates ---
+    m.add_class::<templates::PyAgentTemplate>()?;
+
+    // --- A2A ---
+    m.add_class::<a2a::PyAgentCard>()?;
+    m.add_class::<a2a::PyA2ATaskStore>()?;
+
+    // --- Scheduler ---
+    m.add_class::<scheduler::PySchedulerStore>()?;
 
     // --- Module-level functions ---
     m.add_function(wrap_pyfunction!(load_config, m)?)?;
     m.add_function(wrap_pyfunction!(detect_hardware, m)?)?;
     m.add_function(wrap_pyfunction!(check_ssrf, m)?)?;
     m.add_function(wrap_pyfunction!(is_sensitive_file, m)?)?;
+    m.add_function(wrap_pyfunction!(register_builtin_models, m)?)?;
+    m.add_function(wrap_pyfunction!(classify_query, m)?)?;
+    m.add_function(wrap_pyfunction!(skills::load_skill, m)?)?;
+    m.add_function(wrap_pyfunction!(recipes::load_recipe, m)?)?;
+    m.add_function(wrap_pyfunction!(templates::load_template, m)?)?;
+    m.add_function(wrap_pyfunction!(a2a::parse_a2a_request, m)?)?;
+    m.add_function(wrap_pyfunction!(scheduler::parse_cron_next, m)?)?;
 
     Ok(())
 }

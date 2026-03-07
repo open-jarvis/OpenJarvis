@@ -5,7 +5,6 @@ use crate::ollama::OllamaEngine;
 use crate::openai_compat::OpenAICompatEngine;
 use openjarvis_core::config::JarvisConfig;
 use openjarvis_core::OpenJarvisError;
-use std::sync::Arc;
 
 /// Engine endpoint descriptor discovered at runtime.
 #[derive(Debug, Clone)]
@@ -58,14 +57,6 @@ pub fn discover_engines(config: &JarvisConfig) -> Vec<EngineInfo> {
     }
 
     found
-}
-
-/// Get a configured engine instance by key (dynamic dispatch).
-pub fn get_engine(
-    config: &JarvisConfig,
-    engine_key: Option<&str>,
-) -> Result<Arc<dyn InferenceEngine>, OpenJarvisError> {
-    Ok(Arc::new(get_engine_static(config, engine_key)?))
 }
 
 /// Get a configured engine instance by key (static dispatch via `Engine` enum).
@@ -126,15 +117,15 @@ mod tests {
     use openjarvis_core::config::JarvisConfig;
 
     #[test]
-    fn test_get_engine_ollama() {
+    fn test_get_engine_static_ollama() {
         let config = JarvisConfig::default();
-        let engine = get_engine(&config, Some("ollama")).unwrap();
+        let engine = get_engine_static(&config, Some("ollama")).unwrap();
         assert_eq!(engine.engine_id(), "ollama");
     }
 
     #[test]
-    fn test_get_engine_unknown() {
+    fn test_get_engine_static_unknown() {
         let config = JarvisConfig::default();
-        assert!(get_engine(&config, Some("nonexistent")).is_err());
+        assert!(get_engine_static(&config, Some("nonexistent")).is_err());
     }
 }

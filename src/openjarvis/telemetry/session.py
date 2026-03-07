@@ -1,6 +1,6 @@
 """Background-sampling telemetry session.
 
-Uses Rust ring buffer when available, with Python fallback.
+Uses Rust ring buffer — Rust backend is mandatory.
 """
 
 from __future__ import annotations

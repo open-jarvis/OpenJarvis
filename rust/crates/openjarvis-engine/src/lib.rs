@@ -10,7 +10,7 @@ pub mod openai_compat;
 pub mod rig_adapter;
 pub mod traits;
 
-pub use discovery::{discover_engines, get_engine, get_engine_static};
+pub use discovery::{discover_engines, get_engine_static};
 pub use engine_enum::Engine;
 pub use ollama::OllamaEngine;
 pub use openai_compat::OpenAICompatEngine;

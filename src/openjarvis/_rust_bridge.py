@@ -1,48 +1,38 @@
 """Single point of contact between Python and the Rust ``openjarvis_rust`` module.
 
 Every Python module that wants to delegate to Rust should import helpers from
-here rather than importing ``openjarvis_rust`` directly.  This keeps the
-try/except logic in one place, honours the ``OPENJARVIS_NO_RUST`` env-var
-override, and provides JSON-to-dataclass converters.
+here rather than importing ``openjarvis_rust`` directly.  The Rust backend is
+mandatory — if it cannot be imported, a hard ``ImportError`` is raised.
 """
 
 from __future__ import annotations
 
 import functools
 import json
-import os
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, List
 
 if TYPE_CHECKING:
     import types as _types
 
 # ---------------------------------------------------------------------------
-# Cached import
+# Mandatory import — Rust backend is required
 # ---------------------------------------------------------------------------
 
 
 @functools.lru_cache(maxsize=1)
-def get_rust_module() -> Optional[_types.ModuleType]:
-    """Return the ``openjarvis_rust`` module, or ``None`` if unavailable.
+def get_rust_module() -> _types.ModuleType:
+    """Return the ``openjarvis_rust`` module.
 
-    Setting ``OPENJARVIS_NO_RUST=1`` forces pure-Python mode regardless of
-    whether the compiled extension is importable.
+    Raises ``ImportError`` if the compiled extension is not available.
+    The Rust backend is mandatory for all modules that have Rust
+    implementations — there is no Python fallback.
     """
-    if os.environ.get("OPENJARVIS_NO_RUST", "").strip() in (
-        "1",
-        "true",
-        "yes",
-    ):
-        return None
-    try:
-        import openjarvis_rust  # type: ignore[import-untyped]
+    import openjarvis_rust  # type: ignore[import-untyped]
 
-        return openjarvis_rust
-    except ImportError:
-        return None
+    return openjarvis_rust
 
 
-RUST_AVAILABLE: bool = get_rust_module() is not None
+RUST_AVAILABLE: bool = True
 
 
 # ---------------------------------------------------------------------------

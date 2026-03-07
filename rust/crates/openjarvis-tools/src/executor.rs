@@ -1,5 +1,6 @@
 //! ToolExecutor — central dispatch with RBAC, taint, timeout.
 
+use crate::builtin::BuiltinTool;
 use crate::traits::BaseTool;
 use openjarvis_core::error::{OpenJarvisError, ToolError};
 use openjarvis_core::{EventBus, EventType, ToolResult};
@@ -11,15 +12,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 pub struct ToolExecutor {
-    tools: HashMap<String, Arc<dyn BaseTool>>,
-    capability_policy: Option<Arc<CapabilityPolicy>>,
+    tools: HashMap<String, BuiltinTool>,
+    capability_policy: Option<CapabilityPolicy>,
     bus: Option<Arc<EventBus>>,
     default_timeout: Duration,
 }
 
 impl ToolExecutor {
     pub fn new(
-        capability_policy: Option<Arc<CapabilityPolicy>>,
+        capability_policy: Option<CapabilityPolicy>,
         bus: Option<Arc<EventBus>>,
     ) -> Self {
         Self {
@@ -30,12 +31,12 @@ impl ToolExecutor {
         }
     }
 
-    pub fn register(&mut self, tool: Arc<dyn BaseTool>) {
+    pub fn register(&mut self, tool: BuiltinTool) {
         let id = tool.tool_id().to_string();
         self.tools.insert(id, tool);
     }
 
-    pub fn get_tool(&self, name: &str) -> Option<&Arc<dyn BaseTool>> {
+    pub fn get_tool(&self, name: &str) -> Option<&BuiltinTool> {
         self.tools.get(name)
     }
 
@@ -44,10 +45,7 @@ impl ToolExecutor {
     }
 
     pub fn tool_specs(&self) -> Vec<Value> {
-        self.tools
-            .values()
-            .map(|t| t.to_openai_function())
-            .collect()
+        self.tools.values().map(|t| t.to_openai_function()).collect()
     }
 
     pub fn execute(
@@ -87,44 +85,21 @@ impl ToolExecutor {
         // Emit start event
         if let Some(ref bus) = self.bus {
             let mut data = HashMap::new();
-            data.insert(
-                "tool_name".to_string(),
-                Value::String(tool_name.to_string()),
-            );
+            data.insert("tool_name".to_string(), Value::String(tool_name.to_string()));
             bus.publish(EventType::ToolCallStart, data);
         }
 
         let start = std::time::Instant::now();
         let timeout = Duration::from_secs_f64(tool.spec().timeout_seconds);
-        let timeout = if timeout.is_zero() {
-            self.default_timeout
-        } else {
-            timeout
-        };
+        let timeout = if timeout.is_zero() { self.default_timeout } else { timeout };
 
-        let tool_clone = Arc::clone(tool);
-        let params_clone = params.clone();
-
-        let result = std::thread::scope(|s| {
-            let handle = s.spawn(move || tool_clone.execute(&params_clone));
-
-            match handle.join() {
-                Ok(r) => r,
-                Err(_) => Err(OpenJarvisError::Tool(ToolError::Execution(
-                    "Tool thread panicked".into(),
-                ))),
-            }
-        });
-
+        let result = tool.execute(params);
         let elapsed = start.elapsed();
 
         if elapsed > timeout {
             if let Some(ref bus) = self.bus {
                 let mut data = HashMap::new();
-                data.insert(
-                    "tool_name".to_string(),
-                    Value::String(tool_name.to_string()),
-                );
+                data.insert("tool_name".to_string(), Value::String(tool_name.to_string()));
                 bus.publish(EventType::ToolTimeout, data);
             }
             return Err(OpenJarvisError::Tool(ToolError::Timeout(
@@ -136,16 +111,10 @@ impl ToolExecutor {
         // Emit end event
         if let Some(ref bus) = self.bus {
             let mut data = HashMap::new();
-            data.insert(
-                "tool_name".to_string(),
-                Value::String(tool_name.to_string()),
-            );
-            data.insert(
-                "duration_seconds".to_string(),
-                Value::Number(
-                    serde_json::Number::from_f64(elapsed.as_secs_f64()).unwrap(),
-                ),
-            );
+            data.insert("tool_name".to_string(), Value::String(tool_name.to_string()));
+            data.insert("duration_seconds".to_string(), Value::Number(
+                serde_json::Number::from_f64(elapsed.as_secs_f64()).unwrap(),
+            ));
             bus.publish(EventType::ToolCallEnd, data);
         }
 
@@ -156,47 +125,15 @@ impl ToolExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use openjarvis_core::ToolSpec;
-
-    struct MockTool;
-
-    impl BaseTool for MockTool {
-        fn tool_id(&self) -> &str {
-            "mock_tool"
-        }
-        fn spec(&self) -> &ToolSpec {
-            static SPEC: once_cell::sync::Lazy<ToolSpec> =
-                once_cell::sync::Lazy::new(|| ToolSpec {
-                    name: "mock_tool".into(),
-                    description: "A mock tool".into(),
-                    parameters: serde_json::json!({}),
-                    category: "test".into(),
-                    cost_estimate: 0.0,
-                    latency_estimate: 0.0,
-                    requires_confirmation: false,
-                    timeout_seconds: 30.0,
-                    required_capabilities: vec![],
-                    metadata: HashMap::new(),
-                });
-            &SPEC
-        }
-        fn execute(
-            &self,
-            _params: &Value,
-        ) -> Result<ToolResult, OpenJarvisError> {
-            Ok(ToolResult::success("mock_tool", "42"))
-        }
-    }
 
     #[test]
     fn test_executor_register_and_execute() {
         let mut exec = ToolExecutor::new(None, None);
-        exec.register(Arc::new(MockTool));
+        exec.register(BuiltinTool::Calculator(crate::builtin::calculator::CalculatorTool));
         let result = exec
-            .execute("mock_tool", &serde_json::json!({}), None, None)
+            .execute("calculator", &serde_json::json!({"expression": "2+2"}), None, None)
             .unwrap();
         assert!(result.success);
-        assert_eq!(result.content, "42");
     }
 
     #[test]

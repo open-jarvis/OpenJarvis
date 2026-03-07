@@ -1,24 +1,67 @@
 //! PyO3 bindings for agent types.
 //!
-//! At the Python boundary, agents use `Box<dyn OjAgent>` for type erasure
-//! since Python can't handle Rust generics. The shared tokio Runtime
-//! bridges async→sync.
+//! Uses `AgentEnum` for static dispatch instead of `Box<dyn OjAgent>`.
 
 use crate::core::PyAgentResult;
 use crate::RUNTIME;
 use openjarvis_agents::OjAgent;
+use openjarvis_engine::rig_adapter::RigModelAdapter;
+use openjarvis_engine::Engine;
 use pyo3::prelude::*;
 use std::sync::Arc;
 
-/// Python wrapper for SimpleAgent (type-erased via Box<dyn OjAgent>).
+type DefaultAdapter = RigModelAdapter<Engine>;
+
+enum AgentEnum {
+    Simple(openjarvis_agents::SimpleAgent<DefaultAdapter>),
+    Orchestrator(openjarvis_agents::OrchestratorAgent<DefaultAdapter>),
+    NativeReAct(openjarvis_agents::NativeReActAgent<DefaultAdapter>),
+}
+
+impl AgentEnum {
+    fn agent_id(&self) -> &str {
+        match self {
+            AgentEnum::Simple(a) => a.agent_id(),
+            AgentEnum::Orchestrator(a) => a.agent_id(),
+            AgentEnum::NativeReAct(a) => a.agent_id(),
+        }
+    }
+
+    fn accepts_tools(&self) -> bool {
+        match self {
+            AgentEnum::Simple(a) => a.accepts_tools(),
+            AgentEnum::Orchestrator(a) => a.accepts_tools(),
+            AgentEnum::NativeReAct(a) => a.accepts_tools(),
+        }
+    }
+
+    async fn run(
+        &self,
+        input: &str,
+        context: Option<&openjarvis_core::AgentContext>,
+    ) -> Result<openjarvis_core::AgentResult, openjarvis_core::OpenJarvisError> {
+        match self {
+            AgentEnum::Simple(a) => a.run(input, context).await,
+            AgentEnum::Orchestrator(a) => a.run(input, context).await,
+            AgentEnum::NativeReAct(a) => a.run(input, context).await,
+        }
+    }
+}
+
+fn make_adapter(engine_key: &str, model: &str) -> PyResult<DefaultAdapter> {
+    let config = openjarvis_core::JarvisConfig::default();
+    let engine = openjarvis_engine::get_engine_static(&config, Some(engine_key))
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+    Ok(RigModelAdapter::new(Arc::new(engine), model.to_string()))
+}
+
 #[pyclass(name = "SimpleAgent")]
 pub struct PySimpleAgent {
-    inner: Box<dyn OjAgent>,
+    inner: AgentEnum,
 }
 
 #[pymethods]
 impl PySimpleAgent {
-    /// Create a SimpleAgent backed by an Engine enum.
     #[new]
     #[pyo3(signature = (engine_key="ollama", host="http://localhost:11434", model="qwen3:8b", system_prompt="You are a helpful assistant.", temperature=0.7))]
     fn new(
@@ -28,17 +71,9 @@ impl PySimpleAgent {
         system_prompt: &str,
         temperature: f64,
     ) -> PyResult<Self> {
-        let config = openjarvis_core::JarvisConfig::default();
-        let engine = openjarvis_engine::get_engine_static(&config, Some(engine_key))
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
-        let adapter = openjarvis_engine::rig_adapter::RigModelAdapter::new(
-            Arc::new(engine),
-            model.to_string(),
-        );
+        let adapter = make_adapter(engine_key, model)?;
         let agent = openjarvis_agents::SimpleAgent::new(adapter, system_prompt, temperature);
-        Ok(Self {
-            inner: Box::new(agent),
-        })
+        Ok(Self { inner: AgentEnum::Simple(agent) })
     }
 
     fn agent_id(&self) -> &str {
@@ -60,10 +95,9 @@ impl PySimpleAgent {
     }
 }
 
-/// Python wrapper for OrchestratorAgent.
 #[pyclass(name = "OrchestratorAgent")]
 pub struct PyOrchestratorAgent {
-    inner: Box<dyn OjAgent>,
+    inner: AgentEnum,
 }
 
 #[pymethods]
@@ -78,24 +112,12 @@ impl PyOrchestratorAgent {
         max_turns: usize,
         temperature: f64,
     ) -> PyResult<Self> {
-        let config = openjarvis_core::JarvisConfig::default();
-        let engine = openjarvis_engine::get_engine_static(&config, Some(engine_key))
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
-        let adapter = openjarvis_engine::rig_adapter::RigModelAdapter::new(
-            Arc::new(engine),
-            model.to_string(),
-        );
+        let adapter = make_adapter(engine_key, model)?;
         let executor = Arc::new(openjarvis_tools::ToolExecutor::new(None, None));
         let agent = openjarvis_agents::OrchestratorAgent::new(
-            adapter,
-            system_prompt,
-            executor,
-            max_turns,
-            temperature,
+            adapter, system_prompt, executor, max_turns, temperature,
         );
-        Ok(Self {
-            inner: Box::new(agent),
-        })
+        Ok(Self { inner: AgentEnum::Orchestrator(agent) })
     }
 
     fn agent_id(&self) -> &str {
@@ -117,10 +139,9 @@ impl PyOrchestratorAgent {
     }
 }
 
-/// Python wrapper for NativeReActAgent.
 #[pyclass(name = "NativeReActAgent")]
 pub struct PyNativeReActAgent {
-    inner: Box<dyn OjAgent>,
+    inner: AgentEnum,
 }
 
 #[pymethods]
@@ -134,23 +155,12 @@ impl PyNativeReActAgent {
         max_turns: usize,
         temperature: f64,
     ) -> PyResult<Self> {
-        let config = openjarvis_core::JarvisConfig::default();
-        let engine = openjarvis_engine::get_engine_static(&config, Some(engine_key))
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
-        let adapter = openjarvis_engine::rig_adapter::RigModelAdapter::new(
-            Arc::new(engine),
-            model.to_string(),
-        );
+        let adapter = make_adapter(engine_key, model)?;
         let executor = Arc::new(openjarvis_tools::ToolExecutor::new(None, None));
         let agent = openjarvis_agents::NativeReActAgent::new(
-            adapter,
-            executor,
-            max_turns,
-            temperature,
+            adapter, executor, max_turns, temperature,
         );
-        Ok(Self {
-            inner: Box::new(agent),
-        })
+        Ok(Self { inner: AgentEnum::NativeReAct(agent) })
     }
 
     fn agent_id(&self) -> &str {
@@ -172,7 +182,6 @@ impl PyNativeReActAgent {
     }
 }
 
-/// Python wrapper for LoopGuard.
 #[pyclass(name = "LoopGuard")]
 pub struct PyLoopGuard {
     inner: openjarvis_agents::LoopGuard,

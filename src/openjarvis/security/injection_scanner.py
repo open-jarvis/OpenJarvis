@@ -126,35 +126,12 @@ class InjectionScanner:
         ]
         from openjarvis._rust_bridge import get_rust_module
         _rust = get_rust_module()
-        self._rust_impl = _rust.InjectionScanner() if _rust else None
+        self._rust_impl = _rust.InjectionScanner()
 
     def scan(self, text: str) -> InjectionScanResult:
-        """Scan text for injection patterns."""
-        if self._rust_impl is not None:
-            from openjarvis._rust_bridge import injection_result_from_json
-            return injection_result_from_json(self._rust_impl.scan(text))
-        findings: List[ScanFinding] = []
-        max_threat = ThreatLevel.LOW
-
-        for pattern, name, level, desc in self._patterns:
-            for match in pattern.finditer(text):
-                findings.append(ScanFinding(
-                    pattern_name=name,
-                    matched_text=match.group(0)[:100],
-                    threat_level=level,
-                    start=match.start(),
-                    end=match.end(),
-                    description=desc,
-                ))
-                idx = _THREAT_ORDER.index(level)
-                if idx > _THREAT_ORDER.index(max_threat):
-                    max_threat = level
-
-        return InjectionScanResult(
-            is_clean=len(findings) == 0,
-            findings=findings,
-            threat_level=max_threat if findings else ThreatLevel.LOW,
-        )
+        """Scan text for injection patterns — always via Rust backend."""
+        from openjarvis._rust_bridge import injection_result_from_json
+        return injection_result_from_json(self._rust_impl.scan(text))
 
 
 __all__ = ["InjectionScanner", "InjectionScanResult"]

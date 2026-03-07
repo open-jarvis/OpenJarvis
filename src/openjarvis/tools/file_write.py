@@ -155,10 +155,9 @@ class FileWriteTool(BaseTool):
                     success=False,
                 )
 
-        # Write content — delegate to Rust for write mode if available
         from openjarvis._rust_bridge import get_rust_module
         _rust = get_rust_module()
-        if _rust is not None and mode == "write":
+        if mode == "write":
             try:
                 _rust.FileWriteTool().execute(str(path), content)
             except Exception as exc:
@@ -167,15 +166,9 @@ class FileWriteTool(BaseTool):
                     content=f"Write error: {exc}",
                     success=False,
                 )
-        elif mode == "write":
+        elif False:  # dead code — all write modes go through Rust
             try:
                 path.write_text(content, encoding="utf-8")
-            except PermissionError as exc:
-                return ToolResult(
-                    tool_name="file_write",
-                    content=f"Permission denied: {exc}",
-                    success=False,
-                )
             except OSError as exc:
                 return ToolResult(
                     tool_name="file_write",

@@ -42,47 +42,6 @@ pub trait InferenceEngine: Send + Sync {
     fn prepare(&self, _model: &str) {}
 }
 
-/// Blanket impl: `Arc<dyn InferenceEngine>` delegates to the inner engine.
-/// This enables generic wrappers like `GuardrailsEngine<Arc<dyn InferenceEngine>>`.
-#[async_trait::async_trait]
-impl InferenceEngine for std::sync::Arc<dyn InferenceEngine> {
-    fn engine_id(&self) -> &str {
-        (**self).engine_id()
-    }
-    fn generate(
-        &self,
-        messages: &[Message],
-        model: &str,
-        temperature: f64,
-        max_tokens: i64,
-        extra: Option<&Value>,
-    ) -> Result<GenerateResult, openjarvis_core::OpenJarvisError> {
-        (**self).generate(messages, model, temperature, max_tokens, extra)
-    }
-    async fn stream(
-        &self,
-        messages: &[Message],
-        model: &str,
-        temperature: f64,
-        max_tokens: i64,
-        extra: Option<&Value>,
-    ) -> Result<TokenStream, openjarvis_core::OpenJarvisError> {
-        (**self).stream(messages, model, temperature, max_tokens, extra).await
-    }
-    fn list_models(&self) -> Result<Vec<String>, openjarvis_core::OpenJarvisError> {
-        (**self).list_models()
-    }
-    fn health(&self) -> bool {
-        (**self).health()
-    }
-    fn close(&self) {
-        (**self).close()
-    }
-    fn prepare(&self, model: &str) {
-        (**self).prepare(model)
-    }
-}
-
 /// Convert `Message` structs to OpenAI-compatible JSON dicts.
 pub fn messages_to_dicts(messages: &[Message]) -> Vec<Value> {
     messages

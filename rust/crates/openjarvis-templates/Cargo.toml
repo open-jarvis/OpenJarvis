@@ -1,0 +1,10 @@
+[package]
+name = "openjarvis-templates"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+openjarvis-core = { path = "../openjarvis-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }

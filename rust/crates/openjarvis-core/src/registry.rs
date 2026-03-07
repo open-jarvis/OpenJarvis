@@ -103,9 +103,6 @@ impl<T: Send + Sync + 'static> TypedRegistry<T> {
 use crate::types::ModelSpec;
 use once_cell::sync::Lazy;
 
-/// Factory function type for creating engine instances.
-pub type FactoryFn<T> = Box<dyn Fn() -> Box<T> + Send + Sync>;
-
 /// Registry for `ModelSpec` objects.
 pub static MODEL_REGISTRY: Lazy<TypedRegistry<ModelSpec>> =
     Lazy::new(|| TypedRegistry::new("ModelRegistry"));
@@ -213,7 +210,7 @@ mod tests {
 
     #[test]
     fn test_model_registry() {
-        MODEL_REGISTRY.clear();
+        let reg = TypedRegistry::<ModelSpec>::new("TestModelRegistry");
         let spec = ModelSpec {
             model_id: "test:1b".into(),
             name: "Test 1B".into(),
@@ -227,8 +224,7 @@ mod tests {
             requires_api_key: false,
             metadata: std::collections::HashMap::new(),
         };
-        MODEL_REGISTRY.register("test:1b", spec).unwrap();
-        assert!(MODEL_REGISTRY.contains("test:1b"));
-        MODEL_REGISTRY.clear();
+        reg.register("test:1b", spec).unwrap();
+        assert!(reg.contains("test:1b"));
     }
 }
