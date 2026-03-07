@@ -38,13 +38,5 @@ num_gpus = 4
 
 [[benchmarks]]
 name = "lifelong-agent"
-backend = "jarvis-agent"
-agent = "monitor_operative"
+backend = "jarvis-direct"
 max_samples = 50
-tools = [
-    "think", "calculator", "code_interpreter",
-    "shell_exec", "file_read",
-    "memory_store", "memory_search", "memory_retrieve",
-    "kg_add_entity", "kg_add_relation", "kg_query", "kg_neighbors",
-    "db_query", "web_search", "http_request",
-]

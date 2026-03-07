@@ -173,10 +173,16 @@ class LifelongAgentDataset(DatasetProvider):
                 steps = "\n".join(f"  {i+1}. {a}" for i, a in enumerate(action_list))
                 action_desc = f"\n\nKG Operations:\n{steps}"
 
+        s_expr = row.get("s_expression", "")
+        s_expr_desc = ""
+        if s_expr:
+            s_expr_desc = f"\n\nStructured Query:\n{s_expr}"
+
         problem = (
             f"{_KG_SYSTEM}\n\n"
             f"{entity_desc}"
-            f"{action_desc}\n\n"
+            f"{action_desc}"
+            f"{s_expr_desc}\n\n"
             f"Question: {question}"
         )
 

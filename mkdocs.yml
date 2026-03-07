@@ -1,9 +1,9 @@
 site_name: OpenJarvis
-site_url: https://hazyresearch.stanford.edu/OpenJarvis/
+site_url: https://open-jarvis.github.io/OpenJarvis/
 site_description: Composable, Programmable Systems for On-Device, Personal AI
 site_author: OpenJarvis Contributors
-repo_url: https://github.com/HazyResearch/OpenJarvis
-repo_name: HazyResearch/OpenJarvis
+repo_url: https://github.com/open-jarvis/OpenJarvis
+repo_name: open-jarvis/OpenJarvis
 edit_uri: edit/main/docs/
 
 copyright: Copyright &copy; 2026 OpenJarvis Contributors
@@ -125,7 +125,7 @@ markdown_extensions:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/HazyResearch/OpenJarvis
+      link: https://github.com/open-jarvis/OpenJarvis
 
 nav:
   - Home: index.md

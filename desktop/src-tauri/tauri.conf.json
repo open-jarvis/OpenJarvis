@@ -58,7 +58,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFFNzUzMzhEOEY2MjNEMDMKUldRRFBXS1BqVE4xSG8vK0lkUWN4WnZQYVIrbmc4RmpoOGlJWTBLTE15RlIya3JvQisvdUR3a0QK",
       "endpoints": [
-        "https://github.com/HazyResearch/OpenJarvis/releases/download/desktop-latest/latest.json"
+        "https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-latest/latest.json"
       ]
     }
   }

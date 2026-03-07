@@ -19,7 +19,7 @@ import {
 import { isTauri, checkHealth } from '../lib/api';
 
 const GITHUB_BASE =
-  'https://github.com/hazy/OpenJarvis/releases/latest/download';
+  'https://github.com/open-jarvis/OpenJarvis/releases/latest/download';
 
 interface Platform {
   id: string;
@@ -432,7 +432,7 @@ function SelfHostedView() {
           <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
             Deploy with Docker Compose for a zero-setup hosted instance:
           </p>
-          <CodeBlock code="git clone https://github.com/hazy/OpenJarvis.git\ncd OpenJarvis\ndocker compose -f deploy/docker/docker-compose.yml up -d" />
+          <CodeBlock code="git clone https://github.com/open-jarvis/OpenJarvis.git\ncd OpenJarvis\ndocker compose -f deploy/docker/docker-compose.yml up -d" />
           <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
             This starts both the API server and Ollama. The web UI is bundled and
             served automatically at port 8000.

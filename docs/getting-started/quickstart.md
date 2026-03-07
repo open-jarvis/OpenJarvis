@@ -15,7 +15,7 @@ This guide walks through the core workflows of OpenJarvis: the browser app, CLI,
 The quickest way to experience OpenJarvis is the full chat UI running in your browser:
 
 ```bash
-git clone https://github.com/HazyResearch/OpenJarvis.git
+git clone https://github.com/open-jarvis/OpenJarvis.git
 cd OpenJarvis
 ./scripts/quickstart.sh
 ```

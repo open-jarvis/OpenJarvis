@@ -65,7 +65,7 @@ Available types: `note`, `abstract`, `info`, `tip`, `success`, `question`, `warn
 === "From Source"
 
     ```bash
-    git clone https://github.com/jonsaadfalcon/OpenJarvis.git
+    git clone https://github.com/open-jarvis/OpenJarvis.git
     cd OpenJarvis
     uv sync --extra dev
     ```
