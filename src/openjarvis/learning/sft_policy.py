@@ -7,10 +7,13 @@ is a *trace-driven routing* policy.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List
 
 from openjarvis.core.registry import LearningRegistry
 from openjarvis.learning._stubs import IntelligenceLearningPolicy
+
+logger = logging.getLogger(__name__)
 
 
 @LearningRegistry.register("sft")
@@ -31,7 +34,8 @@ class SFTRouterPolicy(IntelligenceLearningPolicy):
         """Analyze trace outcomes and update the policy map."""
         try:
             traces = trace_store.list_traces()
-        except Exception:
+        except Exception as exc:
+            logger.warning("SFT policy update failed: %s", exc)
             return {"updated": False, "reason": "Could not access trace store"}
 
         # Group traces by query class and model

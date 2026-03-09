@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List
 
 from openjarvis.core.registry import LearningRegistry
 from openjarvis.learning._stubs import AgentLearningPolicy
+
+logger = logging.getLogger(__name__)
 
 
 @LearningRegistry.register("agent_advisor")
@@ -31,7 +34,8 @@ class AgentAdvisorPolicy(AgentLearningPolicy):
         """Analyze traces and return agent improvement recommendations."""
         try:
             traces = trace_store.list_traces()
-        except Exception:
+        except Exception as exc:
+            logger.warning("Agent advisor analysis failed: %s", exc)
             return {"recommendations": [], "confidence": 0.0}
 
         # Collect failing or slow traces
@@ -57,8 +61,8 @@ class AgentAdvisorPolicy(AgentLearningPolicy):
             try:
                 lm_recs = self._get_lm_recommendations(problem_traces)
                 recommendations.extend(lm_recs)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to parse agent advisor recommendation: %s", exc)
 
         confidence = 1.0 - (len(problem_traces) / max(len(traces), 1))
         return {

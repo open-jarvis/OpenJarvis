@@ -13,6 +13,7 @@ imported without GPU dependencies.
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -31,6 +32,8 @@ except ImportError:
 
 from openjarvis.core.registry import LearningRegistry
 from openjarvis.learning._stubs import IntelligenceLearningPolicy
+
+logger = logging.getLogger(__name__)
 
 
 def _select_torch_device():
@@ -160,8 +163,8 @@ class OrchestratorGRPOTrainer:
                     lr=self.config.learning_rate,
                 )
                 return
-            except ImportError:
-                pass
+            except ImportError as exc:
+                logger.debug("FP8 not available for GRPO: %s", exc)
 
         self.optimizer = torch.optim.AdamW(
             self.policy.model.parameters(),

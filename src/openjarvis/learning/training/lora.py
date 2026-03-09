@@ -359,8 +359,8 @@ class LoRATrainer:
                 return self.tokenizer.apply_chat_template(
                     messages, tokenize=False, add_generation_prompt=False
                 )
-            except Exception:
-                pass  # fall through to manual format
+            except Exception as exc:
+                logger.debug("Auto chat template failed, using manual format: %s", exc)
 
         eos = ""
         if self.tokenizer is not None:

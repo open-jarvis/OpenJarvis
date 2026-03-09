@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional
 
 from openjarvis.core.registry import LearningRegistry
 from openjarvis.learning._stubs import AgentLearningPolicy
+
+logger = logging.getLogger(__name__)
 
 
 @LearningRegistry.register("icl_updater")
@@ -40,7 +43,8 @@ class ICLUpdaterPolicy(AgentLearningPolicy):
         """Analyze traces and extract ICL examples + skills."""
         try:
             traces = trace_store.list_traces()
-        except Exception:
+        except Exception as exc:
+            logger.warning("ICL updater failed: %s", exc)
             return {"examples": [], "skills": []}
 
         # Extract high-scoring traces with tool calls

@@ -8,6 +8,7 @@ module can be imported without GPU dependencies.
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any, List, Optional
 
@@ -25,6 +26,8 @@ try:
 except ImportError:
     HAS_TORCH = False
     torch = None  # type: ignore[assignment]
+
+logger = logging.getLogger(__name__)
 
 
 class OrchestratorPolicyModel:
@@ -98,8 +101,8 @@ class OrchestratorPolicyModel:
                 model_kwargs["quantization_config"] = BitsAndBytesConfig(
                     load_in_8bit=True
                 )
-            except ImportError:
-                pass  # fall back to bf16
+            except ImportError as exc:
+                logger.debug("FP8 not available, falling back to BF16: %s", exc)
 
         if device is not None:
             if device == "auto":

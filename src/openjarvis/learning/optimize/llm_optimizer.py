@@ -8,6 +8,7 @@ rewards guides the optimizer toward better configurations.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import uuid
 from typing import Any, Dict, List, Optional
@@ -23,6 +24,8 @@ from openjarvis.learning.optimize.types import (
     TrialFeedback,
     TrialResult,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class LLMOptimizer:
@@ -594,7 +597,10 @@ class LLMOptimizer:
                         if isinstance(data, dict):
                             raw_json = json.dumps(data)
                             break
-                    except json.JSONDecodeError:
+                    except json.JSONDecodeError as exc:
+                        logger.debug(
+                            "Failed to parse LLM optimizer JSON response: %s", exc,
+                        )
                         continue
 
         if raw_json:
@@ -607,8 +613,8 @@ class LLMOptimizer:
                     suggested_changes=data.get("suggested_changes", []),
                     target_pillar=data.get("target_pillar", ""),
                 )
-            except json.JSONDecodeError:
-                pass
+            except json.JSONDecodeError as exc:
+                logger.debug("Failed to parse LLM optimizer JSON response: %s", exc)
 
         # Fallback: wrap raw text as summary
         return TrialFeedback(summary_text=response)
@@ -630,8 +636,8 @@ class LLMOptimizer:
             try:
                 data = json.loads(raw_json)
                 return self._config_from_dict(data, trial_id)
-            except json.JSONDecodeError:
-                pass
+            except json.JSONDecodeError as exc:
+                logger.debug("Failed to parse LLM optimizer JSON response: %s", exc)
 
         # Try to extract from a generic ``` code block
         code_block_match = re.search(
@@ -642,8 +648,8 @@ class LLMOptimizer:
             try:
                 data = json.loads(raw_json)
                 return self._config_from_dict(data, trial_id)
-            except json.JSONDecodeError:
-                pass
+            except json.JSONDecodeError as exc:
+                logger.debug("Failed to parse LLM optimizer JSON response: %s", exc)
 
         # Try to find a raw JSON object in the response by scanning
         # for each '{' and attempting to parse from that position.
@@ -653,7 +659,8 @@ class LLMOptimizer:
                 data, _ = decoder.raw_decode(response, m.start())
                 if isinstance(data, dict):
                     return self._config_from_dict(data, trial_id)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as exc:
+                logger.debug("Failed to parse LLM optimizer JSON response: %s", exc)
                 continue
 
         # Last resort: return config with at least the fixed params

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import List, Optional
 
 from openjarvis.core.registry import ModelRegistry
 from openjarvis.core.types import RoutingContext
 from openjarvis.learning._stubs import QueryAnalyzer, RouterPolicy
+
+logger = logging.getLogger(__name__)
 
 # Detection patterns
 _CODE_PATTERNS = re.compile(
@@ -43,7 +46,8 @@ def _model_size(key: str) -> float:
     try:
         spec = ModelRegistry.get(key)
         return spec.parameter_count_b
-    except (KeyError, AttributeError):
+    except (KeyError, AttributeError) as exc:
+        logger.debug("Failed to compute model score: %s", exc)
         return 0.0
 
 

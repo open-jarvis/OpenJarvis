@@ -8,6 +8,7 @@ imports are guarded so the module can be imported without GPU dependencies.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterator, List
@@ -26,6 +27,8 @@ except ImportError:
 
 from openjarvis.core.registry import LearningRegistry
 from openjarvis.learning._stubs import IntelligenceLearningPolicy
+
+logger = logging.getLogger(__name__)
 
 
 def _select_torch_device():
@@ -172,8 +175,8 @@ class OrchestratorSFTDataset:
                 return self.tokenizer.apply_chat_template(
                     messages, tokenize=False, add_generation_prompt=False
                 )
-            except Exception:
-                pass  # fall through
+            except Exception as exc:
+                logger.debug("Auto chat template failed, using fallback: %s", exc)
 
         # Manual fallback
         parts: list[str] = []
