@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from contextlib import contextmanager
@@ -12,6 +13,8 @@ from openjarvis.telemetry.energy_monitor import (
     EnergySample,
     EnergyVendor,
 )
+
+logger = logging.getLogger(__name__)
 
 try:
     import pynvml
@@ -56,7 +59,8 @@ class NvidiaEnergyMonitor(EnergyMonitor):
                         self._device_name = self._device_name.decode()
                 self._initialized = True
                 self._hw_counter_available = self._probe_hw_counter()
-            except Exception:
+            except Exception as exc:
+                logger.debug("NVIDIA energy monitor initialization failed: %s", exc)
                 self._initialized = False
 
     def _probe_hw_counter(self) -> bool:
@@ -66,7 +70,8 @@ class NvidiaEnergyMonitor(EnergyMonitor):
         try:
             pynvml.nvmlDeviceGetTotalEnergyConsumption(self._handles[0])
             return True
-        except Exception:
+        except Exception as exc:
+            logger.debug("NVIDIA energy query support check failed: %s", exc)
             return False
 
     @staticmethod
@@ -78,7 +83,8 @@ class NvidiaEnergyMonitor(EnergyMonitor):
             count = pynvml.nvmlDeviceGetCount()
             pynvml.nvmlShutdown()
             return count > 0
-        except Exception:
+        except Exception as exc:
+            logger.debug("NVIDIA energy monitor availability check failed: %s", exc)
             return False
 
     def vendor(self) -> EnergyVendor:
@@ -94,7 +100,8 @@ class NvidiaEnergyMonitor(EnergyMonitor):
             try:
                 mj = pynvml.nvmlDeviceGetTotalEnergyConsumption(handle)
                 readings.append(float(mj))
-            except Exception:
+            except Exception as exc:
+                logger.debug("Failed to read NVIDIA GPU power: %s", exc)
                 readings.append(0.0)
         return readings
 
@@ -116,8 +123,8 @@ class NvidiaEnergyMonitor(EnergyMonitor):
                 utils.append(float(util.gpu))
                 mems.append(mem_info.used / (1024**3))
                 temps.append(float(temp))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to read NVIDIA GPU metrics: %s", exc)
         return powers, utils, mems, temps
 
     def _polling_loop(
@@ -240,8 +247,8 @@ class NvidiaEnergyMonitor(EnergyMonitor):
         if self._initialized:
             try:
                 pynvml.nvmlShutdown()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to shut down NVIDIA energy monitor: %s", exc)
             self._initialized = False
 
 

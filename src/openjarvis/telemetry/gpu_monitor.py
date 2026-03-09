@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Dict, Generator, List, Optional
+
+logger = logging.getLogger(__name__)
 
 try:
     import pynvml
@@ -129,7 +132,8 @@ class GpuMonitor:
                     for i in range(self._device_count)
                 ]
                 self._initialized = True
-            except Exception:
+            except Exception as exc:
+                logger.debug("GPU monitor initialization failed: %s", exc)
                 self._initialized = False
 
     @staticmethod
@@ -141,7 +145,8 @@ class GpuMonitor:
             pynvml.nvmlInit()
             pynvml.nvmlShutdown()
             return True
-        except Exception:
+        except Exception as exc:
+            logger.debug("GPU monitor availability check failed: %s", exc)
             return False
 
     # -- polling thread internals ---------------------------------------------
@@ -166,8 +171,8 @@ class GpuMonitor:
                         device_id=idx,
                     )
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to read GPU metrics: %s", exc)
         return snapshots
 
     def _polling_loop(
@@ -306,8 +311,8 @@ class GpuMonitor:
         if self._initialized:
             try:
                 pynvml.nvmlShutdown()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to shut down GPU monitor: %s", exc)
             self._initialized = False
 
 

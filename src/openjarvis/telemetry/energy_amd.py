@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from contextlib import contextmanager
 from typing import Generator, List, Tuple
@@ -11,6 +12,8 @@ from openjarvis.telemetry.energy_monitor import (
     EnergySample,
     EnergyVendor,
 )
+
+logger = logging.getLogger(__name__)
 
 try:
     import amdsmi
@@ -43,7 +46,8 @@ class AmdEnergyMonitor(EnergyMonitor):
                     info = amdsmi.amdsmi_get_gpu_asic_info(self._handles[0])
                     self._device_name = info.get("market_name", "AMD GPU")
                 self._initialized = True
-            except Exception:
+            except Exception as exc:
+                logger.debug("AMD SMI initialization failed: %s", exc)
                 self._initialized = False
 
     @staticmethod
@@ -55,7 +59,8 @@ class AmdEnergyMonitor(EnergyMonitor):
             handles = amdsmi.amdsmi_get_processor_handles()
             amdsmi.amdsmi_shut_down()
             return len(handles) > 0
-        except Exception:
+        except Exception as exc:
+            logger.debug("AMD energy monitor availability check failed: %s", exc)
             return False
 
     def vendor(self) -> EnergyVendor:
@@ -73,7 +78,8 @@ class AmdEnergyMonitor(EnergyMonitor):
                 accumulator = float(info.get("energy_accumulator", 0))
                 resolution = float(info.get("counter_resolution", 1.0))
                 readings.append((accumulator, resolution))
-            except Exception:
+            except Exception as exc:
+                logger.debug("Failed to read AMD GPU power: %s", exc)
                 readings.append((0.0, 1.0))
         return readings
 
@@ -123,8 +129,8 @@ class AmdEnergyMonitor(EnergyMonitor):
         if self._initialized:
             try:
                 amdsmi.amdsmi_shut_down()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to shut down AMD energy monitor: %s", exc)
             self._initialized = False
 
 

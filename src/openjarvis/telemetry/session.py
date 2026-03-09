@@ -5,6 +5,7 @@ Uses Rust ring buffer — Rust backend is mandatory.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from collections import deque
@@ -13,6 +14,8 @@ from typing import TYPE_CHECKING, Any, Deque, List, Optional
 
 if TYPE_CHECKING:
     from openjarvis.telemetry.energy_monitor import EnergyMonitor
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -107,8 +110,8 @@ class TelemetrySession:
                         gpu_mem_gb=es.mean_memory_used_gb,
                     )
                     self._buffer.push(sample)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to record telemetry session: %s", exc)
             self._stop_event.wait(interval_s)
 
     def start(self) -> None:

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
 from typing import List, Tuple
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -48,20 +51,21 @@ def _parse_histogram_buckets(
                 bound = float(le_str) if le_str != "+Inf" else math.inf
                 count_str = line.rsplit(None, 1)[-1]
                 buckets.append((bound, float(count_str)))
-            except (ValueError, IndexError):
+            except (ValueError, IndexError) as exc:
+                logger.debug("Failed to parse vLLM metric line: %s", exc)
                 continue
 
         elif line.startswith(f"{metric_prefix}_sum "):
             try:
                 sum_value = float(line.split()[-1])
-            except (ValueError, IndexError):
-                pass
+            except (ValueError, IndexError) as exc:
+                logger.debug("Failed to parse vLLM metric line: %s", exc)
 
         elif line.startswith(f"{metric_prefix}_count "):
             try:
                 count_value = float(line.split()[-1])
-            except (ValueError, IndexError):
-                pass
+            except (ValueError, IndexError) as exc:
+                logger.debug("Failed to parse vLLM metric line: %s", exc)
 
     buckets.sort(key=lambda x: x[0])
     return buckets, sum_value, count_value
@@ -113,8 +117,8 @@ def _parse_gauge(lines: List[str], metric_name: str) -> float:
         if line.startswith(f"{metric_name} "):
             try:
                 return float(line.split()[-1])
-            except (ValueError, IndexError):
-                pass
+            except (ValueError, IndexError) as exc:
+                logger.debug("Failed to parse vLLM metric line: %s", exc)
     return 0.0
 
 
@@ -129,7 +133,10 @@ class VLLMMetricsScraper:
         try:
             resp = httpx.get(f"{self._host}/metrics", timeout=5.0)
             resp.raise_for_status()
-        except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError):
+        except (
+            httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError,
+        ) as exc:
+            logger.debug("Failed to fetch vLLM metrics: %s", exc)
             return VLLMMetrics()
 
         return self._parse(resp.text)

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -111,7 +114,8 @@ class TelemetryAggregator:
         try:
             self._conn.execute(f"SELECT {col_name} FROM telemetry LIMIT 0")
             return True
-        except sqlite3.OperationalError:
+        except sqlite3.OperationalError as exc:
+            logger.debug("Telemetry aggregator table check failed: %s", exc)
             return False
 
     def per_model_stats(

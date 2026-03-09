@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
 from typing import Generator, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class EnergyVendor(str, Enum):
@@ -118,29 +121,29 @@ def create_energy_monitor(
         from openjarvis.telemetry.energy_nvidia import NvidiaEnergyMonitor
         vendor_map["nvidia"] = NvidiaEnergyMonitor
         default_order.append(NvidiaEnergyMonitor)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Failed to create energy monitor: %s", exc)
 
     try:
         from openjarvis.telemetry.energy_amd import AmdEnergyMonitor
         vendor_map["amd"] = AmdEnergyMonitor
         default_order.append(AmdEnergyMonitor)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Failed to create energy monitor: %s", exc)
 
     try:
         from openjarvis.telemetry.energy_apple import AppleEnergyMonitor
         vendor_map["apple"] = AppleEnergyMonitor
         default_order.append(AppleEnergyMonitor)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Failed to create energy monitor: %s", exc)
 
     try:
         from openjarvis.telemetry.energy_rapl import RaplEnergyMonitor
         vendor_map["cpu_rapl"] = RaplEnergyMonitor
         default_order.append(RaplEnergyMonitor)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Failed to create energy monitor: %s", exc)
 
     if prefer_vendor and prefer_vendor.lower() in vendor_map:
         preferred_cls = vendor_map[prefer_vendor.lower()]
@@ -154,7 +157,8 @@ def create_energy_monitor(
         try:
             if cls.available():
                 return cls(poll_interval_ms=poll_interval_ms)
-        except Exception:
+        except Exception as exc:
+            logger.debug("Energy monitor candidate failed: %s", exc)
             continue
 
     return None

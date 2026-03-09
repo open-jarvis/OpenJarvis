@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import platform
 import time
 from contextlib import contextmanager
@@ -13,6 +14,8 @@ from openjarvis.telemetry.energy_monitor import (
     EnergySample,
     EnergyVendor,
 )
+
+logger = logging.getLogger(__name__)
 
 _RAPL_BASE = Path("/sys/class/powercap/intel-rapl")
 
@@ -29,14 +32,16 @@ class RaplDomain:
         name_file = self.path / "name"
         try:
             return name_file.read_text().strip()
-        except (OSError, PermissionError):
+        except (OSError, PermissionError) as exc:
+            logger.debug("Failed to read RAPL domain name: %s", exc)
             return self.path.name
 
     def _read_max_energy(self) -> int:
         max_file = self.path / "max_energy_range_uj"
         try:
             return int(max_file.read_text().strip())
-        except (OSError, PermissionError, ValueError):
+        except (OSError, PermissionError, ValueError) as exc:
+            logger.debug("Failed to read RAPL max energy: %s", exc)
             return 0
 
     def read_energy_uj(self) -> int:
@@ -44,7 +49,8 @@ class RaplDomain:
         energy_file = self.path / "energy_uj"
         try:
             return int(energy_file.read_text().strip())
-        except (OSError, PermissionError, ValueError):
+        except (OSError, PermissionError, ValueError) as exc:
+            logger.debug("Failed to read RAPL energy: %s", exc)
             return 0
 
 
@@ -93,7 +99,8 @@ class RaplEnergyMonitor(EnergyMonitor):
             try:
                 self._domains = _discover_domains(rapl_base)
                 self._initialized = len(self._domains) > 0
-            except Exception:
+            except Exception as exc:
+                logger.debug("RAPL monitor initialization failed: %s", exc)
                 self._initialized = False
 
     @staticmethod

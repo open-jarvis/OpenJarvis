@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from pathlib import Path
 
 from openjarvis.core.events import Event, EventBus, EventType
 from openjarvis.core.types import TelemetryRecord
+
+logger = logging.getLogger(__name__)
 
 _CREATE_TABLE = """\
 CREATE TABLE IF NOT EXISTS telemetry (
@@ -123,7 +126,7 @@ class TelemetryStore:
                     f"ALTER TABLE telemetry ADD COLUMN {col_name} {col_def}",
                 )
             except sqlite3.OperationalError:
-                pass  # Column already exists
+                pass  # Column already exists — safe to ignore
         self._conn.commit()
 
     def record(self, rec: TelemetryRecord) -> None:
@@ -182,8 +185,8 @@ class TelemetryStore:
         if isinstance(rec, TelemetryRecord):
             try:
                 self.record(rec)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to record telemetry event: %s", exc)
 
     def close(self) -> None:
         """Close the underlying SQLite connection."""

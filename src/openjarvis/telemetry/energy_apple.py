@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import platform
 import subprocess
 import time
@@ -13,6 +14,8 @@ from openjarvis.telemetry.energy_monitor import (
     EnergySample,
     EnergyVendor,
 )
+
+logger = logging.getLogger(__name__)
 
 try:
     from zeus.device.soc.apple import AppleSiliconMonitor
@@ -50,7 +53,8 @@ def _detect_chip() -> tuple[str, float]:
             capture_output=True, text=True, timeout=3,
         )
         brand = r.stdout.strip()
-    except Exception:
+    except Exception as exc:
+        logger.debug("Failed to detect Apple Silicon chip brand: %s", exc)
         brand = ""
 
     for chip, tdp in sorted(_CHIP_TDP.items(), key=lambda kv: -len(kv[0])):
@@ -78,8 +82,8 @@ class AppleEnergyMonitor(EnergyMonitor):
             try:
                 self._monitor = AppleSiliconMonitor()
                 self._zeus_ok = True
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to read Apple energy: %s", exc)
 
     @staticmethod
     def available() -> bool:
