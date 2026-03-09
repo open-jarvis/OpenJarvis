@@ -106,13 +106,20 @@ All providers produce the same output format consumed by agents:
 
 ## Backend Comparison
 
-| Backend | Registry Key | Protocol | GPU Required | Best For |
-|---------|-------------|----------|-------------|----------|
-| **Ollama** | `ollama` | Native HTTP API | No (GPU optional) | Getting started, consumer GPUs, Apple Silicon |
-| **vLLM** | `vllm` | OpenAI-compatible | NVIDIA recommended | Datacenter GPUs (A100, H100), high throughput |
-| **SGLang** | `sglang` | OpenAI-compatible | NVIDIA recommended | Structured generation, speculative decoding |
-| **llama.cpp** | `llamacpp` | OpenAI-compatible | No (CPU-optimized) | CPU-only systems, GGUF models, edge devices |
-| **Cloud** | `cloud` | Provider SDKs | No | OpenAI, Anthropic, Google API access |
+| Backend | Registry Key | Protocol | Default Port | GPU Required | Best For |
+|---------|-------------|----------|-------------|-------------|----------|
+| **Ollama** | `ollama` | Native HTTP API | 11434 | No (GPU optional) | Getting started, consumer GPUs, Apple Silicon |
+| **vLLM** | `vllm` | OpenAI-compatible | 8000 | NVIDIA recommended | Datacenter GPUs (A100, H100), high throughput |
+| **SGLang** | `sglang` | OpenAI-compatible | 30000 | NVIDIA recommended | Structured generation, speculative decoding |
+| **llama.cpp** | `llamacpp` | OpenAI-compatible | 8080 | No (CPU-optimized) | CPU-only systems, GGUF models, edge devices |
+| **MLX** | `mlx` | OpenAI-compatible | 8080 | Apple Silicon | Apple Silicon native inference via MLX |
+| **LM Studio** | `lmstudio` | OpenAI-compatible | 1234 | No (GPU optional) | Desktop GUI, easy model management |
+| **Exo** | `exo` | OpenAI-compatible | 52415 | No (distributed) | Distributed inference across heterogeneous devices |
+| **Nexa** | `nexa` | OpenAI-compatible | 18181 | No (CPU/GPU) | On-device inference with GGUF models |
+| **Uzu** | `uzu` | OpenAI-compatible | 8080 | Varies | Uzu inference runtime |
+| **Apple FM** | `apple_fm` | OpenAI-compatible | 8079 | Apple Silicon | Apple Foundation Model on-device inference |
+| **LiteLLM** | `litellm` | OpenAI-compatible | — | No | Unified proxy to 100+ LLM providers |
+| **Cloud** | `cloud` | Provider SDKs | — | No | OpenAI, Anthropic, Google API access |
 
 ### Ollama
 
@@ -157,6 +164,60 @@ The Cloud backend provides access to OpenAI, Anthropic, and Google models via th
     Cloud models require API keys set as environment variables:
     `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` (or `GOOGLE_API_KEY`).
     The cloud engine is only registered if the corresponding SDK packages are installed.
+
+### MLX
+
+The MLX backend serves models via the MLX framework on Apple Silicon. It uses the OpenAI-compatible `/v1/chat/completions` API.
+
+- **Default host:** `http://localhost:8080`
+- **Health check:** `GET /v1/models`
+- **Best for:** Apple Silicon Macs (M1/M2/M3/M4) running MLX-format or GGUF models natively
+
+### LM Studio
+
+The LM Studio backend connects to the LM Studio desktop application's built-in server, which exposes an OpenAI-compatible API.
+
+- **Default host:** `http://localhost:1234`
+- **Health check:** `GET /v1/models`
+- **Best for:** Users who prefer a GUI for model management and want a zero-configuration local server
+
+### Exo
+
+The Exo backend connects to the Exo distributed inference runtime, which partitions model layers across multiple heterogeneous devices (e.g., a Mac and a Linux box).
+
+- **Default host:** `http://localhost:52415`
+- **Health check:** `GET /v1/models`
+- **Best for:** Running models too large for a single device by distributing across multiple machines
+
+### Nexa
+
+The Nexa backend connects to the Nexa AI on-device inference server, which supports GGUF models with hardware-optimized kernels.
+
+- **Default host:** `http://localhost:18181`
+- **Health check:** `GET /v1/models`
+- **Best for:** On-device inference with optimized GGUF model support
+
+### Uzu
+
+The Uzu backend connects to the Uzu inference runtime via the OpenAI-compatible API.
+
+- **Default host:** `http://localhost:8080`
+- **Health check:** `GET /v1/models`
+
+### Apple FM
+
+The Apple FM backend connects to Apple's Foundation Model server for on-device inference on Apple Silicon.
+
+- **Default host:** `http://localhost:8079`
+- **Health check:** `GET /v1/models`
+- **Best for:** Running Apple Foundation Models natively on Apple Silicon hardware
+
+### LiteLLM
+
+The LiteLLM backend connects to a LiteLLM proxy server, which provides a unified OpenAI-compatible interface to 100+ LLM providers (OpenAI, Anthropic, Google, Azure, AWS Bedrock, Groq, Together, and more).
+
+- **Registry key:** `litellm`
+- **Best for:** Teams that need a single endpoint to route across multiple cloud providers with unified logging and cost tracking
 
 ---
 
