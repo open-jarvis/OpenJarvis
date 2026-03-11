@@ -43,14 +43,20 @@ class TestAvailable:
 
             assert AppleEnergyMonitor.available() is False
 
-    def test_available_false_when_zeus_not_importable(self):
+    def test_available_true_without_zeus(self):
+        """Monitor is available on Apple Silicon even without Zeus."""
         import openjarvis.telemetry.energy_apple as mod
 
         orig = mod._ZEUS_APPLE_AVAILABLE
         mod._ZEUS_APPLE_AVAILABLE = False
         try:
-            with patch("platform.system", return_value="Darwin"):
-                assert mod.AppleEnergyMonitor.available() is False
+            with patch("platform.system", return_value="Darwin"), patch(
+                "platform.machine", return_value="arm64"
+            ):
+                assert mod.AppleEnergyMonitor.available() is True
+                monitor = mod.AppleEnergyMonitor.__new__(mod.AppleEnergyMonitor)
+                monitor._zeus_ok = False
+                assert monitor.energy_method() == "cpu_time_estimate"
         finally:
             mod._ZEUS_APPLE_AVAILABLE = orig
 

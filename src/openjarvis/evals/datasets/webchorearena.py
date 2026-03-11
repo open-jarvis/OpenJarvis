@@ -94,6 +94,8 @@ class WebChoreArenaDataset(DatasetProvider):
         return len(self._records)
 
     def verify_requirements(self) -> List[str]:
+        import urllib.request
+
         issues: List[str] = []
         try:
             import playwright  # noqa: F401
@@ -103,13 +105,46 @@ class WebChoreArenaDataset(DatasetProvider):
                 "Install with: pip install playwright && playwright install"
             )
 
-        for env_var in ("SHOPPING", "SHOPPING_ADMIN", "REDDIT", "GITLAB", "MAP", "WIKIPEDIA"):
-            if not os.environ.get(env_var):
-                issues.append(
-                    f"WebArena environment variable {env_var} not set. "
-                    "Configure the WebArena standalone environment URLs."
+        # Core services — eval fails without these
+        _REQUIRED = {
+            "SHOPPING":       "http://localhost:7770",
+            "SHOPPING_ADMIN": "http://localhost:7780",
+            "REDDIT":         "http://localhost:9999",
+            "GITLAB":         "http://localhost:8023",
+            "WIKIPEDIA":      "http://localhost:8888",
+        }
+        # Optional — only needed for map tasks; requires a full OpenStreetMap
+        # Docker Compose setup (AWS AMI or manual)
+        _OPTIONAL = {
+            "MAP": "http://localhost:3000",
+        }
+
+        unreachable = []
+        for env_var, default_url in _REQUIRED.items():
+            url = os.environ.get(env_var, default_url)
+            try:
+                urllib.request.urlopen(url, timeout=5)
+            except Exception:
+                unreachable.append(f"  {env_var}={url}")
+
+        if unreachable:
+            issues.append(
+                "The following WebArena backend services are not reachable.\n"
+                "Run scripts/setup_webchorearena.sh to start them:\n"
+                + "\n".join(unreachable)
+            )
+
+        for env_var, default_url in _OPTIONAL.items():
+            url = os.environ.get(env_var, default_url)
+            try:
+                urllib.request.urlopen(url, timeout=5)
+            except Exception:
+                logger.warning(
+                    "Optional WebArena service %s (%s) is not reachable — "
+                    "map-related tasks will fail. "
+                    "See scripts/setup_webchorearena.sh for setup instructions.",
+                    env_var, url,
                 )
-                break  # one message is enough
 
         return issues
 

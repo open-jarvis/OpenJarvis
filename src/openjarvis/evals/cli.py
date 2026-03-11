@@ -519,6 +519,18 @@ def _run_agentic(
         seed=config.seed,
     )
 
+    # Verify backend requirements before doing any work
+    if hasattr(dataset, "verify_requirements"):
+        issues = dataset.verify_requirements()
+        if issues:
+            console.print("\n[bold red]Cannot start evaluation — requirements not met:[/bold red]")
+            for issue in issues:
+                console.print(f"[red]  • {issue}[/red]")
+            raise click.ClickException(
+                f"{config.benchmark} requirements not satisfied. "
+                "Fix the issues above and retry."
+            )
+
     # Build agent via SystemBuilder
     from openjarvis.system import SystemBuilder
 

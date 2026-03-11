@@ -141,8 +141,10 @@ def init(force: bool, config: Optional[Path]) -> None:
     console.print(f"  CPU      : {hw.cpu_brand} ({hw.cpu_count} cores)")
     console.print(f"  RAM      : {hw.ram_gb} GB")
     if hw.gpu:
+        mem_label = "unified memory" if hw.gpu.vendor == "apple" else "VRAM"
+        gpu = hw.gpu
         console.print(
-            f"  GPU      : {hw.gpu.name} ({hw.gpu.vram_gb} GB VRAM, x{hw.gpu.count})"
+            f"  GPU      : {gpu.name} ({gpu.vram_gb} GB {mem_label}, x{gpu.count})"
         )
     else:
         console.print("  GPU      : none detected")

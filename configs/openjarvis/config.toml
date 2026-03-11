@@ -43,7 +43,7 @@ enabled = true
 default = "vllm"
 
 [engine.vllm]
-host = "http://localhost:8000"            # Default vLLM port
+host = "http://localhost:8001"            # vLLM serving port
 
 [engine.ollama]
 host = "http://localhost:11434"
@@ -53,19 +53,6 @@ host = "http://localhost:30000"
 
 [engine.llamacpp]
 host = "http://localhost:8080"
-
-[engine.exo]
-host = "http://localhost:52415"
-
-[engine.nexa]
-host = "http://localhost:18181"
-# device = ""
-
-[engine.uzu]
-host = "http://localhost:8080"
-
-[engine.apple_fm]
-host = "http://localhost:8079"
 
 [engine.exo]
 host = "http://localhost:52415"

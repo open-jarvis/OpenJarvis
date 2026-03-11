@@ -15,6 +15,7 @@ import re
 import statistics
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -339,7 +340,8 @@ class AgenticRunner:
         response_text = ""
         result_tokens: dict[str, int] = {}
 
-        try:
+        def _run_body() -> None:
+            nonlocal response_text, result_tokens
             with ctx:
                 # Forward task metadata to agent
                 if task_env is not None and hasattr(agent, "set_task_metadata"):
@@ -359,7 +361,7 @@ class AgenticRunner:
                             return getattr(r, "content", str(r))
                         return str(agent(prompt))
 
-                    task_env.run_agent_loop(_generate, record)
+                    task_env.run_agent_loop(_generate)
 
                     # Collect full interaction from run_agent_loop
                     if hasattr(task_env, "all_responses") and task_env.all_responses:
@@ -406,6 +408,19 @@ class AgenticRunner:
                         is_correct, eval_meta = eval_result
                         record.metadata["is_resolved"] = is_correct
                         record.metadata["eval_meta"] = eval_meta
+
+        try:
+            if task_env is not None:
+                # Playwright's sync API refuses to run when an asyncio loop
+                # is active on the current thread, AND it leaves process-level
+                # singleton state (Selectors, Transport) that breaks when a
+                # pooled thread is reused. Use a one-shot ThreadPoolExecutor
+                # so every task gets a guaranteed-fresh thread.
+                loop = asyncio.get_running_loop()
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    await loop.run_in_executor(executor, _run_body)
+            else:
+                _run_body()
 
         except Exception as exc:
             LOGGER.warning("Agent failed on query %s: %s", query_id, exc)

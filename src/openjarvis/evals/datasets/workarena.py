@@ -231,7 +231,7 @@ class WorkArenaDataset(DatasetProvider):
 
         snow_configured = bool(
             os.environ.get("SNOW_INSTANCE_URL")
-            or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+            or os.environ.get("HUGGINGFACE_HUB_TOKEN")
         )
         if not snow_configured:
             issues.append(

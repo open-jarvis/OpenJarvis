@@ -151,19 +151,31 @@ fn detect_apple_gpu() -> Option<GpuInfo> {
         let trimmed = line.trim();
         if trimmed.contains("Chipset Model") {
             let name = trimmed.split(':').next_back().unwrap_or("Apple Silicon").trim();
+            let ram_gb = run_cmd(&["sysctl", "-n", "hw.memsize"])
+                .trim()
+                .parse::<u64>()
+                .map(|b| b as f64 / (1024.0 * 1024.0 * 1024.0))
+                .unwrap_or(0.0);
             return Some(GpuInfo {
                 vendor: "apple".into(),
                 name: name.to_string(),
-                vram_gb: 0.0,
+                vram_gb: ram_gb,
                 count: 1,
                 compute_capability: String::new(),
             });
         }
     }
+    let ram_gb = run_cmd(&["sysctl", "-n", "hw.memsize"])
+        .trim()
+        .parse::<u64>()
+        .map(|b| b as f64 / (1024.0 * 1024.0 * 1024.0))
+        .unwrap_or(0.0);
     Some(GpuInfo {
         vendor: "apple".into(),
         name: "Apple Silicon".into(),
-        ..GpuInfo::default()
+        vram_gb: ram_gb,
+        count: 1,
+        compute_capability: String::new(),
     })
 }
 

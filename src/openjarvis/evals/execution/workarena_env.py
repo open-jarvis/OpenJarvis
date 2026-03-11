@@ -105,6 +105,8 @@ class WorkArenaTaskEnv:
         self._done: bool = False
         self._last_reward: float = 0.0
         self._step_count: int = 0
+        self.all_responses: list[str] = []
+        self.turn_wall_clocks: list[float] = []
 
     def __enter__(self) -> WorkArenaTaskEnv:
         from browsergym.core.env import BrowserEnv
@@ -158,6 +160,24 @@ class WorkArenaTaskEnv:
             except Exception as exc:
                 LOGGER.warning("Error closing BrowserEnv: %s", exc)
             self._env = None
+
+        # BrowserGym keeps a process-level Playwright singleton that is
+        # bound to the current thread's event loop.  Once this thread
+        # exits the instance becomes stale and subsequent tasks fail
+        # with "no running event loop".  Stop it and reset the global
+        # so the next task creates a fresh one.
+        try:
+            import browsergym.core as _bgym_core
+
+            pw = _bgym_core._PLAYWRIGHT
+            if pw is not None:
+                try:
+                    pw.stop()
+                except Exception:
+                    pass
+                _bgym_core._set_global_playwright(None)
+        except (ImportError, AttributeError):
+            pass
 
     @property
     def goal(self) -> str:
@@ -289,7 +309,10 @@ class WorkArenaTaskEnv:
             level = self._metadata.get("level", "l1")
             max_steps = 15 if level == "l1" else 50
 
-        responses: list[str] = []
+        import time as _time
+
+        self.all_responses = []
+        self.turn_wall_clocks = []
         parse_error: Optional[str] = None
 
         for step_idx in range(max_steps):
@@ -297,8 +320,10 @@ class WorkArenaTaskEnv:
                 break
 
             prompt = self._build_step_prompt(step_idx, max_steps, parse_error)
+            t0 = _time.monotonic()
             response = generate_fn(prompt)
-            responses.append(response)
+            self.turn_wall_clocks.append(_time.monotonic() - t0)
+            self.all_responses.append(response)
 
             action = self._parse_action(response)
             if action is None:
@@ -320,7 +345,7 @@ class WorkArenaTaskEnv:
             if done:
                 break
 
-        return "\n---\n".join(responses)
+        return "\n---\n".join(self.all_responses)
 
     def _build_step_prompt(
         self,

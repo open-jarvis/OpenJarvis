@@ -133,12 +133,13 @@ def _detect_apple_gpu() -> Optional[GpuInfo]:
     if "Apple" not in raw:
         return None
     # Rough extraction — "Apple M2 Max" etc.
+    ram_gb = _total_ram_gb()
     for line in raw.splitlines():
         line = line.strip()
         if "Chipset Model" in line:
             name = line.split(":")[-1].strip()
-            return GpuInfo(vendor="apple", name=name)
-    return GpuInfo(vendor="apple", name="Apple Silicon")
+            return GpuInfo(vendor="apple", name=name, vram_gb=ram_gb, count=1)
+    return GpuInfo(vendor="apple", name="Apple Silicon", vram_gb=ram_gb, count=1)
 
 
 def _detect_cpu_brand() -> str:

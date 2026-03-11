@@ -1,0 +1,112 @@
+# Smoke eval — NVIDIA platform
+# Target hardware: 2× NVIDIA H100/A100 SXM 80 GB
+# Purpose: verify full-stack metrics collection with minimal samples (3 per benchmark)
+# Engines: vLLM (primary), Ollama (GGUF)
+# Run: uv run python -m openjarvis.evals run -c src/openjarvis/evals/configs/smoke_nvidia.toml
+
+[meta]
+name = "smoke-nvidia"
+description = "Full-stack smoke test on NVIDIA — all agents, all tools, all engines, 3 samples each"
+
+[defaults]
+temperature = 0.0
+max_tokens = 2048
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+max_tokens = 512
+
+[run]
+max_workers = 2
+output_dir = "results/smoke-nvidia/"
+seed = 42
+telemetry = true
+gpu_metrics = true
+
+# ── Models ────────────────────────────────────────────────────────────────────
+
+# Qwen 3.5 MoE — fits 1× H100/A100 80 GB in BF16 (~70 GB weights + KV cache)
+[[models]]
+name = "Qwen/Qwen3.5-35B-A3B"
+engine = "vllm"
+param_count_b = 35.0
+active_params_b = 3.0
+num_gpus = 1
+
+# GPT-OSS 20B — fits 1× H100/A100 80 GB in BF16 (~40 GB)
+[[models]]
+name = "openai/gpt-oss-20b"
+engine = "vllm"
+param_count_b = 20.0
+num_gpus = 1
+
+# GPT-OSS 120B — requires 2× H100/A100 80 GB; use --quantization int8 if needed
+[[models]]
+name = "openai/gpt-oss-120b"
+engine = "vllm"
+param_count_b = 120.0
+num_gpus = 2
+
+# Unsloth GGUF — served via Ollama; pull with: ollama pull hf.co/unsloth/Qwen3.5-4B-Instruct-GGUF:Q4_K_M
+[[models]]
+name = "hf.co/unsloth/Qwen3.5-4B-Instruct-GGUF:Q4_K_M"
+engine = "ollama"
+
+# ── Benchmarks ────────────────────────────────────────────────────────────────
+# 8 benchmarks × 3 samples = 24 runs per model
+# Agent coverage: — / simple / native_react / native_openhands / orchestrator / monitor_operative
+# Tool coverage:  think, file_read, code_interpreter, shell_exec, web_search, browser,
+#                 calculator, memory_store, memory_search
+
+[[benchmarks]]
+name = "supergpqa"
+backend = "jarvis-direct"
+max_samples = 3
+
+[[benchmarks]]
+name = "simpleqa"
+backend = "jarvis-direct"
+max_samples = 3
+
+[[benchmarks]]
+name = "doc_qa"
+backend = "jarvis-agent"
+agent = "simple"
+tools = ["think"]
+max_samples = 3
+
+[[benchmarks]]
+name = "coding_assistant"
+backend = "jarvis-agent"
+agent = "native_react"
+tools = ["file_read", "code_interpreter", "shell_exec", "think"]
+max_samples = 3
+
+[[benchmarks]]
+name = "coding_task"
+backend = "jarvis-agent"
+agent = "native_openhands"
+tools = ["code_interpreter", "shell_exec", "think"]
+max_samples = 3
+
+[[benchmarks]]
+name = "daily_digest"
+backend = "jarvis-agent"
+agent = "orchestrator"
+tools = ["web_search", "think"]
+max_samples = 3
+
+[[benchmarks]]
+name = "browser_assistant"
+backend = "jarvis-agent"
+agent = "orchestrator"
+tools = ["web_search", "browser", "think"]
+max_samples = 3
+
+[[benchmarks]]
+name = "deepplanning"
+backend = "jarvis-agent"
+agent = "monitor_operative"
+tools = ["think", "calculator", "code_interpreter", "shell_exec", "memory_store", "memory_search"]
+max_samples = 3
