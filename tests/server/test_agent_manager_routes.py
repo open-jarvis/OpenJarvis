@@ -35,8 +35,12 @@ class TestAgentManagerRoutes:
         from openjarvis.server.agent_manager_routes import create_agent_manager_router
 
         app = FastAPI()
-        router = create_agent_manager_router(manager)
-        app.include_router(router)
+        agents_router, templates_router, global_router = create_agent_manager_router(
+            manager
+        )
+        app.include_router(agents_router)
+        app.include_router(templates_router)
+        app.include_router(global_router)
         return TestClient(app)
 
     def test_list_agents_empty(self, client):
@@ -128,3 +132,53 @@ class TestAgentManagerRoutes:
         assert resp.status_code == 200
         templates = resp.json()["templates"]
         assert any(t["id"] == "research_monitor" for t in templates)
+
+    def test_recover_agent(self, manager, client):
+        # Create agent, save checkpoint, set error status
+        agent = manager.create_agent(name="err", agent_type="simple")
+        manager.save_checkpoint(agent["id"], "tick-1", {"msgs": []}, {})
+        manager.update_agent(agent["id"], status="error")
+
+        res = client.post(f"/v1/managed-agents/{agent['id']}/recover")
+        assert res.status_code == 200
+        assert res.json()["tick_id"] == "tick-1"
+
+    def test_recover_agent_no_checkpoint(self, manager, client):
+        agent = manager.create_agent(name="err", agent_type="simple")
+        res = client.post(f"/v1/managed-agents/{agent['id']}/recover")
+        assert res.status_code == 404
+
+    def test_list_error_agents(self, manager, client):
+        manager.create_agent(name="ok", agent_type="simple")
+        err = manager.create_agent(name="broken", agent_type="simple")
+        manager.update_agent(err["id"], status="error")
+
+        res = client.get("/v1/agents/errors")
+        assert res.status_code == 200
+        agents = res.json()["agents"]
+        assert len(agents) == 1
+        assert agents[0]["name"] == "broken"
+
+    def test_send_and_list_messages(self, manager, client):
+        agent = manager.create_agent(name="chat", agent_type="simple")
+
+        res = client.post(
+            f"/v1/managed-agents/{agent['id']}/messages",
+            json={"content": "hello", "mode": "queued"},
+        )
+        assert res.status_code == 200
+
+        res = client.get(f"/v1/managed-agents/{agent['id']}/messages")
+        assert res.status_code == 200
+        assert len(res.json()["messages"]) == 1
+
+    def test_get_agent_state(self, manager, client):
+        agent = manager.create_agent(name="stateful", agent_type="simple")
+        res = client.get(f"/v1/managed-agents/{agent['id']}/state")
+        assert res.status_code == 200
+        state = res.json()
+        assert "agent" in state
+        assert "tasks" in state
+        assert "channels" in state
+        assert "messages" in state
+        assert "checkpoint" in state
