@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Optional
 
 import click
@@ -288,6 +289,297 @@ def templates() -> None:
         console.print(table)
     except Exception as exc:
         console.print(f"[red]Error: {exc}[/red]")
+
+
+def _get_system():
+    """Build a JarvisSystem for CLI commands that need scheduler/executor."""
+    from openjarvis.system import JarvisSystem
+    return JarvisSystem.build()
+
+
+def _get_scheduler_and_executor(system=None):
+    """Get scheduler + executor from a JarvisSystem instance."""
+    if system is None:
+        system = _get_system()
+    return system.agent_scheduler, system.agent_executor, system
+
+
+@agent.command()
+def launch():
+    """Interactive agent launcher."""
+    from openjarvis.agents.manager import AgentManager as _AM
+    templates = _AM.list_templates()
+    click.echo("Available templates:")
+    for i, t in enumerate(templates, 1):
+        click.echo(f"  [{i}] {t['name']} — {t.get('description', '')}")
+    click.echo(f"  [{len(templates) + 1}] Custom (from scratch)")
+    choice = click.prompt("Select template", type=int, default=1)
+    if choice <= len(templates):
+        template = templates[choice - 1]
+        name = click.prompt("Agent name", default=template["name"])
+    else:
+        template = None
+        name = click.prompt("Agent name")
+    schedule_type = click.prompt(
+        "Schedule type",
+        type=click.Choice(["cron", "interval", "manual"]),
+        default="manual",
+    )
+    schedule_value = ""
+    if schedule_type == "cron":
+        schedule_value = click.prompt("Cron expression", default="0 9 * * *")
+    elif schedule_type == "interval":
+        schedule_value = click.prompt("Interval (seconds)", type=int, default=3600)
+    max_cost = click.prompt("Budget limit ($, 0=unlimited)", type=float, default=0.0)
+    config = {
+        "schedule_type": schedule_type,
+        "schedule_value": schedule_value,
+        "max_cost": max_cost,
+    }
+    manager = _get_manager()
+    if template:
+        agent_data = manager.create_from_template(
+            template["id"], overrides={"name": name}
+        )
+        agent_config = agent_data.get("config", {})
+        agent_config.update(config)
+        manager.update_agent(agent_data["id"], config=agent_config)
+        agent_data = manager.get_agent(agent_data["id"])
+    else:
+        agent_type = click.prompt("Agent type", default="monitor_operative")
+        agent_data = manager.create_agent(
+            name=name, agent_type=agent_type, config=config
+        )
+    click.echo(f"\nAgent \"{agent_data['name']}\" created (ID: {agent_data['id']})")
+
+
+@agent.command("start")
+@click.argument("agent_id")
+def start_agent(agent_id):
+    """Start scheduling an agent."""
+    manager = _get_manager()
+    agent_data = manager.get_agent(agent_id)
+    if not agent_data:
+        click.echo(f"Agent {agent_id} not found", err=True)
+        raise SystemExit(1)
+    scheduler, _, _ = _get_scheduler_and_executor()
+    if scheduler is None:
+        click.echo("Scheduler not available", err=True)
+        raise SystemExit(1)
+    scheduler.register_agent(agent_id)
+    click.echo(f"Agent \"{agent_data['name']}\" registered with scheduler")
+
+
+@agent.command("stop")
+@click.argument("agent_id")
+def stop_agent(agent_id):
+    """Stop scheduling an agent."""
+    manager = _get_manager()
+    agent_data = manager.get_agent(agent_id)
+    if not agent_data:
+        click.echo(f"Agent {agent_id} not found", err=True)
+        raise SystemExit(1)
+    scheduler, _, _ = _get_scheduler_and_executor()
+    if scheduler is None:
+        click.echo("Scheduler not available", err=True)
+        raise SystemExit(1)
+    scheduler.deregister_agent(agent_id)
+    click.echo(f"Agent \"{agent_data['name']}\" deregistered from scheduler")
+
+
+@agent.command("run")
+@click.argument("agent_id")
+def run_agent(agent_id):
+    """Run one tick immediately for testing."""
+    manager = _get_manager()
+    agent_data = manager.get_agent(agent_id)
+    if not agent_data:
+        click.echo(f"Agent {agent_id} not found", err=True)
+        raise SystemExit(1)
+    click.echo(f"Running tick for \"{agent_data['name']}\"...")
+    _, executor, _ = _get_scheduler_and_executor()
+    if executor is None:
+        click.echo("Executor not available", err=True)
+        raise SystemExit(1)
+    executor.execute_tick(agent_id)
+    updated = manager.get_agent(agent_id)
+    runs = updated.get("total_runs", 0)
+    click.echo(f"Tick complete. Status: {updated['status']}, runs: {runs}")
+
+
+@agent.command("status")
+def status():
+    """Show all agents with schedule and run info."""
+    manager = _get_manager()
+    agents = manager.list_agents()
+    if not agents:
+        click.echo("No agents found.")
+        return
+    header = f"{'Agent':<25} {'Status':<12} {'Schedule':<15} {'Runs':<6} {'Cost':<10}"
+    click.echo(header)
+    click.echo("-" * 68)
+    for a in agents:
+        cfg = a.get("config", {})
+        sched = cfg.get("schedule_type", "manual")
+        if sched == "cron":
+            sched = cfg.get("schedule_value", "?")
+        elif sched == "interval":
+            sched = f"every {cfg.get('schedule_value', '?')}s"
+        cost = f"${a.get('total_cost', 0):.2f}"
+        runs = a.get("total_runs", 0)
+        click.echo(
+            f"{a['name']:<25} {a['status']:<12} {sched:<15} {runs:<6} {cost:<10}"
+        )
+
+
+@agent.command("logs")
+@click.argument("agent_id")
+@click.option("--limit", "-n", default=10, help="Number of recent traces to show")
+def logs(agent_id, limit):
+    """Show recent execution traces for an agent."""
+    import datetime
+
+    manager = _get_manager()
+    agent_data = manager.get_agent(agent_id)
+    if not agent_data:
+        click.echo(f"Agent {agent_id} not found", err=True)
+        raise SystemExit(1)
+    checkpoints = manager.list_checkpoints(agent_id)
+    if not checkpoints:
+        click.echo(f"No execution history for \"{agent_data['name']}\"")
+        return
+    click.echo(f"Recent runs for \"{agent_data['name']}\":")
+    for cp in checkpoints[:limit]:
+        ts = datetime.datetime.fromtimestamp(cp["created_at"]).strftime(
+            "%Y-%m-%d %H:%M"
+        )
+        click.echo(f"  {cp['tick_id']}  {ts}")
+
+
+@agent.command("daemon")
+def daemon():
+    """Run the agent scheduler as a standalone daemon."""
+    import signal
+
+    click.echo("Starting agent scheduler daemon...")
+    system = _get_system()
+    scheduler = system.agent_scheduler
+    if scheduler is None:
+        click.echo("Scheduler not available (agent_manager not configured)", err=True)
+        raise SystemExit(1)
+    manager = system.agent_manager
+    for agent_data in manager.list_agents():
+        cfg = agent_data.get("config", {})
+        if cfg.get("schedule_type") in ("cron", "interval"):
+            scheduler.register_agent(agent_data["id"])
+    scheduler.start()
+    n = len(scheduler.registered_agents)
+    click.echo(f"Scheduler running ({n} agents). Ctrl+C to stop.")
+    stop = threading.Event()
+    signal.signal(signal.SIGINT, lambda *_: stop.set())
+    signal.signal(signal.SIGTERM, lambda *_: stop.set())
+    stop.wait()
+    scheduler.stop()
+    system.close()
+    click.echo("Daemon stopped.")
+
+
+@agent.command("watch")
+@click.argument("agent_id", required=False)
+def watch(agent_id):
+    """Live feed of agent activity."""
+    import signal
+
+    from openjarvis.core.events import EventType, get_event_bus
+
+    click.echo("Watching agent events... (press Ctrl+C to stop)")
+    bus = get_event_bus()
+    agent_events = [
+        EventType.AGENT_TICK_START, EventType.AGENT_TICK_END,
+        EventType.AGENT_TICK_ERROR, EventType.AGENT_BUDGET_EXCEEDED,
+    ]
+
+    def _on_event(event):
+        data = event.data or {}
+        if agent_id and data.get("agent_id") != agent_id:
+            return
+        label = data.get("agent_name", data.get("agent_id", "?"))
+        click.echo(f"  {label:<20} {event.event_type.value}")
+
+    for et in agent_events:
+        bus.subscribe(et, _on_event)
+    stop = threading.Event()
+    signal.signal(signal.SIGINT, lambda *_: stop.set())
+    stop.wait()
+
+
+@agent.command("recover")
+@click.argument("agent_id")
+def recover(agent_id):
+    """Recover an agent from its last checkpoint."""
+    manager = _get_manager()
+    checkpoint = manager.recover_agent(agent_id)
+    if checkpoint:
+        click.echo(f"Recovered from checkpoint {checkpoint['tick_id']}")
+    else:
+        click.echo("No checkpoint found for this agent", err=True)
+
+
+@agent.command("errors")
+def errors():
+    """Show all agents in error or needs_attention state."""
+    manager = _get_manager()
+    agents = manager.list_agents()
+    error_agents = [a for a in agents if a["status"] in ("error", "needs_attention")]
+    if not error_agents:
+        click.echo("No agents with errors.")
+        return
+    for a in error_agents:
+        click.echo(f"  {a['name']} ({a['id'][:8]}): {a['status']}")
+
+
+@agent.command("ask")
+@click.argument("agent_id")
+@click.argument("message")
+def ask(agent_id, message):
+    """Ask an agent a question (immediate response)."""
+    manager = _get_manager()
+    manager.send_message(agent_id, message, mode="immediate")
+    click.echo("Asking agent...")
+    _, executor, _ = _get_scheduler_and_executor()
+    if executor is None:
+        click.echo("Executor not available", err=True)
+        raise SystemExit(1)
+    executor.execute_tick(agent_id)
+    msgs = manager.list_messages(agent_id)
+    responses = [m for m in msgs if m["direction"] == "agent_to_user"]
+    if responses:
+        click.echo(f"\nAgent: {responses[0]['content']}")
+
+
+@agent.command("instruct")
+@click.argument("agent_id")
+@click.argument("message")
+def instruct(agent_id, message):
+    """Queue an instruction for the agent's next tick."""
+    manager = _get_manager()
+    msg = manager.send_message(agent_id, message, mode="queued")
+    click.echo(f"Instruction queued (ID: {msg['id'][:8]})")
+
+
+@agent.command("messages")
+@click.argument("agent_id")
+def messages(agent_id):
+    """Show message history with an agent."""
+    manager = _get_manager()
+    msgs = manager.list_messages(agent_id)
+    if not msgs:
+        click.echo("No messages.")
+        return
+    for m in msgs:
+        direction = "You" if m["direction"] == "user_to_agent" else "Agent"
+        mode_badge = f" [{m['mode']}]" if m["direction"] == "user_to_agent" else ""
+        click.echo(f"  {direction}{mode_badge}: {m['content'][:100]}")
 
 
 __all__ = ["agent"]
