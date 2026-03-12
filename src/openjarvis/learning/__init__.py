@@ -9,12 +9,12 @@ from openjarvis.learning._stubs import (
     RoutingContext,
 )
 from openjarvis.learning.agent_evolver import AgentConfigEvolver
-from openjarvis.learning.heuristic_reward import HeuristicRewardFunction
+from openjarvis.learning.routing.heuristic_reward import HeuristicRewardFunction
 from openjarvis.learning.learning_orchestrator import LearningOrchestrator
 from openjarvis.learning.optimize.llm_optimizer import LLMOptimizer
 from openjarvis.learning.optimize.optimizer import OptimizationEngine
 from openjarvis.learning.optimize.store import OptimizationStore
-from openjarvis.learning.router import (
+from openjarvis.learning.routing.router import (
     HeuristicRouter,
     build_routing_context,
 )
@@ -27,7 +27,7 @@ def ensure_registered() -> None:
 
     Imported lazily to avoid circular imports with the intelligence primitive.
     """
-    from openjarvis.learning.heuristic_policy import (
+    from openjarvis.learning.routing.heuristic_policy import (
         ensure_registered as _reg_heuristic,
     )
 
