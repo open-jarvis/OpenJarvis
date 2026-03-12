@@ -47,6 +47,13 @@ MODELS = [
 _ENGINE_CLASSES = {key: cls for key, _, cls in _OPENAI_COMPAT_ENGINES}
 _ENGINE_CLASSES["ollama"] = OllamaEngine
 
+# Engines that don't use the /v1 API prefix.
+_NO_V1_PREFIX = {"uzu"}
+
+
+def _api_prefix(engine_key: str) -> str:
+    return "" if engine_key in _NO_V1_PREFIX else "/v1"
+
 
 def _create_engine(engine_key: str, host: str):
     """Instantiate the right engine class for the given key."""
@@ -71,7 +78,8 @@ def _mock_simple_chat(respx_mock, engine_key: str, host: str, model: str):
             })
         )
     else:  # All OpenAI-compatible engines
-        respx_mock.post(f"{host}/v1/chat/completions").mock(
+        prefix = _api_prefix(engine_key)
+        respx_mock.post(f"{host}{prefix}/chat/completions").mock(
             return_value=httpx.Response(200, json={
                 "choices": [
                     {"message": {"content": "Hello!"}, "finish_reason": "stop"},
@@ -102,7 +110,8 @@ def _mock_tool_call(respx_mock, engine_key: str, host: str, model: str):
             })
         )
     else:  # All OpenAI-compatible engines
-        respx_mock.post(f"{host}/v1/chat/completions").mock(
+        prefix = _api_prefix(engine_key)
+        respx_mock.post(f"{host}{prefix}/chat/completions").mock(
             return_value=httpx.Response(200, json={
                 "choices": [{
                     "message": {
@@ -130,7 +139,8 @@ def _mock_error(respx_mock, engine_key: str, host: str):
             side_effect=httpx.ConnectError("refused")
         )
     else:  # All OpenAI-compatible engines
-        respx_mock.post(f"{host}/v1/chat/completions").mock(
+        prefix = _api_prefix(engine_key)
+        respx_mock.post(f"{host}{prefix}/chat/completions").mock(
             side_effect=httpx.ConnectError("refused")
         )
 
@@ -205,7 +215,8 @@ class TestEngineHealth:
                 return_value=httpx.Response(200, json={"models": []})
             )
         else:  # All OpenAI-compatible engines
-            respx_mock.get(f"{host}/v1/models").mock(
+            prefix = _api_prefix(engine_key)
+            respx_mock.get(f"{host}{prefix}/models").mock(
                 return_value=httpx.Response(200, json={"data": []})
             )
         assert engine.health() is True
@@ -217,7 +228,8 @@ class TestEngineHealth:
                 side_effect=httpx.ConnectError("refused")
             )
         else:  # All OpenAI-compatible engines
-            respx_mock.get(f"{host}/v1/models").mock(
+            prefix = _api_prefix(engine_key)
+            respx_mock.get(f"{host}{prefix}/models").mock(
                 side_effect=httpx.ConnectError("refused")
             )
         assert engine.health() is False

@@ -115,8 +115,8 @@ All providers produce the same output format consumed by agents:
 | **MLX** | `mlx` | OpenAI-compatible | 8080 | Apple Silicon | Apple Silicon native inference via MLX |
 | **LM Studio** | `lmstudio` | OpenAI-compatible | 1234 | No (GPU optional) | Desktop GUI, easy model management |
 | **Exo** | `exo` | OpenAI-compatible | 52415 | No (distributed) | Distributed inference across heterogeneous devices |
-| **Nexa** | `nexa` | OpenAI-compatible | 18181 | No (CPU/GPU) | On-device inference with GGUF models |
-| **Uzu** | `uzu` | OpenAI-compatible | 8080 | Varies | Uzu inference runtime |
+| **Nexa** | `nexa` | OpenAI-compatible | 18181 | No (CPU/GPU) | On-device inference with GGUF models (via shim) |
+| **Uzu** | `uzu` | OpenAI-compatible | 8000 | Apple Silicon | High-performance Rust inference engine by Mirai |
 | **Apple FM** | `apple_fm` | OpenAI-compatible | 8079 | Apple Silicon | Apple Foundation Model on-device inference |
 | **LiteLLM** | `litellm` | OpenAI-compatible | — | No | Unified proxy to 100+ LLM providers |
 | **Cloud** | `cloud` | Provider SDKs | — | No | OpenAI, Anthropic, Google API access |
@@ -183,26 +183,37 @@ The LM Studio backend connects to the LM Studio desktop application's built-in s
 
 ### Exo
 
-The Exo backend connects to the Exo distributed inference runtime, which partitions model layers across multiple heterogeneous devices (e.g., a Mac and a Linux box).
+The Exo backend connects to the [Exo](https://github.com/exo-explore/exo) distributed inference runtime, which partitions model layers across multiple heterogeneous devices (e.g., a Mac and a Linux box). On Apple Silicon, Exo uses MLX for Metal-accelerated inference.
 
 - **Default host:** `http://localhost:52415`
 - **Health check:** `GET /v1/models`
 - **Best for:** Running models too large for a single device by distributing across multiple machines
+- **Apple Silicon:** Fully supported — uses MLX backend with Metal acceleration
+- **Install:** `git clone https://github.com/exo-explore/exo.git && cd exo && uv sync`
+- **Note:** The `exo` package on PyPI is an unrelated bioinformatics tool. Install from GitHub source only.
 
 ### Nexa
 
-The Nexa backend connects to the Nexa AI on-device inference server, which supports GGUF models with hardware-optimized kernels.
+The Nexa backend connects to the [Nexa SDK](https://github.com/NexaAI/nexa-sdk) via an OpenAI-compatible shim (`engine/nexa_shim.py`). The Nexa SDK is a library-only package (`pip install nexaai`) with no built-in HTTP server, so OpenJarvis provides a FastAPI shim that wraps it as a standard engine.
 
 - **Default host:** `http://localhost:18181`
 - **Health check:** `GET /v1/models`
 - **Best for:** On-device inference with optimized GGUF model support
+- **Apple Silicon:** SDK installs but the `cpu_gpu` plugin has known stability issues on macOS/arm64. The `metal` and `nexaml` plugins require additional native dependencies.
+- **Install:** `pip install nexaai`
+- **Server:** `NEXA_MODEL_PATH=<path> uvicorn openjarvis.engine.nexa_shim:app --port 18181`
 
 ### Uzu
 
-The Uzu backend connects to the Uzu inference runtime via the OpenAI-compatible API.
+The Uzu backend connects to the [Uzu](https://github.com/trymirai/uzu) inference engine by Mirai. Uzu is a high-performance Rust-based engine optimized for Apple Silicon with Metal GPU acceleration, claiming ~30-40% speed improvement over llama.cpp.
 
-- **Default host:** `http://localhost:8080`
-- **Health check:** `GET /v1/models`
+- **Default host:** `http://localhost:8000`
+- **Health check:** `GET /models`
+- **API prefix:** None (uses `/chat/completions` and `/models` without `/v1` prefix)
+- **Best for:** High-throughput inference on Apple Silicon
+- **Apple Silicon:** Native Metal acceleration, ~78 tok/s on M4 with small models
+- **Install:** `git clone https://github.com/trymirai/uzu.git && cd uzu && cargo build --release`
+- **Model export:** Use [lalamo](https://github.com/trymirai/lalamo): `uv run lalamo convert <MODEL_REPO>`
 
 ### Apple FM
 

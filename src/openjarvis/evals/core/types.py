@@ -174,6 +174,7 @@ class JudgeConfig:
     """Configuration for the LLM judge."""
 
     model: str = "gpt-5-mini-2025-08-07"
+    engine: Optional[str] = None
     provider: Optional[str] = None
     temperature: float = 0.0
     max_tokens: int = 1024

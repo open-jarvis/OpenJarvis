@@ -601,7 +601,7 @@ class SystemBuilder:
                     }
                     mode = mode_map.get(config.security.mode, RedactionMode.WARN)
                     engine = GuardrailsEngine(
-                        engine, scanners, mode=mode, bus=bus,
+                        engine, scanners=scanners, mode=mode, bus=bus,
                         scan_input=config.security.scan_input,
                         scan_output=config.security.scan_output,
                     )

@@ -365,8 +365,13 @@ def _build_scorer(benchmark: str, judge_backend, judge_model: str):
         raise click.ClickException(f"Unknown benchmark: {benchmark}")
 
 
-def _build_judge_backend(judge_model: str, engine_key: str = "cloud"):
+def _build_judge_backend(judge_model: str, engine_key: str = "cloud",
+                         fallback_engine_key: str | None = None):
     """Build the judge backend for LLM-as-judge scoring.
+
+    Tries *engine_key* first (default ``"cloud"``).  When that fails and
+    *fallback_engine_key* is provided, retries with the fallback so that
+    local engines (MLX, Ollama, etc.) can serve as judge.
 
     Returns None if no engine is reachable — deterministic scorers
     (e.g. LifelongAgentScorer, GAIAScorer) accept None and ignore it.
@@ -377,6 +382,15 @@ def _build_judge_backend(judge_model: str, engine_key: str = "cloud"):
     try:
         return JarvisDirectBackend(engine_key=engine_key)
     except RuntimeError as exc:
+        if fallback_engine_key and fallback_engine_key != engine_key:
+            LOGGER.info(
+                "Judge backend (%s) unavailable, falling back to %s.",
+                engine_key, fallback_engine_key,
+            )
+            try:
+                return JarvisDirectBackend(engine_key=fallback_engine_key)
+            except RuntimeError:
+                pass
         LOGGER.warning(
             "Judge backend (%s) unavailable: %s — "
             "deterministic scorers will still work; "
@@ -456,7 +470,10 @@ def _run_single(config, console: Optional[Console] = None) -> object:
     )
     dataset = _build_dataset(config.benchmark)
     judge_engine = getattr(config, "judge_engine", "cloud") or "cloud"
-    judge_backend = _build_judge_backend(config.judge_model, engine_key=judge_engine)
+    judge_backend = _build_judge_backend(
+        config.judge_model, engine_key=judge_engine,
+        fallback_engine_key=config.engine_key,
+    )
     scorer = _build_scorer(config.benchmark, judge_backend, config.judge_model)
 
     trackers = _build_trackers(config)
@@ -1033,7 +1050,9 @@ def run_all(model, engine_key, max_samples, max_workers, judge_model,
 
         eval_backend = _build_backend("jarvis-direct", engine_key, "orchestrator", [])
         dataset = _build_dataset(bench_name)
-        judge_backend = _build_judge_backend(judge_model)
+        judge_backend = _build_judge_backend(
+            judge_model, fallback_engine_key=engine_key,
+        )
         scorer = _build_scorer(bench_name, judge_backend, judge_model)
 
         trackers = _build_trackers(config)

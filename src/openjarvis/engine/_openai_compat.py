@@ -24,6 +24,7 @@ class _OpenAICompatibleEngine(InferenceEngine):
 
     engine_id: str = ""
     _default_host: str = "http://localhost:8000"
+    _api_prefix: str = "/v1"
 
     def __init__(self, host: str | None = None, *, timeout: float = 600.0) -> None:
         self._host = (host or self._default_host).rstrip("/")
@@ -49,12 +50,13 @@ class _OpenAICompatibleEngine(InferenceEngine):
             "chat_template_kwargs": {"enable_thinking": False},
             **kwargs,
         }
+        completions_url = f"{self._api_prefix}/chat/completions"
         try:
-            resp = self._client.post("/v1/chat/completions", json=payload)
+            resp = self._client.post(completions_url, json=payload)
             if resp.status_code == 400 and "tools" in payload:
                 payload.pop("tools", None)
                 payload.pop("tool_choice", None)
-                resp = self._client.post("/v1/chat/completions", json=payload)
+                resp = self._client.post(completions_url, json=payload)
             resp.raise_for_status()
         except (httpx.ConnectError, httpx.TimeoutException) as exc:
             raise EngineConnectionError(
@@ -112,7 +114,7 @@ class _OpenAICompatibleEngine(InferenceEngine):
             **kwargs,
         }
         try:
-            url = "/v1/chat/completions"
+            url = f"{self._api_prefix}/chat/completions"
             with self._client.stream("POST", url, json=payload) as resp:
                 resp.raise_for_status()
                 for line in resp.iter_lines():
@@ -136,7 +138,7 @@ class _OpenAICompatibleEngine(InferenceEngine):
 
     def list_models(self) -> List[str]:
         try:
-            resp = self._client.get("/v1/models")
+            resp = self._client.get(f"{self._api_prefix}/models")
             resp.raise_for_status()
         except (
             httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError,
@@ -151,7 +153,7 @@ class _OpenAICompatibleEngine(InferenceEngine):
 
     def health(self) -> bool:
         try:
-            resp = self._client.get("/v1/models", timeout=2.0)
+            resp = self._client.get(f"{self._api_prefix}/models", timeout=2.0)
             return resp.status_code == 200
         except Exception as exc:
             logger.debug(

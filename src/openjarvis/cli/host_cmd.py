@@ -62,6 +62,26 @@ _BACKENDS = {
         "default_port": 8080,
         "binary": "llama-server",
     },
+    "exo": {
+        "display": "Exo (Distributed)",
+        "package": "exo",
+        "import_check": "exo",
+        "pip_spec": None,
+        "uv_extra": None,
+        "platform": None,
+        "default_port": 52415,
+        "binary": "exo",
+    },
+    "uzu": {
+        "display": "Uzu (Apple Silicon)",
+        "package": "uzu",
+        "import_check": None,
+        "pip_spec": None,
+        "uv_extra": None,
+        "platform": "darwin",
+        "default_port": 8000,
+        "binary": "uzu",
+    },
 }
 
 
@@ -179,6 +199,28 @@ def _install_binary_backend(backend: str, console: Console) -> bool:
             "  From source:\n"
             "    https://github.com/ggerganov/llama.cpp"
         ),
+        "exo": (
+            "Install Exo (distributed inference):\n"
+            "\n"
+            "  From source (requires Rust toolchain):\n"
+            "    git clone https://github.com/exo-explore/exo.git\n"
+            "    cd exo && uv sync\n"
+            "\n"
+            "  Exo uses MLX on Apple Silicon automatically.\n"
+            "  Models are downloaded on first request via the dashboard."
+        ),
+        "uzu": (
+            "Install Uzu (high-performance Apple Silicon inference):\n"
+            "\n"
+            "  From source (requires Rust toolchain + cmake):\n"
+            "    git clone https://github.com/trymirai/uzu.git\n"
+            "    cd uzu && cargo build --release\n"
+            "    cp target/release/cli /usr/local/bin/uzu\n"
+            "\n"
+            "  Export models with lalamo:\n"
+            "    git clone https://github.com/trymirai/lalamo.git\n"
+            "    cd lalamo && uv run lalamo convert <MODEL_REPO>"
+        ),
     }
 
     console.print()
@@ -248,6 +290,12 @@ def _build_serve_command(backend: str, model: str, port: int) -> list[str]:
 
     if backend == "llamacpp":
         return ["llama-server", "-m", model, "--port", str(port)]
+
+    if backend == "exo":
+        return ["exo"]
+
+    if backend == "uzu":
+        return ["uzu", "serve", model]
 
     raise ValueError(f"Unknown backend: {backend}")
 

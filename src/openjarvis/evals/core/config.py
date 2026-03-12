@@ -88,6 +88,7 @@ def load_eval_config(path: str | Path) -> EvalSuiteConfig:
     judge_raw = raw.get("judge", {})
     judge = JudgeConfig(
         model=judge_raw.get("model", "gpt-5-mini-2025-08-07"),
+        engine=judge_raw.get("engine"),
         provider=judge_raw.get("provider"),
         temperature=float(judge_raw.get("temperature", 0.0)),
         max_tokens=int(judge_raw.get("max_tokens", 1024)),
@@ -249,6 +250,7 @@ def expand_suite(suite: EvalSuiteConfig) -> List[RunConfig]:
                 temperature=temperature,
                 max_tokens=max_tokens,
                 judge_model=judge_model,
+                judge_engine=suite.judge.engine or "cloud",
                 engine_key=model.engine,
                 agent_name=bench.agent,
                 tools=list(bench.tools),

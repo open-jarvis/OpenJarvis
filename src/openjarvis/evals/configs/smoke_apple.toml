@@ -1,0 +1,166 @@
+# Smoke test — Apple Silicon (M4, 32 GB unified memory)
+# ~3 samples per benchmark, all agents, all Apple-compatible engines.
+# Coverage: Qwen 3.5, GPT OSS, Unsloth GGUF, LiquidAI MLX, Apple FM
+
+[meta]
+name = "smoke-apple"
+description = "Full-stack smoke test on Apple Silicon — MLX, Ollama, Apple FM engines"
+
+[defaults]
+temperature = 0.0
+max_tokens = 2048
+
+[judge]
+model = "mlx-community/Qwen2.5-1.5B-Instruct-4bit"
+engine = "mlx"
+temperature = 0.0
+max_tokens = 512
+
+[run]
+max_workers = 1
+output_dir = "results/smoke-apple/"
+seed = 42
+telemetry = true
+gpu_metrics = false
+
+# ---------------------------------------------------------------------------
+# Models — sized for 32 GB unified memory
+# ---------------------------------------------------------------------------
+
+# Engine: MLX (Apple-native)
+[[models]]
+name = "mlx-community/Qwen2.5-1.5B-Instruct-4bit"
+engine = "mlx"
+param_count_b = 1.5
+
+# Engine: Ollama — Qwen3 8B (MoE)
+[[models]]
+name = "qwen3:8b"
+engine = "ollama"
+param_count_b = 8.2
+
+# --- Additional models (pull before running) ---
+# [[models]]
+# name = "unsloth/Qwen3.5-35B-A3B-GGUF"
+# engine = "ollama"
+# param_count_b = 35.0
+# active_params_b = 3.0
+
+# [[models]]
+# name = "gpt-oss:120b"
+# engine = "ollama"
+# param_count_b = 117.0
+# active_params_b = 5.1
+
+# Engine: Apple FM (macOS 15+ Foundation Models shim, requires python-apple-fm-sdk)
+# [[models]]
+# name = "apple-fm"
+# engine = "apple_fm"
+
+# ---------------------------------------------------------------------------
+# Benchmarks — 3 samples each, covering direct + all agent harnesses + tools
+# ---------------------------------------------------------------------------
+
+# --- Intelligence (jarvis-direct) ---
+
+[[benchmarks]]
+name = "supergpqa"
+backend = "jarvis-direct"
+max_samples = 3
+
+[[benchmarks]]
+name = "simpleqa"
+backend = "jarvis-direct"
+max_samples = 3
+
+[[benchmarks]]
+name = "mmlu-pro"
+backend = "jarvis-direct"
+max_samples = 3
+
+[[benchmarks]]
+name = "math500"
+backend = "jarvis-direct"
+max_samples = 3
+
+# --- Agent: simple ---
+
+[[benchmarks]]
+name = "wildchat"
+backend = "jarvis-agent"
+agent = "simple"
+tools = ["think"]
+max_samples = 3
+
+# --- Agent: native_react ---
+
+[[benchmarks]]
+name = "gaia"
+backend = "jarvis-agent"
+agent = "native_react"
+tools = ["think", "calculator", "code_interpreter", "web_search", "file_read", "file_write"]
+max_samples = 3
+
+# --- Agent: native_openhands ---
+
+[[benchmarks]]
+name = "coding_task"
+backend = "jarvis-agent"
+agent = "native_openhands"
+tools = ["think", "code_interpreter", "file_read", "file_write", "shell_exec", "git_status", "git_diff"]
+max_samples = 3
+
+# --- Agent: orchestrator ---
+
+# deepplanning — not in dataset registry; uncomment when added
+# [[benchmarks]]
+# name = "deepplanning"
+# backend = "jarvis-agent"
+# agent = "orchestrator"
+# tools = ["think", "calculator", "code_interpreter", "web_search", "file_read", "memory_store", "memory_search"]
+# max_samples = 3
+
+# --- Agent: monitor_operative ---
+
+[[benchmarks]]
+name = "frames"
+backend = "jarvis-agent"
+agent = "monitor_operative"
+tools = ["think", "calculator", "code_interpreter", "web_search", "file_read", "retrieval"]
+max_samples = 3
+
+# --- Agent: operative ---
+
+[[benchmarks]]
+name = "email_triage"
+backend = "jarvis-agent"
+agent = "operative"
+tools = ["think", "file_read", "channel_send", "channel_list"]
+max_samples = 3
+
+# --- Tools coverage: KG + browser + db + media ---
+
+# lifelong-agent — not in dataset registry; uncomment when added
+# [[benchmarks]]
+# name = "lifelong-agent"
+# backend = "jarvis-agent"
+# agent = "native_react"
+# subset = "knowledge_graph"
+# tools = ["think", "kg_query", "kg_add_entity", "kg_add_relation", "kg_neighbors", "memory_store", "memory_search", "memory_retrieve"]
+# max_samples = 3
+
+[[benchmarks]]
+name = "terminalbench"
+backend = "jarvis-agent"
+agent = "native_react"
+tools = ["think", "code_interpreter", "shell_exec", "file_read", "file_write", "http_request"]
+max_samples = 3
+
+# --- Messaging integration coverage ---
+
+[[benchmarks]]
+name = "morning_brief"
+backend = "jarvis-agent"
+agent = "orchestrator"
+tools = ["think", "web_search", "channel_send", "channel_list", "channel_status", "memory_search", "retrieval"]
+max_samples = 3

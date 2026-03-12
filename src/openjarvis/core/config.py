@@ -315,7 +315,7 @@ class NexaEngineConfig:
 class UzuEngineConfig:
     """Per-engine config for Uzu."""
 
-    host: str = "http://localhost:8080"
+    host: str = "http://localhost:8000"
 
 
 @dataclass(slots=True)
@@ -969,6 +969,14 @@ class AgentManagerConfig:
 
     enabled: bool = True
     db_path: str = str(DEFAULT_CONFIG_DIR / "agents.db")
+
+
+@dataclass
+class AgentManagerConfig:
+    """Configuration for the persistent agent manager."""
+
+    enabled: bool = False
+    db_path: str = ""
 
 
 @dataclass
