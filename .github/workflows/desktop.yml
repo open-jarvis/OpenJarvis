@@ -85,7 +85,7 @@ jobs:
           - platform: ubuntu-22.04
             args: ''
           - platform: macos-latest
-            args: '--target aarch64-apple-darwin'
+            args: '--target universal-apple-darwin'
           - platform: windows-latest
             args: ''
 
@@ -109,7 +109,7 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -132,7 +132,13 @@ jobs:
       - name: Download Ollama sidecar
         shell: bash
         run: |
-          cd desktop/scripts && chmod +x download-ollama.sh && ./download-ollama.sh
+          cd desktop/scripts && chmod +x download-ollama.sh
+          if [[ "${{ matrix.platform }}" == "macos-latest" ]]; then
+            ./download-ollama.sh aarch64-apple-darwin
+            ./download-ollama.sh x86_64-apple-darwin
+          else
+            ./download-ollama.sh
+          fi
 
       - name: Determine release info
         id: release-info
@@ -168,10 +174,15 @@ jobs:
             echo "APPLE_TEAM_ID=$A_TEAM" >> "$GITHUB_ENV"
             echo "Apple signing configured"
           else
+            if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+              echo "::error::Apple signing secrets are required for release builds"
+              exit 1
+            fi
             echo "No Apple certificate configured, skipping code signing"
           fi
 
       - name: Build and release
+        timeout-minutes: 60
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

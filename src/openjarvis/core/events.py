@@ -67,6 +67,8 @@ class EventType(str, Enum):
     AGENT_TICK_ERROR = "agent_tick_error"
     AGENT_BUDGET_EXCEEDED = "agent_budget_exceeded"
     AGENT_STALL_DETECTED = "agent_stall_detected"
+    AGENT_LEARNING_STARTED = "agent_learning_started"
+    AGENT_LEARNING_COMPLETED = "agent_learning_completed"
     AGENT_MESSAGE_RECEIVED = "agent_message_received"
     AGENT_CHECKPOINT_SAVED = "agent_checkpoint_saved"
     # Phase 25 — Configuration Optimization

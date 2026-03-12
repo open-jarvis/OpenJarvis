@@ -13,8 +13,11 @@ import {
   runManagedAgent,
   recoverManagedAgent,
   sendAgentMessage,
+  fetchLearningLog,
+  triggerLearning,
+  fetchAgentTraces,
 } from '../lib/api';
-import type { AgentTask, ChannelBinding, AgentTemplate, AgentMessage, ManagedAgent } from '../lib/api';
+import type { AgentTask, ChannelBinding, AgentTemplate, AgentMessage, ManagedAgent, LearningLogEntry, AgentTrace } from '../lib/api';
 import {
   Plus,
   Bot,
@@ -629,6 +632,32 @@ function AgentCard({
         </span>
       </div>
 
+      {/* Budget progress bar */}
+      {(agent.config?.max_cost as number) > 0 && (
+        <div className="mb-3">
+          <div className="flex justify-between text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>
+            <span>Budget</span>
+            <span>
+              {formatCost(agent.total_cost)} / ${(agent.config?.max_cost as number).toFixed(0)}
+            </span>
+          </div>
+          <div className="w-full rounded-full h-1.5" style={{ background: 'var(--color-bg)' }}>
+            <div
+              className="h-1.5 rounded-full transition-all"
+              style={{
+                width: `${Math.min(100, ((agent.total_cost ?? 0) / (agent.config?.max_cost as number)) * 100)}%`,
+                background:
+                  ((agent.total_cost ?? 0) / (agent.config?.max_cost as number)) > 0.9
+                    ? '#ef4444'
+                    : ((agent.total_cost ?? 0) / (agent.config?.max_cost as number)) > 0.75
+                      ? '#f59e0b'
+                      : '#22c55e',
+              }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Row 4: Actions */}
       <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
         <button
@@ -794,6 +823,151 @@ function InteractTab({ agentId }: { agentId: string }) {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Learning tab component
+// ---------------------------------------------------------------------------
+
+function LearningTab({ agentId, learningEnabled }: { agentId: string; learningEnabled: boolean }) {
+  const [logs, setLogs] = useState<LearningLogEntry[]>([]);
+  const [triggering, setTriggering] = useState(false);
+
+  useEffect(() => {
+    fetchLearningLog(agentId).then(setLogs).catch(() => {});
+  }, [agentId]);
+
+  async function handleTrigger() {
+    setTriggering(true);
+    try {
+      await triggerLearning(agentId);
+      // Refresh after a short delay
+      setTimeout(() => fetchLearningLog(agentId).then(setLogs).catch(() => {}), 1000);
+    } catch {
+      // ignore
+    } finally {
+      setTriggering(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>Learning</span>
+          <span
+            className="text-xs px-2 py-0.5 rounded-full"
+            style={{
+              background: learningEnabled ? '#22c55e20' : 'var(--color-bg-secondary)',
+              color: learningEnabled ? '#22c55e' : 'var(--color-text-tertiary)',
+            }}
+          >
+            {learningEnabled ? 'Enabled' : 'Disabled'}
+          </span>
+        </div>
+        <button
+          onClick={handleTrigger}
+          disabled={triggering}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs cursor-pointer font-medium"
+          style={{
+            background: 'var(--color-accent)',
+            color: '#fff',
+            opacity: triggering ? 0.6 : 1,
+          }}
+        >
+          <RefreshCw size={12} className={triggering ? 'animate-spin' : ''} />
+          Run Learning
+        </button>
+      </div>
+      {logs.length === 0 ? (
+        <div className="text-sm text-center py-8" style={{ color: 'var(--color-text-tertiary)' }}>
+          No learning events yet. Run the agent or trigger learning manually.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {logs.map((entry) => (
+            <div
+              key={entry.id}
+              className="rounded-lg p-3 text-sm"
+              style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span
+                  className="text-xs px-2 py-0.5 rounded"
+                  style={{ background: 'var(--color-accent)' + '20', color: 'var(--color-accent)' }}
+                >
+                  {entry.event_type}
+                </span>
+                <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+                  {formatRelativeTime(entry.created_at)}
+                </span>
+              </div>
+              {entry.description && (
+                <p style={{ color: 'var(--color-text-secondary)' }}>{entry.description}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Logs tab component
+// ---------------------------------------------------------------------------
+
+function LogsTab({ agentId }: { agentId: string }) {
+  const [traces, setTraces] = useState<AgentTrace[]>([]);
+
+  useEffect(() => {
+    fetchAgentTraces(agentId).then(setTraces).catch(() => {});
+  }, [agentId]);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
+          Execution Traces
+        </span>
+        <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+          {traces.length} trace{traces.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+      {traces.length === 0 ? (
+        <div className="text-sm text-center py-8" style={{ color: 'var(--color-text-tertiary)' }}>
+          No execution traces yet. Run the agent to generate traces.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {traces.map((t) => (
+            <div
+              key={t.id}
+              className="rounded-lg p-3 text-sm"
+              style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="w-2 h-2 rounded-full inline-block"
+                    style={{ background: t.outcome === 'success' ? '#22c55e' : '#ef4444' }}
+                  />
+                  <span style={{ color: 'var(--color-text)' }}>{t.outcome}</span>
+                </div>
+                <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+                  {formatRelativeTime(t.started_at)}
+                </span>
+              </div>
+              <div className="flex items-center gap-3 mt-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+                <span>{t.duration.toFixed(1)}s</span>
+                <span>{t.steps} step{t.steps !== 1 ? 's' : ''}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1120,58 +1294,12 @@ export function AgentsPage() {
 
         {/* Tab: Learning */}
         {detailTab === 'learning' && (
-          <div className="space-y-4">
-            <div
-              className="p-4 rounded-lg flex items-center justify-between"
-              style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
-            >
-              <div>
-                <p className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-                  Enable Learning
-                </p>
-                <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-tertiary)' }}>
-                  Accumulates traces and improves over time
-                </p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="sr-only"
-                  defaultChecked={selectedAgent.learning_enabled ?? false}
-                  readOnly
-                />
-                <div
-                  className="w-10 h-5 rounded-full transition-colors"
-                  style={{ background: selectedAgent.learning_enabled ? 'var(--color-accent)' : 'var(--color-border)' }}
-                >
-                  <div
-                    className="w-4 h-4 bg-white rounded-full mt-0.5 transition-transform"
-                    style={{ transform: selectedAgent.learning_enabled ? 'translateX(22px)' : 'translateX(2px)' }}
-                  />
-                </div>
-              </label>
-            </div>
-            <div
-              className="p-4 rounded-lg"
-              style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
-            >
-              <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
-                Learning events will appear here after the agent has run and accumulated traces.
-              </p>
-            </div>
-          </div>
+          <LearningTab agentId={selectedAgent.id} learningEnabled={!!selectedAgent.learning_enabled} />
         )}
 
         {/* Tab: Logs */}
         {detailTab === 'logs' && (
-          <div
-            className="p-4 rounded-lg"
-            style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
-          >
-            <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
-              Trace replay and execution logs will be available here once the agent has completed runs.
-            </p>
-          </div>
+          <LogsTab agentId={selectedAgent.id} />
         )}
       </div>
     );

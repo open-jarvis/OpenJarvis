@@ -47,9 +47,12 @@ class TrainingDataMiner:
 
     # -- helpers ----------------------------------------------------------------
 
-    def _quality_traces(self) -> List[Trace]:
+    def _quality_traces(self, *, agent: str | None = None) -> List[Trace]:
         """Return traces whose feedback meets the quality threshold."""
-        all_traces = self._store.list_traces(limit=10000)
+        kwargs: Dict[str, Any] = {"limit": 10000}
+        if agent is not None:
+            kwargs["agent"] = agent
+        all_traces = self._store.list_traces(**kwargs)
         return [
             t
             for t in all_traces
@@ -71,7 +74,7 @@ class TrainingDataMiner:
 
     # -- public API -------------------------------------------------------------
 
-    def extract_sft_pairs(self) -> List[Dict[str, Any]]:
+    def extract_sft_pairs(self, *, agent: str | None = None) -> List[Dict[str, Any]]:
         """Return SFT training pairs from high-quality traces.
 
         Each entry is a dict with keys: ``input``, ``output``,
@@ -80,7 +83,7 @@ class TrainingDataMiner:
         Duplicate ``(input, output)`` pairs are collapsed; the first
         occurrence is kept.
         """
-        traces = self._quality_traces()
+        traces = self._quality_traces(agent=agent)
         seen: set[tuple[str, str]] = set()
         pairs: List[Dict[str, Any]] = []
 
@@ -101,7 +104,9 @@ class TrainingDataMiner:
 
         return pairs
 
-    def extract_routing_pairs(self) -> Dict[str, Dict[str, Any]]:
+    def extract_routing_pairs(
+        self, *, agent: str | None = None
+    ) -> Dict[str, Dict[str, Any]]:
         """Return per-query-class routing recommendations.
 
         Returns a dict mapping query class to:
@@ -111,7 +116,7 @@ class TrainingDataMiner:
         * ``sample_count`` — total number of qualifying traces in the class.
         * ``all_models`` — dict of ``{model: {"avg_feedback": float, "count": int}}``.
         """
-        traces = self._quality_traces()
+        traces = self._quality_traces(agent=agent)
 
         # Accumulate per (query_class, model) feedback scores
         class_model_scores: Dict[str, Dict[str, List[float]]] = defaultdict(
@@ -150,7 +155,9 @@ class TrainingDataMiner:
 
         return result
 
-    def extract_agent_config_pairs(self) -> Dict[str, Dict[str, Any]]:
+    def extract_agent_config_pairs(
+        self, *, agent: str | None = None
+    ) -> Dict[str, Dict[str, Any]]:
         """Return per-query-class agent and tool recommendations.
 
         Returns a dict mapping query class to:
@@ -160,7 +167,7 @@ class TrainingDataMiner:
         * ``avg_feedback`` — average feedback across all agents for the class.
         * ``sample_count`` — total number of qualifying traces in the class.
         """
-        traces = self._quality_traces()
+        traces = self._quality_traces(agent=agent)
 
         # Accumulate per (query_class, agent) feedback and tools
         class_agent_scores: Dict[str, Dict[str, List[float]]] = defaultdict(

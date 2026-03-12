@@ -73,6 +73,17 @@ CREATE TABLE IF NOT EXISTS agent_messages (
 );
 """
 
+_CREATE_LEARNING_LOG = """\
+CREATE TABLE IF NOT EXISTS agent_learning_log (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    description TEXT,
+    data TEXT,
+    created_at REAL NOT NULL
+);
+"""
+
 _SUMMARY_MAX = 2000
 
 
@@ -90,6 +101,7 @@ class AgentManager:
         self._conn.execute(_CREATE_BINDINGS)
         self._conn.executescript(_CREATE_CHECKPOINTS)
         self._conn.executescript(_CREATE_MESSAGES)
+        self._conn.executescript(_CREATE_LEARNING_LOG)
         self._conn.commit()
         # Schema migrations for runtime columns
         _MIGRATIONS = [
@@ -98,6 +110,7 @@ class AgentManager:
             "ALTER TABLE managed_agents ADD COLUMN total_runs INTEGER DEFAULT 0",
             "ALTER TABLE managed_agents ADD COLUMN last_run_at REAL",
             "ALTER TABLE managed_agents ADD COLUMN last_activity_at REAL",
+            "ALTER TABLE managed_agents ADD COLUMN stall_retries INTEGER DEFAULT 0",
         ]
         for migration in _MIGRATIONS:
             try:
@@ -160,6 +173,20 @@ class AgentManager:
             vals.append(total_runs_increment)
             sets.append("last_run_at = ?")
             vals.append(time.time())
+        total_cost_increment = kwargs.get("total_cost_increment", 0)
+        if total_cost_increment:
+            sets.append("total_cost = total_cost + ?")
+            vals.append(total_cost_increment)
+        total_tokens_increment = kwargs.get("total_tokens_increment", 0)
+        if total_tokens_increment:
+            sets.append("total_tokens = total_tokens + ?")
+            vals.append(total_tokens_increment)
+        if "last_activity_at" in kwargs:
+            sets.append("last_activity_at = ?")
+            vals.append(kwargs["last_activity_at"])
+        if "stall_retries" in kwargs:
+            sets.append("stall_retries = ?")
+            vals.append(kwargs["stall_retries"])
         sets.append("updated_at = ?")
         vals.append(time.time())
         vals.append(agent_id)
@@ -546,6 +573,51 @@ class AgentManager:
             "created_at": row["created_at"],
         }
 
+    # ── Learning log ──────────────────────────────────────────
+
+    def add_learning_log(
+        self,
+        agent_id: str,
+        event_type: str,
+        description: str = "",
+        data: dict | None = None,
+    ) -> dict:
+        log_id = uuid4().hex[:16]
+        now = time.time()
+        self._conn.execute(
+            "INSERT INTO agent_learning_log"
+            " (id, agent_id, event_type, description, data, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (log_id, agent_id, event_type, description, json.dumps(data or {}), now),
+        )
+        self._conn.commit()
+        return {
+            "id": log_id,
+            "agent_id": agent_id,
+            "event_type": event_type,
+            "description": description,
+            "data": data or {},
+            "created_at": now,
+        }
+
+    def list_learning_log(self, agent_id: str, limit: int = 50) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT * FROM agent_learning_log"
+            " WHERE agent_id = ? ORDER BY created_at DESC LIMIT ?",
+            (agent_id, limit),
+        ).fetchall()
+        return [
+            {
+                "id": r["id"],
+                "agent_id": r["agent_id"],
+                "event_type": r["event_type"],
+                "description": r["description"],
+                "data": json.loads(r["data"] or "{}"),
+                "created_at": r["created_at"],
+            }
+            for r in rows
+        ]
+
     # ── Row converters ────────────────────────────────────────────
 
     @staticmethod
@@ -565,6 +637,7 @@ class AgentManager:
             "total_runs": row["total_runs"] or 0,
             "last_run_at": row["last_run_at"],
             "last_activity_at": row["last_activity_at"],
+            "stall_retries": row["stall_retries"] or 0,
         }
 
     @staticmethod

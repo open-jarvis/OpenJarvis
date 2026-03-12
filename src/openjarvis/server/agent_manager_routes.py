@@ -251,6 +251,85 @@ def create_agent_manager_router(
             "checkpoint": manager.get_latest_checkpoint(agent_id),
         }
 
+    # ── Learning ─────────────────────────────────────────────
+
+    @agents_router.get("/{agent_id}/learning")
+    def get_learning_log(agent_id: str):
+        if not manager.get_agent(agent_id):
+            raise HTTPException(status_code=404, detail="Agent not found")
+        return {"learning_log": manager.list_learning_log(agent_id)}
+
+    @agents_router.post("/{agent_id}/learning/run")
+    def trigger_learning(agent_id: str):
+        if not manager.get_agent(agent_id):
+            raise HTTPException(status_code=404, detail="Agent not found")
+        from openjarvis.core.events import EventType, get_event_bus
+
+        bus = get_event_bus()
+        bus.publish(EventType.AGENT_LEARNING_STARTED, {"agent_id": agent_id})
+        return {"status": "triggered"}
+
+    # ── Traces ───────────────────────────────────────────────
+
+    @agents_router.get("/{agent_id}/traces")
+    def list_traces(agent_id: str, limit: int = 20):
+        if not manager.get_agent(agent_id):
+            raise HTTPException(status_code=404, detail="Agent not found")
+        try:
+            from openjarvis.core.config import load_config
+            from openjarvis.traces.store import TraceStore
+
+            config = load_config()
+            store = TraceStore(config.traces.db_path or "~/.openjarvis/traces.db")
+            traces = store.list_traces(agent=agent_id, limit=limit)
+            return {
+                "traces": [
+                    {
+                        "id": t.trace_id,
+                        "outcome": t.outcome,
+                        "duration": t.total_latency_seconds,
+                        "started_at": t.started_at,
+                        "steps": len(t.steps),
+                    }
+                    for t in traces
+                ]
+            }
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc))
+
+    @agents_router.get("/{agent_id}/traces/{trace_id}")
+    def get_trace(agent_id: str, trace_id: str):
+        try:
+            from openjarvis.core.config import load_config
+            from openjarvis.traces.store import TraceStore
+
+            config = load_config()
+            store = TraceStore(config.traces.db_path or "~/.openjarvis/traces.db")
+            trace = store.get(trace_id)
+            if trace is None:
+                raise HTTPException(status_code=404, detail="Trace not found")
+            return {
+                "id": trace.trace_id,
+                "agent": trace.agent,
+                "outcome": trace.outcome,
+                "duration": trace.total_latency_seconds,
+                "started_at": trace.started_at,
+                "steps": [
+                    {
+                        "step_type": s.step_type.value,
+                        "input": s.input,
+                        "output": s.output,
+                        "duration": s.duration_seconds,
+                        "metadata": s.metadata,
+                    }
+                    for s in trace.steps
+                ],
+            }
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc))
+
     # ── Templates ────────────────────────────────────────────
 
     @templates_router.get("")
@@ -280,13 +359,12 @@ def create_agent_manager_router(
     @global_router.get("/v1/agents/health")
     def agents_health():
         all_agents = manager.list_agents()
+        from collections import Counter
+
+        counts = Counter(a["status"] for a in all_agents)
         return {
             "total": len(all_agents),
-            "running": sum(1 for a in all_agents if a["status"] == "running"),
-            "error": sum(
-                1 for a in all_agents if a["status"] in ("error", "needs_attention")
-            ),
-            "idle": sum(1 for a in all_agents if a["status"] == "idle"),
+            "by_status": dict(counts),
         }
 
     return agents_router, templates_router, global_router

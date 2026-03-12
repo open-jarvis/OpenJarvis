@@ -74,8 +74,13 @@ class LearningOrchestrator:
     # public API
     # ------------------------------------------------------------------
 
-    def run(self) -> Dict[str, Any]:
+    def run(self, *, agent_id: str | None = None) -> Dict[str, Any]:
         """Execute one learning cycle.
+
+        Parameters
+        ----------
+        agent_id:
+            When provided, only traces from this agent are considered.
 
         Returns a dict with at least ``timestamp`` and ``status`` keys.
 
@@ -96,9 +101,9 @@ class LearningOrchestrator:
         }
 
         # 1. Mine training data from traces
-        sft_pairs = self._miner.extract_sft_pairs()
-        routing_pairs = self._miner.extract_routing_pairs()
-        agent_pairs = self._miner.extract_agent_config_pairs()
+        sft_pairs = self._miner.extract_sft_pairs(agent=agent_id)
+        routing_pairs = self._miner.extract_routing_pairs(agent=agent_id)
+        agent_pairs = self._miner.extract_agent_config_pairs(agent=agent_id)
 
         result["sft_pairs"] = len(sft_pairs)
         result["routing_classes"] = len(routing_pairs)

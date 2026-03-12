@@ -244,6 +244,68 @@ class TestMessageQueue:
         assert resp["direction"] == "agent_to_user"
 
 
+def test_update_agent_budget_fields(tmp_path):
+    """update_agent() accepts budget and stall kwargs."""
+    import time
+
+    from openjarvis.agents.manager import AgentManager
+
+    mgr = AgentManager(str(tmp_path / "test.db"))
+    agent = mgr.create_agent("budget-test")
+
+    # Increment total_cost and total_tokens
+    mgr.update_agent(agent["id"], total_cost_increment=1.50, total_tokens_increment=500)
+    updated = mgr.get_agent(agent["id"])
+    assert updated["total_cost"] == 1.50
+    assert updated["total_tokens"] == 500
+
+    # Accumulate
+    mgr.update_agent(agent["id"], total_cost_increment=0.75, total_tokens_increment=200)
+    updated = mgr.get_agent(agent["id"])
+    assert updated["total_cost"] == 2.25
+    assert updated["total_tokens"] == 700
+
+    # Set last_activity_at
+    now = time.time()
+    mgr.update_agent(agent["id"], last_activity_at=now)
+    updated = mgr.get_agent(agent["id"])
+    assert updated["last_activity_at"] == now
+
+    # Set stall_retries
+    mgr.update_agent(agent["id"], stall_retries=3)
+    updated = mgr.get_agent(agent["id"])
+    assert updated["stall_retries"] == 3
+
+    mgr.close()
+
+
+def test_learning_log_crud(tmp_path):
+    """AgentManager can write and read learning log entries."""
+    from openjarvis.agents.manager import AgentManager
+
+    mgr = AgentManager(str(tmp_path / "test.db"))
+    agent = mgr.create_agent("learner")
+
+    entry = mgr.add_learning_log(
+        agent["id"],
+        "cycle_completed",
+        description="Analyzed 20 traces",
+        data={"sft_pairs": 5, "status": "completed"},
+    )
+    assert entry["event_type"] == "cycle_completed"
+
+    logs = mgr.list_learning_log(agent["id"])
+    assert len(logs) == 1
+    assert logs[0]["data"]["sft_pairs"] == 5
+
+    # Add a second entry
+    mgr.add_learning_log(agent["id"], "skill_discovered", description="Found new skill")
+    logs = mgr.list_learning_log(agent["id"])
+    assert len(logs) == 2
+
+    mgr.close()
+
+
 class TestSchemaAndThreading:
     def test_agent_has_runtime_columns(self, manager):
         """New columns from ALTER TABLE migration should exist."""

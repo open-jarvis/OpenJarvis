@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from openjarvis.agents._stubs import AgentResult
 from openjarvis.agents.errors import FatalError, RetryableError
 from openjarvis.core.events import EventBus, EventType
 
@@ -46,7 +47,8 @@ class TestExecutorBasic:
         event_bus.subscribe(EventType.AGENT_TICK_START, lambda e: events.append(e))
         event_bus.subscribe(EventType.AGENT_TICK_END, lambda e: events.append(e))
 
-        with patch.object(executor, "_invoke_agent", return_value="result text"):
+        rv = AgentResult(content="result text")
+        with patch.object(executor, "_invoke_agent", return_value=rv):
             executor.execute_tick(agent["id"])
 
         assert len(events) == 2
@@ -56,7 +58,8 @@ class TestExecutorBasic:
     def test_execute_tick_updates_run_stats(self, executor, manager):
         agent = manager.create_agent(name="test", agent_type="monitor_operative")
 
-        with patch.object(executor, "_invoke_agent", return_value="result text"):
+        rv = AgentResult(content="result text")
+        with patch.object(executor, "_invoke_agent", return_value=rv):
             executor.execute_tick(agent["id"])
 
         updated = manager.get_agent(agent["id"])
@@ -75,7 +78,8 @@ class TestExecutorBasic:
 
         manager.start_tick = track_start
 
-        with patch.object(executor, "_invoke_agent", return_value="result"):
+        rv = AgentResult(content="result")
+        with patch.object(executor, "_invoke_agent", return_value=rv):
             executor.execute_tick(agent["id"])
 
         assert statuses == ["running"]
@@ -103,7 +107,7 @@ class TestExecutorBasic:
             call_count += 1
             if call_count < 3:
                 raise RetryableError("rate limit")
-            return "success"
+            return AgentResult(content="success")
 
         with patch.object(executor, "_invoke_agent", side_effect=flaky_invoke):
             with patch("openjarvis.agents.executor.retry_delay", return_value=0):
@@ -128,8 +132,34 @@ class TestExecutorBasic:
         manager.start_tick(agent["id"])  # Simulate already running
 
         # Second tick should handle the ValueError from start_tick
-        with patch.object(executor, "_invoke_agent", return_value="result"):
+        rv = AgentResult(content="result")
+        with patch.object(executor, "_invoke_agent", return_value=rv):
             executor.execute_tick(agent["id"])
 
         # Agent should still be running (first tick owns it)
         assert manager.get_agent(agent["id"])["status"] == "running"
+
+
+def test_finalize_tick_reads_agent_result_metadata(tmp_path):
+    """_finalize_tick() accumulates cost/tokens from AgentResult.metadata."""
+    from openjarvis.agents.executor import AgentExecutor
+    from openjarvis.agents.manager import AgentManager
+
+    mgr = AgentManager(str(tmp_path / "test.db"))
+    bus = EventBus()
+    executor = AgentExecutor(mgr, bus)
+
+    agent = mgr.create_agent("budget-agent")
+    mgr.start_tick(agent["id"])
+
+    result = AgentResult(
+        content="done",
+        metadata={"tokens_used": 500, "cost": 0.05},
+    )
+    executor._finalize_tick(agent["id"], result, error=None, duration=1.0)
+
+    updated = mgr.get_agent(agent["id"])
+    assert updated["total_tokens"] == 500
+    assert updated["total_cost"] == 0.05
+    assert updated["stall_retries"] == 0
+    mgr.close()

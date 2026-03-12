@@ -385,6 +385,67 @@ export async function fetchErrorAgents(): Promise<ManagedAgent[]> {
 }
 
 // ---------------------------------------------------------------------------
+// Agent Learning + Traces
+// ---------------------------------------------------------------------------
+
+export interface LearningLogEntry {
+  id: string;
+  agent_id: string;
+  event_type: string;
+  description: string;
+  data: Record<string, unknown>;
+  created_at: number;
+}
+
+export interface AgentTrace {
+  id: string;
+  outcome: string;
+  duration: number;
+  started_at: number;
+  steps: number;
+}
+
+export interface AgentTraceDetail {
+  id: string;
+  agent: string;
+  outcome: string;
+  duration: number;
+  started_at: number;
+  steps: Array<{
+    step_type: string;
+    input: unknown;
+    output: string;
+    duration: number;
+    metadata: Record<string, unknown>;
+  }>;
+}
+
+export async function fetchLearningLog(agentId: string): Promise<LearningLogEntry[]> {
+  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/learning`);
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  const data = await res.json();
+  return data.learning_log || [];
+}
+
+export async function triggerLearning(agentId: string): Promise<void> {
+  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/learning/run`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+}
+
+export async function fetchAgentTraces(agentId: string, limit = 20): Promise<AgentTrace[]> {
+  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/traces?limit=${limit}`);
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  const data = await res.json();
+  return data.traces || [];
+}
+
+export async function fetchAgentTrace(agentId: string, traceId: string): Promise<AgentTraceDetail> {
+  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/traces/${traceId}`);
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
 // Leaderboard savings submission (Supabase)
 // ---------------------------------------------------------------------------
 

@@ -79,16 +79,29 @@ Set the public key in `src-tauri/tauri.conf.json` under `plugins.updater.pubkey`
 | `TAURI_SIGNING_PRIVATE_KEY` | Contents of the `.key` file |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Password used during generation |
 
-### macOS Notarization (Optional)
+### macOS Code Signing & Notarization (Required for Distribution)
 
-| Secret | Description |
-|--------|-------------|
-| `APPLE_CERTIFICATE` | Base64-encoded `.p12` certificate |
-| `APPLE_CERTIFICATE_PASSWORD` | Certificate password |
-| `APPLE_SIGNING_IDENTITY` | e.g., `Developer ID Application: Name (TEAMID)` |
-| `APPLE_ID` | Apple ID email |
-| `APPLE_PASSWORD` | App-specific password |
-| `APPLE_TEAM_ID` | 10-character team ID |
+Without these secrets, macOS users will see *"OpenJarvis is damaged and can't be opened"* due to Gatekeeper. The CI workflow will **fail release builds** (tag pushes) if signing secrets are missing.
+
+**Prerequisites:** Apple Developer Program membership ($99/year) — [developer.apple.com/programs](https://developer.apple.com/programs/)
+
+| Secret | How to obtain |
+|--------|---------------|
+| `APPLE_CERTIFICATE` | In Keychain Access, export your **Developer ID Application** certificate as `.p12`. Then: `base64 -i cert.p12 \| pbcopy` |
+| `APPLE_CERTIFICATE_PASSWORD` | The password you set during the `.p12` export |
+| `APPLE_SIGNING_IDENTITY` | Full CN string from the certificate, e.g. `"Developer ID Application: Open Jarvis Inc (XXXXXXXXXX)"` |
+| `APPLE_ID` | The Apple ID email associated with your Developer account |
+| `APPLE_PASSWORD` | An **app-specific password** generated at [appleid.apple.com](https://appleid.apple.com) (not your account password) |
+| `APPLE_TEAM_ID` | 10-character team ID from [developer.apple.com/account](https://developer.apple.com/account) |
+
+Add all 6 secrets in **GitHub → Settings → Secrets and variables → Actions**.
+
+#### Local Signing Test
+
+```bash
+export APPLE_SIGNING_IDENTITY="Developer ID Application: ..."
+cd desktop && npm run tauri build -- --target universal-apple-darwin
+```
 
 ### Windows Authenticode (Optional)
 
@@ -97,7 +110,7 @@ Set the public key in `src-tauri/tauri.conf.json` under `plugins.updater.pubkey`
 | `WINDOWS_CERTIFICATE` | Base64-encoded `.pfx` certificate |
 | `WINDOWS_CERTIFICATE_PASSWORD` | Certificate password |
 
-All signing is optional — unsigned builds work without any secrets configured.
+Windows signing is optional — unsigned Windows builds work but show a SmartScreen warning on first launch.
 
 ## Dashboard Panels
 

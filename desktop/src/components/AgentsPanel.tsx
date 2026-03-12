@@ -11,8 +11,11 @@ import {
   recoverManagedAgent,
   deleteManagedAgent,
   sendAgentMessage,
+  fetchLearningLog,
+  triggerLearning,
+  fetchAgentTraces,
 } from '../lib/api';
-import type { ManagedAgent, AgentTask, AgentMessage, AgentTemplate } from '../lib/api';
+import type { ManagedAgent, AgentTask, AgentMessage, AgentTemplate, LearningLogEntry, AgentTrace } from '../lib/api';
 
 // ---------------------------------------------------------------------------
 // Colors — Catppuccin Mocha
@@ -704,6 +707,27 @@ function OverviewTab({ agent, onRun, onPause, onResume, onRecover }: {
           <span style={labelStyle}>Budget</span>
           <span style={valueStyle}>{agent.budget !== undefined ? `$${agent.budget}` : 'Unlimited'}</span>
         </div>
+        {/* Budget progress bar */}
+        {agent.budget !== undefined && agent.budget > 0 && (
+          <div style={{ padding: '8px 0 0 0' }}>
+            <div style={{ width: '100%', background: C.surface0, borderRadius: 4, height: 6, overflow: 'hidden' }}>
+              <div
+                style={{
+                  width: `${Math.min(100, ((agent.total_cost ?? 0) / agent.budget) * 100)}%`,
+                  height: '100%',
+                  borderRadius: 4,
+                  background:
+                    ((agent.total_cost ?? 0) / agent.budget) > 0.9
+                      ? C.red
+                      : ((agent.total_cost ?? 0) / agent.budget) > 0.75
+                        ? C.yellow
+                        : C.green,
+                  transition: 'width 0.3s ease',
+                }}
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Actions */}
@@ -755,6 +779,156 @@ function OverviewTab({ agent, onRun, onPause, onResume, onRecover }: {
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Learning Tab
+// ---------------------------------------------------------------------------
+
+function LearningTabContent({
+  apiUrl,
+  agentId,
+  learningEnabled,
+}: {
+  apiUrl: string;
+  agentId: string;
+  learningEnabled: boolean;
+}) {
+  const [logs, setLogs] = useState<LearningLogEntry[]>([]);
+  const [triggering, setTriggering] = useState(false);
+
+  useEffect(() => {
+    fetchLearningLog(apiUrl, agentId).then(setLogs).catch(() => {});
+  }, [apiUrl, agentId]);
+
+  async function handleTrigger() {
+    setTriggering(true);
+    try {
+      await triggerLearning(apiUrl, agentId);
+      setTimeout(() => fetchLearningLog(apiUrl, agentId).then(setLogs).catch(() => {}), 1000);
+    } catch {
+      // ignore
+    } finally {
+      setTriggering(false);
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ color: C.subtext0, fontSize: 12, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Learning
+          </span>
+          <span style={{
+            fontSize: 11, padding: '1px 8px', borderRadius: 8,
+            background: learningEnabled ? C.green + '25' : C.surface0,
+            color: learningEnabled ? C.green : C.overlay0,
+          }}>
+            {learningEnabled ? 'Enabled' : 'Disabled'}
+          </span>
+        </div>
+        <button
+          onClick={handleTrigger}
+          disabled={triggering}
+          style={{
+            padding: '6px 12px', borderRadius: 6, border: 'none',
+            background: C.accent, color: C.bg, cursor: triggering ? 'not-allowed' : 'pointer',
+            fontSize: 12, fontWeight: 600, opacity: triggering ? 0.6 : 1,
+          }}
+        >
+          {triggering ? 'Running...' : 'Run Learning'}
+        </button>
+      </div>
+      {logs.length === 0 ? (
+        <div style={{ color: C.overlay0, fontSize: 13, textAlign: 'center', marginTop: 32 }}>
+          No learning events yet. Run the agent or trigger learning manually.
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {logs.map((entry) => (
+            <div key={entry.id} style={{
+              background: C.surface0, borderRadius: 8, padding: '10px 14px',
+              border: `1px solid ${C.border}`,
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <span style={{
+                  fontSize: 11, padding: '1px 8px', borderRadius: 4,
+                  background: C.accent + '20', color: C.accent,
+                }}>
+                  {entry.event_type}
+                </span>
+                <span style={{ color: C.overlay0, fontSize: 11 }}>
+                  {formatRelativeTime(entry.created_at)}
+                </span>
+              </div>
+              {entry.description && (
+                <div style={{ color: C.subtext0, fontSize: 12, marginTop: 4 }}>
+                  {entry.description}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Logs Tab (execution traces)
+// ---------------------------------------------------------------------------
+
+function LogsTabContent({ apiUrl, agentId }: { apiUrl: string; agentId: string }) {
+  const [traces, setTraces] = useState<AgentTrace[]>([]);
+
+  useEffect(() => {
+    fetchAgentTraces(apiUrl, agentId).then(setTraces).catch(() => {});
+  }, [apiUrl, agentId]);
+
+  if (traces.length === 0) {
+    return (
+      <div style={{ color: C.overlay0, fontSize: 13, textAlign: 'center', marginTop: 32 }}>
+        No execution traces yet. Run the agent to generate traces.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <span style={{ color: C.subtext0, fontSize: 12, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          Execution Traces
+        </span>
+        <span style={{ color: C.overlay0, fontSize: 11 }}>
+          {traces.length} trace{traces.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+      {traces.map((t) => (
+        <div key={t.id} style={{
+          background: C.surface0, borderRadius: 8, padding: '10px 14px',
+          border: `1px solid ${C.border}`,
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{
+                width: 8, height: 8, borderRadius: '50%', display: 'inline-block',
+                background: t.outcome === 'success' ? C.green : C.red,
+              }} />
+              <span style={{ color: C.text, fontSize: 13 }}>{t.outcome}</span>
+            </div>
+            <span style={{ color: C.overlay0, fontSize: 11 }}>
+              {formatRelativeTime(t.started_at)}
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 12, marginTop: 4, fontSize: 11, color: C.overlay0 }}>
+            <span>{t.duration.toFixed(1)}s</span>
+            <span>{t.steps} step{t.steps !== 1 ? 's' : ''}</span>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -842,26 +1016,10 @@ function DetailPanel({
         {activeTab === 'tasks' && <TasksTab tasks={tasks} />}
         {activeTab === 'memory' && <MemoryTab agent={agent} />}
         {activeTab === 'learning' && (
-          <div style={{ color: C.overlay0, fontSize: 13 }}>
-            <div style={{ marginBottom: 8 }}>
-              <span style={{ color: C.subtext0, fontWeight: 500 }}>Learning: </span>
-              {agent.learning_enabled ? (
-                <span style={{ color: C.green }}>Enabled</span>
-              ) : (
-                <span style={{ color: C.overlay0 }}>Disabled</span>
-              )}
-            </div>
-            <div style={{ color: C.overlay0, fontSize: 12 }}>
-              Learning statistics and policy updates will appear here as the agent runs.
-            </div>
-          </div>
+          <LearningTabContent apiUrl={apiUrl} agentId={agent.id} learningEnabled={!!agent.learning_enabled} />
         )}
         {activeTab === 'logs' && (
-          <div style={{ color: C.overlay0, fontSize: 13 }}>
-            <div style={{ background: C.mantle, borderRadius: 6, padding: 12, fontFamily: 'monospace', fontSize: 12 }}>
-              Log streaming not yet connected. Run the agent to generate logs.
-            </div>
-          </div>
+          <LogsTabContent apiUrl={apiUrl} agentId={agent.id} />
         )}
       </div>
     </div>

@@ -6,6 +6,7 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any
 
+from openjarvis.agents._stubs import AgentResult
 from openjarvis.agents.errors import (
     AgentTickError,
     EscalateError,
@@ -35,10 +36,12 @@ class AgentExecutor:
         manager: AgentManager,
         event_bus: EventBus,
         system: Any = None,
+        trace_store: Any = None,
     ) -> None:
         self._system = system
         self._manager = manager
         self._bus = event_bus
+        self._trace_store = trace_store
 
     def set_system(self, system: Any) -> None:
         """Deferred system injection — called after JarvisSystem is constructed."""
@@ -68,6 +71,42 @@ class AgentExecutor:
             "agent_name": agent["name"],
         })
 
+        # Activity tracking: subscribe to tool/inference events
+        def _on_activity(event: Any) -> None:
+            if event.data.get("agent") == agent_id:
+                self._manager.update_agent(agent_id, last_activity_at=time.time())
+
+        self._bus.subscribe(EventType.TOOL_CALL_START, _on_activity)
+        self._bus.subscribe(EventType.INFERENCE_START, _on_activity)
+
+        # Trace recording: collect tool call steps
+        trace_steps: list[dict[str, Any]] = []
+
+        def _on_tool_start(event: Any) -> None:
+            if event.data.get("agent") == agent_id:
+                trace_steps.append({
+                    "type": "tool_call",
+                    "input": {
+                        "tool": event.data.get("tool"),
+                        "args": event.data.get("args"),
+                    },
+                    "start_time": event.timestamp,
+                })
+
+        def _on_tool_end(event: Any) -> None:
+            if event.data.get("agent") == agent_id and trace_steps:
+                for step in reversed(trace_steps):
+                    if step["type"] == "tool_call" and "output" not in step:
+                        step["output"] = {
+                            "result": str(event.data.get("result", ""))[:4096],
+                        }
+                        step["duration"] = event.data.get("duration", 0)
+                        break
+
+        if self._trace_store:
+            self._bus.subscribe(EventType.TOOL_CALL_START, _on_tool_start)
+            self._bus.subscribe(EventType.TOOL_CALL_END, _on_tool_end)
+
         tick_start = time.time()
         result = None
         error_info = None
@@ -77,10 +116,23 @@ class AgentExecutor:
         except AgentTickError as e:
             error_info = e
         finally:
+            self._bus.unsubscribe(EventType.TOOL_CALL_START, _on_activity)
+            self._bus.unsubscribe(EventType.INFERENCE_START, _on_activity)
+
+            if self._trace_store:
+                self._bus.unsubscribe(EventType.TOOL_CALL_START, _on_tool_start)
+                self._bus.unsubscribe(EventType.TOOL_CALL_END, _on_tool_end)
+
             tick_duration = time.time() - tick_start
             self._finalize_tick(agent_id, result, error_info, tick_duration)
 
-    def _run_with_retries(self, agent: dict) -> str:
+            if self._trace_store:
+                self._save_trace(
+                    agent_id, agent, result, error_info,
+                    tick_start, tick_duration, trace_steps,
+                )
+
+    def _run_with_retries(self, agent: dict) -> AgentResult:
         """Invoke the agent, retrying on RetryableError up to _MAX_RETRIES."""
         last_error: AgentTickError | None = None
 
@@ -111,7 +163,7 @@ class AgentExecutor:
         # Should not reach here, but just in case
         raise last_error or FatalError("max retries exhausted")
 
-    def _invoke_agent(self, agent: dict) -> str:
+    def _invoke_agent(self, agent: dict) -> AgentResult:
         """Invoke the actual agent run. Tests mock this method."""
         from openjarvis.agents import AgentRegistry
 
@@ -150,14 +202,12 @@ class AgentExecutor:
             for m in pending:
                 self._manager.mark_message_delivered(m["id"])
 
-        # AgentResult has a .content attribute (str)
-        result = agent_instance.run(context)
-        return result.content
+        return agent_instance.run(context)
 
     def _finalize_tick(
         self,
         agent_id: str,
-        result: str | None,
+        result: AgentResult | None,
         error: AgentTickError | None,
         duration: float,
     ) -> None:
@@ -166,11 +216,43 @@ class AgentExecutor:
             # Success
             self._manager.end_tick(agent_id)
             self._manager.update_agent(agent_id, total_runs_increment=1)
+
+            # Accumulate budget metrics from AgentResult metadata
             if result:
+                tokens = result.metadata.get("tokens_used", 0)
+                cost = result.metadata.get("cost", 0.0)
+                budget_kwargs: dict[str, Any] = {"stall_retries": 0}
+                if tokens > 0:
+                    budget_kwargs["total_tokens_increment"] = tokens
+                if cost > 0:
+                    budget_kwargs["total_cost_increment"] = cost
+                self._manager.update_agent(agent_id, **budget_kwargs)
+
                 self._manager.update_summary_memory(
-                    agent_id, result[:2000],
+                    agent_id, result.content[:2000],
                 )
-                self._manager.store_agent_response(agent_id, result[:2000])
+                self._manager.store_agent_response(agent_id, result.content[:2000])
+
+            # Budget enforcement (post-tick check)
+            agent_data = self._manager.get_agent(agent_id)
+            if agent_data:
+                config = agent_data.get("config", {})
+                max_cost = config.get("max_cost", 0)
+                max_tokens = config.get("max_tokens", 0)
+                exceeded = False
+                if max_cost > 0 and agent_data["total_cost"] > max_cost:
+                    exceeded = True
+                if max_tokens > 0 and agent_data["total_tokens"] > max_tokens:
+                    exceeded = True
+                if exceeded:
+                    self._manager.update_agent(agent_id, status="budget_exceeded")
+                    self._bus.publish(EventType.AGENT_BUDGET_EXCEEDED, {
+                        "agent_id": agent_id,
+                        "total_cost": agent_data["total_cost"],
+                        "total_tokens": agent_data["total_tokens"],
+                        "max_cost": max_cost,
+                        "max_tokens": max_tokens,
+                    })
             self._bus.publish(EventType.AGENT_TICK_END, {
                 "agent_id": agent_id,
                 "duration": duration,
@@ -196,3 +278,49 @@ class AgentExecutor:
                 ),
                 "duration": duration,
             })
+
+    def _save_trace(
+        self,
+        agent_id: str,
+        agent: dict,
+        result: AgentResult | None,
+        error: AgentTickError | None,
+        tick_start: float,
+        tick_duration: float,
+        trace_steps: list[dict[str, Any]],
+    ) -> None:
+        """Persist an execution trace to the trace store."""
+        from openjarvis.core.types import StepType, Trace, TraceStep
+
+        steps = []
+        for s in trace_steps:
+            steps.append(TraceStep(
+                step_type=(
+                    StepType.TOOL_CALL
+                    if s["type"] == "tool_call"
+                    else StepType.GENERATE
+                ),
+                input=s.get("input", {}),
+                output=s.get("output", {}),
+                duration_seconds=s.get("duration", 0),
+                timestamp=s.get("start_time", tick_start),
+            ))
+
+        outcome = "success" if error is None else "error"
+        trace = Trace(
+            agent=agent_id,
+            query=agent.get("summary_memory", "")[:200],
+            result=result.content[:200] if result else "",
+            model=agent.get("config", {}).get("model", ""),
+            outcome=outcome,
+            steps=steps,
+            started_at=tick_start,
+            ended_at=tick_start + tick_duration,
+            total_latency_seconds=tick_duration,
+        )
+        try:
+            self._trace_store.save(trace)
+        except Exception:
+            logger.warning(
+                "Failed to save trace for agent %s", agent_id, exc_info=True,
+            )
