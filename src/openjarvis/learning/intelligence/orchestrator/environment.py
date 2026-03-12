@@ -12,7 +12,7 @@ import time
 from typing import List, Tuple
 
 from openjarvis.core.types import ToolCall
-from openjarvis.learning.orchestrator.types import (
+from openjarvis.learning.intelligence.orchestrator.types import (
     EpisodeState,
     OrchestratorAction,
     OrchestratorObservation,

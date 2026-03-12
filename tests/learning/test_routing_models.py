@@ -6,7 +6,7 @@ import pytest
 
 from openjarvis.intelligence.model_catalog import register_builtin_models
 from openjarvis.learning._stubs import RoutingContext
-from openjarvis.learning.router import (
+from openjarvis.learning.routing.router import (
     HeuristicRouter,
     build_routing_context,
 )

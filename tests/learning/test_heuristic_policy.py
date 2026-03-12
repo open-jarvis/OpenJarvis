@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from openjarvis.core.registry import RouterPolicyRegistry
-from openjarvis.learning.heuristic_policy import ensure_registered
-from openjarvis.learning.router import HeuristicRouter
+from openjarvis.learning.routing.heuristic_policy import ensure_registered
+from openjarvis.learning.routing.router import HeuristicRouter
 
 
 class TestHeuristicPolicy:

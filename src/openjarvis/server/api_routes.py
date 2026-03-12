@@ -528,54 +528,9 @@ async def learning_stats(request: Request):
     """Return learning system statistics across all sub-policies."""
     result: Dict[str, Any] = {}
 
-    # GRPO policy state
-    try:
-        from openjarvis.learning.grpo_policy import GRPORouterPolicy
-        policy = GRPORouterPolicy()
-        state = policy.state
-        result["grpo"] = {
-            "available": True,
-            "total_updates": state.total_updates,
-            "sample_counts": dict(state.sample_counts),
-            "weight_count": sum(
-                len(qc_weights) for qc_weights in state.weights.values()
-            ),
-        }
-    except Exception as exc:
-        logger.warning("Failed to load GRPO stats: %s", exc)
-        result["grpo"] = {"available": False}
-
-    # Bandit router state
-    try:
-        from openjarvis.learning.bandit_router import BanditRouterPolicy
-        policy = BanditRouterPolicy()
-        stats = policy.get_stats()
-        result["bandit"] = {
-            "available": True,
-            "query_classes": len(stats),
-            "arms": stats,
-        }
-    except Exception as exc:
-        logger.warning("Failed to load bandit stats: %s", exc)
-        result["bandit"] = {"available": False}
-
-    # ICL updater
-    try:
-        from openjarvis.learning.icl_updater import ICLUpdaterPolicy
-        updater = ICLUpdaterPolicy()
-        result["icl"] = {
-            "available": True,
-            "example_count": len(updater.examples),
-            "example_db_count": len(updater.example_db),
-            "version": updater.version,
-        }
-    except Exception as exc:
-        logger.warning("Failed to load ICL stats: %s", exc)
-        result["icl"] = {"available": False}
-
     # Skill discovery
     try:
-        from openjarvis.learning.skill_discovery import SkillDiscovery
+        from openjarvis.learning.agents.skill_discovery import SkillDiscovery
         discovery = SkillDiscovery()
         result["skill_discovery"] = {
             "available": True,
@@ -623,20 +578,6 @@ async def learning_policy(request: Request):
         result["intelligence"] = {"policy": "none"}
         result["agent"] = {"policy": "none"}
         result["metrics"] = {}
-
-    # Include GRPO weights if the routing policy is grpo
-    if result.get("routing", {}).get("policy") == "grpo":
-        try:
-            from openjarvis.learning.grpo_policy import GRPORouterPolicy
-            policy = GRPORouterPolicy()
-            state = policy.state
-            result["grpo_weights"] = {
-                model: dict(qc_weights)
-                for model, qc_weights in state.weights.items()
-            }
-        except Exception as exc:
-            logger.warning("Failed to load GRPO weights: %s", exc)
-            result["grpo_weights"] = {}
 
     return result
 

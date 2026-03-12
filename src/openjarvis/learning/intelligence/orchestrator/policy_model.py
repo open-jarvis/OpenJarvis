@@ -12,7 +12,7 @@ import logging
 import re
 from typing import Any, List, Optional
 
-from openjarvis.learning.orchestrator.types import (
+from openjarvis.learning.intelligence.orchestrator.types import (
     EpisodeState,
     OrchestratorAction,
     PolicyOutput,

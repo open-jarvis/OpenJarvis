@@ -14,33 +14,33 @@ Importing this module triggers registration of ``orchestrator_sft`` and
 ``orchestrator_grpo`` in :class:`~openjarvis.core.registry.LearningRegistry`.
 """
 
-from openjarvis.learning.orchestrator.environment import (
+from openjarvis.learning.intelligence.orchestrator.environment import (
     OrchestratorEnvironment,
 )
-from openjarvis.learning.orchestrator.grpo_trainer import (
+from openjarvis.learning.intelligence.orchestrator.grpo_trainer import (
     OrchestratorGRPOConfig,
     OrchestratorGRPOTrainer,
 )
-from openjarvis.learning.orchestrator.policy_model import (
+from openjarvis.learning.intelligence.orchestrator.policy_model import (
     OrchestratorPolicyModel,
 )
-from openjarvis.learning.orchestrator.prompt_registry import (
+from openjarvis.learning.intelligence.orchestrator.prompt_registry import (
     TOOL_DESCRIPTIONS,
     build_system_prompt,
 )
-from openjarvis.learning.orchestrator.reward import (
+from openjarvis.learning.intelligence.orchestrator.reward import (
     AdaptiveRewardWeights,
     MultiObjectiveReward,
     Normalizers,
     RewardWeights,
 )
-from openjarvis.learning.orchestrator.sft_trainer import (
+from openjarvis.learning.intelligence.orchestrator.sft_trainer import (
     OrchestratorSFTConfig,
     OrchestratorSFTDataset,
     OrchestratorSFTTrainer,
     _select_torch_device,
 )
-from openjarvis.learning.orchestrator.types import (
+from openjarvis.learning.intelligence.orchestrator.types import (
     Episode,
     EpisodeState,
     EpisodeStep,

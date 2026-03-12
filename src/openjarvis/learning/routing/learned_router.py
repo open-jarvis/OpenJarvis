@@ -1,60 +1,34 @@
-"""Trace-driven router policy — learns from interaction history.
+"""Learned router policy — trace-driven query_class -> model mapping.
 
-Unlike the ``HeuristicRouter`` which uses static rules, this policy
-learns from accumulated traces which model/agent/tool combinations
-produce the best outcomes for different query types.  It maintains a
-lightweight mapping of (query_class → model) that is updated
-periodically from the ``TraceAnalyzer``.
+Merges the runtime ``select_model()`` logic from ``TraceDrivenPolicy``
+with the batch ``update()`` logic from ``SFTRouterPolicy`` into a single
+class registered as ``"learned"`` in ``RouterPolicyRegistry``.
 """
 
 from __future__ import annotations
 
-import re
+import logging
 from typing import Any, Dict, List, Optional
 
 from openjarvis.core.registry import RouterPolicyRegistry
 from openjarvis.core.types import RoutingContext
 from openjarvis.learning._stubs import RouterPolicy
-from openjarvis.traces.analyzer import TraceAnalyzer
+from openjarvis.learning.routing._utils import classify_query
 
-# Query classification for grouping traces
-_CODE_RE = re.compile(
-    r"```|`[^`]+`|\bdef\s|\bclass\s|\bimport\s|\bfunction\s",
-    re.IGNORECASE,
-)
-_MATH_RE = re.compile(
-    r"\bsolve\b|\bintegral\b|\bequation\b|\bcalculate\b|\bcompute\b",
-    re.IGNORECASE,
-)
+logger = logging.getLogger(__name__)
 
 
-def classify_query(query: str) -> str:
-    """Classify a query into a broad category for routing."""
-    if _CODE_RE.search(query):
-        return "code"
-    if _MATH_RE.search(query):
-        return "math"
-    if len(query) < 50:
-        return "short"
-    if len(query) > 500:
-        return "long"
-    return "general"
+class LearnedRouterPolicy(RouterPolicy):
+    """Trace-driven router that learns query_class -> model mappings.
 
-
-class TraceDrivenPolicy(RouterPolicy):
-    """Router policy that learns from historical traces.
-
-    Maintains a mapping of ``query_class → best_model`` derived from
-    trace outcomes.  Falls back to the provided default when no trace
-    data is available for a query class.
-
-    The policy is updated by calling :meth:`update_from_traces`, which
-    reads the ``TraceAnalyzer`` and recomputes the mapping.
+    Implements ``RouterPolicy.select_model()`` for runtime routing AND
+    provides ``update_from_traces()`` / ``observe()`` for learning from traces,
+    plus ``update()`` for batch learning from a trace store.
     """
 
     def __init__(
         self,
-        analyzer: Optional[TraceAnalyzer] = None,
+        analyzer: Optional[Any] = None,
         *,
         available_models: Optional[List[str]] = None,
         default_model: str = "",
@@ -64,11 +38,8 @@ class TraceDrivenPolicy(RouterPolicy):
         self._available = available_models or []
         self._default = default_model
         self._fallback = fallback_model
-        # Learned mapping: query_class → model key
         self._policy_map: Dict[str, str] = {}
-        # Track confidence: query_class → sample count
         self._confidence: Dict[str, int] = {}
-        # Minimum samples before trusting learned policy
         self.min_samples: int = 5
 
     @property
@@ -80,7 +51,6 @@ class TraceDrivenPolicy(RouterPolicy):
         """Select the best model based on learned policy or fallback."""
         query_class = classify_query(context.query)
 
-        # Use learned policy if we have enough confidence
         if (
             query_class in self._policy_map
             and self._confidence.get(query_class, 0) >= self.min_samples
@@ -89,7 +59,6 @@ class TraceDrivenPolicy(RouterPolicy):
             if not self._available or model in self._available:
                 return model
 
-        # Fallback chain
         avail = self._available
         if self._default and (not avail or self._default in avail):
             return self._default
@@ -105,10 +74,7 @@ class TraceDrivenPolicy(RouterPolicy):
         since: Optional[float] = None,
         until: Optional[float] = None,
     ) -> Dict[str, Any]:
-        """Recompute the policy map from trace history.
-
-        Returns a summary of what changed for logging/debugging.
-        """
+        """Recompute the policy map from trace history via TraceAnalyzer."""
         if self._analyzer is None:
             return {"error": "no analyzer configured"}
 
@@ -118,7 +84,6 @@ class TraceDrivenPolicy(RouterPolicy):
         if not traces:
             return {"updated": False, "reason": "no traces"}
 
-        # Group traces by query class
         groups: Dict[str, list] = {}
         for t in traces:
             qclass = classify_query(t.query)
@@ -128,7 +93,6 @@ class TraceDrivenPolicy(RouterPolicy):
         changes: Dict[str, Dict[str, str]] = {}
 
         for qclass, class_traces in groups.items():
-            # Score each model for this query class
             model_scores: Dict[str, _ModelScore] = {}
             for t in class_traces:
                 if not t.model:
@@ -147,7 +111,6 @@ class TraceDrivenPolicy(RouterPolicy):
             if not model_scores:
                 continue
 
-            # Pick the best model: weighted score of success_rate and feedback
             best_model = max(
                 model_scores.items(),
                 key=lambda kv: kv[1].composite_score(),
@@ -176,16 +139,10 @@ class TraceDrivenPolicy(RouterPolicy):
         outcome: Optional[str],
         feedback: Optional[float],
     ) -> None:
-        """Record a single observation for online (incremental) updates.
-
-        This is a lighter-weight alternative to :meth:`update_from_traces`
-        for use cases where you want to update the policy after every
-        interaction rather than in batch.
-        """
+        """Record a single observation for online (incremental) updates."""
         qclass = classify_query(query)
         current_count = self._confidence.get(qclass, 0)
 
-        # Simple exponential moving average for online update
         if qclass not in self._policy_map:
             self._policy_map[qclass] = model
             self._confidence[qclass] = 1
@@ -193,11 +150,54 @@ class TraceDrivenPolicy(RouterPolicy):
 
         self._confidence[qclass] = current_count + 1
 
-        # Only switch models if the new model shows clearly better outcomes
         if outcome == "success" and feedback is not None and feedback > 0.7:
-            # Weight new evidence against existing policy
             if current_count < self.min_samples:
                 self._policy_map[qclass] = model
+
+    def update(self, trace_store: Any, **kwargs: object) -> Dict[str, Any]:
+        """Batch update: analyze trace outcomes and update the policy map.
+
+        This is the batch learning interface (from the old SFTRouterPolicy).
+        """
+        try:
+            traces = trace_store.list_traces()
+        except Exception as exc:
+            logger.warning("Learned router update failed: %s", exc)
+            return {"updated": False, "reason": "Could not access trace store"}
+
+        class_model_scores: Dict[str, Dict[str, List[float]]] = {}
+        for trace in traces:
+            query_class = classify_query(trace.query)
+            model = trace.model or "unknown"
+            outcome_score = 1.0 if trace.outcome == "success" else 0.0
+            fb = trace.feedback if trace.feedback is not None else 0.5
+            composite = 0.6 * outcome_score + 0.4 * fb
+
+            if query_class not in class_model_scores:
+                class_model_scores[query_class] = {}
+            if model not in class_model_scores[query_class]:
+                class_model_scores[query_class][model] = []
+            class_model_scores[query_class][model].append(composite)
+
+        changes = {}
+        for qclass, model_scores in class_model_scores.items():
+            best_model = None
+            best_score = -1.0
+            for model, scores in model_scores.items():
+                if len(scores) >= self.min_samples:
+                    avg = sum(scores) / len(scores)
+                    if avg > best_score:
+                        best_score = avg
+                        best_model = model
+            if best_model and best_model != self._policy_map.get(qclass):
+                self._policy_map[qclass] = best_model
+                changes[qclass] = best_model
+
+        return {
+            "updated": bool(changes),
+            "changes": changes,
+            "policy_map": dict(self._policy_map),
+        }
 
 
 class _ModelScore:
@@ -222,17 +222,15 @@ class _ModelScore:
             self.feedback_sum / self.feedback_count
             if self.feedback_count else 0.5
         )
-        # 60% success rate + 40% feedback
         return 0.6 * sr + 0.4 * fb
 
 
 def ensure_registered() -> None:
-    """Register TraceDrivenPolicy if not already present."""
+    """Register LearnedRouterPolicy if not already present."""
     if not RouterPolicyRegistry.contains("learned"):
-        RouterPolicyRegistry.register_value("learned", TraceDrivenPolicy)
+        RouterPolicyRegistry.register_value("learned", LearnedRouterPolicy)
 
 
 ensure_registered()
 
-
-__all__ = ["TraceDrivenPolicy", "classify_query", "ensure_registered"]
+__all__ = ["LearnedRouterPolicy", "ensure_registered"]

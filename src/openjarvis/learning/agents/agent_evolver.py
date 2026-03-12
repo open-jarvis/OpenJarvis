@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from openjarvis.core.types import StepType, Trace
-from openjarvis.learning.trace_policy import classify_query
+from openjarvis.learning.routing._utils import classify_query
 from openjarvis.traces.store import TraceStore
 
 

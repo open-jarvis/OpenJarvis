@@ -54,7 +54,7 @@ class LearningOrchestrator:
         lora_config: Optional[Any] = None,
         model_name: Optional[str] = None,
     ) -> None:
-        from openjarvis.learning.agent_evolver import AgentConfigEvolver
+        from openjarvis.learning.agents.agent_evolver import AgentConfigEvolver
         from openjarvis.learning.training.data import TrainingDataMiner
 
         self._trace_store = trace_store

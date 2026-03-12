@@ -5,7 +5,7 @@ from __future__ import annotations
 from openjarvis.core.registry import ModelRegistry
 from openjarvis.core.types import ModelSpec
 from openjarvis.learning._stubs import RoutingContext
-from openjarvis.learning.router import (
+from openjarvis.learning.routing.router import (
     HeuristicRouter,
     build_routing_context,
 )
