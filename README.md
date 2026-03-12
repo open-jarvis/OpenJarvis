@@ -80,7 +80,13 @@ jarvis doctor
 
 ## Development
 
-From source, you need the Rust extension for full functionality (security, tools, agents, etc.):
+From source, you need to make sure Rust is installed on System:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+Then, you need the Rust extension for full functionality (security, tools, agents, etc.):
 
 ```bash
 # 1. Clone and install Python deps

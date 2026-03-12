@@ -123,6 +123,20 @@ class TestNVIDIAEngineRecommendation:
         )
         assert recommend_engine(hw) == "vllm"
 
+    def test_v100_recommends_vllm(self):
+        hw = HardwareInfo(
+            platform="linux",
+            cpu_brand="Xeon",
+            cpu_count=32,
+            ram_gb=256.0,
+            gpu=GpuInfo(
+                vendor="nvidia",
+                name="NVIDIA Tesla V100-SXM2-32GB",
+                vram_gb=32.0, count=1,
+            ),
+        )
+        assert recommend_engine(hw) == "vllm"
+
     def test_rtx_4090_recommends_ollama(self):
         hw = HardwareInfo(
             platform="linux",

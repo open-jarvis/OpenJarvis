@@ -1,0 +1,54 @@
+# Use-case v2 — NVIDIA platform
+# Target: top Qwen 3.5 + Unsloth GGUFs for available VRAM
+# Engines: vLLM (primary), Ollama (secondary for GGUFs)
+# Run: uv run python -m openjarvis.evals run -c src/openjarvis/evals/configs/use_case_v2_nvidia.toml
+
+[meta]
+name = "use-case-v2-nvidia"
+description = "5 use-case benchmarks × Qwen 3.5 (vLLM) + Unsloth GGUFs (Ollama) on NVIDIA"
+
+[defaults]
+temperature = 0.0
+max_tokens = 4096
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+
+[run]
+max_workers = 2
+output_dir = "results/use-cases-v2-nvidia/"
+seed = 42
+
+# ── Models (vLLM primary, Ollama secondary) ───────────────────────────────────
+
+# LFM2.5 1.2B — Ollama; create with: jarvis host hadad/LFM2.5-1.2B:F16 --backend ollama
+[[models]]
+name = "hadad/LFM2.5-1.2B:F16"
+engine = "ollama"
+
+# ── Benchmarks (5 use-case, 30 samples each) ──────────────────────────────────
+
+[[benchmarks]]
+name = "coding_assistant"
+backend = "jarvis-direct"
+max_samples = 30
+
+[[benchmarks]]
+name = "security_scanner"
+backend = "jarvis-direct"
+max_samples = 30
+
+[[benchmarks]]
+name = "daily_digest"
+backend = "jarvis-direct"
+max_samples = 30
+
+[[benchmarks]]
+name = "doc_qa"
+backend = "jarvis-direct"
+max_samples = 30
+
+[[benchmarks]]
+name = "browser_assistant"
+backend = "jarvis-direct"
+max_samples = 30

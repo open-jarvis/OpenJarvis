@@ -201,7 +201,7 @@ def recommend_engine(hw: HardwareInfo) -> str:
         return "mlx"
     if gpu.vendor == "nvidia":
         # Datacenter cards (A100, H100, L40, etc.) → vllm; consumer → ollama
-        datacenter_keywords = ("A100", "H100", "H200", "L40", "A10", "A30")
+        datacenter_keywords = ("A100", "H100", "H200", "L40", "A10", "A30", "V100")
         if any(kw in gpu.name for kw in datacenter_keywords):
             return "vllm"
         return "ollama"

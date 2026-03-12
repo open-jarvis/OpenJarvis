@@ -28,7 +28,7 @@ _BACKENDS = {
         "display": "vLLM (NVIDIA GPU)",
         "package": "vllm",
         "import_check": "vllm",
-        "pip_spec": "vllm",
+        "pip_spec": "vllm>=0.17.1",
         "uv_extra": None,
         "platform": "linux",
         "default_port": 8000,
@@ -61,6 +61,15 @@ _BACKENDS = {
         "platform": None,
         "default_port": 8080,
         "binary": "llama-server",
+    },
+    "apple_fm": {
+        "display": "Apple FM (Apple Silicon)",
+        "package": "apple-fm-sdk",
+        "import_check": "apple_fm_sdk",
+        "pip_spec": "apple-fm-sdk fastapi uvicorn",
+        "uv_extra": None,
+        "platform": "darwin",
+        "default_port": 8079,
     },
 }
 
@@ -128,15 +137,16 @@ def _install_backend(backend: str, console: Console) -> bool:
 
     pip_spec = info["pip_spec"]
     uv_extra = info.get("uv_extra")
+    packages = pip_spec.split()
 
     if uv_available and in_uv_project and uv_extra:
-        install_cmd = ["uv", "pip", "install", pip_spec]
+        install_cmd = ["uv", "pip", "install", "-p", sys.executable] + packages
         install_label = f"uv pip install {pip_spec}"
     elif uv_available:
-        install_cmd = ["uv", "pip", "install", pip_spec]
+        install_cmd = ["uv", "pip", "install", "-p", sys.executable] + packages
         install_label = f"uv pip install {pip_spec}"
     else:
-        install_cmd = [sys.executable, "-m", "pip", "install", pip_spec]
+        install_cmd = [sys.executable, "-m", "pip", "install"] + packages
         install_label = f"pip install {pip_spec}"
 
     console.print(f"\n  Install command: [cyan]{install_label}[/cyan]\n")
@@ -249,6 +259,18 @@ def _build_serve_command(backend: str, model: str, port: int) -> list[str]:
     if backend == "llamacpp":
         return ["llama-server", "-m", model, "--port", str(port)]
 
+    if backend == "apple_fm":
+        return [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "openjarvis.engine.apple_fm_shim:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+        ]
+
     raise ValueError(f"Unknown backend: {backend}")
 
 
@@ -286,6 +308,7 @@ def host(
 
     \b
       jarvis host mlx-community/Qwen2.5-7B-4bit --backend mlx
+      jarvis host apple-fm
       jarvis host Qwen/Qwen3-8B --backend vllm
       jarvis host qwen3:8b --backend ollama
       jarvis host meta-llama/Llama-3-8B -b sglang
@@ -293,7 +316,12 @@ def host(
     console = Console()
 
     if backend is None:
-        detected = _detect_backend()
+        import platform
+
+        if model.lower() == "apple-fm" and platform.system().lower() == "darwin":
+            detected = "apple_fm"
+        else:
+            detected = _detect_backend()
         if detected is None:
             console.print("[red]Could not auto-detect a suitable backend.[/red]")
             console.print("Specify one with [cyan]--backend[/cyan].")

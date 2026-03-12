@@ -208,6 +208,9 @@ The Uzu backend connects to the Uzu inference runtime via the OpenAI-compatible 
 
 The Apple FM backend connects to Apple's Foundation Model server for on-device inference on Apple Silicon.
 
+!!! note "Token counts"
+    The Apple FM SDK does not expose token counts. The shim estimates usage from text length (~4 chars/token). Benchmark throughput and energy-per-token metrics use this approximation.
+
 - **Default host:** `http://localhost:8079`
 - **Health check:** `GET /v1/models`
 - **Best for:** Running Apple Foundation Models natively on Apple Silicon hardware

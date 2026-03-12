@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import logging
-import statistics
 import time
 from typing import Any, List
 
+from openjarvis.bench._stats import compute_stats
 from openjarvis.bench._stubs import BaseBenchmark, BenchmarkResult
 from openjarvis.core.registry import BenchmarkRegistry
 from openjarvis.core.types import Message, Role
@@ -41,7 +41,6 @@ class LatencyBenchmark(BaseBenchmark):
         warmup_samples: int = 0,
         **kwargs: Any,
     ) -> BenchmarkResult:
-        # Run warmup iterations (discarded)
         for i in range(warmup_samples):
             prompt = _CANNED_PROMPTS[i % len(_CANNED_PROMPTS)]
             messages = [Message(role=Role.USER, content=prompt)]
@@ -78,30 +77,10 @@ class LatencyBenchmark(BaseBenchmark):
             benchmark_name=self.name,
             model=model,
             engine=engine.engine_id,
-            metrics={
-                "mean_latency": statistics.mean(latencies),
-                "p50_latency": statistics.median(latencies),
-                "p95_latency": _percentile(latencies, 0.95),
-                "min_latency": min(latencies),
-                "max_latency": max(latencies),
-                "std_latency": (
-                    statistics.stdev(latencies) if len(latencies) > 1 else 0.0
-                ),
-            },
+            metrics=compute_stats("latency", latencies),
             samples=num_samples,
             errors=errors,
         )
-
-
-def _percentile(data: List[float], p: float) -> float:
-    """Compute the p-th percentile of a sorted list."""
-    sorted_data = sorted(data)
-    k = (len(sorted_data) - 1) * p
-    f = int(k)
-    c = f + 1
-    if c >= len(sorted_data):
-        return sorted_data[-1]
-    return sorted_data[f] + (k - f) * (sorted_data[c] - sorted_data[f])
 
 
 def ensure_registered() -> None:

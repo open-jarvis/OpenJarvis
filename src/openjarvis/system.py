@@ -601,7 +601,10 @@ class SystemBuilder:
                     }
                     mode = mode_map.get(config.security.mode, RedactionMode.WARN)
                     engine = GuardrailsEngine(
-                        engine, scanners, mode=mode, bus=bus,
+                        engine,
+                        scanners=scanners,
+                        mode=mode,
+                        bus=bus,
                         scan_input=config.security.scan_input,
                         scan_output=config.security.scan_output,
                     )
@@ -776,7 +779,10 @@ class SystemBuilder:
         if tool_names is None:
             raw = config.tools.enabled or config.agent.tools
             if raw:
-                tool_names = [n.strip() for n in raw.split(",") if n.strip()]
+                if isinstance(raw, list):
+                    tool_names = [n.strip() for n in raw if isinstance(n, str) and n.strip()]
+                else:
+                    tool_names = [n.strip() for n in raw.split(",") if n.strip()]
             else:
                 tool_names = []
 

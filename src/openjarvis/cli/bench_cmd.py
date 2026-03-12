@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json as json_mod
 import logging
+import subprocess
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import click
@@ -69,13 +71,12 @@ def _render_stats_table(console: Console, result: BenchmarkResult) -> None:
     """Render benchmark result as a stats table when stats keys are present."""
     groups = _detect_stat_groups(result.metrics)
 
-    # Determine which keys are consumed by stat groups
     consumed: set[str] = set()
     for base, prefixes in groups.items():
         for pfx in prefixes:
             consumed.add(f"{pfx}_{base}")
 
-    # Stat groups → multi-column table
+    # Stat groups → multi-column table (use "—" for missing stats)
     if groups:
         table = Table(
             title=(
@@ -95,37 +96,49 @@ def _render_stats_table(console: Console, result: BenchmarkResult) -> None:
         table.add_column("Std", justify="right")
         table.add_column("P95", justify="right")
 
+        def _cell(v: float | None) -> str:
+            return f"{v:.4f}" if v is not None else "—"
+
         for base, vals in sorted(groups.items()):
             table.add_row(
                 base,
-                f"{vals.get('mean', 0):.4f}",
-                f"{vals.get('p50', 0):.4f}",
-                f"{vals.get('min', 0):.4f}",
-                f"{vals.get('max', 0):.4f}",
-                f"{vals.get('std', 0):.4f}",
-                f"{vals.get('p95', 0):.4f}",
+                _cell(vals.get("mean")),
+                _cell(vals.get("p50")),
+                _cell(vals.get("min")),
+                _cell(vals.get("max")),
+                _cell(vals.get("std")),
+                _cell(vals.get("p95")),
             )
         console.print(table)
 
     # Remaining non-stats metrics → simple key-value table
     remaining = {k: v for k, v in result.metrics.items() if k not in consumed}
-    if remaining or result.total_energy_joules > 0:
+    has_energy_stats = "energy_joules" in groups
+    if result.total_energy_joules > 0 and not has_energy_stats:
+        remaining["total_energy_joules"] = result.total_energy_joules
+    if result.energy_method and not has_energy_stats:
+        remaining.setdefault("energy_method", 0.0)
+
+    if remaining:
+        kv_title = (
+            f"{result.benchmark_name}  ({result.samples} samples, {result.errors} errors)"
+            if not groups
+            else None
+        )
         kv_table = Table(
+            title=kv_title,
             show_header=True,
             header_style="bold bright_white",
             border_style="bright_blue",
+            title_style="bold cyan",
         )
         kv_table.add_column("Metric", style="cyan", no_wrap=True)
         kv_table.add_column("Value", justify="right", style="green")
         for k, v in remaining.items():
-            kv_table.add_row(k, f"{v:.4f}")
-        if result.total_energy_joules > 0:
-            kv_table.add_row("Total Energy (J)", f"{result.total_energy_joules:.4f}")
-            kv_table.add_row("Energy Method", str(result.energy_method))
-        if result.energy_per_token_joules > 0:
-            kv_table.add_row(
-                "Energy/Token (J)", f"{result.energy_per_token_joules:.6f}",
-            )
+            if k == "energy_method":
+                kv_table.add_row("Energy Method", str(result.energy_method))
+            else:
+                kv_table.add_row(k, f"{v:.4f}")
         console.print(kv_table)
 
 
@@ -157,6 +170,10 @@ def bench() -> None:
     "-w", "--warmup", "warmup", default=0, type=int,
     help="Number of warmup iterations before measurement.",
 )
+@click.option(
+    "--setup-energy", "setup_energy", is_flag=True,
+    help="Run energy monitor setup script when missing (for energy benchmark).",
+)
 def run(
     model_name: str | None,
     engine_key: str | None,
@@ -165,6 +182,7 @@ def run(
     output_path: str | None,
     output_json: bool,
     warmup: int,
+    setup_energy: bool,
 ) -> None:
     """Run benchmarks against an inference engine."""
     console = Console(stderr=True)
@@ -213,9 +231,10 @@ def run(
 
     suite = BenchmarkSuite(benchmarks)
 
-    # Create energy monitor for energy benchmarks
+    # Create energy monitor when running energy benchmark or when gpu_metrics enabled
+    needs_energy = any(b.name == "energy" for b in benchmarks)
     energy_monitor = None
-    if config.telemetry.gpu_metrics:
+    if config.telemetry.gpu_metrics or needs_energy:
         try:
             from openjarvis.telemetry.energy_monitor import create_energy_monitor
 
@@ -224,6 +243,42 @@ def run(
             )
         except Exception as exc:
             logger.debug("Energy monitor init skipped: %s", exc)
+
+    # If energy benchmark needs monitor but none available, offer setup
+    if needs_energy and energy_monitor is None:
+        import platform
+
+        setup_script = Path(__file__).resolve().parents[3] / "scripts" / "setup-energy-monitor.sh"
+        extra_hint = (
+            "openjarvis[energy-apple]" if platform.system() == "Darwin" and platform.machine() == "arm64"
+            else "openjarvis[gpu-metrics]" if platform.system() == "Linux"
+            else "openjarvis[energy-all]"
+        )
+        msg = (
+            "[yellow]Energy monitor not available — energy metrics will be zero.[/yellow]\n"
+            f"  Install: [bold]uv pip install '{extra_hint}'[/bold]\n"
+            "  Or run: [bold]./scripts/setup-energy-monitor.sh[/bold] (from repo)"
+        )
+        if setup_energy and setup_script.exists():
+            console.print("[cyan]Running energy monitor setup...[/cyan]")
+            try:
+                subprocess.run(
+                    [str(setup_script)],
+                    cwd=setup_script.parent.parent,
+                    check=True,
+                )
+                from openjarvis.telemetry.energy_monitor import create_energy_monitor
+
+                energy_monitor = create_energy_monitor(
+                    prefer_vendor=config.telemetry.energy_vendor or None,
+                )
+                if energy_monitor is not None:
+                    console.print("[green]Energy monitor installed.[/green]")
+            except (subprocess.CalledProcessError, Exception) as exc:
+                console.print(f"[red]Setup failed: {exc}[/red]")
+                console.print(msg)
+        else:
+            console.print(msg)
 
     # Banner + configuration
     _print_banner(console)

@@ -103,8 +103,20 @@ class OllamaEngine(InferenceEngine):
         data = resp.json()
         prompt_tokens = data.get("prompt_eval_count", 0)
         completion_tokens = data.get("eval_count", 0)
+        raw_content = data.get("message", {}).get("content", "")
+        # Ollama can return content as list (multimodal); normalize to string
+        if isinstance(raw_content, list):
+            parts = []
+            for part in raw_content:
+                if isinstance(part, dict) and "text" in part:
+                    parts.append(part["text"])
+                elif isinstance(part, str):
+                    parts.append(part)
+            content = " ".join(parts)
+        else:
+            content = raw_content if isinstance(raw_content, str) else ""
         result: Dict[str, Any] = {
-            "content": data.get("message", {}).get("content", ""),
+            "content": content,
             "usage": {
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,

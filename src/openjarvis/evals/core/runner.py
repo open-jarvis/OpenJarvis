@@ -48,6 +48,21 @@ LOGGER = logging.getLogger(__name__)
 _THINK_TAG_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 
+def _normalize_content(raw: Any) -> str:
+    """Convert content to string; handle list format (e.g. Ollama multimodal)."""
+    if isinstance(raw, str):
+        return raw
+    if isinstance(raw, list):
+        parts = []
+        for part in raw:
+            if isinstance(part, dict) and "text" in part:
+                parts.append(part["text"])
+            elif isinstance(part, str):
+                parts.append(part)
+        return " ".join(parts)
+    return ""
+
+
 def _strip_think_tags(text: str) -> str:
     """Remove <think>...</think> blocks from model output."""
     return _THINK_TAG_RE.sub("", text).strip()
@@ -228,7 +243,7 @@ class EvalRunner:
                 record.problem,
                 **gen_kwargs,
             )
-            content = full.get("content", "")
+            content = _normalize_content(full.get("content", ""))
             usage = full.get("usage", {})
             latency = full.get("latency_seconds", 0.0)
             cost = full.get("cost_usd", 0.0)
@@ -536,7 +551,8 @@ class EvalRunner:
                     temperature=cfg.temperature,
                     max_tokens=cfg.max_tokens,
                 )
-                content = full.get("content", "")
+                raw_content = full.get("content", "")
+                content = _normalize_content(raw_content)
                 usage = full.get("usage", {})
                 total_latency += full.get("latency_seconds", 0.0)
                 total_prompt_tokens += usage.get("prompt_tokens", 0)

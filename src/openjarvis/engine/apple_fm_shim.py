@@ -1,8 +1,12 @@
 """Apple Foundation Models shim.
 
 Thin FastAPI server exposing Apple FM SDK as OpenAI-compatible API.
-Only runs on macOS 15+ with Apple Silicon. Wraps python-apple-fm-sdk's
+Only runs on macOS 26+ with Apple Silicon. Wraps apple-fm-sdk's
 LanguageModelSession as /v1/chat/completions and /v1/models endpoints.
+
+**Token counts:** The Apple FM SDK does not expose token counts. The shim
+estimates usage from text length (~4 chars/token). Throughput and energy
+benchmarks will reflect this approximation.
 
 Usage:
     uvicorn openjarvis.engine.apple_fm_shim:app \
@@ -11,8 +15,11 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import platform
 import sys
+import time
+import uuid
 
 if platform.system() != "Darwin":
     print(
@@ -22,17 +29,13 @@ if platform.system() != "Darwin":
     sys.exit(1)
 
 try:
-    import apple_fm  # type: ignore[import-untyped]
+    import apple_fm_sdk as fm  # type: ignore[import-untyped]
 except ImportError:
     print(
-        "apple_fm_shim: pip install python-apple-fm-sdk",
+        "apple_fm_shim: pip install apple-fm-sdk",
         file=sys.stderr,
     )
     sys.exit(1)
-
-import json
-import time
-import uuid
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -56,6 +59,11 @@ class ChatRequest(BaseModel):
     stream: bool = False
 
 
+def _estimate_tokens(text: str) -> int:
+    """Approximate token count (~4 chars/token for typical LLM tokenizers)."""
+    return max(1, len(text) // 4) if text else 0
+
+
 def _build_prompt(messages: list[ChatMessage]) -> str:
     parts: list[str] = []
     for m in messages:
@@ -68,9 +76,10 @@ def _build_prompt(messages: list[ChatMessage]) -> str:
 
 @app.get("/health")
 def health() -> JSONResponse:
-    available = apple_fm.SystemLanguageModel.is_available()
-    status = "ok" if available else "unavailable"
-    code = 200 if available else 503
+    model = fm.SystemLanguageModel()
+    is_available, _ = model.is_available()
+    status = "ok" if is_available else "unavailable"
+    code = 200 if is_available else 503
     return JSONResponse({"status": status}, status_code=code)
 
 
@@ -84,20 +93,17 @@ def list_models() -> JSONResponse:
     })
 
 
-@app.post("/v1/chat/completions")
+@app.post("/v1/chat/completions", response_model=None)
 async def chat_completions(
     req: ChatRequest,
 ) -> JSONResponse | StreamingResponse:
     prompt = _build_prompt(req.messages)
-    session = apple_fm.LanguageModelSession()
+    session = fm.LanguageModelSession()
 
     if req.stream:
         async def generate():
             cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"
-            stream = session.stream_response(
-                prompt, max_tokens=req.max_tokens,
-            )
-            async for token in stream:
+            async for token in session.stream_response(prompt):
                 chunk = {
                     "id": cid,
                     "object": "chat.completion.chunk",
@@ -128,8 +134,10 @@ async def chat_completions(
             generate(), media_type="text/event-stream",
         )
 
-    text = session.respond(prompt, max_tokens=req.max_tokens)
+    text = await session.respond(prompt)
     cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+    prompt_tokens = _estimate_tokens(prompt)
+    completion_tokens = _estimate_tokens(text)
     return JSONResponse({
         "id": cid,
         "object": "chat.completion",
@@ -141,8 +149,8 @@ async def chat_completions(
             "finish_reason": "stop",
         }],
         "usage": {
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens,
         },
     })
