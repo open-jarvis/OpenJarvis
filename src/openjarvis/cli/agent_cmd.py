@@ -293,8 +293,12 @@ def templates() -> None:
 
 def _get_system():
     """Build a JarvisSystem for CLI commands that need scheduler/executor."""
-    from openjarvis.system import JarvisSystem
-    return JarvisSystem.build()
+    from openjarvis.system import SystemBuilder
+    try:
+        return SystemBuilder().build()
+    except RuntimeError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        raise SystemExit(1)
 
 
 def _get_scheduler_and_executor(system=None):
@@ -339,7 +343,7 @@ def launch():
     manager = _get_manager()
     if template:
         agent_data = manager.create_from_template(
-            template["id"], overrides={"name": name}
+            template["id"], name=name,
         )
         agent_config = agent_data.get("config", {})
         agent_config.update(config)
@@ -396,12 +400,19 @@ def run_agent(agent_id):
     if not agent_data:
         click.echo(f"Agent {agent_id} not found", err=True)
         raise SystemExit(1)
+    if agent_data["status"] == "archived":
+        click.echo(f"Agent {agent_id} is archived and cannot be run", err=True)
+        raise SystemExit(1)
     click.echo(f"Running tick for \"{agent_data['name']}\"...")
     _, executor, _ = _get_scheduler_and_executor()
     if executor is None:
         click.echo("Executor not available", err=True)
         raise SystemExit(1)
-    executor.execute_tick(agent_id)
+    try:
+        executor.execute_tick(agent_id)
+    except Exception as exc:
+        click.echo(f"Tick failed: {exc}", err=True)
+        raise SystemExit(1)
     updated = manager.get_agent(agent_id)
     runs = updated.get("total_runs", 0)
     click.echo(f"Tick complete. Status: {updated['status']}, runs: {runs}")
@@ -555,6 +566,8 @@ def ask(agent_id, message):
     responses = [m for m in msgs if m["direction"] == "agent_to_user"]
     if responses:
         click.echo(f"\nAgent: {responses[0]['content']}")
+    else:
+        click.echo("\n(No response from agent)")
 
 
 @agent.command("instruct")

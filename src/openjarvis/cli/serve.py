@@ -215,11 +215,27 @@ def serve(
     # Create app
     from openjarvis.server.app import create_app
 
+    # Set up agent manager
+    agent_manager = None
+    if config.agent_manager.enabled:
+        try:
+            from pathlib import Path
+
+            from openjarvis.agents.manager import AgentManager
+
+            am_db = config.agent_manager.db_path or str(
+                Path("~/.openjarvis/agents.db").expanduser()
+            )
+            agent_manager = AgentManager(db_path=am_db)
+        except Exception as exc:
+            logger.debug("Agent manager init failed: %s", exc)
+
     app = create_app(
         engine, model_name, agent=agent, bus=bus,
         engine_name=engine_name, agent_name=agent_key or "",
         channel_bridge=channel_bridge, config=config,
         speech_backend=speech_backend,
+        agent_manager=agent_manager,
     )
 
     console.print(

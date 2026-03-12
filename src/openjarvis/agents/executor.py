@@ -127,7 +127,7 @@ class AgentExecutor:
         if engine is None:
             raise FatalError("No engine available in JarvisSystem")
         model = config.get("model") or (
-            self._system.config.get("intelligence", {}).get("default_model", "")
+            self._system.model
             if self._system else ""
         )
         if not model:
@@ -170,6 +170,7 @@ class AgentExecutor:
                 self._manager.update_summary_memory(
                     agent_id, result[:2000],
                 )
+                self._manager.store_agent_response(agent_id, result[:2000])
             self._bus.publish(EventType.AGENT_TICK_END, {
                 "agent_id": agent_id,
                 "duration": duration,

@@ -963,6 +963,14 @@ class OptimizeConfig:
     db_path: str = str(DEFAULT_CONFIG_DIR / "optimize.db")
 
 
+@dataclass(slots=True)
+class AgentManagerConfig:
+    """Persistent agent manager settings."""
+
+    enabled: bool = True
+    db_path: str = str(DEFAULT_CONFIG_DIR / "agents.db")
+
+
 @dataclass
 class JarvisConfig:
     """Top-level configuration for OpenJarvis."""
@@ -986,6 +994,7 @@ class JarvisConfig:
     operators: OperatorsConfig = field(default_factory=OperatorsConfig)
     speech: SpeechConfig = field(default_factory=SpeechConfig)
     optimize: OptimizeConfig = field(default_factory=OptimizeConfig)
+    agent_manager: AgentManagerConfig = field(default_factory=AgentManagerConfig)
 
     @property
     def memory(self) -> StorageConfig:
@@ -1350,6 +1359,7 @@ ssrf_protection = true
 __all__ = [
     "A2AConfig",
     "AgentConfig",
+    "AgentManagerConfig",
     "OperatorsConfig",
     "AgentLearningConfig",
     "BlueBubblesChannelConfig",

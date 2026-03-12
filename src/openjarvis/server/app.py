@@ -57,6 +57,7 @@ def create_app(
     channel_bridge=None,
     config=None,
     speech_backend=None,
+    agent_manager=None,
 ) -> FastAPI:
     """Create and configure the FastAPI application.
 
@@ -122,6 +123,7 @@ def create_app(
     )
     app.state.channel_bridge = channel_bridge
     app.state.speech_backend = speech_backend
+    app.state.agent_manager = agent_manager
     app.state.session_start = time.time()
 
     app.include_router(router)

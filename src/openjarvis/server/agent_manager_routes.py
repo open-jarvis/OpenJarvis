@@ -122,13 +122,39 @@ def create_agent_manager_router(
 
     @agents_router.post("/{agent_id}/run")
     async def run_agent(agent_id: str):
+        import threading
+
         agent = manager.get_agent(agent_id)
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
-        try:
-            manager.start_tick(agent_id)
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc))
+        if agent["status"] == "archived":
+            raise HTTPException(status_code=400, detail="Agent is archived")
+        if agent["status"] == "running":
+            raise HTTPException(status_code=409, detail="Agent is already running")
+
+        def _run_tick():
+            try:
+                from openjarvis.agents.executor import AgentExecutor
+                from openjarvis.core.events import get_event_bus
+                from openjarvis.system import SystemBuilder
+
+                executor = AgentExecutor(
+                    manager=manager, event_bus=get_event_bus(),
+                )
+                try:
+                    system = SystemBuilder().build()
+                    executor.set_system(system)
+                except Exception:
+                    pass
+                executor.execute_tick(agent_id)
+            except Exception:
+                try:
+                    manager.end_tick(agent_id)
+                    manager.update_agent(agent_id, status="error")
+                except Exception:
+                    pass
+
+        threading.Thread(target=_run_tick, daemon=True).start()
         return {"status": "running", "agent_id": agent_id}
 
     # ── Recover ──────────────────────────────────────────────

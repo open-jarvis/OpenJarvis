@@ -469,6 +469,27 @@ class AgentManager:
             "created_at": now,
         }
 
+    def store_agent_response(self, agent_id: str, content: str) -> dict:
+        """Store an agent-to-user response message."""
+        msg_id = uuid4().hex[:16]
+        now = time.time()
+        self._conn.execute(
+            "INSERT INTO agent_messages"
+            " (id, agent_id, direction, content, mode, status, created_at)"
+            " VALUES (?, ?, 'agent_to_user', ?, 'immediate', 'delivered', ?)",
+            (msg_id, agent_id, content, now),
+        )
+        self._conn.commit()
+        return {
+            "id": msg_id,
+            "agent_id": agent_id,
+            "direction": "agent_to_user",
+            "content": content,
+            "mode": "immediate",
+            "status": "delivered",
+            "created_at": now,
+        }
+
     def list_messages(self, agent_id: str, limit: int = 50) -> list[dict]:
         rows = self._conn.execute(
             "SELECT * FROM agent_messages"
