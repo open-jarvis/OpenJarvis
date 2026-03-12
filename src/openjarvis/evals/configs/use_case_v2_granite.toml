@@ -1,0 +1,52 @@
+[meta]
+name = "use-case-v2-granite"
+description = "5 use-case benchmarks x 3 IBM Granite models"
+
+[defaults]
+temperature = 0.0
+max_tokens = 4096
+
+[judge]
+model = "gpt-5-mini"
+
+[run]
+max_workers = 2
+output_dir = "results/use-cases-v2-granite/"
+seed = 42
+
+[[models]]
+name = "granite4-micro:latest"
+engine = "ollama"
+
+[[models]]
+name = "granite3.3:8b"
+engine = "ollama"
+
+[[models]]
+name = "granite4-h-small:latest"
+engine = "ollama"
+
+[[benchmarks]]
+name = "coding_assistant"
+backend = "jarvis-direct"
+max_samples = 30
+
+[[benchmarks]]
+name = "security_scanner"
+backend = "jarvis-direct"
+max_samples = 30
+
+[[benchmarks]]
+name = "daily_digest"
+backend = "jarvis-direct"
+max_samples = 30
+
+[[benchmarks]]
+name = "doc_qa"
+backend = "jarvis-direct"
+max_samples = 30
+
+[[benchmarks]]
+name = "browser_assistant"
+backend = "jarvis-direct"
+max_samples = 30
