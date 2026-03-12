@@ -68,14 +68,22 @@ export default function App() {
               (sum, p) => sum + p.total_cost,
               0,
             );
+            const energySaved = data.per_provider.reduce(
+              (sum, p) => sum + (p.energy_wh || 0),
+              0,
+            );
+            const flopsSaved = data.per_provider.reduce(
+              (sum, p) => sum + (p.flops || 0),
+              0,
+            );
             submitSavings({
               anon_id: optInAnonId,
               display_name: optInDisplayName,
               total_calls: data.total_calls,
               total_tokens: data.total_tokens,
               dollar_savings: dollarSavings,
-              energy_wh_saved: 0,
-              flops_saved: 0,
+              energy_wh_saved: energySaved,
+              flops_saved: flopsSaved,
             });
           }
         })
