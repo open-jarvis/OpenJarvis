@@ -331,14 +331,14 @@ class TestHeuristicRewardWithTelemetry:
 
 
 class TestRouterPolicyRegistryDiscovery:
-    """RouterPolicyRegistry discovers both heuristic and grpo."""
+    """RouterPolicyRegistry discovers both heuristic and learned."""
 
     def test_both_policies_registered(self):
         from openjarvis.learning import ensure_registered
 
         ensure_registered()
         assert RouterPolicyRegistry.contains("heuristic")
-        assert RouterPolicyRegistry.contains("grpo")
+        assert RouterPolicyRegistry.contains("learned")
 
 
 class TestTelemetryPipeline:
