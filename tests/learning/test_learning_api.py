@@ -35,36 +35,11 @@ def test_learning_stats_returns_200():
 
 
 def test_learning_stats_has_all_sections():
-    """Response must contain grpo, bandit, icl, and skill_discovery sections."""
+    """Response must contain skill_discovery section."""
     client = _client()
     data = client.get("/v1/learning/stats").json()
-    for section in ("grpo", "bandit", "icl", "skill_discovery"):
-        assert section in data, f"Missing section: {section}"
-        assert "available" in data[section], (
-            f"Section '{section}' missing 'available' key"
-        )
-
-
-def test_learning_stats_grpo_fields():
-    """When GRPO is available, verify expected stat fields are present."""
-    client = _client()
-    data = client.get("/v1/learning/stats").json()
-    grpo = data["grpo"]
-    if grpo["available"]:
-        assert "total_updates" in grpo
-        assert "sample_counts" in grpo
-        assert "weight_count" in grpo
-
-
-def test_learning_stats_icl_fields():
-    """When ICL is available, verify expected stat fields are present."""
-    client = _client()
-    data = client.get("/v1/learning/stats").json()
-    icl = data["icl"]
-    if icl["available"]:
-        assert "example_count" in icl
-        assert "example_db_count" in icl
-        assert "version" in icl
+    assert "skill_discovery" in data
+    assert "available" in data["skill_discovery"]
 
 
 # ---- /v1/learning/policy tests ----

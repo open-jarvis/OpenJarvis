@@ -1,4 +1,4 @@
-"""Learning primitive — router policies, reward functions, and trace-driven learning."""
+"""Learning primitive -- router policies, reward functions, learning."""
 
 from __future__ import annotations
 
@@ -23,58 +23,36 @@ from openjarvis.learning.training.lora import HAS_TORCH, LoRATrainer, LoRATraini
 
 
 def ensure_registered() -> None:
-    """Ensure all learning policies are registered in RouterPolicyRegistry.
-
-    Imported lazily to avoid circular imports with the intelligence primitive.
-    """
+    """Ensure all learning policies are registered in RouterPolicyRegistry."""
     from openjarvis.learning.routing.heuristic_policy import (
         ensure_registered as _reg_heuristic,
     )
-
     _reg_heuristic()
 
-    try:
-        from openjarvis.learning.grpo_policy import (
-            ensure_registered as _reg_grpo,
-        )
-
-        _reg_grpo()
-    except ImportError:
-        pass
-
-    try:
-        from openjarvis.learning.bandit_router import (
-            ensure_registered as _reg_bandit,
-        )
-
-        _reg_bandit()
-    except ImportError:
-        pass
-
-    from openjarvis.learning.trace_policy import (
-        ensure_registered as _reg_trace,
+    from openjarvis.learning.routing.learned_router import (
+        ensure_registered as _reg_learned,
     )
+    _reg_learned()
 
-    _reg_trace()
-
+    # Intelligence training (optional deps)
     try:
-        import openjarvis.learning.sft_policy  # noqa: F401
+        import openjarvis.learning.intelligence  # noqa: F401
     except ImportError:
         pass
 
-    try:
-        import openjarvis.learning.agent_advisor  # noqa: F401
-    except ImportError:
-        pass
-
-    try:
-        import openjarvis.learning.icl_updater  # noqa: F401
-    except ImportError:
-        pass
-
-    # Orchestrator-native SFT & GRPO training
+    # Orchestrator-specific training (optional deps)
     try:
         import openjarvis.learning.intelligence.orchestrator  # noqa: F401
+    except ImportError:
+        pass
+
+    # Agent optimizers (optional deps)
+    try:
+        import openjarvis.learning.agents.dspy_optimizer  # noqa: F401
+    except ImportError:
+        pass
+    try:
+        import openjarvis.learning.agents.gepa_optimizer  # noqa: F401
     except ImportError:
         pass
 

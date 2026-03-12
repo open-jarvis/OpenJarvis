@@ -16,7 +16,7 @@ from collections import defaultdict
 from typing import Any, Dict, List
 
 from openjarvis.core.types import StepType, Trace
-from openjarvis.learning.trace_policy import classify_query
+from openjarvis.learning.routing._utils import classify_query
 
 
 class TrainingDataMiner:
