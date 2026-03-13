@@ -188,7 +188,7 @@ export function SettingsPage() {
                 </span>
               </div>
             </SettingRow>
-            <SettingRow label="API URL" description="Leave empty for same-origin">
+            <SettingRow label="API URL" description="Set if backend runs on a different port or host">
               <input
                 type="text"
                 value={settings.apiUrl}
