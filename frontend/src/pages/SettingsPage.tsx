@@ -188,7 +188,7 @@ export function SettingsPage() {
                 </span>
               </div>
             </SettingRow>
-            <SettingRow label="API URL" description="Leave empty for same-origin">
+            <SettingRow label="API URL" description="Set if backend runs on a different port or host">
               <input
                 type="text"
                 value={settings.apiUrl}
@@ -322,7 +322,7 @@ export function SettingsPage() {
               </p>
               <div className="flex gap-3 mt-3 text-xs">
                 <a
-                  href="https://www.intelligence-per-watt.ai/"
+                  href="https://scalingintelligence.stanford.edu/blogs/openjarvis/"
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{ color: 'var(--color-accent)' }}

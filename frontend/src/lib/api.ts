@@ -17,7 +17,20 @@ export const isTauri = () => typeof window !== 'undefined' && !!window.__TAURI_I
 
 const DESKTOP_API = 'http://127.0.0.1:8000';
 
-const getBase = () => {
+const getSettingsApiUrl = (): string => {
+  try {
+    const raw = localStorage.getItem('openjarvis-settings');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed.apiUrl) return parsed.apiUrl.replace(/\/+$/, '');
+    }
+  } catch {}
+  return '';
+};
+
+export const getBase = (): string => {
+  const settingsUrl = getSettingsApiUrl();
+  if (settingsUrl) return settingsUrl;
   if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
   if (isTauri()) return DESKTOP_API;
   return '';
