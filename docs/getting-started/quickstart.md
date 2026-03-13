@@ -1,8 +1,6 @@
 ---
 title: Quick Start
 description: Get up and running with OpenJarvis in minutes
-search:
-  boost: 3
 ---
 
 # Quick Start

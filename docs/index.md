@@ -1,8 +1,6 @@
 ---
 title: OpenJarvis
 description: Personal AI, On Personal Devices
-search:
-  boost: 2
 hide:
   - navigation
 ---

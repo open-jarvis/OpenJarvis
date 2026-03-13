@@ -1,8 +1,6 @@
 ---
 title: Installation
 description: Get OpenJarvis running — browser app, desktop app, CLI, or Python SDK
-search:
-  boost: 3
 ---
 
 # Installation
