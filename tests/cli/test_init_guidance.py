@@ -30,6 +30,23 @@ class TestInitShowsNextSteps:
         assert "jarvis ask" in result.output
         assert "jarvis doctor" in result.output
 
+    def test_init_output_shows_toml_sections_literally(self, tmp_path: Path) -> None:
+        """Init output should render TOML section headers like [engine] literally."""
+        config_dir = tmp_path / ".openjarvis"
+        config_path = config_dir / "config.toml"
+        with (
+            mock.patch(
+                "openjarvis.cli.init_cmd.DEFAULT_CONFIG_DIR", config_dir
+            ),
+            mock.patch(
+                "openjarvis.cli.init_cmd.DEFAULT_CONFIG_PATH", config_path
+            ),
+        ):
+            result = CliRunner().invoke(cli, ["init"])
+        assert result.exit_code == 0
+        assert "[engine]" in result.output
+        assert "[intelligence]" in result.output
+
 
 class TestNextStepsOllama:
     def test_next_steps_ollama(self) -> None:

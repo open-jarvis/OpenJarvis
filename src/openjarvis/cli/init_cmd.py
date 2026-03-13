@@ -7,6 +7,7 @@ from typing import Optional
 
 import click
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 
 from openjarvis.core.config import (
@@ -161,7 +162,11 @@ def init(force: bool, config: Optional[Path], full_config: bool = False) -> None
 
     console.print()
     console.print(
-        Panel(toml_content, title=str(DEFAULT_CONFIG_PATH), border_style="green")
+        Panel(
+            escape(toml_content),
+            title=str(DEFAULT_CONFIG_PATH),
+            border_style="green",
+        )
     )
     console.print("[green]Config written successfully.[/green]")
 
@@ -177,4 +182,3 @@ def init(force: bool, config: Optional[Path], full_config: bool = False) -> None
             border_style="cyan",
         )
     )
-

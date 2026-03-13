@@ -11,6 +11,7 @@ from click.testing import CliRunner
 from openjarvis.cli import cli
 from openjarvis.cli.doctor_cmd import (
     _check_config_exists,
+    _check_default_model,
     _check_nodejs,
     _check_python_version,
 )
@@ -146,6 +147,17 @@ class TestCheckEngineProbing:
         assert vllm_result.status == "warn"
 
 
+class TestCheckDefaultModel:
+    def test_empty_default_model_is_not_a_warning(self) -> None:
+        """Leaving default model empty should be treated as valid auto-routing."""
+        mock_config = MagicMock()
+        mock_config.intelligence.default_model = ""
+        with patch("openjarvis.cli.doctor_cmd.load_config", return_value=mock_config):
+            result = _check_default_model()
+        assert result.status == "ok"
+        assert "auto" in result.message.lower()
+
+
 class TestCheckNodejs:
     def test_check_nodejs_found(self) -> None:
         """Node.js check reports version when node is available."""
@@ -166,3 +178,5 @@ class TestCheckNodejs:
             result = _check_nodejs()
         assert result.status == "warn"
         assert "Not found" in result.message
+        assert result.details is not None
+        assert "OpenClaw" not in result.details

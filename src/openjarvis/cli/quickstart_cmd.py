@@ -36,6 +36,20 @@ def _check_engine_health(engine_key: str) -> bool:
         return False
 
 
+def _discover_healthy_engines() -> list[str]:
+    """Return keys for all healthy engines discovered at runtime."""
+    try:
+        import openjarvis.engine  # noqa: F401 — trigger registration
+        from openjarvis.core.config import load_config
+        from openjarvis.engine import _discovery
+
+        config = load_config()
+        return [key for key, _ in _discovery.discover_engines(config)]
+    except Exception as exc:
+        logger.warning("Healthy engine discovery failed: %s", exc)
+        return []
+
+
 def _check_model_available(engine_key: str) -> bool:
     """Return True if at least one model is available on the engine."""
     try:
@@ -104,18 +118,30 @@ def quickstart(force: bool) -> None:
     # Step 3: Check engine
     console.print()
     console.print(f"[bold cyan][3/5][/bold cyan] Checking engine ({engine_key})...")
+    active_engine = engine_key
     if not _check_engine_health(engine_key):
-        console.print(f"  [red bold]Engine '{engine_key}' is not reachable.[/red bold]")
-        console.print()
-        console.print(f"  Start the {engine_key} server and try again.")
-        console.print("  Run [bold]jarvis doctor[/bold] for detailed diagnostics.")
-        raise SystemExit(1)
-    console.print(f"  [green]Engine '{engine_key}' is healthy.[/green]")
+        fallbacks = [k for k in _discover_healthy_engines() if k != engine_key]
+        if fallbacks:
+            active_engine = fallbacks[0]
+            console.print(
+                f"  [yellow]Engine '{engine_key}' is not reachable; "
+                f"falling back to '{active_engine}'.[/yellow]"
+            )
+        else:
+            console.print(
+                f"  [red bold]Engine '{engine_key}' is not reachable.[/red bold]"
+            )
+            console.print()
+            console.print(f"  Start the {engine_key} server and try again.")
+            console.print("  Run [bold]jarvis doctor[/bold] for detailed diagnostics.")
+            raise SystemExit(1)
+    else:
+        console.print(f"  [green]Engine '{engine_key}' is healthy.[/green]")
 
     # Step 4: Verify model
     console.print()
     console.print("[bold cyan][4/5][/bold cyan] Checking for available models...")
-    if not _check_model_available(engine_key):
+    if not _check_model_available(active_engine):
         console.print("  [yellow]No models found.[/yellow]")
         console.print(
             "  Pull a model first (e.g. [bold]ollama pull qwen3.5:3b[/bold])."
@@ -126,7 +152,7 @@ def quickstart(force: bool) -> None:
     # Step 5: Test query
     console.print()
     console.print("[bold cyan][5/5][/bold cyan] Running test query...")
-    response = _test_query(engine_key)
+    response = _test_query(active_engine)
     console.print(f"  [green]Response:[/green] {response[:200]}")
 
     console.print()

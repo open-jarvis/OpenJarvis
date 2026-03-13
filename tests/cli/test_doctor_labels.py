@@ -50,3 +50,17 @@ class TestDoctorOptionalLabels:
         ]
         assert len(apple_checks) == 1
         assert "Not installed (openjarvis[energy-apple])" == apple_checks[0]["message"]
+
+    def test_nvidia_label_uses_current_extra_name(self) -> None:
+        """NVIDIA hint should reference the current project extra."""
+        blocker = _selective_import_blocker("pynvml")
+        with mock.patch("builtins.__import__", side_effect=blocker):
+            runner = CliRunner()
+            result = runner.invoke(cli, ["doctor", "--json"])
+        data = json.loads(result.output)
+        nvidia_checks = [
+            c for c in data
+            if c["name"] == "Optional: NVIDIA energy monitoring"
+        ]
+        assert len(nvidia_checks) == 1
+        assert "Not installed (openjarvis[gpu-metrics])" == nvidia_checks[0]["message"]

@@ -191,3 +191,55 @@ class TestQuickstartCommand:
                 "engine" in result.output.lower()
                 or "not reachable" in result.output.lower()
             )
+
+    def test_falls_back_to_any_healthy_engine(self, tmp_path):
+        """If the recommended engine is down, use a healthy fallback engine."""
+        config_path = tmp_path / "config.toml"
+        hw = MagicMock()
+        hw.platform = "darwin"
+        hw.cpu_brand = "Apple M1"
+        hw.cpu_count = 8
+        hw.ram_gb = 16
+        hw.gpu = MagicMock(name="Apple GPU", vram_gb=16, count=1, vendor="apple")
+
+        with (
+            patch("openjarvis.cli.quickstart_cmd.detect_hardware", return_value=hw),
+            patch("openjarvis.cli.quickstart_cmd.DEFAULT_CONFIG_PATH", config_path),
+            patch("openjarvis.cli.quickstart_cmd.DEFAULT_CONFIG_DIR", tmp_path),
+            patch(
+                "openjarvis.cli.quickstart_cmd"
+                ".generate_default_toml",
+                return_value="[engine]\ndefault = \"mlx\"\n",
+            ),
+            patch(
+                "openjarvis.cli.quickstart_cmd"
+                ".recommend_engine",
+                return_value="mlx",
+            ),
+            patch(
+                "openjarvis.cli.quickstart_cmd"
+                "._check_engine_health",
+                return_value=False,
+            ),
+            patch(
+                "openjarvis.cli.quickstart_cmd"
+                "._discover_healthy_engines",
+                return_value=["ollama"],
+            ),
+            patch(
+                "openjarvis.cli.quickstart_cmd"
+                "._check_model_available",
+                return_value=True,
+            ),
+            patch(
+                "openjarvis.cli.quickstart_cmd"
+                "._test_query",
+                return_value="Hello!",
+            ),
+        ):
+            runner = CliRunner()
+            result = runner.invoke(cli, ["quickstart"])
+
+        assert result.exit_code == 0
+        assert "falling back" in result.output.lower()
+        assert "ollama" in result.output

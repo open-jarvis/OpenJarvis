@@ -176,9 +176,9 @@ def _check_default_model() -> CheckResult:
     if not default_model:
         return CheckResult(
             "Default model",
-            "warn",
-            "Not configured",
-            details="Set intelligence.default_model in config.toml.",
+            "ok",
+            "Not configured (auto-routing enabled)",
+            details="Router will select a model dynamically.",
         )
 
     _ensure_engines_imported()
@@ -213,7 +213,7 @@ def _check_optional_deps() -> List[CheckResult]:
     optional_packages = [
         ("fastapi", "openjarvis[server]", "REST API server"),
         ("torch", "pip install torch", "SFT/GRPO training"),
-        ("pynvml", "openjarvis[energy-nvidia]", "NVIDIA energy monitoring"),
+        ("pynvml", "openjarvis[gpu-metrics]", "NVIDIA energy monitoring"),
         ("amdsmi", "openjarvis[energy-amd]", "AMD energy monitoring"),
         ("colbert", "openjarvis[memory-colbert]", "ColBERT memory backend"),
         ("zeus", "openjarvis[energy-apple]", "Apple Silicon energy monitoring"),
@@ -236,14 +236,17 @@ def _check_optional_deps() -> List[CheckResult]:
 
 
 def _check_nodejs() -> CheckResult:
-    """Check Node.js version (>= 22 required for OpenClaw)."""
+    """Check Node.js version for Node-backed integrations."""
     node_path = shutil.which("node")
     if not node_path:
         return CheckResult(
             "Node.js",
             "warn",
             "Not found",
-            details="Node.js 22+ is required for OpenClaw agent.",
+            details=(
+                "Node.js 22+ is required for ClaudeCodeAgent and the "
+                "WhatsApp Baileys channel bridge."
+            ),
         )
     try:
         result = subprocess.run(
@@ -262,7 +265,10 @@ def _check_nodejs() -> CheckResult:
             "Node.js",
             "warn",
             f"{version_str} (requires >= v22)",
-            details="Upgrade Node.js for OpenClaw agent support.",
+            details=(
+                "Upgrade Node.js for ClaudeCodeAgent and WhatsApp "
+                "Baileys support."
+            ),
         )
     except Exception as exc:
         return CheckResult("Node.js", "warn", f"Error checking version: {exc}")
