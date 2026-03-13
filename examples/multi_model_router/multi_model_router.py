@@ -114,7 +114,7 @@ def main() -> None:
         from openjarvis.learning.routing.learned_router import LearnedRouterPolicy
 
         router = LearnedRouterPolicy()
-        selected_model = router.select_model(context, available_models)
+        selected_model = router.select_model(context)
     else:
         router = HeuristicRouter(available_models)
         selected_model = router.select_model(context)

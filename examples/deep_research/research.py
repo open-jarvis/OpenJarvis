@@ -6,7 +6,7 @@ Usage:
     python examples/deep_research/research.py "climate policy" \
         --model gpt-4o --engine cloud
     python examples/deep_research/research.py "rust vs go" \
-        --output report.md --max-turns 20
+        --output report.md
 """
 
 from __future__ import annotations
@@ -32,13 +32,6 @@ import click
     help="Engine backend (ollama, cloud, vllm, etc.).",
 )
 @click.option(
-    "--max-turns",
-    default=15,
-    show_default=True,
-    type=int,
-    help="Maximum agent loop iterations.",
-)
-@click.option(
     "--output",
     default=None,
     type=click.Path(),
@@ -48,7 +41,6 @@ def main(
     topic: str,
     model: str,
     engine_key: str,
-    max_turns: int,
     output: str | None,
 ) -> None:
     """Run a deep research session on TOPIC using an orchestrator agent.
@@ -80,7 +72,7 @@ def main(
     )
 
     click.echo(f"Researching: {topic}")
-    click.echo(f"Model: {model}  |  Engine: {engine_key}  |  Max turns: {max_turns}")
+    click.echo(f"Model: {model}  |  Engine: {engine_key}")
     click.echo("-" * 60)
 
     try:
@@ -98,6 +90,7 @@ def main(
 
     try:
         prompt = (
+            f"{system_prompt}\n\n"
             "Research the following topic in depth "
             f"and produce a report:\n\n{topic}"
         )
@@ -105,8 +98,6 @@ def main(
             prompt,
             agent="orchestrator",
             tools=tools,
-            system_prompt=system_prompt,
-            max_turns=max_turns,
             temperature=0.5,
         )
     except Exception as exc:

@@ -53,12 +53,6 @@ def main() -> None:
         default=512,
         help="Chunk size for document indexing (default: 512).",
     )
-    parser.add_argument(
-        "--top-k",
-        type=int,
-        default=5,
-        help="Number of relevant chunks to retrieve (default: 5).",
-    )
     args = parser.parse_args()
 
     try:
@@ -100,7 +94,7 @@ def main() -> None:
         sys.exit(1)
 
     # Step 2: Ask the question with memory context enabled
-    print(f"Searching for relevant context (top_k={args.top_k})...")
+    print("Searching for relevant context...")
     try:
         response = j.ask(
             args.query,
