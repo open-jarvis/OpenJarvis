@@ -6,7 +6,7 @@ import pytest
 
 from openjarvis.core.types import RoutingContext
 from openjarvis.learning._stubs import QueryAnalyzer, RouterPolicy
-from openjarvis.learning.router import DefaultQueryAnalyzer
+from openjarvis.learning.routing.router import DefaultQueryAnalyzer
 
 
 class _DummyRouter(RouterPolicy):

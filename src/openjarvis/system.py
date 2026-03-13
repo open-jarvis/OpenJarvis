@@ -965,16 +965,17 @@ class SystemBuilder:
             trace_store = TraceStore(db_path=config.traces.db_path)
             config_dir = DEFAULT_CONFIG_DIR / "agent_configs"
 
+            sft_cfg = config.learning.intelligence.sft
             lora_config = LoRATrainingConfig(
-                lora_rank=config.learning.lora_rank,
-                lora_alpha=config.learning.lora_alpha,
+                lora_rank=sft_cfg.lora_rank,
+                lora_alpha=sft_cfg.lora_alpha,
             )
 
             return LearningOrchestrator(
                 trace_store=trace_store,
                 config_dir=config_dir,
                 min_improvement=config.learning.min_improvement,
-                min_sft_pairs=config.learning.min_sft_pairs,
+                min_sft_pairs=sft_cfg.min_pairs,
                 lora_config=lora_config,
             )
         except Exception as exc:

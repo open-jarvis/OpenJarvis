@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from openjarvis.learning.orchestrator.prompt_registry import (
+from openjarvis.learning.intelligence.orchestrator.prompt_registry import (
     TOOL_DESCRIPTIONS,
     build_system_prompt,
 )

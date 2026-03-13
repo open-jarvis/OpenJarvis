@@ -260,7 +260,6 @@ class TestNestedLearningConfig:
         assert lc.routing.min_samples == 5
         assert lc.intelligence.policy == "none"
         assert lc.agent.policy == "none"
-        assert lc.agent.max_icl_examples == 20
         assert lc.metrics.accuracy_weight == 0.6
         assert lc.metrics.latency_weight == 0.2
 

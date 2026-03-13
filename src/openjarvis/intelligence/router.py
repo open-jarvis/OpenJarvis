@@ -1,6 +1,6 @@
 """Backward-compat shim — canonical location is learning.router."""
 
-from openjarvis.learning.router import (  # noqa: F401
+from openjarvis.learning.routing.router import (  # noqa: F401
     DefaultQueryAnalyzer,
     HeuristicRouter,
     build_routing_context,

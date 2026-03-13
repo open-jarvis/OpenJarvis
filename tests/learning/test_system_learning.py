@@ -30,9 +30,9 @@ class TestSystemLearningIntegration:
         config = LearningConfig()
         assert config.training_enabled is False
         assert config.training_schedule == ""
-        assert config.lora_rank == 16
-        assert config.lora_alpha == 32
-        assert config.min_sft_pairs == 50
+        assert config.intelligence.sft.lora_rank == 16
+        assert config.intelligence.sft.lora_alpha == 32
+        assert config.intelligence.sft.min_pairs == 10
         assert config.min_improvement == 0.02
 
     def test_training_components_exported(self):

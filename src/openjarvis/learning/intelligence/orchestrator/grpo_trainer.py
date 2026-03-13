@@ -120,7 +120,7 @@ class OrchestratorGRPOTrainer:
     # -- Initialisation ------------------------------------------------------
 
     def _init_model(self) -> None:
-        from openjarvis.learning.orchestrator.policy_model import (
+        from openjarvis.learning.intelligence.orchestrator.policy_model import (
             OrchestratorPolicyModel,
         )
 
@@ -232,12 +232,12 @@ class OrchestratorGRPOTrainer:
         all_advantages: list[float] = []
         all_rewards: list[float] = []
 
-        from openjarvis.learning.orchestrator.reward import (
+        from openjarvis.learning.intelligence.orchestrator.reward import (
             MultiObjectiveReward,
             Normalizers,
             RewardWeights,
         )
-        from openjarvis.learning.orchestrator.types import (
+        from openjarvis.learning.intelligence.orchestrator.types import (
             Episode,
         )
 

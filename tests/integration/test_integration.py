@@ -308,7 +308,7 @@ class TestHeuristicRewardWithTelemetry:
 
     def test_reward_from_telemetry_record(self):
         from openjarvis.learning._stubs import RoutingContext
-        from openjarvis.learning.heuristic_reward import HeuristicRewardFunction
+        from openjarvis.learning.routing.heuristic_reward import HeuristicRewardFunction
 
         rec = TelemetryRecord(
             timestamp=0.0,
@@ -331,14 +331,14 @@ class TestHeuristicRewardWithTelemetry:
 
 
 class TestRouterPolicyRegistryDiscovery:
-    """RouterPolicyRegistry discovers both heuristic and grpo."""
+    """RouterPolicyRegistry discovers both heuristic and learned."""
 
     def test_both_policies_registered(self):
         from openjarvis.learning import ensure_registered
 
         ensure_registered()
         assert RouterPolicyRegistry.contains("heuristic")
-        assert RouterPolicyRegistry.contains("grpo")
+        assert RouterPolicyRegistry.contains("learned")
 
 
 class TestTelemetryPipeline:
@@ -406,8 +406,8 @@ class TestAskFlowWithRouterPolicy:
 
     def test_mocked_ask_with_registry_router(self):
         from openjarvis.learning._stubs import RoutingContext
-        from openjarvis.learning.heuristic_policy import ensure_registered
-        from openjarvis.learning.router import HeuristicRouter
+        from openjarvis.learning.routing.heuristic_policy import ensure_registered
+        from openjarvis.learning.routing.router import HeuristicRouter
 
         ensure_registered()
         router_cls = RouterPolicyRegistry.get("heuristic")
@@ -429,7 +429,7 @@ class TestRewardTelemetryIntegration:
         import time
 
         from openjarvis.learning._stubs import RoutingContext
-        from openjarvis.learning.heuristic_reward import HeuristicRewardFunction
+        from openjarvis.learning.routing.heuristic_reward import HeuristicRewardFunction
         from openjarvis.telemetry.aggregator import TelemetryAggregator
         from openjarvis.telemetry.store import TelemetryStore
 

@@ -13,7 +13,7 @@ class TestSelectTorchDevice:
 
     def test_no_torch_returns_none(self):
         """Without torch, _select_torch_device returns None."""
-        from openjarvis.learning.orchestrator.sft_trainer import (
+        from openjarvis.learning.intelligence.orchestrator.sft_trainer import (
             _select_torch_device,
         )
 
@@ -64,10 +64,10 @@ class TestSelectTorchDevice:
 
     def test_function_exists_in_both_trainers(self):
         """_select_torch_device is defined in both trainers."""
-        from openjarvis.learning.orchestrator.grpo_trainer import (
+        from openjarvis.learning.intelligence.orchestrator.grpo_trainer import (
             _select_torch_device as grpo_fn,
         )
-        from openjarvis.learning.orchestrator.sft_trainer import (
+        from openjarvis.learning.intelligence.orchestrator.sft_trainer import (
             _select_torch_device as sft_fn,
         )
 
@@ -76,7 +76,7 @@ class TestSelectTorchDevice:
 
     def test_exported_from_orchestrator_init(self):
         """_select_torch_device is exported from orchestrator package."""
-        from openjarvis.learning.orchestrator import (
+        from openjarvis.learning.intelligence.orchestrator import (
             _select_torch_device,
         )
 

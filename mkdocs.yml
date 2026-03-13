@@ -10,6 +10,7 @@ copyright: Copyright &copy; 2026 OpenJarvis Contributors
 
 theme:
   name: material
+  custom_dir: docs/overrides
   language: en
   font:
     text: Georgia
@@ -47,9 +48,11 @@ theme:
 
 extra_css:
   - stylesheets/extra.css
+  - https://cdn.jsdelivr.net/npm/@docsearch/css@3
 
 plugins:
-  - search
+  - search:
+      separator: '[\s\-\._]+'
   - gen-files:
       scripts:
         - docs/gen_ref_pages.py
@@ -124,8 +127,14 @@ markdown_extensions:
 
 extra_javascript:
   - javascripts/leaderboard.js
+  - https://cdn.jsdelivr.net/npm/@docsearch/js@3
+  - javascripts/docsearch-init.js
 
 extra:
+  algolia:
+    app_id: ""       # Fill after DocSearch approval
+    api_key: ""      # Search-only key
+    index_name: ""   # e.g. "openjarvis"
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/open-jarvis/OpenJarvis

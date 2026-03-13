@@ -62,7 +62,10 @@ def main() -> None:
 
     try:
         from openjarvis import Jarvis
-        from openjarvis.learning.router import HeuristicRouter, build_routing_context
+        from openjarvis.learning.routing.router import (
+            HeuristicRouter,
+            build_routing_context,
+        )
     except ImportError:
         print(
             "Error: openjarvis is not installed. "
@@ -108,10 +111,10 @@ def main() -> None:
 
     # Select the model using the chosen strategy
     if args.strategy == "bandit":
-        from openjarvis.learning.bandit_router import BanditRouterPolicy
+        from openjarvis.learning.routing.learned_router import LearnedRouterPolicy
 
-        router = BanditRouterPolicy()
-        selected_model = router.route(context, available_models)
+        router = LearnedRouterPolicy()
+        selected_model = router.select_model(context)
     else:
         router = HeuristicRouter(available_models)
         selected_model = router.select_model(context)

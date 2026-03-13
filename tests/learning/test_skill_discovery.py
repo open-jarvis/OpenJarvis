@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List
 
-from openjarvis.learning.skill_discovery import SkillDiscovery
+from openjarvis.learning.agents.skill_discovery import SkillDiscovery
 
 # ---------------------------------------------------------------------------
 # Helpers

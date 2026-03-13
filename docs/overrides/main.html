@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block extrahead %}
+  {{ super() }}
+  {% if config.extra.algolia and config.extra.algolia.app_id and config.extra.algolia.api_key and config.extra.algolia.index_name %}
+  <script>
+    window.__DOCSEARCH_CONFIG__ = {
+      appId: "{{ config.extra.algolia.app_id }}",
+      apiKey: "{{ config.extra.algolia.api_key }}",
+      indexName: "{{ config.extra.algolia.index_name }}"
+    };
+  </script>
+  {% endif %}
+{% endblock %}

@@ -5,10 +5,10 @@ from __future__ import annotations
 import pytest
 
 from openjarvis.core.types import ToolResult
-from openjarvis.learning.orchestrator.environment import (
+from openjarvis.learning.intelligence.orchestrator.environment import (
     OrchestratorEnvironment,
 )
-from openjarvis.learning.orchestrator.types import OrchestratorAction
+from openjarvis.learning.intelligence.orchestrator.types import OrchestratorAction
 from openjarvis.tools._stubs import BaseTool, ToolSpec
 
 # -- Mock tool ---------------------------------------------------------------

@@ -1,4 +1,4 @@
-"""Learning primitive — router policies, reward functions, and trace-driven learning."""
+"""Learning primitive -- router policies, reward functions, learning."""
 
 from __future__ import annotations
 
@@ -8,13 +8,13 @@ from openjarvis.learning._stubs import (
     RouterPolicy,
     RoutingContext,
 )
-from openjarvis.learning.agent_evolver import AgentConfigEvolver
-from openjarvis.learning.heuristic_reward import HeuristicRewardFunction
+from openjarvis.learning.agents.agent_evolver import AgentConfigEvolver
 from openjarvis.learning.learning_orchestrator import LearningOrchestrator
 from openjarvis.learning.optimize.llm_optimizer import LLMOptimizer
 from openjarvis.learning.optimize.optimizer import OptimizationEngine
 from openjarvis.learning.optimize.store import OptimizationStore
-from openjarvis.learning.router import (
+from openjarvis.learning.routing.heuristic_reward import HeuristicRewardFunction
+from openjarvis.learning.routing.router import (
     HeuristicRouter,
     build_routing_context,
 )
@@ -23,58 +23,36 @@ from openjarvis.learning.training.lora import HAS_TORCH, LoRATrainer, LoRATraini
 
 
 def ensure_registered() -> None:
-    """Ensure all learning policies are registered in RouterPolicyRegistry.
-
-    Imported lazily to avoid circular imports with the intelligence primitive.
-    """
-    from openjarvis.learning.heuristic_policy import (
+    """Ensure all learning policies are registered in RouterPolicyRegistry."""
+    from openjarvis.learning.routing.heuristic_policy import (
         ensure_registered as _reg_heuristic,
     )
-
     _reg_heuristic()
 
-    try:
-        from openjarvis.learning.grpo_policy import (
-            ensure_registered as _reg_grpo,
-        )
-
-        _reg_grpo()
-    except ImportError:
-        pass
-
-    try:
-        from openjarvis.learning.bandit_router import (
-            ensure_registered as _reg_bandit,
-        )
-
-        _reg_bandit()
-    except ImportError:
-        pass
-
-    from openjarvis.learning.trace_policy import (
-        ensure_registered as _reg_trace,
+    from openjarvis.learning.routing.learned_router import (
+        ensure_registered as _reg_learned,
     )
+    _reg_learned()
 
-    _reg_trace()
-
+    # Intelligence training (optional deps)
     try:
-        import openjarvis.learning.sft_policy  # noqa: F401
+        import openjarvis.learning.intelligence  # noqa: F401
     except ImportError:
         pass
 
+    # Orchestrator-specific training (optional deps)
     try:
-        import openjarvis.learning.agent_advisor  # noqa: F401
+        import openjarvis.learning.intelligence.orchestrator  # noqa: F401
     except ImportError:
         pass
 
+    # Agent optimizers (optional deps)
     try:
-        import openjarvis.learning.icl_updater  # noqa: F401
+        import openjarvis.learning.agents.dspy_optimizer  # noqa: F401
     except ImportError:
         pass
-
-    # Orchestrator-native SFT & GRPO training
     try:
-        import openjarvis.learning.orchestrator  # noqa: F401
+        import openjarvis.learning.agents.gepa_optimizer  # noqa: F401
     except ImportError:
         pass
 

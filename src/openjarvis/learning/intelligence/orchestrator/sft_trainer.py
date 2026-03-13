@@ -237,7 +237,7 @@ class OrchestratorSFTTrainer:
         self._init_optimizer()
 
     def _init_model(self) -> None:
-        from openjarvis.learning.orchestrator.policy_model import (
+        from openjarvis.learning.intelligence.orchestrator.policy_model import (
             OrchestratorPolicyModel,
         )
 
