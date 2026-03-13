@@ -322,7 +322,7 @@ export function SettingsPage() {
               </p>
               <div className="flex gap-3 mt-3 text-xs">
                 <a
-                  href="https://www.intelligence-per-watt.ai/"
+                  href="https://scalingintelligence.stanford.edu/blogs/openjarvis/"
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{ color: 'var(--color-accent)' }}
