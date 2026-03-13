@@ -8,6 +8,7 @@
     <a href="https://open-jarvis.github.io/OpenJarvis/"><img src="https://img.shields.io/badge/docs-mkdocs-blue" alt="Docs"></a>
     <img src="https://img.shields.io/badge/python-%3E%3D3.10-blue" alt="Python">
     <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="License">
+    <a href="https://discord.gg/wfXEkpPX"><img src="https://img.shields.io/discord/1361577726498816161?color=7289da&label=discord&logo=discord&logoColor=white" alt="Discord"></a>
   </p>
 </div>
 
