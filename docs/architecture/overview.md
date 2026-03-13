@@ -1,3 +1,10 @@
+---
+title: Architecture Overview
+description: The five-primitive architecture behind OpenJarvis — Intelligence, Engine, Agents, Tools, and Learning
+search:
+  boost: 2
+---
+
 # Architecture Overview
 
 OpenJarvis is a research framework for studying on-device AI systems. Its architecture is organized around **five core abstractions** -- Intelligence, Engine, Agentic Logic, Memory, and Learning -- that work together through trace-driven feedback.
