@@ -12,12 +12,16 @@ export function OptInModal({ onClose }: OptInModalProps) {
   const optInDisplayName = useAppStore((s) => s.optInDisplayName);
   const optInEnabled = useAppStore((s) => s.optInEnabled);
 
+  const optInEmail = useAppStore((s) => s.optInEmail);
+
   const [name, setName] = useState(optInDisplayName);
+  const [email, setEmail] = useState(optInEmail);
   const [error, setError] = useState('');
   const [joined, setJoined] = useState(optInEnabled);
 
   const handleJoin = () => {
     const trimmed = name.trim();
+    const trimmedEmail = email.trim();
     if (!trimmed) {
       setError('Please enter a display name');
       return;
@@ -30,19 +34,23 @@ export function OptInModal({ onClose }: OptInModalProps) {
       setError('Please choose a different name');
       return;
     }
+    if (!trimmedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      setError('Please enter a valid email address');
+      return;
+    }
     setError('');
-    setOptIn(true, trimmed);
+    setOptIn(true, trimmed, trimmedEmail);
     setJoined(true);
   };
 
   const handleOptOut = () => {
-    setOptIn(false, '');
+    setOptIn(false, '', '');
     setJoined(false);
     onClose();
   };
 
   const features = [
-    { icon: Lock, label: 'Fully anonymous — no email, no IP, no hardware info' },
+    { icon: Lock, label: 'Private — no IP or hardware info shared publicly' },
     { icon: Zap, label: 'Track energy savings from local inference' },
     { icon: DollarSign, label: 'See how much you save vs cloud providers' },
     { icon: Cpu, label: 'Measure FLOPs and request efficiency' },
@@ -160,7 +168,7 @@ export function OptInModal({ onClose }: OptInModalProps) {
           ) : (
             <>
               {/* Name input */}
-              <div className="mb-4">
+              <div className="mb-3">
                 <label
                   className="block text-xs font-medium mb-1.5"
                   style={{ color: 'var(--color-text-secondary)' }}
@@ -182,12 +190,39 @@ export function OptInModal({ onClose }: OptInModalProps) {
                   className="w-full px-3 py-2.5 rounded-xl text-sm outline-none transition-colors"
                   style={{
                     background: 'var(--color-bg-secondary)',
-                    border: error
-                      ? '1.5px solid var(--color-error)'
-                      : '1.5px solid var(--color-border)',
+                    border: '1.5px solid var(--color-border)',
                     color: 'var(--color-text)',
                   }}
                   autoFocus
+                />
+              </div>
+
+              {/* Email input */}
+              <div className="mb-4">
+                <label
+                  className="block text-xs font-medium mb-1.5"
+                  style={{ color: 'var(--color-text-secondary)' }}
+                >
+                  Email <span style={{ color: 'var(--color-error)' }}>*</span>
+                  <span className="font-normal ml-1" style={{ color: 'var(--color-text-tertiary)' }}>(never shown publicly)</span>
+                </label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (error) setError('');
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleJoin();
+                  }}
+                  placeholder="your@email.com"
+                  className="w-full px-3 py-2.5 rounded-xl text-sm outline-none transition-colors"
+                  style={{
+                    background: 'var(--color-bg-secondary)',
+                    border: '1.5px solid var(--color-border)',
+                    color: 'var(--color-text)',
+                  }}
                 />
                 {error && (
                   <p

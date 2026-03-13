@@ -26,6 +26,7 @@ export default function App() {
   const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen);
   const optInEnabled = useAppStore((s) => s.optInEnabled);
   const optInDisplayName = useAppStore((s) => s.optInDisplayName);
+  const optInEmail = useAppStore((s) => s.optInEmail);
   const optInAnonId = useAppStore((s) => s.optInAnonId);
   const optInModalSeen = useAppStore((s) => s.optInModalSeen);
   const optInModalOpen = useAppStore((s) => s.optInModalOpen);
@@ -79,6 +80,7 @@ export default function App() {
             submitSavings({
               anon_id: optInAnonId,
               display_name: optInDisplayName,
+              email: optInEmail,
               total_calls: data.total_calls,
               total_tokens: data.total_tokens,
               dollar_savings: dollarSavings,

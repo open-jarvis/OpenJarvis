@@ -32,7 +32,7 @@
 
     fetch(
       SUPABASE_URL +
-        "/rest/v1/savings_entries?select=*&order=dollar_savings.desc&limit=100",
+        "/rest/v1/savings_entries?select=display_name,dollar_savings,energy_wh_saved,flops_saved,total_calls,total_tokens&order=dollar_savings.desc&limit=100",
       {
         headers: {
           apikey: SUPABASE_ANON_KEY,

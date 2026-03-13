@@ -465,6 +465,7 @@ export async function fetchAgentTrace(agentId: string, traceId: string): Promise
 export interface SavingsSubmission {
   anon_id: string;
   display_name: string;
+  email: string;
   total_calls: number;
   total_tokens: number;
   dollar_savings: number;

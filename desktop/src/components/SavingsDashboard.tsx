@@ -267,6 +267,7 @@ function isProfane(text: string): boolean {
 
 const OPTIN_KEY = 'openjarvis-desktop-optin';
 const OPTIN_NAME_KEY = 'openjarvis-desktop-display-name';
+const OPTIN_EMAIL_KEY = 'openjarvis-desktop-email';
 const OPTIN_ANONID_KEY = 'openjarvis-desktop-anon-id';
 
 function getOrCreateAnonId(): string {
@@ -289,7 +290,9 @@ export function SavingsDashboard({ apiUrl }: { apiUrl: string }) {
 
   const [optInEnabled, setOptInEnabled] = useState(localStorage.getItem(OPTIN_KEY) === 'true');
   const [displayName, setDisplayName] = useState(localStorage.getItem(OPTIN_NAME_KEY) || '');
+  const [emailStored, setEmailStored] = useState(localStorage.getItem(OPTIN_EMAIL_KEY) || '');
   const [nameInput, setNameInput] = useState(localStorage.getItem(OPTIN_NAME_KEY) || '');
+  const [emailInput, setEmailInput] = useState(localStorage.getItem(OPTIN_EMAIL_KEY) || '');
   const [nameError, setNameError] = useState('');
   const [showOptIn, setShowOptIn] = useState(false);
   const anonId = getOrCreateAnonId();
@@ -326,6 +329,7 @@ export function SavingsDashboard({ apiUrl }: { apiUrl: string }) {
       payload: {
         anon_id: anonId,
         display_name: displayName,
+        email: emailStored,
         total_calls: data.total_calls,
         total_tokens: data.total_tokens,
         dollar_savings: dollarSavings,
@@ -337,6 +341,7 @@ export function SavingsDashboard({ apiUrl }: { apiUrl: string }) {
 
   const handleOptInJoin = () => {
     const trimmed = nameInput.trim();
+    const trimmedEmail = emailInput.trim();
     if (!trimmed || trimmed.length < 2 || trimmed.length > 30) {
       setNameError('Name must be 2-30 characters');
       return;
@@ -345,19 +350,27 @@ export function SavingsDashboard({ apiUrl }: { apiUrl: string }) {
       setNameError('Please choose a different name');
       return;
     }
+    if (!trimmedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      setNameError('Please enter a valid email address');
+      return;
+    }
     setNameError('');
     localStorage.setItem(OPTIN_KEY, 'true');
     localStorage.setItem(OPTIN_NAME_KEY, trimmed);
+    localStorage.setItem(OPTIN_EMAIL_KEY, trimmedEmail);
     setOptInEnabled(true);
     setDisplayName(trimmed);
+    setEmailStored(trimmedEmail);
     setShowOptIn(false);
   };
 
   const handleOptOut = () => {
     localStorage.removeItem(OPTIN_KEY);
     localStorage.removeItem(OPTIN_NAME_KEY);
+    localStorage.removeItem(OPTIN_EMAIL_KEY);
     setOptInEnabled(false);
     setDisplayName('');
+    setEmailStored('');
     setShowOptIn(false);
   };
 
@@ -411,7 +424,7 @@ export function SavingsDashboard({ apiUrl }: { apiUrl: string }) {
           <div style={{ fontSize: 13, color: colors.textMuted, marginBottom: 14, lineHeight: 1.5 }}>
             Opt in to privately share your savings for the chance to win a Mac Mini!
           </div>
-          <div style={{ marginBottom: 10 }}>
+          <div style={{ marginBottom: 8 }}>
             <input
               type="text"
               value={nameInput}
@@ -424,7 +437,31 @@ export function SavingsDashboard({ apiUrl }: { apiUrl: string }) {
                 padding: '8px 12px',
                 borderRadius: 8,
                 background: colors.bg,
-                border: nameError ? `1px solid ${colors.red}` : `1px solid ${colors.border}`,
+                border: `1px solid ${colors.border}`,
+                color: colors.text,
+                fontSize: 14,
+                outline: 'none',
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 12, color: colors.textMuted, marginBottom: 4 }}>
+              Email <span style={{ color: colors.red }}>*</span>
+              <span style={{ fontWeight: 400, marginLeft: 4, opacity: 0.7 }}>(never shown publicly)</span>
+            </div>
+            <input
+              type="email"
+              value={emailInput}
+              onChange={(e) => { setEmailInput(e.target.value); setNameError(''); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleOptInJoin(); }}
+              placeholder="your@email.com"
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                borderRadius: 8,
+                background: colors.bg,
+                border: `1px solid ${colors.border}`,
                 color: colors.text,
                 fontSize: 14,
                 outline: 'none',

@@ -23,6 +23,7 @@ const CONVERSATIONS_KEY = 'openjarvis-conversations';
 const SETTINGS_KEY = 'openjarvis-settings';
 const OPTIN_KEY = 'openjarvis-optin';
 const OPTIN_NAME_KEY = 'openjarvis-display-name';
+const OPTIN_EMAIL_KEY = 'openjarvis-email';
 const OPTIN_ANONID_KEY = 'openjarvis-anon-id';
 const OPTIN_SEEN_KEY = 'openjarvis-optin-seen';
 
@@ -128,6 +129,7 @@ interface AppState {
   // Opt-in sharing
   optInEnabled: boolean;
   optInDisplayName: string;
+  optInEmail: string;
   optInAnonId: string;
   optInModalSeen: boolean;
   optInModalOpen: boolean;
@@ -181,7 +183,7 @@ interface AppState {
   clearAgentEvents: () => void;
 
   // Actions: opt-in sharing
-  setOptIn: (enabled: boolean, displayName: string) => void;
+  setOptIn: (enabled: boolean, displayName: string, email: string) => void;
   setOptInModalOpen: (open: boolean) => void;
   markOptInModalSeen: () => void;
 }
@@ -215,6 +217,7 @@ export const useAppStore = create<AppState>((set, get) => {
 
     optInEnabled: localStorage.getItem(OPTIN_KEY) === 'true',
     optInDisplayName: localStorage.getItem(OPTIN_NAME_KEY) || '',
+    optInEmail: localStorage.getItem(OPTIN_EMAIL_KEY) || '',
     optInAnonId: localStorage.getItem(OPTIN_ANONID_KEY) || crypto.randomUUID(),
     optInModalSeen: localStorage.getItem(OPTIN_SEEN_KEY) === 'true',
     optInModalOpen: false,
@@ -386,12 +389,13 @@ export const useAppStore = create<AppState>((set, get) => {
 
     // ── Opt-in sharing ──────────────────────────────────────────────
 
-    setOptIn: (enabled: boolean, displayName: string) => {
+    setOptIn: (enabled: boolean, displayName: string, email: string) => {
       const anonId = get().optInAnonId;
       localStorage.setItem(OPTIN_KEY, String(enabled));
       localStorage.setItem(OPTIN_NAME_KEY, displayName);
+      localStorage.setItem(OPTIN_EMAIL_KEY, email);
       localStorage.setItem(OPTIN_ANONID_KEY, anonId);
-      set({ optInEnabled: enabled, optInDisplayName: displayName });
+      set({ optInEnabled: enabled, optInDisplayName: displayName, optInEmail: email });
     },
     setOptInModalOpen: (open: boolean) => set({ optInModalOpen: open }),
     markOptInModalSeen: () => {
