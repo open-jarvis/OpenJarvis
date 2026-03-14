@@ -118,3 +118,12 @@ export interface ServerInfo {
   agent: string | null;
   engine: string;
 }
+
+// --- Log Types ---
+
+export interface LogEntry {
+  timestamp: number;
+  level: 'info' | 'warn' | 'error';
+  category: 'server' | 'model' | 'chat' | 'tool';
+  message: string;
+}

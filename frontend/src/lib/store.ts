@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type {
   Conversation,
   ChatMessage,
+  LogEntry,
   ModelInfo,
   SavingsData,
   ServerInfo,
@@ -186,6 +187,15 @@ interface AppState {
   setOptIn: (enabled: boolean, displayName: string, email: string) => void;
   setOptInModalOpen: (open: boolean) => void;
   markOptInModalSeen: () => void;
+
+  // Logs
+  logEntries: LogEntry[];
+  addLogEntry: (entry: LogEntry) => void;
+  clearLogs: () => void;
+
+  // Model loading
+  modelLoading: boolean;
+  setModelLoading: (loading: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => {
@@ -386,6 +396,17 @@ export const useAppStore = create<AppState>((set, get) => {
       agentEvents: [...s.agentEvents.slice(-99), event],
     })),
     clearAgentEvents: () => set({ agentEvents: [] }),
+
+    // ── Logs ────────────────────────────────────────────────────────
+    logEntries: [],
+    addLogEntry: (entry) => set((s) => ({
+      logEntries: [...s.logEntries.slice(-499), entry],
+    })),
+    clearLogs: () => set({ logEntries: [] }),
+
+    // ── Model loading ───────────────────────────────────────────────
+    modelLoading: false,
+    setModelLoading: (loading) => set({ modelLoading: loading }),
 
     // ── Opt-in sharing ──────────────────────────────────────────────
 
