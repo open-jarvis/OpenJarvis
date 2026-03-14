@@ -463,6 +463,20 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
     };
 
     let root = project_root.as_ref().unwrap();
+
+    // Install dependencies automatically (handles fresh clones)
+    {
+        let mut s = status.lock().await;
+        s.detail = "Installing dependencies...".into();
+    }
+    let _ = tokio::process::Command::new(&uv_bin)
+        .args(["sync", "--extra", "server"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .current_dir(root)
+        .status()
+        .await;
+
     {
         let mut s = status.lock().await;
         s.detail = format!(
