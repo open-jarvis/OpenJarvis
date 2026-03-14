@@ -7,7 +7,9 @@ the Rust output format correctly:
 
 from __future__ import annotations
 
+import importlib
 import os
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -35,6 +37,15 @@ def _make_mock_rust(side_effect=None, return_value=None):
 
 
 class TestShellExecTool:
+    def test_registered_via_tools_package_import(self):
+        import openjarvis.tools as tools_pkg
+        from openjarvis.core.registry import ToolRegistry
+
+        sys.modules.pop("openjarvis.tools.shell_exec", None)
+        importlib.reload(tools_pkg)
+
+        assert ToolRegistry.contains("shell_exec")
+
     def test_spec(self):
         tool = ShellExecTool()
         assert tool.spec.name == "shell_exec"

@@ -100,11 +100,14 @@ class RLMAgent(ToolUsingAgent):
         sub_max_tokens: int = 1024,
         max_output_chars: int = 10000,
         system_prompt: Optional[str] = None,
+        interactive: bool = False,
+        confirm_callback=None,
     ) -> None:
         super().__init__(
             engine, model, tools=tools, bus=bus,
             max_turns=max_turns, temperature=temperature,
             max_tokens=max_tokens,
+            interactive=interactive, confirm_callback=confirm_callback,
         )
         # Override executor: RLM only creates one if tools are provided
         if not self._tools:

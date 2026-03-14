@@ -11,6 +11,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
+from openjarvis.cli._tool_names import resolve_tool_names
 from openjarvis.cli.hints import hint_no_engine
 from openjarvis.core.config import load_config
 from openjarvis.core.events import EventBus, EventType
@@ -390,10 +391,10 @@ def ask(
 
     # Agent mode
     if agent_name is not None:
-        parsed_tools = (
-            [t.strip() for t in tool_names.split(",") if t.strip()]
-            if tool_names
-            else list(getattr(config.tools, "enabled", None) or [])
+        parsed_tools = resolve_tool_names(
+            tool_names,
+            getattr(config.tools, "enabled", None),
+            getattr(config.agent, "tools", None),
         )
         try:
             result = _run_agent(

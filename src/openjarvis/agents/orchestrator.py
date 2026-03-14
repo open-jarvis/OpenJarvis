@@ -55,11 +55,14 @@ class OrchestratorAgent(ToolUsingAgent):
         mode: str = "function_calling",
         system_prompt: Optional[str] = None,
         parallel_tools: bool = True,
+        interactive: bool = False,
+        confirm_callback=None,
     ) -> None:
         super().__init__(
             engine, model, tools=tools, bus=bus,
             max_turns=max_turns, temperature=temperature,
             max_tokens=max_tokens,
+            interactive=interactive, confirm_callback=confirm_callback,
         )
         self._mode = mode
         self._system_prompt = system_prompt

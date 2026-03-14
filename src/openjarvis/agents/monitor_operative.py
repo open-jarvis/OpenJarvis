@@ -105,12 +105,15 @@ class MonitorOperativeAgent(ToolUsingAgent):
         operator_id: Optional[str] = None,
         session_store: Optional[Any] = None,
         memory_backend: Optional[Any] = None,
+        interactive: bool = False,
+        confirm_callback=None,
         **kwargs: Any,
     ) -> None:
         super().__init__(
             engine, model, tools=tools, bus=bus,
             max_turns=max_turns, temperature=temperature,
             max_tokens=max_tokens,
+            interactive=interactive, confirm_callback=confirm_callback,
         )
         # Validate strategies
         if memory_extraction not in VALID_MEMORY_EXTRACTION:

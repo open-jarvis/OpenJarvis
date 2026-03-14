@@ -65,11 +65,14 @@ class NativeOpenHandsAgent(ToolUsingAgent):
         max_turns: int = 3,
         temperature: float = 0.7,
         max_tokens: int = 2048,
+        interactive: bool = False,
+        confirm_callback=None,
     ) -> None:
         super().__init__(
             engine, model, tools=tools, bus=bus,
             max_turns=max_turns, temperature=temperature,
             max_tokens=max_tokens,
+            interactive=interactive, confirm_callback=confirm_callback,
         )
 
     @staticmethod

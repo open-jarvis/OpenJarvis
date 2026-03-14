@@ -9,6 +9,7 @@ import click
 from rich.console import Console
 from rich.markdown import Markdown
 
+from openjarvis.cli._tool_names import resolve_tool_names
 from openjarvis.core.config import load_config
 from openjarvis.core.types import Message, Role
 
@@ -86,10 +87,10 @@ def chat(
                 kwargs: dict = {"bus": EventBus()}
 
                 if getattr(agent_cls, "accepts_tools", False):
-                    tool_names_list = (
-                        [t.strip() for t in tools.split(",") if t.strip()]
-                        if tools
-                        else list(getattr(config.tools, "enabled", None) or [])
+                    tool_names_list = resolve_tool_names(
+                        tools,
+                        getattr(config.tools, "enabled", None),
+                        getattr(config.agent, "tools", None),
                     )
                     if tool_names_list:
                         import openjarvis.tools  # noqa: F401 — trigger registration
@@ -110,13 +111,16 @@ def chat(
                             kwargs["tools"] = tool_instances
                     kwargs["max_turns"] = config.agent.max_turns
 
-                def _confirm(prompt: str) -> bool:
-                    console.print(f"[yellow]Confirm:[/yellow] {prompt} [y/N] ", end="")
-                    ans = input().strip().lower()
-                    return ans in ("y", "yes")
+                    def _confirm(prompt: str) -> bool:
+                        console.print(
+                            f"[yellow]Confirm:[/yellow] {prompt} [y/N] ",
+                            end="",
+                        )
+                        ans = input().strip().lower()
+                        return ans in ("y", "yes")
 
-                kwargs["interactive"] = True
-                kwargs["confirm_callback"] = _confirm
+                    kwargs["interactive"] = True
+                    kwargs["confirm_callback"] = _confirm
                 agent = agent_cls(engine, model, **kwargs)
         except Exception as exc:
             console.print(f"[yellow]Agent '{agent_key}' failed: {exc}[/yellow]")

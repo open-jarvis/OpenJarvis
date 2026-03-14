@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import importlib
+from dataclasses import dataclass
 from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
 
+from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
 from openjarvis.cli import cli
+from openjarvis.core.types import ToolCall, ToolResult
+from openjarvis.tools._stubs import BaseTool, ToolSpec
 
 _ask_mod = importlib.import_module("openjarvis.cli.ask")
 
@@ -60,6 +64,72 @@ def _register_tools():
     ]:
         if not ToolRegistry.contains(name):
             ToolRegistry.register_value(name, cls)
+
+
+class _DangerousTool(BaseTool):
+    tool_id = "dangerous"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name="dangerous",
+            description="Confirmation-gated test tool.",
+            requires_confirmation=True,
+        )
+
+    def execute(self, **params) -> ToolResult:
+        return ToolResult(
+            tool_name="dangerous",
+            content="executed!",
+            success=True,
+        )
+
+
+class _ConfirmingAgent(ToolUsingAgent):
+    agent_id = "confirming_agent"
+
+    def run(self, input, context: AgentContext | None = None, **kwargs):
+        result = self._executor.execute(
+            ToolCall(id="confirm", name="dangerous", arguments="{}")
+        )
+        return AgentResult(
+            content=result.content,
+            tool_results=[result],
+            turns=1,
+        )
+
+
+@dataclass
+class _EngineSetup:
+    engine: MagicMock
+    config: object
+
+
+@pytest.fixture
+def agent_setup():
+    from openjarvis.core.config import JarvisConfig
+    from openjarvis.core.registry import AgentRegistry, ToolRegistry
+
+    engine = _mock_engine("unused")
+    config = JarvisConfig()
+    config.intelligence.default_model = "test-model"
+    config.agent.max_turns = 3
+
+    AgentRegistry.register_value("confirming_agent", _ConfirmingAgent)
+    ToolRegistry.register_value("dangerous", _DangerousTool)
+
+    with (
+        patch.object(_ask_mod, "load_config", return_value=config),
+        patch.object(_ask_mod, "get_engine", return_value=("mock", engine)),
+        patch.object(_ask_mod, "discover_engines", return_value=[("mock", engine)]),
+        patch.object(
+            _ask_mod, "discover_models",
+            return_value={"mock": ["test-model"]},
+        ),
+        patch.object(_ask_mod, "register_builtin_models"),
+        patch.object(_ask_mod, "merge_discovered_models"),
+    ):
+        yield _EngineSetup(engine=engine, config=config)
 
 
 @pytest.fixture
@@ -150,6 +220,32 @@ class TestAskAgentOption:
             cli, ["ask", "--agent", "simple", "-t", "0.1", "Hello"],
         )
         assert result.exit_code == 0
+
+    @pytest.mark.parametrize(
+        ("tools_enabled", "agent_tools"),
+        [
+            (["dangerous"], ""),
+            ("dangerous", ""),
+            ("", "dangerous"),
+        ],
+    )
+    def test_agent_uses_configured_tools_by_default(
+        self,
+        runner,
+        agent_setup,
+        tools_enabled,
+        agent_tools,
+    ):
+        agent_setup.config.tools.enabled = tools_enabled
+        agent_setup.config.agent.tools = agent_tools
+
+        result = runner.invoke(
+            cli, ["ask", "--agent", "confirming_agent", "Hello"],
+        )
+
+        assert result.exit_code == 0
+        assert "executed!" in result.output
+        agent_setup.engine.generate.assert_not_called()
 
 
 class TestBuildTools:
