@@ -11,7 +11,7 @@ from openjarvis.agents._stubs import (
     ToolUsingAgent,
 )
 from openjarvis.core.events import EventBus, EventType
-from openjarvis.core.types import Conversation, Message, Role, ToolResult
+from openjarvis.core.types import Conversation, Message, Role, ToolCall, ToolResult
 from openjarvis.tools._stubs import BaseTool, ToolSpec
 
 # ---------------------------------------------------------------------------
@@ -46,6 +46,22 @@ class _DummyTool(BaseTool):
 
     def execute(self, **params) -> ToolResult:
         return ToolResult(tool_name="dummy", content="ok", success=True)
+
+
+class _ConfirmTool(BaseTool):
+    tool_id = "confirm"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name="confirm",
+            description="Confirmation-required tool.",
+            parameters={"type": "object", "properties": {}},
+            requires_confirmation=True,
+        )
+
+    def execute(self, **params) -> ToolResult:
+        return ToolResult(tool_name="confirm", content="confirmed", success=True)
 
 
 # ---------------------------------------------------------------------------
@@ -269,3 +285,21 @@ class TestToolUsingAgent:
         agent._emit_turn_start("hi")
         events = [e for e in bus.history if e.event_type == EventType.AGENT_TURN_START]
         assert len(events) == 1
+
+    def test_propagates_confirmation_settings_to_executor(self):
+        engine = MagicMock()
+        confirm = MagicMock(return_value=True)
+        agent = _ConcreteToolAgent(
+            engine,
+            "m",
+            tools=[_ConfirmTool()],
+            interactive=True,
+            confirm_callback=confirm,
+        )
+
+        result = agent._executor.execute(
+            ToolCall(id="1", name="confirm", arguments="{}")
+        )
+
+        assert result.success is True
+        confirm.assert_called_once()

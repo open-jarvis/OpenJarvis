@@ -47,11 +47,14 @@ class NativeReActAgent(ToolUsingAgent):
         max_turns: int = 10,
         temperature: float = 0.7,
         max_tokens: int = 1024,
+        interactive: bool = False,
+        confirm_callback=None,
     ) -> None:
         super().__init__(
             engine, model, tools=tools, bus=bus,
             max_turns=max_turns, temperature=temperature,
             max_tokens=max_tokens,
+            interactive=interactive, confirm_callback=confirm_callback,
         )
 
     def _parse_response(self, text: str) -> dict:
