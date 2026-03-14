@@ -64,16 +64,17 @@ fn models_that_fit() -> Vec<&'static str> {
         .collect()
 }
 
-/// Pick the second-largest Qwen3.5 model that fits on this machine.
-/// This leaves headroom for the OS / other apps while still providing
-/// a capable model.  Falls back to the largest if only one fits, or
-/// to FALLBACK_MODEL if none fit.
+/// Pick the third-largest Qwen3.5 model that fits on this machine.
+/// This leaves comfortable headroom for the OS / other apps while
+/// still providing a capable model.  Falls back gracefully when
+/// fewer models fit.
 fn preferred_model() -> &'static str {
     let fitting = models_that_fit();
     match fitting.len() {
         0 => FALLBACK_MODEL,
         1 => fitting[0],
-        n => fitting[n - 2], // second-largest
+        2 => fitting[0],
+        n => fitting[n - 3], // third-largest
     }
 }
 
@@ -356,32 +357,51 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
         s.detail = "Inference engine ready.".into();
     }
 
-    // Phase 2: Ensure at least one model exists.
-    // Pull the small fallback first so the server can start immediately,
-    // then pull the preferred model and remaining Qwen3.5 variants in
-    // the background (Phase 4).
-    {
-        let mut s = status.lock().await;
-        s.phase = "model".into();
-        s.detail = format!("Checking for model {}...", FALLBACK_MODEL);
-    }
+    // Phase 2: Pull ALL Qwen3.5 models that fit on this machine.
+    // This blocks the setup screen so users get a smooth experience
+    // with all models ready when the app opens.
+    let fitting = models_that_fit();
+    let models_to_pull: Vec<&str> = if fitting.is_empty() {
+        vec![FALLBACK_MODEL]
+    } else {
+        let mut all = vec![FALLBACK_MODEL];
+        for m in &fitting {
+            if *m != FALLBACK_MODEL {
+                all.push(m);
+            }
+        }
+        all
+    };
 
-    if !ollama_has_model(FALLBACK_MODEL).await {
+    let total = models_to_pull.len();
+    for (i, model) in models_to_pull.iter().enumerate() {
         {
             let mut s = status.lock().await;
-            s.detail = format!("Downloading {}... (this may take a minute)", FALLBACK_MODEL);
+            s.phase = "model".into();
+            s.detail = format!(
+                "Checking model {} ({}/{})...",
+                model, i + 1, total,
+            );
         }
-        if let Err(e) = pull_model(FALLBACK_MODEL).await {
-            let mut s = status.lock().await;
-            s.error = Some(format!("Failed to download model: {}", e));
-            return;
+
+        if !ollama_has_model(model).await {
+            {
+                let mut s = status.lock().await;
+                s.detail = format!(
+                    "Downloading {} ({}/{})... this may take a few minutes",
+                    model, i + 1, total,
+                );
+            }
+            if let Err(e) = pull_model(model).await {
+                eprintln!("Warning: failed to pull {}: {}", model, e);
+            }
         }
     }
 
     {
         let mut s = status.lock().await;
         s.model_ready = true;
-        s.detail = "Model ready.".into();
+        s.detail = format!("{} models ready.", total);
     }
 
     // Phase 3: Start jarvis serve
@@ -456,26 +476,8 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
         s.detail = "All systems ready.".into();
     }
 
-    // Phase 4: Pull preferred model + remaining Qwen3.5 variants in the
-    // background.  The server is already running with the fallback, so
-    // the user can chat immediately.  As each model finishes pulling it
-    // appears in the /v1/models list (Ollama serves it automatically).
-    let fitting = models_that_fit();
-    let pref_bg = preferred_model().to_string();
-    tokio::spawn(async move {
-        // Pull the preferred model first so it becomes available quickly.
-        if !ollama_has_model(&pref_bg).await {
-            let _ = pull_model(&pref_bg).await;
-        }
-        // Then pull remaining models that fit.
-        for model in fitting {
-            if model != pref_bg && model != FALLBACK_MODEL {
-                if !ollama_has_model(model).await {
-                    let _ = pull_model(model).await;
-                }
-            }
-        }
-    });
+    // All models were already pulled in Phase 2, so no background
+    // work is needed.  The user opens the app with everything ready.
 }
 
 // ---------------------------------------------------------------------------
@@ -705,6 +707,35 @@ async fn submit_savings(
     Ok(resp.status().is_success())
 }
 
+/// Pull a model via Ollama (called from frontend download button).
+#[tauri::command]
+async fn pull_ollama_model(model_name: String) -> Result<serde_json::Value, String> {
+    pull_model(&model_name)
+        .await
+        .map_err(|e| format!("Failed to pull {}: {}", model_name, e))?;
+    Ok(serde_json::json!({"status": "ok", "model": model_name}))
+}
+
+/// Delete a model from Ollama.
+#[tauri::command]
+async fn delete_ollama_model(model_name: String) -> Result<serde_json::Value, String> {
+    let url = format!("http://127.0.0.1:{}/api/delete", OLLAMA_PORT);
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client
+        .delete(&url)
+        .json(&serde_json::json!({"name": model_name}))
+        .send()
+        .await
+        .map_err(|e| format!("Delete failed: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("Delete returned status {}", resp.status()));
+    }
+    Ok(serde_json::json!({"status": "deleted", "model": model_name}))
+}
+
 /// Check speech backend health.
 #[tauri::command]
 async fn speech_health(api_url: String) -> Result<serde_json::Value, String> {
@@ -816,6 +847,8 @@ pub fn run() {
             submit_savings,
             transcribe_audio,
             speech_health,
+            pull_ollama_model,
+            delete_ollama_model,
         ])
         .build(tauri::generate_context!())
         .expect("error while building OpenJarvis Desktop")

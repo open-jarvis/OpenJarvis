@@ -101,6 +101,17 @@ export async function fetchModels(): Promise<ModelInfo[]> {
 }
 
 export async function pullModel(modelName: string): Promise<void> {
+  // In Tauri, go through the Rust backend directly (avoids CORS / timeout
+  // issues with long model downloads via fetch).
+  if (isTauri()) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('pull_ollama_model', { modelName });
+      return;
+    } catch (e: any) {
+      throw new Error(e?.message || e || 'Download failed');
+    }
+  }
   const res = await fetch(`${getBase()}/v1/models/pull`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -113,6 +124,15 @@ export async function pullModel(modelName: string): Promise<void> {
 }
 
 export async function deleteModel(modelName: string): Promise<void> {
+  if (isTauri()) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('delete_ollama_model', { modelName });
+      return;
+    } catch (e: any) {
+      throw new Error(e?.message || e || 'Delete failed');
+    }
+  }
   const res = await fetch(`${getBase()}/v1/models/${encodeURIComponent(modelName)}`, {
     method: 'DELETE',
   });
