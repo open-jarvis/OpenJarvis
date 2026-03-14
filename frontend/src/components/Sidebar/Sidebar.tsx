@@ -61,7 +61,12 @@ export function Sidebar() {
           fixed md:relative z-30
           ${sidebarOpen ? 'w-[260px]' : 'w-0'}
         `}
-        style={{ background: 'var(--color-sidebar)', borderRight: sidebarOpen ? '1px solid var(--color-border)' : 'none' }}
+        style={{
+          background: 'var(--color-sidebar)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          borderRight: sidebarOpen ? '1px solid var(--color-border)' : 'none',
+        }}
       >
         <div className="flex flex-col h-full w-[260px]">
           {/* Header */}
@@ -144,7 +149,7 @@ export function Sidebar() {
                   onClick={() => navigate(item.path)}
                   className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors w-full text-left cursor-pointer"
                   style={{
-                    background: isActive ? 'var(--color-bg-tertiary)' : 'transparent',
+                    background: isActive ? 'var(--color-accent-subtle)' : 'transparent',
                     color: isActive ? 'var(--color-text)' : 'var(--color-text-secondary)',
                     fontWeight: isActive ? 500 : 400,
                   }}
