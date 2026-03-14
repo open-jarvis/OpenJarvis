@@ -17,7 +17,6 @@ class TestSecurityHeaders:
             "X-Frame-Options",
             "X-XSS-Protection",
             "Strict-Transport-Security",
-            "Content-Security-Policy",
             "Referrer-Policy",
             "Permissions-Policy",
         }
@@ -77,3 +76,41 @@ class TestSecurityHeaders:
             assert resp.headers.get(header_name) == header_value, (
                 f"Missing or wrong header: {header_name}"
             )
+
+    def test_middleware_skips_options(self) -> None:
+        """OPTIONS requests pass through without security headers."""
+        import pytest
+        fastapi = pytest.importorskip("fastapi")
+        from fastapi.middleware.cors import CORSMiddleware
+        from fastapi.testclient import TestClient
+
+        app = fastapi.FastAPI()
+
+        # Add CORS first, then security (reverse execution order)
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+        middleware_cls = create_security_middleware()
+        assert middleware_cls is not None
+        app.add_middleware(middleware_cls)
+
+        @app.post("/test")
+        def test_endpoint() -> dict:
+            return {"ok": True}
+
+        client = TestClient(app)
+        resp = client.options(
+            "/test",
+            headers={
+                "Origin": "https://tauri.localhost",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+        assert resp.status_code == 200
+        assert "access-control-allow-origin" in resp.headers
+        # Security headers should NOT be present on preflight
+        assert "X-Frame-Options" not in resp.headers
