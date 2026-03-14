@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { toast } from 'sonner';
 import { useAppStore } from '../lib/store';
 import {
   fetchManagedAgents,
@@ -161,7 +162,6 @@ function LaunchWizard({
     learningEnabled: false,
   });
   const [launching, setLaunching] = useState(false);
-  const [error, setError] = useState('');
 
   function update(partial: Partial<WizardState>) {
     setWizard((prev) => ({ ...prev, ...partial }));
@@ -184,11 +184,10 @@ function LaunchWizard({
 
   async function handleLaunch() {
     if (!wizard.name.trim()) {
-      setError('Agent name is required.');
+      toast.error('Agent name is required');
       return;
     }
     setLaunching(true);
-    setError('');
     try {
       const config: Record<string, unknown> = {
         schedule_type: wizard.scheduleType,
@@ -202,9 +201,12 @@ function LaunchWizard({
         template_id: wizard.templateId || undefined,
         config,
       });
+      toast.success(`Agent "${wizard.name}" launched`);
       onLaunched();
-    } catch {
-      setError('Failed to create agent. Please try again.');
+    } catch (err) {
+      toast.error('Could not create agent', {
+        description: 'Agent manager endpoint not available. Check that agent_manager.enabled = true in your config.',
+      });
     } finally {
       setLaunching(false);
     }
@@ -466,11 +468,6 @@ function LaunchWizard({
                   <span style={{ color: 'var(--color-text)' }}>{wizard.learningEnabled ? 'Enabled' : 'Disabled'}</span>
                 </div>
               </div>
-              {error && (
-                <p className="text-sm" style={{ color: '#ef4444' }}>
-                  {error}
-                </p>
-              )}
             </div>
           )}
         </div>
@@ -982,6 +979,7 @@ export function AgentsPage() {
   const selectedAgentId = useAppStore((s) => s.selectedAgentId);
   const setSelectedAgentId = useAppStore((s) => s.setSelectedAgentId);
   const [loading, setLoading] = useState(true);
+  const [agentManagerAvailable, setAgentManagerAvailable] = useState<boolean | null>(null);
   const [tasks, setTasks] = useState<AgentTask[]>([]);
   const [channels, setChannels] = useState<ChannelBinding[]>([]);
   const [templates, setTemplates] = useState<AgentTemplate[]>([]);
@@ -992,8 +990,12 @@ export function AgentsPage() {
     try {
       const agents = await fetchManagedAgents();
       setManagedAgents(agents);
-    } catch {
-      // Server may be down
+      setAgentManagerAvailable(true);
+    } catch (err: any) {
+      if (err.message?.includes('404')) {
+        setAgentManagerAvailable(false);
+      }
+      setManagedAgents([]);
     } finally {
       setLoading(false);
     }
@@ -1326,13 +1328,31 @@ export function AgentsPage() {
           Agents
         </h1>
         <button
-          onClick={() => setShowWizard(true)}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors"
-          style={{ background: 'var(--color-accent)', color: '#fff' }}
+          onClick={() => agentManagerAvailable && setShowWizard(true)}
+          disabled={agentManagerAvailable === false}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          style={{
+            background: agentManagerAvailable === false ? 'var(--color-bg-tertiary)' : 'var(--color-accent)',
+            color: agentManagerAvailable === false ? 'var(--color-text-tertiary)' : '#fff',
+          }}
         >
           <Plus size={15} /> New Agent
         </button>
       </div>
+
+      {agentManagerAvailable === false && (
+        <div
+          className="mx-4 mt-2 px-4 py-3 rounded-lg flex items-center gap-3 text-sm"
+          style={{
+            background: 'var(--color-accent-amber-subtle)',
+            border: '1px solid rgba(245, 158, 11, 0.2)',
+            color: 'var(--color-accent-amber)',
+          }}
+        >
+          <AlertTriangle size={16} />
+          <span>Agent manager is not enabled. Set <code className="font-mono text-xs">agent_manager.enabled = true</code> in your config.</span>
+        </div>
+      )}
 
       {/* Agent cards grid */}
       <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
@@ -1361,9 +1381,13 @@ export function AgentsPage() {
           </p>
           <p className="text-sm mb-6">Create your first agent to get started with autonomous task management.</p>
           <button
-            onClick={() => setShowWizard(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer"
-            style={{ background: 'var(--color-accent)', color: '#fff' }}
+            onClick={() => agentManagerAvailable && setShowWizard(true)}
+            disabled={agentManagerAvailable === false}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{
+              background: agentManagerAvailable === false ? 'var(--color-bg-tertiary)' : 'var(--color-accent)',
+              color: agentManagerAvailable === false ? 'var(--color-text-tertiary)' : '#fff',
+            }}
           >
             <Plus size={15} /> Launch your first agent
           </button>
