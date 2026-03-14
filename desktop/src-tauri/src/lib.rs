@@ -496,6 +496,11 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
         .current_dir(root);
+
+    // Inject cloud API keys from ~/.openjarvis/cloud-keys.env
+    for (key, value) in read_cloud_keys() {
+        cmd.env(&key, &value);
+    }
     let jarvis_child = cmd.spawn();
 
     match jarvis_child {
@@ -798,6 +803,84 @@ async fn submit_savings(
     Ok(resp.status().is_success())
 }
 
+// ---------------------------------------------------------------------------
+// Cloud API key management
+// ---------------------------------------------------------------------------
+
+/// Path to the cloud keys file (~/.openjarvis/cloud-keys.env).
+fn cloud_keys_path() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_default();
+    std::path::PathBuf::from(home)
+        .join(".openjarvis")
+        .join("cloud-keys.env")
+}
+
+/// Read cloud keys from disk and return as key=value pairs.
+fn read_cloud_keys() -> Vec<(String, String)> {
+    let path = cloud_keys_path();
+    let mut keys = Vec::new();
+    if let Ok(contents) = std::fs::read_to_string(&path) {
+        for line in contents.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some((k, v)) = line.split_once('=') {
+                keys.push((k.trim().to_string(), v.trim().to_string()));
+            }
+        }
+    }
+    keys
+}
+
+/// Save a single cloud API key to the keys file.
+#[tauri::command]
+async fn save_cloud_key(key_name: String, key_value: String) -> Result<(), String> {
+    let path = cloud_keys_path();
+    // Ensure directory exists
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    // Read existing keys, update/add the one being saved
+    let mut keys: Vec<(String, String)> = read_cloud_keys()
+        .into_iter()
+        .filter(|(k, _)| k != &key_name)
+        .collect();
+    if !key_value.is_empty() {
+        keys.push((key_name, key_value));
+    }
+
+    // Write back
+    let content: String = keys
+        .iter()
+        .map(|(k, v)| format!("{}={}", k, v))
+        .collect::<Vec<_>>()
+        .join("\n");
+    std::fs::write(&path, content + "\n")
+        .map_err(|e| format!("Failed to save key: {}", e))?;
+
+    // Set permissions to owner-only (chmod 600)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    }
+
+    Ok(())
+}
+
+/// Get which cloud providers have keys configured (without exposing values).
+#[tauri::command]
+async fn get_cloud_key_status() -> Result<serde_json::Value, String> {
+    let keys = read_cloud_keys();
+    let status: Vec<serde_json::Value> = keys
+        .iter()
+        .map(|(k, v)| serde_json::json!({ "key": k, "set": !v.is_empty() }))
+        .collect();
+    Ok(serde_json::json!(status))
+}
+
 /// Pull a model via Ollama (called from frontend download button).
 #[tauri::command]
 async fn pull_ollama_model(model_name: String) -> Result<serde_json::Value, String> {
@@ -940,6 +1023,8 @@ pub fn run() {
             speech_health,
             pull_ollama_model,
             delete_ollama_model,
+            save_cloud_key,
+            get_cloud_key_status,
         ])
         .build(tauri::generate_context!())
         .expect("error while building OpenJarvis Desktop")

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Search, Cpu, X, Download, Loader2, Trash2, Check, Cloud, Key, Eye, EyeOff } from 'lucide-react';
 import { useAppStore } from '../lib/store';
-import { pullModel, deleteModel, fetchModels, preloadModel } from '../lib/api';
+import { pullModel, deleteModel, fetchModels, preloadModel, isTauri } from '../lib/api';
 
 /** Popular models that users can download from the catalogue. */
 const CATALOGUE_MODELS = [
@@ -209,12 +209,21 @@ export function CommandPalette() {
     setCustomModel('');
   };
 
-  const handleSaveKey = (provider: CloudProvider, value: string) => {
+  const handleSaveKey = async (provider: CloudProvider, value: string) => {
     setStoredKey(provider.storageKey, value);
     setApiKeys((prev) => ({ ...prev, [provider.storageKey]: value }));
+
+    // Also save to Tauri backend so the server process picks up the key
+    if (isTauri()) {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        await invoke('save_cloud_key', { keyName: provider.envKey, keyValue: value });
+      } catch {}
+    }
+
     useAppStore.getState().addLogEntry({
       timestamp: Date.now(), level: 'info', category: 'model',
-      message: `${provider.name} API key ${value ? 'saved' : 'removed'}`,
+      message: `${provider.name} API key ${value ? 'saved' : 'removed'}. Restart the app for cloud models to appear.`,
     });
   };
 
