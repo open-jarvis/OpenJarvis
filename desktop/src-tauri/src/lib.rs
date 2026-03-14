@@ -30,9 +30,18 @@ fn resolve_bin(name: &str) -> String {
 }
 
 /// Find the OpenJarvis project root (contains pyproject.toml).
-/// Walks up from the executable's location, then checks common paths.
+/// Checks OPENJARVIS_ROOT env var, walks up from the executable, then
+/// probes common clone locations.
 fn find_project_root() -> Option<std::path::PathBuf> {
-    // Try relative to the running executable (works in dev and .app bundle)
+    // 1. Explicit env var override
+    if let Ok(root) = std::env::var("OPENJARVIS_ROOT") {
+        let path = std::path::PathBuf::from(&root);
+        if path.join("pyproject.toml").exists() {
+            return Some(path);
+        }
+    }
+
+    // 2. Walk up from the running executable (works in dev and .app bundle)
     if let Ok(exe) = std::env::current_exe() {
         let mut dir = exe.parent().map(|p| p.to_path_buf());
         for _ in 0..8 {
@@ -44,20 +53,65 @@ fn find_project_root() -> Option<std::path::PathBuf> {
             }
         }
     }
-    // Fallback: common clone locations
+
+    // 3. Fallback: well-known direct paths
     let home = std::env::var("HOME").unwrap_or_default();
-    let fallbacks = [
-        format!("{home}/projects/hazy/OpenJarvis"),
+    let direct = [
         format!("{home}/OpenJarvis"),
+        format!("{home}/projects/hazy/OpenJarvis"),
         format!("{home}/projects/OpenJarvis"),
         format!("{home}/src/OpenJarvis"),
+        format!("{home}/Documents/OpenJarvis"),
+        format!("{home}/Desktop/OpenJarvis"),
+        format!("{home}/Developer/OpenJarvis"),
+        format!("{home}/dev/OpenJarvis"),
+        format!("{home}/Code/OpenJarvis"),
+        format!("{home}/code/OpenJarvis"),
+        format!("{home}/repos/OpenJarvis"),
+        format!("{home}/github/OpenJarvis"),
     ];
-    for p in &fallbacks {
+    for p in &direct {
         let path = std::path::PathBuf::from(p);
         if path.join("pyproject.toml").exists() {
             return Some(path);
         }
     }
+
+    // 4. Shallow scan: look for OpenJarvis one level inside common parent dirs.
+    //    This catches clones like ~/Documents/my-stuff/OpenJarvis without
+    //    needing to enumerate every possible intermediate folder.
+    let scan_parents = [
+        format!("{home}/Documents"),
+        format!("{home}/Desktop"),
+        format!("{home}/Developer"),
+        format!("{home}/projects"),
+        format!("{home}/repos"),
+        format!("{home}/src"),
+        format!("{home}/Code"),
+        format!("{home}/code"),
+        format!("{home}/dev"),
+        format!("{home}/github"),
+    ];
+    for parent in &scan_parents {
+        let parent_path = std::path::PathBuf::from(parent);
+        if let Ok(entries) = std::fs::read_dir(&parent_path) {
+            for entry in entries.flatten() {
+                let candidate = entry.path().join("OpenJarvis");
+                if candidate.join("pyproject.toml").exists() {
+                    return Some(candidate);
+                }
+                // Also check if the entry itself is OpenJarvis (case-insensitive match)
+                if let Some(name) = entry.file_name().to_str() {
+                    if name.eq_ignore_ascii_case("openjarvis")
+                        && entry.path().join("pyproject.toml").exists()
+                    {
+                        return Some(entry.path());
+                    }
+                }
+            }
+        }
+    }
+
     None
 }
 
@@ -265,13 +319,23 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
 
     let uv_bin = resolve_bin("uv");
     let project_root = find_project_root();
+
+    if project_root.is_none() {
+        let mut s = status.lock().await;
+        s.error = Some(
+            "Could not find the OpenJarvis project directory. \
+             Set the OPENJARVIS_ROOT environment variable to the path \
+             containing pyproject.toml (e.g. export OPENJARVIS_ROOT=$HOME/OpenJarvis)."
+                .into(),
+        );
+        return;
+    }
+
     let mut cmd = tokio::process::Command::new(&uv_bin);
     cmd.args(["run", "jarvis", "serve", "--port", &JARVIS_PORT.to_string(), "--agent", "simple"])
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    if let Some(ref root) = project_root {
-        cmd.current_dir(root);
-    }
+        .stderr(std::process::Stdio::null())
+        .current_dir(project_root.as_ref().unwrap());
     let jarvis_child = cmd.spawn();
 
     match jarvis_child {
