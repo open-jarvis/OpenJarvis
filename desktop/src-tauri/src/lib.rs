@@ -9,7 +9,10 @@ use tokio::sync::Mutex;
 const OLLAMA_PORT: u16 = 11434;
 const JARVIS_PORT: u16 = 8222;
 
-/// Tiny fallback model — always available even on low-RAM machines.
+/// Small, fast model pulled at startup so the app opens quickly.
+const STARTUP_MODEL: &str = "qwen3.5:2b";
+
+/// Tiny fallback model if even the startup model can't be pulled.
 const FALLBACK_MODEL: &str = "qwen3:0.6b";
 
 /// Qwen3.5 model variants, ordered smallest to largest.
@@ -357,43 +360,31 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
         s.detail = "Inference engine ready.".into();
     }
 
-    // Phase 2: Pull ALL Qwen3.5 models that fit on this machine.
-    // This blocks the setup screen so users get a smooth experience
-    // with all models ready when the app opens.
-    let fitting = models_that_fit();
-    let models_to_pull: Vec<&str> = if fitting.is_empty() {
-        vec![FALLBACK_MODEL]
-    } else {
-        let mut all = vec![FALLBACK_MODEL];
-        for m in &fitting {
-            if *m != FALLBACK_MODEL {
-                all.push(m);
-            }
-        }
-        all
-    };
+    // Phase 2: Pull one small model (qwen3.5:2b) so the app can open fast.
+    // Remaining models are pulled in the background after the server starts.
+    {
+        let mut s = status.lock().await;
+        s.phase = "model".into();
+        s.detail = format!("Checking for {}...", STARTUP_MODEL);
+    }
 
-    let total = models_to_pull.len();
-    for (i, model) in models_to_pull.iter().enumerate() {
+    if !ollama_has_model(STARTUP_MODEL).await {
         {
             let mut s = status.lock().await;
-            s.phase = "model".into();
-            s.detail = format!(
-                "Checking model {} ({}/{})...",
-                model, i + 1, total,
-            );
+            s.detail = format!("Downloading {}... (this may take a minute)", STARTUP_MODEL);
         }
-
-        if !ollama_has_model(model).await {
-            {
+        if let Err(e) = pull_model(STARTUP_MODEL).await {
+            // If the startup model fails, try the tiny fallback
+            eprintln!("Warning: failed to pull {}: {}", STARTUP_MODEL, e);
+            if !ollama_has_model(FALLBACK_MODEL).await {
                 let mut s = status.lock().await;
-                s.detail = format!(
-                    "Downloading {} ({}/{})... this may take a few minutes",
-                    model, i + 1, total,
-                );
-            }
-            if let Err(e) = pull_model(model).await {
-                eprintln!("Warning: failed to pull {}: {}", model, e);
+                s.detail = format!("Downloading {}...", FALLBACK_MODEL);
+                drop(s);
+                if let Err(e2) = pull_model(FALLBACK_MODEL).await {
+                    let mut s = status.lock().await;
+                    s.error = Some(format!("Failed to download model: {}", e2));
+                    return;
+                }
             }
         }
     }
@@ -401,7 +392,7 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
     {
         let mut s = status.lock().await;
         s.model_ready = true;
-        s.detail = format!("{} models ready.", total);
+        s.detail = "Model ready.".into();
     }
 
     // Phase 3: Start jarvis serve
@@ -425,10 +416,12 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
         return;
     }
 
-    // Use the preferred model if it's already pulled, otherwise fallback.
+    // Start with STARTUP_MODEL (just pulled) or preferred if already available.
     let pref = preferred_model();
     let startup_model = if ollama_has_model(pref).await {
         pref
+    } else if ollama_has_model(STARTUP_MODEL).await {
+        STARTUP_MODEL
     } else {
         FALLBACK_MODEL
     };
@@ -476,8 +469,19 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
         s.detail = "All systems ready.".into();
     }
 
-    // All models were already pulled in Phase 2, so no background
-    // work is needed.  The user opens the app with everything ready.
+    // Phase 4: Pull remaining Qwen3.5 models in the background.
+    // The app is already usable with qwen3.5:2b; as each model finishes
+    // it appears in the model list automatically.
+    let fitting = models_that_fit();
+    tokio::spawn(async move {
+        for model in fitting {
+            if model != STARTUP_MODEL && model != FALLBACK_MODEL {
+                if !ollama_has_model(model).await {
+                    let _ = pull_model(model).await;
+                }
+            }
+        }
+    });
 }
 
 // ---------------------------------------------------------------------------
