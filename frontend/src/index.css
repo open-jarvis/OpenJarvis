@@ -375,6 +375,17 @@
     border-top: 1px solid var(--color-border);
     margin: 1em 0;
   }
+
+  /* System Pulse animations */
+  @keyframes pulse-glow {
+    0%, 100% { opacity: 0.7; }
+    50% { opacity: 1; }
+  }
+
+  @keyframes pulse-travel {
+    0% { background-position: -200% center; }
+    100% { background-position: 200% center; }
+  }
 }
 /*
  ---break---
