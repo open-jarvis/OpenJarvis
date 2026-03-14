@@ -247,7 +247,13 @@ async def telemetry_energy(request: Request):
 
         db_path = DEFAULT_CONFIG_DIR / "telemetry.db"
         if not db_path.exists():
-            return {"total_energy_j": 0, "energy_per_token_j": 0, "avg_power_w": 0}
+            return {
+                "total_energy_j": 0,
+                "energy_per_token_j": 0,
+                "avg_power_w": 0,
+                "cpu_temp_c": None,
+                "gpu_temp_c": None,
+            }
 
         session_start = getattr(request.app.state, "session_start", None)
         agg = TelemetryAggregator(db_path)
@@ -264,6 +270,8 @@ async def telemetry_energy(request: Request):
                 "avg_power_w": (
                     total_energy / total_latency if total_latency > 0 else 0
                 ),
+                "cpu_temp_c": None,
+                "gpu_temp_c": None,
             }
         finally:
             agg.close()
