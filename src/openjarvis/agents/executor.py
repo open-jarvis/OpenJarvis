@@ -193,8 +193,15 @@ class AgentExecutor:
             tools=[],
         )
 
-        # Build input from summary_memory + pending messages
-        context = agent.get("summary_memory", "") or "Continue your assigned task."
+        # Build input from instruction + summary_memory + pending messages
+        instruction = config.get("instruction", "")
+        memory = agent.get("summary_memory", "")
+        if instruction:
+            context = f"Standing instruction: {instruction}"
+            if memory:
+                context += f"\n\nPrevious context: {memory}"
+        else:
+            context = memory or "Continue your assigned task."
         pending = self._manager.get_pending_messages(agent["id"])
         if pending:
             user_msgs = "\n".join(f"User: {m['content']}" for m in pending)
@@ -270,6 +277,9 @@ class AgentExecutor:
         else:
             self._manager.end_tick(agent_id)
             self._manager.update_agent(agent_id, status="error")
+            # Write error detail to summary_memory so frontend can display it
+            error_msg = str(error)[:2000]
+            self._manager.update_summary_memory(agent_id, f"ERROR: {error_msg}")
             self._bus.publish(EventType.AGENT_TICK_ERROR, {
                 "agent_id": agent_id,
                 "error": str(error),
