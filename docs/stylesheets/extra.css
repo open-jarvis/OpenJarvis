@@ -83,7 +83,7 @@
 .hero-tagline {
   font-size: 1.05rem;
   color: var(--md-default-fg-color--light);
-  max-width: 600px;
+  max-width: 100%;
   line-height: 1.8;
   font-weight: 300;
   margin-bottom: 2rem;
