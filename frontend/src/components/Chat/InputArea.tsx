@@ -137,6 +137,12 @@ export function InputArea() {
       activeToolCalls: [],
       content: '',
     });
+    useAppStore.getState().addLogEntry({
+      timestamp: Date.now(),
+      level: 'info',
+      category: 'chat',
+      message: `Request: "${content.slice(0, 80)}${content.length > 80 ? '...' : ''}" → ${selectedModel}`,
+    });
 
     try {
       for await (const sseEvent of streamChat(
@@ -149,6 +155,10 @@ export function InputArea() {
           setStreamState({ phase: 'Agent thinking...' });
         } else if (eventName === 'inference_start') {
           setStreamState({ phase: 'Generating...' });
+          useAppStore.getState().addLogEntry({
+            timestamp: Date.now(), level: 'info', category: 'chat',
+            message: `Generating with ${selectedModel}...`,
+          });
         } else if (eventName === 'tool_call_start') {
           try {
             const data = JSON.parse(sseEvent.data);
@@ -164,6 +174,10 @@ export function InputArea() {
               activeToolCalls: [...toolCalls],
             });
             updateLastAssistant(convId, accumulatedContent, [...toolCalls]);
+            useAppStore.getState().addLogEntry({
+              timestamp: Date.now(), level: 'info', category: 'tool',
+              message: `Calling ${data.tool}(${data.arguments || ''})`,
+            });
           } catch {}
         } else if (eventName === 'tool_call_end') {
           try {
@@ -213,6 +227,10 @@ export function InputArea() {
         const errMsg = err?.message || String(err);
         accumulatedContent =
           accumulatedContent || `Error: ${errMsg}`;
+        useAppStore.getState().addLogEntry({
+          timestamp: Date.now(), level: 'error', category: 'chat',
+          message: `Stream error: ${errMsg}`,
+        });
       }
     } finally {
       if (!accumulatedContent) {
@@ -229,6 +247,10 @@ export function InputArea() {
         timerRef.current = null;
       }
       resetStream();
+      useAppStore.getState().addLogEntry({
+        timestamp: Date.now(), level: 'info', category: 'chat',
+        message: `Response: ${accumulatedContent.length} chars`,
+      });
       abortRef.current = null;
 
       fetchSavings()

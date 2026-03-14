@@ -99,11 +99,19 @@ export function CommandPalette() {
     try {
       await pullModel(modelId);
       setPullSuccess(modelId);
+      useAppStore.getState().addLogEntry({
+        timestamp: Date.now(), level: 'info', category: 'model',
+        message: `Downloaded ${modelId}`,
+      });
       await refreshModels();
       // Auto-select the newly pulled model
       setSelectedModel(modelId);
     } catch (e: any) {
       setPullError(e.message || 'Download failed');
+      useAppStore.getState().addLogEntry({
+        timestamp: Date.now(), level: 'error', category: 'model',
+        message: `Download failed for ${modelId}: ${e.message}`,
+      });
     } finally {
       setPulling(null);
     }
@@ -114,6 +122,10 @@ export function CommandPalette() {
     setDeleting(modelId);
     try {
       await deleteModel(modelId);
+      useAppStore.getState().addLogEntry({
+        timestamp: Date.now(), level: 'info', category: 'model',
+        message: `Deleted ${modelId}`,
+      });
       await refreshModels();
       if (selectedModel === modelId) {
         const remaining = models.filter((m) => m.id !== modelId);
