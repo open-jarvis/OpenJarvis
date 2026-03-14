@@ -63,13 +63,29 @@ _GOOGLE_MODELS = [
     "gemini-3-flash-preview",
 ]
 
+# OpenRouter models — prefixed with "openrouter/" so they can be identified
+_OPENROUTER_POPULAR = [
+    "openrouter/auto",
+    "openrouter/openai/gpt-4o",
+    "openrouter/anthropic/claude-sonnet-4",
+    "openrouter/google/gemini-2.5-pro",
+    "openrouter/meta-llama/llama-3.3-70b-instruct",
+    "openrouter/mistralai/mistral-large",
+    "openrouter/deepseek/deepseek-r1",
+    "openrouter/qwen/qwen3-235b-a22b",
+]
+
+
+def _is_openrouter_model(model: str) -> bool:
+    return model.startswith("openrouter/")
+
 
 def _is_anthropic_model(model: str) -> bool:
-    return "claude" in model.lower()
+    return "claude" in model.lower() and not _is_openrouter_model(model)
 
 
 def _is_google_model(model: str) -> bool:
-    return "gemini" in model.lower()
+    return "gemini" in model.lower() and not _is_openrouter_model(model)
 
 
 def _is_openai_reasoning_model(model: str) -> bool:
@@ -137,6 +153,7 @@ class CloudEngine(InferenceEngine):
         self._openai_client: Any = None
         self._anthropic_client: Any = None
         self._google_client: Any = None
+        self._openrouter_client: Any = None
         self._init_clients()
 
     def _init_clients(self) -> None:
@@ -160,6 +177,16 @@ class CloudEngine(InferenceEngine):
             try:
                 from google import genai
                 self._google_client = genai.Client(api_key=gemini_key)
+            except ImportError:
+                pass
+        openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+        if openrouter_key:
+            try:
+                import openai
+                self._openrouter_client = openai.OpenAI(
+                    base_url="https://openrouter.ai/api/v1",
+                    api_key=openrouter_key,
+                )
             except ImportError:
                 pass
 
@@ -533,6 +560,47 @@ class CloudEngine(InferenceEngine):
 
         return result
 
+    def _generate_openrouter(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        if self._openrouter_client is None:
+            raise EngineConnectionError(
+                "OpenRouter client not available — set OPENROUTER_API_KEY"
+            )
+        # Strip the "openrouter/" prefix to get the actual model ID
+        actual_model = model.removeprefix("openrouter/")
+        kwargs.pop("response_format", None)
+        create_kwargs: Dict[str, Any] = {
+            "model": actual_model,
+            "messages": messages_to_dicts(messages),
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        t0 = time.monotonic()
+        resp = self._openrouter_client.chat.completions.create(**create_kwargs)
+        elapsed = time.monotonic() - t0
+        choice = resp.choices[0]
+        usage = resp.usage
+        prompt_tokens = usage.prompt_tokens if usage else 0
+        completion_tokens = usage.completion_tokens if usage else 0
+        return {
+            "content": choice.message.content or "",
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": (usage.total_tokens if usage else 0),
+            },
+            "model": resp.model,
+            "finish_reason": choice.finish_reason or "stop",
+            "ttft": elapsed,
+        }
+
     def generate(
         self,
         messages: Sequence[Message],
@@ -548,6 +616,8 @@ class CloudEngine(InferenceEngine):
             max_tokens=max_tokens,
             **kwargs,
         )
+        if _is_openrouter_model(model):
+            return self._generate_openrouter(messages, **kw)
         if _is_anthropic_model(model):
             return self._generate_anthropic(messages, **kw)
         if _is_google_model(model):
@@ -569,7 +639,12 @@ class CloudEngine(InferenceEngine):
             max_tokens=max_tokens,
             **kwargs,
         )
-        if _is_anthropic_model(model):
+        if _is_openrouter_model(model):
+            async for token in self._stream_openrouter(
+                messages, **kw
+            ):
+                yield token
+        elif _is_anthropic_model(model):
             async for token in self._stream_anthropic(
                 messages, **kw
             ):
@@ -679,6 +754,31 @@ class CloudEngine(InferenceEngine):
             if chunk.text:
                 yield chunk.text
 
+    async def _stream_openrouter(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        **kwargs: Any,
+    ) -> AsyncIterator[str]:
+        if self._openrouter_client is None:
+            raise EngineConnectionError("OpenRouter client not available")
+        actual_model = model.removeprefix("openrouter/")
+        create_kwargs: Dict[str, Any] = {
+            "model": actual_model,
+            "messages": messages_to_dicts(messages),
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": True,
+        }
+        resp = self._openrouter_client.chat.completions.create(**create_kwargs)
+        for chunk in resp:
+            delta = chunk.choices[0].delta if chunk.choices else None
+            if delta and delta.content:
+                yield delta.content
+
     def list_models(self) -> List[str]:
         models: List[str] = []
         if self._openai_client is not None:
@@ -687,6 +787,8 @@ class CloudEngine(InferenceEngine):
             models.extend(_ANTHROPIC_MODELS)
         if self._google_client is not None:
             models.extend(_GOOGLE_MODELS)
+        if self._openrouter_client is not None:
+            models.extend(_OPENROUTER_POPULAR)
         return models
 
     def health(self) -> bool:
@@ -694,6 +796,7 @@ class CloudEngine(InferenceEngine):
             self._openai_client is not None
             or self._anthropic_client is not None
             or self._google_client is not None
+            or self._openrouter_client is not None
         )
 
     def close(self) -> None:
@@ -707,6 +810,10 @@ class CloudEngine(InferenceEngine):
             self._anthropic_client = None
         if self._google_client is not None:
             self._google_client = None
+        if self._openrouter_client is not None:
+            if hasattr(self._openrouter_client, "close"):
+                self._openrouter_client.close()
+            self._openrouter_client = None
 
 
 __all__ = ["CloudEngine", "PRICING", "estimate_cost"]

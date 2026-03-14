@@ -92,6 +92,29 @@ def serve(
 
     engine_name, engine = resolved
 
+    # If cloud API keys are set, wrap with MultiEngine so both local
+    # and cloud models appear in the model list and can be used.
+    import os
+    _has_cloud = (
+        os.environ.get("OPENAI_API_KEY")
+        or os.environ.get("ANTHROPIC_API_KEY")
+        or os.environ.get("GEMINI_API_KEY")
+        or os.environ.get("GOOGLE_API_KEY")
+        or os.environ.get("OPENROUTER_API_KEY")
+    )
+    if _has_cloud and engine_name != "cloud":
+        try:
+            from openjarvis.engine.cloud import CloudEngine
+            from openjarvis.engine.multi import MultiEngine
+
+            cloud = CloudEngine()
+            if cloud.health():
+                engine = MultiEngine([(engine_name, engine), ("cloud", cloud)])
+                engine_name = "multi"
+                console.print("  Cloud:  [cyan]enabled[/cyan] (API keys detected)")
+        except Exception as exc:
+            logger.debug("Cloud engine init failed: %s", exc)
+
     # Wrap engine with InstrumentedEngine for telemetry recording
     try:
         from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
