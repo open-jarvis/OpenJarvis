@@ -85,26 +85,38 @@ def chat(
                 agent_cls = AgentRegistry.get(agent_key)
                 kwargs: dict = {"bus": EventBus()}
 
-                if getattr(agent_cls, "accepts_tools", False) and tools:
-                    import openjarvis.tools  # noqa: F401 — trigger registration
-                    from openjarvis.core.registry import ToolRegistry
-                    from openjarvis.tools._stubs import BaseTool
+                if getattr(agent_cls, "accepts_tools", False):
+                    tool_names_list = (
+                        [t.strip() for t in tools.split(",") if t.strip()]
+                        if tools
+                        else list(getattr(config.tools, "enabled", None) or [])
+                    )
+                    if tool_names_list:
+                        import openjarvis.tools  # noqa: F401 — trigger registration
+                        from openjarvis.core.registry import ToolRegistry
+                        from openjarvis.tools._stubs import BaseTool
 
-                    tool_instances = []
-                    for tname in tools.split(","):
-                        tname = tname.strip()
-                        if ToolRegistry.contains(tname):
-                            tcls = ToolRegistry.get(tname)
-                            if isinstance(tcls, type) and issubclass(
-                                tcls, BaseTool
-                            ):
-                                tool_instances.append(tcls())
-                            elif isinstance(tcls, BaseTool):
-                                tool_instances.append(tcls)
-                    if tool_instances:
-                        kwargs["tools"] = tool_instances
+                        tool_instances = []
+                        for tname in tool_names_list:
+                            if ToolRegistry.contains(tname):
+                                tcls = ToolRegistry.get(tname)
+                                if isinstance(tcls, type) and issubclass(
+                                    tcls, BaseTool
+                                ):
+                                    tool_instances.append(tcls())
+                                elif isinstance(tcls, BaseTool):
+                                    tool_instances.append(tcls)
+                        if tool_instances:
+                            kwargs["tools"] = tool_instances
                     kwargs["max_turns"] = config.agent.max_turns
 
+                def _confirm(prompt: str) -> bool:
+                    console.print(f"[yellow]Confirm:[/yellow] {prompt} [y/N] ", end="")
+                    ans = input().strip().lower()
+                    return ans in ("y", "yes")
+
+                kwargs["interactive"] = True
+                kwargs["confirm_callback"] = _confirm
                 agent = agent_cls(engine, model, **kwargs)
         except Exception as exc:
             console.print(f"[yellow]Agent '{agent_key}' failed: {exc}[/yellow]")

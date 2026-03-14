@@ -223,6 +223,8 @@ class ToolUsingAgent(BaseAgent):
         loop_guard_config: Optional[Any] = None,
         capability_policy: Optional[Any] = None,
         agent_id: Optional[str] = None,
+        interactive: bool = False,
+        confirm_callback: Optional[Any] = None,
     ) -> None:
         super().__init__(
             engine, model, bus=bus,
@@ -236,6 +238,8 @@ class ToolUsingAgent(BaseAgent):
             self._tools, bus=bus,
             capability_policy=capability_policy,
             agent_id=_aid,
+            interactive=interactive,
+            confirm_callback=confirm_callback,
         )
         self._max_turns = max_turns
 

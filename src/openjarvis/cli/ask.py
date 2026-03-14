@@ -126,6 +126,8 @@ def _run_agent(
     if getattr(agent_cls, "accepts_tools", False):
         agent_kwargs["tools"] = tools
         agent_kwargs["max_turns"] = config.agent.max_turns
+        agent_kwargs["interactive"] = True
+        agent_kwargs["confirm_callback"] = lambda prompt: True
 
     agent = agent_cls(engine, model_name, **agent_kwargs)
     ctx = AgentContext()
@@ -388,7 +390,11 @@ def ask(
 
     # Agent mode
     if agent_name is not None:
-        parsed_tools = tool_names.split(",") if tool_names else []
+        parsed_tools = (
+            [t.strip() for t in tool_names.split(",") if t.strip()]
+            if tool_names
+            else list(getattr(config.tools, "enabled", None) or [])
+        )
         try:
             result = _run_agent(
                 agent_name, query_text, engine, model_name,
