@@ -99,13 +99,15 @@ OpenJarvis is that stack. It is an opinionated framework for local-first persona
 
 ---
 
-## Five Primitives
+## Five Primitives for Personal AI
 
-1. **Intelligence** — The LM: model catalog, generation defaults, quantization, preferred engine.
-2. **Agents** — The agentic harness: system prompt, tools, context, retry and exit logic. Seven agent types.
-3. **Tools** — MCP interface: web search, calculator, file I/O, code interpreter, retrieval, and any external MCP server.
-4. **Engine** — The inference runtime: Ollama, vLLM, SGLang, llama.cpp, cloud APIs. Same `InferenceEngine` ABC.
-5. **Learning** — Improvement loop: SFT weight updates, agent advisor, ICL updater. Trace-driven feedback.
+OpenJarvis is built around five composable layers. Each has a clean interface and can be swapped independently.
+
+1. **Intelligence** — Pick a model, or let OpenJarvis pick one for your hardware. Manages the full catalog of local models across providers.
+2. **Agents** — Multi-step reasoning with tool use. Seven built-in agent types from simple chat to orchestrated workflows.
+3. **Tools** — Web search, calculator, file I/O, code interpreter, retrieval, and any external MCP server.
+4. **Engine** — The inference runtime: [Ollama](https://ollama.com), [vLLM](https://github.com/vllm-project/vllm), [SGLang](https://github.com/sgl-project/sglang), [llama.cpp](https://github.com/ggerganov/llama.cpp), cloud APIs, and more. Auto-detects your hardware and recommends the best fit.
+5. **Learning** — Your AI gets better over time. Every interaction generates traces that drive automatic improvements to model weights, prompts, and agent behavior.
 
 ---
 
@@ -113,17 +115,17 @@ OpenJarvis is that stack. It is an opinionated framework for local-first persona
 
 <div class="grid cards" markdown>
 
--   **Five Composable Primitives**
+-   **10+ Engine Backends**
 
     ---
 
-    Intelligence, Agents, Tools, Engine, and Learning — each with a clear ABC interface and decorator-based registry.
+    [Ollama](https://ollama.com), [vLLM](https://github.com/vllm-project/vllm), [SGLang](https://github.com/sgl-project/sglang), [llama.cpp](https://github.com/ggerganov/llama.cpp), [MLX](https://github.com/ml-explore/mlx), [Exo](https://github.com/exo-explore/exo), [LiteLLM](https://github.com/BerriAI/litellm), cloud (OpenAI/Anthropic/Google), and more. Same `InferenceEngine` interface, swap freely.
 
--   **5 Engine Backends**
+-   **Automated Workflows**
 
     ---
 
-    Ollama, vLLM, SGLang, llama.cpp, and cloud (OpenAI/Anthropic/Google). Same `InferenceEngine` ABC.
+    Cron-based agents that monitor, summarize, and act. Code review, email triage, research digests — running 24/7 on your hardware.
 
 -   **Hardware-Aware**
 
@@ -143,11 +145,11 @@ OpenJarvis is that stack. It is an opinionated framework for local-first persona
 
     `jarvis serve` starts a FastAPI server with SSE streaming. Drop-in replacement for OpenAI clients.
 
--   **Trace-Driven Learning**
+-   **Energy & Cost Tracking**
 
     ---
 
-    Every interaction is traced. The learning system improves models (SFT) and agents (prompt, tools, logic).
+    Built-in telemetry for GPU power draw, token costs, and latency. See exactly what each query costs in watts and dollars.
 
 </div>
 
@@ -194,6 +196,23 @@ OpenJarvis is that stack. It is an opinionated framework for local-first persona
     Contributing guide, extension patterns, roadmap, and changelog.
 
 </div>
+
+## Research
+
+OpenJarvis is part of [Intelligence Per Watt](https://www.intelligence-per-watt.ai/), a research initiative studying the efficiency of on-device AI systems. Developed at [Hazy Research](https://hazyresearch.stanford.edu/) and the [Scaling Intelligence Lab](https://scalingintelligence.stanford.edu/) at [Stanford SAIL](https://ai.stanford.edu/).
+
+Read the [blog post](https://scalingintelligence.stanford.edu/blogs/openjarvis/) for the full research motivation, architecture details, and experimental results.
+
+## Citation
+
+```bibtex
+@misc{saadfalcon2026openjarvis,
+  title={OpenJarvis: Personal AI, On Personal Devices},
+  author={Jon Saad-Falcon and Avanika Narayan and Herumb Shandilya and Hakki Orhun Akengin and Robby Manihani and Gabriel Bo and John Hennessy and Christopher R\'{e} and Azalia Mirhoseini},
+  year={2026},
+  howpublished={\url{https://scalingintelligence.stanford.edu/blogs/openjarvis/}},
+}
+```
 
 ## Sponsors
 
