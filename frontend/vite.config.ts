@@ -1,9 +1,15 @@
+import path from 'path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
   plugins: [
     react(),
     tailwindcss(),
@@ -13,8 +19,8 @@ export default defineConfig({
         name: 'OpenJarvis',
         short_name: 'Jarvis',
         description: 'On-device AI assistant',
-        theme_color: '#09090b',
-        background_color: '#09090b',
+        theme_color: '#161618',
+        background_color: '#161618',
         display: 'standalone',
         icons: [
           { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },

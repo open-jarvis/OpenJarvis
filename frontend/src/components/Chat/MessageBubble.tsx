@@ -7,6 +7,7 @@ import remarkMath from 'remark-math';
 import 'katex/dist/katex.min.css';
 import { Copy, Check } from 'lucide-react';
 import { ToolCallCard } from './ToolCallCard';
+import { XRayFooter } from './XRayFooter';
 import type { ChatMessage } from '../../types';
 
 function stripThinkTags(text: string): string {
@@ -145,15 +146,11 @@ export function MessageBubble({ message }: Props) {
         </div>
       )}
 
-      {/* Footer: usage + copy */}
-      <div className="flex items-center gap-2 mt-1.5 min-h-[24px]">
+      {/* Footer: copy + x-ray */}
+      <div className="flex items-center gap-2 mt-1.5">
         <CopyMessageButton content={cleanContent} />
-        {message.usage && (
-          <span className="text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>
-            {message.usage.total_tokens} tokens
-          </span>
-        )}
       </div>
+      <XRayFooter usage={message.usage} telemetry={message.telemetry} />
     </div>
   );
 }

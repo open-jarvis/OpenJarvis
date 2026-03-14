@@ -5,7 +5,7 @@ import { streamChat } from '../../lib/sse';
 import { fetchSavings } from '../../lib/api';
 import { MicButton } from './MicButton';
 import { useSpeech } from '../../hooks/useSpeech';
-import type { ChatMessage, ToolCallInfo, TokenUsage } from '../../types';
+import type { ChatMessage, ToolCallInfo, TokenUsage, MessageTelemetry } from '../../types';
 
 export function InputArea() {
   const [input, setInput] = useState('');
@@ -129,6 +129,7 @@ export function InputArea() {
     let usage: TokenUsage | undefined;
     const toolCalls: ToolCallInfo[] = [];
     let lastFlush = 0;
+    let ttftMs: number | undefined;
 
     setStreamState({
       isStreaming: true,
@@ -202,6 +203,7 @@ export function InputArea() {
             const delta = data.choices?.[0]?.delta;
             if (data.usage) usage = data.usage;
             if (delta?.content) {
+              if (!ttftMs) ttftMs = Date.now() - startTime;
               accumulatedContent += delta.content;
               setStreamState({ content: accumulatedContent, phase: '' });
 
@@ -236,11 +238,23 @@ export function InputArea() {
       if (!accumulatedContent) {
         accumulatedContent = 'No response was generated. Please try again.';
       }
+      const totalMs = Date.now() - startTime;
+      const serverInfo = useAppStore.getState().serverInfo;
+      const telemetry: MessageTelemetry = {
+        engine: serverInfo?.engine,
+        model_id: selectedModel,
+        total_ms: totalMs,
+        ttft_ms: ttftMs,
+        tokens_per_sec: usage?.completion_tokens
+          ? usage.completion_tokens / (totalMs / 1000)
+          : undefined,
+      };
       updateLastAssistant(
         convId,
         accumulatedContent,
         toolCalls.length > 0 ? toolCalls : undefined,
         usage,
+        telemetry,
       );
       if (timerRef.current) {
         clearInterval(timerRef.current);
