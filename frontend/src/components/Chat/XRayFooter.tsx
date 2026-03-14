@@ -18,7 +18,9 @@ export function XRayFooter({ usage, telemetry }: Props) {
   const parts: string[] = [];
   if (telemetry?.engine) parts.push(telemetry.engine);
   if (telemetry?.model_id) parts.push(telemetry.model_id);
-  if (usage?.completion_tokens) parts.push(`${usage.completion_tokens} tok`);
+  if (usage && (usage.prompt_tokens || usage.completion_tokens)) {
+    parts.push(`${usage.prompt_tokens} in \u00B7 ${usage.completion_tokens} out`);
+  }
   if (telemetry?.total_ms) parts.push(formatMs(telemetry.total_ms));
 
   if (parts.length === 0 && !usage?.total_tokens) return null;

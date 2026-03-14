@@ -48,7 +48,7 @@ function StepRow({
         <div className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
           {label}
         </div>
-        <div className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+        <div className="text-xs truncate" style={{ color: 'var(--color-text-tertiary)', maxWidth: '280px' }}>
           {done ? 'Ready' : active ? detail : 'Waiting...'}
         </div>
       </div>
@@ -145,7 +145,7 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
             }}
           >
             <XCircle size={16} className="shrink-0 mt-0.5" />
-            <span>{status.error}</span>
+            <span style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{status.error}</span>
           </div>
         )}
 

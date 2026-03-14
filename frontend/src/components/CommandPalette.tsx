@@ -70,9 +70,10 @@ export function CommandPalette() {
     setSelectedModel(modelId);
     setCommandPaletteOpen(false);
 
-    // Preload the model if switching to a different one
+    // Switching models creates a new chat session for a clean slate
     if (modelId !== previousModel) {
-      const { setModelLoading, addLogEntry } = useAppStore.getState();
+      const { createConversation, setModelLoading, addLogEntry } = useAppStore.getState();
+      createConversation(modelId);
       setModelLoading(true);
       addLogEntry({ timestamp: Date.now(), level: 'info', category: 'model', message: `Switching to ${modelId}...` });
       try {
