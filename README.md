@@ -114,7 +114,6 @@ OpenJarvis is part of [Intelligence Per Watt](https://www.intelligence-per-watt.
   author={Jon Saad-Falcon and Avanika Narayan and Herumb Shandilya and Hakki Orhun Akengin and Robby Manihani and Gabriel Bo and John Hennessy and Christopher R\'{e} and Azalia Mirhoseini},
   year={2026},
   howpublished={\url{https://scalingintelligence.stanford.edu/blogs/openjarvis/}},
-  note={Blog post, Scaling Intelligence Lab, Stanford University}
 }
 ```
 
