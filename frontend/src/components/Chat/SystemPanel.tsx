@@ -13,11 +13,14 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { useAppStore } from '../../lib/store';
+import { getBase } from '../../lib/api';
 
 interface EnergyData {
   total_energy_j?: number;
   energy_per_token_j?: number;
   avg_power_w?: number;
+  cpu_temp_c?: number | null;
+  gpu_temp_c?: number | null;
 }
 
 interface TelemetryStats {
@@ -41,7 +44,7 @@ export function SystemPanel() {
 
   const fetchData = useCallback(async () => {
     try {
-      const base = import.meta.env.VITE_API_URL || '';
+      const base = getBase();
       const [energyRes, telRes] = await Promise.allSettled([
         fetch(`${base}/v1/telemetry/energy`).then((r) => (r.ok ? r.json() : null)),
         fetch(`${base}/v1/telemetry/stats`).then((r) => (r.ok ? r.json() : null)),
@@ -67,13 +70,6 @@ export function SystemPanel() {
   useEffect(() => {
     if (savings) fetchData();
   }, [savings, fetchData]);
-
-  const thermalStatus =
-    (energy?.avg_power_w ?? 0) < 50
-      ? { label: 'Cool', color: 'var(--color-success)' }
-      : (energy?.avg_power_w ?? 0) < 150
-        ? { label: 'Warm', color: 'var(--color-warning)' }
-        : { label: 'Hot', color: 'var(--color-error)' };
 
   const promptK = (savings?.total_prompt_tokens ?? 0) / 1000;
   const completionK = (savings?.total_completion_tokens ?? 0) / 1000;
@@ -118,39 +114,30 @@ export function SystemPanel() {
           </div>
         </section>
 
-        {/* Energy */}
+        {/* Device */}
         <section>
           <h4 className="text-[11px] font-medium uppercase tracking-wide mb-2" style={{ color: 'var(--color-text-tertiary)' }}>
-            Energy
+            Device
           </h4>
           <div className="grid grid-cols-2 gap-2">
+            {energy?.cpu_temp_c != null && (
+              <MiniStat icon={Thermometer} label="CPU Temp" value={String(Math.round(energy.cpu_temp_c))} unit="°C" />
+            )}
+            {energy?.gpu_temp_c != null && (
+              <MiniStat icon={Thermometer} label="GPU Temp" value={String(Math.round(energy.gpu_temp_c))} unit="°C" />
+            )}
             <MiniStat
               icon={Zap}
-              label="Total"
-              value={((energy?.total_energy_j ?? 0) / 1000).toFixed(1)}
-              unit="kJ"
-            />
-            <MiniStat
-              icon={Activity}
-              label="Per Token"
-              value={(energy?.energy_per_token_j ?? 0).toFixed(3)}
-              unit="J"
-            />
-            <MiniStat
-              icon={Thermometer}
-              label="Avg Power"
+              label="Power"
               value={(energy?.avg_power_w ?? 0).toFixed(1)}
               unit="W"
             />
-            <div
-              className="flex items-center gap-1.5 rounded-lg px-2.5 py-2"
-              style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
-            >
-              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: thermalStatus.color }} />
-              <span className="text-[11px]" style={{ color: 'var(--color-text-secondary)' }}>
-                {thermalStatus.label}
-              </span>
-            </div>
+            <MiniStat
+              icon={Activity}
+              label="Energy"
+              value={((energy?.total_energy_j ?? 0) / 1000).toFixed(1)}
+              unit="kJ"
+            />
           </div>
         </section>
 
@@ -217,20 +204,7 @@ export function SystemPanel() {
             })}
           </div>
 
-          {/* Server-reported savings */}
-          {savings && savings.per_provider.length > 0 && (
-            <div className="mt-2 pt-2" style={{ borderTop: '1px solid var(--color-border)' }}>
-              <div className="text-[10px] mb-1" style={{ color: 'var(--color-text-tertiary)' }}>
-                Server-reported
-              </div>
-              {savings.per_provider.map((p) => (
-                <div key={p.provider} className="flex justify-between text-[11px] py-0.5">
-                  <span style={{ color: 'var(--color-text-secondary)' }}>{p.label}</span>
-                  <span className="font-mono" style={{ color: 'var(--color-success)' }}>${p.total_cost.toFixed(4)}</span>
-                </div>
-              ))}
-            </div>
-          )}
+
         </section>
 
         {/* Leaderboard / Share */}
