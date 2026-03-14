@@ -46,7 +46,7 @@ Replace the free-text interval input with three numeric spinners side by side:
 Hours [0-999]  Minutes [0-59]  Seconds [0-59]
 ```
 
-The component serializes to the interval string the backend expects (e.g., `"2h30m"`) on submission. Default: 0h 30m 0s.
+The component serializes to total seconds as a string (e.g., `"9000"` for 2h30m), which is the format the `AgentScheduler` already parses. Default: 0h 30m 0s.
 
 **Minimum interval validation:** Total interval must be at least 10 seconds to prevent tight loops. The wizard shows a validation error if all three fields sum to less than 10 seconds.
 
@@ -90,13 +90,29 @@ TOOL_CREDENTIALS: dict[str, list[str]] = {
 }
 ```
 
-The `configured` field is derived by checking `os.environ.get()` for each required key. The `category` field is read from `ToolSpec.category` where set; for channels, category is always `"communication"`.
+The `configured` field is derived by checking `os.environ.get()` for each required key. Tools not in the `TOOL_CREDENTIALS` mapping return `requires_credentials: false` and `credential_keys: []`.
+
+The `category` field is read from `ToolSpec.category` where set; for channels, category is always `"communication"`.
 
 **Browser tools:** The 6 browser sub-tools (`browser_navigate`, `browser_click`, `browser_type`, `browser_screenshot`, `browser_extract`, `browser_axtree`) are grouped under a single "Browser" meta-entry in the UI. Selecting "Browser" adds all 6 to `config.tools[]`.
 
 ### Frontend categories
 
-Categories ordered by likely usage. Within each category, tools are ordered by popularity. Each category is collapsible with a "Show all (N)" link to expand beyond the popular defaults. Categories are derived from the `category` field returned by `GET /v1/tools`, with a frontend fallback mapping for tools that lack a category.
+Categories ordered by likely usage. Within each category, tools are ordered by popularity. Each category is collapsible with a "Show all (N)" link to expand beyond the popular defaults.
+
+**Category mapping:** The backend returns raw `ToolSpec.category` values (e.g., `"search"`, `"code"`, `"browser"`, `"math"`, `"system"`, `"reasoning"`, `"agents"`, `"channel"`, `"memory"`). The frontend maps these to display categories:
+
+| Backend category | Frontend display category |
+|-----------------|--------------------------|
+| `communication`, `channel` | Communication |
+| `search`, `browser` | Search & Browse |
+| `code`, `system` | Code & Dev |
+| `filesystem`, `""` (empty/unset for file tools) | Files & Data |
+| `memory`, `knowledge_graph` | Memory & Knowledge |
+| `reasoning`, `math`, `inference`, `agents` | Reasoning & AI |
+| `media` | Media |
+
+Tools with no category set are assigned by a frontend fallback map keyed on tool name (e.g., `file_read` → "Files & Data", `http_request` → "Files & Data").
 
 | Category | Popular (shown by default) | Expandable |
 |----------|---------------------------|------------|
@@ -120,7 +136,7 @@ Categories ordered by likely usage. Within each category, tools are ordered by p
 
 Selecting an unconfigured tool opens an inline expandable card beneath it with labeled inputs for each required credential key (e.g., "Slack Bot Token", "Slack App Token"). A "Save" button persists credentials to `~/.openjarvis/.env` or equivalent.
 
-**Gating requirement:** The wizard blocks progression to Step 3 (Review) until all selected tools have their required credentials configured. Validation message: "N tools need setup" with unconfigured ones highlighted.
+**Credential gating:** The wizard shows a warning banner "N tools need setup" with unconfigured ones highlighted in orange. The user can still proceed to Step 3 (Review) but sees the warning repeated there. This avoids blocking exploration while making the setup requirement clear. Tools without credentials will fail at runtime — the review step warns: "These tools will not work until credentials are configured."
 
 ### Credential persistence
 
@@ -137,7 +153,7 @@ SLACK_BOT_TOKEN = "xoxb-..."
 SLACK_APP_TOKEN = "xapp-..."
 ```
 
-**Runtime reload:** After writing credentials, the endpoint also calls `os.environ.__setitem__()` for each key so the current process picks them up immediately without restart. On server startup, `credentials.toml` is loaded and injected into `os.environ` before tool/channel imports.
+**Runtime reload:** After writing credentials, the endpoint sets `os.environ[key] = value` for each key so the current process picks them up immediately without restart. Credential writes are serialized with a threading lock to prevent concurrent file corruption. On server startup, `credentials.toml` is loaded and injected into `os.environ` before tool/channel imports.
 
 **Security:**
 - File permissions: `0o600` (owner read/write only)
@@ -209,7 +225,15 @@ SLACK_APP_TOKEN = "xapp-..."
 ### Structured error messages in Logs
 
 **Backend:**
-- Add `error_detail` dict to tick finalization containing: error_type (retryable/fatal/escalate), error_message, stack_trace_summary (first 3 frames), suggested_action
+- Add `error_detail` dict to tick finalization containing: `error_type` (retryable/fatal/escalate), `error_message`, `stack_trace_summary` (first 3 frames), `suggested_action`
+- **Storage:** `error_detail` is stored as JSON in the trace's `metadata` field (traces already have a metadata dict). The executor's `_finalize_tick()` populates `trace_metadata["error_detail"] = {...}` before saving the trace via `trace_store.save()`. This keeps error details co-located with the trace they belong to.
+- **Suggested action derivation:** Based on the error classification from `errors.py`. Mapping:
+  - "rate limit" → "Rate limited — agent will auto-retry on next tick"
+  - "timeout" / "connection" → "Engine not reachable — check that your inference engine is running"
+  - "401" / "403" / "permission" → "Check API key configuration in Settings"
+  - "not found" / "404" → "Model or endpoint not found — verify model name and engine URL"
+  - Default → "Unexpected error — check the full trace for details"
+- **Retrieval:** The existing `GET /v1/managed-agents/{id}/traces` endpoint already returns trace metadata. The frontend reads `trace.metadata.error_detail` to render structured errors.
 
 **Frontend Logs tab:**
 - Error entries expand to show:
@@ -267,6 +291,14 @@ Strategies: Scratchpad memory, Summarize compression, Hybrid retrieval, Phased d
 ### Config mapping
 
 The router policy maps to `config.router_policy` (new field). The strategies map to existing MonitorOperativeAgent config fields: `memory_extraction`, `observation_compression`, `retrieval_strategy`, `task_decomposition`.
+
+**Router policy integration data flow:**
+1. Agent config stores `router_policy: "learned"` (or `"heuristic"` or `null`)
+2. In `executor.py`, `_invoke_agent()` reads `config.get("router_policy")`
+3. If set, looks up the policy class via `RouterPolicyRegistry.create(policy_key, available_models=models)`
+4. Passes the policy to `SystemBuilder.with_router(policy)` when building the `JarvisSystem` for the tick
+5. During agent execution, if a router is present, `system.ask()` calls `router.select_model(context)` to override the default model for that query
+6. If `router_policy` is `null`, no router is created and the agent uses its configured model directly (current behavior)
 
 ### Files changed
 
