@@ -74,8 +74,29 @@ jobs:
         working-directory: desktop/src-tauri
         run: cargo check
 
-  build-and-release:
+  # Remove stale artifacts from the desktop-latest pre-release so that
+  # only the current build's files are available for download.
+  clean-release:
     needs: [validate]
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete old assets from desktop-latest
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="desktop-latest"
+          # List all asset IDs on the release and delete them
+          ASSET_IDS=$(gh api "repos/${{ github.repository }}/releases/tags/${TAG}" \
+            --jq '.assets[].id' 2>/dev/null || true)
+          for id in $ASSET_IDS; do
+            echo "Deleting asset $id"
+            gh api -X DELETE "repos/${{ github.repository }}/releases/assets/$id" || true
+          done
+
+  build-and-release:
+    needs: [validate, clean-release]
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
 
     strategy:
