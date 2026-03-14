@@ -131,7 +131,7 @@ export function InputArea() {
 
     setStreamState({
       isStreaming: true,
-      phase: 'Sending...',
+      phase: 'Connecting...',
       elapsedMs: 0,
       activeToolCalls: [],
       content: '',
@@ -159,7 +159,7 @@ export function InputArea() {
             };
             toolCalls.push(tc);
             setStreamState({
-              phase: `Running ${data.tool}...`,
+              phase: `Calling ${data.tool}...`,
               activeToolCalls: [...toolCalls],
             });
             updateLastAssistant(convId, accumulatedContent, [...toolCalls]);
