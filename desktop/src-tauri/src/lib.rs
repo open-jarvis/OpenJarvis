@@ -386,6 +386,11 @@ async fn get_setup_status(
 }
 
 #[tauri::command]
+fn get_api_base() -> String {
+    api_base()
+}
+
+#[tauri::command]
 async fn start_backend(
     backend: tauri::State<'_, SharedBackend>,
     status: tauri::State<'_, SharedStatus>,
@@ -684,6 +689,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_setup_status,
+            get_api_base,
             start_backend,
             stop_backend,
             check_health,

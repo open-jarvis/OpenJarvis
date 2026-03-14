@@ -15,7 +15,23 @@ declare global {
 
 export const isTauri = () => typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__;
 
-const DESKTOP_API = 'http://127.0.0.1:8000';
+// Cached API base URL fetched from the Tauri backend at startup.
+// This avoids hardcoding the port — the Rust backend is the single
+// source of truth for JARVIS_PORT.
+let _tauriApiBase: string | null = null;
+
+/** Pre-fetch the API base URL from the Tauri backend (call once at init). */
+export async function initApiBase(): Promise<void> {
+  if (!isTauri()) return;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    _tauriApiBase = await invoke<string>('get_api_base');
+  } catch {
+    // Command may not exist on older builds; fall through to default.
+  }
+}
+
+const DESKTOP_API_FALLBACK = 'http://127.0.0.1:8222';
 
 const getSettingsApiUrl = (): string => {
   try {
@@ -32,7 +48,7 @@ export const getBase = (): string => {
   const settingsUrl = getSettingsApiUrl();
   if (settingsUrl) return settingsUrl;
   if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
-  if (isTauri()) return DESKTOP_API;
+  if (isTauri()) return _tauriApiBase || DESKTOP_API_FALLBACK;
   return '';
 };
 
