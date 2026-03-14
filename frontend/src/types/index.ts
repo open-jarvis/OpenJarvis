@@ -50,6 +50,14 @@ export interface TokenUsage {
   total_tokens: number;
 }
 
+export interface MessageTelemetry {
+  engine?: string;
+  model_id?: string;
+  tokens_per_sec?: number;
+  ttft_ms?: number;
+  total_ms?: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -57,6 +65,7 @@ export interface ChatMessage {
   timestamp: number;
   toolCalls?: ToolCallInfo[];
   usage?: TokenUsage;
+  telemetry?: MessageTelemetry;
 }
 
 export interface Conversation {

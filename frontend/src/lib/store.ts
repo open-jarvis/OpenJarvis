@@ -3,6 +3,7 @@ import type {
   Conversation,
   ChatMessage,
   ModelInfo,
+  MessageTelemetry,
   SavingsData,
   ServerInfo,
   StreamState,
@@ -146,6 +147,7 @@ interface AppState {
     content: string,
     toolCalls?: ToolCallInfo[],
     usage?: TokenUsage,
+    telemetry?: MessageTelemetry,
   ) => void;
   setStreamState: (state: Partial<StreamState>) => void;
   resetStream: () => void;
@@ -324,6 +326,7 @@ export const useAppStore = create<AppState>((set, get) => {
       content: string,
       toolCalls?: ToolCallInfo[],
       usage?: TokenUsage,
+      telemetry?: MessageTelemetry,
     ) => {
       const store = loadConversations();
       const conv = store.conversations[conversationId];
@@ -333,6 +336,7 @@ export const useAppStore = create<AppState>((set, get) => {
         lastMsg.content = content;
         if (toolCalls) lastMsg.toolCalls = toolCalls;
         if (usage) lastMsg.usage = usage;
+        if (telemetry) lastMsg.telemetry = telemetry;
         conv.updatedAt = Date.now();
         saveConversations(store);
         set({ messages: [...conv.messages] });
