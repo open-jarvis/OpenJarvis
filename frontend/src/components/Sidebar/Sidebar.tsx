@@ -39,7 +39,13 @@ export function Sidebar() {
   const ThemeIcon = settings.theme === 'light' ? Sun : settings.theme === 'dark' ? Moon : Monitor;
   const nextTheme = settings.theme === 'light' ? 'dark' : settings.theme === 'dark' ? 'system' : 'light';
 
+  const messages = useAppStore((s) => s.messages);
   const handleNewChat = () => {
+    // Don't create a new chat if the current one is empty
+    if (messages.length === 0) {
+      navigate('/');
+      return;
+    }
     createConversation(selectedModel);
     navigate('/');
   };
