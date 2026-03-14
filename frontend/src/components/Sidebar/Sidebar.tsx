@@ -11,6 +11,9 @@ import {
   Cpu,
   Rocket,
   Bot,
+  Sun,
+  Moon,
+  Monitor,
 } from 'lucide-react';
 import { ConversationList } from './ConversationList';
 import { useAppStore } from '../../lib/store';
@@ -26,6 +29,12 @@ export function Sidebar() {
   const selectedModel = useAppStore((s) => s.selectedModel);
   const serverInfo = useAppStore((s) => s.serverInfo);
   const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen);
+
+  const settings = useAppStore((s) => s.settings);
+  const updateSettings = useAppStore((s) => s.updateSettings);
+
+  const ThemeIcon = settings.theme === 'light' ? Sun : settings.theme === 'dark' ? Moon : Monitor;
+  const nextTheme = settings.theme === 'light' ? 'dark' : settings.theme === 'dark' ? 'system' : 'light';
 
   const handleNewChat = () => {
     createConversation(selectedModel);
@@ -75,16 +84,28 @@ export function Sidebar() {
             >
               <PanelLeftClose size={18} />
             </button>
-            <button
-              onClick={handleNewChat}
-              className="p-2 rounded-lg transition-colors cursor-pointer"
-              style={{ color: 'var(--color-text-secondary)' }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--color-bg-tertiary)')}
-              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-              title="New chat"
-            >
-              <Plus size={18} />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => updateSettings({ theme: nextTheme })}
+                className="p-2 rounded-lg transition-colors cursor-pointer"
+                style={{ color: 'var(--color-text-secondary)' }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--color-bg-tertiary)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                title={`Theme: ${settings.theme} (click for ${nextTheme})`}
+              >
+                <ThemeIcon size={16} />
+              </button>
+              <button
+                onClick={handleNewChat}
+                className="p-2 rounded-lg transition-colors cursor-pointer"
+                style={{ color: 'var(--color-text-secondary)' }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--color-bg-tertiary)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                title="New chat"
+              >
+                <Plus size={18} />
+              </button>
+            </div>
           </div>
 
           {/* Model badge */}
