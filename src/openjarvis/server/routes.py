@@ -48,7 +48,11 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
 
     if request_body.stream:
         bus = getattr(request.app.state, "bus", None)
-        if agent is not None and bus is not None:
+        # Use the agent stream bridge only when tools are present (the
+        # bridge runs agent.run() synchronously and word-splits the result,
+        # so it can't stream tokens in real-time).  For plain chat, stream
+        # directly from the engine for true token-by-token output.
+        if agent is not None and bus is not None and request_body.tools:
             return await _handle_agent_stream(agent, bus, model, request_body)
         return await _handle_stream(engine, model, request_body)
 
@@ -181,21 +185,42 @@ async def _handle_stream(engine, model: str, req: ChatCompletionRequest):
         )
         yield f"data: {first_chunk.model_dump_json()}\n\n"
 
-        # Stream content
-        async for token in engine.stream(
-            messages,
-            model=model,
-            temperature=req.temperature,
-            max_tokens=req.max_tokens,
-        ):
-            chunk = ChatCompletionChunk(
+        try:
+            # Stream content
+            async for token in engine.stream(
+                messages,
+                model=model,
+                temperature=req.temperature,
+                max_tokens=req.max_tokens,
+            ):
+                chunk = ChatCompletionChunk(
+                    id=chunk_id,
+                    model=model,
+                    choices=[StreamChoice(
+                        delta=DeltaMessage(content=token),
+                    )],
+                )
+                yield f"data: {chunk.model_dump_json()}\n\n"
+        except Exception as exc:
+            # Surface errors as a content chunk so the frontend can
+            # display them instead of silently failing.
+            import logging
+            logging.getLogger("openjarvis.server").error(
+                "Stream error: %s", exc, exc_info=True,
+            )
+            error_chunk = ChatCompletionChunk(
                 id=chunk_id,
                 model=model,
                 choices=[StreamChoice(
-                    delta=DeltaMessage(content=token),
+                    delta=DeltaMessage(
+                        content=f"\n\nError during generation: {exc}",
+                    ),
+                    finish_reason="stop",
                 )],
             )
-            yield f"data: {chunk.model_dump_json()}\n\n"
+            yield f"data: {error_chunk.model_dump_json()}\n\n"
+            yield "data: [DONE]\n\n"
+            return
 
         # Send finish chunk
         finish_chunk = ChatCompletionChunk(

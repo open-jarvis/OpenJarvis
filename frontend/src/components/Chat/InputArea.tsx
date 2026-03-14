@@ -26,6 +26,22 @@ export function InputArea() {
 
   const { state: speechState, available: speechAvailable, startRecording, stopRecording } = useSpeech();
 
+  // Abort in-flight stream when the user switches models mid-generation.
+  // This prevents errors from trying to continue a stream with a stale model.
+  const prevModelRef = useRef(selectedModel);
+  useEffect(() => {
+    if (prevModelRef.current !== selectedModel && streamState.isStreaming) {
+      abortRef.current?.abort();
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      resetStream();
+      abortRef.current = null;
+    }
+    prevModelRef.current = selectedModel;
+  }, [selectedModel, streamState.isStreaming, resetStream]);
+
   const micDisabled = !speechEnabled || !speechAvailable || streamState.isStreaming;
   const micReason: 'not-enabled' | 'no-backend' | 'streaming' | undefined =
     !speechEnabled ? 'not-enabled'
@@ -189,9 +205,13 @@ export function InputArea() {
         }
       }
     } catch (err: any) {
-      if (err.name !== 'AbortError') {
+      if (err.name === 'AbortError') {
+        // User cancelled or model switch — keep whatever was accumulated
+        if (!accumulatedContent) accumulatedContent = '(Generation stopped)';
+      } else {
+        const errMsg = err?.message || String(err);
         accumulatedContent =
-          accumulatedContent || 'Error: Failed to get response.';
+          accumulatedContent || `Error: ${errMsg}`;
       }
     } finally {
       if (!accumulatedContent) {

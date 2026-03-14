@@ -9,9 +9,6 @@ use tokio::sync::Mutex;
 const OLLAMA_PORT: u16 = 11434;
 const JARVIS_PORT: u16 = 8222;
 
-/// Preferred default model (pulled first, used as server default).
-const PREFERRED_MODEL: &str = "qwen3.5:4b";
-
 /// Tiny fallback model — always available even on low-RAM machines.
 const FALLBACK_MODEL: &str = "qwen3:0.6b";
 
@@ -65,6 +62,19 @@ fn models_that_fit() -> Vec<&'static str> {
         .filter(|(_, _, min_ram)| ram >= *min_ram)
         .map(|(tag, _, _)| *tag)
         .collect()
+}
+
+/// Pick the second-largest Qwen3.5 model that fits on this machine.
+/// This leaves headroom for the OS / other apps while still providing
+/// a capable model.  Falls back to the largest if only one fits, or
+/// to FALLBACK_MODEL if none fit.
+fn preferred_model() -> &'static str {
+    let fitting = models_that_fit();
+    match fitting.len() {
+        0 => FALLBACK_MODEL,
+        1 => fitting[0],
+        n => fitting[n - 2], // second-largest
+    }
 }
 
 /// Resolve full path to a binary by checking common locations.
@@ -396,8 +406,9 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
     }
 
     // Use the preferred model if it's already pulled, otherwise fallback.
-    let startup_model = if ollama_has_model(PREFERRED_MODEL).await {
-        PREFERRED_MODEL
+    let pref = preferred_model();
+    let startup_model = if ollama_has_model(pref).await {
+        pref
     } else {
         FALLBACK_MODEL
     };
@@ -450,14 +461,15 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
     // the user can chat immediately.  As each model finishes pulling it
     // appears in the /v1/models list (Ollama serves it automatically).
     let fitting = models_that_fit();
+    let pref_bg = preferred_model().to_string();
     tokio::spawn(async move {
         // Pull the preferred model first so it becomes available quickly.
-        if !ollama_has_model(PREFERRED_MODEL).await {
-            let _ = pull_model(PREFERRED_MODEL).await;
+        if !ollama_has_model(&pref_bg).await {
+            let _ = pull_model(&pref_bg).await;
         }
         // Then pull remaining models that fit.
         for model in fitting {
-            if model != PREFERRED_MODEL && model != FALLBACK_MODEL {
+            if model != pref_bg && model != FALLBACK_MODEL {
                 if !ollama_has_model(model).await {
                     let _ = pull_model(model).await;
                 }
