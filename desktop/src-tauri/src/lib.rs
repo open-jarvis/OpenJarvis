@@ -501,7 +501,7 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
     }
 
     let server_url = format!("http://127.0.0.1:{}/health", JARVIS_PORT);
-    let server_ok = wait_for_url(&server_url, Duration::from_secs(300)).await;
+    let server_ok = wait_for_url(&server_url, Duration::from_secs(600)).await;
 
     if !server_ok {
         // Try to read stderr from the failed process for a useful error
