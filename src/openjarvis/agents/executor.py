@@ -190,7 +190,9 @@ class AgentExecutor:
         if router_policy_key and self._system:
             try:
                 from openjarvis.core.registry import RouterPolicyRegistry
-                from openjarvis.learning.routing.types import RoutingContext, build_routing_context
+                from openjarvis.learning.routing.types import (
+                    build_routing_context,
+                )
 
                 policy = RouterPolicyRegistry.create(
                     router_policy_key,
@@ -233,6 +235,7 @@ class AgentExecutor:
     def _build_error_detail(self, error: AgentTickError) -> dict[str, Any]:
         """Build structured error detail for trace metadata."""
         import traceback
+
         from openjarvis.agents.errors import (
             EscalateError,
             FatalError,
