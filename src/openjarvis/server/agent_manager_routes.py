@@ -179,10 +179,10 @@ def create_agent_manager_router(
 
     @agents_router.post("/{agent_id}/recover")
     def recover_agent(agent_id: str):
+        if not manager.get_agent(agent_id):
+            raise HTTPException(status_code=404, detail="Agent not found")
         checkpoint = manager.recover_agent(agent_id)
-        if checkpoint is None:
-            raise HTTPException(status_code=404, detail="No checkpoint found")
-        return checkpoint
+        return {"recovered": True, "checkpoint": checkpoint}
 
     # ── Tasks ────────────────────────────────────────────────
 
