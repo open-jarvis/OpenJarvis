@@ -145,7 +145,7 @@ export function Sidebar() {
                 {selectedModel || serverInfo?.model || 'Select model'}
               </span>
               {modelLoading && (
-                <span className="text-[10px] block" style={{ color: 'var(--color-accent)' }}>
+                <span className="text-[10px] block text-left" style={{ color: 'var(--color-accent)' }}>
                   Loading model...
                 </span>
               )}

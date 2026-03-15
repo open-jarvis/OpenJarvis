@@ -20,13 +20,14 @@ export function XRayFooter({ usage, telemetry }: Props) {
   if (telemetry?.model_id) parts.push(telemetry.model_id);
   if (telemetry?.total_ms) parts.push(formatMs(telemetry.total_ms));
   if (usage && (usage.prompt_tokens || usage.completion_tokens)) {
-    parts.push(`${usage.prompt_tokens} in \u00B7 ${usage.completion_tokens} out`);
+    parts.push(`${usage.prompt_tokens} input tokens`);
+    parts.push(`${usage.completion_tokens} output tokens`);
   }
 
   if (parts.length === 0 && !usage?.total_tokens) return null;
 
   // Fallback: just show total tokens if no telemetry
-  const summary = parts.length > 0 ? parts.join(' \u00B7 ') : `${usage!.total_tokens} tokens`;
+  const summary = parts.length > 0 ? parts.join(' - ') : `${usage!.total_tokens} tokens`;
 
   // Build expanded rows
   const rows: Array<{ label: string; value: string; color?: string }> = [];

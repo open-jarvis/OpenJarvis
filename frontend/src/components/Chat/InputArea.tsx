@@ -133,7 +133,7 @@ export function InputArea() {
 
     setStreamState({
       isStreaming: true,
-      phase: 'Connecting...',
+      phase: 'Generating...',
       elapsedMs: 0,
       activeToolCalls: [],
       content: '',

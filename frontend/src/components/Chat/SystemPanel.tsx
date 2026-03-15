@@ -109,8 +109,8 @@ export function SystemPanel() {
             Session
           </h4>
           <div className="grid grid-cols-2 gap-2">
-            <MiniStat icon={Hash} label="Requests" value={String(telemetry?.total_requests ?? savings?.total_calls ?? 0)} />
-            <MiniStat icon={Hash} label="Tokens" value={formatNumber(telemetry?.total_tokens ?? savings?.total_tokens ?? 0)} />
+            <MiniStat icon={Hash} label="Requests" value={String(savings?.total_calls ?? telemetry?.total_requests ?? 0)} />
+            <MiniStat icon={Hash} label="Output Tokens" value={formatNumber(savings?.total_completion_tokens ?? telemetry?.total_tokens ?? 0)} />
           </div>
         </section>
 

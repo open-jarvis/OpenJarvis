@@ -9,6 +9,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { Zap, Activity, Thermometer, Hash } from 'lucide-react';
+import { fetchEnergy, fetchTelemetry } from '../../lib/api';
 
 interface EnergySample {
   timestamp: string;
@@ -75,10 +76,9 @@ export function EnergyDashboard() {
 
   const fetchData = useCallback(async () => {
     try {
-      const base = import.meta.env.VITE_API_URL || '';
       const [energyRes, telRes] = await Promise.allSettled([
-        fetch(`${base}/v1/telemetry/energy`).then((r) => r.ok ? r.json() : null),
-        fetch(`${base}/v1/telemetry/stats`).then((r) => r.ok ? r.json() : null),
+        fetchEnergy().catch(() => null),
+        fetchTelemetry().catch(() => null),
       ]);
 
       if (energyRes.status === 'fulfilled' && energyRes.value) {
