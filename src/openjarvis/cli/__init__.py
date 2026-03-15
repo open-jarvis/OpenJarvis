@@ -8,7 +8,6 @@ import openjarvis
 from openjarvis.cli.add_cmd import add
 from openjarvis.cli.agent_cmd import agent
 from openjarvis.cli.ask import ask
-from openjarvis.cli.auth_cmd import auth
 from openjarvis.cli.bench_cmd import bench
 from openjarvis.cli.channel_cmd import channel
 from openjarvis.cli.chat_cmd import chat
@@ -28,7 +27,6 @@ from openjarvis.cli.scheduler_cmd import scheduler
 from openjarvis.cli.serve import serve
 from openjarvis.cli.skill_cmd import skill
 from openjarvis.cli.telemetry_cmd import telemetry
-from openjarvis.cli.tunnel_cmd import tunnel
 from openjarvis.cli.vault_cmd import vault
 from openjarvis.cli.workflow_cmd import workflow
 
@@ -81,8 +79,6 @@ cli.add_command(quickstart, "quickstart")
 cli.add_command(optimize_group, "optimize")
 cli.add_command(feedback_group, "feedback")
 cli.add_command(compose, "compose")
-cli.add_command(auth, "auth")
-cli.add_command(tunnel, "tunnel")
 
 
 def main() -> None:
