@@ -1403,9 +1403,16 @@ export function AgentsPage() {
   };
 
   const handleRun = async (id: string) => {
-    await runManagedAgent(id).catch(() => {});
+    try {
+      await runManagedAgent(id);
+    } catch (err: any) {
+      toast.error('Failed to start agent', {
+        description: err.message || 'Unknown error',
+      });
+      await refresh();
+      return;
+    }
     await refresh();
-    // Wait 3 seconds then check if the agent errored
     setTimeout(async () => {
       try {
         const agent = await fetchManagedAgent(id);
@@ -1424,7 +1431,19 @@ export function AgentsPage() {
   };
 
   const handleRecover = async (id: string) => {
-    await recoverManagedAgent(id).catch(() => {});
+    try {
+      const result = await recoverManagedAgent(id);
+      if (result.checkpoint) {
+        toast.success('Agent recovered from checkpoint');
+      } else {
+        toast.success('Agent reset to idle (no checkpoint available)');
+      }
+      setDetailTab('overview');
+    } catch (err: any) {
+      toast.error('Recovery failed', {
+        description: err.message || 'Unknown error',
+      });
+    }
     await refresh();
   };
 
