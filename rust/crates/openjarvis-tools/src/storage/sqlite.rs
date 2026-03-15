@@ -36,7 +36,7 @@ impl SQLiteMemory {
                 created_at REAL DEFAULT (julianday('now'))
             );
             CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
-                id, content, source
+                id, content, source, tokenize='unicode61'
             );",
         )
         .map_err(|e| {
@@ -44,6 +44,33 @@ impl SQLiteMemory {
                 e.to_string(),
             ))
         })?;
+
+        // Migrate existing FTS5 tables that lack the unicode61 tokenizer
+        // (ensures case-insensitive search on databases created before this fix).
+        let needs_migration: bool = conn
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='documents_fts'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .map(|sql| !sql.contains("unicode61"))
+            .unwrap_or(false);
+
+        if needs_migration {
+            conn.execute_batch(
+                "DROP TABLE IF EXISTS documents_fts;
+                 CREATE VIRTUAL TABLE documents_fts USING fts5(
+                     id, content, source, tokenize='unicode61'
+                 );
+                 INSERT INTO documents_fts (id, content, source)
+                     SELECT id, content, source FROM documents;",
+            )
+            .map_err(|e| {
+                OpenJarvisError::Io(std::io::Error::other(
+                    e.to_string(),
+                ))
+            })?;
+        }
 
         Ok(Self {
             conn: Mutex::new(conn),
@@ -113,11 +140,11 @@ impl MemoryBackend for SQLiteMemory {
         let mut stmt = conn
             .prepare(
                 "SELECT d.content, d.source, d.metadata,
-                        rank * -1 as score
+                        bm25(documents_fts, 0.0, 1.0, 0.5) * -1 as score
                  FROM documents_fts f
                  JOIN documents d ON d.id = f.id
                  WHERE documents_fts MATCH ?1
-                 ORDER BY rank
+                 ORDER BY bm25(documents_fts, 0.0, 1.0, 0.5)
                  LIMIT ?2",
             )
             .map_err(|e| {
@@ -230,5 +257,38 @@ mod tests {
         assert_eq!(mem.count().unwrap(), 2);
         mem.clear().unwrap();
         assert_eq!(mem.count().unwrap(), 0);
+    }
+
+    #[test]
+    fn test_sqlite_case_insensitive_search() {
+        let mem = SQLiteMemory::in_memory().unwrap();
+        mem.store("Medication dosage guidelines for patients", "medical", None).unwrap();
+        mem.store("The medication was prescribed yesterday", "medical", None).unwrap();
+
+        // Lowercase query should match uppercase content
+        let lower = mem.retrieve("medication", 10).unwrap();
+        assert_eq!(lower.len(), 2, "lowercase query should find both documents");
+
+        // Uppercase query should also match
+        let upper = mem.retrieve("MEDICATION", 10).unwrap();
+        assert_eq!(upper.len(), 2, "uppercase query should find both documents");
+
+        // Mixed case
+        let mixed = mem.retrieve("Medication", 10).unwrap();
+        assert_eq!(mixed.len(), 2, "mixed-case query should find both documents");
+    }
+
+    #[test]
+    fn test_sqlite_scores_are_positive() {
+        let mem = SQLiteMemory::in_memory().unwrap();
+        mem.store("Rust is a systems programming language", "docs", None).unwrap();
+        mem.store("Python is a high-level programming language", "docs", None).unwrap();
+        mem.store("Cooking recipes for beginners", "other", None).unwrap();
+
+        let results = mem.retrieve("programming", 5).unwrap();
+        assert!(!results.is_empty());
+        for r in &results {
+            assert!(r.score > 0.0, "score should be positive, got {}", r.score);
+        }
     }
 }

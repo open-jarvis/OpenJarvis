@@ -102,3 +102,27 @@ class TestGetEngine:
             result = get_engine(cfg)
         assert result is not None
         assert result[0] == "good"
+
+    def test_explicit_key_falls_back_to_any_healthy(self) -> None:
+        """When an explicit engine_key fails, fallback to any healthy engine.
+
+        Fixes #73: LM Studio running but not found because get_engine()
+        returned None when the explicitly-requested key failed.
+        """
+        _reg("requested", "requested")
+        _reg("running", "running")
+
+        cfg = JarvisConfig()
+        cfg.engine.default = "requested"
+
+        def _make(k, c):  # noqa: ANN001
+            return _FakeEngine(healthy=(k == "running"))
+
+        with mock.patch(
+            "openjarvis.engine._discovery._make_engine",
+            side_effect=_make,
+        ):
+            # Explicit key "requested" is unhealthy, but "running" is healthy
+            result = get_engine(cfg, engine_key="requested")
+        assert result is not None
+        assert result[0] == "running"
