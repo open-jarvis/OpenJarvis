@@ -1,4 +1,15 @@
 """Tests for GET /v1/tools endpoint."""
+import pytest
+
+try:
+    from openjarvis.server.agent_manager_routes import build_tools_list
+except ImportError:
+    build_tools_list = None
+
+pytestmark = pytest.mark.skipif(
+    build_tools_list is None,
+    reason="fastapi not installed (requires server extra)",
+)
 
 
 def test_tools_endpoint_returns_list():

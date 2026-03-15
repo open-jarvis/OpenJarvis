@@ -142,12 +142,21 @@ class TestAgentManagerRoutes:
 
         res = client.post(f"/v1/managed-agents/{agent['id']}/recover")
         assert res.status_code == 200
-        assert res.json()["tick_id"] == "tick-1"
+        body = res.json()
+        assert body["recovered"] is True
+        assert body["checkpoint"]["tick_id"] == "tick-1"
 
     def test_recover_agent_no_checkpoint(self, manager, client):
         agent = manager.create_agent(name="err", agent_type="simple")
+        manager.update_agent(agent["id"], status="error")
         res = client.post(f"/v1/managed-agents/{agent['id']}/recover")
-        assert res.status_code == 404
+        assert res.status_code == 200
+        body = res.json()
+        assert body["recovered"] is True
+        assert body["checkpoint"] is None
+        # Status should be reset to idle
+        refreshed = manager.get_agent(agent["id"])
+        assert refreshed["status"] == "idle"
 
     def test_list_error_agents(self, manager, client):
         manager.create_agent(name="ok", agent_type="simple")
