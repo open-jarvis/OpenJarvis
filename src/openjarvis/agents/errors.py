@@ -90,11 +90,11 @@ def retry_delay(attempt: int) -> int:
 def suggest_action(error: AgentTickError) -> str:
     """Return a human-readable suggested action for the given error."""
     msg = str(error).lower()
-    if "rate limit" in msg or "rate_limit" in msg or "429" in msg or "too many requests" in msg:
+    if any(p in msg for p in ("rate limit", "rate_limit", "429", "too many requests")):
         return "Rate limited \u2014 agent will auto-retry on next tick"
-    if "timeout" in msg or "timed out" in msg or "connection" in msg or "unavailable" in msg:
+    if any(p in msg for p in ("timeout", "timed out", "connection", "unavailable")):
         return "Engine not reachable \u2014 check that your inference engine is running"
-    if "401" in msg or "403" in msg or "permission" in msg or "unauthorized" in msg or "api key" in msg:
+    if any(p in msg for p in ("401", "403", "permission", "unauthorized", "api key")):
         return "Check API key configuration in Settings"
     if "not found" in msg or "404" in msg:
         return "Model or endpoint not found \u2014 verify model name and engine URL"

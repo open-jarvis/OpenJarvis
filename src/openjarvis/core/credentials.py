@@ -8,7 +8,6 @@ from __future__ import annotations
 import os
 import threading
 from pathlib import Path
-from typing import Any
 
 try:
     import tomllib
@@ -33,7 +32,10 @@ TOOL_CREDENTIALS: dict[str, list[str]] = {
     "line": ["LINE_CHANNEL_ACCESS_TOKEN", "LINE_CHANNEL_SECRET"],
     "viber": ["VIBER_AUTH_TOKEN"],
     "messenger": ["MESSENGER_PAGE_ACCESS_TOKEN", "MESSENGER_VERIFY_TOKEN"],
-    "reddit": ["REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USERNAME", "REDDIT_PASSWORD"],
+    "reddit": [
+        "REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET",
+        "REDDIT_USERNAME", "REDDIT_PASSWORD",
+    ],
     "mastodon": ["MASTODON_ACCESS_TOKEN", "MASTODON_API_BASE_URL"],
     "twitch": ["TWITCH_TOKEN", "TWITCH_CHANNEL"],
     "matrix": ["MATRIX_HOMESERVER", "MATRIX_ACCESS_TOKEN"],
