@@ -54,6 +54,25 @@ fn total_ram_gb() -> f64 {
             }
         }
     }
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        // wmic returns TotalVisibleMemorySize in KB
+        if let Ok(output) = Command::new("wmic")
+            .args(["OS", "get", "TotalVisibleMemorySize", "/value"])
+            .output()
+        {
+            if let Ok(s) = String::from_utf8(output.stdout) {
+                for line in s.lines() {
+                    if let Some(val) = line.strip_prefix("TotalVisibleMemorySize=") {
+                        if let Ok(kb) = val.trim().parse::<u64>() {
+                            return kb as f64 / (1024.0 * 1024.0);
+                        }
+                    }
+                }
+            }
+        }
+    }
     8.0
 }
 
@@ -81,17 +100,43 @@ fn preferred_model() -> &'static str {
     }
 }
 
+/// Get the user home directory, handling both Unix (HOME) and Windows (USERPROFILE).
+fn home_dir() -> String {
+    std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_default()
+}
+
 /// Resolve full path to a binary by checking common locations.
 /// macOS .app bundles don't inherit the shell PATH, so we probe manually.
 fn resolve_bin(name: &str) -> String {
-    let home = std::env::var("HOME").unwrap_or_default();
-    let candidates = [
+    let home = home_dir();
+
+    #[cfg(not(target_os = "windows"))]
+    let candidates = vec![
         format!("/opt/homebrew/bin/{name}"),
         format!("{home}/.local/bin/{name}"),
         format!("{home}/.cargo/bin/{name}"),
         format!("/usr/local/bin/{name}"),
         format!("/usr/bin/{name}"),
     ];
+
+    #[cfg(target_os = "windows")]
+    let candidates = {
+        let localappdata = std::env::var("LOCALAPPDATA").unwrap_or_default();
+        let programfiles = std::env::var("ProgramFiles").unwrap_or_default();
+        vec![
+            format!("{home}\\.cargo\\bin\\{name}.exe"),
+            format!("{home}\\.local\\bin\\{name}.exe"),
+            format!("{localappdata}\\Programs\\{name}\\{name}.exe"),
+            format!("{programfiles}\\{name}\\{name}.exe"),
+            // Ollama installs to LOCALAPPDATA on Windows
+            format!("{localappdata}\\Programs\\Ollama\\{name}.exe"),
+            // uv installs via pip/pipx
+            format!("{home}\\AppData\\Roaming\\Python\\Scripts\\{name}.exe"),
+        ]
+    };
+
     for path in &candidates {
         if std::path::Path::new(path).exists() {
             return path.clone();
@@ -126,7 +171,7 @@ fn find_project_root() -> Option<std::path::PathBuf> {
     }
 
     // 3. Fallback: well-known direct paths
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = home_dir();
     let direct = [
         format!("{home}/OpenJarvis"),
         format!("{home}/projects/hazy/OpenJarvis"),
@@ -447,6 +492,21 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
                     .args(["-k", &format!("{}/tcp", JARVIS_PORT)])
                     .output()
                     .await;
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+            #[cfg(target_os = "windows")]
+            {
+                // Find the PID holding the port via netstat, then kill it
+                if let Ok(output) = tokio::process::Command::new("cmd")
+                    .args(["/C", &format!(
+                        "for /f \"tokens=5\" %a in ('netstat -ano ^| findstr :{port} ^| findstr LISTENING') do taskkill /PID %a /F",
+                        port = JARVIS_PORT,
+                    )])
+                    .output()
+                    .await
+                {
+                    let _ = output; // best-effort
+                }
                 tokio::time::sleep(Duration::from_secs(2)).await;
             }
         }
@@ -809,7 +869,7 @@ async fn submit_savings(
 
 /// Path to the cloud keys file (~/.openjarvis/cloud-keys.env).
 fn cloud_keys_path() -> std::path::PathBuf {
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = home_dir();
     std::path::PathBuf::from(home)
         .join(".openjarvis")
         .join("cloud-keys.env")

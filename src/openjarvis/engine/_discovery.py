@@ -84,25 +84,24 @@ def get_engine(
 
     Returns ``(key, engine_instance)`` or ``None`` if no engine is available.
     """
+    # Build an ordered list of keys to try, then fall back to full discovery.
+    keys_to_try: list[str] = []
     if engine_key:
-        if EngineRegistry.contains(engine_key):
-            try:
-                engine = _make_engine(engine_key, config)
-                if engine.health():
-                    return (engine_key, engine)
-            except Exception as exc:
-                logger.debug("Engine %r health check failed: %s", engine_key, exc)
-        return None
+        keys_to_try.append(engine_key)
 
-    # Try default first
     default_key = config.engine.default
-    if EngineRegistry.contains(default_key):
+    if default_key and default_key not in keys_to_try:
+        keys_to_try.append(default_key)
+
+    for key in keys_to_try:
+        if not EngineRegistry.contains(key):
+            continue
         try:
-            engine = _make_engine(default_key, config)
+            engine = _make_engine(key, config)
             if engine.health():
-                return (default_key, engine)
+                return (key, engine)
         except Exception as exc:
-            logger.debug("Default engine %r health check failed: %s", default_key, exc)
+            logger.debug("Engine %r health check failed: %s", key, exc)
 
     # Fallback to any healthy engine
     healthy = discover_engines(config)

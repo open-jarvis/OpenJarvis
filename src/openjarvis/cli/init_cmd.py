@@ -20,6 +20,37 @@ from openjarvis.core.config import (
     recommend_model,
 )
 
+# Engines supported by ``jarvis init --engine``.
+_SUPPORTED_ENGINES = [
+    "ollama", "vllm", "sglang", "llamacpp", "mlx", "lmstudio",
+    "exo", "nexa",
+]
+
+
+def _detect_running_engines() -> list[str]:
+    """Probe well-known ports and return engine keys that respond."""
+    import httpx
+
+    _PROBES: dict[str, str] = {
+        "ollama": "http://localhost:11434/api/tags",
+        "vllm": "http://localhost:8000/v1/models",
+        "sglang": "http://localhost:30000/v1/models",
+        "llamacpp": "http://localhost:8080/v1/models",
+        "mlx": "http://localhost:8080/v1/models",
+        "lmstudio": "http://localhost:1234/v1/models",
+        "exo": "http://localhost:52415/v1/models",
+        "nexa": "http://localhost:18181/v1/models",
+    }
+    running: list[str] = []
+    for key, url in _PROBES.items():
+        try:
+            resp = httpx.get(url, timeout=2.0)
+            if resp.status_code < 500:
+                running.append(key)
+        except Exception:
+            pass
+    return running
+
 
 def _next_steps_text(engine: str, model: str = "") -> str:
     """Return engine-specific next-steps guidance after init."""
@@ -120,7 +151,18 @@ def _next_steps_text(engine: str, model: str = "") -> str:
     is_flag=True,
     help="Generate full reference config with all sections",
 )
-def init(force: bool, config: Optional[Path], full_config: bool = False) -> None:
+@click.option(
+    "--engine",
+    type=click.Choice(_SUPPORTED_ENGINES, case_sensitive=False),
+    default=None,
+    help="Inference engine to use (skips interactive selection).",
+)
+def init(
+    force: bool,
+    config: Optional[Path],
+    full_config: bool = False,
+    engine: Optional[str] = None,
+) -> None:
     """Detect hardware and generate ~/.openjarvis/config.toml."""
     console = Console()
 
@@ -146,13 +188,66 @@ def init(force: bool, config: Optional[Path], full_config: bool = False) -> None
     else:
         console.print("  GPU      : none detected")
 
+    # Resolve engine: explicit flag > interactive selection > auto-detect
+    if engine is None and config is None:
+        recommended = recommend_engine(hw)
+        console.print()
+        console.print("[bold]Detecting running inference engines...[/bold]")
+        running = _detect_running_engines()
+        if running:
+            console.print(
+                f"  Found running: [green]{', '.join(running)}[/green]"
+            )
+        else:
+            console.print("  No running engines detected.")
+
+        # Build choices: show running engines first, then recommended, then rest
+        seen: set[str] = set()
+        choices: list[str] = []
+        for r in running:
+            if r not in seen:
+                choices.append(r)
+                seen.add(r)
+        if recommended not in seen:
+            choices.append(recommended)
+            seen.add(recommended)
+        for e in _SUPPORTED_ENGINES:
+            if e not in seen:
+                choices.append(e)
+                seen.add(e)
+
+        # Default: first running engine, or hardware recommendation
+        default = running[0] if running else recommended
+
+        labels = []
+        for c in choices:
+            parts = [c]
+            if c in running:
+                parts.append("running")
+            if c == recommended:
+                parts.append("recommended")
+            labels.append(
+                f"  {c}" + (f"  ({', '.join(parts[1:])})" if len(parts) > 1 else "")
+            )
+
+        console.print()
+        console.print("[bold]Available engines:[/bold]")
+        for label in labels:
+            console.print(label)
+
+        engine = click.prompt(
+            "\nSelect inference engine",
+            type=click.Choice(choices, case_sensitive=False),
+            default=default,
+        )
+
     if config:
         toml_content = config.read_text()
     else:
         if full_config:
-            toml_content = generate_default_toml(hw)
+            toml_content = generate_default_toml(hw, engine=engine)
         else:
-            toml_content = generate_minimal_toml(hw)
+            toml_content = generate_minimal_toml(hw, engine=engine)
 
     DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     if config:
@@ -170,14 +265,14 @@ def init(force: bool, config: Optional[Path], full_config: bool = False) -> None
     )
     console.print("[green]Config written successfully.[/green]")
 
-    engine = recommend_engine(hw)
-    model = recommend_model(hw, engine)
+    selected_engine = engine or recommend_engine(hw)
+    model = recommend_model(hw, selected_engine)
     if model:
         console.print(f"\n  [bold]Recommended model:[/bold] {model}")
     console.print()
     console.print(
         Panel(
-            _next_steps_text(engine, model),
+            _next_steps_text(selected_engine, model),
             title="Getting Started",
             border_style="cyan",
         )

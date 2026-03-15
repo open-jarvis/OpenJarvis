@@ -1199,9 +1199,9 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
 # ---------------------------------------------------------------------------
 
 
-def generate_minimal_toml(hw: HardwareInfo) -> str:
+def generate_minimal_toml(hw: HardwareInfo, engine: str | None = None) -> str:
     """Render a minimal TOML config with only essential settings."""
-    engine = recommend_engine(hw)
+    engine = engine or recommend_engine(hw)
     model = recommend_model(hw, engine)
     gpu_comment = ""
     if hw.gpu:
@@ -1231,9 +1231,9 @@ enabled = ["code_interpreter", "web_search", "file_read", "shell_exec"]
 """
 
 
-def generate_default_toml(hw: HardwareInfo) -> str:
+def generate_default_toml(hw: HardwareInfo, engine: str | None = None) -> str:
     """Render a commented TOML string suitable for ``~/.openjarvis/config.toml``."""
-    engine = recommend_engine(hw)
+    engine = engine or recommend_engine(hw)
     model = recommend_model(hw, engine)
     gpu_line = ""
     if hw.gpu:

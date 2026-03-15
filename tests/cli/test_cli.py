@@ -89,7 +89,7 @@ class TestCLI:
                 "openjarvis.cli.init_cmd.DEFAULT_CONFIG_PATH", config_path
             ),
         ):
-            result = CliRunner().invoke(cli, ["init"])
+            result = CliRunner().invoke(cli, ["init", "--engine", "ollama"])
         assert result.exit_code == 0
         assert config_path.exists()
         content = config_path.read_text()

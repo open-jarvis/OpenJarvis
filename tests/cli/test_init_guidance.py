@@ -24,7 +24,7 @@ class TestInitShowsNextSteps:
                 "openjarvis.cli.init_cmd.DEFAULT_CONFIG_PATH", config_path
             ),
         ):
-            result = CliRunner().invoke(cli, ["init"])
+            result = CliRunner().invoke(cli, ["init", "--engine", "llamacpp"])
         assert result.exit_code == 0
         assert "Getting Started" in result.output
         assert "jarvis ask" in result.output
@@ -42,7 +42,7 @@ class TestInitShowsNextSteps:
                 "openjarvis.cli.init_cmd.DEFAULT_CONFIG_PATH", config_path
             ),
         ):
-            result = CliRunner().invoke(cli, ["init"])
+            result = CliRunner().invoke(cli, ["init", "--engine", "llamacpp"])
         assert result.exit_code == 0
         assert "[engine]" in result.output
         assert "[intelligence]" in result.output
@@ -105,7 +105,7 @@ class TestMinimalConfig:
                 "openjarvis.cli.init_cmd.DEFAULT_CONFIG_PATH", config_path
             ),
         ):
-            result = CliRunner().invoke(cli, ["init"])
+            result = CliRunner().invoke(cli, ["init", "--engine", "ollama"])
         assert result.exit_code == 0
         content = config_path.read_text()
         # Minimal config should be short
@@ -126,7 +126,7 @@ class TestMinimalConfig:
                 "openjarvis.cli.init_cmd.DEFAULT_CONFIG_PATH", config_path
             ),
         ):
-            result = CliRunner().invoke(cli, ["init", "--full"])
+            result = CliRunner().invoke(cli, ["init", "--full", "--engine", "ollama"])
         assert result.exit_code == 0
         content = config_path.read_text()
         # Full config should have many sections
