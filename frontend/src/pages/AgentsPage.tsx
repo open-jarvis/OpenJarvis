@@ -213,7 +213,11 @@ interface WizardState {
   scheduleValue: string;
   selectedTools: string[];
   budget: string;
-  learningEnabled: boolean;
+  routerPolicy: string;
+  memoryExtraction: string;
+  observationCompression: string;
+  retrievalStrategy: string;
+  taskDecomposition: string;
 }
 
 function LaunchWizard({
@@ -235,7 +239,11 @@ function LaunchWizard({
     scheduleValue: '',
     selectedTools: [],
     budget: '',
-    learningEnabled: false,
+    routerPolicy: '',
+    memoryExtraction: 'causality_graph',
+    observationCompression: 'summarize',
+    retrievalStrategy: 'hybrid_with_self_eval',
+    taskDecomposition: 'phased',
   });
   const [launching, setLaunching] = useState(false);
   const models = useAppStore((s) => s.models);
@@ -326,11 +334,16 @@ function LaunchWizard({
         schedule_type: wizard.scheduleType,
         schedule_value: wizard.scheduleValue || undefined,
         tools: wizard.selectedTools,
-        learning_enabled: wizard.learningEnabled,
+        learning_enabled: !!wizard.routerPolicy,
       };
       if (wizard.budget) config.budget = parseFloat(wizard.budget);
       if (wizard.instruction.trim()) config.instruction = wizard.instruction.trim();
       if (wizard.model) config.model = wizard.model;
+      if (wizard.routerPolicy) config.router_policy = wizard.routerPolicy;
+      config.memory_extraction = wizard.memoryExtraction;
+      config.observation_compression = wizard.observationCompression;
+      config.retrieval_strategy = wizard.retrievalStrategy;
+      config.task_decomposition = wizard.taskDecomposition;
       const created = await createManagedAgent({
         name: wizard.name,
         template_id: wizard.templateId || undefined,
@@ -782,19 +795,84 @@ function LaunchWizard({
                     Cloud API models only (OpenAI, Anthropic, Google). Local models have no cost.
                   </div>
                 </div>
-                <div className="flex flex-col justify-end">
-                  <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg" style={{ background: 'var(--color-bg-secondary)' }}>
-                    <input
-                      type="checkbox"
-                      checked={wizard.learningEnabled}
-                      onChange={(e) => update({ learningEnabled: e.target.checked })}
-                    />
-                    <span className="text-xs" style={{ color: 'var(--color-text)' }}>
-                      Enable Learning
-                    </span>
-                  </label>
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <label className="block text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+                      Learning
+                    </label>
+                    <div className="relative group">
+                      <span
+                        className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-[9px] font-bold cursor-help"
+                        style={{ background: 'var(--color-border)', color: 'var(--color-text-tertiary)' }}
+                      >
+                        i
+                      </span>
+                      <div
+                        className="absolute right-0 bottom-full mb-1 w-56 p-2 rounded-lg text-xs hidden group-hover:block z-50"
+                        style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}
+                      >
+                        Router policies let the agent learn which model works best for different query types over time.
+                      </div>
+                    </div>
+                  </div>
+                  <select
+                    value={wizard.routerPolicy}
+                    onChange={(e) => update({ routerPolicy: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg text-sm"
+                    style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                  >
+                    <option value="">None — Always use selected model</option>
+                    <option value="heuristic">Heuristic — Rule-based model selection</option>
+                    <option value="learned">Trace-Driven — Learns from past runs</option>
+                  </select>
                 </div>
               </div>
+              {/* Agent Strategies — shown for monitor_operative (default when no template selected) */}
+              {(!wizard.templateId || templates.find((t) => t.id === wizard.templateId)?.agent_type === 'monitor_operative') && (
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <label className="block text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+                      Agent Strategies
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {([
+                      { label: 'Memory Extraction', key: 'memoryExtraction' as const, tooltip: 'How the agent stores findings between runs',
+                        options: [['causality_graph', 'Causality Graph'], ['scratchpad', 'Scratchpad'], ['structured_json', 'Structured JSON'], ['none', 'None']] },
+                      { label: 'Observation Compression', key: 'observationCompression' as const, tooltip: 'How long tool outputs are compressed',
+                        options: [['summarize', 'Summarize'], ['truncate', 'Truncate'], ['none', 'None']] },
+                      { label: 'Retrieval Strategy', key: 'retrievalStrategy' as const, tooltip: 'How the agent retrieves past context',
+                        options: [['hybrid_with_self_eval', 'Hybrid + Self-Eval'], ['keyword', 'Keyword'], ['semantic', 'Semantic'], ['none', 'None']] },
+                      { label: 'Task Decomposition', key: 'taskDecomposition' as const, tooltip: 'How complex instructions are broken down',
+                        options: [['phased', 'Phased'], ['monolithic', 'Monolithic'], ['hierarchical', 'Hierarchical']] },
+                    ] as const).map((s) => (
+                      <div key={s.key}>
+                        <div className="flex items-center gap-1 mb-0.5">
+                          <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>{s.label}</span>
+                          <div className="relative group">
+                            <span className="inline-flex items-center justify-center w-3 h-3 rounded-full text-[8px] font-bold cursor-help"
+                              style={{ background: 'var(--color-border)', color: 'var(--color-text-tertiary)' }}>i</span>
+                            <div className="absolute left-0 bottom-full mb-1 w-48 p-1.5 rounded text-[10px] hidden group-hover:block z-50"
+                              style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}>
+                              {s.tooltip}
+                            </div>
+                          </div>
+                        </div>
+                        <select
+                          value={wizard[s.key]}
+                          onChange={(e) => update({ [s.key]: e.target.value } as Partial<WizardState>)}
+                          className="w-full px-2 py-1.5 rounded text-xs"
+                          style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                        >
+                          {s.options.map(([val, label]) => (
+                            <option key={val} value={val}>{label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -836,8 +914,18 @@ function LaunchWizard({
                 </div>
                 <div className="flex justify-between">
                   <span style={{ color: 'var(--color-text-tertiary)' }}>Learning</span>
-                  <span style={{ color: 'var(--color-text)' }}>{wizard.learningEnabled ? 'Enabled' : 'Disabled'}</span>
+                  <span style={{ color: 'var(--color-text)' }}>
+                    {wizard.routerPolicy ? (wizard.routerPolicy === 'heuristic' ? 'Heuristic Router' : 'Trace-Driven Router') : 'Disabled'}
+                  </span>
                 </div>
+                {wizard.routerPolicy && (
+                  <div className="flex justify-between">
+                    <span style={{ color: 'var(--color-text-tertiary)' }}>Strategies</span>
+                    <span className="text-xs text-right" style={{ color: 'var(--color-text)' }}>
+                      {wizard.memoryExtraction}, {wizard.observationCompression}, {wizard.retrievalStrategy}, {wizard.taskDecomposition}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           )}
