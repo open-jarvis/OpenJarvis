@@ -85,3 +85,17 @@ def classify_error(exc: Exception) -> AgentTickError:
 def retry_delay(attempt: int) -> int:
     """Exponential backoff delay in seconds: min(10 * 2^attempt, 300)."""
     return min(10 * (2**attempt), 300)
+
+
+def suggest_action(error: AgentTickError) -> str:
+    """Return a human-readable suggested action for the given error."""
+    msg = str(error).lower()
+    if "rate limit" in msg or "rate_limit" in msg or "429" in msg or "too many requests" in msg:
+        return "Rate limited \u2014 agent will auto-retry on next tick"
+    if "timeout" in msg or "timed out" in msg or "connection" in msg or "unavailable" in msg:
+        return "Engine not reachable \u2014 check that your inference engine is running"
+    if "401" in msg or "403" in msg or "permission" in msg or "unauthorized" in msg or "api key" in msg:
+        return "Check API key configuration in Settings"
+    if "not found" in msg or "404" in msg:
+        return "Model or endpoint not found \u2014 verify model name and engine URL"
+    return "Unexpected error \u2014 check the full trace for details"
