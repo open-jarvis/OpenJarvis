@@ -185,6 +185,27 @@ class AgentExecutor:
         if not model:
             raise FatalError("No model configured for agent")
 
+        # Optionally override model via router policy
+        router_policy_key = config.get("router_policy")
+        if router_policy_key and self._system:
+            try:
+                from openjarvis.core.registry import RouterPolicyRegistry
+                from openjarvis.learning.routing.types import (
+                    build_routing_context,
+                )
+
+                policy = RouterPolicyRegistry.create(
+                    router_policy_key,
+                    available_models=[model],
+                )
+                instruction = config.get("instruction", "")
+                ctx = build_routing_context(instruction)
+                selected = policy.select_model(ctx)
+                if selected:
+                    model = selected
+            except Exception:
+                pass  # Fall back to configured model
+
         # Construct agent instance (BaseAgent requires engine, model as positional args)
         agent_instance = agent_cls(
             engine,
@@ -210,6 +231,32 @@ class AgentExecutor:
                 self._manager.mark_message_delivered(m["id"])
 
         return agent_instance.run(context)
+
+    def _build_error_detail(self, error: AgentTickError) -> dict[str, Any]:
+        """Build structured error detail for trace metadata."""
+        import traceback
+
+        from openjarvis.agents.errors import (
+            EscalateError,
+            FatalError,
+            suggest_action,
+        )
+
+        if isinstance(error, EscalateError):
+            error_type = "escalate"
+        elif isinstance(error, FatalError):
+            error_type = "fatal"
+        else:
+            error_type = "retryable"
+
+        return {
+            "error_type": error_type,
+            "error_message": str(error)[:2000],
+            "suggested_action": suggest_action(error),
+            "stack_trace_summary": "".join(
+                traceback.format_exception(type(error), error, error.__traceback__)[-3:]
+            )[:1000] if error.__traceback__ else "",
+        }
 
     def _finalize_tick(
         self,
@@ -316,6 +363,10 @@ class AgentExecutor:
                 timestamp=s.get("start_time", tick_start),
             ))
 
+        metadata: dict[str, Any] = {}
+        if error is not None:
+            metadata["error_detail"] = self._build_error_detail(error)
+
         outcome = "success" if error is None else "error"
         trace = Trace(
             agent=agent_id,
@@ -327,6 +378,7 @@ class AgentExecutor:
             started_at=tick_start,
             ended_at=tick_start + tick_duration,
             total_latency_seconds=tick_duration,
+            metadata=metadata,
         )
         try:
             self._trace_store.save(trace)

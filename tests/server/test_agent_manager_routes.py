@@ -35,12 +35,12 @@ class TestAgentManagerRoutes:
         from openjarvis.server.agent_manager_routes import create_agent_manager_router
 
         app = FastAPI()
-        agents_router, templates_router, global_router = create_agent_manager_router(
-            manager
-        )
+        routers = create_agent_manager_router(manager)
+        agents_router, templates_router, global_router, tools_router = routers
         app.include_router(agents_router)
         app.include_router(templates_router)
         app.include_router(global_router)
+        app.include_router(tools_router)
         return TestClient(app)
 
     def test_list_agents_empty(self, client):
@@ -141,12 +141,21 @@ class TestAgentManagerRoutes:
 
         res = client.post(f"/v1/managed-agents/{agent['id']}/recover")
         assert res.status_code == 200
-        assert res.json()["tick_id"] == "tick-1"
+        body = res.json()
+        assert body["recovered"] is True
+        assert body["checkpoint"]["tick_id"] == "tick-1"
 
     def test_recover_agent_no_checkpoint(self, manager, client):
         agent = manager.create_agent(name="err", agent_type="simple")
+        manager.update_agent(agent["id"], status="error")
         res = client.post(f"/v1/managed-agents/{agent['id']}/recover")
-        assert res.status_code == 404
+        assert res.status_code == 200
+        body = res.json()
+        assert body["recovered"] is True
+        assert body["checkpoint"] is None
+        # Status should be reset to idle
+        refreshed = manager.get_agent(agent["id"])
+        assert refreshed["status"] == "idle"
 
     def test_list_error_agents(self, manager, client):
         manager.create_agent(name="ok", agent_type="simple")

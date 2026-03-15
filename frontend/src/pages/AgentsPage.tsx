@@ -18,8 +18,10 @@ import {
   triggerLearning,
   fetchAgentTraces,
   fetchManagedAgent,
+  fetchAvailableTools,
+  saveToolCredentials,
 } from '../lib/api';
-import type { AgentTask, ChannelBinding, AgentTemplate, AgentMessage, ManagedAgent, LearningLogEntry, AgentTrace } from '../lib/api';
+import type { AgentTask, ChannelBinding, AgentTemplate, AgentMessage, ManagedAgent, LearningLogEntry, AgentTrace, ToolInfo } from '../lib/api';
 import {
   Plus,
   Bot,
@@ -41,7 +43,6 @@ import {
   ChevronRight,
   Send,
   RefreshCw,
-  Info,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -116,22 +117,91 @@ function formatRelativeTime(ts?: number | null): string {
 function formatSchedule(type?: string, value?: string): string {
   if (!type || type === 'manual') return 'Manual';
   if (type === 'cron') return value ? `Cron: ${value}` : 'Cron';
-  if (type === 'interval') return value ? `Every ${value}` : 'Interval';
-  return type;
+  if (type === 'interval' && value) {
+    const total = parseInt(value);
+    if (!isNaN(total) && total > 0) {
+      const h = Math.floor(total / 3600);
+      const m = Math.floor((total % 3600) / 60);
+      const s = total % 60;
+      const parts: string[] = [];
+      if (h > 0) parts.push(`${h}h`);
+      if (m > 0) parts.push(`${m}m`);
+      if (s > 0) parts.push(`${s}s`);
+      return `Every ${parts.join(' ') || '0s'}`;
+    }
+    return `Every ${value}`;
+  }
+  return type || 'Manual';
 }
 
 // ---------------------------------------------------------------------------
 // Launch Wizard
 // ---------------------------------------------------------------------------
 
-const AVAILABLE_TOOLS = [
-  { id: 'web_search', label: 'Web Search' },
-  { id: 'code_interpreter', label: 'Code Interpreter' },
-  { id: 'file_read', label: 'File Read' },
-  { id: 'shell_exec', label: 'Shell Exec' },
-  { id: 'browser', label: 'Browser' },
-  { id: 'calculator', label: 'Calculator' },
+const CATEGORY_MAP: Record<string, string> = {
+  communication: 'Communication',
+  channel: 'Communication',
+  search: 'Search & Browse',
+  browser: 'Search & Browse',
+  code: 'Code & Dev',
+  system: 'Code & Dev',
+  filesystem: 'Files & Data',
+  memory: 'Memory & Knowledge',
+  knowledge_graph: 'Memory & Knowledge',
+  reasoning: 'Reasoning & AI',
+  math: 'Reasoning & AI',
+  inference: 'Reasoning & AI',
+  agents: 'Reasoning & AI',
+  media: 'Media',
+};
+
+const TOOL_NAME_FALLBACK: Record<string, string> = {
+  file_read: 'Files & Data',
+  file_write: 'Files & Data',
+  pdf_extract: 'Files & Data',
+  db_query: 'Files & Data',
+  http_request: 'Files & Data',
+  apply_patch: 'Code & Dev',
+  git_status: 'Code & Dev',
+  git_diff: 'Code & Dev',
+  git_log: 'Code & Dev',
+  git_commit: 'Code & Dev',
+  channel_send: 'Communication',
+  channel_list: 'Communication',
+  channel_status: 'Communication',
+};
+
+const CATEGORY_ORDER = [
+  'Communication', 'Search & Browse', 'Code & Dev', 'Files & Data',
+  'Memory & Knowledge', 'Reasoning & AI', 'Media',
 ];
+
+const POPULAR_TOOLS = new Set([
+  'slack', 'email', 'telegram', 'whatsapp',
+  'web_search', 'browser',
+  'code_interpreter', 'shell_exec', 'git_status', 'git_diff',
+  'file_read', 'file_write', 'pdf_extract',
+  'retrieval', 'memory_store',
+  'think', 'llm', 'calculator',
+  'image_generate',
+]);
+
+const BROWSER_SUB_TOOLS = [
+  'browser_navigate', 'browser_click', 'browser_type',
+  'browser_screenshot', 'browser_extract', 'browser_axtree',
+];
+
+function parseIntervalParts(val: string): { hours: number; minutes: number; seconds: number } {
+  const total = parseInt(val) || 0;
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  return { hours, minutes, seconds };
+}
+
+function serializeInterval(hours: number, minutes: number, seconds: number): string {
+  return String(hours * 3600 + minutes * 60 + seconds);
+}
 
 interface WizardState {
   step: number;
@@ -143,11 +213,11 @@ interface WizardState {
   scheduleValue: string;
   selectedTools: string[];
   budget: string;
-  learningEnabled: boolean;
-  intervalH: number;
-  intervalM: number;
-  intervalS: number;
+  routerPolicy: string;
   memoryExtraction: string;
+  observationCompression: string;
+  retrievalStrategy: string;
+  taskDecomposition: string;
 }
 
 function LaunchWizard({
@@ -169,13 +239,66 @@ function LaunchWizard({
     scheduleValue: '',
     selectedTools: [],
     budget: '',
-    learningEnabled: false,
-    intervalH: 0,
-    intervalM: 30,
-    intervalS: 0,
+    routerPolicy: '',
     memoryExtraction: 'causality_graph',
+    observationCompression: 'summarize',
+    retrievalStrategy: 'hybrid_with_self_eval',
+    taskDecomposition: 'phased',
   });
   const [launching, setLaunching] = useState(false);
+  const models = useAppStore((s) => s.models);
+  const [availableTools, setAvailableTools] = useState<ToolInfo[]>([]);
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
+  const [credentialInputs, setCredentialInputs] = useState<Record<string, Record<string, string>>>({});
+  const [savingCredentials, setSavingCredentials] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchAvailableTools().then(setAvailableTools).catch(() => {});
+  }, []);
+
+  function getToolCategory(tool: ToolInfo): string {
+    if (tool.category && CATEGORY_MAP[tool.category]) return CATEGORY_MAP[tool.category];
+    if (TOOL_NAME_FALLBACK[tool.name]) return TOOL_NAME_FALLBACK[tool.name];
+    return 'Reasoning & AI';
+  }
+
+  function toggleCategory(cat: string) {
+    setExpandedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat);
+      else next.add(cat);
+      return next;
+    });
+  }
+
+  function handleToggleTool(name: string) {
+    if (name === 'browser') {
+      const has = BROWSER_SUB_TOOLS.every((t) => wizard.selectedTools.includes(t));
+      if (has) {
+        update({ selectedTools: wizard.selectedTools.filter((t) => !BROWSER_SUB_TOOLS.includes(t)) });
+      } else {
+        update({ selectedTools: [...new Set([...wizard.selectedTools, ...BROWSER_SUB_TOOLS])] });
+      }
+    } else {
+      toggleTool(name);
+    }
+  }
+
+  async function handleSaveCredentials(toolName: string) {
+    const inputs = credentialInputs[toolName];
+    if (!inputs) return;
+    setSavingCredentials(toolName);
+    try {
+      await saveToolCredentials(toolName, inputs);
+      toast.success(`Credentials saved for ${toolName}`);
+      const updated = await fetchAvailableTools();
+      setAvailableTools(updated);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save credentials');
+    } finally {
+      setSavingCredentials(null);
+    }
+  }
 
   function update(partial: Partial<WizardState>) {
     setWizard((prev) => ({ ...prev, ...partial }));
@@ -209,18 +332,18 @@ function LaunchWizard({
     try {
       const config: Record<string, unknown> = {
         schedule_type: wizard.scheduleType,
-        schedule_value: wizard.scheduleType === 'interval'
-          ? String(wizard.intervalH * 3600 + wizard.intervalM * 60 + wizard.intervalS)
-          : wizard.scheduleValue || undefined,
+        schedule_value: wizard.scheduleValue || undefined,
         tools: wizard.selectedTools,
-        learning_enabled: wizard.learningEnabled,
+        learning_enabled: !!wizard.routerPolicy,
       };
       if (wizard.budget) config.budget = parseFloat(wizard.budget);
-      if (wizard.learningEnabled && wizard.memoryExtraction) {
-        config.memory_extraction = wizard.memoryExtraction;
-      }
       if (wizard.instruction.trim()) config.instruction = wizard.instruction.trim();
       if (wizard.model) config.model = wizard.model;
+      if (wizard.routerPolicy) config.router_policy = wizard.routerPolicy;
+      config.memory_extraction = wizard.memoryExtraction;
+      config.observation_compression = wizard.observationCompression;
+      config.retrieval_strategy = wizard.retrievalStrategy;
+      config.task_decomposition = wizard.taskDecomposition;
       const created = await createManagedAgent({
         name: wizard.name,
         template_id: wizard.templateId || undefined,
@@ -383,7 +506,7 @@ function LaunchWizard({
 
               {/* Model */}
               <div>
-                <div className="text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>Model</div>
+                <div className="text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>Intelligence (Model)</div>
                 <select
                   value={wizard.model}
                   onChange={(e) => update({ model: e.target.value })}
@@ -395,110 +518,268 @@ function LaunchWizard({
                   }}
                 >
                   <option value="">Server default</option>
-                  {useAppStore.getState().models.map((m) => (
-                    <option key={m.id} value={m.id}>{m.id}</option>
-                  ))}
+                  {(() => {
+                    const local = models.filter((m) => !m.id.includes('/') && !m.id.startsWith('gpt') && !m.id.startsWith('claude') && !m.id.startsWith('gemini'));
+                    const cloud = models.filter((m) => m.id.includes('/') || m.id.startsWith('gpt') || m.id.startsWith('claude') || m.id.startsWith('gemini'));
+                    const formatModel = (m: { id: string; context_length?: number; params?: string }) => {
+                      const parts = [m.id];
+                      if ((m as any).params) parts.push(`(${(m as any).params})`);
+                      if ((m as any).context_length) parts.push(`${Math.round((m as any).context_length / 1024)}K ctx`);
+                      return parts.join(' ');
+                    };
+                    return (
+                      <>
+                        {local.length > 0 && (
+                          <optgroup label="Local (Running)">
+                            {local.map((m) => (
+                              <option key={m.id} value={m.id}>{formatModel(m)}</option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {cloud.length > 0 && (
+                          <optgroup label="Cloud">
+                            {cloud.map((m) => (
+                              <option key={m.id} value={m.id}>{formatModel(m)}</option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {local.length === 0 && cloud.length === 0 && (
+                          <option disabled>No models available — start an engine or add API keys</option>
+                        )}
+                      </>
+                    );
+                  })()}
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="flex items-center gap-1 text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>
-                    Schedule Type
-                    <span title="Manual: runs only when you click Run Now. Cron: standard cron schedule (e.g. 0 */6 * * * = every 6h). Interval: runs repeatedly with a fixed delay.">
-                      <Info size={12} style={{ color: 'var(--color-text-tertiary)', cursor: 'help' }} />
-                    </span>
+              {/* Schedule */}
+              <div>
+                <div className="flex items-center gap-1.5 mb-1">
+                  <label className="block text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+                    Schedule
                   </label>
-                  <select
-                    value={wizard.scheduleType}
-                    onChange={(e) => update({ scheduleType: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg text-sm"
-                    style={{
-                      background: 'var(--color-bg)',
-                      border: '1px solid var(--color-border)',
-                      color: 'var(--color-text)',
-                    }}
-                  >
-                    <option value="manual">Manual</option>
-                    <option value="cron">Cron</option>
-                    <option value="interval">Interval</option>
-                  </select>
+                  <div className="relative group">
+                    <span
+                      className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-[9px] font-bold cursor-help"
+                      style={{ background: 'var(--color-border)', color: 'var(--color-text-tertiary)' }}
+                    >
+                      i
+                    </span>
+                    <div
+                      className="absolute left-0 bottom-full mb-1 w-64 p-2 rounded-lg text-xs hidden group-hover:block z-50"
+                      style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}
+                    >
+                      <div className="space-y-1.5">
+                        <div><strong>Manual</strong> — Run only when you click &quot;Run Now&quot;</div>
+                        <div><strong>Cron</strong> — UNIX cron schedule (e.g. <code>0 9 * * *</code> = daily at 9 AM)</div>
+                        <div><strong>Interval</strong> — Fixed delay between runs for continuous monitoring</div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
+                <select
+                  value={wizard.scheduleType}
+                  onChange={(e) => update({ scheduleType: e.target.value, scheduleValue: '' })}
+                  className="w-full px-3 py-2 rounded-lg text-sm"
+                  style={{
+                    background: 'var(--color-bg)',
+                    border: '1px solid var(--color-border)',
+                    color: 'var(--color-text)',
+                  }}
+                >
+                  <option value="manual">Manual — Run on demand only</option>
+                  <option value="cron">Cron — Recurring fixed-time schedule</option>
+                  <option value="interval">Interval — Fixed delay between runs</option>
+                </select>
+              </div>
+
+              {/* Interval spinners */}
+              {wizard.scheduleType === 'interval' && (
                 <div>
                   <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>
-                    {wizard.scheduleType === 'interval' ? 'Interval' : 'Schedule Value'}
+                    Run Every
                   </label>
-                  {wizard.scheduleType === 'interval' ? (
-                    <div className="flex items-center gap-1">
-                      <input type="number" min={0} max={999} value={wizard.intervalH}
-                        onChange={(e) => update({ intervalH: parseInt(e.target.value) || 0 })}
-                        className="w-14 px-2 py-2 rounded-lg text-sm text-center bg-transparent outline-none"
-                        style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
-                      />
-                      <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>h</span>
-                      <input type="number" min={0} max={59} value={wizard.intervalM}
-                        onChange={(e) => update({ intervalM: parseInt(e.target.value) || 0 })}
-                        className="w-14 px-2 py-2 rounded-lg text-sm text-center bg-transparent outline-none"
-                        style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
-                      />
-                      <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>m</span>
-                      <input type="number" min={0} max={59} value={wizard.intervalS}
-                        onChange={(e) => update({ intervalS: parseInt(e.target.value) || 0 })}
-                        className="w-14 px-2 py-2 rounded-lg text-sm text-center bg-transparent outline-none"
-                        style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
-                      />
-                      <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>s</span>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['hours', 'minutes', 'seconds'] as const).map((unit) => {
+                      const max = unit === 'hours' ? 999 : 59;
+                      const vals = parseIntervalParts(wizard.scheduleValue);
+                      return (
+                        <div key={unit} className="flex flex-col">
+                          <input
+                            type="number"
+                            min={0}
+                            max={max}
+                            value={vals[unit]}
+                            onChange={(e) => {
+                              const v = { ...vals, [unit]: Math.max(0, Math.min(max, parseInt(e.target.value) || 0)) };
+                              update({ scheduleValue: serializeInterval(v.hours, v.minutes, v.seconds) });
+                            }}
+                            className="w-full px-2 py-2 rounded-lg text-sm text-center bg-transparent outline-none"
+                            style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                          />
+                          <span className="text-[10px] text-center mt-0.5" style={{ color: 'var(--color-text-tertiary)' }}>{unit}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {wizard.scheduleValue && parseInt(wizard.scheduleValue) > 0 && parseInt(wizard.scheduleValue) < 10 && (
+                    <div className="text-[10px] mt-1" style={{ color: 'var(--color-error)' }}>
+                      Minimum interval is 10 seconds
                     </div>
-                  ) : (
-                    <input
-                      type="text"
-                      placeholder={wizard.scheduleType === 'cron' ? '0 * * * *' : '—'}
-                      value={wizard.scheduleValue}
-                      onChange={(e) => update({ scheduleValue: e.target.value })}
-                      disabled={wizard.scheduleType === 'manual'}
-                      className="w-full px-3 py-2 rounded-lg text-sm bg-transparent outline-none"
-                      style={{
-                        border: '1px solid var(--color-border)',
-                        color: 'var(--color-text)',
-                        opacity: wizard.scheduleType === 'manual' ? 0.4 : 1,
-                      }}
-                    />
                   )}
                 </div>
-              </div>
+              )}
+
+              {/* Cron input */}
+              {wizard.scheduleType === 'cron' && (
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <label className="block text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+                      Cron Expression
+                    </label>
+                    <div className="relative group">
+                      <span
+                        className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-[9px] font-bold cursor-help"
+                        style={{ background: 'var(--color-border)', color: 'var(--color-text-tertiary)' }}
+                      >
+                        i
+                      </span>
+                      <div
+                        className="absolute left-0 bottom-full mb-1 w-52 p-2 rounded-lg text-xs hidden group-hover:block z-50"
+                        style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}
+                      >
+                        <div className="space-y-1">
+                          <div><code>0 * * * *</code> — Every hour</div>
+                          <div><code>0 9 * * *</code> — Daily at 9 AM</div>
+                          <div><code>0 9 * * 1</code> — Mondays at 9 AM</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="0 * * * *"
+                    value={wizard.scheduleValue}
+                    onChange={(e) => update({ scheduleValue: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg text-sm bg-transparent outline-none"
+                    style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                  />
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-medium mb-2" style={{ color: 'var(--color-text-secondary)' }}>
-                  Tools
+                  Tools &amp; Channels
                 </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {AVAILABLE_TOOLS.map((tool) => (
-                    <label
-                      key={tool.id}
-                      className="flex items-center gap-2 p-2 rounded-lg cursor-pointer"
-                      style={{
-                        background: wizard.selectedTools.includes(tool.id) ? 'var(--color-accent)' + '10' : 'var(--color-bg-secondary)',
-                        border: `1px solid ${wizard.selectedTools.includes(tool.id) ? 'var(--color-accent)' + '50' : 'var(--color-border)'}`,
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={wizard.selectedTools.includes(tool.id)}
-                        onChange={() => toggleTool(tool.id)}
-                        className="accent-current"
-                      />
-                      <span className="text-xs" style={{ color: 'var(--color-text)' }}>
-                        {tool.label}
-                      </span>
-                    </label>
-                  ))}
+                {(() => {
+                  const unconfiguredSelected = wizard.selectedTools.filter((t) => {
+                    const tool = availableTools.find((at) => at.name === t);
+                    return tool && tool.requires_credentials && !tool.configured;
+                  });
+                  return unconfiguredSelected.length > 0 ? (
+                    <div className="text-[10px] mb-2 px-2 py-1 rounded" style={{ background: '#f59e0b20', color: '#f59e0b' }}>
+                      {unconfiguredSelected.length} tool{unconfiguredSelected.length > 1 ? 's' : ''} need setup — credentials required before they will work
+                    </div>
+                  ) : null;
+                })()}
+                <div className="space-y-3 max-h-64 overflow-y-auto">
+                  {CATEGORY_ORDER.map((cat) => {
+                    const catTools = availableTools.filter((t) => getToolCategory(t) === cat);
+                    if (catTools.length === 0) return null;
+                    const popular = catTools.filter((t) => POPULAR_TOOLS.has(t.name));
+                    const rest = catTools.filter((t) => !POPULAR_TOOLS.has(t.name));
+                    const isExpanded = expandedCategories.has(cat);
+                    const shown = isExpanded ? catTools : popular;
+
+                    return (
+                      <div key={cat}>
+                        <div
+                          className="flex items-center justify-between cursor-pointer mb-1"
+                          onClick={() => rest.length > 0 && toggleCategory(cat)}
+                        >
+                          <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'var(--color-text-tertiary)' }}>
+                            {cat} ({catTools.length})
+                          </span>
+                          {rest.length > 0 && (
+                            <span className="text-[10px]" style={{ color: 'var(--color-accent)' }}>
+                              {isExpanded ? 'Show less' : `Show all (${catTools.length})`}
+                            </span>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {shown.map((tool) => {
+                            const isSelected = tool.name === 'browser'
+                              ? BROWSER_SUB_TOOLS.every((t) => wizard.selectedTools.includes(t))
+                              : wizard.selectedTools.includes(tool.name);
+                            const needsSetup = tool.requires_credentials && !tool.configured;
+                            return (
+                              <div key={tool.name}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleTool(tool.name)}
+                                  className="w-full text-left p-2 rounded-lg text-xs transition-colors cursor-pointer"
+                                  style={{
+                                    background: isSelected ? 'var(--color-accent)' + '10' : 'var(--color-bg-secondary)',
+                                    border: `1px solid ${isSelected ? 'var(--color-accent)' + '50' : 'var(--color-border)'}`,
+                                    color: 'var(--color-text)',
+                                  }}
+                                >
+                                  <div className="flex items-center gap-1.5">
+                                    {isSelected && <span style={{ color: 'var(--color-accent)' }}>&#10003;</span>}
+                                    <span className="font-medium">{tool.name.replace(/_/g, ' ')}</span>
+                                    {needsSetup && <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: '#f59e0b' }} />}
+                                  </div>
+                                  {tool.description && (
+                                    <div className="text-[10px] mt-0.5 truncate" style={{ color: 'var(--color-text-tertiary)' }}>
+                                      {tool.description.slice(0, 60)}
+                                    </div>
+                                  )}
+                                </button>
+                                {isSelected && needsSetup && (
+                                  <div className="mt-1 p-2 rounded-lg text-xs space-y-1.5" style={{ background: 'var(--color-bg)', border: '1px solid #f59e0b40' }}>
+                                    {tool.credential_keys.map((key) => (
+                                      <div key={key}>
+                                        <label className="block text-[10px] mb-0.5" style={{ color: 'var(--color-text-tertiary)' }}>
+                                          {key.replace(/_/g, ' ')}
+                                        </label>
+                                        <input
+                                          type="password"
+                                          value={credentialInputs[tool.name]?.[key] || ''}
+                                          onChange={(e) => setCredentialInputs((prev) => ({
+                                            ...prev,
+                                            [tool.name]: { ...prev[tool.name], [key]: e.target.value },
+                                          }))}
+                                          className="w-full px-2 py-1 rounded text-xs bg-transparent outline-none"
+                                          style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                                          placeholder={`Enter ${key}`}
+                                        />
+                                      </div>
+                                    ))}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSaveCredentials(tool.name)}
+                                      disabled={savingCredentials === tool.name}
+                                      className="px-2 py-1 rounded text-[10px] font-medium cursor-pointer"
+                                      style={{ background: 'var(--color-accent)', color: 'white' }}
+                                    >
+                                      {savingCredentials === tool.name ? 'Saving...' : 'Save'}
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>
-                    Budget ($, optional)
+                    Budget (optional)
                   </label>
                   <input
                     type="number"
@@ -510,45 +791,88 @@ function LaunchWizard({
                     className="w-full px-3 py-2 rounded-lg text-sm bg-transparent outline-none"
                     style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
                   />
-                  <p className="text-[10px] mt-1" style={{ color: 'var(--color-text-tertiary)' }}>
-                    Maximum cloud API spend. Does not apply to local models.
-                  </p>
+                  <div className="text-[10px] mt-0.5" style={{ color: 'var(--color-text-tertiary)' }}>
+                    Cloud API models only (OpenAI, Anthropic, Google). Local models have no cost.
+                  </div>
                 </div>
-                <div className="flex flex-col justify-end">
-                  <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg" style={{ background: 'var(--color-bg-secondary)' }}>
-                    <input
-                      type="checkbox"
-                      checked={wizard.learningEnabled}
-                      onChange={(e) => update({ learningEnabled: e.target.checked })}
-                    />
-                    <span className="text-xs" style={{ color: 'var(--color-text)' }}>
-                      Enable Learning
-                    </span>
-                  </label>
-                  {wizard.learningEnabled && (
-                    <div className="mt-2">
-                      <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>
-                        Learning Technique
-                      </label>
-                      <select
-                        value={wizard.memoryExtraction}
-                        onChange={(e) => update({ memoryExtraction: e.target.value })}
-                        className="w-full px-3 py-2 rounded-lg text-sm"
-                        style={{
-                          background: 'var(--color-bg)',
-                          border: '1px solid var(--color-border)',
-                          color: 'var(--color-text)',
-                        }}
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <label className="block text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+                      Learning
+                    </label>
+                    <div className="relative group">
+                      <span
+                        className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-[9px] font-bold cursor-help"
+                        style={{ background: 'var(--color-border)', color: 'var(--color-text-tertiary)' }}
                       >
-                        <option value="causality_graph">Causality Graph</option>
-                        <option value="scratchpad">Scratchpad</option>
-                        <option value="structured_json">Structured JSON</option>
-                        <option value="none">None</option>
-                      </select>
+                        i
+                      </span>
+                      <div
+                        className="absolute right-0 bottom-full mb-1 w-56 p-2 rounded-lg text-xs hidden group-hover:block z-50"
+                        style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}
+                      >
+                        Router policies let the agent learn which model works best for different query types over time.
+                      </div>
                     </div>
-                  )}
+                  </div>
+                  <select
+                    value={wizard.routerPolicy}
+                    onChange={(e) => update({ routerPolicy: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg text-sm"
+                    style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                  >
+                    <option value="">None — Always use selected model</option>
+                    <option value="heuristic">Heuristic — Rule-based model selection</option>
+                    <option value="learned">Trace-Driven — Learns from past runs</option>
+                  </select>
                 </div>
               </div>
+              {/* Agent Strategies — shown for monitor_operative (default when no template selected) */}
+              {(!wizard.templateId || templates.find((t) => t.id === wizard.templateId)?.agent_type === 'monitor_operative') && (
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <label className="block text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+                      Agent Strategies
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {([
+                      { label: 'Memory Extraction', key: 'memoryExtraction' as const, tooltip: 'How the agent stores findings between runs',
+                        options: [['causality_graph', 'Causality Graph'], ['scratchpad', 'Scratchpad'], ['structured_json', 'Structured JSON'], ['none', 'None']] },
+                      { label: 'Observation Compression', key: 'observationCompression' as const, tooltip: 'How long tool outputs are compressed',
+                        options: [['summarize', 'Summarize'], ['truncate', 'Truncate'], ['none', 'None']] },
+                      { label: 'Retrieval Strategy', key: 'retrievalStrategy' as const, tooltip: 'How the agent retrieves past context',
+                        options: [['hybrid_with_self_eval', 'Hybrid + Self-Eval'], ['keyword', 'Keyword'], ['semantic', 'Semantic'], ['none', 'None']] },
+                      { label: 'Task Decomposition', key: 'taskDecomposition' as const, tooltip: 'How complex instructions are broken down',
+                        options: [['phased', 'Phased'], ['monolithic', 'Monolithic'], ['hierarchical', 'Hierarchical']] },
+                    ] as const).map((s) => (
+                      <div key={s.key}>
+                        <div className="flex items-center gap-1 mb-0.5">
+                          <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>{s.label}</span>
+                          <div className="relative group">
+                            <span className="inline-flex items-center justify-center w-3 h-3 rounded-full text-[8px] font-bold cursor-help"
+                              style={{ background: 'var(--color-border)', color: 'var(--color-text-tertiary)' }}>i</span>
+                            <div className="absolute left-0 bottom-full mb-1 w-48 p-1.5 rounded text-[10px] hidden group-hover:block z-50"
+                              style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}>
+                              {s.tooltip}
+                            </div>
+                          </div>
+                        </div>
+                        <select
+                          value={wizard[s.key]}
+                          onChange={(e) => update({ [s.key]: e.target.value } as Partial<WizardState>)}
+                          className="w-full px-2 py-1.5 rounded text-xs"
+                          style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                        >
+                          {s.options.map(([val, label]) => (
+                            <option key={val} value={val}>{label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -586,12 +910,22 @@ function LaunchWizard({
                 </div>
                 <div className="flex justify-between">
                   <span style={{ color: 'var(--color-text-tertiary)' }}>Budget</span>
-                  <span style={{ color: 'var(--color-text)' }}>{wizard.budget ? `$${wizard.budget}` : 'Unlimited'}</span>
+                  <span style={{ color: 'var(--color-text)' }}>{wizard.budget ? `$${wizard.budget}` : 'Unlimited (local models free)'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span style={{ color: 'var(--color-text-tertiary)' }}>Learning</span>
-                  <span style={{ color: 'var(--color-text)' }}>{wizard.learningEnabled ? 'Enabled' : 'Disabled'}</span>
+                  <span style={{ color: 'var(--color-text)' }}>
+                    {wizard.routerPolicy ? (wizard.routerPolicy === 'heuristic' ? 'Heuristic Router' : 'Trace-Driven Router') : 'Disabled'}
+                  </span>
                 </div>
+                {wizard.routerPolicy && (
+                  <div className="flex justify-between">
+                    <span style={{ color: 'var(--color-text-tertiary)' }}>Strategies</span>
+                    <span className="text-xs text-right" style={{ color: 'var(--color-text)' }}>
+                      {wizard.memoryExtraction}, {wizard.observationCompression}, {wizard.retrievalStrategy}, {wizard.taskDecomposition}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1043,6 +1377,7 @@ function LearningTab({ agentId, learningEnabled }: { agentId: string; learningEn
 
 function LogsTab({ agentId }: { agentId: string }) {
   const [traces, setTraces] = useState<AgentTrace[]>([]);
+  const [expandedTrace, setExpandedTrace] = useState<string | null>(null);
 
   useEffect(() => {
     fetchAgentTraces(agentId).then(setTraces).catch(() => {});
@@ -1064,38 +1399,64 @@ function LogsTab({ agentId }: { agentId: string }) {
         </div>
       ) : (
         <div className="space-y-2">
-          {traces.map((t) => (
-            <div
-              key={t.id}
-              className="rounded-lg p-3 text-sm"
-              style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span
-                    className="w-2 h-2 rounded-full inline-block"
-                    style={{ background: t.outcome === 'success' ? '#22c55e' : '#ef4444' }}
-                  />
-                  <span style={{ color: 'var(--color-text)' }}>{t.outcome}</span>
+          {traces.map((t) => {
+            const errorDetail = t.metadata?.error_detail as
+              | { error_type: string; error_message: string; suggested_action: string }
+              | undefined;
+            const isError = t.outcome !== 'success';
+            const isExpanded = expandedTrace === t.id;
+
+            return (
+              <div
+                key={t.id}
+                className="rounded-lg p-3 text-sm cursor-pointer"
+                style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
+                onClick={() => isError && errorDetail && setExpandedTrace(isExpanded ? null : t.id)}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="w-2 h-2 rounded-full inline-block"
+                      style={{ background: t.outcome === 'success' ? '#22c55e' : '#ef4444' }}
+                    />
+                    <span style={{ color: 'var(--color-text)' }}>{t.outcome}</span>
+                    {errorDetail && (
+                      <span
+                        className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                        style={{
+                          background: errorDetail.error_type === 'fatal' ? '#ef444420' :
+                            errorDetail.error_type === 'escalate' ? '#f59e0b20' : '#3b82f620',
+                          color: errorDetail.error_type === 'fatal' ? '#ef4444' :
+                            errorDetail.error_type === 'escalate' ? '#f59e0b' : '#3b82f6',
+                        }}
+                      >
+                        {errorDetail.error_type}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+                    {formatRelativeTime(t.started_at)}
+                  </span>
                 </div>
-                <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
-                  {formatRelativeTime(t.started_at)}
-                </span>
-              </div>
-              <div className="flex items-center gap-3 mt-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
-                <span>{t.duration.toFixed(1)}s</span>
-                <span>{t.steps} step{t.steps !== 1 ? 's' : ''}</span>
-              </div>
-              {t.outcome !== 'success' && t.error_message && (
-                <div
-                  className="mt-1 text-xs px-2 py-1 rounded"
-                  style={{ color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)' }}
-                >
-                  {t.error_message}
+                <div className="flex items-center gap-3 mt-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+                  <span>{t.duration.toFixed(1)}s</span>
+                  <span>{t.steps} step{t.steps !== 1 ? 's' : ''}</span>
                 </div>
-              )}
-            </div>
-          ))}
+                {isExpanded && errorDetail && (
+                  <div className="mt-2 pt-2 space-y-1.5 text-xs" style={{ borderTop: '1px solid var(--color-border)' }}>
+                    <div>
+                      <span className="font-medium" style={{ color: 'var(--color-text-secondary)' }}>Error: </span>
+                      <span style={{ color: 'var(--color-text)' }}>{errorDetail.error_message}</span>
+                    </div>
+                    <div>
+                      <span className="font-medium" style={{ color: 'var(--color-text-secondary)' }}>Action: </span>
+                      <span style={{ color: 'var(--color-text)' }}>{errorDetail.suggested_action}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -1168,16 +1529,13 @@ export function AgentsPage() {
     try {
       await runManagedAgent(id);
     } catch (err: any) {
-      const msg = err?.message || 'Unknown error';
-      toast.error('Failed to start agent', { description: msg });
-      useAppStore.getState().addLogEntry({
-        timestamp: Date.now(), level: 'error', category: 'model',
-        message: `Agent run failed: ${msg}`,
+      toast.error('Failed to start agent', {
+        description: err.message || 'Unknown error',
       });
+      await refresh();
       return;
     }
     await refresh();
-    // Delayed check for agent-level errors (e.g. crash during tick)
     setTimeout(async () => {
       try {
         const agent = await fetchManagedAgent(id);
@@ -1197,10 +1555,17 @@ export function AgentsPage() {
 
   const handleRecover = async (id: string) => {
     try {
-      await recoverManagedAgent(id);
-      toast.success('Agent recovered — status reset to idle');
-    } catch {
-      toast.error('Recovery failed — no checkpoint available');
+      const result = await recoverManagedAgent(id);
+      if (result.checkpoint) {
+        toast.success('Agent recovered from checkpoint');
+      } else {
+        toast.success('Agent reset to idle (no checkpoint available)');
+      }
+      setDetailTab('overview');
+    } catch (err: any) {
+      toast.error('Recovery failed', {
+        description: err.message || 'Unknown error',
+      });
     }
     await refresh();
   };

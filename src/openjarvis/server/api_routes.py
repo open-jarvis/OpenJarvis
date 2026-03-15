@@ -759,12 +759,13 @@ def include_all_routes(app) -> None:
             from openjarvis.server.agent_manager_routes import (  # noqa: PLC0415
                 create_agent_manager_router,
             )
-            agents_r, templates_r, global_r = create_agent_manager_router(
+            agents_r, templates_r, global_r, tools_r = create_agent_manager_router(
                 app.state.agent_manager
             )
             app.include_router(agents_r)
             app.include_router(templates_r)
             app.include_router(global_r)
+            app.include_router(tools_r)
     except ImportError:
         pass
 

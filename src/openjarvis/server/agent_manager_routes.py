@@ -53,12 +53,161 @@ class FeedbackRequest(BaseModel):
     reason: Optional[str] = None
 
 
+_BROWSER_SUB_TOOLS = {
+    "browser_navigate", "browser_click", "browser_type",
+    "browser_screenshot", "browser_extract", "browser_axtree",
+}
+
+
+def _ensure_registries_populated() -> None:
+    """Ensure ToolRegistry and ChannelRegistry are populated.
+
+    If the registries are empty (e.g. cleared by test fixtures) but the
+    modules are already cached in sys.modules, reload the individual
+    submodules to re-execute their @register decorators.
+    """
+    import importlib
+    import sys
+
+    from openjarvis.core.registry import ChannelRegistry, ToolRegistry
+
+    # First, try a normal import (works if modules haven't been imported yet)
+    try:
+        import openjarvis.channels  # noqa: F401
+    except Exception:
+        pass
+
+    try:
+        import openjarvis.tools  # noqa: F401
+    except Exception:
+        pass
+
+    # Also try to import browser tools (not included in openjarvis.tools.__init__)
+    for _browser_mod in ("openjarvis.tools.browser", "openjarvis.tools.browser_axtree"):
+        try:
+            importlib.import_module(_browser_mod)
+        except Exception:
+            pass
+
+    # If registries are still empty, reload individual submodules from sys.modules
+    if not ChannelRegistry.keys():
+        for mod_name in list(sys.modules):
+            if (
+                mod_name.startswith("openjarvis.channels.")
+                and not mod_name.endswith("_stubs")
+            ):
+                try:
+                    importlib.reload(sys.modules[mod_name])
+                except Exception:
+                    pass
+
+    if not ToolRegistry.keys():
+        for mod_name in list(sys.modules):
+            if (
+                mod_name.startswith("openjarvis.tools.")
+                and not mod_name.endswith("_stubs")
+                and not mod_name.endswith("agent_tools")
+            ):
+                try:
+                    importlib.reload(sys.modules[mod_name])
+                except Exception:
+                    pass
+
+    # After reloading tools, also try browser tools if still not registered
+    if not any(ToolRegistry.contains(n) for n in _BROWSER_SUB_TOOLS):
+        for _browser_mod in (
+            "openjarvis.tools.browser",
+            "openjarvis.tools.browser_axtree",
+        ):
+            mod = sys.modules.get(_browser_mod)
+            if mod is not None:
+                try:
+                    importlib.reload(mod)
+                except Exception:
+                    pass
+
+
+def build_tools_list() -> List[Dict[str, Any]]:
+    """Build unified tools list from ToolRegistry + ChannelRegistry."""
+    import os
+
+    from openjarvis.core.credentials import TOOL_CREDENTIALS
+    from openjarvis.core.registry import ChannelRegistry, ToolRegistry
+
+    _ensure_registries_populated()
+
+    items: List[Dict[str, Any]] = []
+
+    try:
+        for name, tool_cls in ToolRegistry.items():
+            if name in _BROWSER_SUB_TOOLS:
+                continue
+            spec = getattr(tool_cls, "spec", None)
+            if callable(spec):
+                try:
+                    spec = spec(tool_cls)
+                except Exception:
+                    spec = None
+            cred_keys = TOOL_CREDENTIALS.get(name, [])
+            items.append({
+                "name": name,
+                "description": spec.description if spec else "",
+                "category": spec.category if spec else "",
+                "source": "tool",
+                "requires_credentials": len(cred_keys) > 0,
+                "credential_keys": cred_keys,
+                "configured": (
+                    all(bool(os.environ.get(k)) for k in cred_keys)
+                    if cred_keys else True
+                ),
+            })
+    except Exception:
+        pass
+
+    try:
+        if any(ToolRegistry.contains(n) for n in _BROWSER_SUB_TOOLS):
+            items.append({
+                "name": "browser",
+                "description": (
+                    "Web browser automation"
+                    " (navigate, click, type, screenshot, extract)"
+                ),
+                "category": "browser",
+                "source": "tool",
+                "requires_credentials": False,
+                "credential_keys": [],
+                "configured": True,
+            })
+    except Exception:
+        pass
+
+    try:
+        for name, _cls in ChannelRegistry.items():
+            cred_keys = TOOL_CREDENTIALS.get(name, [])
+            items.append({
+                "name": name,
+                "description": f"{name.replace('_', ' ').title()} messaging channel",
+                "category": "communication",
+                "source": "channel",
+                "requires_credentials": len(cred_keys) > 0,
+                "credential_keys": cred_keys,
+                "configured": (
+                    all(bool(os.environ.get(k)) for k in cred_keys)
+                    if cred_keys else True
+                ),
+            })
+    except Exception:
+        pass
+
+    return items
+
+
 def create_agent_manager_router(
     manager: AgentManager,
-) -> Tuple[APIRouter, APIRouter, APIRouter]:
+) -> Tuple[APIRouter, APIRouter, APIRouter, APIRouter]:
     """Create FastAPI routers with agent management endpoints.
 
-    Returns a 3-tuple: (agents_router, templates_router, global_router).
+    Returns a 4-tuple: (agents_router, templates_router, global_router, tools_router).
     """
     agents_router = APIRouter(prefix="/v1/managed-agents", tags=["managed-agents"])
     templates_router = APIRouter(prefix="/v1/templates", tags=["templates"])
@@ -153,15 +302,24 @@ def create_agent_manager_router(
                 try:
                     system = SystemBuilder().build()
                     executor.set_system(system)
-                except Exception:
-                    pass
+                except Exception as build_err:
+                    manager.update_agent(agent_id, status="error")
+                    manager.update_summary_memory(
+                        agent_id,
+                        f"ERROR: Failed to build system: {build_err}",
+                    )
+                    return
                 executor.execute_tick(agent_id)
-            except Exception:
+            except Exception as exc:
                 try:
                     manager.end_tick(agent_id)
-                    manager.update_agent(agent_id, status="error")
                 except Exception:
                     pass
+                manager.update_agent(agent_id, status="error")
+                manager.update_summary_memory(
+                    agent_id,
+                    f"ERROR: {exc}",
+                )
 
         threading.Thread(target=_run_tick, daemon=True).start()
         return {"status": "running", "agent_id": agent_id}
@@ -170,10 +328,10 @@ def create_agent_manager_router(
 
     @agents_router.post("/{agent_id}/recover")
     def recover_agent(agent_id: str):
+        if not manager.get_agent(agent_id):
+            raise HTTPException(status_code=404, detail="Agent not found")
         checkpoint = manager.recover_agent(agent_id)
-        if checkpoint is None:
-            raise HTTPException(status_code=404, detail="No checkpoint found")
-        return checkpoint
+        return {"recovered": True, "checkpoint": checkpoint}
 
     # ── Tasks ────────────────────────────────────────────────
 
@@ -299,6 +457,7 @@ def create_agent_manager_router(
                         "duration": t.total_latency_seconds,
                         "started_at": t.started_at,
                         "steps": len(t.steps),
+                        "metadata": t.metadata,
                     }
                     for t in traces
                 ]
@@ -376,4 +535,28 @@ def create_agent_manager_router(
             "by_status": dict(counts),
         }
 
-    return agents_router, templates_router, global_router
+    # ── Tools & credentials ──────────────────────────────────
+
+    tools_router = APIRouter(prefix="/v1/tools", tags=["tools"])
+
+    @tools_router.get("")
+    def list_tools():
+        return {"tools": build_tools_list()}
+
+    @tools_router.post("/{tool_name}/credentials")
+    async def save_tool_credentials(tool_name: str, request: Request):
+        from openjarvis.core.credentials import save_credential
+
+        body = await request.json()
+        saved = []
+        for key, value in body.items():
+            save_credential(tool_name, key, value)
+            saved.append(key)
+        return {"saved": saved}
+
+    @tools_router.get("/{tool_name}/credentials/status")
+    def credential_status(tool_name: str):
+        from openjarvis.core.credentials import get_credential_status
+        return get_credential_status(tool_name)
+
+    return agents_router, templates_router, global_router, tools_router

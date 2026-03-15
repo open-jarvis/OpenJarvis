@@ -433,12 +433,18 @@ export async function fetchTemplates(): Promise<AgentTemplate[]> {
 
 export async function runManagedAgent(agentId: string): Promise<void> {
   const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/run`, { method: 'POST' });
-  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(body.detail || `Failed: ${res.status}`);
+  }
 }
 
-export async function recoverManagedAgent(agentId: string): Promise<unknown> {
+export async function recoverManagedAgent(agentId: string): Promise<{ recovered: boolean; checkpoint: unknown }> {
   const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/recover`, { method: 'POST' });
-  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(body.detail || `Failed: ${res.status}`);
+  }
   return res.json();
 }
 
@@ -498,6 +504,36 @@ export interface AgentTrace {
   started_at: number;
   steps: number;
   error_message?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ToolInfo {
+  name: string;
+  description: string;
+  category: string;
+  source: 'tool' | 'channel';
+  requires_credentials: boolean;
+  credential_keys: string[];
+  configured: boolean;
+}
+
+export async function fetchAvailableTools(): Promise<ToolInfo[]> {
+  const res = await fetch(`${getBase()}/v1/tools`);
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  const data = await res.json();
+  return data.tools || [];
+}
+
+export async function saveToolCredentials(
+  toolName: string,
+  credentials: Record<string, string>,
+): Promise<void> {
+  const res = await fetch(`${getBase()}/v1/tools/${toolName}/credentials`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(credentials),
+  });
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
 }
 
 export interface AgentTraceDetail {

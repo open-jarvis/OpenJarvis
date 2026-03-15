@@ -283,8 +283,8 @@ class AgentManager:
 
     def recover_agent(self, agent_id: str) -> Optional[Dict[str, Any]]:
         checkpoint = self.get_latest_checkpoint(agent_id)
-        if checkpoint is not None:
-            self.update_agent(agent_id, status="idle")
+        # Always reset to idle — clearing the error state is the primary purpose
+        self.update_agent(agent_id, status="idle")
         return checkpoint
 
     @staticmethod
