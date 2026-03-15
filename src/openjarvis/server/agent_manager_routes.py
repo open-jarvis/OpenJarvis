@@ -153,15 +153,24 @@ def create_agent_manager_router(
                 try:
                     system = SystemBuilder().build()
                     executor.set_system(system)
-                except Exception:
-                    pass
+                except Exception as build_err:
+                    manager.update_agent(agent_id, status="error")
+                    manager.update_summary_memory(
+                        agent_id,
+                        f"ERROR: Failed to build system: {build_err}",
+                    )
+                    return
                 executor.execute_tick(agent_id)
-            except Exception:
+            except Exception as exc:
                 try:
                     manager.end_tick(agent_id)
-                    manager.update_agent(agent_id, status="error")
                 except Exception:
                     pass
+                manager.update_agent(agent_id, status="error")
+                manager.update_summary_memory(
+                    agent_id,
+                    f"ERROR: {exc}",
+                )
 
         threading.Thread(target=_run_tick, daemon=True).start()
         return {"status": "running", "agent_id": agent_id}
