@@ -1076,6 +1076,15 @@ class SystemPromptConfig:
     truncation_strategy: str = "head_tail"
 
 
+@dataclass(slots=True)
+class CompressionConfig:
+    """Configuration for context compression."""
+
+    enabled: bool = True
+    threshold: float = 0.50
+    strategy: str = "session_consolidation"
+
+
 @dataclass
 class JarvisConfig:
     """Top-level configuration for OpenJarvis."""
@@ -1102,6 +1111,7 @@ class JarvisConfig:
     agent_manager: AgentManagerConfig = field(default_factory=AgentManagerConfig)
     memory_files: MemoryFilesConfig = field(default_factory=MemoryFilesConfig)
     system_prompt: SystemPromptConfig = field(default_factory=SystemPromptConfig)
+    compression: CompressionConfig = field(default_factory=CompressionConfig)
 
     @property
     def memory(self) -> StorageConfig:
