@@ -35,6 +35,23 @@ interface ConversationStore {
   activeId: string | null;
 }
 
+// 修复：添加兼容所有浏览器的 UUID v4 生成函数
+function generateUUID(): string {
+  // 优先使用原生 API（现代浏览器）
+  if (crypto?.randomUUID) {
+    return crypto.randomUUID();
+  }
+
+  // 降级方案：兼容老旧浏览器/非安全上下文（HTTP 环境）
+  let dt = new Date().getTime();
+  const uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = (dt + Math.random() * 16) % 16 | 0;
+    dt = Math.floor(dt / 16);
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+  return uuid;
+}
+
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
@@ -227,10 +244,11 @@ export const useAppStore = create<AppState>((set, get) => {
     sidebarOpen: true,
     systemPanelOpen: true,
 
+    // 修复：替换 crypto.randomUUID() 为兼容函数 generateUUID()
     optInEnabled: localStorage.getItem(OPTIN_KEY) === 'true',
     optInDisplayName: localStorage.getItem(OPTIN_NAME_KEY) || '',
     optInEmail: localStorage.getItem(OPTIN_EMAIL_KEY) || '',
-    optInAnonId: localStorage.getItem(OPTIN_ANONID_KEY) || crypto.randomUUID(),
+    optInAnonId: localStorage.getItem(OPTIN_ANONID_KEY) || generateUUID(),
     optInModalSeen: localStorage.getItem(OPTIN_SEEN_KEY) === 'true',
     optInModalOpen: false,
 
@@ -430,4 +448,4 @@ export const useAppStore = create<AppState>((set, get) => {
   };
 });
 
-export { generateId };
+export { generateId, generateUUID }; // 导出新增的 UUID 生成函数
