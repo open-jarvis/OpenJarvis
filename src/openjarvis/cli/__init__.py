@@ -80,6 +80,21 @@ cli.add_command(optimize_group, "optimize")
 cli.add_command(feedback_group, "feedback")
 cli.add_command(compose, "compose")
 
+# Gateway CLI commands (lazy import to avoid pulling starlette)
+try:
+    from openjarvis.cli.auth_cmd import auth
+
+    cli.add_command(auth, "auth")
+except ImportError:
+    pass
+
+try:
+    from openjarvis.cli.tunnel_cmd import tunnel
+
+    cli.add_command(tunnel, "tunnel")
+except ImportError:
+    pass
+
 
 def main() -> None:
     """Entry point registered as ``jarvis`` console script."""
