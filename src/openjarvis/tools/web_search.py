@@ -8,6 +8,7 @@ from typing import Any
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
 from openjarvis.tools._stubs import BaseTool, ToolSpec
+from openjarvis.security.ssrf import check_ssrf
 
 
 @ToolRegistry.register("web_search")
@@ -76,6 +77,9 @@ class WebSearchTool(BaseTool):
         import httpx
 
         url = WebSearchTool._normalize_url(url)
+        ssrf_error = check_ssrf(url)
+        if ssrf_error:
+            raise ValueError(ssrf_error)
         resp = httpx.get(
             url.strip(),
             follow_redirects=True,
