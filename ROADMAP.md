@@ -2,7 +2,7 @@
 
 ## Overview
 
-OpenJarvis studies personal AI through five core primitives — **Intelligence**, **Engine**, **Agents**, **Tools** (memory, retrieval, tool APIs), and **Learning** — running on personal hardware. This roadmap organizes development into five independent workstreams, each with items flowing from immediately actionable to exploratory research.
+OpenJarvis studies personal AI through five core primitives — **Intelligence**, **Engine**, **Agents**, **Tools**, and **Learning** — running on personal hardware. This roadmap organizes development into five independent workstreams, each with items flowing from immediately actionable to exploratory research.
 
 ### How to Read This Roadmap
 
@@ -89,9 +89,9 @@ Personal AI must be accessible from the devices people actually carry. OpenJarvi
 
 ## Workstream 3: Secure Cloud Collaboration
 
-Personal AI's core tension: local models preserve privacy but lack capability; cloud models are powerful but require trusting a provider with your data. This workstream resolves that through three complementary approaches: **Minions-style collaborative inference** (local handles context, cloud handles reasoning), **TEE-based confidential computing** (cloud cannot see your data even during inference, inspired by [Tinfoil](https://tinfoil.sh)), and **secure multi-device coordination**.
+Personal AI's core tension: local models preserve privacy but lack capability; cloud models are powerful but require trusting a provider with your data. This workstream resolves that through three complementary approaches: **Minions-style collaborative inference** (local handles context, cloud handles reasoning), **TEE-based confidential computing** (cloud cannot see your data even during inference), and **secure multi-device coordination**.
 
-Key references:
+Related References:
 - [Minions: Cost-Efficient Local-Cloud LLM Collaboration](https://github.com/HazyResearch/minions)
 - [TEE for Confidential AI Inference](https://openreview.net/forum?id=ey87M5iKcX)
 - [Tinfoil: Verifiably Private AI](https://tinfoil.sh)
