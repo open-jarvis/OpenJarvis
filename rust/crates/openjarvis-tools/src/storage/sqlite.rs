@@ -15,6 +15,19 @@ pub struct SQLiteMemory {
 
 impl SQLiteMemory {
     pub fn new(db_path: &Path) -> Result<Self, OpenJarvisError> {
+        // Expand leading ~ to the user's home directory
+        let db_path = if db_path.starts_with("~") {
+            let home = std::env::var("HOME").map_err(|_| {
+                OpenJarvisError::Io(std::io::Error::other(
+                    "HOME environment variable not set",
+                ))
+            })?;
+            PathBuf::from(home).join(db_path.strip_prefix("~").unwrap())
+        } else {
+            db_path.to_path_buf()
+        };
+        let db_path = db_path.as_path();
+
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
                 OpenJarvisError::Io(std::io::Error::other(e))
@@ -36,7 +49,7 @@ impl SQLiteMemory {
                 created_at REAL DEFAULT (julianday('now'))
             );
             CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
-                id, content, source, tokenize='unicode61'
+                content, source, tokenize='porter unicode61'
             );",
         )
         .map_err(|e| {
@@ -110,9 +123,10 @@ impl MemoryBackend for SQLiteMemory {
             ))
         })?;
 
+        let rowid = conn.last_insert_rowid();
         conn.execute(
-            "INSERT INTO documents_fts (id, content, source) VALUES (?1, ?2, ?3)",
-            rusqlite::params![doc_id, content, source],
+            "INSERT INTO documents_fts (rowid, content, source) VALUES (?1, ?2, ?3)",
+            rusqlite::params![rowid, content, source],
         )
         .map_err(|e| {
             OpenJarvisError::Io(std::io::Error::other(
@@ -130,9 +144,13 @@ impl MemoryBackend for SQLiteMemory {
     ) -> Result<Vec<RetrievalResult>, OpenJarvisError> {
         let conn = self.conn.lock();
 
-        let words: Vec<&str> = query.split_whitespace().collect();
+        let words: Vec<String> = query
+            .split_whitespace()
+            .map(|w| w.trim_matches(|c: char| "?.,!;:'\"()[]{}/ ".contains(c)).to_string())
+            .filter(|w| !w.is_empty())
+            .collect();
         let fts_query = if words.len() == 1 {
-            words[0].to_string()
+            words[0].clone()
         } else {
             words.join(" OR ")
         };
@@ -140,11 +158,11 @@ impl MemoryBackend for SQLiteMemory {
         let mut stmt = conn
             .prepare(
                 "SELECT d.content, d.source, d.metadata,
-                        bm25(documents_fts, 0.0, 1.0, 0.5) * -1 as score
+                        bm25(documents_fts, 1.0, 0.5) * -1 as score
                  FROM documents_fts f
-                 JOIN documents d ON d.id = f.id
+                 JOIN documents d ON d.rowid = f.rowid
                  WHERE documents_fts MATCH ?1
-                 ORDER BY bm25(documents_fts, 0.0, 1.0, 0.5)
+                 ORDER BY bm25(documents_fts, 1.0, 0.5)
                  LIMIT ?2",
             )
             .map_err(|e| {
@@ -179,8 +197,9 @@ impl MemoryBackend for SQLiteMemory {
 
     fn delete(&self, doc_id: &str) -> Result<bool, OpenJarvisError> {
         let conn = self.conn.lock();
+        // Delete from FTS5 using the rowid from the documents table
         conn.execute(
-            "DELETE FROM documents_fts WHERE id = ?1",
+            "DELETE FROM documents_fts WHERE rowid = (SELECT rowid FROM documents WHERE id = ?1)",
             rusqlite::params![doc_id],
         )
         .map_err(|e| {
@@ -238,6 +257,29 @@ mod tests {
         let results = mem.retrieve("Rust programming", 5).unwrap();
         assert!(!results.is_empty());
         assert!(results[0].content.contains("Rust"));
+        assert!(results[0].score > 0.0, "score should be positive, got {}", results[0].score);
+    }
+
+    #[test]
+    fn test_sqlite_porter_stemming() {
+        let mem = SQLiteMemory::in_memory().unwrap();
+        mem.store("Medication list for patient", "health", None).unwrap();
+
+        // Plural form should match via porter stemming
+        let results = mem.retrieve("medications", 5).unwrap();
+        assert!(!results.is_empty(), "porter stemming should match 'medications' to 'Medication'");
+        assert!(results[0].score > 0.0);
+    }
+
+    #[test]
+    fn test_sqlite_punctuation_stripping() {
+        let mem = SQLiteMemory::in_memory().unwrap();
+        mem.store("Medication list for patient Micah", "health", None).unwrap();
+
+        // Natural language query with trailing punctuation should not break FTS5
+        let results = mem.retrieve("What medications does Micah take?", 5).unwrap();
+        assert!(!results.is_empty(), "query with punctuation should still return results");
+        assert!(results[0].score > 0.0);
     }
 
     #[test]

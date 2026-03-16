@@ -24,6 +24,26 @@ def _get_manager():
     return AgentManager(db_path=db_path)
 
 
+def _resolve_agent_id(manager, agent_id_or_name: str) -> str:
+    """Resolve an agent name or ID to the actual agent ID.
+
+    Accepts either the hex ID or the agent name.  Raises SystemExit if
+    no matching agent is found.
+    """
+    # Try direct ID lookup first
+    agent = manager.get_agent(agent_id_or_name)
+    if agent is not None:
+        return agent["id"]
+
+    # Fall back to name lookup
+    for a in manager.list_agents(include_archived=True):
+        if a["name"] == agent_id_or_name:
+            return a["id"]
+
+    click.echo(f"Agent not found: {agent_id_or_name}", err=True)
+    raise SystemExit(1)
+
+
 @click.group("agents")
 def agent() -> None:
     """Manage persistent agents — create, inspect, chat, bind channels."""
@@ -680,6 +700,7 @@ def errors():
 def ask(agent_id, message):
     """Ask an agent a question (immediate response)."""
     manager = _get_manager()
+    agent_id = _resolve_agent_id(manager, agent_id)
     manager.send_message(agent_id, message, mode="immediate")
     click.echo("Asking agent...")
     _, executor, _ = _get_scheduler_and_executor()
@@ -701,6 +722,7 @@ def ask(agent_id, message):
 def instruct(agent_id, message):
     """Queue an instruction for the agent's next tick."""
     manager = _get_manager()
+    agent_id = _resolve_agent_id(manager, agent_id)
     msg = manager.send_message(agent_id, message, mode="queued")
     click.echo(f"Instruction queued (ID: {msg['id'][:8]})")
 

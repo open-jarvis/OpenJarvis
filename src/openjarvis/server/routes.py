@@ -46,6 +46,51 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
     agent = getattr(request.app.state, "agent", None)
     model = request_body.model
 
+    # Inject memory context into messages before dispatching
+    config = getattr(request.app.state, "config", None)
+    memory_backend = getattr(request.app.state, "memory_backend", None)
+    if (
+        config is not None
+        and memory_backend is not None
+        and config.agent.context_from_memory
+        and request_body.messages
+    ):
+        try:
+            from openjarvis.tools.storage.context import ContextConfig, inject_context
+
+            # Extract query from the last user message
+            query_text = ""
+            for m in reversed(request_body.messages):
+                if m.role == "user" and m.content:
+                    query_text = m.content
+                    break
+
+            if query_text:
+                messages = _to_messages(request_body.messages)
+                ctx_cfg = ContextConfig(
+                    top_k=config.memory.context_top_k,
+                    min_score=config.memory.context_min_score,
+                    max_context_tokens=config.memory.context_max_tokens,
+                )
+                enriched = inject_context(
+                    query_text, messages, memory_backend, config=ctx_cfg,
+                )
+                # Rebuild request messages from enriched Message objects
+                if len(enriched) > len(messages):
+                    from openjarvis.server.models import ChatMessage
+
+                    new_msgs = []
+                    for msg in enriched:
+                        new_msgs.append(ChatMessage(
+                            role=msg.role.value,
+                            content=msg.content,
+                            name=msg.name,
+                            tool_call_id=getattr(msg, "tool_call_id", None),
+                        ))
+                    request_body.messages = new_msgs
+        except Exception:
+            pass  # Don't break chat if memory retrieval fails
+
     if request_body.stream:
         bus = getattr(request.app.state, "bus", None)
         # Use the agent stream bridge only when tools are present (the
