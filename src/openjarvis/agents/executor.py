@@ -218,19 +218,69 @@ class AgentExecutor:
         instruction = config.get("instruction", "")
         memory = agent.get("summary_memory", "")
         if instruction:
-            context = f"Standing instruction: {instruction}"
+            input_text = f"Standing instruction: {instruction}"
             if memory:
-                context += f"\n\nPrevious context: {memory}"
+                input_text += f"\n\nPrevious context: {memory}"
         else:
-            context = memory or "Continue your assigned task."
+            input_text = memory or "Continue your assigned task."
         pending = self._manager.get_pending_messages(agent["id"])
         if pending:
             user_msgs = "\n".join(f"User: {m['content']}" for m in pending)
-            context = f"{context}\n\nNew instructions:\n{user_msgs}"
+            input_text = f"{input_text}\n\nNew instructions:\n{user_msgs}"
             for m in pending:
                 self._manager.mark_message_delivered(m["id"])
 
-        return agent_instance.run(context)
+        # Build AgentContext with memory results from FTS5 backend
+        from openjarvis.agents._stubs import AgentContext
+
+        agent_ctx = AgentContext()
+        memory_results = []
+
+        if (
+            self._system
+            and getattr(self._system, "memory_backend", None)
+            and getattr(self._system, "config", None)
+            and self._system.config.agent.context_from_memory
+        ):
+            try:
+                from openjarvis.tools.storage.context import (
+                    ContextConfig,
+                    format_context,
+                )
+
+                sys_cfg = self._system.config
+                ctx_cfg = ContextConfig(
+                    top_k=sys_cfg.memory.context_top_k,
+                    min_score=sys_cfg.memory.context_min_score,
+                    max_context_tokens=sys_cfg.memory.context_max_tokens,
+                )
+                # Use pending user messages as query, fall back to instruction
+                query = ""
+                if pending:
+                    query = " ".join(m["content"] for m in pending)
+                elif instruction:
+                    query = instruction
+
+                if query:
+                    results = self._system.memory_backend.retrieve(
+                        query, top_k=ctx_cfg.top_k,
+                    )
+                    memory_results = [
+                        r for r in results if r.score >= ctx_cfg.min_score
+                    ]
+                    if memory_results:
+                        # Prepend retrieved context to input for agents
+                        # that don't inspect AgentContext.memory_results
+                        retrieved = format_context(memory_results)
+                        input_text = (
+                            f"Retrieved context from knowledge base:\n"
+                            f"{retrieved}\n\n{input_text}"
+                        )
+            except Exception:
+                pass  # Don't break agent tick if memory retrieval fails
+
+        agent_ctx.memory_results = memory_results
+        return agent_instance.run(input_text, context=agent_ctx)
 
     def _build_error_detail(self, error: AgentTickError) -> dict[str, Any]:
         """Build structured error detail for trace metadata."""
