@@ -1055,6 +1055,16 @@ class AgentManagerConfig:
     db_path: str = str(DEFAULT_CONFIG_DIR / "agents.db")
 
 
+@dataclass(slots=True)
+class MemoryFilesConfig:
+    """Persistent memory-file paths and nudge settings."""
+
+    soul_path: str = "~/.openjarvis/SOUL.md"
+    memory_path: str = "~/.openjarvis/MEMORY.md"
+    user_path: str = "~/.openjarvis/USER.md"
+    nudge_interval: int = 10
+
+
 @dataclass
 class JarvisConfig:
     """Top-level configuration for OpenJarvis."""
@@ -1079,6 +1089,7 @@ class JarvisConfig:
     speech: SpeechConfig = field(default_factory=SpeechConfig)
     optimize: OptimizeConfig = field(default_factory=OptimizeConfig)
     agent_manager: AgentManagerConfig = field(default_factory=AgentManagerConfig)
+    memory_files: MemoryFilesConfig = field(default_factory=MemoryFilesConfig)
 
     @property
     def memory(self) -> StorageConfig:
