@@ -1065,6 +1065,17 @@ class MemoryFilesConfig:
     nudge_interval: int = 10
 
 
+@dataclass(slots=True)
+class SystemPromptConfig:
+    """Limits and strategy for system-prompt assembly."""
+
+    soul_max_chars: int = 4000
+    memory_max_chars: int = 2500
+    user_max_chars: int = 1500
+    skill_desc_max_chars: int = 60
+    truncation_strategy: str = "head_tail"
+
+
 @dataclass
 class JarvisConfig:
     """Top-level configuration for OpenJarvis."""
@@ -1090,6 +1101,7 @@ class JarvisConfig:
     optimize: OptimizeConfig = field(default_factory=OptimizeConfig)
     agent_manager: AgentManagerConfig = field(default_factory=AgentManagerConfig)
     memory_files: MemoryFilesConfig = field(default_factory=MemoryFilesConfig)
+    system_prompt: SystemPromptConfig = field(default_factory=SystemPromptConfig)
 
     @property
     def memory(self) -> StorageConfig:
