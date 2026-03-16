@@ -205,10 +205,17 @@ class TestUrlNormalization:
 
 
 class TestUrlFetching:
+    def _mock_ssrf(self, monkeypatch):
+        """Stub out the SSRF check (requires Rust backend)."""
+        import openjarvis.tools.web_search as _ws
+
+        monkeypatch.setattr(_ws, "check_ssrf", lambda url: None)
+
     def test_fetch_url_success(self, monkeypatch):
         """Mocked HTTP GET returns HTML, stripped to text."""
         import httpx
 
+        self._mock_ssrf(monkeypatch)
         mock_resp = MagicMock()
         mock_resp.text = "<html><body><p>Hello world</p></body></html>"
         mock_resp.headers = {"content-type": "text/html"}
@@ -221,6 +228,7 @@ class TestUrlFetching:
     def test_fetch_url_strips_scripts(self, monkeypatch):
         import httpx
 
+        self._mock_ssrf(monkeypatch)
         mock_resp = MagicMock()
         mock_resp.text = (
             "<html><script>var x=1;</script><body>Content</body></html>"
@@ -236,6 +244,7 @@ class TestUrlFetching:
     def test_fetch_url_truncates_long_content(self, monkeypatch):
         import httpx
 
+        self._mock_ssrf(monkeypatch)
         mock_resp = MagicMock()
         mock_resp.text = "<p>" + "x" * 10000 + "</p>"
         mock_resp.headers = {"content-type": "text/html"}
@@ -249,6 +258,7 @@ class TestUrlFetching:
     def test_fetch_url_pdf_content_type(self, monkeypatch):
         import httpx
 
+        self._mock_ssrf(monkeypatch)
         mock_resp = MagicMock()
         mock_resp.text = "%PDF-1.4 binary data"
         mock_resp.headers = {"content-type": "application/pdf"}
@@ -261,10 +271,17 @@ class TestUrlFetching:
 
 
 class TestExecuteWithUrl:
+    def _mock_ssrf(self, monkeypatch):
+        """Stub out the SSRF check (requires Rust backend)."""
+        import openjarvis.tools.web_search as _ws
+
+        monkeypatch.setattr(_ws, "check_ssrf", lambda url: None)
+
     def test_execute_with_url_query(self, monkeypatch):
         """When query is a URL, fetch instead of search."""
         import httpx
 
+        self._mock_ssrf(monkeypatch)
         mock_resp = MagicMock()
         mock_resp.text = "<html><body>Page content here</body></html>"
         mock_resp.headers = {"content-type": "text/html"}
@@ -281,6 +298,7 @@ class TestExecuteWithUrl:
         """When query contains a URL within text, detect and fetch it."""
         import httpx
 
+        self._mock_ssrf(monkeypatch)
         mock_resp = MagicMock()
         mock_resp.text = "<html><body>Article text</body></html>"
         mock_resp.headers = {"content-type": "text/html"}
@@ -294,10 +312,24 @@ class TestExecuteWithUrl:
         assert result.success is True
         assert result.metadata.get("mode") == "fetch"
 
+    def test_execute_url_ssrf_blocked(self, monkeypatch):
+        """SSRF check rejects unsafe URLs before any HTTP request."""
+        import openjarvis.tools.web_search as _ws
+
+        monkeypatch.setattr(
+            _ws, "check_ssrf", lambda url: "private IP blocked",
+        )
+
+        tool = WebSearchTool(api_key="test-key")
+        result = tool.execute(query="http://169.254.169.254/metadata")
+        assert result.success is False
+        assert "private IP blocked" in result.content
+
     def test_execute_url_fetch_failure(self, monkeypatch):
         """URL fetch failure returns error result."""
         import httpx
 
+        self._mock_ssrf(monkeypatch)
         monkeypatch.setattr(
             httpx, "get",
             MagicMock(side_effect=httpx.HTTPError("Connection failed")),

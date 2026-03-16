@@ -7,8 +7,8 @@ from typing import Any
 
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
-from openjarvis.tools._stubs import BaseTool, ToolSpec
 from openjarvis.security.ssrf import check_ssrf
+from openjarvis.tools._stubs import BaseTool, ToolSpec
 
 
 @ToolRegistry.register("web_search")
