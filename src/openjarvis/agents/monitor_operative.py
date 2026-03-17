@@ -202,6 +202,11 @@ class MonitorOperativeAgent(ToolUsingAgent):
         turns = 0
         content = ""
         state_stored_by_tool = False
+        total_usage: dict[str, int] = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
 
         for _turn in range(self._max_turns):
             turns += 1
@@ -211,6 +216,9 @@ class MonitorOperativeAgent(ToolUsingAgent):
                 gen_kwargs["tools"] = openai_tools
 
             result = self._generate(messages, **gen_kwargs)
+            usage = result.get("usage", {})
+            for k in total_usage:
+                total_usage[k] += usage.get(k, 0)
             content = result.get("content", "")
             raw_tool_calls = result.get("tool_calls", [])
 
@@ -291,6 +299,7 @@ class MonitorOperativeAgent(ToolUsingAgent):
             self._save_session(input, content)
             return self._max_turns_result(
                 all_tool_results, turns, content=content,
+                metadata=total_usage,
             )
 
         # 6. Save session
@@ -305,6 +314,7 @@ class MonitorOperativeAgent(ToolUsingAgent):
             content=content,
             tool_results=all_tool_results,
             turns=turns,
+            metadata=total_usage,
         )
 
     # ------------------------------------------------------------------

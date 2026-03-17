@@ -4,6 +4,10 @@ Thin FastAPI server wrapping the Nexa SDK (``nexaai``) as an
 OpenAI-compatible API on port 18181.  Intended for on-device inference
 with GGUF models on Apple Silicon or CPU.
 
+**Token counts:** The Nexa SDK does not expose token counts in responses.
+The shim returns 0 for prompt/completion/total tokens. Savings and
+leaderboard metrics will not include sessions that use this engine.
+
 Usage:
     uvicorn openjarvis.engine.nexa_shim:app \
         --host 127.0.0.1 --port 18181

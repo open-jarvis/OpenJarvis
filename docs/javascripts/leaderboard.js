@@ -9,6 +9,20 @@
   var allRows = [];
   var currentPage = 0;
 
+  // No-KV-cache formula: FLOPs = params_b * 1e9 * N * (N+1)
+  var DEFAULT_PARAMS_B = 137;
+  var ENERGY_WH_PER_FLOP = 0.4 / (1000 * 3e12);
+
+  function recomputeFlopsNoKvCache(totalTokens) {
+    var n = Number(totalTokens) || 0;
+    if (n <= 0) return 0;
+    return DEFAULT_PARAMS_B * 1e9 * n * (n + 1);
+  }
+
+  function recomputeEnergyNoKvCache(flops) {
+    return flops * ENERGY_WH_PER_FLOP;
+  }
+
   function escapeHtml(s) {
     var el = document.createElement("span");
     el.textContent = s;

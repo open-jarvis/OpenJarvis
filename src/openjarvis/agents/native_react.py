@@ -109,6 +109,7 @@ class NativeReActAgent(ToolUsingAgent):
 
         all_tool_results: list[ToolResult] = []
         turns = 0
+        total_usage: dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
         for _turn in range(self._max_turns):
             turns += 1
@@ -117,6 +118,9 @@ class NativeReActAgent(ToolUsingAgent):
                 messages = self._loop_guard.compress_context(messages)
 
             result = self._generate(messages)
+            usage = result.get("usage", {})
+            for k in total_usage:
+                total_usage[k] += usage.get(k, 0)
 
             content = result.get("content", "")
             parsed = self._parse_response(content)
@@ -128,13 +132,17 @@ class NativeReActAgent(ToolUsingAgent):
                     content=parsed["final_answer"],
                     tool_results=all_tool_results,
                     turns=turns,
+                    metadata=total_usage,
                 )
 
             # No action? Treat content as final answer
             if not parsed["action"]:
                 self._emit_turn_end(turns=turns)
                 return AgentResult(
-                    content=content, tool_results=all_tool_results, turns=turns
+                    content=content,
+                    tool_results=all_tool_results,
+                    turns=turns,
+                    metadata=total_usage,
                 )
 
             # Execute action
@@ -169,7 +177,7 @@ class NativeReActAgent(ToolUsingAgent):
             messages.append(Message(role=Role.USER, content=observation))
 
         # Max turns exceeded
-        return self._max_turns_result(all_tool_results, turns)
+        return self._max_turns_result(all_tool_results, turns, metadata=total_usage)
 
 
 __all__ = ["NativeReActAgent", "REACT_SYSTEM_PROMPT"]

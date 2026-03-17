@@ -173,11 +173,15 @@ class RLMAgent(ToolUsingAgent):
 
         all_tool_results: list[ToolResult] = []
         turns = 0
+        total_usage: dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
         for _turn in range(self._max_turns):
             turns += 1
 
             result = self._generate(messages)
+            usage = result.get("usage", {})
+            for k in total_usage:
+                total_usage[k] += usage.get(k, 0)
             content = result.get("content", "")
 
             # Strip <think> tags
@@ -193,6 +197,7 @@ class RLMAgent(ToolUsingAgent):
                     content=content,
                     tool_results=all_tool_results,
                     turns=turns,
+                    metadata=total_usage,
                 )
 
             # Execute code in REPL
@@ -218,6 +223,7 @@ class RLMAgent(ToolUsingAgent):
                     content=final_str,
                     tool_results=all_tool_results,
                     turns=turns,
+                    metadata=total_usage,
                 )
 
             # Feed output back as user message
@@ -236,7 +242,9 @@ class RLMAgent(ToolUsingAgent):
         else:
             final_content = ""
 
-        return self._max_turns_result(all_tool_results, turns, content=final_content)
+        return self._max_turns_result(
+            all_tool_results, turns, content=final_content, metadata=total_usage
+        )
 
     # ------------------------------------------------------------------
     # Sub-LM callbacks

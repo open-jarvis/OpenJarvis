@@ -50,6 +50,7 @@ fn lookup(table: &[(&str, f64)], key: &str) -> Option<f64> {
 }
 
 /// Estimate FLOPs for a model inference using the `2 * params * tokens` approximation.
+/// Assumes KV caching (each token processed once).
 ///
 /// Returns `(total_flops, flops_per_token)`. If the model is not found in `MODEL_PARAMS`,
 /// returns `(0.0, 0.0)`.
@@ -68,6 +69,36 @@ pub fn estimate_flops(model: &str, input_tokens: u64, output_tokens: u64) -> (f6
     // 2 * params * tokens approximation for transformer FLOPs
     let total_flops = 2.0 * params * total_tokens as f64;
     let flops_per_token = 2.0 * params;
+
+    (total_flops, flops_per_token)
+}
+
+/// Estimate FLOPs without KV caching (full recompute per token).
+///
+/// Without KV cache, each token is re-processed for every subsequent token.
+/// FLOPs = P * N * (N + 1) where P = params, N = total_tokens.
+///
+/// Returns `(total_flops, flops_per_token_avg)`. If the model is not found,
+/// returns `(0.0, 0.0)`.
+pub fn estimate_flops_no_kv_cache(
+    model: &str,
+    input_tokens: u64,
+    output_tokens: u64,
+) -> (f64, f64) {
+    let params_b = match lookup(MODEL_PARAMS, model) {
+        Some(p) => p,
+        None => return (0.0, 0.0),
+    };
+
+    let total_tokens = input_tokens + output_tokens;
+    if total_tokens == 0 {
+        return (0.0, 0.0);
+    }
+
+    let params = params_b * 1e9;
+    let n = total_tokens as f64;
+    let total_flops = params * n * (n + 1.0);
+    let flops_per_token = total_flops / n;
 
     (total_flops, flops_per_token)
 }

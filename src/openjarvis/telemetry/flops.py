@@ -31,26 +31,49 @@ MODEL_PARAMS_B: dict[str, float] = {
 }
 
 
-def estimate_flops(
-    model: str, input_tokens: int, output_tokens: int
-) -> tuple[float, float]:
-    """Estimate FLOPs for an inference pass.
-
-    Uses the 2 * P * T approximation where P = params, T = total tokens.
-    Returns (total_flops, flops_per_token).
-    """
+def _get_params_b(model: str) -> float:
+    """Look up model parameter count (billions)."""
     params_b = MODEL_PARAMS_B.get(model, 0.0)
     if params_b == 0.0:
-        # Try prefix matching
         for key, val in MODEL_PARAMS_B.items():
             if model.startswith(key.split(":")[0]):
                 params_b = val
                 break
+    return params_b
 
+
+def estimate_flops(
+    model: str, input_tokens: int, output_tokens: int
+) -> tuple[float, float]:
+    """Estimate FLOPs for an inference pass (assumes KV caching).
+
+    Uses the 2 * P * T approximation where P = params, T = total tokens.
+    Returns (total_flops, flops_per_token).
+    """
+    params_b = _get_params_b(model)
     total_tokens = input_tokens + output_tokens
     params = params_b * 1e9
     total_flops = 2.0 * params * total_tokens
     flops_per_token = 2.0 * params if total_tokens > 0 else 0.0
+    return (total_flops, flops_per_token)
+
+
+def estimate_flops_no_kv_cache(
+    model: str, input_tokens: int, output_tokens: int
+) -> tuple[float, float]:
+    """Estimate FLOPs without KV caching (full recompute per token).
+
+    Without KV cache, each token is re-processed for every subsequent token.
+    FLOPs = P * N * (N + 1) where P = params, N = total_tokens.
+    Returns (total_flops, flops_per_token_avg).
+    """
+    params_b = _get_params_b(model)
+    total_tokens = input_tokens + output_tokens
+    if total_tokens == 0:
+        return (0.0, 0.0)
+    params = params_b * 1e9
+    total_flops = params * total_tokens * (total_tokens + 1)
+    flops_per_token = total_flops / total_tokens
     return (total_flops, flops_per_token)
 
 

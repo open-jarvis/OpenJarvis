@@ -137,14 +137,19 @@ class BaseAgent(ABC):
         tool_results: list[ToolResult],
         turns: int,
         content: str = "",
+        *,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> AgentResult:
         """Build the standard result for when ``max_turns`` is exceeded."""
         self._emit_turn_end(turns=turns, max_turns_exceeded=True)
+        md: Dict[str, Any] = {"max_turns_exceeded": True}
+        if metadata:
+            md.update(metadata)
         return AgentResult(
             content=content or "Maximum turns reached without a final answer.",
             tool_results=tool_results,
             turns=turns,
-            metadata={"max_turns_exceeded": True},
+            metadata=md,
         )
 
     def _check_continuation(
