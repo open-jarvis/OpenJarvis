@@ -158,14 +158,6 @@ class WebSearchTool(BaseTool):
 
         try:
             from tavily import TavilyClient
-            from tavily.errors import (
-                BadRequestError,
-                ForbiddenError,
-                InvalidAPIKeyError,
-                MissingAPIKeyError,
-                TimeoutError,
-                UsageLimitExceededError,
-            )
 
             client = TavilyClient(api_key=self._api_key)
             response = client.search(query, max_results=max_results)
@@ -181,24 +173,9 @@ class WebSearchTool(BaseTool):
                 success=True,
                 metadata={"num_results": len(results), "engine": "tavily"},
             )
-        except ImportError:
-            logger.debug("Tavily not installed, falling back to DuckDuckGo")
-        except (
-            MissingAPIKeyError,
-            InvalidAPIKeyError,
-            ForbiddenError,
-            UsageLimitExceededError,
-            TimeoutError,
-            BadRequestError,
-        ) as exc:
+        except Exception as exc:
             logger.debug(
                 "Tavily error (%s), falling back to DuckDuckGo", type(exc).__name__
-            )
-        except Exception as exc:
-            return ToolResult(
-                tool_name="web_search",
-                content=f"Tavily search failed: {exc}",
-                success=False,
             )
 
         try:

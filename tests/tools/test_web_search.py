@@ -64,7 +64,21 @@ class TestWebSearchTool:
         }
         mock_tavily_module = MagicMock()
         mock_tavily_module.TavilyClient.return_value = mock_client
-        monkeypatch.setitem(sys.modules, "tavily", mock_tavily_module)
+
+        import builtins
+
+        original_import = builtins.__import__
+
+        def _mock_import(name, *args, **kwargs):
+            if name == "tavily":
+                return mock_tavily_module
+            if name == "tavily.errors":
+                mock_errors = MagicMock()
+                mock_errors.UsageLimitExceededError = Exception
+                return mock_errors
+            return original_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", _mock_import)
 
         tool = WebSearchTool(api_key="test-key")
         result = tool.execute(query="test query")
@@ -74,19 +88,27 @@ class TestWebSearchTool:
         assert result.metadata["num_results"] == 2
 
     def test_execute_tavily_error(self, monkeypatch):
-        """When Tavily errors, falls back to DuckDuckGo."""
-        from tavily.errors import UsageLimitExceededError
+        """When Tavily errors (any error), falls back to DuckDuckGo."""
+        import builtins
+        from typing import Any
+
+        original_import = builtins.__import__
+
+        class TavilyError(Exception):
+            def __init__(self, message: str):
+                super().__init__(message)
 
         mock_client = MagicMock()
-        mock_client.search.side_effect = UsageLimitExceededError(
-            "API rate limit exceeded"
-        )
+        mock_client.search.side_effect = TavilyError("API error")
         mock_tavily_module = MagicMock()
         mock_tavily_module.TavilyClient.return_value = mock_client
-        mock_tavily_errors = MagicMock()
-        mock_tavily_errors.UsageLimitExceededError = UsageLimitExceededError
-        mock_tavily_module.errors = mock_tavily_errors
-        monkeypatch.setitem(sys.modules, "tavily", mock_tavily_module)
+
+        def _mock_import(name: str, *args: Any, **kwargs: Any):
+            if name == "tavily":
+                return mock_tavily_module
+            return original_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", _mock_import)
 
         tool = WebSearchTool(api_key="test-key")
         result = tool.execute(query="test query")
@@ -127,11 +149,24 @@ class TestWebSearchTool:
         assert result.metadata["engine"] == "duckduckgo"
 
     def test_max_results_parameter(self, monkeypatch):
+        import builtins
+
+        original_import = builtins.__import__
+
         mock_client = MagicMock()
         mock_client.search.return_value = {"results": []}
         mock_tavily_module = MagicMock()
         mock_tavily_module.TavilyClient.return_value = mock_client
-        monkeypatch.setitem(sys.modules, "tavily", mock_tavily_module)
+        mock_errors = MagicMock()
+
+        def _mock_import(name, *args, **kwargs):
+            if name == "tavily":
+                return mock_tavily_module
+            if name == "tavily.errors":
+                return mock_errors
+            return original_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", _mock_import)
 
         tool = WebSearchTool(api_key="test-key", max_results=3)
         tool.execute(query="test", max_results=7)
@@ -164,11 +199,24 @@ class TestWebSearchTool:
         assert result.metadata["engine"] == "duckduckgo"
 
     def test_empty_results(self, monkeypatch):
+        import builtins
+
+        original_import = builtins.__import__
+
         mock_client = MagicMock()
         mock_client.search.return_value = {"results": []}
         mock_tavily_module = MagicMock()
         mock_tavily_module.TavilyClient.return_value = mock_client
-        monkeypatch.setitem(sys.modules, "tavily", mock_tavily_module)
+        mock_errors = MagicMock()
+
+        def _mock_import(name, *args, **kwargs):
+            if name == "tavily":
+                return mock_tavily_module
+            if name == "tavily.errors":
+                return mock_errors
+            return original_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", _mock_import)
 
         tool = WebSearchTool(api_key="test-key")
         result = tool.execute(query="obscure query")
