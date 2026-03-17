@@ -164,6 +164,4 @@ nav:
       - Design Principles: architecture/design-principles.md
   - API Reference: api-reference/
   - Leaderboard: leaderboard.md
-  - Roadmap:
-      - Roadmap: development/roadmap.md
-      - Contributing Guide: development/contributing.md
+  - Roadmap: development/roadmap.md
