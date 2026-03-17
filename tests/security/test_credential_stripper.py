@@ -4,7 +4,10 @@ from __future__ import annotations
 def test_strips_openai_key():
     from openjarvis.security.credential_stripper import CredentialStripper
     stripper = CredentialStripper()
-    text = "Error: auth failed with key sk-proj-abc123def456ghi789jkl012mno345pqr678stu901vwx234"
+    text = (
+        "Error: auth failed with key "
+        "sk-proj-abc123def456ghi789jkl012mno345pqr678stu901vwx234"
+    )
     result = stripper.strip(text)
     assert "sk-proj-" not in result
     assert "[REDACTED:" in result

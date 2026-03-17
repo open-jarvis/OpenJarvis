@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+
 from openjarvis.core.config import MemoryFilesConfig, SystemPromptConfig
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from unittest.mock import MagicMock
+
 from openjarvis.core.types import Message, Role
 
 

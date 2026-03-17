@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+REGISTRY_PATH = "openjarvis.core.registry.AgentRegistry.get"
+
 
 def test_run_ephemeral_creates_and_runs_agent():
     from openjarvis.agents.executor import AgentExecutor
@@ -11,11 +13,11 @@ def test_run_ephemeral_creates_and_runs_agent():
 
     mock_agent_cls = MagicMock()
     mock_agent_instance = MagicMock()
-    mock_agent_instance.run.return_value = MagicMock(content="Flushed 3 memories.")
+    mock_agent_instance.run.return_value = MagicMock(content="Flushed.")
     mock_agent_cls.return_value = mock_agent_instance
 
-    with patch("openjarvis.core.registry.AgentRegistry.get", return_value=mock_agent_cls):
-        result = executor.run_ephemeral(
+    with patch(REGISTRY_PATH, return_value=mock_agent_cls):
+        executor.run_ephemeral(
             agent_type="simple",
             system_prompt="Save important context.",
             input_text="Review and flush.",
@@ -34,7 +36,7 @@ def test_run_ephemeral_passes_input():
     mock_agent_instance.run.return_value = MagicMock(content="Done.")
     mock_agent_cls.return_value = mock_agent_instance
 
-    with patch("openjarvis.core.registry.AgentRegistry.get", return_value=mock_agent_cls):
+    with patch(REGISTRY_PATH, return_value=mock_agent_cls):
         executor.run_ephemeral(
             agent_type="simple",
             system_prompt="Test prompt.",
