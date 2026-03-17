@@ -191,3 +191,21 @@ class TestAgentManagerRoutes:
         assert "channels" in state
         assert "messages" in state
         assert "checkpoint" in state
+
+
+def test_run_agent_concurrent_returns_409(tmp_path):
+    """Rapid Run Now clicks should not spawn multiple ticks."""
+    from openjarvis.agents.manager import AgentManager
+
+    mgr = AgentManager(db_path=str(tmp_path / "test.db"))
+    agent = mgr.create_agent("Test", config={"schedule_type": "manual"})
+    aid = agent["id"]
+
+    # Simulate first click acquiring the tick
+    mgr.start_tick(aid)
+
+    # Second click should fail
+    with pytest.raises(ValueError, match="already executing a tick"):
+        mgr.start_tick(aid)
+
+    mgr.end_tick(aid)

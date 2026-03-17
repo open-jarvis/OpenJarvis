@@ -287,8 +287,18 @@ def create_agent_manager_router(
             raise HTTPException(status_code=404, detail="Agent not found")
         if agent["status"] == "archived":
             raise HTTPException(status_code=400, detail="Agent is archived")
-        if agent["status"] == "running":
-            raise HTTPException(status_code=409, detail="Agent is already running")
+
+        # Auto-recover from error/needs_attention state
+        if agent["status"] in ("error", "needs_attention"):
+            manager.update_agent(agent_id, status="idle")
+
+        # Acquire tick BEFORE spawning thread — prevents race
+        try:
+            manager.start_tick(agent_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=409, detail="Agent is already running"
+            )
 
         def _run_tick():
             try:
@@ -303,6 +313,7 @@ def create_agent_manager_router(
                     system = SystemBuilder().build()
                     executor.set_system(system)
                 except Exception as build_err:
+                    manager.end_tick(agent_id)
                     manager.update_agent(agent_id, status="error")
                     manager.update_summary_memory(
                         agent_id,
@@ -400,6 +411,14 @@ def create_agent_manager_router(
 
     @agents_router.post("/{agent_id}/messages")
     def send_message(agent_id: str, req: SendMessageRequest):
+        agent = manager.get_agent(agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+
+        # Auto-recover error-state agents on immediate messages
+        if req.mode == "immediate" and agent["status"] in ("error", "needs_attention"):
+            manager.update_agent(agent_id, status="idle")
+
         msg = manager.send_message(agent_id, req.content, mode=req.mode)
         return msg
 
