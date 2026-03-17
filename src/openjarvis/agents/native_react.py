@@ -109,7 +109,11 @@ class NativeReActAgent(ToolUsingAgent):
 
         all_tool_results: list[ToolResult] = []
         turns = 0
-        total_usage: dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        total_usage: dict[str, int] = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
 
         for _turn in range(self._max_turns):
             turns += 1
