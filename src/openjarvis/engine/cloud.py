@@ -113,6 +113,31 @@ def estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> flo
     return input_cost + output_cost
 
 
+def _annotate_anthropic_cache(messages: list[dict]) -> list[dict]:
+    """Add cache_control to system message for Anthropic prompt caching."""
+    result = []
+    for msg in messages:
+        if msg.get("role") == "system":
+            content = msg["content"]
+            if isinstance(content, str):
+                content = [
+                    {
+                        "type": "text",
+                        "text": content,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ]
+            elif isinstance(content, list):
+                content = [
+                    {**block, "cache_control": {"type": "ephemeral"}}
+                    for block in content
+                ]
+            result.append({**msg, "content": content})
+        else:
+            result.append(msg)
+    return result
+
+
 def _convert_tools_to_anthropic(
     openai_tools: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
@@ -816,4 +841,4 @@ class CloudEngine(InferenceEngine):
             self._openrouter_client = None
 
 
-__all__ = ["CloudEngine", "PRICING", "estimate_cost"]
+__all__ = ["CloudEngine", "PRICING", "_annotate_anthropic_cache", "estimate_cost"]

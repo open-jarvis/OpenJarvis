@@ -47,6 +47,24 @@ class AgentExecutor:
         """Deferred system injection — called after JarvisSystem is constructed."""
         self._system = system
 
+    def run_ephemeral(
+        self,
+        agent_type: str,
+        system_prompt: str,
+        input_text: str,
+        tools: list[str] | None = None,
+    ) -> Any:
+        """Run a one-shot agent turn with no lifecycle tracking."""
+        from openjarvis.core.registry import AgentRegistry
+
+        agent_cls = AgentRegistry.get(agent_type)
+        agent = agent_cls(
+            engine=getattr(self._manager, '_engine', None),
+            system_prompt=system_prompt,
+            bus=self._bus,
+        )
+        return agent.run(input_text)
+
     def execute_tick(self, agent_id: str) -> None:
         """Run one tick for the given agent.
 

@@ -13,6 +13,7 @@ from openjarvis.core.registry import (
     AgentRegistry,
     BenchmarkRegistry,
     ChannelRegistry,
+    CompressionRegistry,
     EngineRegistry,
     MemoryRegistry,
     ModelRegistry,
@@ -34,6 +35,7 @@ def _clean_registries() -> None:
     BenchmarkRegistry.clear()
     ChannelRegistry.clear()
     SpeechRegistry.clear()
+    CompressionRegistry.clear()
     reset_event_bus()
 
 
