@@ -455,7 +455,8 @@ class TestApplyTomlSectionListNormalization:
         from openjarvis.core.config import ToolsConfig, _apply_toml_section
 
         target = ToolsConfig()
-        _apply_toml_section(target, {"enabled": ["code_interpreter", "web_search", "file_read"]})
+        tools = ["code_interpreter", "web_search", "file_read"]
+        _apply_toml_section(target, {"enabled": tools})
         assert isinstance(target.enabled, str)
         assert target.enabled == "code_interpreter,web_search,file_read"
 
