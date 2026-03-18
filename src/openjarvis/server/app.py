@@ -56,6 +56,7 @@ def create_app(
     agent_name: str = "",
     channel_bridge=None,
     config=None,
+    memory_backend=None,
     speech_backend=None,
     agent_manager=None,
     agent_scheduler=None,
@@ -102,6 +103,8 @@ def create_app(
         getattr(agent, "agent_id", None) if agent else None
     )
     app.state.channel_bridge = channel_bridge
+    app.state.config = config
+    app.state.memory_backend = memory_backend
     app.state.speech_backend = speech_backend
     app.state.agent_manager = agent_manager
     app.state.agent_scheduler = agent_scheduler

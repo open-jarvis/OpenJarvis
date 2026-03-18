@@ -16,6 +16,7 @@ from openjarvis.cli.daemon_cmd import restart, start, status, stop
 from openjarvis.cli.doctor_cmd import doctor
 from openjarvis.cli.eval_cmd import eval_group
 from openjarvis.cli.feedback_cmd import feedback_group
+from openjarvis.cli.gateway_cmd import gateway
 from openjarvis.cli.host_cmd import host
 from openjarvis.cli.init_cmd import init
 from openjarvis.cli.memory_cmd import memory
@@ -79,6 +80,7 @@ cli.add_command(quickstart, "quickstart")
 cli.add_command(optimize_group, "optimize")
 cli.add_command(feedback_group, "feedback")
 cli.add_command(compose, "compose")
+cli.add_command(gateway, "gateway")
 
 
 def main() -> None:

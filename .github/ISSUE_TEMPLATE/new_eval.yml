@@ -1,0 +1,63 @@
+name: New Eval Dataset
+description: Propose a new evaluation dataset or benchmark
+labels: ["type:eval"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Adding eval datasets is one of the easiest ways to contribute! Fill out the details below.
+  - type: input
+    id: name
+    attributes:
+      label: Dataset Name
+      placeholder: e.g., HumanEval, GSM8K
+    validations:
+      required: true
+  - type: input
+    id: url
+    attributes:
+      label: URL / Reference
+      description: Link to the dataset or paper.
+      placeholder: https://...
+    validations:
+      required: true
+  - type: checkboxes
+    id: capability
+    attributes:
+      label: What capability does it test?
+      options:
+        - label: Reasoning
+        - label: Math
+        - label: Code
+        - label: Knowledge
+        - label: Multimodal
+        - label: Tool Use
+        - label: Long Context
+        - label: Other
+  - type: input
+    id: size
+    attributes:
+      label: Approximate Size
+      description: Number of examples in the dataset.
+      placeholder: e.g., 500
+    validations:
+      required: false
+  - type: dropdown
+    id: scorer
+    attributes:
+      label: Proposed Scorer Type
+      options:
+        - Exact Match
+        - F1
+        - BLEU
+        - LLM-as-Judge
+        - Custom
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Any other details about this dataset.
+    validations:
+      required: false

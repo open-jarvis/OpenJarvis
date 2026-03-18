@@ -37,6 +37,25 @@ _EVENT_MAP = {
 _DONE = object()
 
 
+def _estimate_prompt_tokens(messages: list) -> int:
+    """Estimate prompt tokens from request messages (incl. system, user, context).
+
+    Uses ~4 chars per token heuristic. Ensures system and all context are counted.
+    """
+    total = 0
+    for m in messages:
+        text = getattr(m, "content", None) or ""
+        if isinstance(text, str):
+            total += max(1, len(text) // 4)
+        # Tool call messages may have structured content; still count what we can
+        if hasattr(m, "tool_calls") and m.tool_calls:
+            for tc in m.tool_calls:
+                fn = tc.get("function") if isinstance(tc, dict) else {}
+                args = fn.get("arguments", "") if isinstance(fn, dict) else ""
+                total += max(1, len(str(args)) // 4)
+    return total
+
+
 class AgentStreamBridge:
     """Bridge between a synchronous agent and an async SSE stream.
 
@@ -238,9 +257,10 @@ class AgentStreamBridge:
                 "completion_tokens", 0,
             )
             total_tokens = agent_result.metadata.get("total_tokens", 0)
-            if total_tokens == 0 and content:
+            if total_tokens == 0:
+                # Fallback: estimate from request messages (incl. system) + content
                 completion_tokens = max(len(content) // 4, 1)
-                prompt_tokens = completion_tokens  # rough estimate
+                prompt_tokens = _estimate_prompt_tokens(self._request.messages)
                 total_tokens = prompt_tokens + completion_tokens
 
             final_chunk = ChatCompletionChunk(

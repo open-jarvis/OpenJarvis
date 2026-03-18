@@ -8,6 +8,7 @@ from openjarvis.core.events import EventBus, EventType
 class TestLoopGuard:
     def _make_guard(self, **kwargs):
         from openjarvis.agents.loop_guard import LoopGuard, LoopGuardConfig
+        kwargs.setdefault("warn_before_block", False)
         config = LoopGuardConfig(**kwargs)
         bus = EventBus(record_history=True)
         return LoopGuard(config, bus=bus), bus

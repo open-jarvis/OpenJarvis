@@ -163,10 +163,5 @@ nav:
       - Security: architecture/security.md
       - Design Principles: architecture/design-principles.md
   - API Reference: api-reference/
-  - Development:
-      - Contributing: development/contributing.md
-      - Extending OpenJarvis: development/extending.md
-      - Deployment: deployment/index.md
-      - Roadmap: development/roadmap.md
-      - Changelog: development/changelog.md
   - Leaderboard: leaderboard.md
+  - Roadmap: development/roadmap.md

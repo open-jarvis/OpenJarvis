@@ -286,10 +286,27 @@ def serve(
         except Exception as exc:
             logger.debug("Agent scheduler init failed: %s", exc)
 
+    # Set up memory backend for context injection
+    memory_backend = None
+    if config.agent.context_from_memory:
+        try:
+            import openjarvis.tools.storage  # noqa: F401
+            from openjarvis.core.registry import MemoryRegistry
+
+            mem_key = config.memory.default_backend
+            if MemoryRegistry.contains(mem_key):
+                memory_backend = MemoryRegistry.create(
+                    mem_key, db_path=config.memory.db_path,
+                )
+                console.print("  Memory:    [cyan]active[/cyan]")
+        except Exception as exc:
+            logger.debug("Memory backend init failed: %s", exc)
+
     app = create_app(
         engine, model_name, agent=agent, bus=bus,
         engine_name=engine_name, agent_name=agent_key or "",
         channel_bridge=channel_bridge, config=config,
+        memory_backend=memory_backend,
         speech_backend=speech_backend,
         agent_manager=agent_manager,
         agent_scheduler=agent_scheduler,

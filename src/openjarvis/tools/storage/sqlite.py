@@ -56,33 +56,8 @@ class SQLiteMemory(MemoryBackend):
             USING fts5(
                 content,
                 source,
-                content=documents,
-                content_rowid=rowid
+                tokenize='porter unicode61'
             );
-
-            CREATE TRIGGER IF NOT EXISTS documents_ai
-            AFTER INSERT ON documents BEGIN
-                INSERT INTO documents_fts(rowid, content, source)
-                VALUES (new.rowid, new.content, new.source);
-            END;
-
-            CREATE TRIGGER IF NOT EXISTS documents_ad
-            AFTER DELETE ON documents BEGIN
-                INSERT INTO documents_fts(
-                    documents_fts, rowid, content, source
-                )
-                VALUES ('delete', old.rowid, old.content, old.source);
-            END;
-
-            CREATE TRIGGER IF NOT EXISTS documents_au
-            AFTER UPDATE ON documents BEGIN
-                INSERT INTO documents_fts(
-                    documents_fts, rowid, content, source
-                )
-                VALUES ('delete', old.rowid, old.content, old.source);
-                INSERT INTO documents_fts(rowid, content, source)
-                VALUES (new.rowid, new.content, new.source);
-            END;
         """)
 
     def store(

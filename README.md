@@ -19,6 +19,8 @@
 > **[Project Site](https://scalingintelligence.stanford.edu/blogs/openjarvis/)**
 >
 > **[Leaderboard](https://open-jarvis.github.io/OpenJarvis/leaderboard/)**
+>
+> **[Roadmap](https://open-jarvis.github.io/OpenJarvis/development/roadmap/)**
 
 ## Why OpenJarvis?
 

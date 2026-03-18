@@ -25,6 +25,7 @@ dev = [
     "pytest-cov>=5",
     "respx>=0.22",
     "ruff>=0.4",
+    "pre-commit>=3.0",
 ]
 inference-mlx = ["mlx-lm>=0.19; sys_platform == 'darwin'"]
 inference-vllm = ["vllm>=0.16.0"]

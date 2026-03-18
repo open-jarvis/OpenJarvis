@@ -141,10 +141,15 @@ class SpeechRegistry(RegistryBase[Any]):
     """Registry for speech backend implementations."""
 
 
+class CompressionRegistry(RegistryBase[Any]):
+    """Registry for context compression strategies."""
+
+
 __all__ = [
     "AgentRegistry",
     "BenchmarkRegistry",
     "ChannelRegistry",
+    "CompressionRegistry",
     "EngineRegistry",
     "LearningRegistry",
     "MemoryRegistry",

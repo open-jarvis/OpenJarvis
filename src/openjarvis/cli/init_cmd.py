@@ -265,6 +265,25 @@ def init(
     )
     console.print("[green]Config written successfully.[/green]")
 
+    # Create default memory files (skip if they already exist)
+    soul_path = DEFAULT_CONFIG_DIR / "SOUL.md"
+    if not soul_path.exists():
+        soul_path.write_text(
+            "# Agent Persona\n\n"
+            "You are Jarvis, a helpful personal AI assistant.\n"
+        )
+
+    memory_path = DEFAULT_CONFIG_DIR / "MEMORY.md"
+    if not memory_path.exists():
+        memory_path.write_text("# Agent Memory\n\n")
+
+    user_path = DEFAULT_CONFIG_DIR / "USER.md"
+    if not user_path.exists():
+        user_path.write_text("# User Profile\n\n")
+
+    skills_dir = DEFAULT_CONFIG_DIR / "skills"
+    skills_dir.mkdir(exist_ok=True)
+
     selected_engine = engine or recommend_engine(hw)
     model = recommend_model(hw, selected_engine)
     if model:

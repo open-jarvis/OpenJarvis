@@ -9,6 +9,7 @@ from openjarvis.telemetry.flops import (
     MODEL_PARAMS_B,
     compute_mfu,
     estimate_flops,
+    estimate_flops_no_kv_cache,
 )
 
 
@@ -41,6 +42,24 @@ class TestEstimateFlops:
         total_100, _ = estimate_flops("qwen3:8b", 50, 50)
         total_200, _ = estimate_flops("qwen3:8b", 100, 100)
         assert total_200 == pytest.approx(total_100 * 2.0)
+
+
+class TestEstimateFlopsNoKvCache:
+    def test_known_model(self):
+        total, per_tok = estimate_flops_no_kv_cache("qwen3:8b", 100, 50)
+        # P * N * (N+1) = 8e9 * 150 * 151 = 1.812e14
+        assert total == pytest.approx(8e9 * 150 * 151)
+        assert per_tok == pytest.approx(total / 150)
+
+    def test_zero_tokens(self):
+        total, per_tok = estimate_flops_no_kv_cache("qwen3:8b", 0, 0)
+        assert total == 0.0
+        assert per_tok == 0.0
+
+    def test_unknown_model_zero(self):
+        total, per_tok = estimate_flops_no_kv_cache("unknown-model", 100, 50)
+        assert total == 0.0
+        assert per_tok == 0.0
 
 
 class TestComputeMfu:

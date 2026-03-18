@@ -1,0 +1,47 @@
+name: Feature Request
+description: Propose a new feature or enhancement
+labels: ["type:feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For non-trivial changes, please open this issue for discussion before starting a PR. This saves everyone time by catching design issues early.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What problem does this solve? Why is this needed?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe how you'd like this to work.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Primitive Area
+      description: Which part of OpenJarvis does this touch?
+      options:
+        - Intelligence
+        - Engine
+        - Agent
+        - Tools
+        - Learning
+        - Evals
+        - Frontend
+        - Channels
+        - Rust
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Any alternative solutions or features you've considered.
+    validations:
+      required: false

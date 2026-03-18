@@ -65,12 +65,14 @@ class BaseAgent(ABC):
         bus: Optional[EventBus] = None,
         temperature: float = 0.7,
         max_tokens: int = 1024,
+        prompt_builder: Optional[Any] = None,
     ) -> None:
         self._engine = engine
         self._model = model
         self._bus = bus
         self._temperature = temperature
         self._max_tokens = max_tokens
+        self._prompt_builder = prompt_builder
 
     # ------------------------------------------------------------------
     # Concrete helpers
@@ -104,8 +106,14 @@ class BaseAgent(ABC):
         conversation messages, and finally the user input.
         """
         messages: list[Message] = []
-        if system_prompt:
-            messages.append(Message(role=Role.SYSTEM, content=system_prompt))
+        if self._prompt_builder is not None:
+            effective_system_prompt = self._prompt_builder.build()
+        elif system_prompt:
+            effective_system_prompt = system_prompt
+        else:
+            effective_system_prompt = None
+        if effective_system_prompt:
+            messages.append(Message(role=Role.SYSTEM, content=effective_system_prompt))
         if context and context.conversation.messages:
             messages.extend(context.conversation.messages)
         messages.append(Message(role=Role.USER, content=input))
@@ -129,14 +137,19 @@ class BaseAgent(ABC):
         tool_results: list[ToolResult],
         turns: int,
         content: str = "",
+        *,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> AgentResult:
         """Build the standard result for when ``max_turns`` is exceeded."""
         self._emit_turn_end(turns=turns, max_turns_exceeded=True)
+        md: Dict[str, Any] = {"max_turns_exceeded": True}
+        if metadata:
+            md.update(metadata)
         return AgentResult(
             content=content or "Maximum turns reached without a final answer.",
             tool_results=tool_results,
             turns=turns,
-            metadata={"max_turns_exceeded": True},
+            metadata=md,
         )
 
     def _check_continuation(

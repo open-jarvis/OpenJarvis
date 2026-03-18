@@ -491,6 +491,41 @@
     0 1px 2px 1px rgba(0, 0, 0, 0.3);
 }
 
+/* Leaderboard pagination */
+.lb-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin: 20px 0 8px;
+}
+
+.lb-page-btn {
+  padding: 6px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--md-default-fg-color--lighter, #ccc);
+  background: var(--md-code-bg-color, #f5f5f5);
+  color: var(--md-default-fg-color, #333);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.lb-page-btn:hover:not([disabled]) {
+  opacity: 0.8;
+}
+
+.lb-page-btn[disabled] {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.lb-page-info {
+  font-size: 13px;
+  color: var(--md-default-fg-color--light, #666);
+}
+
 /* Responsive: hide placeholder on mobile */
 @media (max-width: 768px) {
   .DocSearch-Button-Placeholder {
