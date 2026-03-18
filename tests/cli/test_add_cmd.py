@@ -42,7 +42,8 @@ class TestAddCmd:
         mcp_dir = tmp_path / "mcp"
         with mock.patch("openjarvis.cli.add_cmd._MCP_CONFIG_DIR", mcp_dir):
             result = CliRunner().invoke(
-                add, ["github", "--key", "test_token"],
+                add,
+                ["github", "--key", "test_token"],
             )
             assert result.exit_code == 0
 
@@ -55,6 +56,6 @@ class TestAddCmd:
     def test_mcp_templates_complete(self) -> None:
         required_fields = {"command", "args", "env_key", "description"}
         for name, tmpl in _MCP_TEMPLATES.items():
-            assert required_fields.issubset(
-                tmpl.keys()
-            ), f"Template '{name}' missing fields: {required_fields - tmpl.keys()}"
+            assert required_fields.issubset(tmpl.keys()), (
+                f"Template '{name}' missing fields: {required_fields - tmpl.keys()}"
+            )

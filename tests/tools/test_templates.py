@@ -7,107 +7,129 @@ from openjarvis.tools.templates.loader import ToolTemplate, discover_templates
 
 class TestToolTemplate:
     def test_create_template(self):
-        template = ToolTemplate({
-            "name": "test_tool",
-            "description": "A test tool",
-            "action": {"type": "transform", "transform": "upper"},
-        })
+        template = ToolTemplate(
+            {
+                "name": "test_tool",
+                "description": "A test tool",
+                "action": {"type": "transform", "transform": "upper"},
+            }
+        )
         assert template.spec.name == "test_tool"
 
     def test_execute_upper_transform(self):
-        template = ToolTemplate({
-            "name": "upper",
-            "description": "Uppercase",
-            "action": {"type": "transform", "transform": "upper"},
-        })
+        template = ToolTemplate(
+            {
+                "name": "upper",
+                "description": "Uppercase",
+                "action": {"type": "transform", "transform": "upper"},
+            }
+        )
         result = template.execute(input="hello")
         assert result.success
         assert result.content == "HELLO"
 
     def test_execute_lower_transform(self):
-        template = ToolTemplate({
-            "name": "lower",
-            "description": "Lowercase",
-            "action": {"type": "transform", "transform": "lower"},
-        })
+        template = ToolTemplate(
+            {
+                "name": "lower",
+                "description": "Lowercase",
+                "action": {"type": "transform", "transform": "lower"},
+            }
+        )
         result = template.execute(input="HELLO")
         assert result.success
         assert result.content == "hello"
 
     def test_execute_reverse_transform(self):
-        template = ToolTemplate({
-            "name": "reverse",
-            "description": "Reverse",
-            "action": {"type": "transform", "transform": "reverse"},
-        })
+        template = ToolTemplate(
+            {
+                "name": "reverse",
+                "description": "Reverse",
+                "action": {"type": "transform", "transform": "reverse"},
+            }
+        )
         result = template.execute(input="hello")
         assert result.success
         assert result.content == "olleh"
 
     def test_execute_length_transform(self):
-        template = ToolTemplate({
-            "name": "length",
-            "description": "Length",
-            "action": {"type": "transform", "transform": "length"},
-        })
+        template = ToolTemplate(
+            {
+                "name": "length",
+                "description": "Length",
+                "action": {"type": "transform", "transform": "length"},
+            }
+        )
         result = template.execute(input="hello")
         assert result.success
         assert result.content == "5"
 
     def test_execute_json_pretty_transform(self):
-        template = ToolTemplate({
-            "name": "json",
-            "description": "JSON pretty",
-            "action": {"type": "transform", "transform": "json_pretty"},
-        })
+        template = ToolTemplate(
+            {
+                "name": "json",
+                "description": "JSON pretty",
+                "action": {"type": "transform", "transform": "json_pretty"},
+            }
+        )
         result = template.execute(input='{"a":1}')
         assert result.success
         assert '"a": 1' in result.content
 
     def test_execute_json_pretty_invalid(self):
-        template = ToolTemplate({
-            "name": "json",
-            "description": "JSON pretty",
-            "action": {"type": "transform", "transform": "json_pretty"},
-        })
+        template = ToolTemplate(
+            {
+                "name": "json",
+                "description": "JSON pretty",
+                "action": {"type": "transform", "transform": "json_pretty"},
+            }
+        )
         result = template.execute(input="not json")
         assert not result.success
 
     def test_execute_python_action(self):
-        template = ToolTemplate({
-            "name": "py",
-            "description": "Python",
-            "action": {"type": "python", "expression": "str(len(input))"},
-        })
+        template = ToolTemplate(
+            {
+                "name": "py",
+                "description": "Python",
+                "action": {"type": "python", "expression": "str(len(input))"},
+            }
+        )
         result = template.execute(input="hello")
         assert result.success
         assert result.content == "5"
 
     def test_execute_identity_transform(self):
-        template = ToolTemplate({
-            "name": "identity",
-            "description": "Identity",
-            "action": {"type": "transform", "transform": "identity"},
-        })
+        template = ToolTemplate(
+            {
+                "name": "identity",
+                "description": "Identity",
+                "action": {"type": "transform", "transform": "identity"},
+            }
+        )
         result = template.execute(input="unchanged")
         assert result.success
         assert result.content == "unchanged"
 
     def test_unknown_action_type(self):
-        template = ToolTemplate({
-            "name": "bad",
-            "description": "Bad",
-            "action": {"type": "unknown"},
-        })
+        template = ToolTemplate(
+            {
+                "name": "bad",
+                "description": "Bad",
+                "action": {"type": "unknown"},
+            }
+        )
         result = template.execute()
         assert not result.success
 
     def test_template_metadata(self):
-        template = ToolTemplate({
-            "name": "test",
-            "description": "test",
-            "action": {"type": "transform"},
-        })
+        template = ToolTemplate(
+            {
+                "name": "test",
+                "description": "test",
+                "action": {"type": "transform"},
+            }
+        )
         assert template.spec.metadata.get("template") is True
 
 

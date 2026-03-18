@@ -84,7 +84,9 @@ class TestVLLMGenerate:
             return_value=httpx.Response(
                 200,
                 json=_openai_response(
-                    content="", model=model_id, tool_calls=tool_calls,
+                    content="",
+                    model=model_id,
+                    tool_calls=tool_calls,
                 ),
             )
         )
@@ -112,9 +114,7 @@ class TestVLLMGenerate:
                 200, json=_openai_response(content="Fallback reply", model=model_id)
             )
 
-        respx_mock.post(f"{VLLM_HOST}/v1/chat/completions").mock(
-            side_effect=handler
-        )
+        respx_mock.post(f"{VLLM_HOST}/v1/chat/completions").mock(side_effect=handler)
         result = engine.generate(
             [Message(role=Role.USER, content="Hello")],
             model=model_id,
@@ -144,6 +144,7 @@ class TestVLLMGenerate:
             return tokens
 
         import asyncio
+
         tokens = asyncio.run(collect())
         assert tokens == ["Hello", " world"]
 

@@ -16,6 +16,7 @@ from openjarvis.intelligence.model_catalog import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _get_spec(model_id: str) -> ModelSpec:
     """Lookup a spec from the BUILTIN_MODELS list (not registry)."""
     for spec in BUILTIN_MODELS:
@@ -273,10 +274,19 @@ class TestModelDiscovery:
     def test_cloud_models_require_api_key(self) -> None:
         """All cloud models have requires_api_key=True."""
         cloud_ids = {
-            "gpt-4o", "gpt-4o-mini", "gpt-5-mini", "gpt-5-mini-2025-08-07",
-            "claude-sonnet-4-20250514", "claude-opus-4-20250514",
-            "claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5",
-            "gemini-2.5-pro", "gemini-2.5-flash", "gemini-3-pro", "gemini-3-flash",
+            "gpt-4o",
+            "gpt-4o-mini",
+            "gpt-5-mini",
+            "gpt-5-mini-2025-08-07",
+            "claude-sonnet-4-20250514",
+            "claude-opus-4-20250514",
+            "claude-opus-4-6",
+            "claude-sonnet-4-6",
+            "claude-haiku-4-5",
+            "gemini-2.5-pro",
+            "gemini-2.5-flash",
+            "gemini-3-pro",
+            "gemini-3-flash",
         }
         for spec in BUILTIN_MODELS:
             if spec.model_id in cloud_ids:
@@ -287,9 +297,15 @@ class TestModelDiscovery:
     def test_moe_models_have_active_params(self) -> None:
         """MoE models have active_parameter_count_b set."""
         moe_ids = {
-            "gpt-oss:120b", "glm-4.7-flash", "trinity-mini",
-            "qwen3.5:3b", "qwen3.5:8b", "qwen3.5:14b",
-            "qwen3.5:35b", "qwen3.5:122b", "qwen3.5:397b",
+            "gpt-oss:120b",
+            "glm-4.7-flash",
+            "trinity-mini",
+            "qwen3.5:3b",
+            "qwen3.5:8b",
+            "qwen3.5:14b",
+            "qwen3.5:35b",
+            "qwen3.5:122b",
+            "qwen3.5:397b",
             "granite4.0-h-small",
         }
         for spec in BUILTIN_MODELS:
@@ -308,8 +324,12 @@ class TestModelDiscovery:
         """merge_discovered_models works for all new model IDs."""
         register_builtin_models()
         new_ids = [
-            "gpt-oss:120b", "glm-4.7-flash", "trinity-mini",
-            "gpt-5-mini", "claude-opus-4-6", "gemini-3-pro",
+            "gpt-oss:120b",
+            "glm-4.7-flash",
+            "trinity-mini",
+            "gpt-5-mini",
+            "claude-opus-4-6",
+            "gemini-3-pro",
         ]
         # Merging known IDs should not raise
         merge_discovered_models("vllm", new_ids)

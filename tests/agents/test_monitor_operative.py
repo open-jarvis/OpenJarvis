@@ -23,6 +23,7 @@ class TestMonitorOperativeAgent:
         # Import triggers registration; re-register after autouse fixture
         # clears the registry (same pattern as test_monitor.py)
         import openjarvis.agents.monitor_operative  # noqa: F401
+
         if not AgentRegistry.contains("monitor_operative"):
             AgentRegistry.register_value("monitor_operative", MonitorOperativeAgent)
         assert AgentRegistry.contains("monitor_operative")
@@ -46,7 +47,8 @@ class TestMonitorOperativeAgent:
     def test_custom_strategies(self) -> None:
         engine = _make_engine()
         agent = MonitorOperativeAgent(
-            engine, "test-model",
+            engine,
+            "test-model",
             memory_extraction="scratchpad",
             observation_compression="none",
             retrieval_strategy="keyword",

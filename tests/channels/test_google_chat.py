@@ -25,7 +25,9 @@ class TestRegistration:
         assert ChannelRegistry.contains("google_chat")
 
     def test_channel_id(self):
-        ch = GoogleChatChannel(webhook_url="https://chat.googleapis.com/v1/spaces/xxx/messages?key=yyy")
+        ch = GoogleChatChannel(
+            webhook_url="https://chat.googleapis.com/v1/spaces/xxx/messages?key=yyy"
+        )
         assert ch.channel_id == "google_chat"
 
 
@@ -36,27 +38,48 @@ class TestInit:
         assert ch._status == ChannelStatus.DISCONNECTED
 
     def test_constructor_url(self):
-        ch = GoogleChatChannel(webhook_url="https://chat.googleapis.com/v1/spaces/xxx/messages?key=yyy")
-        assert ch._webhook_url == "https://chat.googleapis.com/v1/spaces/xxx/messages?key=yyy"
+        ch = GoogleChatChannel(
+            webhook_url="https://chat.googleapis.com/v1/spaces/xxx/messages?key=yyy"
+        )
+        assert (
+            ch._webhook_url
+            == "https://chat.googleapis.com/v1/spaces/xxx/messages?key=yyy"
+        )
 
     def test_env_var_fallback(self):
-        with patch.dict(os.environ, {
-            "GOOGLE_CHAT_WEBHOOK_URL": "https://chat.googleapis.com/v1/spaces/env/messages?key=env",
-        }):
+        with patch.dict(
+            os.environ,
+            {
+                "GOOGLE_CHAT_WEBHOOK_URL": "https://chat.googleapis.com/v1/spaces/env/messages?key=env",
+            },
+        ):
             ch = GoogleChatChannel()
-            assert ch._webhook_url == "https://chat.googleapis.com/v1/spaces/env/messages?key=env"
+            assert (
+                ch._webhook_url
+                == "https://chat.googleapis.com/v1/spaces/env/messages?key=env"
+            )
 
     def test_constructor_overrides_env(self):
-        with patch.dict(os.environ, {
-            "GOOGLE_CHAT_WEBHOOK_URL": "https://chat.googleapis.com/v1/spaces/env/messages?key=env",
-        }):
-            ch = GoogleChatChannel(webhook_url="https://chat.googleapis.com/v1/spaces/explicit/messages?key=explicit")
-            assert ch._webhook_url == "https://chat.googleapis.com/v1/spaces/explicit/messages?key=explicit"
+        with patch.dict(
+            os.environ,
+            {
+                "GOOGLE_CHAT_WEBHOOK_URL": "https://chat.googleapis.com/v1/spaces/env/messages?key=env",
+            },
+        ):
+            ch = GoogleChatChannel(
+                webhook_url="https://chat.googleapis.com/v1/spaces/explicit/messages?key=explicit"
+            )
+            assert (
+                ch._webhook_url
+                == "https://chat.googleapis.com/v1/spaces/explicit/messages?key=explicit"
+            )
 
 
 class TestSend:
     def test_send_success(self):
-        ch = GoogleChatChannel(webhook_url="https://chat.googleapis.com/v1/spaces/xxx/messages?key=yyy")
+        ch = GoogleChatChannel(
+            webhook_url="https://chat.googleapis.com/v1/spaces/xxx/messages?key=yyy"
+        )
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -67,7 +90,9 @@ class TestSend:
             mock_post.assert_called_once()
 
     def test_send_failure(self):
-        ch = GoogleChatChannel(webhook_url="https://chat.googleapis.com/v1/spaces/xxx/messages?key=yyy")
+        ch = GoogleChatChannel(
+            webhook_url="https://chat.googleapis.com/v1/spaces/xxx/messages?key=yyy"
+        )
 
         mock_response = MagicMock()
         mock_response.status_code = 400
@@ -78,7 +103,9 @@ class TestSend:
             assert result is False
 
     def test_send_exception(self):
-        ch = GoogleChatChannel(webhook_url="https://chat.googleapis.com/v1/spaces/xxx/messages?key=yyy")
+        ch = GoogleChatChannel(
+            webhook_url="https://chat.googleapis.com/v1/spaces/xxx/messages?key=yyy"
+        )
 
         with patch("httpx.post", side_effect=ConnectionError("refused")):
             result = ch.send("space", "Hello!")
@@ -108,13 +135,17 @@ class TestSend:
 
 class TestListChannels:
     def test_list_channels(self):
-        ch = GoogleChatChannel(webhook_url="https://chat.googleapis.com/v1/spaces/xxx/messages?key=yyy")
+        ch = GoogleChatChannel(
+            webhook_url="https://chat.googleapis.com/v1/spaces/xxx/messages?key=yyy"
+        )
         assert ch.list_channels() == ["google_chat"]
 
 
 class TestStatus:
     def test_disconnected_initially(self):
-        ch = GoogleChatChannel(webhook_url="https://chat.googleapis.com/v1/spaces/xxx/messages?key=yyy")
+        ch = GoogleChatChannel(
+            webhook_url="https://chat.googleapis.com/v1/spaces/xxx/messages?key=yyy"
+        )
         assert ch.status() == ChannelStatus.DISCONNECTED
 
     def test_no_url_connect_error(self):
@@ -125,7 +156,9 @@ class TestStatus:
 
 class TestOnMessage:
     def test_on_message(self):
-        ch = GoogleChatChannel(webhook_url="https://chat.googleapis.com/v1/spaces/xxx/messages?key=yyy")
+        ch = GoogleChatChannel(
+            webhook_url="https://chat.googleapis.com/v1/spaces/xxx/messages?key=yyy"
+        )
         handler = MagicMock()
         ch.on_message(handler)
         assert handler in ch._handlers
@@ -133,7 +166,9 @@ class TestOnMessage:
 
 class TestDisconnect:
     def test_disconnect(self):
-        ch = GoogleChatChannel(webhook_url="https://chat.googleapis.com/v1/spaces/xxx/messages?key=yyy")
+        ch = GoogleChatChannel(
+            webhook_url="https://chat.googleapis.com/v1/spaces/xxx/messages?key=yyy"
+        )
         ch._status = ChannelStatus.CONNECTED
         ch.disconnect()
         assert ch.status() == ChannelStatus.DISCONNECTED

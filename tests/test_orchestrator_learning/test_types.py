@@ -147,9 +147,7 @@ class TestEpisodeState:
 
     def test_add_turn(self):
         state = EpisodeState(initial_prompt="q")
-        action = OrchestratorAction(
-            thought="t", tool_name="calc", tool_input="1+1"
-        )
+        action = OrchestratorAction(thought="t", tool_name="calc", tool_input="1+1")
         obs = OrchestratorObservation(content="2")
         state.add_turn(action, obs)
         assert state.num_turns() == 1

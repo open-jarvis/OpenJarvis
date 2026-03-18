@@ -180,9 +180,7 @@ class TestAnthropicStructuredOutput:
         json_tool = [t for t in call_kwargs["tools"] if t["name"] == "json_output"][0]
         assert json_tool["input_schema"] == schema
 
-    def test_appends_to_existing_tools(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_appends_to_existing_tools(self, monkeypatch: pytest.MonkeyPatch) -> None:
         engine, fake_client = self._make_engine(monkeypatch)
         rf = ResponseFormat()
         existing_tools = [
@@ -228,12 +226,8 @@ class TestGoogleStructuredOutput:
             text='{"answer": 42}',
             function_call=None,
         )
-        fake_candidate = SimpleNamespace(
-            content=SimpleNamespace(parts=[fake_part])
-        )
-        fake_um = SimpleNamespace(
-            prompt_token_count=10, candidates_token_count=5
-        )
+        fake_candidate = SimpleNamespace(content=SimpleNamespace(parts=[fake_part]))
+        fake_um = SimpleNamespace(prompt_token_count=10, candidates_token_count=5)
         fake_resp = SimpleNamespace(
             candidates=[fake_candidate],
             usage_metadata=fake_um,
@@ -242,9 +236,7 @@ class TestGoogleStructuredOutput:
         fake_client.models.generate_content.return_value = fake_resp
         return engine, fake_client
 
-    def test_json_mode_sets_mime_type(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_json_mode_sets_mime_type(self, monkeypatch: pytest.MonkeyPatch) -> None:
         engine, fake_client = self._make_engine(monkeypatch)
         rf = ResponseFormat()
 
@@ -361,9 +353,7 @@ class TestOllamaStructuredOutput:
             sent_payload = json.loads(route.calls[0].request.content)
             assert sent_payload["format"] == "json"
 
-    def test_no_format_without_response_format(
-        self, engine: OllamaEngine
-    ) -> None:
+    def test_no_format_without_response_format(self, engine: OllamaEngine) -> None:
         with respx.mock:
             route = respx.post("http://testhost:11434/api/chat").mock(
                 return_value=httpx.Response(

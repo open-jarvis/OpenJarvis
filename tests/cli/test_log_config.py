@@ -29,10 +29,7 @@ class TestSetupLogging:
         log_file = tmp_path / "cli.log"
         logger = setup_logging(verbose=True, quiet=False, log_file=log_file)
         # Should have at least one file handler
-        file_handlers = [
-            h for h in logger.handlers
-            if hasattr(h, "baseFilename")
-        ]
+        file_handlers = [h for h in logger.handlers if hasattr(h, "baseFilename")]
         assert len(file_handlers) >= 1
         # Clean up
         for h in logger.handlers[:]:

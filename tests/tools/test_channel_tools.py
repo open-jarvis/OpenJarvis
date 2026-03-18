@@ -34,11 +34,13 @@ class _MockChannel(BaseChannel):
         self._status = ChannelStatus.DISCONNECTED
 
     def send(self, channel, content, *, conversation_id="", metadata=None) -> bool:
-        self._sent.append({
-            "channel": channel,
-            "content": content,
-            "conversation_id": conversation_id,
-        })
+        self._sent.append(
+            {
+                "channel": channel,
+                "content": content,
+                "conversation_id": conversation_id,
+            }
+        )
         return True
 
     def status(self) -> ChannelStatus:
@@ -95,7 +97,9 @@ class TestChannelSendTool:
     def test_send_with_conversation_id(self, channel):
         tool = ChannelSendTool(channel)
         result = tool.execute(
-            channel="chat-123", content="Reply", conversation_id="conv-1",
+            channel="chat-123",
+            content="Reply",
+            conversation_id="conv-1",
         )
         assert result.success is True
         assert channel._sent[0]["conversation_id"] == "conv-1"

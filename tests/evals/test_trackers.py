@@ -15,6 +15,7 @@ from openjarvis.evals.core.types import EvalResult, RunConfig, RunSummary
 # Test double
 # ---------------------------------------------------------------------------
 
+
 class RecordingTracker(ResultTracker):
     """Records all lifecycle calls for testing."""
 
@@ -58,6 +59,7 @@ class CrashingTracker(ResultTracker):
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_config(**overrides) -> RunConfig:
     defaults = dict(benchmark="test", backend="jarvis-direct", model="test-model")
     defaults.update(overrides)
@@ -92,6 +94,7 @@ def _make_result(**overrides) -> EvalResult:
 # RecordingTracker through EvalRunner lifecycle
 # ---------------------------------------------------------------------------
 
+
 class TestRecordingTrackerIntegration:
     """Test that trackers receive all lifecycle calls through EvalRunner."""
 
@@ -111,11 +114,13 @@ class TestRecordingTrackerIntegration:
         dataset.iter_records = MagicMock(return_value=[record])
 
         backend = MagicMock()
-        backend.generate_full = MagicMock(return_value={
-            "content": "2",
-            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
-            "latency_seconds": 0.5,
-        })
+        backend.generate_full = MagicMock(
+            return_value={
+                "content": "2",
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+                "latency_seconds": 0.5,
+            }
+        )
 
         scorer = MagicMock()
         scorer.score = MagicMock(return_value=(True, {}))
@@ -152,11 +157,13 @@ class TestRecordingTrackerIntegration:
         dataset.iter_records = MagicMock(return_value=[record])
 
         backend = MagicMock()
-        backend.generate_full = MagicMock(return_value={
-            "content": "yes",
-            "usage": {},
-            "latency_seconds": 0.1,
-        })
+        backend.generate_full = MagicMock(
+            return_value={
+                "content": "yes",
+                "usage": {},
+                "latency_seconds": 0.1,
+            }
+        )
 
         scorer = MagicMock()
         scorer.score = MagicMock(return_value=(True, {}))
@@ -178,6 +185,7 @@ class TestRecordingTrackerIntegration:
 # WandbTracker unit tests
 # ---------------------------------------------------------------------------
 
+
 class TestWandbTracker:
     """Unit tests for WandbTracker (mocked wandb module)."""
 
@@ -185,6 +193,7 @@ class TestWandbTracker:
         """WandbTracker raises ImportError when wandb is not installed."""
         with patch.dict(sys.modules, {"wandb": None}):
             import openjarvis.evals.trackers.wandb_tracker as wt_mod
+
             original = wt_mod.wandb
             wt_mod.wandb = None
             try:
@@ -277,12 +286,14 @@ class TestWandbTracker:
 # SheetsTracker unit tests
 # ---------------------------------------------------------------------------
 
+
 class TestSheetsTracker:
     """Unit tests for SheetsTracker."""
 
     def test_import_error_when_gspread_missing(self):
         """SheetsTracker raises ImportError when gspread not installed."""
         import openjarvis.evals.trackers.sheets_tracker as st_mod
+
         original = st_mod.gspread
         st_mod.gspread = None
         try:

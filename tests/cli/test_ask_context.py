@@ -11,9 +11,7 @@ from openjarvis.cli import cli
 
 def test_ask_no_context_flag():
     """The --no-context flag is accepted."""
-    result = CliRunner().invoke(
-        cli, ["ask", "--no-context", "--help"]
-    )
+    result = CliRunner().invoke(cli, ["ask", "--no-context", "--help"])
     # --help should succeed regardless
     assert result.exit_code == 0
 
@@ -26,7 +24,8 @@ def test_ask_has_no_context_option():
 
 
 def test_get_memory_backend_returns_none_when_empty(
-    tmp_path, monkeypatch,
+    tmp_path,
+    monkeypatch,
 ):
     """_get_memory_backend returns None when no docs indexed."""
     from openjarvis.core.config import JarvisConfig, MemoryConfig
@@ -47,7 +46,8 @@ def test_get_memory_backend_returns_none_when_empty(
 
 
 def test_get_memory_backend_returns_backend_with_docs(
-    tmp_path, monkeypatch,
+    tmp_path,
+    monkeypatch,
 ):
     """_get_memory_backend returns a backend when docs exist."""
     from openjarvis.core.config import JarvisConfig, MemoryConfig

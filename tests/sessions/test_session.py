@@ -29,7 +29,8 @@ class TestSession:
 class TestSessionIdentity:
     def test_create_identity(self):
         identity = SessionIdentity(
-            user_id="u1", display_name="Alice",
+            user_id="u1",
+            display_name="Alice",
             channel_ids={"telegram": "t123"},
         )
         assert identity.user_id == "u1"

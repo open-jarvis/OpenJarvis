@@ -42,19 +42,25 @@ class TestInit:
         assert ch._phone_number == "+1234567890"
 
     def test_env_var_fallback(self):
-        with patch.dict(os.environ, {
-            "SIGNAL_API_URL": "http://env-signal:8080",
-            "SIGNAL_PHONE_NUMBER": "+9876543210",
-        }):
+        with patch.dict(
+            os.environ,
+            {
+                "SIGNAL_API_URL": "http://env-signal:8080",
+                "SIGNAL_PHONE_NUMBER": "+9876543210",
+            },
+        ):
             ch = SignalChannel()
             assert ch._api_url == "http://env-signal:8080"
             assert ch._phone_number == "+9876543210"
 
     def test_constructor_overrides_env(self):
-        with patch.dict(os.environ, {
-            "SIGNAL_API_URL": "http://env-signal:8080",
-            "SIGNAL_PHONE_NUMBER": "+9876543210",
-        }):
+        with patch.dict(
+            os.environ,
+            {
+                "SIGNAL_API_URL": "http://env-signal:8080",
+                "SIGNAL_PHONE_NUMBER": "+9876543210",
+            },
+        ):
             ch = SignalChannel(
                 api_url="http://explicit:8080",
                 phone_number="+1111111111",

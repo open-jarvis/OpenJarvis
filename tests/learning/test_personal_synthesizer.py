@@ -60,25 +60,33 @@ def trace_store(tmp_path: Path) -> TraceStore:
 class TestPersonalBenchmarkSampleDefaults:
     def test_default_category(self) -> None:
         sample = PersonalBenchmarkSample(
-            trace_id="t1", query="hello", reference_answer="world",
+            trace_id="t1",
+            query="hello",
+            reference_answer="world",
         )
         assert sample.category == "chat"
 
     def test_default_agent_empty(self) -> None:
         sample = PersonalBenchmarkSample(
-            trace_id="t1", query="q", reference_answer="a",
+            trace_id="t1",
+            query="q",
+            reference_answer="a",
         )
         assert sample.agent == ""
 
     def test_default_feedback_score_zero(self) -> None:
         sample = PersonalBenchmarkSample(
-            trace_id="t1", query="q", reference_answer="a",
+            trace_id="t1",
+            query="q",
+            reference_answer="a",
         )
         assert sample.feedback_score == 0.0
 
     def test_default_metadata_empty(self) -> None:
         sample = PersonalBenchmarkSample(
-            trace_id="t1", query="q", reference_answer="a",
+            trace_id="t1",
+            query="q",
+            reference_answer="a",
         )
         assert sample.metadata == {}
 
@@ -90,7 +98,8 @@ class TestPersonalBenchmarkSampleDefaults:
 
 class TestPersonalBenchmarkSynthesizer:
     def test_synthesize_creates_benchmark_from_traces(
-        self, trace_store: TraceStore,
+        self,
+        trace_store: TraceStore,
     ) -> None:
         trace_store.save(_make_trace(trace_id="t1", feedback=0.9))
         trace_store.save(_make_trace(trace_id="t2", query="What is 3+3?", feedback=0.8))
@@ -119,38 +128,46 @@ class TestPersonalBenchmarkSynthesizer:
 
     def test_grouping_by_query_class(self, trace_store: TraceStore) -> None:
         """Same agent + same query prefix -> same group, so only one sample."""
-        trace_store.save(_make_trace(
-            trace_id="t1",
-            query="What is 2+2?",
-            agent="simple",
-            feedback=0.8,
-        ))
-        trace_store.save(_make_trace(
-            trace_id="t2",
-            query="What is 2+2?",
-            agent="simple",
-            feedback=0.95,
-        ))
+        trace_store.save(
+            _make_trace(
+                trace_id="t1",
+                query="What is 2+2?",
+                agent="simple",
+                feedback=0.8,
+            )
+        )
+        trace_store.save(
+            _make_trace(
+                trace_id="t2",
+                query="What is 2+2?",
+                agent="simple",
+                feedback=0.95,
+            )
+        )
         synth = PersonalBenchmarkSynthesizer(trace_store)
         bm = synth.synthesize()
         # Should collapse into one sample (same group)
         assert len(bm.samples) == 1
 
     def test_picks_highest_feedback_per_group(self, trace_store: TraceStore) -> None:
-        trace_store.save(_make_trace(
-            trace_id="t1",
-            query="Tell me a joke",
-            agent="simple",
-            feedback=0.7,
-            result="bad joke",
-        ))
-        trace_store.save(_make_trace(
-            trace_id="t2",
-            query="Tell me a joke",
-            agent="simple",
-            feedback=0.99,
-            result="great joke",
-        ))
+        trace_store.save(
+            _make_trace(
+                trace_id="t1",
+                query="Tell me a joke",
+                agent="simple",
+                feedback=0.7,
+                result="bad joke",
+            )
+        )
+        trace_store.save(
+            _make_trace(
+                trace_id="t2",
+                query="Tell me a joke",
+                agent="simple",
+                feedback=0.99,
+                result="great joke",
+            )
+        )
         synth = PersonalBenchmarkSynthesizer(trace_store)
         bm = synth.synthesize()
         assert len(bm.samples) == 1
@@ -162,12 +179,14 @@ class TestPersonalBenchmarkSynthesizer:
         trace_store.save(
             _make_trace(trace_id="t1", query="Hello", agent="simple", feedback=0.9),
         )
-        trace_store.save(_make_trace(
-            trace_id="t2",
-            query="Hello",
-            agent="orchestrator",
-            feedback=0.8,
-        ))
+        trace_store.save(
+            _make_trace(
+                trace_id="t2",
+                query="Hello",
+                agent="orchestrator",
+                feedback=0.8,
+            )
+        )
         synth = PersonalBenchmarkSynthesizer(trace_store)
         bm = synth.synthesize()
         assert len(bm.samples) == 2
@@ -186,7 +205,8 @@ class TestPersonalBenchmarkSynthesizer:
         assert len(bm.samples) == 3
 
     def test_empty_traces_returns_empty_benchmark(
-        self, trace_store: TraceStore,
+        self,
+        trace_store: TraceStore,
     ) -> None:
         synth = PersonalBenchmarkSynthesizer(trace_store)
         bm = synth.synthesize()

@@ -17,13 +17,20 @@ class _FakeBackend(MemoryBackend):
         self._results = results or []
 
     def store(
-        self, content: str, *, source: str = "",
+        self,
+        content: str,
+        *,
+        source: str = "",
         metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
         return "fake-id"
 
     def retrieve(
-        self, query: str, *, top_k: int = 5, **kwargs: Any,
+        self,
+        query: str,
+        *,
+        top_k: int = 5,
+        **kwargs: Any,
     ) -> List[RetrievalResult]:
         return self._results[:top_k]
 
@@ -36,7 +43,11 @@ class _FakeBackend(MemoryBackend):
 
 class _ErrorBackend(_FakeBackend):
     def retrieve(
-        self, query: str, *, top_k: int = 5, **kwargs: Any,
+        self,
+        query: str,
+        *,
+        top_k: int = 5,
+        **kwargs: Any,
     ) -> List[RetrievalResult]:
         raise RuntimeError("backend error")
 

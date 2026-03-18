@@ -64,16 +64,20 @@ def test_maxsim_scoring():
     """Test the _maxsim function directly with synthetic tensors."""
     backend = _make_backend()
     # 2 query tokens, dim 4
-    q = torch.tensor([
-        [1.0, 0.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0, 0.0],
-    ])
+    q = torch.tensor(
+        [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+        ]
+    )
     # 3 doc tokens, dim 4
-    d = torch.tensor([
-        [1.0, 0.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0, 0.0],
-        [0.0, 1.0, 0.0, 0.0],
-    ])
+    d = torch.tensor(
+        [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+        ]
+    )
     score = backend._maxsim(q, d)
     # query[0] max sim: max(1.0, 0.0, 0.0) = 1.0
     # query[1] max sim: max(0.0, 0.0, 1.0) = 1.0
@@ -134,10 +138,7 @@ def test_event_bus_store():
     mod.get_event_bus = lambda: bus
     try:
         backend.store("test event emission")
-        events = [
-            e for e in bus.history
-            if e.event_type == EventType.MEMORY_STORE
-        ]
+        events = [e for e in bus.history if e.event_type == EventType.MEMORY_STORE]
         assert len(events) == 1
         assert events[0].data["backend"] == "colbert"
         assert "doc_id" in events[0].data
@@ -155,10 +156,7 @@ def test_event_bus_retrieve():
     mod.get_event_bus = lambda: bus
     try:
         backend.retrieve("searchable")
-        events = [
-            e for e in bus.history
-            if e.event_type == EventType.MEMORY_RETRIEVE
-        ]
+        events = [e for e in bus.history if e.event_type == EventType.MEMORY_RETRIEVE]
         assert len(events) == 1
         assert events[0].data["backend"] == "colbert"
         assert events[0].data["num_results"] >= 0

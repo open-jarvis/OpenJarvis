@@ -153,10 +153,13 @@ class TestChannelImportError:
 
 class TestLineChannel:
     def test_env_fallback(self):
-        with patch.dict("os.environ", {
-            "LINE_CHANNEL_ACCESS_TOKEN": "env-tok",
-            "LINE_CHANNEL_SECRET": "env-sec",
-        }):
+        with patch.dict(
+            "os.environ",
+            {
+                "LINE_CHANNEL_ACCESS_TOKEN": "env-tok",
+                "LINE_CHANNEL_SECRET": "env-sec",
+            },
+        ):
             ch = LineChannel()
             assert ch._channel_access_token == "env-tok"
             assert ch._channel_secret == "env-sec"
@@ -164,10 +167,13 @@ class TestLineChannel:
 
 class TestViberChannel:
     def test_env_fallback(self):
-        with patch.dict("os.environ", {
-            "VIBER_AUTH_TOKEN": "env-tok",
-            "VIBER_BOT_NAME": "TestBot",
-        }):
+        with patch.dict(
+            "os.environ",
+            {
+                "VIBER_AUTH_TOKEN": "env-tok",
+                "VIBER_BOT_NAME": "TestBot",
+            },
+        ):
             ch = ViberChannel()
             assert ch._auth_token == "env-tok"
             assert ch._name == "TestBot"
@@ -175,21 +181,27 @@ class TestViberChannel:
 
 class TestMessengerChannel:
     def test_env_fallback(self):
-        with patch.dict("os.environ", {
-            "MESSENGER_ACCESS_TOKEN": "env-tok",
-        }):
+        with patch.dict(
+            "os.environ",
+            {
+                "MESSENGER_ACCESS_TOKEN": "env-tok",
+            },
+        ):
             ch = MessengerChannel()
             assert ch._access_token == "env-tok"
 
 
 class TestRedditChannel:
     def test_env_fallback(self):
-        with patch.dict("os.environ", {
-            "REDDIT_CLIENT_ID": "cid",
-            "REDDIT_CLIENT_SECRET": "csec",
-            "REDDIT_USERNAME": "user",
-            "REDDIT_PASSWORD": "pass",
-        }):
+        with patch.dict(
+            "os.environ",
+            {
+                "REDDIT_CLIENT_ID": "cid",
+                "REDDIT_CLIENT_SECRET": "csec",
+                "REDDIT_USERNAME": "user",
+                "REDDIT_PASSWORD": "pass",
+            },
+        ):
             ch = RedditChannel()
             assert ch._client_id == "cid"
             assert ch._client_secret == "csec"
@@ -199,10 +211,13 @@ class TestRedditChannel:
 
 class TestMastodonChannel:
     def test_env_fallback(self):
-        with patch.dict("os.environ", {
-            "MASTODON_API_BASE_URL": "https://m.social",
-            "MASTODON_ACCESS_TOKEN": "env-tok",
-        }):
+        with patch.dict(
+            "os.environ",
+            {
+                "MASTODON_API_BASE_URL": "https://m.social",
+                "MASTODON_ACCESS_TOKEN": "env-tok",
+            },
+        ):
             ch = MastodonChannel()
             assert ch._api_base_url == "https://m.social"
             assert ch._access_token == "env-tok"
@@ -210,12 +225,15 @@ class TestMastodonChannel:
 
 class TestXMPPChannel:
     def test_env_fallback(self):
-        with patch.dict("os.environ", {
-            "XMPP_JID": "bot@example.com",
-            "XMPP_PASSWORD": "pass",
-            "XMPP_SERVER": "xmpp.example.com",
-            "XMPP_PORT": "5223",
-        }):
+        with patch.dict(
+            "os.environ",
+            {
+                "XMPP_JID": "bot@example.com",
+                "XMPP_PASSWORD": "pass",
+                "XMPP_SERVER": "xmpp.example.com",
+                "XMPP_PORT": "5223",
+            },
+        ):
             ch = XMPPChannel()
             assert ch._jid == "bot@example.com"
             assert ch._password == "pass"
@@ -225,22 +243,28 @@ class TestXMPPChannel:
 
 class TestRocketChatChannel:
     def test_env_fallback(self):
-        with patch.dict("os.environ", {
-            "ROCKETCHAT_URL": "https://rc.example.com",
-            "ROCKETCHAT_USER": "bot",
-            "ROCKETCHAT_PASSWORD": "pass",
-        }):
+        with patch.dict(
+            "os.environ",
+            {
+                "ROCKETCHAT_URL": "https://rc.example.com",
+                "ROCKETCHAT_USER": "bot",
+                "ROCKETCHAT_PASSWORD": "pass",
+            },
+        ):
             ch = RocketChatChannel()
             assert ch._url == "https://rc.example.com"
             assert ch._user == "bot"
             assert ch._password == "pass"
 
     def test_token_auth_env(self):
-        with patch.dict("os.environ", {
-            "ROCKETCHAT_URL": "https://rc.example.com",
-            "ROCKETCHAT_AUTH_TOKEN": "tok",
-            "ROCKETCHAT_USER_ID": "uid",
-        }):
+        with patch.dict(
+            "os.environ",
+            {
+                "ROCKETCHAT_URL": "https://rc.example.com",
+                "ROCKETCHAT_AUTH_TOKEN": "tok",
+                "ROCKETCHAT_USER_ID": "uid",
+            },
+        ):
             ch = RocketChatChannel()
             assert ch._auth_token == "tok"
             assert ch._user_id == "uid"
@@ -248,32 +272,41 @@ class TestRocketChatChannel:
 
 class TestZulipChannel:
     def test_env_fallback(self):
-        with patch.dict("os.environ", {
-            "ZULIP_EMAIL": "bot@zulip.com",
-            "ZULIP_API_KEY": "key",
-            "ZULIP_SITE": "https://z.com",
-        }):
+        with patch.dict(
+            "os.environ",
+            {
+                "ZULIP_EMAIL": "bot@zulip.com",
+                "ZULIP_API_KEY": "key",
+                "ZULIP_SITE": "https://z.com",
+            },
+        ):
             ch = ZulipChannel()
             assert ch._email == "bot@zulip.com"
             assert ch._api_key == "key"
             assert ch._site == "https://z.com"
 
     def test_zuliprc_env(self):
-        with patch.dict("os.environ", {
-            "ZULIP_RC": "/path/to/zuliprc",
-        }):
+        with patch.dict(
+            "os.environ",
+            {
+                "ZULIP_RC": "/path/to/zuliprc",
+            },
+        ):
             ch = ZulipChannel()
             assert ch._zuliprc == "/path/to/zuliprc"
 
 
 class TestTwitchChannel:
     def test_env_fallback(self):
-        with patch.dict("os.environ", {
-            "TWITCH_ACCESS_TOKEN": "env-tok",
-            "TWITCH_CLIENT_ID": "env-cid",
-            "TWITCH_NICK": "env-nick",
-            "TWITCH_CHANNELS": "chan1,chan2",
-        }):
+        with patch.dict(
+            "os.environ",
+            {
+                "TWITCH_ACCESS_TOKEN": "env-tok",
+                "TWITCH_CLIENT_ID": "env-cid",
+                "TWITCH_NICK": "env-nick",
+                "TWITCH_CHANNELS": "chan1,chan2",
+            },
+        ):
             ch = TwitchChannel()
             assert ch._access_token == "env-tok"
             assert ch._client_id == "env-cid"
@@ -283,10 +316,13 @@ class TestTwitchChannel:
 
 class TestNostrChannel:
     def test_env_fallback(self):
-        with patch.dict("os.environ", {
-            "NOSTR_PRIVATE_KEY": "aa" * 32,
-            "NOSTR_RELAYS": "wss://r1.example.com,wss://r2.example.com",
-        }):
+        with patch.dict(
+            "os.environ",
+            {
+                "NOSTR_PRIVATE_KEY": "aa" * 32,
+                "NOSTR_RELAYS": "wss://r1.example.com,wss://r2.example.com",
+            },
+        ):
             ch = NostrChannel()
             assert ch._private_key == "aa" * 32
             assert len(ch._relays) == 2

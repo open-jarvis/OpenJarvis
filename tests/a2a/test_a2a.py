@@ -78,6 +78,7 @@ class TestA2AResponse:
 
     def test_from_json(self):
         import json
+
         data = json.dumps({"jsonrpc": "2.0", "result": "ok", "id": "3"})
         resp = A2AResponse.from_json(data)
         assert resp.result == "ok"
@@ -88,24 +89,28 @@ class TestA2AServer:
     def test_task_send(self):
         card = AgentCard(name="Test")
         server = A2AServer(card, handler=lambda x: f"Echo: {x}")
-        response = server.handle_request({
-            "jsonrpc": "2.0",
-            "method": "tasks/send",
-            "params": {"input": "Hello"},
-            "id": "1",
-        })
+        response = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "method": "tasks/send",
+                "params": {"input": "Hello"},
+                "id": "1",
+            }
+        )
         assert response["result"]["state"] == "completed"
         assert "Echo: Hello" in response["result"]["output"]
 
     def test_task_send_with_message_format(self):
         card = AgentCard(name="Test")
         server = A2AServer(card, handler=lambda x: f"Got: {x}")
-        response = server.handle_request({
-            "jsonrpc": "2.0",
-            "method": "tasks/send",
-            "params": {"message": {"role": "user", "parts": [{"text": "Hi"}]}},
-            "id": "1",
-        })
+        response = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "method": "tasks/send",
+                "params": {"message": {"role": "user", "parts": [{"text": "Hi"}]}},
+                "id": "1",
+            }
+        )
         assert response["result"]["state"] == "completed"
         assert "Got: Hi" in response["result"]["output"]
 
@@ -113,62 +118,74 @@ class TestA2AServer:
         card = AgentCard(name="Test")
         server = A2AServer(card, handler=lambda x: x)
         # First send a task
-        send_resp = server.handle_request({
-            "jsonrpc": "2.0",
-            "method": "tasks/send",
-            "params": {"input": "test"},
-            "id": "1",
-        })
+        send_resp = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "method": "tasks/send",
+                "params": {"input": "test"},
+                "id": "1",
+            }
+        )
         task_id = send_resp["result"]["id"]
 
         # Now get it
-        get_resp = server.handle_request({
-            "jsonrpc": "2.0",
-            "method": "tasks/get",
-            "params": {"id": task_id},
-            "id": "2",
-        })
+        get_resp = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "method": "tasks/get",
+                "params": {"id": task_id},
+                "id": "2",
+            }
+        )
         assert get_resp["result"]["id"] == task_id
 
     def test_task_get_not_found(self):
         card = AgentCard(name="Test")
         server = A2AServer(card)
-        response = server.handle_request({
-            "jsonrpc": "2.0",
-            "method": "tasks/get",
-            "params": {"id": "nonexistent"},
-            "id": "1",
-        })
+        response = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "method": "tasks/get",
+                "params": {"id": "nonexistent"},
+                "id": "1",
+            }
+        )
         assert "error" in response
 
     def test_task_cancel(self):
         card = AgentCard(name="Test")
         server = A2AServer(card, handler=lambda x: x)
-        send_resp = server.handle_request({
-            "jsonrpc": "2.0",
-            "method": "tasks/send",
-            "params": {"input": "test"},
-            "id": "1",
-        })
+        send_resp = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "method": "tasks/send",
+                "params": {"input": "test"},
+                "id": "1",
+            }
+        )
         task_id = send_resp["result"]["id"]
 
-        cancel_resp = server.handle_request({
-            "jsonrpc": "2.0",
-            "method": "tasks/cancel",
-            "params": {"id": task_id},
-            "id": "2",
-        })
+        cancel_resp = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "method": "tasks/cancel",
+                "params": {"id": task_id},
+                "id": "2",
+            }
+        )
         assert cancel_resp["result"]["state"] == "canceled"
 
     def test_unknown_method(self):
         card = AgentCard(name="Test")
         server = A2AServer(card)
-        response = server.handle_request({
-            "jsonrpc": "2.0",
-            "method": "unknown/method",
-            "params": {},
-            "id": "1",
-        })
+        response = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "method": "unknown/method",
+                "params": {},
+                "id": "1",
+            }
+        )
         assert "error" in response
         assert response["error"]["code"] == -32601
 
@@ -176,12 +193,14 @@ class TestA2AServer:
         bus = EventBus(record_history=True)
         card = AgentCard(name="Test")
         server = A2AServer(card, handler=lambda x: x, bus=bus)
-        server.handle_request({
-            "jsonrpc": "2.0",
-            "method": "tasks/send",
-            "params": {"input": "test"},
-            "id": "1",
-        })
+        server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "method": "tasks/send",
+                "params": {"input": "test"},
+                "id": "1",
+            }
+        )
         event_types = {e.event_type for e in bus.history}
         assert EventType.A2A_TASK_RECEIVED in event_types
         assert EventType.A2A_TASK_COMPLETED in event_types
@@ -193,10 +212,12 @@ class TestA2AServer:
             raise ValueError("boom")
 
         server = A2AServer(card, handler=bad_handler)
-        response = server.handle_request({
-            "jsonrpc": "2.0",
-            "method": "tasks/send",
-            "params": {"input": "test"},
-            "id": "1",
-        })
+        response = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "method": "tasks/send",
+                "params": {"input": "test"},
+                "id": "1",
+            }
+        )
         assert response["result"]["state"] == "failed"

@@ -46,12 +46,14 @@ class _FakeBackend(MemoryBackend):
         results = []
         for doc_id, (content, source, meta) in self._docs.items():
             if query.lower() in content.lower():
-                results.append(RetrievalResult(
-                    content=content,
-                    score=1.0,
-                    source=source,
-                    metadata=meta,
-                ))
+                results.append(
+                    RetrievalResult(
+                        content=content,
+                        score=1.0,
+                        source=source,
+                        metadata=meta,
+                    )
+                )
         return results[:top_k]
 
     def delete(self, doc_id: str) -> bool:
@@ -127,7 +129,9 @@ def test_rrf_custom_weights():
     list1 = [RetrievalResult(content="A", score=1.0)]
     list2 = [RetrievalResult(content="B", score=1.0)]
     fused = reciprocal_rank_fusion(
-        [list1, list2], k=60, weights=[2.0, 1.0],
+        [list1, list2],
+        k=60,
+        weights=[2.0, 1.0],
     )
     scores = {r.content: r.score for r in fused}
     # A has weight 2, B has weight 1, both at rank 0
@@ -191,19 +195,14 @@ def test_event_bus_store():
     bus = EventBus(record_history=True)
     hybrid = _make_hybrid()
     import openjarvis.tools.storage.hybrid as mod
+
     original = mod.get_event_bus
     mod.get_event_bus = lambda: bus
     try:
         hybrid.store("event test content")
-        events = [
-            e for e in bus.history
-            if e.event_type == EventType.MEMORY_STORE
-        ]
+        events = [e for e in bus.history if e.event_type == EventType.MEMORY_STORE]
         assert len(events) >= 1
-        assert any(
-            e.data.get("backend") == "hybrid"
-            for e in events
-        )
+        assert any(e.data.get("backend") == "hybrid" for e in events)
     finally:
         mod.get_event_bus = original
 
@@ -213,18 +212,13 @@ def test_event_bus_retrieve():
     hybrid = _make_hybrid()
     hybrid.store("retrievable content here")
     import openjarvis.tools.storage.hybrid as mod
+
     original = mod.get_event_bus
     mod.get_event_bus = lambda: bus
     try:
         hybrid.retrieve("retrievable")
-        events = [
-            e for e in bus.history
-            if e.event_type == EventType.MEMORY_RETRIEVE
-        ]
+        events = [e for e in bus.history if e.event_type == EventType.MEMORY_RETRIEVE]
         assert len(events) >= 1
-        assert any(
-            e.data.get("backend") == "hybrid"
-            for e in events
-        )
+        assert any(e.data.get("backend") == "hybrid" for e in events)
     finally:
         mod.get_event_bus = original

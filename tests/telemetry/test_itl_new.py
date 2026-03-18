@@ -57,7 +57,12 @@ class TestComputeItlStats:
     def test_all_keys_present(self):
         result = compute_itl_stats([0.0, 5.0, 10.0])
         expected_keys = {
-            "p50_ms", "p90_ms", "p95_ms", "p99_ms",
-            "mean_ms", "min_ms", "max_ms",
+            "p50_ms",
+            "p90_ms",
+            "p95_ms",
+            "p99_ms",
+            "mean_ms",
+            "min_ms",
+            "max_ms",
         }
         assert set(result.keys()) == expected_keys

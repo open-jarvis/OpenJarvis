@@ -152,7 +152,8 @@ class TestOptimizationEngineRun:
         optimizer.optimizer_model = "test-model"
 
         runner.run_trial.return_value = _sample_trial_result(
-            "init", accuracy=0.8,
+            "init",
+            accuracy=0.8,
         )
         runner.benchmark = "supergpqa"
 
@@ -212,7 +213,8 @@ class TestOptimizationEngineRun:
         runner = MagicMock()
 
         optimizer.propose_initial.return_value = TrialConfig(
-            trial_id="t1", params={},
+            trial_id="t1",
+            params={},
         )
         optimizer.analyze_trial.return_value = TrialFeedback(
             summary_text="detailed analysis",
@@ -237,7 +239,8 @@ class TestOptimizationEngineRun:
         runner = MagicMock()
 
         optimizer.propose_initial.return_value = TrialConfig(
-            trial_id="t1", params={},
+            trial_id="t1",
+            params={},
         )
         optimizer.optimizer_model = "m"
 
@@ -276,11 +279,11 @@ class TestEarlyStopping:
         runner = MagicMock()
 
         optimizer.propose_initial.return_value = TrialConfig(
-            trial_id="t0", params={},
+            trial_id="t0",
+            params={},
         )
         optimizer.propose_next.side_effect = [
-            TrialConfig(trial_id=f"t{i}", params={})
-            for i in range(1, 20)
+            TrialConfig(trial_id=f"t{i}", params={}) for i in range(1, 20)
         ]
         optimizer.analyze_trial.return_value = TrialFeedback(summary_text="ok")
         optimizer.optimizer_model = "m"
@@ -311,11 +314,11 @@ class TestEarlyStopping:
         runner = MagicMock()
 
         optimizer.propose_initial.return_value = TrialConfig(
-            trial_id="t0", params={},
+            trial_id="t0",
+            params={},
         )
         optimizer.propose_next.side_effect = [
-            TrialConfig(trial_id=f"t{i}", params={})
-            for i in range(1, 5)
+            TrialConfig(trial_id=f"t{i}", params={}) for i in range(1, 5)
         ]
         optimizer.analyze_trial.return_value = TrialFeedback(summary_text="ok")
         optimizer.optimizer_model = "m"
@@ -357,19 +360,18 @@ class TestProgressCallback:
         runner = MagicMock()
 
         optimizer.propose_initial.return_value = TrialConfig(
-            trial_id="t0", params={},
+            trial_id="t0",
+            params={},
         )
         optimizer.propose_next.side_effect = [
-            TrialConfig(trial_id=f"t{i}", params={})
-            for i in range(1, 3)
+            TrialConfig(trial_id=f"t{i}", params={}) for i in range(1, 3)
         ]
         optimizer.analyze_trial.return_value = TrialFeedback(summary_text="ok")
         optimizer.optimizer_model = "m"
         runner.benchmark = "b"
 
         results = [
-            _sample_trial_result(f"t{i}", accuracy=0.5 + i * 0.1)
-            for i in range(3)
+            _sample_trial_result(f"t{i}", accuracy=0.5 + i * 0.1) for i in range(3)
         ]
         runner.run_trial.side_effect = results
 
@@ -394,7 +396,8 @@ class TestProgressCallback:
         runner = MagicMock()
 
         optimizer.propose_initial.return_value = TrialConfig(
-            trial_id="t0", params={},
+            trial_id="t0",
+            params={},
         )
         optimizer.analyze_trial.return_value = TrialFeedback(summary_text="ok")
         optimizer.optimizer_model = "m"
@@ -513,7 +516,9 @@ class TestExportBestRecipe:
 
         config = TrialConfig(trial_id="min", params={})
         best = TrialResult(
-            trial_id="min", config=config, accuracy=0.5,
+            trial_id="min",
+            config=config,
+            accuracy=0.5,
         )
         run = OptimizationRun(
             run_id="run-min",
@@ -544,10 +549,12 @@ class TestRunWithStore:
         runner = MagicMock()
 
         optimizer.propose_initial.return_value = TrialConfig(
-            trial_id="t0", params={},
+            trial_id="t0",
+            params={},
         )
         optimizer.propose_next.return_value = TrialConfig(
-            trial_id="t1", params={},
+            trial_id="t1",
+            params={},
         )
         optimizer.analyze_trial.return_value = TrialFeedback(summary_text="analysis")
         optimizer.optimizer_model = "m"
@@ -584,7 +591,8 @@ class TestRunWithStore:
         runner = MagicMock()
 
         optimizer.propose_initial.return_value = TrialConfig(
-            trial_id="t0", params={},
+            trial_id="t0",
+            params={},
         )
         optimizer.analyze_trial.return_value = TrialFeedback(summary_text="ok")
         optimizer.optimizer_model = "m"
@@ -648,7 +656,7 @@ engine = "ollama"
         from openjarvis.optimize.config import load_optimize_config
 
         path = tmp_path / "test.toml"
-        path.write_bytes(b'[optimize]\nmax_trials = 5\n')
+        path.write_bytes(b"[optimize]\nmax_trials = 5\n")
 
         config = load_optimize_config(str(path))
         assert config["optimize"]["max_trials"] == 5
@@ -662,10 +670,12 @@ class TestParetoFrontier:
         runner = MagicMock()
 
         optimizer.propose_initial.return_value = TrialConfig(
-            trial_id="t0", params={},
+            trial_id="t0",
+            params={},
         )
         optimizer.propose_next.return_value = TrialConfig(
-            trial_id="t1", params={},
+            trial_id="t1",
+            params={},
         )
         # analyze_trial returns TrialFeedback
         optimizer.analyze_trial.return_value = TrialFeedback(
@@ -700,10 +710,7 @@ class TestTargetedAndMerge:
         optimizer = MagicMock()
         runner = MagicMock()
 
-        configs = [
-            TrialConfig(trial_id=f"t{i}", params={})
-            for i in range(5)
-        ]
+        configs = [TrialConfig(trial_id=f"t{i}", params={}) for i in range(5)]
         optimizer.propose_initial.return_value = configs[0]
         optimizer.propose_next.side_effect = configs[1:]
         optimizer.propose_targeted.return_value = configs[3]
@@ -718,15 +725,14 @@ class TestTargetedAndMerge:
         )
 
         optimizer.analyze_trial.side_effect = [
-            fb_normal,   # trial 0
-            fb_normal,   # trial 1
-            fb_targeted, # trial 2 -> will trigger targeted on next
-            fb_normal,   # trial 3
+            fb_normal,  # trial 0
+            fb_normal,  # trial 1
+            fb_targeted,  # trial 2 -> will trigger targeted on next
+            fb_normal,  # trial 3
         ]
 
         results = [
-            _sample_trial_result(f"t{i}", accuracy=0.5 + i * 0.05)
-            for i in range(4)
+            _sample_trial_result(f"t{i}", accuracy=0.5 + i * 0.05) for i in range(4)
         ]
         runner.run_trial.side_effect = results
 
@@ -745,10 +751,7 @@ class TestTargetedAndMerge:
         optimizer = MagicMock()
         runner = MagicMock()
 
-        configs = [
-            TrialConfig(trial_id=f"t{i}", params={})
-            for i in range(7)
-        ]
+        configs = [TrialConfig(trial_id=f"t{i}", params={}) for i in range(7)]
         optimizer.propose_initial.return_value = configs[0]
         optimizer.propose_next.side_effect = configs[1:]
         optimizer.propose_merge.return_value = configs[5]
@@ -761,9 +764,9 @@ class TestTargetedAndMerge:
         # Create diverse results with genuine tradeoffs so
         # frontier has >= 2 members (high acc/high lat vs low acc/low lat)
         tradeoffs = [
-            (0.9, 3.0, 0.05),   # t0: high accuracy, high latency, high cost
-            (0.5, 0.5, 0.01),   # t1: low accuracy, low latency, low cost
-            (0.7, 1.5, 0.03),   # t2: dominated by t0+t1 combo
+            (0.9, 3.0, 0.05),  # t0: high accuracy, high latency, high cost
+            (0.5, 0.5, 0.01),  # t1: low accuracy, low latency, low cost
+            (0.7, 1.5, 0.03),  # t2: dominated by t0+t1 combo
             (0.85, 2.5, 0.04),  # t3: close to t0 tradeoff
             (0.6, 0.8, 0.015),  # t4: close to t1 tradeoff
             (0.75, 1.0, 0.02),  # t5: merged result

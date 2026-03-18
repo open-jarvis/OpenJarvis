@@ -46,6 +46,7 @@ class TestLearnedRouterPolicy:
     def test_registered_as_learned(self) -> None:
         from openjarvis.core.registry import RouterPolicyRegistry
         from openjarvis.learning.routing.learned_router import ensure_registered
+
         ensure_registered()
         assert RouterPolicyRegistry.contains("learned")
 
@@ -66,19 +67,23 @@ class TestLearnedRouterPolicy:
     def test_update_from_traces(self, tmp_path: Path) -> None:
         store = TraceStore(tmp_path / "test.db")
         for _ in range(6):
-            store.save(_make_trace(
-                query="def foo(): pass",
-                model="codestral",
-                outcome="success",
-                feedback=0.9,
-            ))
+            store.save(
+                _make_trace(
+                    query="def foo(): pass",
+                    model="codestral",
+                    outcome="success",
+                    feedback=0.9,
+                )
+            )
         for _ in range(6):
-            store.save(_make_trace(
-                query="def bar(): return 1",
-                model="qwen3:8b",
-                outcome="failure",
-                feedback=0.3,
-            ))
+            store.save(
+                _make_trace(
+                    query="def bar(): return 1",
+                    model="qwen3:8b",
+                    outcome="failure",
+                    feedback=0.3,
+                )
+            )
 
         analyzer = TraceAnalyzer(store)
         policy = LearnedRouterPolicy(
@@ -96,10 +101,13 @@ class TestLearnedRouterPolicy:
     def test_policy_map_readable(self, tmp_path: Path) -> None:
         store = TraceStore(tmp_path / "test.db")
         for _ in range(5):
-            store.save(_make_trace(
-                query="hello", model="small-model",
-                outcome="success",
-            ))
+            store.save(
+                _make_trace(
+                    query="hello",
+                    model="small-model",
+                    outcome="success",
+                )
+            )
 
         analyzer = TraceAnalyzer(store)
         policy = LearnedRouterPolicy(analyzer=analyzer, default_model="default")
@@ -126,24 +134,34 @@ class TestLearnedRouterPolicy:
         mock_store = MagicMock()
         mock_store.list_traces.return_value = [
             _make_trace(
-                query="def foo(): pass", model="code-model",
-                outcome="success", feedback=0.9,
+                query="def foo(): pass",
+                model="code-model",
+                outcome="success",
+                feedback=0.9,
             ),
             _make_trace(
-                query="def bar(): pass", model="code-model",
-                outcome="success", feedback=0.85,
+                query="def bar(): pass",
+                model="code-model",
+                outcome="success",
+                feedback=0.85,
             ),
             _make_trace(
-                query="def baz(): pass", model="code-model",
-                outcome="success", feedback=0.88,
+                query="def baz(): pass",
+                model="code-model",
+                outcome="success",
+                feedback=0.88,
             ),
             _make_trace(
-                query="def qux(): pass", model="code-model",
-                outcome="success", feedback=0.92,
+                query="def qux(): pass",
+                model="code-model",
+                outcome="success",
+                feedback=0.92,
             ),
             _make_trace(
-                query="def quux(): pass", model="code-model",
-                outcome="success", feedback=0.87,
+                query="def quux(): pass",
+                model="code-model",
+                outcome="success",
+                feedback=0.87,
             ),
         ]
         result = policy.update(mock_store)

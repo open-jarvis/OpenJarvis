@@ -63,8 +63,7 @@ class TestInstrumentedEngine:
         ie.generate(messages, model="test")
 
         tel_events = [
-            e for e in bus.history
-            if e.event_type == EventType.TELEMETRY_RECORD
+            e for e in bus.history if e.event_type == EventType.TELEMETRY_RECORD
         ]
         assert len(tel_events) == 1
         record = tel_events[0].data["record"]
@@ -92,9 +91,8 @@ class TestInstrumentedEngine:
         messages = [Message(role=Role.USER, content="Hi")]
         ie.generate(messages, model="test", temperature=0.5, max_tokens=100)
         call_kwargs = mock_engine.generate.call_args
-        temp = (
-            call_kwargs.kwargs.get("temperature")
-            or call_kwargs[1].get("temperature")
+        temp = call_kwargs.kwargs.get("temperature") or call_kwargs[1].get(
+            "temperature"
         )
         assert temp == 0.5
 
@@ -130,8 +128,7 @@ class TestTokensPerJoule:
         ie.generate(messages, model="test")
 
         tel_events = [
-            e for e in bus.history
-            if e.event_type == EventType.TELEMETRY_RECORD
+            e for e in bus.history if e.event_type == EventType.TELEMETRY_RECORD
         ]
         record = tel_events[0].data["record"]
         assert record.tokens_per_joule == 0.0

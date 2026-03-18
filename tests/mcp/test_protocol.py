@@ -91,7 +91,10 @@ class TestMCPResponse:
 
     def test_error_response_with_data(self):
         resp = MCPResponse.error_response(
-            1, INTERNAL_ERROR, "Oops", data={"detail": "stack"},
+            1,
+            INTERNAL_ERROR,
+            "Oops",
+            data={"detail": "stack"},
         )
         assert resp.error["data"] == {"detail": "stack"}
 

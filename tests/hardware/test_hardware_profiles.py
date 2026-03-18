@@ -38,9 +38,9 @@ class TestDetectHardware:
     @patch(
         "openjarvis.core.config._run_cmd",
         side_effect=[
-            "AMD Instinct MI300X",        # --showproductname
+            "AMD Instinct MI300X",  # --showproductname
             "GPU[0] : vram Total Memory (B): 206158430208",  # --showmeminfo vram
-            "GPU[0] : Some info",          # --showallinfo
+            "GPU[0] : Some info",  # --showallinfo
         ],
     )
     def test_detect_amd_gpu(self, mock_run, mock_which):

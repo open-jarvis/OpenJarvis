@@ -13,11 +13,7 @@ from openjarvis.templates.agent_templates import (
 )
 
 TEMPLATES_DIR = (
-    Path(__file__).resolve().parents[2]
-    / "src"
-    / "openjarvis"
-    / "templates"
-    / "data"
+    Path(__file__).resolve().parents[2] / "src" / "openjarvis" / "templates" / "data"
 )
 
 VALID_AGENT_TYPES = {"simple", "orchestrator", "native_react", "monitor"}

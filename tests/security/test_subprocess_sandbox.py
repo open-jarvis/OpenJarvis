@@ -21,8 +21,16 @@ class TestBuildSafeEnv:
         env = build_safe_env()
         # All keys should be from the safe set
         safe_keys = {
-            "PATH", "HOME", "USER", "LANG", "TERM", "SHELL",
-            "LC_ALL", "LC_CTYPE", "TMPDIR", "TZ",
+            "PATH",
+            "HOME",
+            "USER",
+            "LANG",
+            "TERM",
+            "SHELL",
+            "LC_ALL",
+            "LC_CTYPE",
+            "TMPDIR",
+            "TZ",
         }
         for key in env:
             assert key in safe_keys
@@ -78,7 +86,8 @@ class TestRunSandboxed:
         os.environ["TEST_SECRET"] = "super_secret_value"
         try:
             result = run_sandboxed(
-                'echo "val=$TEST_SECRET"', timeout=10.0,
+                'echo "val=$TEST_SECRET"',
+                timeout=10.0,
             )
             assert result.returncode == 0
             assert "super_secret_value" not in result.stdout

@@ -99,4 +99,5 @@ class TestGRPORegistration:
     def test_registered_in_learning_registry(self):
         import openjarvis.learning.intelligence.orchestrator.grpo_trainer  # noqa: F401
         from openjarvis.core.registry import LearningRegistry
+
         assert LearningRegistry.contains("orchestrator_grpo")

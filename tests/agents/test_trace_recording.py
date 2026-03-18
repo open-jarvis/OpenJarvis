@@ -21,17 +21,23 @@ def test_executor_records_trace(tmp_path):
     agent = mgr.create_agent("trace-test")
 
     def fake_invoke(agent_dict):
-        bus.publish(EventType.TOOL_CALL_START, {
-            "agent": agent_dict["id"],
-            "tool": "web_search",
-            "args": {"query": "test"},
-        })
-        bus.publish(EventType.TOOL_CALL_END, {
-            "agent": agent_dict["id"],
-            "tool": "web_search",
-            "result": "search results...",
-            "duration": 0.5,
-        })
+        bus.publish(
+            EventType.TOOL_CALL_START,
+            {
+                "agent": agent_dict["id"],
+                "tool": "web_search",
+                "args": {"query": "test"},
+            },
+        )
+        bus.publish(
+            EventType.TOOL_CALL_END,
+            {
+                "agent": agent_dict["id"],
+                "tool": "web_search",
+                "result": "search results...",
+                "duration": 0.5,
+            },
+        )
         return AgentResult(content="found it", metadata={"tokens_used": 100})
 
     with patch.object(executor, "_invoke_agent", side_effect=fake_invoke):
@@ -62,7 +68,9 @@ def test_executor_records_error_trace(tmp_path):
     agent = mgr.create_agent("error-trace")
 
     with patch.object(
-        executor, "_invoke_agent", side_effect=FatalError("boom"),
+        executor,
+        "_invoke_agent",
+        side_effect=FatalError("boom"),
     ):
         executor.execute_tick(agent["id"])
 

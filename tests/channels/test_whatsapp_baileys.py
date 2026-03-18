@@ -259,13 +259,15 @@ class TestReaderLoop:
         bus = EventBus(record_history=True)
         ch = WhatsAppBaileysChannel(bus=bus)
 
-        ch._handle_bridge_event({
-            "type": "message",
-            "jid": "123@s.whatsapp.net",
-            "sender": "456@s.whatsapp.net",
-            "text": "Bus test",
-            "message_id": "msg-002",
-        })
+        ch._handle_bridge_event(
+            {
+                "type": "message",
+                "jid": "123@s.whatsapp.net",
+                "sender": "456@s.whatsapp.net",
+                "text": "Bus test",
+                "message_id": "msg-002",
+            }
+        )
 
         event_types = [e.event_type for e in bus.history]
         assert EventType.CHANNEL_MESSAGE_RECEIVED in event_types
@@ -276,13 +278,16 @@ class TestReaderLoop:
 
         lines = [
             json.dumps({"type": "status", "status": "connected"}) + "\n",
-            json.dumps({
-                "type": "message",
-                "jid": "j",
-                "sender": "s",
-                "text": "t",
-                "message_id": "m",
-            }) + "\n",
+            json.dumps(
+                {
+                    "type": "message",
+                    "jid": "j",
+                    "sender": "s",
+                    "text": "t",
+                    "message_id": "m",
+                }
+            )
+            + "\n",
         ]
 
         mock_proc = MagicMock()
@@ -316,11 +321,13 @@ class TestReaderLoop:
         ch.on_message(bad_handler)
 
         # Should not raise.
-        ch._handle_bridge_event({
-            "type": "message",
-            "jid": "j",
-            "sender": "s",
-            "text": "t",
-            "message_id": "m",
-        })
+        ch._handle_bridge_event(
+            {
+                "type": "message",
+                "jid": "j",
+                "sender": "s",
+                "text": "t",
+                "message_id": "m",
+            }
+        )
         bad_handler.assert_called_once()

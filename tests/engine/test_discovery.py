@@ -54,9 +54,7 @@ class TestDiscoverEngines:
         cfg = JarvisConfig()
         with mock.patch(
             "openjarvis.engine._discovery._make_engine",
-            side_effect=lambda k, c: _FakeEngine(
-                healthy=(k == "healthy")
-            ),
+            side_effect=lambda k, c: _FakeEngine(healthy=(k == "healthy")),
         ):
             result = discover_engines(cfg)
         assert len(result) == 1

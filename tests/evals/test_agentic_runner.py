@@ -121,9 +121,7 @@ class TestAgenticRunner:
     def test_artifacts_saved(self, tmp_path):
         records = [MockRecord(record_id="r1", problem="test")]
         dataset = MockDataset(records)
-        runner = AgenticRunner(
-            agent=MockAgent(), dataset=dataset, run_dir=tmp_path
-        )
+        runner = AgenticRunner(agent=MockAgent(), dataset=dataset, run_dir=tmp_path)
 
         self._run_async(runner.run())
         arts = tmp_path / "artifacts"
@@ -137,9 +135,7 @@ class TestAgenticRunner:
         """Verify timeout is stored and runner accepts the parameter."""
         records = [MockRecord(record_id="r1", problem="test")]
         dataset = MockDataset(records)
-        runner = AgenticRunner(
-            agent=MockAgent(), dataset=dataset, query_timeout=30.0
-        )
+        runner = AgenticRunner(agent=MockAgent(), dataset=dataset, query_timeout=30.0)
         assert runner._query_timeout == 30.0
 
 

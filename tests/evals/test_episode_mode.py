@@ -37,13 +37,17 @@ class TestDatasetProviderEpisodes:
 class TestRunConfigEpisodeMode:
     def test_episode_mode_field(self) -> None:
         from openjarvis.evals.core.types import RunConfig
+
         cfg = RunConfig(
-            benchmark="test", backend="test", model="test",
+            benchmark="test",
+            backend="test",
+            model="test",
             episode_mode=True,
         )
         assert cfg.episode_mode is True
 
     def test_episode_mode_default_false(self) -> None:
         from openjarvis.evals.core.types import RunConfig
+
         cfg = RunConfig(benchmark="test", backend="test", model="test")
         assert cfg.episode_mode is False

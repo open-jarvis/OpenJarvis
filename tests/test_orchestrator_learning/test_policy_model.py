@@ -22,11 +22,7 @@ class TestParseOutput:
 
     def test_valid_thought_tool_input(self):
         m = self._model()
-        text = (
-            "THOUGHT: I need to calculate 2+2\n"
-            "TOOL: calculator\n"
-            "INPUT: 2+2"
-        )
+        text = "THOUGHT: I need to calculate 2+2\nTOOL: calculator\nINPUT: 2+2"
         po = m._parse_output(text, ["calculator", "think"])
         assert po.thought == "I need to calculate 2+2"
         assert po.tool_name == "calculator"
@@ -35,10 +31,7 @@ class TestParseOutput:
 
     def test_final_answer(self):
         m = self._model()
-        text = (
-            "THOUGHT: I have the result\n"
-            "FINAL_ANSWER: 42"
-        )
+        text = "THOUGHT: I have the result\nFINAL_ANSWER: 42"
         po = m._parse_output(text, ["calculator"])
         assert po.is_final_answer is True
         assert po.tool_input == "42"

@@ -71,7 +71,8 @@ class TestStdioTransport:
     def test_send_receive(self, tmp_path):
         """Use a simple Python echo script as the subprocess."""
         script = tmp_path / "echo_server.py"
-        script.write_text(textwrap.dedent("""\
+        script.write_text(
+            textwrap.dedent("""\
             import sys
             import json
             for line in sys.stdin:
@@ -86,7 +87,8 @@ class TestStdioTransport:
                 }
                 sys.stdout.write(json.dumps(resp) + "\\n")
                 sys.stdout.flush()
-        """))
+        """)
+        )
 
         transport = StdioTransport([sys.executable, str(script)])
         try:
@@ -101,7 +103,8 @@ class TestStdioTransport:
     def test_multiple_requests(self, tmp_path):
         """Send multiple requests to the subprocess."""
         script = tmp_path / "echo_server.py"
-        script.write_text(textwrap.dedent("""\
+        script.write_text(
+            textwrap.dedent("""\
             import sys
             import json
             for line in sys.stdin:
@@ -116,7 +119,8 @@ class TestStdioTransport:
                 }
                 sys.stdout.write(json.dumps(resp) + "\\n")
                 sys.stdout.flush()
-        """))
+        """)
+        )
 
         transport = StdioTransport([sys.executable, str(script)])
         try:
@@ -129,11 +133,13 @@ class TestStdioTransport:
 
     def test_close_terminates_process(self, tmp_path):
         script = tmp_path / "sleep_server.py"
-        script.write_text(textwrap.dedent("""\
+        script.write_text(
+            textwrap.dedent("""\
             import sys
             import time
             time.sleep(300)
-        """))
+        """)
+        )
 
         transport = StdioTransport([sys.executable, str(script)])
         proc = transport._process

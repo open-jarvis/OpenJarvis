@@ -104,7 +104,8 @@ class TestNVIDIAEngineRecommendation:
             gpu=GpuInfo(
                 vendor="nvidia",
                 name="NVIDIA A100-SXM4-80GB",
-                vram_gb=80.0, count=1,
+                vram_gb=80.0,
+                count=1,
             ),
         )
         assert recommend_engine(hw) == "vllm"
@@ -118,7 +119,8 @@ class TestNVIDIAEngineRecommendation:
             gpu=GpuInfo(
                 vendor="nvidia",
                 name="NVIDIA H100 80GB HBM3",
-                vram_gb=80.0, count=1,
+                vram_gb=80.0,
+                count=1,
             ),
         )
         assert recommend_engine(hw) == "vllm"
@@ -132,7 +134,8 @@ class TestNVIDIAEngineRecommendation:
             gpu=GpuInfo(
                 vendor="nvidia",
                 name="NVIDIA Tesla V100-SXM2-32GB",
-                vram_gb=32.0, count=1,
+                vram_gb=32.0,
+                count=1,
             ),
         )
         assert recommend_engine(hw) == "ollama"
@@ -146,7 +149,8 @@ class TestNVIDIAEngineRecommendation:
             gpu=GpuInfo(
                 vendor="nvidia",
                 name="NVIDIA GeForce RTX 4090",
-                vram_gb=24.0, count=1,
+                vram_gb=24.0,
+                count=1,
             ),
         )
         assert recommend_engine(hw) == "ollama"

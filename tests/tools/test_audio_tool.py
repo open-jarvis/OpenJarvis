@@ -169,9 +169,7 @@ class TestAudioTranscribeTool:
         monkeypatch.setenv("OPENAI_API_KEY", "test-key")
 
         mock_client = MagicMock()
-        mock_client.audio.transcriptions.create.side_effect = RuntimeError(
-            "API error"
-        )
+        mock_client.audio.transcriptions.create.side_effect = RuntimeError("API error")
 
         mock_openai = MagicMock()
         mock_openai.OpenAI.return_value = mock_client
