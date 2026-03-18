@@ -190,9 +190,7 @@ class TestUrlNormalization:
         assert url == "https://arxiv.org/abs/2310.03714"
 
     def test_arxiv_pdf_with_extension(self):
-        url = WebSearchTool._normalize_url(
-            "https://arxiv.org/pdf/2310.03714.pdf"
-        )
+        url = WebSearchTool._normalize_url("https://arxiv.org/pdf/2310.03714.pdf")
         assert url == "https://arxiv.org/abs/2310.03714"
 
     def test_non_arxiv_unchanged(self):
@@ -230,9 +228,7 @@ class TestUrlFetching:
 
         self._mock_ssrf(monkeypatch)
         mock_resp = MagicMock()
-        mock_resp.text = (
-            "<html><script>var x=1;</script><body>Content</body></html>"
-        )
+        mock_resp.text = "<html><script>var x=1;</script><body>Content</body></html>"
         mock_resp.headers = {"content-type": "text/html"}
         mock_resp.raise_for_status = MagicMock()
         monkeypatch.setattr(httpx, "get", MagicMock(return_value=mock_resp))
@@ -306,9 +302,7 @@ class TestExecuteWithUrl:
         monkeypatch.setattr(httpx, "get", MagicMock(return_value=mock_resp))
 
         tool = WebSearchTool(api_key="test-key")
-        result = tool.execute(
-            query="Summarize https://example.com/article please"
-        )
+        result = tool.execute(query="Summarize https://example.com/article please")
         assert result.success is True
         assert result.metadata.get("mode") == "fetch"
 
@@ -317,7 +311,9 @@ class TestExecuteWithUrl:
         import openjarvis.tools.web_search as _ws
 
         monkeypatch.setattr(
-            _ws, "check_ssrf", lambda url: "private IP blocked",
+            _ws,
+            "check_ssrf",
+            lambda url: "private IP blocked",
         )
 
         tool = WebSearchTool(api_key="test-key")
@@ -331,7 +327,8 @@ class TestExecuteWithUrl:
 
         self._mock_ssrf(monkeypatch)
         monkeypatch.setattr(
-            httpx, "get",
+            httpx,
+            "get",
             MagicMock(side_effect=httpx.HTTPError("Connection failed")),
         )
 

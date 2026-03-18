@@ -16,10 +16,13 @@ class _DummyRouter(RouterPolicy):
 
 class _DummyAnalyzer(QueryAnalyzer):
     def analyze(
-        self, query: str, **kwargs: object,
+        self,
+        query: str,
+        **kwargs: object,
     ) -> RoutingContext:
         return RoutingContext(
-            query=query, query_length=len(query),
+            query=query,
+            query_length=len(query),
         )
 
 

@@ -164,15 +164,20 @@ class TestComputeNextRun:
     def test_once_not_yet_run(self, scheduler):
         target = "2099-06-15T12:00:00+00:00"
         task = ScheduledTask(
-            id="t", prompt="p", schedule_type="once",
-            schedule_value=target, last_run=None,
+            id="t",
+            prompt="p",
+            schedule_type="once",
+            schedule_value=target,
+            last_run=None,
         )
         next_run = scheduler._compute_next_run(task)
         assert next_run == target
 
     def test_once_already_run(self, scheduler):
         task = ScheduledTask(
-            id="t", prompt="p", schedule_type="once",
+            id="t",
+            prompt="p",
+            schedule_type="once",
             schedule_value="2099-06-15T12:00:00+00:00",
             last_run="2099-06-15T12:01:00+00:00",
         )
@@ -181,7 +186,9 @@ class TestComputeNextRun:
 
     def test_cron_fallback(self, scheduler):
         task = ScheduledTask(
-            id="t", prompt="p", schedule_type="cron",
+            id="t",
+            prompt="p",
+            schedule_type="cron",
             schedule_value="30 2 * * *",
         )
         next_run = scheduler._compute_next_run(task)
@@ -266,7 +273,9 @@ class TestExecuteTask:
         sched = TaskScheduler(store, system=mock_system, poll_interval=1)
 
         task = sched.create_task(
-            "what is 2+2?", "once", "2026-01-01T00:00:00+00:00",
+            "what is 2+2?",
+            "once",
+            "2026-01-01T00:00:00+00:00",
             tools="calculator,think",
         )
         sched._execute_task(task)

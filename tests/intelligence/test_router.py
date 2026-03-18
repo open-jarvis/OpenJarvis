@@ -19,15 +19,19 @@ def _register_models() -> None:
     ModelRegistry.register_value(
         "small",
         ModelSpec(
-            model_id="small", name="Small",
-            parameter_count_b=3.0, context_length=4096,
+            model_id="small",
+            name="Small",
+            parameter_count_b=3.0,
+            context_length=4096,
         ),
     )
     ModelRegistry.register_value(
         "large",
         ModelSpec(
-            model_id="large", name="Large",
-            parameter_count_b=70.0, context_length=131072,
+            model_id="large",
+            name="Large",
+            parameter_count_b=70.0,
+            context_length=131072,
         ),
     )
 

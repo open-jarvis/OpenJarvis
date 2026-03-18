@@ -25,8 +25,12 @@ class TestChannelRegistry:
                 pass
 
             def send(
-                self, channel, content,
-                *, conversation_id="", metadata=None,
+                self,
+                channel,
+                content,
+                *,
+                conversation_id="",
+                metadata=None,
             ) -> bool:
                 return True
 
@@ -56,8 +60,12 @@ class TestChannelRegistry:
                 pass
 
             def send(
-                self, channel, content,
-                *, conversation_id="", metadata=None,
+                self,
+                channel,
+                content,
+                *,
+                conversation_id="",
+                metadata=None,
             ) -> bool:
                 return True
 
@@ -99,8 +107,12 @@ class TestChannelRegistry:
                 pass
 
             def send(
-                self, channel, content,
-                *, conversation_id="", metadata=None,
+                self,
+                channel,
+                content,
+                *,
+                conversation_id="",
+                metadata=None,
             ) -> bool:
                 return True
 

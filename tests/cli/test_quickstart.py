@@ -32,28 +32,23 @@ class TestQuickstartCommand:
             patch("openjarvis.cli.quickstart_cmd.DEFAULT_CONFIG_PATH", config_path),
             patch("openjarvis.cli.quickstart_cmd.DEFAULT_CONFIG_DIR", tmp_path),
             patch(
-                "openjarvis.cli.quickstart_cmd"
-                ".generate_default_toml",
+                "openjarvis.cli.quickstart_cmd.generate_default_toml",
                 return_value="[engine]\n",
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd"
-                ".recommend_engine",
+                "openjarvis.cli.quickstart_cmd.recommend_engine",
                 return_value="ollama",
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd"
-                "._check_engine_health",
+                "openjarvis.cli.quickstart_cmd._check_engine_health",
                 return_value=True,
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd"
-                "._check_model_available",
+                "openjarvis.cli.quickstart_cmd._check_model_available",
                 return_value=True,
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd"
-                "._test_query",
+                "openjarvis.cli.quickstart_cmd._test_query",
                 return_value="Hello!",
             ),
         ):
@@ -79,28 +74,23 @@ class TestQuickstartCommand:
             patch("openjarvis.cli.quickstart_cmd.DEFAULT_CONFIG_PATH", config_path),
             patch("openjarvis.cli.quickstart_cmd.DEFAULT_CONFIG_DIR", tmp_path),
             patch(
-                "openjarvis.cli.quickstart_cmd"
-                ".generate_default_toml",
+                "openjarvis.cli.quickstart_cmd.generate_default_toml",
                 return_value="[engine]\n",
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd"
-                ".recommend_engine",
+                "openjarvis.cli.quickstart_cmd.recommend_engine",
                 return_value="ollama",
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd"
-                "._check_engine_health",
+                "openjarvis.cli.quickstart_cmd._check_engine_health",
                 return_value=True,
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd"
-                "._check_model_available",
+                "openjarvis.cli.quickstart_cmd._check_model_available",
                 return_value=True,
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd"
-                "._test_query",
+                "openjarvis.cli.quickstart_cmd._test_query",
                 return_value="Hello!",
             ),
         ):
@@ -128,23 +118,19 @@ class TestQuickstartCommand:
             patch("openjarvis.cli.quickstart_cmd.DEFAULT_CONFIG_PATH", config_path),
             patch("openjarvis.cli.quickstart_cmd.DEFAULT_CONFIG_DIR", tmp_path),
             patch(
-                "openjarvis.cli.quickstart_cmd"
-                ".generate_default_toml",
+                "openjarvis.cli.quickstart_cmd.generate_default_toml",
                 return_value="[engine]\nnew = true\n",
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd"
-                ".recommend_engine",
+                "openjarvis.cli.quickstart_cmd.recommend_engine",
                 return_value="ollama",
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd"
-                "._check_engine_health",
+                "openjarvis.cli.quickstart_cmd._check_engine_health",
                 return_value=True,
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd"
-                "._check_model_available",
+                "openjarvis.cli.quickstart_cmd._check_model_available",
                 return_value=True,
             ),
             patch("openjarvis.cli.quickstart_cmd._test_query", return_value="Hello!"),
@@ -169,18 +155,15 @@ class TestQuickstartCommand:
             patch("openjarvis.cli.quickstart_cmd.DEFAULT_CONFIG_PATH", config_path),
             patch("openjarvis.cli.quickstart_cmd.DEFAULT_CONFIG_DIR", tmp_path),
             patch(
-                "openjarvis.cli.quickstart_cmd"
-                ".generate_default_toml",
+                "openjarvis.cli.quickstart_cmd.generate_default_toml",
                 return_value="[engine]\n",
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd"
-                ".recommend_engine",
+                "openjarvis.cli.quickstart_cmd.recommend_engine",
                 return_value="ollama",
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd"
-                "._check_engine_health",
+                "openjarvis.cli.quickstart_cmd._check_engine_health",
                 return_value=False,
             ),
         ):
@@ -207,33 +190,27 @@ class TestQuickstartCommand:
             patch("openjarvis.cli.quickstart_cmd.DEFAULT_CONFIG_PATH", config_path),
             patch("openjarvis.cli.quickstart_cmd.DEFAULT_CONFIG_DIR", tmp_path),
             patch(
-                "openjarvis.cli.quickstart_cmd"
-                ".generate_default_toml",
-                return_value="[engine]\ndefault = \"mlx\"\n",
+                "openjarvis.cli.quickstart_cmd.generate_default_toml",
+                return_value='[engine]\ndefault = "mlx"\n',
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd"
-                ".recommend_engine",
+                "openjarvis.cli.quickstart_cmd.recommend_engine",
                 return_value="mlx",
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd"
-                "._check_engine_health",
+                "openjarvis.cli.quickstart_cmd._check_engine_health",
                 return_value=False,
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd"
-                "._discover_healthy_engines",
+                "openjarvis.cli.quickstart_cmd._discover_healthy_engines",
                 return_value=["ollama"],
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd"
-                "._check_model_available",
+                "openjarvis.cli.quickstart_cmd._check_model_available",
                 return_value=True,
             ),
             patch(
-                "openjarvis.cli.quickstart_cmd"
-                "._test_query",
+                "openjarvis.cli.quickstart_cmd._test_query",
                 return_value="Hello!",
             ),
         ):

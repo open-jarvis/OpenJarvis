@@ -31,8 +31,12 @@ def _make_engine(content="Hello from server", models=None):
 
     # Set up async stream
     async def mock_stream(
-        messages, *, model, temperature=0.7,
-        max_tokens=1024, **kwargs,
+        messages,
+        *,
+        model,
+        temperature=0.7,
+        max_tokens=1024,
+        **kwargs,
     ):
         for token in ["Hello", " ", "world"]:
             yield token
@@ -43,6 +47,7 @@ def _make_engine(content="Hello from server", models=None):
 
 def _make_agent(content="Hello from agent"):
     from openjarvis.agents._stubs import AgentResult
+
     agent = MagicMock()
     agent.agent_id = "mock"
     agent.run.return_value = AgentResult(content=content, turns=1)
@@ -71,47 +76,62 @@ def client_with_agent():
 
 class TestChatCompletions:
     def test_basic_completion(self, client):
-        resp = client.post("/v1/chat/completions", json={
-            "model": "test-model",
-            "messages": [{"role": "user", "content": "Hello"}],
-        })
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["object"] == "chat.completion"
         assert data["choices"][0]["message"]["content"] == "Hello from server"
 
     def test_completion_has_usage(self, client):
-        resp = client.post("/v1/chat/completions", json={
-            "model": "test-model",
-            "messages": [{"role": "user", "content": "Hello"}],
-        })
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+        )
         data = resp.json()
         assert data["usage"]["total_tokens"] == 8
 
     def test_completion_has_id(self, client):
-        resp = client.post("/v1/chat/completions", json={
-            "model": "test-model",
-            "messages": [{"role": "user", "content": "Hello"}],
-        })
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+        )
         data = resp.json()
         assert data["id"].startswith("chatcmpl-")
 
     def test_custom_temperature(self, client):
-        resp = client.post("/v1/chat/completions", json={
-            "model": "test-model",
-            "messages": [{"role": "user", "content": "Hello"}],
-            "temperature": 0.1,
-        })
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "temperature": 0.1,
+            },
+        )
         assert resp.status_code == 200
 
     def test_with_system_message(self, client):
-        resp = client.post("/v1/chat/completions", json={
-            "model": "test-model",
-            "messages": [
-                {"role": "system", "content": "Be helpful"},
-                {"role": "user", "content": "Hello"},
-            ],
-        })
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [
+                    {"role": "system", "content": "Be helpful"},
+                    {"role": "user", "content": "Hello"},
+                ],
+            },
+        )
         assert resp.status_code == 200
 
     def test_with_tools(self):
@@ -127,40 +147,52 @@ class TestChatCompletions:
         }
         app = create_app(engine, "test-model")
         client = TestClient(app)
-        resp = client.post("/v1/chat/completions", json={
-            "model": "test-model",
-            "messages": [{"role": "user", "content": "Calc"}],
-            "tools": [{"type": "function", "function": {"name": "calc"}}],
-        })
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "Calc"}],
+                "tools": [{"type": "function", "function": {"name": "calc"}}],
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["choices"][0]["message"]["tool_calls"] is not None
 
     def test_agent_mode(self, client_with_agent):
-        resp = client_with_agent.post("/v1/chat/completions", json={
-            "model": "test-model",
-            "messages": [{"role": "user", "content": "Hello"}],
-        })
+        resp = client_with_agent.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["choices"][0]["message"]["content"] == "Hello from agent"
 
     def test_agent_with_conversation(self, client_with_agent):
-        resp = client_with_agent.post("/v1/chat/completions", json={
-            "model": "test-model",
-            "messages": [
-                {"role": "system", "content": "Be helpful"},
-                {"role": "user", "content": "Hello"},
-            ],
-        })
+        resp = client_with_agent.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [
+                    {"role": "system", "content": "Be helpful"},
+                    {"role": "user", "content": "Hello"},
+                ],
+            },
+        )
         assert resp.status_code == 200
 
     def test_streaming(self, client):
-        resp = client.post("/v1/chat/completions", json={
-            "model": "test-model",
-            "messages": [{"role": "user", "content": "Hello"}],
-            "stream": True,
-        })
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "stream": True,
+            },
+        )
         assert resp.status_code == 200
         assert "text/event-stream" in resp.headers.get("content-type", "")
         # Parse SSE events
@@ -171,29 +203,40 @@ class TestChatCompletions:
         assert data_lines[-1].strip() == "data: [DONE]"
 
     def test_streaming_content(self, client):
-        resp = client.post("/v1/chat/completions", json={
-            "model": "test-model",
-            "messages": [{"role": "user", "content": "Hello"}],
-            "stream": True,
-        })
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "stream": True,
+            },
+        )
         # Collect content tokens from stream
         content = ""
         for line in resp.text.strip().split("\n"):
             if line.startswith("data:") and "[DONE]" not in line:
                 data = json.loads(line[5:].strip())
                 choices = data.get("choices", [{}])
-                delta_content = choices[0].get(
-                    "delta", {},
-                ).get("content")
+                delta_content = (
+                    choices[0]
+                    .get(
+                        "delta",
+                        {},
+                    )
+                    .get("content")
+                )
                 if delta_content:
                     content += delta_content
         assert content == "Hello world"
 
     def test_finish_reason_default(self, client):
-        resp = client.post("/v1/chat/completions", json={
-            "model": "test-model",
-            "messages": [{"role": "user", "content": "Hello"}],
-        })
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+        )
         data = resp.json()
         assert data["choices"][0]["finish_reason"] == "stop"
 

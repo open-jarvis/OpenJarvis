@@ -166,6 +166,7 @@ class TestVLLMMetricsScraper:
         class FakeResp:
             status_code = 200
             text = SAMPLE_METRICS
+
             def raise_for_status(self):
                 pass
 

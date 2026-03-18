@@ -324,8 +324,10 @@ class TestCloudAnthropic:
             model="claude-opus-4-6",
         )
         call_kwargs = fake_client.messages.create.call_args
-        assert call_kwargs.kwargs.get("system") == "You are helpful" or \
-               call_kwargs[1].get("system") == "You are helpful"
+        assert (
+            call_kwargs.kwargs.get("system") == "You are helpful"
+            or call_kwargs[1].get("system") == "You are helpful"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -339,10 +341,13 @@ class TestCloudGemini:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         fake_genai = mock.MagicMock()
-        with mock.patch.dict("sys.modules", {
-            "google": mock.MagicMock(),
-            "google.genai": fake_genai,
-        }):
+        with mock.patch.dict(
+            "sys.modules",
+            {
+                "google": mock.MagicMock(),
+                "google.genai": fake_genai,
+            },
+        ):
             if not EngineRegistry.contains("cloud"):
                 EngineRegistry.register_value("cloud", CloudEngine)
             engine = CloudEngine()
@@ -360,11 +365,14 @@ class TestCloudGemini:
         fake_config = mock.MagicMock()
         fake_types = mock.MagicMock()
         fake_types.GenerateContentConfig.return_value = fake_config
-        with mock.patch.dict("sys.modules", {
-            "google": mock.MagicMock(),
-            "google.genai": mock.MagicMock(),
-            "google.genai.types": fake_types,
-        }):
+        with mock.patch.dict(
+            "sys.modules",
+            {
+                "google": mock.MagicMock(),
+                "google.genai": mock.MagicMock(),
+                "google.genai.types": fake_types,
+            },
+        ):
             result = engine.generate(
                 [Message(role=Role.USER, content="Hi")], model="gemini-2.5-pro"
             )
@@ -383,11 +391,14 @@ class TestCloudGemini:
 
         fake_types = mock.MagicMock()
         fake_types.GenerateContentConfig.return_value = mock.MagicMock()
-        with mock.patch.dict("sys.modules", {
-            "google": mock.MagicMock(),
-            "google.genai": mock.MagicMock(),
-            "google.genai.types": fake_types,
-        }):
+        with mock.patch.dict(
+            "sys.modules",
+            {
+                "google": mock.MagicMock(),
+                "google.genai": mock.MagicMock(),
+                "google.genai.types": fake_types,
+            },
+        ):
             result = engine.generate(
                 [Message(role=Role.USER, content="Hi")], model="gemini-2.5-flash"
             )
@@ -403,11 +414,14 @@ class TestCloudGemini:
 
         fake_types = mock.MagicMock()
         fake_types.GenerateContentConfig.return_value = mock.MagicMock()
-        with mock.patch.dict("sys.modules", {
-            "google": mock.MagicMock(),
-            "google.genai": mock.MagicMock(),
-            "google.genai.types": fake_types,
-        }):
+        with mock.patch.dict(
+            "sys.modules",
+            {
+                "google": mock.MagicMock(),
+                "google.genai": mock.MagicMock(),
+                "google.genai.types": fake_types,
+            },
+        ):
             result = engine.generate(
                 [Message(role=Role.USER, content="Hi")], model="gemini-3-pro"
             )
@@ -423,11 +437,14 @@ class TestCloudGemini:
 
         fake_types = mock.MagicMock()
         fake_types.GenerateContentConfig.return_value = mock.MagicMock()
-        with mock.patch.dict("sys.modules", {
-            "google": mock.MagicMock(),
-            "google.genai": mock.MagicMock(),
-            "google.genai.types": fake_types,
-        }):
+        with mock.patch.dict(
+            "sys.modules",
+            {
+                "google": mock.MagicMock(),
+                "google.genai": mock.MagicMock(),
+                "google.genai.types": fake_types,
+            },
+        ):
             result = engine.generate(
                 [Message(role=Role.USER, content="Hi")], model="gemini-3-flash"
             )
@@ -441,16 +458,16 @@ class TestCloudGemini:
         fake_client = mock.MagicMock()
 
         # Build a response with a function_call part
-        text_part = SimpleNamespace(
-            text="Let me calculate.", function_call=None
-        )
+        text_part = SimpleNamespace(text="Let me calculate.", function_call=None)
         fc = SimpleNamespace(name="calculator", args={"expression": "2+2"})
         fc_part = SimpleNamespace(text=None, function_call=fc)
         content_obj = SimpleNamespace(parts=[text_part, fc_part])
         candidate = SimpleNamespace(content=content_obj)
         usage = SimpleNamespace(prompt_token_count=10, candidates_token_count=8)
         fake_resp = SimpleNamespace(
-            candidates=[candidate], usage_metadata=usage, text=None,
+            candidates=[candidate],
+            usage_metadata=usage,
+            text=None,
         )
         fake_client.models.generate_content.return_value = fake_resp
         engine._google_client = fake_client
@@ -458,11 +475,14 @@ class TestCloudGemini:
         fake_types = mock.MagicMock()
         fake_config = mock.MagicMock()
         fake_types.GenerateContentConfig.return_value = fake_config
-        with mock.patch.dict("sys.modules", {
-            "google": mock.MagicMock(),
-            "google.genai": mock.MagicMock(),
-            "google.genai.types": fake_types,
-        }):
+        with mock.patch.dict(
+            "sys.modules",
+            {
+                "google": mock.MagicMock(),
+                "google.genai": mock.MagicMock(),
+                "google.genai.types": fake_types,
+            },
+        ):
             result = engine.generate(
                 [Message(role=Role.USER, content="What is 2+2?")],
                 model="gemini-3-pro",
@@ -497,11 +517,14 @@ class TestCloudGemini:
 
         fake_types = mock.MagicMock()
         fake_types.GenerateContentConfig.return_value = mock.MagicMock()
-        with mock.patch.dict("sys.modules", {
-            "google": mock.MagicMock(),
-            "google.genai": mock.MagicMock(),
-            "google.genai.types": fake_types,
-        }):
+        with mock.patch.dict(
+            "sys.modules",
+            {
+                "google": mock.MagicMock(),
+                "google.genai": mock.MagicMock(),
+                "google.genai.types": fake_types,
+            },
+        ):
             result = engine.generate(
                 [Message(role=Role.USER, content="Hi")], model="gemini-3-pro"
             )
@@ -538,11 +561,14 @@ class TestCloudGemini:
 
         fake_types = mock.MagicMock()
         fake_types.GenerateContentConfig.return_value = mock.MagicMock()
-        with mock.patch.dict("sys.modules", {
-            "google": mock.MagicMock(),
-            "google.genai": mock.MagicMock(),
-            "google.genai.types": fake_types,
-        }):
+        with mock.patch.dict(
+            "sys.modules",
+            {
+                "google": mock.MagicMock(),
+                "google.genai": mock.MagicMock(),
+                "google.genai.types": fake_types,
+            },
+        ):
             with pytest.raises(
                 EngineConnectionError,
                 match="Google client not available",
@@ -606,8 +632,13 @@ class TestPricingTable:
     def test_all_new_models_in_pricing(self) -> None:
         expected = [
             "gpt-5-mini",
-            "claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5",
-            "gemini-2.5-pro", "gemini-2.5-flash", "gemini-3-pro", "gemini-3-flash",
+            "claude-opus-4-6",
+            "claude-sonnet-4-6",
+            "claude-haiku-4-5",
+            "gemini-2.5-pro",
+            "gemini-2.5-flash",
+            "gemini-3-pro",
+            "gemini-3-flash",
         ]
         for model_id in expected:
             assert model_id in PRICING, f"{model_id} missing from PRICING dict"

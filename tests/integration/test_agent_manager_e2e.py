@@ -25,9 +25,7 @@ class TestResearchMonitorE2E:
         templates = manager.list_templates()
         assert any(t["id"] == "research_monitor" for t in templates)
 
-        agent = manager.create_from_template(
-            "research_monitor", "My Researcher"
-        )
+        agent = manager.create_from_template("research_monitor", "My Researcher")
         assert agent["name"] == "My Researcher"
         assert agent["agent_type"] == "monitor_operative"
         assert agent["status"] == "idle"
@@ -64,7 +62,9 @@ class TestResearchMonitorE2E:
 
         # Complete task
         manager.update_task(
-            t1["id"], status="completed", findings=["Paper A", "Paper B"],
+            t1["id"],
+            status="completed",
+            findings=["Paper A", "Paper B"],
         )
         task = manager._get_task(t1["id"])
         assert task["status"] == "completed"

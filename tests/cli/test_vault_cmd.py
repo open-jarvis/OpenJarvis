@@ -47,7 +47,8 @@ class TestVaultCmd:
             mock.patch("openjarvis.cli.vault_cmd._VAULT_FILE", vault_file),
             mock.patch("openjarvis.cli.vault_cmd._VAULT_KEY_FILE", key_file),
             mock.patch(
-                "openjarvis.cli.vault_cmd.DEFAULT_CONFIG_DIR", tmp_path,
+                "openjarvis.cli.vault_cmd.DEFAULT_CONFIG_DIR",
+                tmp_path,
             ),
         ):
             runner = CliRunner()

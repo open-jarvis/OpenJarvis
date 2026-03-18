@@ -62,8 +62,7 @@ def test_partial_detection():
     scorer = SecurityScannerScorer()
 
     answer = (
-        "Found SQL injection in app.py. "
-        "Severity: critical. Use parameterized queries."
+        "Found SQL injection in app.py. Severity: critical. Use parameterized queries."
     )
     is_correct, meta = scorer.score(record, answer)
     assert meta["vulns_found"] == 1
@@ -107,10 +106,7 @@ def test_vuln_type_aliases():
     record = _make_record(vulns)
     scorer = SecurityScannerScorer()
 
-    answer = (
-        "app.py has a cross-site scripting "
-        "vulnerability. Severity: high."
-    )
+    answer = "app.py has a cross-site scripting vulnerability. Severity: high."
     is_correct, meta = scorer.score(record, answer)
     assert meta["vulns_found"] == 1
     assert meta["detection_rate"] == 1.0
@@ -120,7 +116,8 @@ def test_no_vulnerabilities():
     record = _make_record([])
     scorer = SecurityScannerScorer()
     is_correct, meta = scorer.score(
-        record, "Everything looks clean.",
+        record,
+        "Everything looks clean.",
     )
     assert is_correct is None
     assert meta["reason"] == "no_vulnerabilities_in_manifest"

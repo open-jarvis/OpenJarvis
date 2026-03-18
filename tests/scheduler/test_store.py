@@ -152,8 +152,8 @@ class TestRunLogs:
         for i in range(20):
             store.log_run(
                 task_id="t1",
-                started_at=f"2026-01-{i+1:02d}T00:00:00+00:00",
-                finished_at=f"2026-01-{i+1:02d}T00:01:00+00:00",
+                started_at=f"2026-01-{i + 1:02d}T00:00:00+00:00",
+                finished_at=f"2026-01-{i + 1:02d}T00:01:00+00:00",
                 success=True,
             )
         logs = store.get_run_logs("t1", limit=5)

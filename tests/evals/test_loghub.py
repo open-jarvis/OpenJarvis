@@ -101,8 +101,10 @@ class TestLogHubScorer:
     def test_exact_match_anomaly(self) -> None:
         s = LogHubScorer(_mock_backend(), "test-model")
         record = EvalRecord(
-            record_id="test-1", problem="analyze logs",
-            reference="anomaly", category="agentic",
+            record_id="test-1",
+            problem="analyze logs",
+            reference="anomaly",
+            category="agentic",
         )
         is_correct, meta = s.score(record, "ANOMALY\nThe logs show errors.")
         assert is_correct is True
@@ -111,8 +113,10 @@ class TestLogHubScorer:
     def test_exact_match_normal(self) -> None:
         s = LogHubScorer(_mock_backend(), "test-model")
         record = EvalRecord(
-            record_id="test-2", problem="analyze logs",
-            reference="normal", category="agentic",
+            record_id="test-2",
+            problem="analyze logs",
+            reference="normal",
+            category="agentic",
         )
         is_correct, meta = s.score(record, "NORMAL - no issues detected")
         assert is_correct is True
@@ -120,8 +124,10 @@ class TestLogHubScorer:
     def test_empty_response(self) -> None:
         s = LogHubScorer(_mock_backend(), "test-model")
         record = EvalRecord(
-            record_id="test-3", problem="analyze logs",
-            reference="anomaly", category="agentic",
+            record_id="test-3",
+            problem="analyze logs",
+            reference="anomaly",
+            category="agentic",
         )
         is_correct, meta = s.score(record, "")
         assert is_correct is False
@@ -130,8 +136,10 @@ class TestLogHubScorer:
     def test_wrong_classification(self) -> None:
         s = LogHubScorer(_mock_backend(), "test-model")
         record = EvalRecord(
-            record_id="test-4", problem="analyze logs",
-            reference="anomaly", category="agentic",
+            record_id="test-4",
+            problem="analyze logs",
+            reference="anomaly",
+            category="agentic",
         )
         is_correct, meta = s.score(record, "NORMAL - everything looks fine")
         assert is_correct is False
@@ -140,17 +148,20 @@ class TestLogHubScorer:
 class TestLogHubCLI:
     def test_in_benchmarks_dict(self) -> None:
         from openjarvis.evals.cli import BENCHMARKS
+
         assert "loghub" in BENCHMARKS
         assert BENCHMARKS["loghub"]["category"] == "agentic"
 
     def test_build_dataset(self) -> None:
         from openjarvis.evals.cli import _build_dataset
+
         ds = _build_dataset("loghub")
         assert ds is not None
         assert ds.dataset_id == "loghub"
 
     def test_build_scorer(self) -> None:
         from openjarvis.evals.cli import _build_scorer
+
         s = _build_scorer("loghub", _mock_backend(), "test-model")
         assert s is not None
         assert s.scorer_id == "loghub"

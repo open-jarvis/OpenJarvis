@@ -85,7 +85,9 @@ class TestLlamaCppGenerate:
             return_value=httpx.Response(
                 200,
                 json=_openai_response(
-                    content="", model=model_id, tool_calls=tool_calls,
+                    content="",
+                    model=model_id,
+                    tool_calls=tool_calls,
                 ),
             )
         )
@@ -143,6 +145,7 @@ class TestLlamaCppGenerate:
             return tokens
 
         import asyncio
+
         tokens = asyncio.run(collect())
         assert tokens == ["Hi", " there"]
 

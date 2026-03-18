@@ -497,10 +497,7 @@ class TestGitLogTool:
         assert result.success is True
         # Rust ignores the count param (reads "n", gets "count") and
         # defaults to 10, so all 6 commits are returned.
-        lines = [
-            line for line in result.content.strip().splitlines()
-            if line.strip()
-        ]
+        lines = [line for line in result.content.strip().splitlines() if line.strip()]
         assert len(lines) == 6
 
     def test_default_count_is_10(self):

@@ -83,8 +83,7 @@ class TestHttpRequestTool:
         tool = HttpRequestTool()
         with patch("openjarvis.tools.http_request.check_ssrf") as mock_ssrf:
             mock_ssrf.return_value = (
-                "Blocked host: 169.254.169.254"
-                " (cloud metadata endpoint)"
+                "Blocked host: 169.254.169.254 (cloud metadata endpoint)"
             )
             result = tool.execute(url="http://169.254.169.254/latest/meta-data/")
         assert result.success is False

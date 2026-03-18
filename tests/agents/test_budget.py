@@ -20,8 +20,7 @@ def test_budget_exceeded_sets_status(tmp_path):
     assert updated["status"] == "budget_exceeded"
 
     budget_events = [
-        e for e in bus.history
-        if e.event_type == EventType.AGENT_BUDGET_EXCEEDED
+        e for e in bus.history if e.event_type == EventType.AGENT_BUDGET_EXCEEDED
     ]
     assert len(budget_events) == 1
     mgr.close()
@@ -54,7 +53,8 @@ def test_budget_unlimited_skips_check(tmp_path):
     mgr.start_tick(agent["id"])
 
     result = AgentResult(
-        content="done", metadata={"cost": 999.99, "tokens_used": 1000000},
+        content="done",
+        metadata={"cost": 999.99, "tokens_used": 1000000},
     )
     executor._finalize_tick(agent["id"], result, error=None, duration=1.0)
 

@@ -87,7 +87,11 @@ class TestBaseAgentInit:
         bus = EventBus()
         engine = MagicMock()
         agent = _ConcreteAgent(
-            engine, "m", bus=bus, temperature=0.1, max_tokens=256,
+            engine,
+            "m",
+            bus=bus,
+            temperature=0.1,
+            max_tokens=256,
         )
         assert agent._temperature == 0.1
         assert agent._max_tokens == 256
@@ -176,7 +180,9 @@ class TestBuildMessages:
         conv.add(Message(role=Role.USER, content="prev"))
         ctx = AgentContext(conversation=conv)
         messages = agent._build_messages(
-            "new", ctx, system_prompt="System.",
+            "new",
+            ctx,
+            system_prompt="System.",
         )
         assert len(messages) == 3
         assert messages[0].role == Role.SYSTEM

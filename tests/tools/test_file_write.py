@@ -45,7 +45,9 @@ class TestFileWriteTool:
         f = tmp_path / "sub" / "deep" / "test.txt"
         tool = FileWriteTool()
         result = tool.execute(
-            path=str(f), content="nested", create_dirs=True,
+            path=str(f),
+            content="nested",
+            create_dirs=True,
         )
         assert result.success is True
         assert f.read_text(encoding="utf-8") == "nested"
@@ -68,7 +70,8 @@ class TestFileWriteTool:
         f = tmp_path / "server.pem"
         tool = FileWriteTool()
         result = tool.execute(
-            path=str(f), content="-----BEGIN CERTIFICATE-----",
+            path=str(f),
+            content="-----BEGIN CERTIFICATE-----",
         )
         assert result.success is False
         assert "sensitive" in result.content.lower()
@@ -124,7 +127,9 @@ class TestFileWriteTool:
         f = tmp_path / "test.txt"
         tool = FileWriteTool()
         result = tool.execute(
-            path=str(f), content="data", mode="invalid",
+            path=str(f),
+            content="data",
+            mode="invalid",
         )
         assert result.success is False
         assert "Invalid mode" in result.content

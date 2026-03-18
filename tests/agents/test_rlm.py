@@ -197,9 +197,7 @@ class TestRLMSubLMCalls:
         engine.generate.side_effect = [
             {
                 "content": (
-                    "```python\n"
-                    "result = llm_query('What is 2+2?')\n"
-                    "FINAL(result)\n```"
+                    "```python\nresult = llm_query('What is 2+2?')\nFINAL(result)\n```"
                 ),
                 "usage": {
                     "prompt_tokens": 5,
@@ -236,10 +234,7 @@ class TestRLMMultiTurn:
         engine.generate.side_effect = [
             # Turn 1: code that sets a variable
             {
-                "content": (
-                    "```python\n"
-                    "x = 10\nprint(f'x = {x}')\n```"
-                ),
+                "content": ("```python\nx = 10\nprint(f'x = {x}')\n```"),
                 "usage": {
                     "prompt_tokens": 5,
                     "completion_tokens": 10,
@@ -250,9 +245,7 @@ class TestRLMMultiTurn:
             },
             # Turn 2: code that uses the variable and terminates
             {
-                "content": (
-                    "```python\ny = x * 2\nFINAL(y)\n```"
-                ),
+                "content": ("```python\ny = x * 2\nFINAL(y)\n```"),
                 "usage": {
                     "prompt_tokens": 20,
                     "completion_tokens": 10,
@@ -335,9 +328,7 @@ class TestRLMSubLMWithTools:
             # Root LM: code that calls llm_query
             {
                 "content": (
-                    "```python\n"
-                    "result = llm_query('Calculate 2+2')\n"
-                    "FINAL(result)\n```"
+                    "```python\nresult = llm_query('Calculate 2+2')\nFINAL(result)\n```"
                 ),
                 "usage": {
                     "prompt_tokens": 5,

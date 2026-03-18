@@ -45,17 +45,27 @@ class TestGEPAOptimizerOptimize:
         optimizer = GEPAAgentOptimizer(cfg)
 
         now = time.time()
-        traces = [Trace(
-            query="test", agent="native_react", model="qwen3:8b",
-            result="result", outcome="success", feedback=0.9,
-            started_at=now, ended_at=now + 1,
-            total_tokens=100, total_latency_seconds=1.0,
-            steps=[TraceStep(
-                step_type=StepType.GENERATE,
-                timestamp=now,
-                duration_seconds=0.5,
-            )],
-        )]
+        traces = [
+            Trace(
+                query="test",
+                agent="native_react",
+                model="qwen3:8b",
+                result="result",
+                outcome="success",
+                feedback=0.9,
+                started_at=now,
+                ended_at=now + 1,
+                total_tokens=100,
+                total_latency_seconds=1.0,
+                steps=[
+                    TraceStep(
+                        step_type=StepType.GENERATE,
+                        timestamp=now,
+                        duration_seconds=0.5,
+                    )
+                ],
+            )
+        ]
 
         mock_store = MagicMock()
         mock_store.list_traces.return_value = traces
@@ -80,6 +90,8 @@ class TestOpenJarvisGEPAAdapter:
 
         mock_store = MagicMock()
         adapter = OpenJarvisGEPAAdapter(
-            mock_store, "native_react", GEPAOptimizerConfig(),
+            mock_store,
+            "native_react",
+            GEPAOptimizerConfig(),
         )
         assert adapter.agent_name == "native_react"

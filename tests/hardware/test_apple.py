@@ -87,11 +87,7 @@ class TestAppleDetection:
     @patch("openjarvis.core.config.platform.system", return_value="Darwin")
     @patch(
         "openjarvis.core.config._run_cmd",
-        return_value=(
-            "Graphics/Displays:\n"
-            "    Apple Silicon\n"
-            "      Type: GPU\n"
-        ),
+        return_value=("Graphics/Displays:\n    Apple Silicon\n      Type: GPU\n"),
     )
     def test_apple_no_chipset_line_falls_back(self, mock_run, mock_system):
         """When no 'Chipset Model' line exists, falls back to 'Apple Silicon'."""

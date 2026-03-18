@@ -16,22 +16,28 @@ def _register_models() -> None:
     ModelRegistry.register_value(
         "small",
         ModelSpec(
-            model_id="small", name="Small",
-            parameter_count_b=3.0, context_length=4096,
+            model_id="small",
+            name="Small",
+            parameter_count_b=3.0,
+            context_length=4096,
         ),
     )
     ModelRegistry.register_value(
         "large",
         ModelSpec(
-            model_id="large", name="Large",
-            parameter_count_b=70.0, context_length=131072,
+            model_id="large",
+            name="Large",
+            parameter_count_b=70.0,
+            context_length=131072,
         ),
     )
     ModelRegistry.register_value(
         "coder",
         ModelSpec(
-            model_id="coder", name="DeepSeek Coder",
-            parameter_count_b=16.0, context_length=131072,
+            model_id="coder",
+            name="DeepSeek Coder",
+            parameter_count_b=16.0,
+            context_length=131072,
         ),
     )
 
@@ -71,7 +77,9 @@ class TestHeuristicRouter:
             available_models=["small", "large", "coder"],
         )
         ctx = RoutingContext(
-            query="def foo():", query_length=10, has_code=True,
+            query="def foo():",
+            query_length=10,
+            has_code=True,
         )
         assert router.select_model(ctx) == "coder"
 
@@ -81,7 +89,9 @@ class TestHeuristicRouter:
             available_models=["small", "large", "coder"],
         )
         ctx = RoutingContext(
-            query="solve x", query_length=7, has_math=True,
+            query="solve x",
+            query_length=7,
+            has_math=True,
         )
         assert router.select_model(ctx) == "large"
 
@@ -99,7 +109,9 @@ class TestHeuristicRouter:
             available_models=["small", "large", "coder"],
         )
         ctx = RoutingContext(
-            query="x" * 501, query_length=501, urgency=0.9,
+            query="x" * 501,
+            query_length=501,
+            urgency=0.9,
         )
         assert router.select_model(ctx) == "small"
 
@@ -112,13 +124,15 @@ class TestHeuristicRouter:
         )
         # Medium-length, no code/math, no reasoning → falls to default
         ctx = RoutingContext(
-            query="Tell me about cats", query_length=60,
+            query="Tell me about cats",
+            query_length=60,
         )
         assert router.select_model(ctx) == "large"
 
     def test_no_available_models(self) -> None:
         router = HeuristicRouter(
-            available_models=[], default_model="fallback-model",
+            available_models=[],
+            default_model="fallback-model",
         )
         ctx = RoutingContext(query="test", query_length=4)
         assert router.select_model(ctx) == "fallback-model"
@@ -139,6 +153,8 @@ class TestHeuristicRouter:
             available_models=["small", "large"],
         )
         ctx = RoutingContext(
-            query="def foo():", query_length=10, has_code=True,
+            query="def foo():",
+            query_length=10,
+            has_code=True,
         )
         assert router.select_model(ctx) == "large"

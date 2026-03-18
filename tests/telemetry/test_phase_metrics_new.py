@@ -14,11 +14,13 @@ class TestComputePhaseMetrics:
         session = TelemetrySession(monitor=None)
         # Manually push samples into the buffer
         for i in range(11):
-            session._buffer.push(TelemetrySample(
-                timestamp_ns=i * 100_000_000,
-                gpu_power_w=100.0,
-                cpu_power_w=50.0,
-            ))
+            session._buffer.push(
+                TelemetrySample(
+                    timestamp_ns=i * 100_000_000,
+                    gpu_power_w=100.0,
+                    cpu_power_w=50.0,
+                )
+            )
         return session
 
     def test_basic_metrics(self):
@@ -38,7 +40,7 @@ class TestComputePhaseMetrics:
         prefill, decode = split_at_ttft(
             session,
             start_ns=0,
-            ttft_ns=500_000_000,   # 500ms
+            ttft_ns=500_000_000,  # 500ms
             end_ns=1_000_000_000,  # 1s
             input_tokens=50,
             output_tokens=100,

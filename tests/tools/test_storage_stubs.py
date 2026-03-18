@@ -24,11 +24,13 @@ class _DummyStorage(MemoryBackend):
         results = []
         for doc_id, doc in self._data.items():
             if query.lower() in doc["content"].lower():
-                results.append(RetrievalResult(
-                    content=doc["content"],
-                    score=1.0,
-                    source=doc["source"],
-                ))
+                results.append(
+                    RetrievalResult(
+                        content=doc["content"],
+                        score=1.0,
+                        source=doc["source"],
+                    )
+                )
         return results[:top_k]
 
     def delete(self, doc_id):
@@ -67,12 +69,14 @@ class TestStorageStubs:
         """Memory imports should still work via shim."""
         from openjarvis.tools.storage._stubs import MemoryBackend as MB
         from openjarvis.tools.storage._stubs import RetrievalResult as RR
+
         assert MB is MemoryBackend
         assert RR is RetrievalResult
 
     def test_canonical_import(self) -> None:
         """Canonical import from tools.storage should work."""
         from openjarvis.tools.storage._stubs import MemoryBackend as MB
+
         assert MB is MemoryBackend
 
     def test_sqlite_backward_compat(self) -> None:

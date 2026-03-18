@@ -50,8 +50,9 @@ class TestAvailable:
         orig = mod._ZEUS_APPLE_AVAILABLE
         mod._ZEUS_APPLE_AVAILABLE = False
         try:
-            with patch("platform.system", return_value="Darwin"), patch(
-                "platform.machine", return_value="arm64"
+            with (
+                patch("platform.system", return_value="Darwin"),
+                patch("platform.machine", return_value="arm64"),
             ):
                 assert mod.AppleEnergyMonitor.available() is True
                 monitor = mod.AppleEnergyMonitor.__new__(mod.AppleEnergyMonitor)

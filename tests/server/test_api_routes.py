@@ -1,4 +1,5 @@
 """Tests for extended API routes."""
+
 import pytest
 
 fastapi = pytest.importorskip("fastapi")

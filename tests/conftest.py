@@ -54,8 +54,10 @@ def nvidia_gpu() -> GpuInfo:
 def nvidia_consumer_gpu() -> GpuInfo:
     """NVIDIA consumer GPU fixture."""
     return GpuInfo(
-        vendor="nvidia", name="NVIDIA GeForce RTX 4090",
-        vram_gb=24.0, count=1,
+        vendor="nvidia",
+        name="NVIDIA GeForce RTX 4090",
+        vram_gb=24.0,
+        count=1,
     )
 
 
@@ -147,6 +149,7 @@ def has_ollama() -> bool:
     """Check if Ollama is running locally."""
     try:
         import httpx
+
         resp = httpx.get("http://localhost:11434/api/tags", timeout=2.0)
         return resp.status_code == 200
     except Exception:
@@ -158,6 +161,7 @@ def has_vllm() -> bool:
     """Check if vLLM is running locally."""
     try:
         import httpx
+
         resp = httpx.get("http://localhost:8000/v1/models", timeout=2.0)
         return resp.status_code == 200
     except Exception:
@@ -169,6 +173,7 @@ def has_llamacpp() -> bool:
     """Check if llama.cpp server is running locally."""
     try:
         import httpx
+
         resp = httpx.get("http://localhost:8080/v1/models", timeout=2.0)
         return resp.status_code == 200
     except Exception:

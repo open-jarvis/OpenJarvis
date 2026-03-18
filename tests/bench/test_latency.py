@@ -56,8 +56,12 @@ class TestLatencyBenchmark:
         b = LatencyBenchmark()
         result = b.run(engine, "test-model", num_samples=3)
         expected_keys = {
-            "mean_latency", "p50_latency", "p95_latency",
-            "min_latency", "max_latency", "std_latency",
+            "mean_latency",
+            "p50_latency",
+            "p95_latency",
+            "min_latency",
+            "max_latency",
+            "std_latency",
         }
         assert set(result.metrics.keys()) == expected_keys
 

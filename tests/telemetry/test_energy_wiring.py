@@ -138,25 +138,32 @@ class TestCliAskWiring:
 
         engine = _mock_engine()
         monkeypatch.setattr(
-            _ask_mod, "get_engine",
+            _ask_mod,
+            "get_engine",
             lambda *a, **kw: ("mock", engine),
         )
         monkeypatch.setattr(
-            _ask_mod, "discover_engines",
+            _ask_mod,
+            "discover_engines",
             lambda c: [("mock", engine)],
         )
         monkeypatch.setattr(
-            _ask_mod, "discover_models",
+            _ask_mod,
+            "discover_models",
             lambda e: {"mock": ["test-model"]},
         )
         return cfg, engine
 
     def test_engine_wrapped_with_instrumented(
-        self, monkeypatch, tmp_path,
+        self,
+        monkeypatch,
+        tmp_path,
     ):
         """InstrumentedEngine wraps engine, not instrumented_generate."""
         cfg, engine = self._patch_ask(
-            monkeypatch, tmp_path, gpu_metrics=False,
+            monkeypatch,
+            tmp_path,
+            gpu_metrics=False,
         )
         result = CliRunner().invoke(cli, ["ask", "Hello"])
         assert result.exit_code == 0
@@ -165,11 +172,15 @@ class TestCliAskWiring:
         engine.generate.assert_called_once()
 
     def test_energy_monitor_created_when_gpu_metrics_on(
-        self, monkeypatch, tmp_path,
+        self,
+        monkeypatch,
+        tmp_path,
     ):
         """Energy monitor is created when gpu_metrics=True."""
         cfg, engine = self._patch_ask(
-            monkeypatch, tmp_path, gpu_metrics=True,
+            monkeypatch,
+            tmp_path,
+            gpu_metrics=True,
         )
         mock_monitor = _mock_energy_monitor()
         with patch(
@@ -182,22 +193,30 @@ class TestCliAskWiring:
         mock_monitor.close.assert_called_once()
 
     def test_no_energy_monitor_when_gpu_metrics_off(
-        self, monkeypatch, tmp_path,
+        self,
+        monkeypatch,
+        tmp_path,
     ):
         """No energy monitor when gpu_metrics=False."""
         cfg, engine = self._patch_ask(
-            monkeypatch, tmp_path, gpu_metrics=False,
+            monkeypatch,
+            tmp_path,
+            gpu_metrics=False,
         )
         # Should not attempt to import create_energy_monitor
         result = CliRunner().invoke(cli, ["ask", "Hello"])
         assert result.exit_code == 0
 
     def test_telemetry_events_published(
-        self, monkeypatch, tmp_path,
+        self,
+        monkeypatch,
+        tmp_path,
     ):
         """InstrumentedEngine publishes TELEMETRY_RECORD events."""
         cfg, engine = self._patch_ask(
-            monkeypatch, tmp_path, gpu_metrics=False,
+            monkeypatch,
+            tmp_path,
+            gpu_metrics=False,
         )
         result = CliRunner().invoke(cli, ["ask", "Hello"])
         assert result.exit_code == 0
@@ -209,11 +228,15 @@ class TestCliAskWiring:
         agg.close()
 
     def test_energy_data_in_telemetry_record(
-        self, monkeypatch, tmp_path,
+        self,
+        monkeypatch,
+        tmp_path,
     ):
         """Energy data flows into TelemetryRecord in SQLite."""
         cfg, engine = self._patch_ask(
-            monkeypatch, tmp_path, gpu_metrics=True,
+            monkeypatch,
+            tmp_path,
+            gpu_metrics=True,
         )
         mock_monitor = _mock_energy_monitor()
         with patch(
@@ -236,11 +259,15 @@ class TestCliAskWiring:
         agg.close()
 
     def test_agent_mode_uses_instrumented_engine(
-        self, monkeypatch, tmp_path,
+        self,
+        monkeypatch,
+        tmp_path,
     ):
         """Agent mode passes InstrumentedEngine to agent."""
         cfg, engine = self._patch_ask(
-            monkeypatch, tmp_path, gpu_metrics=False,
+            monkeypatch,
+            tmp_path,
+            gpu_metrics=False,
         )
 
         # Register a trivial agent that calls engine.generate
@@ -262,11 +289,13 @@ class TestCliAskWiring:
                 return AgentResult(content="Agent OK", turns=1)
 
         AgentRegistry.register_value(
-            "test-wiring-agent", _TestAgent,
+            "test-wiring-agent",
+            _TestAgent,
         )
 
         result = CliRunner().invoke(
-            cli, ["ask", "--agent", "test-wiring-agent", "Hi"],
+            cli,
+            ["ask", "--agent", "test-wiring-agent", "Hi"],
         )
         assert result.exit_code == 0
         assert "Agent OK" in result.output
@@ -309,12 +338,15 @@ class TestSdkWiring:
         cfg = _energy_config(tmp_path, gpu_metrics=True)
         mock_monitor = _mock_energy_monitor()
 
-        with patch(
-            "openjarvis.sdk.get_engine",
-            return_value=("mock", engine),
-        ), patch(
-            "openjarvis.telemetry.energy_monitor.create_energy_monitor",
-            return_value=mock_monitor,
+        with (
+            patch(
+                "openjarvis.sdk.get_engine",
+                return_value=("mock", engine),
+            ),
+            patch(
+                "openjarvis.telemetry.energy_monitor.create_energy_monitor",
+                return_value=mock_monitor,
+            ),
         ):
             j = Jarvis(config=cfg, model="test-model")
             j._ensure_engine()
@@ -347,12 +379,15 @@ class TestSdkWiring:
         cfg = _energy_config(tmp_path, gpu_metrics=True)
         mock_monitor = _mock_energy_monitor()
 
-        with patch(
-            "openjarvis.sdk.get_engine",
-            return_value=("mock", engine),
-        ), patch(
-            "openjarvis.telemetry.energy_monitor.create_energy_monitor",
-            return_value=mock_monitor,
+        with (
+            patch(
+                "openjarvis.sdk.get_engine",
+                return_value=("mock", engine),
+            ),
+            patch(
+                "openjarvis.telemetry.energy_monitor.create_energy_monitor",
+                return_value=mock_monitor,
+            ),
         ):
             j = Jarvis(config=cfg, model="test-model")
             result = j.ask_full("Hello")
@@ -376,12 +411,15 @@ class TestSdkWiring:
         cfg.telemetry.gpu_metrics = True
         mock_monitor = _mock_energy_monitor()
 
-        with patch(
-            "openjarvis.sdk.get_engine",
-            return_value=("mock", engine),
-        ), patch(
-            "openjarvis.telemetry.energy_monitor.create_energy_monitor",
-            return_value=mock_monitor,
+        with (
+            patch(
+                "openjarvis.sdk.get_engine",
+                return_value=("mock", engine),
+            ),
+            patch(
+                "openjarvis.telemetry.energy_monitor.create_energy_monitor",
+                return_value=mock_monitor,
+            ),
         ):
             j = Jarvis(config=cfg, model="test-model")
             j._ensure_engine()
@@ -398,12 +436,15 @@ class TestSdkWiring:
         cfg.telemetry.gpu_metrics = True
         mock_monitor = _mock_energy_monitor()
 
-        with patch(
-            "openjarvis.sdk.get_engine",
-            return_value=("mock", engine),
-        ), patch(
-            "openjarvis.telemetry.energy_monitor.create_energy_monitor",
-            return_value=mock_monitor,
+        with (
+            patch(
+                "openjarvis.sdk.get_engine",
+                return_value=("mock", engine),
+            ),
+            patch(
+                "openjarvis.telemetry.energy_monitor.create_energy_monitor",
+                return_value=mock_monitor,
+            ),
         ):
             j = Jarvis(config=cfg, model="test-model")
             j._ensure_engine()
@@ -426,7 +467,9 @@ class TestInstrumentedEngineEnergy:
         monitor = _mock_energy_monitor()
 
         ie = InstrumentedEngine(
-            engine, bus, energy_monitor=monitor,
+            engine,
+            bus,
+            energy_monitor=monitor,
         )
         messages = [Message(role=Role.USER, content="Hi")]
         result = ie.generate(messages, model="test")
@@ -434,8 +477,7 @@ class TestInstrumentedEngineEnergy:
         assert result["content"] == "Test response"
         # Verify energy data is in the telemetry record
         tel_events = [
-            e for e in bus.history
-            if e.event_type == EventType.TELEMETRY_RECORD
+            e for e in bus.history if e.event_type == EventType.TELEMETRY_RECORD
         ]
         assert len(tel_events) == 1
         rec = tel_events[0].data["record"]
@@ -452,7 +494,9 @@ class TestInstrumentedEngineEnergy:
         monitor = _mock_energy_monitor()
 
         ie = InstrumentedEngine(
-            engine, bus, energy_monitor=monitor,
+            engine,
+            bus,
+            energy_monitor=monitor,
         )
         messages = [Message(role=Role.USER, content="Hi")]
         result = ie.generate(messages, model="test")
@@ -477,10 +521,7 @@ class TestInstrumentedEngineEnergy:
         result = ie.generate(messages, model="test")
 
         assert result["content"] == "Test response"
-        tel = [
-            e for e in bus.history
-            if e.event_type == EventType.TELEMETRY_RECORD
-        ]
+        tel = [e for e in bus.history if e.event_type == EventType.TELEMETRY_RECORD]
         rec = tel[0].data["record"]
         assert rec.energy_joules == 0.0
         assert rec.energy_method == ""
@@ -499,7 +540,9 @@ class TestInstrumentedEngineEnergy:
         monitor.sample = _broken_sample
 
         ie = InstrumentedEngine(
-            engine, bus, energy_monitor=monitor,
+            engine,
+            bus,
+            energy_monitor=monitor,
         )
         messages = [Message(role=Role.USER, content="Hi")]
         # Should not crash — energy is best-effort.
@@ -537,18 +580,23 @@ class TestBenchWiring:
         cfg.telemetry.gpu_metrics = True
         mock_monitor = _mock_energy_monitor()
 
-        with patch(
-            "openjarvis.cli.bench_cmd.get_engine",
-            return_value=("mock", engine),
-        ), patch(
-            "openjarvis.cli.bench_cmd.load_config",
-            return_value=cfg,
-        ), patch(
-            "openjarvis.telemetry.energy_monitor.create_energy_monitor",
-            return_value=mock_monitor,
-        ) as mock_create:
+        with (
+            patch(
+                "openjarvis.cli.bench_cmd.get_engine",
+                return_value=("mock", engine),
+            ),
+            patch(
+                "openjarvis.cli.bench_cmd.load_config",
+                return_value=cfg,
+            ),
+            patch(
+                "openjarvis.telemetry.energy_monitor.create_energy_monitor",
+                return_value=mock_monitor,
+            ) as mock_create,
+        ):
             result = CliRunner().invoke(
-                cli, ["bench", "run", "-n", "2"],
+                cli,
+                ["bench", "run", "-n", "2"],
             )
 
         assert result.exit_code == 0
@@ -572,15 +620,19 @@ class TestBenchWiring:
         cfg = JarvisConfig()
         cfg.telemetry.gpu_metrics = False
 
-        with patch(
-            "openjarvis.cli.bench_cmd.get_engine",
-            return_value=("mock", engine),
-        ), patch(
-            "openjarvis.cli.bench_cmd.load_config",
-            return_value=cfg,
+        with (
+            patch(
+                "openjarvis.cli.bench_cmd.get_engine",
+                return_value=("mock", engine),
+            ),
+            patch(
+                "openjarvis.cli.bench_cmd.load_config",
+                return_value=cfg,
+            ),
         ):
             result = CliRunner().invoke(
-                cli, ["bench", "run", "-n", "2"],
+                cli,
+                ["bench", "run", "-n", "2"],
             )
 
         assert result.exit_code == 0
@@ -602,15 +654,19 @@ class TestBenchWiring:
         cfg = JarvisConfig()
         cfg.telemetry.gpu_metrics = False
 
-        with patch(
-            "openjarvis.cli.bench_cmd.get_engine",
-            return_value=("mock", engine),
-        ), patch(
-            "openjarvis.cli.bench_cmd.load_config",
-            return_value=cfg,
+        with (
+            patch(
+                "openjarvis.cli.bench_cmd.get_engine",
+                return_value=("mock", engine),
+            ),
+            patch(
+                "openjarvis.cli.bench_cmd.load_config",
+                return_value=cfg,
+            ),
         ):
             result = CliRunner().invoke(
-                cli, ["bench", "run", "-n", "2", "-w", "3"],
+                cli,
+                ["bench", "run", "-n", "2", "-w", "3"],
             )
 
         assert result.exit_code == 0
@@ -625,14 +681,16 @@ def _populate_energy_db(db_path: Path, n: int = 3) -> None:
     """Create a telemetry DB with energy-enriched records."""
     store = TelemetryStore(db_path)
     for i in range(n):
-        store.record(_make_energy_record(
-            model_id=f"model-{i % 2}",
-            energy_joules=10.0 * (i + 1),
-            throughput=100.0 + i * 10,
-            gpu_util=70.0 + i * 5,
-            power=200.0 + i * 25,
-            ts=time.time() - (n - i),
-        ))
+        store.record(
+            _make_energy_record(
+                model_id=f"model-{i % 2}",
+                energy_joules=10.0 * (i + 1),
+                throughput=100.0 + i * 10,
+                gpu_util=70.0 + i * 5,
+                power=200.0 + i * 25,
+                ts=time.time() - (n - i),
+            )
+        )
     store.close()
 
 
@@ -656,7 +714,8 @@ class TestTelemetryStatsEnergy:
         _populate_energy_db(db_path)
         with p:
             result = CliRunner().invoke(
-                cli, ["telemetry", "stats"],
+                cli,
+                ["telemetry", "stats"],
             )
         assert result.exit_code == 0
         assert "Total Energy (J)" in result.output
@@ -674,21 +733,24 @@ class TestTelemetryStatsEnergy:
         # Populate with non-energy records
         store = TelemetryStore(db_path)
         for i in range(3):
-            store.record(TelemetryRecord(
-                timestamp=time.time(),
-                model_id="model-0",
-                engine="ollama",
-                prompt_tokens=10,
-                completion_tokens=5,
-                total_tokens=15,
-                latency_seconds=0.5,
-                cost_usd=0.001,
-            ))
+            store.record(
+                TelemetryRecord(
+                    timestamp=time.time(),
+                    model_id="model-0",
+                    engine="ollama",
+                    prompt_tokens=10,
+                    completion_tokens=5,
+                    total_tokens=15,
+                    latency_seconds=0.5,
+                    cost_usd=0.001,
+                )
+            )
         store.close()
 
         with p:
             result = CliRunner().invoke(
-                cli, ["telemetry", "stats"],
+                cli,
+                ["telemetry", "stats"],
             )
         assert result.exit_code == 0
         assert "Total Calls" in result.output
@@ -702,7 +764,8 @@ class TestTelemetryStatsEnergy:
         _populate_energy_db(db_path, n=1)
         with p:
             result = CliRunner().invoke(
-                cli, ["telemetry", "export", "-f", "json"],
+                cli,
+                ["telemetry", "export", "-f", "json"],
             )
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -726,7 +789,8 @@ class TestTelemetryStatsEnergy:
         _populate_energy_db(db_path, n=1)
         with p:
             result = CliRunner().invoke(
-                cli, ["telemetry", "export", "-f", "csv"],
+                cli,
+                ["telemetry", "export", "-f", "csv"],
             )
         assert result.exit_code == 0
         header = result.output.strip().splitlines()[0]
@@ -755,24 +819,30 @@ class TestAggregatorEnergy:
         """summary() sums energy and computes weighted averages."""
         db_path = tmp_path / "telemetry.db"
         store = TelemetryStore(db_path)
-        store.record(_make_energy_record(
-            model_id="m1",
-            energy_joules=10.0,
-            throughput=100.0,
-            gpu_util=80.0,
-        ))
-        store.record(_make_energy_record(
-            model_id="m1",
-            energy_joules=20.0,
-            throughput=120.0,
-            gpu_util=90.0,
-        ))
-        store.record(_make_energy_record(
-            model_id="m2",
-            energy_joules=30.0,
-            throughput=80.0,
-            gpu_util=60.0,
-        ))
+        store.record(
+            _make_energy_record(
+                model_id="m1",
+                energy_joules=10.0,
+                throughput=100.0,
+                gpu_util=80.0,
+            )
+        )
+        store.record(
+            _make_energy_record(
+                model_id="m1",
+                energy_joules=20.0,
+                throughput=120.0,
+                gpu_util=90.0,
+            )
+        )
+        store.record(
+            _make_energy_record(
+                model_id="m2",
+                energy_joules=30.0,
+                throughput=80.0,
+                gpu_util=60.0,
+            )
+        )
         store.close()
 
         agg = TelemetryAggregator(db_path)
@@ -784,7 +854,8 @@ class TestAggregatorEnergy:
         assert s.avg_throughput_tok_per_sec == pytest.approx(100.0)
         # Weighted avg GPU util: (85*2 + 60*1) / 3 = 76.67
         assert s.avg_gpu_utilization_pct == pytest.approx(
-            76.666, rel=0.01,
+            76.666,
+            rel=0.01,
         )
         agg.close()
 
@@ -792,9 +863,12 @@ class TestAggregatorEnergy:
         """per_model_stats includes energy fields."""
         db_path = tmp_path / "telemetry.db"
         store = TelemetryStore(db_path)
-        store.record(_make_energy_record(
-            model_id="m1", energy_joules=50.0,
-        ))
+        store.record(
+            _make_energy_record(
+                model_id="m1",
+                energy_joules=50.0,
+            )
+        )
         store.close()
 
         agg = TelemetryAggregator(db_path)
@@ -811,9 +885,12 @@ class TestAggregatorEnergy:
         """per_engine_stats includes energy fields."""
         db_path = tmp_path / "telemetry.db"
         store = TelemetryStore(db_path)
-        store.record(_make_energy_record(
-            engine="vllm", energy_joules=25.0,
-        ))
+        store.record(
+            _make_energy_record(
+                engine="vllm",
+                energy_joules=25.0,
+            )
+        )
         store.close()
 
         agg = TelemetryAggregator(db_path)
@@ -845,7 +922,9 @@ class TestEndToEndPipeline:
     """Full pipeline: ask → InstrumentedEngine → energy → SQLite → stats."""
 
     def test_ask_to_stats_with_energy(
-        self, monkeypatch, tmp_path,
+        self,
+        monkeypatch,
+        tmp_path,
     ):
         """Full flow: ask records energy, stats displays it."""
         cfg = _energy_config(tmp_path, gpu_metrics=True)
@@ -853,15 +932,18 @@ class TestEndToEndPipeline:
 
         monkeypatch.setattr(_ask_mod, "load_config", lambda: cfg)
         monkeypatch.setattr(
-            _ask_mod, "get_engine",
+            _ask_mod,
+            "get_engine",
             lambda *a, **kw: ("mock", engine),
         )
         monkeypatch.setattr(
-            _ask_mod, "discover_engines",
+            _ask_mod,
+            "discover_engines",
             lambda c: [("mock", engine)],
         )
         monkeypatch.setattr(
-            _ask_mod, "discover_models",
+            _ask_mod,
+            "discover_models",
             lambda e: {"mock": ["test-model"]},
         )
 
@@ -880,7 +962,8 @@ class TestEndToEndPipeline:
             return_value=telem_cfg,
         ):
             result = CliRunner().invoke(
-                cli, ["telemetry", "stats"],
+                cli,
+                ["telemetry", "stats"],
             )
 
         assert result.exit_code == 0
@@ -888,7 +971,9 @@ class TestEndToEndPipeline:
         assert "42.50" in result.output  # energy_joules value
 
     def test_ask_to_export_with_energy(
-        self, monkeypatch, tmp_path,
+        self,
+        monkeypatch,
+        tmp_path,
     ):
         """Full flow: ask records energy, export includes it."""
         cfg = _energy_config(tmp_path, gpu_metrics=True)
@@ -896,15 +981,18 @@ class TestEndToEndPipeline:
 
         monkeypatch.setattr(_ask_mod, "load_config", lambda: cfg)
         monkeypatch.setattr(
-            _ask_mod, "get_engine",
+            _ask_mod,
+            "get_engine",
             lambda *a, **kw: ("mock", engine),
         )
         monkeypatch.setattr(
-            _ask_mod, "discover_engines",
+            _ask_mod,
+            "discover_engines",
             lambda c: [("mock", engine)],
         )
         monkeypatch.setattr(
-            _ask_mod, "discover_models",
+            _ask_mod,
+            "discover_models",
             lambda e: {"mock": ["test-model"]},
         )
 
@@ -923,7 +1011,8 @@ class TestEndToEndPipeline:
             return_value=telem_cfg,
         ):
             result = CliRunner().invoke(
-                cli, ["telemetry", "export", "-f", "json"],
+                cli,
+                ["telemetry", "export", "-f", "json"],
             )
 
         data = json.loads(result.output)

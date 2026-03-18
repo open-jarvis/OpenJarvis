@@ -42,19 +42,25 @@ class TestInit:
         assert ch._phone_number_id == "12345"
 
     def test_env_var_fallback(self):
-        with patch.dict(os.environ, {
-            "WHATSAPP_ACCESS_TOKEN": "env-token",
-            "WHATSAPP_PHONE_NUMBER_ID": "env-id",
-        }):
+        with patch.dict(
+            os.environ,
+            {
+                "WHATSAPP_ACCESS_TOKEN": "env-token",
+                "WHATSAPP_PHONE_NUMBER_ID": "env-id",
+            },
+        ):
             ch = WhatsAppChannel()
             assert ch._token == "env-token"
             assert ch._phone_number_id == "env-id"
 
     def test_constructor_overrides_env(self):
-        with patch.dict(os.environ, {
-            "WHATSAPP_ACCESS_TOKEN": "env-token",
-            "WHATSAPP_PHONE_NUMBER_ID": "env-id",
-        }):
+        with patch.dict(
+            os.environ,
+            {
+                "WHATSAPP_ACCESS_TOKEN": "env-token",
+                "WHATSAPP_PHONE_NUMBER_ID": "env-id",
+            },
+        ):
             ch = WhatsAppChannel(
                 access_token="explicit-token",
                 phone_number_id="explicit-id",

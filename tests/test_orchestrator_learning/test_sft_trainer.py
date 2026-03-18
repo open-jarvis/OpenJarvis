@@ -97,15 +97,15 @@ class TestOrchestratorSFTDataset:
         trace_file = tmp_path / "traces.jsonl"
         traces = []
         for i in range(5):
-            traces.append({
-                "conversations": [
-                    {"role": "user", "content": f"q{i}"},
-                    {"role": "assistant", "content": f"a{i}"},
-                ]
-            })
-        trace_file.write_text(
-            "\n".join(json.dumps(t) for t in traces) + "\n"
-        )
+            traces.append(
+                {
+                    "conversations": [
+                        {"role": "user", "content": f"q{i}"},
+                        {"role": "assistant", "content": f"a{i}"},
+                    ]
+                }
+            )
+        trace_file.write_text("\n".join(json.dumps(t) for t in traces) + "\n")
 
         tok = MagicMock()
         tok.eos_token = ""
@@ -128,4 +128,5 @@ class TestSFTRegistration:
         # Import to trigger registration
         import openjarvis.learning.intelligence.orchestrator.sft_trainer  # noqa: F401
         from openjarvis.core.registry import LearningRegistry
+
         assert LearningRegistry.contains("orchestrator_sft")

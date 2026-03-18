@@ -91,6 +91,7 @@ class TestAMABenchDataset:
 
     def test_question_types_mapped(self) -> None:
         from openjarvis.evals.datasets.ama_bench import _QUESTION_TYPE_TO_SUBJECT
+
         assert _QUESTION_TYPE_TO_SUBJECT["A"] == "recall"
         assert _QUESTION_TYPE_TO_SUBJECT["B"] == "causal_inference"
         assert _QUESTION_TYPE_TO_SUBJECT["C"] == "state_updating"
@@ -111,8 +112,10 @@ class TestAMABenchScorer:
     def test_empty_response(self) -> None:
         s = AMABenchScorer(_mock_backend(), "test-model")
         record = EvalRecord(
-            record_id="test-1", problem="question",
-            reference="answer", category="agentic",
+            record_id="test-1",
+            problem="question",
+            reference="answer",
+            category="agentic",
         )
         is_correct, meta = s.score(record, "")
         assert is_correct is False
@@ -175,14 +178,10 @@ class TestJudgeParsing:
         assert _parse_judge_label("yes.") == "yes"
 
     def test_with_thinking_tags(self) -> None:
-        assert _parse_judge_label(
-            "<think>Let me check...</think>yes"
-        ) == "yes"
+        assert _parse_judge_label("<think>Let me check...</think>yes") == "yes"
 
     def test_with_thinking_tags_no(self) -> None:
-        assert _parse_judge_label(
-            "<think>The answer doesn't match</think>\nno"
-        ) == "no"
+        assert _parse_judge_label("<think>The answer doesn't match</think>\nno") == "no"
 
     def test_multiline(self) -> None:
         assert _parse_judge_label("  \n  yes\n") == "yes"
@@ -216,14 +215,17 @@ class TestTokenF1:
 class TestAMABenchCLI:
     def test_in_benchmarks_dict(self) -> None:
         from openjarvis.evals.cli import BENCHMARKS
+
         assert "ama-bench" in BENCHMARKS
 
     def test_build_dataset(self) -> None:
         from openjarvis.evals.cli import _build_dataset
+
         ds = _build_dataset("ama-bench")
         assert ds.dataset_id == "ama-bench"
 
     def test_build_scorer(self) -> None:
         from openjarvis.evals.cli import _build_scorer
+
         s = _build_scorer("ama-bench", _mock_backend(), "test-model")
         assert s.scorer_id == "ama-bench"

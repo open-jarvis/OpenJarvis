@@ -1,4 +1,5 @@
 """Verify security wiring reaches agents and ToolExecutor."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock

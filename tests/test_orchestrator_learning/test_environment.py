@@ -86,9 +86,7 @@ class TestOrchestratorEnvironment:
         assert env.is_done(state) is True
 
     def test_is_done_on_max_turns(self):
-        env = OrchestratorEnvironment(
-            tools=[_MockCalculator()], max_turns=2
-        )
+        env = OrchestratorEnvironment(tools=[_MockCalculator()], max_turns=2)
         state = env.reset("q")
         for _ in range(2):
             action = OrchestratorAction(
@@ -107,9 +105,7 @@ class TestOrchestratorEnvironment:
             env.step(state, action)
 
     def test_max_turns_exceeded_raises(self):
-        env = OrchestratorEnvironment(
-            tools=[_MockCalculator()], max_turns=1
-        )
+        env = OrchestratorEnvironment(tools=[_MockCalculator()], max_turns=1)
         state = env.reset("q")
         action = OrchestratorAction(
             thought="go", tool_name="calculator", tool_input="1+1"
