@@ -1,4 +1,4 @@
-"""Cloud inference engine — OpenAI, Anthropic, and Google API backends."""
+"""Cloud inference engine — OpenAI, Anthropic, Google, and MiniMax API backends."""
 
 from __future__ import annotations
 
@@ -38,6 +38,10 @@ PRICING: Dict[str, tuple[float, float]] = {
     "gemini-3.1-flash-lite-preview": (0.30, 2.50),
     "gemini-3-flash-preview": (0.50, 3.00),
     "claude-haiku-4-5-20251001": (1.00, 5.00),
+    "MiniMax-M2.7": (0.30, 1.20),
+    "MiniMax-M2.7-highspeed": (0.60, 2.40),
+    "MiniMax-M2.5": (0.30, 1.20),
+    "MiniMax-M2.5-highspeed": (0.60, 2.40),
 }
 
 # Well-known model IDs per provider
@@ -62,6 +66,12 @@ _GOOGLE_MODELS = [
     "gemini-3.1-flash-lite-preview",
     "gemini-3-flash-preview",
 ]
+_MINIMAX_MODELS = [
+    "MiniMax-M2.7",
+    "MiniMax-M2.7-highspeed",
+    "MiniMax-M2.5",
+    "MiniMax-M2.5-highspeed",
+]
 
 # OpenRouter models — prefixed with "openrouter/" so they can be identified
 _OPENROUTER_POPULAR = [
@@ -74,6 +84,10 @@ _OPENROUTER_POPULAR = [
     "openrouter/deepseek/deepseek-r1",
     "openrouter/qwen/qwen3-235b-a22b",
 ]
+
+
+def _is_minimax_model(model: str) -> bool:
+    return model.lower().startswith("minimax")
 
 
 def _is_openrouter_model(model: str) -> bool:
@@ -170,7 +184,7 @@ def _convert_tools_to_google(
 
 @EngineRegistry.register("cloud")
 class CloudEngine(InferenceEngine):
-    """Cloud inference via OpenAI, Anthropic, and Google SDKs."""
+    """Cloud inference via OpenAI, Anthropic, Google, and MiniMax SDKs."""
 
     engine_id = "cloud"
 
@@ -179,6 +193,7 @@ class CloudEngine(InferenceEngine):
         self._anthropic_client: Any = None
         self._google_client: Any = None
         self._openrouter_client: Any = None
+        self._minimax_client: Any = None
         self._init_clients()
 
     def _init_clients(self) -> None:
@@ -211,6 +226,16 @@ class CloudEngine(InferenceEngine):
                 self._openrouter_client = openai.OpenAI(
                     base_url="https://openrouter.ai/api/v1",
                     api_key=openrouter_key,
+                )
+            except ImportError:
+                pass
+        minimax_key = os.environ.get("MINIMAX_API_KEY")
+        if minimax_key:
+            try:
+                import openai
+                self._minimax_client = openai.OpenAI(
+                    base_url="https://api.minimax.io/v1",
+                    api_key=minimax_key,
                 )
             except ImportError:
                 pass
@@ -626,6 +651,59 @@ class CloudEngine(InferenceEngine):
             "ttft": elapsed,
         }
 
+    def _generate_minimax(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        if self._minimax_client is None:
+            raise EngineConnectionError(
+                "MiniMax client not available — set MINIMAX_API_KEY"
+            )
+        # MiniMax requires temperature in (0.0, 1.0]; clamp zero
+        temperature = max(temperature, 0.01)
+        temperature = min(temperature, 1.0)
+        kwargs.pop("response_format", None)
+        create_kwargs: Dict[str, Any] = {
+            "model": model,
+            "messages": messages_to_dicts(messages),
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        t0 = time.monotonic()
+        resp = self._minimax_client.chat.completions.create(**create_kwargs)
+        elapsed = time.monotonic() - t0
+        choice = resp.choices[0]
+        usage = resp.usage
+        prompt_tokens = usage.prompt_tokens if usage else 0
+        completion_tokens = usage.completion_tokens if usage else 0
+        result: Dict[str, Any] = {
+            "content": choice.message.content or "",
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": (usage.total_tokens if usage else 0),
+            },
+            "model": resp.model,
+            "finish_reason": choice.finish_reason or "stop",
+            "cost_usd": estimate_cost(model, prompt_tokens, completion_tokens),
+            "ttft": elapsed,
+        }
+        if hasattr(choice.message, "tool_calls") and choice.message.tool_calls:
+            result["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "name": tc.function.name,
+                    "arguments": tc.function.arguments,
+                }
+                for tc in choice.message.tool_calls
+            ]
+        return result
+
     def generate(
         self,
         messages: Sequence[Message],
@@ -643,6 +721,8 @@ class CloudEngine(InferenceEngine):
         )
         if _is_openrouter_model(model):
             return self._generate_openrouter(messages, **kw)
+        if _is_minimax_model(model):
+            return self._generate_minimax(messages, **kw)
         if _is_anthropic_model(model):
             return self._generate_anthropic(messages, **kw)
         if _is_google_model(model):
@@ -666,6 +746,11 @@ class CloudEngine(InferenceEngine):
         )
         if _is_openrouter_model(model):
             async for token in self._stream_openrouter(
+                messages, **kw
+            ):
+                yield token
+        elif _is_minimax_model(model):
+            async for token in self._stream_minimax(
                 messages, **kw
             ):
                 yield token
@@ -804,6 +889,32 @@ class CloudEngine(InferenceEngine):
             if delta and delta.content:
                 yield delta.content
 
+    async def _stream_minimax(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        **kwargs: Any,
+    ) -> AsyncIterator[str]:
+        if self._minimax_client is None:
+            raise EngineConnectionError("MiniMax client not available")
+        temperature = max(temperature, 0.01)
+        temperature = min(temperature, 1.0)
+        create_kwargs: Dict[str, Any] = {
+            "model": model,
+            "messages": messages_to_dicts(messages),
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": True,
+        }
+        resp = self._minimax_client.chat.completions.create(**create_kwargs)
+        for chunk in resp:
+            delta = chunk.choices[0].delta if chunk.choices else None
+            if delta and delta.content:
+                yield delta.content
+
     def list_models(self) -> List[str]:
         models: List[str] = []
         if self._openai_client is not None:
@@ -814,6 +925,8 @@ class CloudEngine(InferenceEngine):
             models.extend(_GOOGLE_MODELS)
         if self._openrouter_client is not None:
             models.extend(_OPENROUTER_POPULAR)
+        if self._minimax_client is not None:
+            models.extend(_MINIMAX_MODELS)
         return models
 
     def health(self) -> bool:
@@ -822,6 +935,7 @@ class CloudEngine(InferenceEngine):
             or self._anthropic_client is not None
             or self._google_client is not None
             or self._openrouter_client is not None
+            or self._minimax_client is not None
         )
 
     def close(self) -> None:
@@ -839,6 +953,10 @@ class CloudEngine(InferenceEngine):
             if hasattr(self._openrouter_client, "close"):
                 self._openrouter_client.close()
             self._openrouter_client = None
+        if self._minimax_client is not None:
+            if hasattr(self._minimax_client, "close"):
+                self._minimax_client.close()
+            self._minimax_client = None
 
 
 __all__ = ["CloudEngine", "PRICING", "_annotate_anthropic_cache", "estimate_cost"]

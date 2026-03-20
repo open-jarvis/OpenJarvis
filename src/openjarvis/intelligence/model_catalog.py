@@ -707,6 +707,69 @@ BUILTIN_MODELS: List[ModelSpec] = [
         },
     ),
     # -----------------------------------------------------------------------
+    # Cloud models — MiniMax
+    # -----------------------------------------------------------------------
+    ModelSpec(
+        model_id="MiniMax-M2.7",
+        name="MiniMax M2.7",
+        parameter_count_b=0.0,
+        context_length=204800,
+        supported_engines=("cloud",),
+        provider="minimax",
+        requires_api_key=True,
+        metadata={
+            "architecture": "proprietary",
+            "pricing_input": 0.30,
+            "pricing_output": 1.20,
+            "url": "https://www.minimax.io",
+        },
+    ),
+    ModelSpec(
+        model_id="MiniMax-M2.7-highspeed",
+        name="MiniMax M2.7 Highspeed",
+        parameter_count_b=0.0,
+        context_length=204800,
+        supported_engines=("cloud",),
+        provider="minimax",
+        requires_api_key=True,
+        metadata={
+            "architecture": "proprietary",
+            "pricing_input": 0.60,
+            "pricing_output": 2.40,
+            "url": "https://www.minimax.io",
+        },
+    ),
+    ModelSpec(
+        model_id="MiniMax-M2.5",
+        name="MiniMax M2.5",
+        parameter_count_b=0.0,
+        context_length=204800,
+        supported_engines=("cloud",),
+        provider="minimax",
+        requires_api_key=True,
+        metadata={
+            "architecture": "proprietary",
+            "pricing_input": 0.30,
+            "pricing_output": 1.20,
+            "url": "https://www.minimax.io",
+        },
+    ),
+    ModelSpec(
+        model_id="MiniMax-M2.5-highspeed",
+        name="MiniMax M2.5 Highspeed",
+        parameter_count_b=0.0,
+        context_length=204800,
+        supported_engines=("cloud",),
+        provider="minimax",
+        requires_api_key=True,
+        metadata={
+            "architecture": "proprietary",
+            "pricing_input": 0.60,
+            "pricing_output": 2.40,
+            "url": "https://www.minimax.io",
+        },
+    ),
+    # -----------------------------------------------------------------------
     # Cloud models — Google
     # -----------------------------------------------------------------------
     ModelSpec(
