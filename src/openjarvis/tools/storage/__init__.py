@@ -26,6 +26,11 @@ try:
 except ImportError:
     pass
 
+try:
+    import openjarvis.tools.storage.synapse_backend  # noqa: F401
+except ImportError:
+    pass
+
 from openjarvis.tools.storage._stubs import MemoryBackend, RetrievalResult
 from openjarvis.tools.storage.chunking import Chunk, ChunkConfig, chunk_text
 from openjarvis.tools.storage.context import ContextConfig, inject_context

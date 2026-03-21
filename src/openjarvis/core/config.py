@@ -676,6 +676,10 @@ class StorageConfig:
     context_max_tokens: int = 2048
     chunk_size: int = 512
     chunk_overlap: int = 64
+    synapse_url: str = "http://localhost:8080"
+    synapse_store_event: str = "store"
+    synapse_retrieve_query: str = "Retrieve"
+    synapse_delete_event: str = "delete"
 
 
 # Backward-compatibility alias

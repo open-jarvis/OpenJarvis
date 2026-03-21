@@ -23,6 +23,7 @@ sha2 = { workspace = true }
 chrono = { workspace = true }
 rig-core = { workspace = true }
 schemars = { workspace = true }
+synapse-client = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

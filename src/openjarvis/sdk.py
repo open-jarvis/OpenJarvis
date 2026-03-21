@@ -48,6 +48,14 @@ class MemoryHandle:
             self._backend = MemoryRegistry.create(
                 key, db_path=self._config.memory.db_path,
             )
+        elif key == "synapse":
+            self._backend = MemoryRegistry.create(
+                key,
+                url=self._config.memory.synapse_url,
+                store_event=self._config.memory.synapse_store_event,
+                retrieve_query=self._config.memory.synapse_retrieve_query,
+                delete_event=self._config.memory.synapse_delete_event,
+            )
         else:
             self._backend = MemoryRegistry.create(key)
         return self._backend

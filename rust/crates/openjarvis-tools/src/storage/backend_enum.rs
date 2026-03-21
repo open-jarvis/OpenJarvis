@@ -6,6 +6,7 @@ use super::faiss::FAISSMemory;
 use super::hybrid::HybridMemory;
 use super::knowledge_graph::KnowledgeGraphMemory;
 use super::sqlite::SQLiteMemory;
+use super::synapse::SynapseMemory;
 use super::traits::MemoryBackend;
 use openjarvis_core::{OpenJarvisError, RetrievalResult};
 use serde_json::Value;
@@ -18,6 +19,7 @@ pub enum MemoryBackendEnum {
     ColBert(ColBERTMemory),
     Hybrid(HybridMemory),
     KnowledgeGraph(KnowledgeGraphMemory),
+    Synapse(SynapseMemory),
 }
 
 macro_rules! delegate_memory {
@@ -29,6 +31,7 @@ macro_rules! delegate_memory {
             MemoryBackendEnum::ColBert(m) => m.$method($($arg),*),
             MemoryBackendEnum::Hybrid(m) => m.$method($($arg),*),
             MemoryBackendEnum::KnowledgeGraph(m) => m.$method($($arg),*),
+            MemoryBackendEnum::Synapse(m) => m.$method($($arg),*),
         }
     };
 }
@@ -78,6 +81,7 @@ impl MemoryBackendEnum {
             MemoryBackendEnum::ColBert(_) => "colbert",
             MemoryBackendEnum::Hybrid(_) => "hybrid",
             MemoryBackendEnum::KnowledgeGraph(_) => "knowledge_graph",
+            MemoryBackendEnum::Synapse(_) => "synapse",
         }
     }
 }
