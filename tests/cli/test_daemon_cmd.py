@@ -23,18 +23,14 @@ class TestDaemonCommands:
 
     def test_stop_no_server(self) -> None:
         """``jarvis stop`` when no PID file shows 'not running'."""
-        with patch(
-            "openjarvis.cli.daemon_cmd._read_pid", return_value=None
-        ):
+        with patch("openjarvis.cli.daemon_cmd._read_pid", return_value=None):
             result = CliRunner().invoke(cli, ["stop"])
         assert result.exit_code != 0
         assert "No running server" in result.output
 
     def test_status_no_server(self) -> None:
         """``jarvis status`` when no PID file shows 'not running'."""
-        with patch(
-            "openjarvis.cli.daemon_cmd._read_pid", return_value=None
-        ):
+        with patch("openjarvis.cli.daemon_cmd._read_pid", return_value=None):
             result = CliRunner().invoke(cli, ["status"])
         assert result.exit_code == 0
         assert "not running" in result.output
@@ -52,9 +48,7 @@ class TestDaemonCommands:
         pid_file = tmp_path / "server.pid"
         with (
             patch("openjarvis.cli.daemon_cmd._PID_FILE", pid_file),
-            patch(
-                "openjarvis.cli.daemon_cmd.DEFAULT_CONFIG_DIR", tmp_path
-            ),
+            patch("openjarvis.cli.daemon_cmd.DEFAULT_CONFIG_DIR", tmp_path),
             patch("os.kill", return_value=None),
         ):
             _write_pid(12345)
@@ -68,9 +62,7 @@ class TestDaemonCommands:
         mock_config.server.port = 8000
 
         with (
-            patch(
-                "openjarvis.cli.daemon_cmd._read_pid", return_value=9999
-            ),
+            patch("openjarvis.cli.daemon_cmd._read_pid", return_value=9999),
             patch(
                 "openjarvis.cli.daemon_cmd.load_config",
                 return_value=mock_config,
@@ -83,9 +75,7 @@ class TestDaemonCommands:
 
     def test_start_already_running(self) -> None:
         """``jarvis start`` exits with error when a server is already running."""
-        with patch(
-            "openjarvis.cli.daemon_cmd._read_pid", return_value=42
-        ):
+        with patch("openjarvis.cli.daemon_cmd._read_pid", return_value=42):
             result = CliRunner().invoke(cli, ["start"])
         assert result.exit_code != 0
         assert "already running" in result.output

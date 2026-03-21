@@ -28,7 +28,8 @@ def test_all_tests_fixed():
         "def test_neg(): assert add(-1, 1) == 0\n"
     )
     record = _make_record(
-        buggy, tests,
+        buggy,
+        tests,
         ["test_basic", "test_neg"],
         ["test_zero"],
     )
@@ -49,7 +50,8 @@ def test_partial_fix():
         "def test_zero(): assert div(0, 1) == 0.0\n"
     )
     record = _make_record(
-        buggy, tests,
+        buggy,
+        tests,
         ["test_zero_div"],  # not actually testable here
         ["test_normal", "test_zero"],
     )

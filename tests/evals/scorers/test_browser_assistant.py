@@ -11,9 +11,7 @@ def _make_record(exact_facts=None, semantic_facts=None):
     if exact_facts:
         all_facts += [{"fact": f, "type": "exact"} for f in exact_facts]
     if semantic_facts:
-        all_facts += [
-            {"fact": f, "type": "semantic"} for f in semantic_facts
-        ]
+        all_facts += [{"fact": f, "type": "semantic"} for f in semantic_facts]
     return EvalRecord(
         record_id="test-ba-1",
         problem="Research this topic.",
@@ -76,9 +74,7 @@ def test_sources_with_url():
     record = _make_record(exact_facts=["5432"])
     scorer = BrowserAssistantScorer()
 
-    answer = (
-        "Port 5432. See https://www.postgresql.org/docs/"
-    )
+    answer = "Port 5432. See https://www.postgresql.org/docs/"
     is_correct, meta = scorer.score(record, answer)
     assert meta["sources_cited"] is True
 

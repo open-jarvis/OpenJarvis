@@ -47,12 +47,11 @@ class TestOpenAICompatGenerate:
         assert result["usage"]["total_tokens"] == 9
 
     def test_empty_choices_returns_graceful_fallback(
-        self, engine: VLLMEngine,
+        self,
+        engine: VLLMEngine,
     ) -> None:
         with respx.mock:
-            respx.post(
-                "http://testhost:8000/v1/chat/completions"
-            ).mock(
+            respx.post("http://testhost:8000/v1/chat/completions").mock(
                 return_value=httpx.Response(
                     200,
                     json={

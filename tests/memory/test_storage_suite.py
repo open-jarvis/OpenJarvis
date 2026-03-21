@@ -20,7 +20,8 @@ def _make_sqlite(tmp_path):
 
 def _make_bm25():
     bm25_mod = pytest.importorskip(
-        "openjarvis.tools.storage.bm25", exc_type=ImportError,
+        "openjarvis.tools.storage.bm25",
+        exc_type=ImportError,
     )
     BM25Memory = bm25_mod.BM25Memory
     if not MemoryRegistry.contains("bm25"):
@@ -171,9 +172,7 @@ class TestStorageSuiteOptional:
 
     def test_delete_document(self, backend_key, tmp_path):
         if backend_key == "hybrid":
-            pytest.skip(
-                "HybridMemory sub-backend BM25 lacks delete()"
-            )
+            pytest.skip("HybridMemory sub-backend BM25 lacks delete()")
         backend = _make_backend(backend_key, tmp_path)
         doc_id = backend.store("content to delete")
         assert backend.delete(doc_id) is True
@@ -181,9 +180,7 @@ class TestStorageSuiteOptional:
 
     def test_clear_all(self, backend_key, tmp_path):
         if backend_key == "hybrid":
-            pytest.skip(
-                "HybridMemory sub-backend BM25 lacks clear()"
-            )
+            pytest.skip("HybridMemory sub-backend BM25 lacks clear()")
         backend = _make_backend(backend_key, tmp_path)
         backend.store("first document")
         backend.store("second document")

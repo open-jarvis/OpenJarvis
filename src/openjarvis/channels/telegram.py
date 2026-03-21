@@ -109,14 +109,13 @@ class TelegramChannel(BaseChannel):
             import httpx
 
             url = f"https://api.telegram.org/bot{self._token}/sendMessage"
+            chat_id = conversation_id or channel
             payload: Dict[str, Any] = {
-                "chat_id": channel,
+                "chat_id": chat_id,
                 "text": content,
             }
             if self._parse_mode:
                 payload["parse_mode"] = self._parse_mode
-            if conversation_id:
-                payload["reply_to_message_id"] = conversation_id
 
             resp = httpx.post(url, json=payload, timeout=10.0)
             if resp.status_code < 300:
@@ -164,6 +163,19 @@ class TelegramChannel(BaseChannel):
                     message_id=str(msg.message_id),
                     conversation_id=str(msg.chat.id),
                 )
+                # Enforce allow-list when configured
+                if self._allowed_chat_ids:
+                    _allowed = {
+                        cid.strip()
+                        for cid in self._allowed_chat_ids.split(",")
+                        if cid.strip()
+                    }
+                    if cm.conversation_id not in _allowed:
+                        logger.debug(
+                            "Ignoring message from unlisted chat %s",
+                            cm.conversation_id,
+                        )
+                        return
                 for handler in self._handlers:
                     try:
                         handler(cm)
@@ -181,7 +193,7 @@ class TelegramChannel(BaseChannel):
                     )
 
             app.add_handler(MessageHandler(filters.TEXT, _handle_msg))
-            app.run_polling(stop_signals=None)
+            app.run_polling(stop_signals=None, drop_pending_updates=True)
         except Exception:
             logger.debug("Telegram poll loop error", exc_info=True)
             self._status = ChannelStatus.ERROR

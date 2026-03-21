@@ -29,11 +29,13 @@ class TestModelList:
         monkeypatch.setattr(_model_mod, "load_config", lambda: cfg)
         fake = _mock_engine()
         monkeypatch.setattr(
-            _model_mod, "discover_engines",
+            _model_mod,
+            "discover_engines",
             lambda c: [("mock", fake)],
         )
         monkeypatch.setattr(
-            _model_mod, "discover_models",
+            _model_mod,
+            "discover_models",
             lambda e: {"mock": ["model-a", "model-b"]},
         )
         result = CliRunner().invoke(cli, ["model", "list"])
@@ -43,9 +45,7 @@ class TestModelList:
     def test_no_engines_message(self, monkeypatch) -> None:
         cfg = JarvisConfig()
         monkeypatch.setattr(_model_mod, "load_config", lambda: cfg)
-        monkeypatch.setattr(
-            _model_mod, "discover_engines", lambda c: []
-        )
+        monkeypatch.setattr(_model_mod, "discover_engines", lambda c: [])
         result = CliRunner().invoke(cli, ["model", "list"])
         assert result.exit_code == 0
         assert "No inference engines" in result.output
@@ -55,28 +55,16 @@ class TestModelInfo:
     def test_info_known_model(self, monkeypatch) -> None:
         cfg = JarvisConfig()
         monkeypatch.setattr(_model_mod, "load_config", lambda: cfg)
-        monkeypatch.setattr(
-            _model_mod, "discover_engines", lambda c: []
-        )
-        monkeypatch.setattr(
-            _model_mod, "discover_models", lambda e: {}
-        )
-        result = CliRunner().invoke(
-            cli, ["model", "info", "qwen3:8b"]
-        )
+        monkeypatch.setattr(_model_mod, "discover_engines", lambda c: [])
+        monkeypatch.setattr(_model_mod, "discover_models", lambda e: {})
+        result = CliRunner().invoke(cli, ["model", "info", "qwen3:8b"])
         assert result.exit_code == 0
         assert "Qwen3 8B" in result.output
 
     def test_unknown_model_not_found(self, monkeypatch) -> None:
         cfg = JarvisConfig()
         monkeypatch.setattr(_model_mod, "load_config", lambda: cfg)
-        monkeypatch.setattr(
-            _model_mod, "discover_engines", lambda c: []
-        )
-        monkeypatch.setattr(
-            _model_mod, "discover_models", lambda e: {}
-        )
-        result = CliRunner().invoke(
-            cli, ["model", "info", "nonexistent-model"]
-        )
+        monkeypatch.setattr(_model_mod, "discover_engines", lambda c: [])
+        monkeypatch.setattr(_model_mod, "discover_models", lambda e: {})
+        result = CliRunner().invoke(cli, ["model", "info", "nonexistent-model"])
         assert result.exit_code != 0

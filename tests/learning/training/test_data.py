@@ -78,7 +78,7 @@ class FakeTraceStore:
         self._traces = traces or []
 
     def list_traces(self, *, limit: int = 10000, **kwargs: Any) -> list[Trace]:
-        return self._traces[: limit]
+        return self._traces[:limit]
 
 
 # ---------------------------------------------------------------------------

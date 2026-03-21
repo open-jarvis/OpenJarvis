@@ -1,4 +1,5 @@
 """Tests for setup_security() helper."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -34,6 +35,7 @@ def _make_config(*, enabled: bool = True, caps_enabled: bool = False) -> JarvisC
 def _has_rust() -> bool:
     try:
         import openjarvis_rust  # noqa: F401
+
         return True
     except ImportError:
         return False

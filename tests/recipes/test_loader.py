@@ -74,7 +74,7 @@ class TestLoadRecipe:
     def test_load_recipe_defaults(self, tmp_path: Path) -> None:
         """Minimal TOML should yield sensible defaults."""
         toml_file = tmp_path / "minimal.toml"
-        toml_file.write_text("[recipe]\nname = \"minimal\"\n")
+        toml_file.write_text('[recipe]\nname = "minimal"\n')
 
         recipe = load_recipe(toml_file)
 
@@ -87,7 +87,7 @@ class TestLoadRecipe:
     def test_load_recipe_name_from_filename(self, tmp_path: Path) -> None:
         """When [recipe] has no name, use the file stem."""
         toml_file = tmp_path / "my_recipe.toml"
-        toml_file.write_text("[recipe]\ndescription = \"no name\"\n")
+        toml_file.write_text('[recipe]\ndescription = "no name"\n')
 
         recipe = load_recipe(toml_file)
         assert recipe.name == "my_recipe"
@@ -104,9 +104,7 @@ class TestDiscoverRecipes:
 
     def test_discover_extra_dirs(self, tmp_path: Path) -> None:
         toml_file = tmp_path / "custom.toml"
-        toml_file.write_text(
-            '[recipe]\nname = "custom"\ndescription = "extra"\n'
-        )
+        toml_file.write_text('[recipe]\nname = "custom"\ndescription = "extra"\n')
         recipes = discover_recipes(extra_dirs=[tmp_path])
         names = {r.name for r in recipes}
         assert "custom" in names

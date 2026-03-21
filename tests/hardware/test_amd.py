@@ -28,9 +28,9 @@ class TestAMDDetection:
     @patch(
         "openjarvis.core.config._run_cmd",
         side_effect=[
-            "AMD Instinct MI300X",        # --showproductname
+            "AMD Instinct MI300X",  # --showproductname
             "GPU[0] : vram Total Memory (B): 206158430208",  # --showmeminfo vram
-            "GPU[0] : Some info",          # --showallinfo
+            "GPU[0] : Some info",  # --showallinfo
         ],
     )
     def test_rocm_smi_parsing(self, mock_run, mock_which):
@@ -48,8 +48,8 @@ class TestAMDDetection:
         "openjarvis.core.config._run_cmd",
         side_effect=[
             "AMD Instinct MI250X\nAMD Instinct MI250X",  # --showproductname
-            "",   # --showmeminfo vram (empty)
-            "",   # --showallinfo (empty)
+            "",  # --showmeminfo vram (empty)
+            "",  # --showallinfo (empty)
         ],
     )
     def test_amd_gpu_model(self, mock_run, mock_which):
@@ -140,8 +140,10 @@ class TestAMDEngineRecommendation:
             cpu_count=96,
             ram_gb=768.0,
             gpu=GpuInfo(
-                vendor="amd", name="AMD Instinct MI300X",
-                vram_gb=192.0, count=1,
+                vendor="amd",
+                name="AMD Instinct MI300X",
+                vram_gb=192.0,
+                count=1,
             ),
         )
         assert recommend_engine(hw) == "vllm"
@@ -163,8 +165,10 @@ class TestAMDEngineRecommendation:
             cpu_count=128,
             ram_gb=1024.0,
             gpu=GpuInfo(
-                vendor="amd", name="AMD Instinct MI300X",
-                vram_gb=192.0, count=4,
+                vendor="amd",
+                name="AMD Instinct MI300X",
+                vram_gb=192.0,
+                count=4,
             ),
         )
         assert recommend_engine(hw) == "vllm"

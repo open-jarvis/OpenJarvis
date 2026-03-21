@@ -63,8 +63,10 @@ class TestDeepPlanningScorer:
     def test_empty_response(self) -> None:
         s = DeepPlanningScorer(_mock_backend(), "test-model")
         record = EvalRecord(
-            record_id="dp-3", problem="task",
-            reference="answer", category="agentic",
+            record_id="dp-3",
+            problem="task",
+            reference="answer",
+            category="agentic",
         )
         is_correct, meta = s.score(record, "")
         assert is_correct is False
@@ -74,14 +76,17 @@ class TestDeepPlanningScorer:
 class TestDeepPlanningCLI:
     def test_in_benchmarks(self) -> None:
         from openjarvis.evals.cli import BENCHMARKS
+
         assert "deepplanning" in BENCHMARKS
 
     def test_build_dataset(self) -> None:
         from openjarvis.evals.cli import _build_dataset
+
         ds = _build_dataset("deepplanning")
         assert ds.dataset_id == "deepplanning"
 
     def test_build_scorer(self) -> None:
         from openjarvis.evals.cli import _build_scorer
+
         s = _build_scorer("deepplanning", _mock_backend(), "test-model")
         assert s.scorer_id == "deepplanning"

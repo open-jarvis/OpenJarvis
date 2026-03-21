@@ -18,10 +18,13 @@ def test_activity_tracking_updates_last_activity_at(tmp_path):
     agent = mgr.create_agent("stall-test")
 
     def fake_invoke(agent_dict):
-        bus.publish(EventType.TOOL_CALL_START, {
-            "agent": agent_dict["id"],
-            "tool": "web_search",
-        })
+        bus.publish(
+            EventType.TOOL_CALL_START,
+            {
+                "agent": agent_dict["id"],
+                "tool": "web_search",
+            },
+        )
         return AgentResult(content="done", metadata={})
 
     with patch.object(executor, "_invoke_agent", side_effect=fake_invoke):
@@ -44,10 +47,13 @@ def test_activity_tracking_filters_by_agent_id(tmp_path):
 
     def fake_invoke(agent_dict):
         # Emit event for agent_b while agent_a is executing
-        bus.publish(EventType.TOOL_CALL_START, {
-            "agent": agent_b["id"],
-            "tool": "web_search",
-        })
+        bus.publish(
+            EventType.TOOL_CALL_START,
+            {
+                "agent": agent_b["id"],
+                "tool": "web_search",
+            },
+        )
         return AgentResult(content="done", metadata={})
 
     with patch.object(executor, "_invoke_agent", side_effect=fake_invoke):
@@ -67,10 +73,13 @@ def test_reconcile_detects_stalled_agent(tmp_path):
 
     scheduler = AgentScheduler(mgr, executor, event_bus=bus)
 
-    agent = mgr.create_agent("stall-me", config={
-        "timeout_seconds": 10,
-        "max_stall_retries": 3,
-    })
+    agent = mgr.create_agent(
+        "stall-me",
+        config={
+            "timeout_seconds": 10,
+            "max_stall_retries": 3,
+        },
+    )
     mgr.update_agent(agent["id"], status="running", last_activity_at=time.time() - 30)
 
     scheduler._reconcile()
@@ -79,8 +88,7 @@ def test_reconcile_detects_stalled_agent(tmp_path):
     assert updated["stall_retries"] == 1
 
     stall_events = [
-        e for e in bus.history
-        if e.event_type == EventType.AGENT_STALL_DETECTED
+        e for e in bus.history if e.event_type == EventType.AGENT_STALL_DETECTED
     ]
     assert len(stall_events) == 1
     mgr.close()
@@ -114,12 +122,19 @@ def test_reconcile_retries_exhausted_sets_error(tmp_path):
 
     scheduler = AgentScheduler(mgr, executor, event_bus=bus)
 
-    agent = mgr.create_agent("exhausted", config={
-        "timeout_seconds": 10,
-        "max_stall_retries": 2,
-    })
-    mgr.update_agent(agent["id"], status="running",
-                     last_activity_at=time.time() - 30, stall_retries=2)
+    agent = mgr.create_agent(
+        "exhausted",
+        config={
+            "timeout_seconds": 10,
+            "max_stall_retries": 2,
+        },
+    )
+    mgr.update_agent(
+        agent["id"],
+        status="running",
+        last_activity_at=time.time() - 30,
+        stall_retries=2,
+    )
 
     scheduler._reconcile()
 

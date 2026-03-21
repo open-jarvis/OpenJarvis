@@ -28,8 +28,7 @@ class _CalcTool(BaseTool):
                     "expression": {
                         "type": "string",
                         "description": (
-                            "Math expression to evaluate"
-                            " (e.g. '2+3*4', 'sqrt(16)')"
+                            "Math expression to evaluate (e.g. '2+3*4', 'sqrt(16)')"
                         ),
                     },
                 },

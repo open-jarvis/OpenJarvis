@@ -48,23 +48,27 @@ class TestDSPyOptimizerTraceConversion:
         now = time.time()
         traces = []
         for i in range(5):
-            traces.append(Trace(
-                query=f"test query {i}",
-                agent="native_react",
-                model="qwen3:8b",
-                result=f"result {i}",
-                outcome="success",
-                feedback=0.9,
-                started_at=now,
-                ended_at=now + 1,
-                total_tokens=100,
-                total_latency_seconds=1.0,
-                steps=[TraceStep(
-                    step_type=StepType.GENERATE,
-                    timestamp=now,
-                    duration_seconds=0.5,
-                )],
-            ))
+            traces.append(
+                Trace(
+                    query=f"test query {i}",
+                    agent="native_react",
+                    model="qwen3:8b",
+                    result=f"result {i}",
+                    outcome="success",
+                    feedback=0.9,
+                    started_at=now,
+                    ended_at=now + 1,
+                    total_tokens=100,
+                    total_latency_seconds=1.0,
+                    steps=[
+                        TraceStep(
+                            step_type=StepType.GENERATE,
+                            timestamp=now,
+                            duration_seconds=0.5,
+                        )
+                    ],
+                )
+            )
 
         mock_store = MagicMock()
         mock_store.list_traces.return_value = traces
@@ -73,10 +77,14 @@ class TestDSPyOptimizerTraceConversion:
         import openjarvis.learning.agents.dspy_optimizer as mod
 
         with patch.object(mod, "HAS_DSPY", True):
-            with patch.object(optimizer, "_run_dspy_optimization", return_value={
-                "system_prompt": "You are a helpful assistant.",
-                "few_shot_examples": [{"input": "hi", "output": "hello"}],
-            }):
+            with patch.object(
+                optimizer,
+                "_run_dspy_optimization",
+                return_value={
+                    "system_prompt": "You are a helpful assistant.",
+                    "few_shot_examples": [{"input": "hi", "output": "hello"}],
+                },
+            ):
                 result = optimizer.optimize(mock_store)
                 assert result["status"] == "completed"
                 assert "config_updates" in result

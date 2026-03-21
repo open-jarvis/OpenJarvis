@@ -181,7 +181,9 @@ class TestMemoryIndexTool:
 
     def test_index_file(self, backend):
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".txt", delete=False,
+            mode="w",
+            suffix=".txt",
+            delete=False,
         ) as f:
             f.write("This is test content for indexing.")
             f.flush()

@@ -4679,6 +4679,7 @@ dependencies = [
     { name = "ddgs" },
     { name = "httpx" },
     { name = "openai" },
+    { name = "python-telegram-bot" },
     { name = "rich" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
 ]
@@ -4903,6 +4904,7 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5" },
     { name = "python-multipart", marker = "extra == 'server'", specifier = ">=0.0.9" },
+    { name = "python-telegram-bot", specifier = ">=22.6" },
     { name = "python-telegram-bot", marker = "extra == 'channel-telegram'", specifier = ">=21.0" },
     { name = "rank-bm25", marker = "extra == 'memory-bm25'", specifier = ">=0.2.2" },
     { name = "respx", marker = "extra == 'dev'", specifier = ">=0.22" },

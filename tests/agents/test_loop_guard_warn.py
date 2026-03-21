@@ -7,7 +7,9 @@ from openjarvis.agents.loop_guard import LoopGuard, LoopGuardConfig, LoopVerdict
 
 def test_warn_before_block_first_cycle_warns():
     config = LoopGuardConfig(
-        enabled=True, max_identical_calls=2, warn_before_block=True,
+        enabled=True,
+        max_identical_calls=2,
+        warn_before_block=True,
     )
     guard = LoopGuard(config)
     # Simulate the Rust backend blocking on the second identical call
@@ -25,7 +27,9 @@ def test_warn_before_block_first_cycle_warns():
 
 def test_warn_before_block_second_cycle_blocks():
     config = LoopGuardConfig(
-        enabled=True, max_identical_calls=2, warn_before_block=True,
+        enabled=True,
+        max_identical_calls=2,
+        warn_before_block=True,
     )
     guard = LoopGuard(config)
     mock_rust = MagicMock()
@@ -47,7 +51,9 @@ def test_warn_before_block_second_cycle_blocks():
 
 def test_default_behavior_unchanged():
     config = LoopGuardConfig(
-        enabled=True, max_identical_calls=2, warn_before_block=False,
+        enabled=True,
+        max_identical_calls=2,
+        warn_before_block=False,
     )
     guard = LoopGuard(config)
     mock_rust = MagicMock()

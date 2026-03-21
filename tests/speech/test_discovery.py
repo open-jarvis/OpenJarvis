@@ -13,10 +13,14 @@ def test_get_speech_backend_explicit():
     config.speech.backend = "faster-whisper"
 
     with patch("openjarvis.speech._discovery._create_backend") as mock_create:
-        mock_backend = type("MockBackend", (), {
-            "backend_id": "faster-whisper",
-            "health": lambda self: True,
-        })()
+        mock_backend = type(
+            "MockBackend",
+            (),
+            {
+                "backend_id": "faster-whisper",
+                "health": lambda self: True,
+            },
+        )()
         mock_create.return_value = mock_backend
 
         result = get_speech_backend(config)

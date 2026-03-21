@@ -114,11 +114,13 @@ def _make_engine_multi_tool() -> MagicMock:
             "content": "",
             "tool_calls": [
                 {
-                    "id": "call_1", "name": "calculator",
+                    "id": "call_1",
+                    "name": "calculator",
                     "arguments": '{"expression":"2+2"}',
                 },
                 {
-                    "id": "call_2", "name": "think",
+                    "id": "call_2",
+                    "name": "think",
                     "arguments": '{"thought":"thinking..."}',
                 },
             ],
@@ -158,7 +160,9 @@ class TestOrchestratorAgent:
     def test_single_tool_call(self):
         engine = _make_engine_with_tool_call()
         agent = OrchestratorAgent(
-            engine, "test-model", tools=[_CalculatorStub()],
+            engine,
+            "test-model",
+            tools=[_CalculatorStub()],
         )
         result = agent.run("What is 2+2?")
         assert result.content == "The answer is 4."
@@ -170,7 +174,8 @@ class TestOrchestratorAgent:
     def test_multiple_tool_calls_same_turn(self):
         engine = _make_engine_multi_tool()
         agent = OrchestratorAgent(
-            engine, "test-model",
+            engine,
+            "test-model",
             tools=[_CalculatorStub(), _ThinkStub()],
         )
         result = agent.run("Think and calculate.")
@@ -193,7 +198,9 @@ class TestOrchestratorAgent:
     def test_tools_passed_to_engine(self):
         engine = _make_engine_no_tools()
         agent = OrchestratorAgent(
-            engine, "test-model", tools=[_CalculatorStub()],
+            engine,
+            "test-model",
+            tools=[_CalculatorStub()],
         )
         agent.run("Hello")
         call_kwargs = engine.generate.call_args[1]
@@ -221,7 +228,8 @@ class TestOrchestratorAgent:
             "finish_reason": "tool_calls",
         }
         agent = OrchestratorAgent(
-            engine, "test-model",
+            engine,
+            "test-model",
             tools=[_CalculatorStub()],
             max_turns=3,
         )
@@ -236,7 +244,9 @@ class TestOrchestratorAgent:
             final_content="Handled.",
         )
         agent = OrchestratorAgent(
-            engine, "test-model", tools=[_CalculatorStub()],
+            engine,
+            "test-model",
+            tools=[_CalculatorStub()],
         )
         result = agent.run("Use unknown tool")
         assert result.content == "Handled."
@@ -281,7 +291,10 @@ class TestOrchestratorAgent:
         bus = EventBus(record_history=True)
         engine = _make_engine_with_tool_call()
         agent = OrchestratorAgent(
-            engine, "test-model", tools=[_CalculatorStub()], bus=bus,
+            engine,
+            "test-model",
+            tools=[_CalculatorStub()],
+            bus=bus,
         )
         agent.run("Calc 2+2")
         event_types = [e.event_type for e in bus.history]
@@ -292,7 +305,9 @@ class TestOrchestratorAgent:
         """After tool call, messages include assistant + tool messages."""
         engine = _make_engine_with_tool_call()
         agent = OrchestratorAgent(
-            engine, "test-model", tools=[_CalculatorStub()],
+            engine,
+            "test-model",
+            tools=[_CalculatorStub()],
         )
         agent.run("What is 2+2?")
         # Second call should include accumulated messages
@@ -305,7 +320,9 @@ class TestOrchestratorAgent:
     def test_tool_message_has_tool_call_id(self):
         engine = _make_engine_with_tool_call(tool_call_id="abc123")
         agent = OrchestratorAgent(
-            engine, "test-model", tools=[_CalculatorStub()],
+            engine,
+            "test-model",
+            tools=[_CalculatorStub()],
         )
         agent.run("What is 2+2?")
         second_call = engine.generate.call_args_list[1]
@@ -317,7 +334,9 @@ class TestOrchestratorAgent:
     def test_no_bus_works(self):
         engine = _make_engine_with_tool_call()
         agent = OrchestratorAgent(
-            engine, "test-model", tools=[_CalculatorStub()],
+            engine,
+            "test-model",
+            tools=[_CalculatorStub()],
         )
         result = agent.run("What is 2+2?")
         assert result.content == "The answer is 4."
@@ -335,10 +354,13 @@ class TestOrchestratorAgent:
         engine.generate.side_effect = [
             {
                 "content": "",
-                "tool_calls": [{
-                    "id": "c1", "name": "calculator",
-                    "arguments": '{"expression":"2+2"}',
-                }],
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "name": "calculator",
+                        "arguments": '{"expression":"2+2"}',
+                    }
+                ],
                 "usage": {
                     "prompt_tokens": 5,
                     "completion_tokens": 3,
@@ -349,10 +371,13 @@ class TestOrchestratorAgent:
             },
             {
                 "content": "",
-                "tool_calls": [{
-                    "id": "c2", "name": "calculator",
-                    "arguments": '{"expression":"4*3"}',
-                }],
+                "tool_calls": [
+                    {
+                        "id": "c2",
+                        "name": "calculator",
+                        "arguments": '{"expression":"4*3"}',
+                    }
+                ],
                 "usage": {
                     "prompt_tokens": 15,
                     "completion_tokens": 3,
@@ -373,7 +398,9 @@ class TestOrchestratorAgent:
             },
         ]
         agent = OrchestratorAgent(
-            engine, "test-model", tools=[_CalculatorStub()],
+            engine,
+            "test-model",
+            tools=[_CalculatorStub()],
         )
         result = agent.run("Calculate")
         assert result.turns == 3
@@ -384,7 +411,9 @@ class TestOrchestratorAgent:
     def test_tool_result_latency_tracked(self):
         engine = _make_engine_with_tool_call()
         agent = OrchestratorAgent(
-            engine, "test-model", tools=[_CalculatorStub()],
+            engine,
+            "test-model",
+            tools=[_CalculatorStub()],
         )
         result = agent.run("What is 2+2?")
         assert result.tool_results[0].latency_seconds >= 0
@@ -403,7 +432,8 @@ class TestOrchestratorAgent:
             "finish_reason": "tool_calls",
         }
         agent = OrchestratorAgent(
-            engine, "test-model",
+            engine,
+            "test-model",
             tools=[_CalculatorStub()],
             max_turns=1,
         )
@@ -433,7 +463,8 @@ class TestOrchestratorAgent:
             "finish_reason": "tool_calls",
         }
         agent = OrchestratorAgent(
-            engine, "test-model",
+            engine,
+            "test-model",
             tools=[_CalculatorStub()],
             max_turns=2,
         )
@@ -456,7 +487,9 @@ class TestOrchestratorStructuredMode:
             "finish_reason": "stop",
         }
         agent = OrchestratorAgent(
-            engine, "test-model", mode="structured",
+            engine,
+            "test-model",
+            mode="structured",
         )
         result = agent.run("What is the capital of France?")
         assert result.content == "Paris"
@@ -471,7 +504,7 @@ class TestOrchestratorStructuredMode:
             {
                 "content": (
                     "THOUGHT: Need to calculate.\n"
-                    'TOOL: calculator\n'
+                    "TOOL: calculator\n"
                     'INPUT: {"expression":"2+2"}'
                 ),
                 "usage": {
@@ -483,10 +516,7 @@ class TestOrchestratorStructuredMode:
                 "finish_reason": "stop",
             },
             {
-                "content": (
-                    "THOUGHT: Got 4.\n"
-                    "FINAL_ANSWER: The answer is 4."
-                ),
+                "content": ("THOUGHT: Got 4.\nFINAL_ANSWER: The answer is 4."),
                 "usage": {
                     "prompt_tokens": 20,
                     "completion_tokens": 10,
@@ -497,7 +527,8 @@ class TestOrchestratorStructuredMode:
             },
         ]
         agent = OrchestratorAgent(
-            engine, "test-model",
+            engine,
+            "test-model",
             tools=[_CalculatorStub()],
             mode="structured",
         )
@@ -519,7 +550,8 @@ class TestOrchestratorStructuredMode:
             "finish_reason": "stop",
         }
         agent = OrchestratorAgent(
-            engine, "test-model",
+            engine,
+            "test-model",
             tools=[_CalculatorStub()],
             mode="structured",
         )
@@ -591,7 +623,10 @@ class TestOrchestratorParallelTools:
         ]
 
         agent = OrchestratorAgent(
-            engine, "test-model", tools=[_SlowTool()], parallel_tools=True,
+            engine,
+            "test-model",
+            tools=[_SlowTool()],
+            parallel_tools=True,
         )
         t0 = time.time()
         result = agent.run("Do things")
@@ -610,7 +645,8 @@ class TestOrchestratorParallelTools:
         """parallel_tools=False runs tools sequentially."""
         engine = _make_engine_multi_tool()
         agent = OrchestratorAgent(
-            engine, "test-model",
+            engine,
+            "test-model",
             tools=[_CalculatorStub(), _ThinkStub()],
             parallel_tools=False,
         )
@@ -622,7 +658,9 @@ class TestOrchestratorParallelTools:
         """Single tool call should not use parallel path even if parallel_tools=True."""
         engine = _make_engine_with_tool_call()
         agent = OrchestratorAgent(
-            engine, "test-model", tools=[_CalculatorStub()],
+            engine,
+            "test-model",
+            tools=[_CalculatorStub()],
             parallel_tools=True,
         )
         result = agent.run("What is 2+2?")

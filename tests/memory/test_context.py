@@ -17,6 +17,7 @@ from openjarvis.tools.storage.context import (
 
 # -- Fake backend for testing ------------------------------------------------
 
+
 class _FakeMemory(MemoryBackend):
     """In-memory backend that returns pre-set results."""
 
@@ -113,7 +114,10 @@ def test_inject_context_filters_low_score():
     messages = [Message(role=Role.USER, content="hello")]
     cfg = ContextConfig(min_score=0.1)
     augmented = inject_context(
-        "query", messages, backend, config=cfg,
+        "query",
+        messages,
+        backend,
+        config=cfg,
     )
     # Low score filtered out — no context added
     assert len(augmented) == 1
@@ -130,7 +134,10 @@ def test_inject_context_respects_max_tokens():
     messages = [Message(role=Role.USER, content="test")]
     cfg = ContextConfig(max_context_tokens=150)
     augmented = inject_context(
-        "query", messages, backend, config=cfg,
+        "query",
+        messages,
+        backend,
+        config=cfg,
     )
     assert len(augmented) == 2  # system + user
     # Only one source should be cited
@@ -145,7 +152,10 @@ def test_inject_context_disabled():
     messages = [Message(role=Role.USER, content="hello")]
     cfg = ContextConfig(enabled=False)
     augmented = inject_context(
-        "query", messages, backend, config=cfg,
+        "query",
+        messages,
+        backend,
+        config=cfg,
     )
     assert len(augmented) == 1
 
@@ -166,14 +176,12 @@ def test_inject_context_publishes_event():
     messages = [Message(role=Role.USER, content="hello")]
 
     import openjarvis.tools.storage.context as mod
+
     original = mod.get_event_bus
     mod.get_event_bus = lambda: bus
     try:
         inject_context("query", messages, backend)
-        events = [
-            e for e in bus.history
-            if e.event_type == EventType.MEMORY_RETRIEVE
-        ]
+        events = [e for e in bus.history if e.event_type == EventType.MEMORY_RETRIEVE]
         assert len(events) == 1
         assert events[0].data["context_injection"] is True
     finally:

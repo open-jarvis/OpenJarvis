@@ -230,6 +230,20 @@ def serve(
             console.print(f"[yellow]Channel failed to start: {exc}[/yellow]")
             channel_bridge = None
 
+    # Wire channel messages → agent / engine (per-chat session isolation)
+    if channel_bridge is not None:
+        from openjarvis.system import JarvisSystem
+
+        _wire_system = JarvisSystem(
+            config=config,
+            bus=bus,
+            engine=engine,
+            engine_key=engine_name,
+            model=model_name,
+            agent_name=agent_key or "",
+        )
+        _wire_system.wire_channel(channel_bridge)
+
     # Set up speech backend
     speech_backend = None
     try:

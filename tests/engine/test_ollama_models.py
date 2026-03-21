@@ -81,7 +81,9 @@ class TestOllamaGenerate:
             return_value=httpx.Response(
                 200,
                 json=_ollama_response(
-                    content="", model=model_id, tool_calls=tool_calls,
+                    content="",
+                    model=model_id,
+                    tool_calls=tool_calls,
                 ),
             )
         )
@@ -104,7 +106,8 @@ class TestOllamaGenerate:
             return_value=httpx.Response(
                 200,
                 json=_ollama_response(
-                    content="", model=model_id,
+                    content="",
+                    model=model_id,
                     tool_calls=tool_calls,
                 ),
             )
@@ -136,6 +139,7 @@ class TestOllamaGenerate:
             return tokens
 
         import asyncio
+
         tokens = asyncio.run(collect())
         assert "Hello" in tokens
 
@@ -222,9 +226,7 @@ class TestOllamaErrors:
 
         def capture(request):
             captured["body"] = json.loads(request.content)
-            return httpx.Response(
-                200, json=_ollama_response(content="ok")
-            )
+            return httpx.Response(200, json=_ollama_response(content="ok"))
 
         respx_mock.post(f"{OLLAMA_HOST}/api/chat").mock(side_effect=capture)
         engine.generate(
@@ -241,12 +243,8 @@ class TestOllamaErrors:
 
         def capture(request):
             captured["body"] = json.loads(request.content)
-            return httpx.Response(
-                200, json=_ollama_response(content="ok")
-            )
+            return httpx.Response(200, json=_ollama_response(content="ok"))
 
         respx_mock.post(f"{OLLAMA_HOST}/api/chat").mock(side_effect=capture)
-        engine.generate(
-            [Message(role=Role.USER, content="Hello")], model="qwen3:8b"
-        )
+        engine.generate([Message(role=Role.USER, content="Hello")], model="qwen3:8b")
         assert "tools" not in captured["body"]

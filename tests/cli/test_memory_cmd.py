@@ -29,13 +29,12 @@ def test_memory_index_file(tmp_path: Path, monkeypatch):
 
     mod = importlib.import_module("openjarvis.cli.memory_cmd")
     monkeypatch.setattr(
-        mod, "_get_backend",
+        mod,
+        "_get_backend",
         lambda b=None: SQLiteMemory(db_path=db_path),
     )
 
-    result = CliRunner().invoke(
-        cli, ["memory", "index", str(doc)]
-    )
+    result = CliRunner().invoke(cli, ["memory", "index", str(doc)])
     assert result.exit_code == 0
     assert "Indexed" in result.output or "chunk" in result.output
 
@@ -43,9 +42,7 @@ def test_memory_index_file(tmp_path: Path, monkeypatch):
 def test_memory_index_nonexistent(tmp_path: Path):
     """Indexing a nonexistent path should fail."""
     _register_sqlite()
-    result = CliRunner().invoke(
-        cli, ["memory", "index", str(tmp_path / "nope")]
-    )
+    result = CliRunner().invoke(cli, ["memory", "index", str(tmp_path / "nope")])
     assert result.exit_code != 0
 
 
@@ -61,13 +58,12 @@ def test_memory_search_returns_results(tmp_path: Path, monkeypatch):
 
     mod = importlib.import_module("openjarvis.cli.memory_cmd")
     monkeypatch.setattr(
-        mod, "_get_backend",
+        mod,
+        "_get_backend",
         lambda b=None: SQLiteMemory(db_path=db_path),
     )
 
-    result = CliRunner().invoke(
-        cli, ["memory", "search", "Python"]
-    )
+    result = CliRunner().invoke(cli, ["memory", "search", "Python"])
     assert result.exit_code == 0
     assert "Python" in result.output
     backend.close()
@@ -82,13 +78,12 @@ def test_memory_search_no_results(tmp_path: Path, monkeypatch):
 
     mod = importlib.import_module("openjarvis.cli.memory_cmd")
     monkeypatch.setattr(
-        mod, "_get_backend",
+        mod,
+        "_get_backend",
         lambda b=None: SQLiteMemory(db_path=db_path),
     )
 
-    result = CliRunner().invoke(
-        cli, ["memory", "search", "quantum supercollider"]
-    )
+    result = CliRunner().invoke(cli, ["memory", "search", "quantum supercollider"])
     assert result.exit_code == 0
     assert "No results" in result.output
     backend.close()
@@ -104,7 +99,8 @@ def test_memory_stats_shows_count(tmp_path: Path, monkeypatch):
 
     mod = importlib.import_module("openjarvis.cli.memory_cmd")
     monkeypatch.setattr(
-        mod, "_get_backend",
+        mod,
+        "_get_backend",
         lambda b=None: SQLiteMemory(db_path=db_path),
     )
 

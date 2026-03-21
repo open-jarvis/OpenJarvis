@@ -222,9 +222,9 @@ class TestStats:
 
     def test_distribution_mixed(self) -> None:
         fc = FeedbackCollector()
-        fc.record_explicit("a", 0.1)   # low
-        fc.record_explicit("b", 0.5)   # medium
-        fc.record_explicit("c", 0.9)   # high
+        fc.record_explicit("a", 0.1)  # low
+        fc.record_explicit("b", 0.5)  # medium
+        fc.record_explicit("c", 0.9)  # high
         s = fc.stats()
         assert s["distribution"]["low"] == 1
         assert s["distribution"]["medium"] == 1

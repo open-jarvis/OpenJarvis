@@ -11,6 +11,7 @@ from openjarvis.learning.agents.skill_discovery import SkillDiscovery
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class _Step:
     step_type: str = "tool_call"
@@ -93,10 +94,7 @@ class TestSkillDiscovery:
     def test_outcome_threshold(self):
         """Low-outcome sequences should be filtered out."""
         sd = SkillDiscovery(min_frequency=3, min_outcome=0.8)
-        traces = [
-            _make_trace(["a", "b"], outcome=0.3)
-            for _ in range(5)
-        ]
+        traces = [_make_trace(["a", "b"], outcome=0.3) for _ in range(5)]
         result = sd.analyze_traces(traces)
         assert result == []
 
@@ -104,7 +102,9 @@ class TestSkillDiscovery:
         """Sequences shorter than min or longer than max should be excluded."""
         # Only length-1 tools (below min_sequence_length=2)
         sd = SkillDiscovery(
-            min_frequency=2, min_sequence_length=2, max_sequence_length=3,
+            min_frequency=2,
+            min_sequence_length=2,
+            max_sequence_length=3,
         )
         short_traces = [_make_trace(["a"], outcome=1.0) for _ in range(5)]
         result = sd.analyze_traces(short_traces)
@@ -113,12 +113,11 @@ class TestSkillDiscovery:
         # Long sequence: with max_sequence_length=2, a 4-tool sequence
         # should only produce subsequences of length 2
         sd2 = SkillDiscovery(
-            min_frequency=3, min_sequence_length=2, max_sequence_length=2,
+            min_frequency=3,
+            min_sequence_length=2,
+            max_sequence_length=2,
         )
-        long_traces = [
-            _make_trace(["a", "b", "c", "d"], outcome=1.0)
-            for _ in range(3)
-        ]
+        long_traces = [_make_trace(["a", "b", "c", "d"], outcome=1.0) for _ in range(3)]
         result2 = sd2.analyze_traces(long_traces)
         # All discovered skills should have exactly 2 tools
         for skill in result2:
@@ -127,10 +126,7 @@ class TestSkillDiscovery:
     def test_to_skill_manifests(self):
         """Verify manifest dict format has expected keys."""
         sd = SkillDiscovery(min_frequency=2, min_outcome=0.0)
-        traces = [
-            _make_trace(["calc", "save"], outcome=0.9)
-            for _ in range(3)
-        ]
+        traces = [_make_trace(["calc", "save"], outcome=0.9) for _ in range(3)]
         sd.analyze_traces(traces)
         manifests = sd.to_skill_manifests()
         assert len(manifests) >= 1
@@ -150,15 +146,9 @@ class TestSkillDiscovery:
         """Higher frequency*outcome skills should come first."""
         sd = SkillDiscovery(min_frequency=2, min_outcome=0.0)
         # Group A: high freq, high outcome
-        traces_a = [
-            _make_trace(["alpha", "beta"], outcome=1.0)
-            for _ in range(10)
-        ]
+        traces_a = [_make_trace(["alpha", "beta"], outcome=1.0) for _ in range(10)]
         # Group B: low freq, low outcome
-        traces_b = [
-            _make_trace(["gamma", "delta"], outcome=0.3)
-            for _ in range(2)
-        ]
+        traces_b = [_make_trace(["gamma", "delta"], outcome=0.3) for _ in range(2)]
         result = sd.analyze_traces(traces_a + traces_b)
         assert len(result) >= 2
         # First should be the higher quality one
@@ -172,7 +162,9 @@ class TestSkillDiscovery:
         sd = SkillDiscovery(min_frequency=3, min_outcome=0.5)
         traces = [
             _make_dict_trace(
-                ["read", "compute", "write"], outcome=0.8, query=f"task {i}",
+                ["read", "compute", "write"],
+                outcome=0.8,
+                query=f"task {i}",
             )
             for i in range(4)
         ]

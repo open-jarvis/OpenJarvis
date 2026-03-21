@@ -127,13 +127,7 @@ class TestApplyPatchTool:
     def test_blocks_sensitive_files(self, tmp_path):
         f = tmp_path / ".env"
         f.write_text("SECRET=foo\n", encoding="utf-8")
-        patch = (
-            "--- a/.env\n"
-            "+++ b/.env\n"
-            "@@ -1 +1 @@\n"
-            "-SECRET=foo\n"
-            "+SECRET=bar\n"
-        )
+        patch = "--- a/.env\n+++ b/.env\n@@ -1 +1 @@\n-SECRET=foo\n+SECRET=bar\n"
         tool = ApplyPatchTool()
         result = tool.execute(patch=patch, path=str(f))
         assert result.success is False
@@ -143,13 +137,7 @@ class TestApplyPatchTool:
         f = tmp_path / "auto.txt"
         f.write_text("one\ntwo\nthree\n", encoding="utf-8")
         patch = (
-            "--- a/auto.txt\n"
-            f"+++ b/{f}\n"
-            "@@ -1,3 +1,3 @@\n"
-            " one\n"
-            "-two\n"
-            "+TWO\n"
-            " three\n"
+            f"--- a/auto.txt\n+++ b/{f}\n@@ -1,3 +1,3 @@\n one\n-two\n+TWO\n three\n"
         )
         tool = ApplyPatchTool()
         # No explicit path — should auto-detect from +++ header
@@ -167,11 +155,7 @@ class TestApplyPatchTool:
     def test_file_not_found(self):
         tool = ApplyPatchTool()
         patch = (
-            "--- a/nonexistent.txt\n"
-            "+++ b/nonexistent.txt\n"
-            "@@ -1 +1 @@\n"
-            "-old\n"
-            "+new\n"
+            "--- a/nonexistent.txt\n+++ b/nonexistent.txt\n@@ -1 +1 @@\n-old\n+new\n"
         )
         result = tool.execute(patch=patch, path="/nonexistent/path/file.txt")
         assert result.success is False

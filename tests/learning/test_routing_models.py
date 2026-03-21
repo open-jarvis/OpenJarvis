@@ -13,10 +13,10 @@ from openjarvis.learning.routing.router import (
 
 # New local model keys for testing
 NEW_LOCAL_MODELS = [
-    "gpt-oss:120b",   # 117B total, 5.1B active, MoE
-    "qwen3:8b",       # 8.2B, dense
+    "gpt-oss:120b",  # 117B total, 5.1B active, MoE
+    "qwen3:8b",  # 8.2B, dense
     "glm-4.7-flash",  # 30B total, 3.0B active, MoE
-    "trinity-mini",   # 26B total, 3.0B active, MoE
+    "trinity-mini",  # 26B total, 3.0B active, MoE
 ]
 
 # Cloud model keys
@@ -114,8 +114,7 @@ class TestRouterWithNewModels:
             available_models=NEW_LOCAL_MODELS,
         )
         ctx = build_routing_context(
-            "Please explain step by step how neural networks"
-            " learn"
+            "Please explain step by step how neural networks learn"
         )
         selected = router.select_model(ctx)
         assert selected == "gpt-oss:120b"
@@ -148,7 +147,9 @@ class TestRouterCloudFallback:
         _setup_models()
         router = HeuristicRouter(available_models=CLOUD_MODELS)
         ctx = RoutingContext(
-            query="solve x", query_length=7, has_math=True,
+            query="solve x",
+            query_length=7,
+            has_math=True,
         )
         selected = router.select_model(ctx)
         assert selected in CLOUD_MODELS
@@ -192,18 +193,21 @@ class TestRouterParameterized:
 
     @pytest.mark.parametrize("model_id", NEW_LOCAL_MODELS)
     def test_single_model_always_returns_it(
-        self, model_id: str,
+        self,
+        model_id: str,
     ) -> None:
         _setup_models()
         router = HeuristicRouter(available_models=[model_id])
         ctx = RoutingContext(
-            query="hello world", query_length=11,
+            query="hello world",
+            query_length=11,
         )
         assert router.select_model(ctx) == model_id
 
     @pytest.mark.parametrize("urgency", [0.85, 0.9, 1.0])
     def test_high_urgency_always_smallest(
-        self, urgency: float,
+        self,
+        urgency: float,
     ) -> None:
         _setup_models()
         router = HeuristicRouter(

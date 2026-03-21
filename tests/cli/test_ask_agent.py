@@ -123,7 +123,8 @@ def agent_setup():
         patch.object(_ask_mod, "get_engine", return_value=("mock", engine)),
         patch.object(_ask_mod, "discover_engines", return_value=[("mock", engine)]),
         patch.object(
-            _ask_mod, "discover_models",
+            _ask_mod,
+            "discover_models",
             return_value={"mock": ["test-model"]},
         ),
         patch.object(_ask_mod, "register_builtin_models"),
@@ -152,6 +153,7 @@ def mock_setup():
         patch.object(_ask_mod, "merge_discovered_models"),
     ):
         from openjarvis.core.config import JarvisConfig
+
         mock_cfg.return_value = JarvisConfig()
         mock_ge.return_value = ("mock", engine)
         mock_de.return_value = [("mock", engine)]
@@ -175,7 +177,8 @@ class TestAskAgentOption:
 
     def test_agent_orchestrator_no_tools(self, runner, mock_setup):
         result = runner.invoke(
-            cli, ["ask", "--agent", "orchestrator", "Hello"],
+            cli,
+            ["ask", "--agent", "orchestrator", "Hello"],
         )
         assert result.exit_code == 0
 
@@ -183,8 +186,11 @@ class TestAskAgentOption:
         result = runner.invoke(
             cli,
             [
-                "ask", "--agent", "orchestrator",
-                "--tools", "calculator,think",
+                "ask",
+                "--agent",
+                "orchestrator",
+                "--tools",
+                "calculator,think",
                 "What is 2+2?",
             ],
         )
@@ -192,7 +198,8 @@ class TestAskAgentOption:
 
     def test_agent_json_output(self, runner, mock_setup):
         result = runner.invoke(
-            cli, ["ask", "--agent", "simple", "--json", "Hello"],
+            cli,
+            ["ask", "--agent", "simple", "--json", "Hello"],
         )
         assert result.exit_code == 0
         assert '"content"' in result.output
@@ -200,7 +207,8 @@ class TestAskAgentOption:
 
     def test_unknown_agent(self, runner, mock_setup):
         result = runner.invoke(
-            cli, ["ask", "--agent", "nonexistent", "Hello"],
+            cli,
+            ["ask", "--agent", "nonexistent", "Hello"],
         )
         assert result.exit_code != 0
 
@@ -211,13 +219,15 @@ class TestAskAgentOption:
 
     def test_agent_simple_with_model(self, runner, mock_setup):
         result = runner.invoke(
-            cli, ["ask", "--agent", "simple", "-m", "test-model", "Hello"],
+            cli,
+            ["ask", "--agent", "simple", "-m", "test-model", "Hello"],
         )
         assert result.exit_code == 0
 
     def test_agent_simple_with_temperature(self, runner, mock_setup):
         result = runner.invoke(
-            cli, ["ask", "--agent", "simple", "-t", "0.1", "Hello"],
+            cli,
+            ["ask", "--agent", "simple", "-t", "0.1", "Hello"],
         )
         assert result.exit_code == 0
 
@@ -240,7 +250,8 @@ class TestAskAgentOption:
         agent_setup.config.agent.tools = agent_tools
 
         result = runner.invoke(
-            cli, ["ask", "--agent", "confirming_agent", "Hello"],
+            cli,
+            ["ask", "--agent", "confirming_agent", "Hello"],
         )
 
         assert result.exit_code == 0

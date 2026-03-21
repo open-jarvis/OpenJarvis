@@ -134,14 +134,12 @@ def test_event_bus_integration_store(tmp_path: Path):
     backend = _make_backend(tmp_path)
     # Monkey-patch the global bus for this test
     import openjarvis.tools.storage.sqlite as mod
+
     original = mod.get_event_bus
     mod.get_event_bus = lambda: bus
     try:
         backend.store("test event emission")
-        events = [
-            e for e in bus.history
-            if e.event_type == EventType.MEMORY_STORE
-        ]
+        events = [e for e in bus.history if e.event_type == EventType.MEMORY_STORE]
         assert len(events) == 1
         assert events[0].data["backend"] == "sqlite"
     finally:
@@ -154,14 +152,12 @@ def test_event_bus_integration_retrieve(tmp_path: Path):
     backend = _make_backend(tmp_path)
     backend.store("searchable content for events")
     import openjarvis.tools.storage.sqlite as mod
+
     original = mod.get_event_bus
     mod.get_event_bus = lambda: bus
     try:
         backend.retrieve("searchable")
-        events = [
-            e for e in bus.history
-            if e.event_type == EventType.MEMORY_RETRIEVE
-        ]
+        events = [e for e in bus.history if e.event_type == EventType.MEMORY_RETRIEVE]
         assert len(events) == 1
         assert events[0].data["backend"] == "sqlite"
     finally:

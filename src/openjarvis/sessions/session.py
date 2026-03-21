@@ -66,7 +66,7 @@ class SessionStore:
     ) -> None:
         self._db_path = Path(db_path)
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(self._db_path))
+        self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
         self._max_age_hours = max_age_hours
         self._consolidation_threshold = consolidation_threshold
         self._create_tables()

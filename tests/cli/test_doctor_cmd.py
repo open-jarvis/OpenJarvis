@@ -32,19 +32,13 @@ class TestDoctorRuns:
         mock_config.intelligence.default_model = ""
 
         with (
-            patch(
-                "openjarvis.cli.doctor_cmd.load_config", return_value=mock_config
-            ),
+            patch("openjarvis.cli.doctor_cmd.load_config", return_value=mock_config),
             patch(
                 "openjarvis.cli.doctor_cmd.DEFAULT_CONFIG_PATH",
                 Path("/tmp/nonexistent/config.toml"),
             ),
-            patch(
-                "openjarvis.cli.doctor_cmd._check_engines", return_value=[]
-            ),
-            patch(
-                "openjarvis.cli.doctor_cmd._check_models", return_value=[]
-            ),
+            patch("openjarvis.cli.doctor_cmd._check_engines", return_value=[]),
+            patch("openjarvis.cli.doctor_cmd._check_models", return_value=[]),
         ):
             result = CliRunner().invoke(cli, ["doctor"])
         assert result.exit_code == 0
@@ -58,19 +52,13 @@ class TestDoctorJsonOutput:
         mock_config.intelligence.default_model = ""
 
         with (
-            patch(
-                "openjarvis.cli.doctor_cmd.load_config", return_value=mock_config
-            ),
+            patch("openjarvis.cli.doctor_cmd.load_config", return_value=mock_config),
             patch(
                 "openjarvis.cli.doctor_cmd.DEFAULT_CONFIG_PATH",
                 Path("/tmp/nonexistent/config.toml"),
             ),
-            patch(
-                "openjarvis.cli.doctor_cmd._check_engines", return_value=[]
-            ),
-            patch(
-                "openjarvis.cli.doctor_cmd._check_models", return_value=[]
-            ),
+            patch("openjarvis.cli.doctor_cmd._check_engines", return_value=[]),
+            patch("openjarvis.cli.doctor_cmd._check_models", return_value=[]),
         ):
             result = CliRunner().invoke(cli, ["doctor", "--json"])
         assert result.exit_code == 0
@@ -129,13 +117,9 @@ class TestCheckEngineProbing:
         for key in sorted(keys):
             engine = mock_make_engine(key, mock_config)
             if engine.health():
-                results.append(
-                    CheckResult(f"Engine: {key}", "ok", "Reachable")
-                )
+                results.append(CheckResult(f"Engine: {key}", "ok", "Reachable"))
             else:
-                results.append(
-                    CheckResult(f"Engine: {key}", "warn", "Unreachable")
-                )
+                results.append(CheckResult(f"Engine: {key}", "warn", "Unreachable"))
 
         names = [r.name for r in results]
         assert "Engine: ollama" in names

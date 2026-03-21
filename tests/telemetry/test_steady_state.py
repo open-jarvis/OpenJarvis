@@ -68,7 +68,10 @@ class TestSteadyStateDetector:
     def test_erratic_values_no_steady_state(self):
         """Highly variable values should not reach steady state."""
         cfg = SteadyStateConfig(
-            warmup_samples=2, window_size=3, cv_threshold=0.01, min_steady_samples=3,
+            warmup_samples=2,
+            window_size=3,
+            cv_threshold=0.01,
+            min_steady_samples=3,
         )
         detector = SteadyStateDetector(cfg)
 
@@ -96,7 +99,10 @@ class TestSteadyStateDetector:
     def test_cv_calculation_correctness(self):
         """Verify CV-based detection with known values."""
         cfg = SteadyStateConfig(
-            warmup_samples=2, window_size=3, cv_threshold=0.05, min_steady_samples=1,
+            warmup_samples=2,
+            window_size=3,
+            cv_threshold=0.05,
+            min_steady_samples=1,
         )
         detector = SteadyStateDetector(cfg)
 

@@ -50,11 +50,14 @@ def test_scheduler_tracks_tick_count_for_learning(tmp_path):
     executor = AgentExecutor(mgr, bus)
     scheduler = AgentScheduler(mgr, executor, event_bus=bus)
 
-    agent = mgr.create_agent("tick-counter", config={
-        "learning_enabled": True,
-        "learning_schedule": "every_3_ticks",
-        "schedule_type": "manual",
-    })
+    agent = mgr.create_agent(
+        "tick-counter",
+        config={
+            "learning_enabled": True,
+            "learning_schedule": "every_3_ticks",
+            "schedule_type": "manual",
+        },
+    )
 
     # Simulate 3 ticks completing
     for _ in range(3):
@@ -62,8 +65,7 @@ def test_scheduler_tracks_tick_count_for_learning(tmp_path):
 
     # Should have triggered learning
     learning_events = [
-        e for e in bus.history
-        if e.event_type == EventType.AGENT_LEARNING_STARTED
+        e for e in bus.history if e.event_type == EventType.AGENT_LEARNING_STARTED
     ]
     assert len(learning_events) == 1
     assert learning_events[0].data["agent_id"] == agent["id"]
@@ -85,17 +87,19 @@ def test_scheduler_no_learning_when_disabled(tmp_path):
     executor = AgentExecutor(mgr, bus)
     scheduler = AgentScheduler(mgr, executor, event_bus=bus)
 
-    agent = mgr.create_agent("no-learning", config={
-        "learning_enabled": False,
-        "learning_schedule": "every_3_ticks",
-    })
+    agent = mgr.create_agent(
+        "no-learning",
+        config={
+            "learning_enabled": False,
+            "learning_schedule": "every_3_ticks",
+        },
+    )
 
     for _ in range(5):
         scheduler._on_tick_completed(agent["id"])
 
     learning_events = [
-        e for e in bus.history
-        if e.event_type == EventType.AGENT_LEARNING_STARTED
+        e for e in bus.history if e.event_type == EventType.AGENT_LEARNING_STARTED
     ]
     assert len(learning_events) == 0
     mgr.close()

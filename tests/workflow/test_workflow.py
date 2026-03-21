@@ -138,22 +138,14 @@ class TestWorkflowEngine:
     def test_run_transform_node(self):
         bus = EventBus(record_history=True)
         engine = WorkflowEngine(bus=bus)
-        wf = (
-            WorkflowBuilder("test")
-            .add_transform("t", transform="concatenate")
-            .build()
-        )
+        wf = WorkflowBuilder("test").add_transform("t", transform="concatenate").build()
         result = engine.run(wf, initial_input="hello")
         assert result.success
 
     def test_events_emitted(self):
         bus = EventBus(record_history=True)
         engine = WorkflowEngine(bus=bus)
-        wf = (
-            WorkflowBuilder("test")
-            .add_transform("t", transform="concatenate")
-            .build()
-        )
+        wf = WorkflowBuilder("test").add_transform("t", transform="concatenate").build()
         engine.run(wf, initial_input="hello")
         event_types = {e.event_type for e in bus.history}
         assert EventType.WORKFLOW_START in event_types

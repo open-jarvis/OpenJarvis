@@ -18,16 +18,18 @@ def _populate_db(db_path: Path, n: int = 3) -> None:
     """Create a telemetry DB with *n* records."""
     store = TelemetryStore(db_path)
     for i in range(n):
-        store.record(TelemetryRecord(
-            timestamp=time.time() - (n - i),
-            model_id=f"model-{i % 2}",
-            engine="ollama",
-            prompt_tokens=10 * (i + 1),
-            completion_tokens=5 * (i + 1),
-            total_tokens=15 * (i + 1),
-            latency_seconds=0.5 * (i + 1),
-            cost_usd=0.001 * (i + 1),
-        ))
+        store.record(
+            TelemetryRecord(
+                timestamp=time.time() - (n - i),
+                model_id=f"model-{i % 2}",
+                engine="ollama",
+                prompt_tokens=10 * (i + 1),
+                completion_tokens=5 * (i + 1),
+                total_tokens=15 * (i + 1),
+                latency_seconds=0.5 * (i + 1),
+                cost_usd=0.001 * (i + 1),
+            )
+        )
     store.close()
 
 
@@ -37,7 +39,8 @@ def _patch_config(tmp_path: Path):
     cfg = mock.MagicMock()
     cfg.telemetry.db_path = str(db_path)
     return mock.patch(
-        "openjarvis.cli.telemetry_cmd.load_config", return_value=cfg,
+        "openjarvis.cli.telemetry_cmd.load_config",
+        return_value=cfg,
     ), db_path
 
 
@@ -115,7 +118,8 @@ class TestTelemetryExport:
         out_file = tmp_path / "export.json"
         with patch:
             result = CliRunner().invoke(
-                cli, ["telemetry", "export", "-o", str(out_file)],
+                cli,
+                ["telemetry", "export", "-o", str(out_file)],
             )
         assert result.exit_code == 0
         assert out_file.exists()

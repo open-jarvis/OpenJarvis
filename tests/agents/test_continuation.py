@@ -43,39 +43,47 @@ class ContinuationAgent(BaseAgent):
 
 class TestContinuation:
     def test_no_continuation_needed(self):
-        engine = MockEngine([
-            {"content": "Hello world", "finish_reason": "stop"},
-        ])
+        engine = MockEngine(
+            [
+                {"content": "Hello world", "finish_reason": "stop"},
+            ]
+        )
         agent = ContinuationAgent(engine, "test-model")
         result = agent.run("Hi")
         assert result.content == "Hello world"
 
     def test_single_continuation(self):
-        engine = MockEngine([
-            {"content": "Part 1...", "finish_reason": "length"},
-            {"content": " Part 2.", "finish_reason": "stop"},
-        ])
+        engine = MockEngine(
+            [
+                {"content": "Part 1...", "finish_reason": "length"},
+                {"content": " Part 2.", "finish_reason": "stop"},
+            ]
+        )
         agent = ContinuationAgent(engine, "test-model")
         result = agent.run("Hi")
         assert result.content == "Part 1... Part 2."
 
     def test_multiple_continuations(self):
-        engine = MockEngine([
-            {"content": "A", "finish_reason": "length"},
-            {"content": "B", "finish_reason": "length"},
-            {"content": "C", "finish_reason": "stop"},
-        ])
+        engine = MockEngine(
+            [
+                {"content": "A", "finish_reason": "length"},
+                {"content": "B", "finish_reason": "length"},
+                {"content": "C", "finish_reason": "stop"},
+            ]
+        )
         agent = ContinuationAgent(engine, "test-model")
         result = agent.run("Hi")
         assert result.content == "ABC"
 
     def test_max_continuations_respected(self):
-        engine = MockEngine([
-            {"content": "A", "finish_reason": "length"},
-            {"content": "B", "finish_reason": "length"},
-            {"content": "C", "finish_reason": "length"},  # 3rd continuation
-            {"content": "D", "finish_reason": "stop"},
-        ])
+        engine = MockEngine(
+            [
+                {"content": "A", "finish_reason": "length"},
+                {"content": "B", "finish_reason": "length"},
+                {"content": "C", "finish_reason": "length"},  # 3rd continuation
+                {"content": "D", "finish_reason": "stop"},
+            ]
+        )
         agent = ContinuationAgent(engine, "test-model")
         # Default max_continuations=2, so should stop after 2 continuations
         messages = agent._build_messages("Hi")
@@ -84,9 +92,11 @@ class TestContinuation:
         assert content == "ABC"  # A + B + C, but not D
 
     def test_empty_finish_reason(self):
-        engine = MockEngine([
-            {"content": "Done", "finish_reason": ""},
-        ])
+        engine = MockEngine(
+            [
+                {"content": "Done", "finish_reason": ""},
+            ]
+        )
         agent = ContinuationAgent(engine, "test-model")
         result = agent.run("Hi")
         assert result.content == "Done"

@@ -48,8 +48,7 @@ def _make_import_error_session():
     session = MagicMock()
     type(session).page = PropertyMock(
         side_effect=ImportError(
-            "playwright not installed. Install with: "
-            "uv sync --extra browser"
+            "playwright not installed. Install with: uv sync --extra browser"
         )
     )
     return session
@@ -145,6 +144,7 @@ class TestBrowserNavigateTool:
 
         # Make the ssrf import fail inside execute
         import builtins
+
         original_import = builtins.__import__
 
         def _mock_import(name, *args, **kwargs):
@@ -202,9 +202,7 @@ class TestBrowserNavigateTool:
             tool = BrowserNavigateTool()
             tool.execute(url="https://example.com", wait_for="invalid")
 
-        page.goto.assert_called_once_with(
-            "https://example.com", wait_until="load"
-        )
+        page.goto.assert_called_once_with("https://example.com", wait_until="load")
 
     def test_execute_content_truncation(self):
         from openjarvis.tools.browser import BrowserNavigateTool
@@ -840,6 +838,7 @@ class TestBrowserSession:
         session = _BrowserSession()
 
         import builtins
+
         original_import = builtins.__import__
 
         def _mock_import(name, *args, **kwargs):

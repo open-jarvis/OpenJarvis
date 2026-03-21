@@ -49,10 +49,13 @@ class TestAgentManagerRoutes:
         assert resp.json()["agents"] == []
 
     def test_create_agent(self, client):
-        resp = client.post("/v1/managed-agents", json={
-            "name": "researcher",
-            "agent_type": "monitor_operative",
-        })
+        resp = client.post(
+            "/v1/managed-agents",
+            json={
+                "name": "researcher",
+                "agent_type": "monitor_operative",
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["name"] == "researcher"
@@ -95,9 +98,12 @@ class TestAgentManagerRoutes:
     def test_create_task(self, client):
         create_resp = client.post("/v1/managed-agents", json={"name": "worker"})
         agent_id = create_resp.json()["id"]
-        resp = client.post(f"/v1/managed-agents/{agent_id}/tasks", json={
-            "description": "Find papers on reasoning",
-        })
+        resp = client.post(
+            f"/v1/managed-agents/{agent_id}/tasks",
+            json={
+                "description": "Find papers on reasoning",
+            },
+        )
         assert resp.status_code == 200
         assert resp.json()["description"] == "Find papers on reasoning"
 
@@ -113,10 +119,13 @@ class TestAgentManagerRoutes:
         create_resp = client.post("/v1/managed-agents", json={"name": "slacker"})
         agent_id = create_resp.json()["id"]
         # Bind
-        bind_resp = client.post(f"/v1/managed-agents/{agent_id}/channels", json={
-            "channel_type": "slack",
-            "config": {"channel": "#research"},
-        })
+        bind_resp = client.post(
+            f"/v1/managed-agents/{agent_id}/channels",
+            json={
+                "channel_type": "slack",
+                "config": {"channel": "#research"},
+            },
+        )
         assert bind_resp.status_code == 200
         binding_id = bind_resp.json()["id"]
         # List

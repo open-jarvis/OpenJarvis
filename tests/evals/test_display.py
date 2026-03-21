@@ -45,8 +45,14 @@ def _make_summary(**overrides) -> RunSummary:
 
 def _make_metric_stats(**kw) -> MetricStats:
     defaults = dict(
-        mean=1.0, median=0.9, min=0.1, max=2.5,
-        std=0.3, p90=2.0, p95=2.2, p99=2.4,
+        mean=1.0,
+        median=0.9,
+        min=0.1,
+        max=2.5,
+        std=0.3,
+        p90=2.0,
+        p95=2.2,
+        p99=2.4,
     )
     defaults.update(kw)
     return MetricStats(**defaults)
@@ -189,7 +195,8 @@ class TestPrintCompletion:
         summary = _make_summary()
         console, buf = _make_console()
         print_completion(
-            console, summary,
+            console,
+            summary,
             output_path=Path("results/test.jsonl"),
             traces_dir=Path("results/traces/supergpqa_qwen3-8b"),
         )

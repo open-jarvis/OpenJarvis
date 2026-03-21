@@ -48,6 +48,7 @@ class TestSecurityHeaders:
         if middleware_cls is None:
             # starlette not installed -- skip
             import pytest
+
             pytest.skip("starlette not available")
         assert middleware_cls is not None
         assert callable(middleware_cls)
@@ -55,6 +56,7 @@ class TestSecurityHeaders:
     def test_middleware_adds_headers(self) -> None:
         """Middleware adds all security headers to responses."""
         import pytest
+
         fastapi = pytest.importorskip("fastapi")
         from fastapi.testclient import TestClient
 
@@ -80,6 +82,7 @@ class TestSecurityHeaders:
     def test_middleware_skips_options(self) -> None:
         """OPTIONS requests pass through without security headers."""
         import pytest
+
         fastapi = pytest.importorskip("fastapi")
         from fastapi.middleware.cors import CORSMiddleware
         from fastapi.testclient import TestClient
