@@ -68,6 +68,25 @@ uv run jarvis doctor
 
 `jarvis init` auto-detects your hardware and recommends the best engine. After init, it prints engine-specific next steps. Run `uv run jarvis doctor` at any time to diagnose configuration or connectivity issues.
 
+## Docker (GPU)
+
+For NVIDIA GPU setups, a Docker Compose configuration is provided that bundles Jarvis with Ollama:
+
+```bash
+# Start both services (Jarvis on :8000, Ollama on :11435)
+./run.sh up -d 
+
+# Pull a model into Ollama
+./run.sh exec ollama ollama pull qwen3:8b
+
+# Stop services
+./run.sh down
+```
+
+The `run.sh` script is a thin wrapper around `docker compose -f deploy/docker/docker-compose.yml`. Pass any Compose subcommand as arguments (default: `up -d`).
+
+Requires [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) for GPU passthrough.
+
 ## Development
 
 From source, you need to make sure Rust is installed on System:

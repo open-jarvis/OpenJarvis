@@ -8,7 +8,7 @@ COPY frontend/ .
 RUN npm run build
 
 # Stage 2: Build Python package
-FROM python:3.12-slim AS builder
+FROM python:3.12-slim-bookworm AS builder
 
 WORKDIR /app
 COPY pyproject.toml README.md ./
@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir uv && \
     uv pip install --system ".[server]"
 
 # Stage 3: Runtime
-FROM python:3.12-slim
+FROM python:3.12-slim-bookworm
 
 COPY --from=builder /usr/local /usr/local
 COPY --from=builder /app /app
@@ -30,4 +30,4 @@ WORKDIR /app
 EXPOSE 8000
 
 ENTRYPOINT ["jarvis"]
-CMD ["serve", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["serve", "--host", "0.0.0.0", "--port", "8000", "--engine", "ollama"]
