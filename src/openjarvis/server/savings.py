@@ -101,30 +101,26 @@ def compute_savings(
         # No-KV-cache FLOPs: P * N * (N+1)
         params_b = pricing.get("params_b", 200.0)
         params = params_b * 1e9
-        flops = (
-            params * total_tokens * (total_tokens + 1)
-            if total_tokens > 0 else 0.0
+        flops = params * total_tokens * (total_tokens + 1) if total_tokens > 0 else 0.0
+        # Derive Wh-per-FLOP from the provider's per-token constants:
+        #   energy_wh_per_1k_tokens / (1000 * flops_per_token) = Wh per FLOP
+        wh_per_flop = pricing["energy_wh_per_1k_tokens"] / (
+            1000 * pricing.get("flops_per_token", 3e12)
         )
-        # Scale energy by same ratio as FLOPs (energy ∝ compute)
-        flops_with_cache = (
-            total_tokens * pricing.get("flops_per_token", 3e12)
-            if total_tokens > 0 else 0.0
-        )
-        scale = (flops / flops_with_cache) if flops_with_cache > 0 else 1.0
-        energy_wh = (
-            (total_tokens / 1000) * pricing["energy_wh_per_1k_tokens"] * scale
-        )
+        energy_wh = flops * wh_per_flop
 
-        providers.append(ProviderSavings(
-            provider=key,
-            label=pricing["label"],
-            input_cost=input_cost,
-            output_cost=output_cost,
-            total_cost=total_cost,
-            energy_wh=energy_wh,
-            energy_joules=energy_wh * 3600,  # 1 Wh = 3600 J
-            flops=flops,
-        ))
+        providers.append(
+            ProviderSavings(
+                provider=key,
+                label=pricing["label"],
+                input_cost=input_cost,
+                output_cost=output_cost,
+                total_cost=total_cost,
+                energy_wh=energy_wh,
+                energy_joules=energy_wh * 3600,  # 1 Wh = 3600 J
+                flops=flops,
+            )
+        )
 
         # Monthly projection: extrapolate current spend to 720 hours/month
         if session_duration_hours > 0:

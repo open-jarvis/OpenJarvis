@@ -10,6 +10,8 @@
   var currentPage = 0;
 
   // No-KV-cache formula: FLOPs = params_b * 1e9 * N * (N+1)
+  // Reference values only (GPT-5.3 constants) — recompute functions below
+  // are defined but not called; the leaderboard displays database values directly.
   var DEFAULT_PARAMS_B = 137;
   var ENERGY_WH_PER_FLOP = 0.4 / (1000 * 3e12);
 
