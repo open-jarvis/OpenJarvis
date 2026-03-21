@@ -38,6 +38,8 @@ _CHANNEL_MODULES = [
     "zulip_channel",
     "twitch_channel",
     "nostr_channel",
+    "twitter",
+    "gmail",
 ]
 
 for _mod in _CHANNEL_MODULES:
