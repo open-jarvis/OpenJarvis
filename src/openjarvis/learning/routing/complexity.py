@@ -58,11 +58,11 @@ _THINKING_MODEL_PATTERNS = re.compile(
 # ---------------------------------------------------------------------------
 
 _TOKEN_TIERS = {
-    "trivial": 512,     # greetings, yes/no, factoid lookups
-    "simple": 1024,     # short answers, definitions
-    "moderate": 2048,   # explanations, summaries
-    "complex": 4096,    # analysis, code generation, multi-step
-    "very_complex": 8192,  # long-form, multi-part reasoning
+    "trivial": 1024,    # greetings, yes/no, factoid lookups
+    "simple": 2048,     # short answers, definitions
+    "moderate": 4096,   # explanations, summaries
+    "complex": 8192,    # analysis, code generation, multi-step
+    "very_complex": 16384, # long-form, multi-part reasoning
 }
 
 # Thinking models need extra headroom for internal chain-of-thought.
