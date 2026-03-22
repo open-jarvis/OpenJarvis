@@ -104,14 +104,24 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
             break
     if query_text_for_complexity:
         try:
-            from openjarvis.learning.routing.complexity import score_complexity
+            from openjarvis.learning.routing.complexity import (
+                adjust_tokens_for_model,
+                score_complexity,
+            )
 
             cr = score_complexity(query_text_for_complexity)
+            suggested = adjust_tokens_for_model(
+                cr.suggested_max_tokens, model,
+            )
             complexity_info = ComplexityInfo(
                 score=cr.score,
                 tier=cr.tier,
-                suggested_max_tokens=cr.suggested_max_tokens,
+                suggested_max_tokens=suggested,
             )
+            # Bump max_tokens when complexity suggests more than what
+            # the client requested — never reduce below the request value.
+            if suggested > request_body.max_tokens:
+                request_body.max_tokens = suggested
         except Exception:
             logging.getLogger("openjarvis.server").debug(
                 "Complexity analysis failed", exc_info=True,
