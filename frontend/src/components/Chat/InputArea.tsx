@@ -127,6 +127,7 @@ export function InputArea() {
 
     let accumulatedContent = '';
     let usage: TokenUsage | undefined;
+    let complexity: { score: number; tier: string; suggested_max_tokens: number } | undefined;
     const toolCalls: ToolCallInfo[] = [];
     let lastFlush = 0;
     let ttftMs: number | undefined;
@@ -202,6 +203,7 @@ export function InputArea() {
             const data = JSON.parse(sseEvent.data);
             const delta = data.choices?.[0]?.delta;
             if (data.usage) usage = data.usage;
+            if (data.complexity) complexity = data.complexity;
             if (delta?.content) {
               if (!ttftMs) ttftMs = Date.now() - startTime;
               accumulatedContent += delta.content;
@@ -248,6 +250,9 @@ export function InputArea() {
         tokens_per_sec: usage?.completion_tokens
           ? usage.completion_tokens / (totalMs / 1000)
           : undefined,
+        complexity_score: complexity?.score,
+        complexity_tier: complexity?.tier,
+        suggested_max_tokens: complexity?.suggested_max_tokens,
       };
       updateLastAssistant(
         convId,

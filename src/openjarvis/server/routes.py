@@ -16,6 +16,7 @@ from openjarvis.server.models import (
     ChatCompletionResponse,
     Choice,
     ChoiceMessage,
+    ComplexityInfo,
     DeltaMessage,
     ModelListResponse,
     ModelObject,
@@ -94,6 +95,28 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
                 "Memory context injection failed", exc_info=True,
             )
 
+    # Run complexity analysis on the last user message
+    complexity_info = None
+    query_text_for_complexity = ""
+    for m in reversed(request_body.messages):
+        if m.role == "user" and m.content:
+            query_text_for_complexity = m.content
+            break
+    if query_text_for_complexity:
+        try:
+            from openjarvis.learning.routing.complexity import score_complexity
+
+            cr = score_complexity(query_text_for_complexity)
+            complexity_info = ComplexityInfo(
+                score=cr.score,
+                tier=cr.tier,
+                suggested_max_tokens=cr.suggested_max_tokens,
+            )
+        except Exception:
+            logging.getLogger("openjarvis.server").debug(
+                "Complexity analysis failed", exc_info=True,
+            )
+
     if request_body.stream:
         bus = getattr(request.app.state, "bus", None)
         # Use the agent stream bridge only when tools are present (the
@@ -102,18 +125,19 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
         # directly from the engine for true token-by-token output.
         if agent is not None and bus is not None and request_body.tools:
             return await _handle_agent_stream(agent, bus, model, request_body)
-        return await _handle_stream(engine, model, request_body)
+        return await _handle_stream(engine, model, request_body, complexity_info)
 
     # Non-streaming: use agent if available, otherwise direct engine call
     if agent is not None:
-        return _handle_agent(agent, model, request_body)
+        return _handle_agent(agent, model, request_body, complexity_info)
 
     bus = getattr(request.app.state, "bus", None)
-    return _handle_direct(engine, model, request_body, bus=bus)
+    return _handle_direct(engine, model, request_body, bus=bus, complexity_info=complexity_info)
 
 
 def _handle_direct(
     engine, model: str, req: ChatCompletionRequest, bus=None,
+    complexity_info=None,
 ) -> ChatCompletionResponse:
     """Direct engine call without agent."""
     messages = _to_messages(req.messages)
@@ -166,11 +190,13 @@ def _handle_direct(
             completion_tokens=usage.get("completion_tokens", 0),
             total_tokens=usage.get("total_tokens", 0),
         ),
+        complexity=complexity_info,
     )
 
 
 def _handle_agent(
     agent, model: str, req: ChatCompletionRequest,
+    complexity_info=None,
 ) -> ChatCompletionResponse:
     """Run through agent."""
     from openjarvis.agents._stubs import AgentContext
@@ -207,6 +233,7 @@ def _handle_agent(
             finish_reason="stop",
         )],
         usage=usage,
+        complexity=complexity_info,
     )
 
 
@@ -217,7 +244,7 @@ async def _handle_agent_stream(agent, bus, model, req):
     return await create_agent_stream(agent, bus, model, req)
 
 
-async def _handle_stream(engine, model: str, req: ChatCompletionRequest):
+async def _handle_stream(engine, model: str, req: ChatCompletionRequest, complexity_info=None):
     """Stream response using SSE format."""
     messages = _to_messages(req.messages)
     chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
@@ -293,6 +320,9 @@ async def _handle_stream(engine, model: str, req: ChatCompletionRequest):
         stream_usage = getattr(raw_engine, "_last_stream_usage", None)
         if isinstance(stream_usage, dict) and stream_usage.get("total_tokens", 0) > 0:
             finish_dict["usage"] = stream_usage
+
+        if complexity_info is not None:
+            finish_dict["complexity"] = complexity_info.model_dump()
 
         yield f"data: {_json.dumps(finish_dict)}\n\n"
         yield "data: [DONE]\n\n"
