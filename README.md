@@ -68,6 +68,28 @@ uv run jarvis doctor
 
 `jarvis init` auto-detects your hardware and recommends the best engine. After init, it prints engine-specific next steps. Run `uv run jarvis doctor` at any time to diagnose configuration or connectivity issues.
 
+## Docker
+
+A Docker Compose configuration bundles Jarvis with Ollama:
+
+```bash
+# CPU-only (default)
+docker compose -f deploy/docker/docker-compose.yml up -d
+
+# NVIDIA GPU (requires NVIDIA Container Toolkit)
+docker compose -f deploy/docker/docker-compose.yml \
+  -f deploy/docker/docker-compose.gpu.nvidia.yml up -d
+
+# AMD GPU (requires ROCm)
+docker compose -f deploy/docker/docker-compose.yml \
+  -f deploy/docker/docker-compose.gpu.rocm.yml up -d
+
+# Pull a model into Ollama
+docker compose -f deploy/docker/docker-compose.yml exec ollama ollama pull qwen3:8b
+```
+
+Services: Jarvis on `:8000`, Ollama on `:11434`.
+
 ## Development
 
 From source, you need to make sure Rust is installed on System:
