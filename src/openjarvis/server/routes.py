@@ -142,7 +142,10 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
         return _handle_agent(agent, model, request_body, complexity_info)
 
     bus = getattr(request.app.state, "bus", None)
-    return _handle_direct(engine, model, request_body, bus=bus, complexity_info=complexity_info)
+    return _handle_direct(
+        engine, model, request_body,
+        bus=bus, complexity_info=complexity_info,
+    )
 
 
 def _handle_direct(
@@ -254,7 +257,10 @@ async def _handle_agent_stream(agent, bus, model, req):
     return await create_agent_stream(agent, bus, model, req)
 
 
-async def _handle_stream(engine, model: str, req: ChatCompletionRequest, complexity_info=None):
+async def _handle_stream(
+    engine, model: str, req: ChatCompletionRequest,
+    complexity_info=None,
+):
     """Stream response using SSE format."""
     messages = _to_messages(req.messages)
     chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
