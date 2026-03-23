@@ -6,30 +6,60 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-# All registry classes to expose via CLI
-_REGISTRY_CLASSES = [
-    ("ToolRegistry", "openjarvis.core.registry", "ToolRegistry"),
-    ("AgentRegistry", "openjarvis.core.registry", "AgentRegistry"),
-    ("EngineRegistry", "openjarvis.core.registry", "EngineRegistry"),
-    ("MemoryRegistry", "openjarvis.core.registry", "MemoryRegistry"),
-    ("ModelRegistry", "openjarvis.core.registry", "ModelRegistry"),
-    ("ChannelRegistry", "openjarvis.core.registry", "ChannelRegistry"),
-    ("LearningRegistry", "openjarvis.core.registry", "LearningRegistry"),
-    ("SkillRegistry", "openjarvis.core.registry", "SkillRegistry"),
-    ("BenchmarkRegistry", "openjarvis.core.registry", "BenchmarkRegistry"),
-    ("RouterPolicyRegistry", "openjarvis.core.registry", "RouterPolicyRegistry"),
-    ("SpeechRegistry", "openjarvis.core.registry", "SpeechRegistry"),
-    ("CompressionRegistry", "openjarvis.core.registry", "CompressionRegistry"),
-]
 
+def _load_registry_map() -> tuple[dict[str, object], dict[str, object]]:
+    """Import all registries and return (by_name, aliases) lookup dicts."""
+    from openjarvis.core.registry import (
+        AgentRegistry,
+        BenchmarkRegistry,
+        ChannelRegistry,
+        CompressionRegistry,
+        EngineRegistry,
+        LearningRegistry,
+        MemoryRegistry,
+        ModelRegistry,
+        RouterPolicyRegistry,
+        SkillRegistry,
+        SpeechRegistry,
+        ToolRegistry,
+    )
 
-def _get_registry_class(name: str) -> object | None:
-    """Dynamically import and return a registry class by name."""
-    try:
-        mod = __import__(name, fromlist=[""])
-        return mod
-    except (ImportError, AttributeError):
-        return None
+    by_name = {
+        "ToolRegistry": ToolRegistry,
+        "AgentRegistry": AgentRegistry,
+        "EngineRegistry": EngineRegistry,
+        "MemoryRegistry": MemoryRegistry,
+        "ModelRegistry": ModelRegistry,
+        "ChannelRegistry": ChannelRegistry,
+        "LearningRegistry": LearningRegistry,
+        "SkillRegistry": SkillRegistry,
+        "BenchmarkRegistry": BenchmarkRegistry,
+        "RouterPolicyRegistry": RouterPolicyRegistry,
+        "SpeechRegistry": SpeechRegistry,
+        "CompressionRegistry": CompressionRegistry,
+    }
+
+    aliases: dict[str, object] = {}
+    _alias_map = {
+        "ToolRegistry": ("tool", "tools"),
+        "AgentRegistry": ("agent", "agents"),
+        "EngineRegistry": ("engine", "engines"),
+        "MemoryRegistry": ("memory", "memories"),
+        "ModelRegistry": ("model", "models"),
+        "ChannelRegistry": ("channel", "channels"),
+        "LearningRegistry": ("learning", "learnings"),
+        "SkillRegistry": ("skill", "skills"),
+        "BenchmarkRegistry": ("benchmark", "benchmarks"),
+        "RouterPolicyRegistry": ("router", "routers"),
+        "SpeechRegistry": ("speech", "speeches"),
+        "CompressionRegistry": ("compression", "compressions"),
+    }
+    for class_name, cls in by_name.items():
+        aliases[class_name] = cls
+        for alias in _alias_map[class_name]:
+            aliases[alias] = cls
+
+    return by_name, aliases
 
 
 @click.group()
@@ -47,42 +77,17 @@ def list_registries() -> None:
     table.add_column("Module", style="green")
     table.add_column("Entry Count", style="yellow")
 
-    for reg_name, module_path, class_name in _REGISTRY_CLASSES:
+    try:
+        by_name, _ = _load_registry_map()
+    except Exception as exc:
+        console.print(f"[red]Error loading registries: {exc}[/red]")
+        return
+
+    module_path = "openjarvis.core.registry"
+    for reg_name, registry_cls in by_name.items():
         try:
-            from openjarvis.core.registry import (
-                AgentRegistry,
-                BenchmarkRegistry,
-                ChannelRegistry,
-                CompressionRegistry,
-                EngineRegistry,
-                LearningRegistry,
-                MemoryRegistry,
-                ModelRegistry,
-                RouterPolicyRegistry,
-                SkillRegistry,
-                SpeechRegistry,
-                ToolRegistry,
-            )
-
-            registry_map = {
-                "ToolRegistry": ToolRegistry,
-                "AgentRegistry": AgentRegistry,
-                "EngineRegistry": EngineRegistry,
-                "MemoryRegistry": MemoryRegistry,
-                "ModelRegistry": ModelRegistry,
-                "ChannelRegistry": ChannelRegistry,
-                "LearningRegistry": LearningRegistry,
-                "SkillRegistry": SkillRegistry,
-                "BenchmarkRegistry": BenchmarkRegistry,
-                "RouterPolicyRegistry": RouterPolicyRegistry,
-                "SpeechRegistry": SpeechRegistry,
-                "CompressionRegistry": CompressionRegistry,
-            }
-
-            registry_cls = registry_map.get(reg_name)
-            if registry_cls:
-                count = len(registry_cls.keys())
-                table.add_row(reg_name, module_path, str(count))
+            count = len(registry_cls.keys())
+            table.add_row(reg_name, module_path, str(count))
         except Exception as exc:
             table.add_row(reg_name, module_path, f"[red]Error: {exc}[/red]")
 
@@ -99,61 +104,9 @@ def show(registry_name: str, verbose: bool) -> None:
     console = Console(stderr=True)
 
     try:
-        from openjarvis.core.registry import (
-            AgentRegistry,
-            BenchmarkRegistry,
-            ChannelRegistry,
-            CompressionRegistry,
-            EngineRegistry,
-            LearningRegistry,
-            MemoryRegistry,
-            ModelRegistry,
-            RouterPolicyRegistry,
-            SkillRegistry,
-            SpeechRegistry,
-            ToolRegistry,
-        )
+        _, aliases = _load_registry_map()
 
-        registry_map = {
-            "tool": ToolRegistry,
-            "tools": ToolRegistry,
-            "ToolRegistry": ToolRegistry,
-            "agent": AgentRegistry,
-            "agents": AgentRegistry,
-            "AgentRegistry": AgentRegistry,
-            "engine": EngineRegistry,
-            "engines": EngineRegistry,
-            "EngineRegistry": EngineRegistry,
-            "memory": MemoryRegistry,
-            "memories": MemoryRegistry,
-            "MemoryRegistry": MemoryRegistry,
-            "model": ModelRegistry,
-            "models": ModelRegistry,
-            "ModelRegistry": ModelRegistry,
-            "channel": ChannelRegistry,
-            "channels": ChannelRegistry,
-            "ChannelRegistry": ChannelRegistry,
-            "learning": LearningRegistry,
-            "learnings": LearningRegistry,
-            "LearningRegistry": LearningRegistry,
-            "skill": SkillRegistry,
-            "skills": SkillRegistry,
-            "SkillRegistry": SkillRegistry,
-            "benchmark": BenchmarkRegistry,
-            "benchmarks": BenchmarkRegistry,
-            "BenchmarkRegistry": BenchmarkRegistry,
-            "router": RouterPolicyRegistry,
-            "routers": RouterPolicyRegistry,
-            "RouterPolicyRegistry": RouterPolicyRegistry,
-            "speech": SpeechRegistry,
-            "speeches": SpeechRegistry,
-            "SpeechRegistry": SpeechRegistry,
-            "compression": CompressionRegistry,
-            "compressions": CompressionRegistry,
-            "CompressionRegistry": CompressionRegistry,
-        }
-
-        registry_cls = registry_map.get(registry_name)
+        registry_cls = aliases.get(registry_name)
         if registry_cls is None:
             console.print(f"[red]Unknown registry: {registry_name}[/red]")
             console.print(

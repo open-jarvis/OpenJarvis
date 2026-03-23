@@ -65,7 +65,11 @@ def _show_hardware_info(console: Console, show_recommendations: bool = True) -> 
 
 def _show_config_template(console: Console, config_path: Path) -> None:
     """Show default config template when config file doesn't exist."""
-    from openjarvis.core.config import DEFAULT_CONFIG_DIR, create_config_template
+    from openjarvis.core.config import (
+        DEFAULT_CONFIG_DIR,
+        detect_hardware,
+        generate_default_toml,
+    )
 
     console.print(f"[yellow]Config file not found: {config_path}[/yellow]")
     config_location = str(DEFAULT_CONFIG_DIR / "config.toml")
@@ -73,7 +77,8 @@ def _show_config_template(console: Console, config_path: Path) -> None:
     console.print(f"[dim]{msg}[/dim]")
 
     console.print("\n[bold]Default Configuration Template:[/bold]")
-    template = create_config_template()
+    hw = detect_hardware()
+    template = generate_default_toml(hw)
     syntax = Syntax(template, "toml", theme="monokai", line_numbers=True)
     console.print(Panel(syntax, border_style="dim"))
 
@@ -111,7 +116,9 @@ def _show_loaded_config(console: Console, config_path: Path, as_json: bool) -> N
                 return str(obj)
 
             config_dict = convert(config)
-            console.print_json(json.dumps(config_dict, indent=2, default=str))
+            # Write JSON to stdout so it is pipeable
+            stdout_console = Console()
+            stdout_console.print_json(json.dumps(config_dict, indent=2, default=str))
         else:
             # Show as formatted table
             console.print("[bold]Engine Configuration[/bold]")
@@ -169,7 +176,9 @@ def _show_json_config(console: Console, config_path: Path) -> None:
             import tomli as tomllib  # type: ignore[no-redef]
 
         config_dict = tomllib.loads(config_content)
-        console.print_json(json.dumps(config_dict, indent=2))
+        # Write JSON to stdout so it is pipeable
+        stdout_console = Console()
+        stdout_console.print_json(json.dumps(config_dict, indent=2))
     else:
         _show_config_template(console, config_path)
 

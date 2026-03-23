@@ -99,20 +99,6 @@ class TestRegistryCmd:
             "unknown" in result.output.lower() or "not found" in result.output.lower()
         )
 
-    def test_get_registry_class_success(self) -> None:
-        """Test that _get_registry_class successfully imports a valid registry."""
-        from openjarvis.cli.registry_cmd import _get_registry_class
-
-        result = _get_registry_class("openjarvis.core.registry")
-        assert result is not None
-
-    def test_get_registry_class_failure(self) -> None:
-        """Test that _get_registry_class returns None for invalid module."""
-        from openjarvis.cli.registry_cmd import _get_registry_class
-
-        result = _get_registry_class("nonexistent_module_xyz")
-        assert result is None
-
     def test_registry_list_handles_import_error(self) -> None:
         """Test that registry list handles import errors gracefully."""
         # This tests the exception handling path in list_registries
