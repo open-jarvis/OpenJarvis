@@ -5,18 +5,9 @@ services:
       dockerfile: deploy/docker/Dockerfile
     ports:
       - "8000:8000"
-    volumes:
-      - /proc:/proc:ro
-      - /sys:/sys:ro
     environment:
+      - OPENJARVIS_ENGINE_DEFAULT=ollama
       - OLLAMA_HOST=http://ollama:11434
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
     depends_on:
       ollama:
         condition: service_healthy
@@ -25,19 +16,9 @@ services:
   ollama:
     image: ollama/ollama:latest
     ports:
-      - "11435:11434"
+      - "11434:11434"
     volumes:
       - ollama-models:/root/.ollama
-    # environment:
-    #   - NVIDIA_VISIBLE_DEVICES=all
-    #   - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 5s
