@@ -33,7 +33,8 @@ class TestScoreComplexity:
         assert result.score > 0.0
 
     def test_code_and_math_gives_high_domain(self) -> None:
-        result = score_complexity("```python\nimport numpy\n```\nSolve the integral of x^2")
+        query = "```python\nimport numpy\n```\nSolve the integral of x^2"
+        result = score_complexity(query)
         assert result.signals["has_code"] is True
         assert result.signals["has_math"] is True
         assert result.signals["domain"] == 1.0
