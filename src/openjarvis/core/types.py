@@ -235,8 +235,11 @@ class RoutingContext:
     query_length: int = 0
     has_code: bool = False
     has_math: bool = False
+    has_reasoning: bool = False
     language: str = "en"
     urgency: float = 0.5
+    complexity_score: float = 0.0  # 0.0 (trivial) to 1.0 (very complex)
+    suggested_max_tokens: int = 1024
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 

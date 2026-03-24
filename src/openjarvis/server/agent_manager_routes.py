@@ -372,7 +372,7 @@ async def _stream_managed_agent(
     if system_prompt:
         llm_messages.append(Message(role=Role.SYSTEM, content=system_prompt))
 
-    # Load prior conversation context
+    # Load prior conversation context (DESC order, reverse for chronological)
     history = manager.list_messages(agent_id, limit=50)
     for m in reversed(history):
         if m["id"] == message_id:

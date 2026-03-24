@@ -53,6 +53,12 @@ class Choice(BaseModel):
     finish_reason: str = "stop"
 
 
+class ComplexityInfo(BaseModel):
+    score: float
+    tier: str
+    suggested_max_tokens: int
+
+
 class ChatCompletionResponse(BaseModel):
     id: str = Field(default_factory=lambda: f"chatcmpl-{uuid.uuid4().hex[:12]}")
     object: str = "chat.completion"
@@ -60,6 +66,7 @@ class ChatCompletionResponse(BaseModel):
     model: str = ""
     choices: List[Choice] = Field(default_factory=list)
     usage: UsageInfo = Field(default_factory=UsageInfo)
+    complexity: Optional[ComplexityInfo] = None
 
 
 # ---------------------------------------------------------------------------
@@ -110,6 +117,7 @@ __all__ = [
     "ChatMessage",
     "Choice",
     "ChoiceMessage",
+    "ComplexityInfo",
     "DeltaMessage",
     "ModelListResponse",
     "ModelObject",

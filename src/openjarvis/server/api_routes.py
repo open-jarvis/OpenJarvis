@@ -179,13 +179,13 @@ traces_router = APIRouter(prefix="/v1/traces", tags=["traces"])
 async def list_traces(request: Request, limit: int = 20):
     """List recent traces."""
     try:
-        from openjarvis.traces.store import TraceStore
-        store = TraceStore()
-        traces = store.recent(limit=limit)
-        items = [
-            t.to_dict() if hasattr(t, "to_dict") else str(t)
-            for t in traces
-        ]
+        from dataclasses import asdict
+
+        store = getattr(request.app.state, "trace_store", None)
+        if store is None:
+            return {"traces": []}
+        traces = store.list_traces(limit=limit)
+        items = [asdict(t) for t in traces]
         return {"traces": items}
     except Exception as exc:
         return {"traces": [], "error": str(exc)}
@@ -194,12 +194,15 @@ async def list_traces(request: Request, limit: int = 20):
 async def get_trace(trace_id: str, request: Request):
     """Get a specific trace by ID."""
     try:
-        from openjarvis.traces.store import TraceStore
-        store = TraceStore()
+        from dataclasses import asdict
+
+        store = getattr(request.app.state, "trace_store", None)
+        if store is None:
+            raise HTTPException(status_code=404, detail="Trace not found")
         trace = store.get(trace_id)
         if trace is None:
             raise HTTPException(status_code=404, detail="Trace not found")
-        return trace.to_dict() if hasattr(trace, 'to_dict') else {"id": trace_id}
+        return asdict(trace)
     except HTTPException:
         raise
     except Exception as exc:

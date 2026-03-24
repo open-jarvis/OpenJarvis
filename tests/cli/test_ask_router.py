@@ -93,6 +93,8 @@ class TestAskModelResolution:
             cfg.telemetry.enabled = False
             cfg.intelligence.default_model = ""
             cfg.intelligence.fallback_model = ""
+            cfg.intelligence.temperature = 0.7
+            cfg.intelligence.max_tokens = 1024
             cfg.agent.context_from_memory = False
             result = CliRunner().invoke(cli, ["ask", "Hello"])
         assert result.exit_code == 0
@@ -122,6 +124,8 @@ class TestAskModelResolution:
             cfg.telemetry.enabled = False
             cfg.intelligence.default_model = ""
             cfg.intelligence.fallback_model = "fallback-model"
+            cfg.intelligence.temperature = 0.7
+            cfg.intelligence.max_tokens = 1024
             cfg.agent.context_from_memory = False
             result = CliRunner().invoke(cli, ["ask", "Hello"])
         assert result.exit_code == 0

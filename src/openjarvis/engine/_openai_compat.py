@@ -59,7 +59,6 @@ class _OpenAICompatibleEngine(InferenceEngine):
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": False,
-            "chat_template_kwargs": {"enable_thinking": False},
             **kwargs,
         }
         # Default to tool_choice=auto when tools are provided

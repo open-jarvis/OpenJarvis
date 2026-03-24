@@ -29,8 +29,16 @@ logger = logging.getLogger(__name__)
 _OUTPUT_START = "---OPENJARVIS_OUTPUT_START---"
 _OUTPUT_END = "---OPENJARVIS_OUTPUT_END---"
 
-# Path to the bundled runner source (relative to this module)
+# Path to the bundled runner source (relative to this module).
+# In editable installs this lives next to this file; in wheel installs
+# it is placed under _node_modules/ to avoid namespace package conflicts.
 _RUNNER_SRC = Path(__file__).resolve().parent / "claude_code_runner"
+if not _RUNNER_SRC.exists():
+    _RUNNER_SRC = (
+        Path(__file__).resolve().parents[2]
+        / "_node_modules"
+        / "claude_code_runner"
+    )
 
 
 @AgentRegistry.register("claude_code")
