@@ -110,7 +110,7 @@ class StreamableHTTPTransport(MCPTransport):
         url: str,
         *,
         connect_timeout: float = 10.0,
-        request_timeout: float = 30.0,
+        request_timeout: float = 60.0,
     ) -> None:
         import httpx
 
@@ -173,10 +173,37 @@ class StreamableHTTPTransport(MCPTransport):
             self._session_id = new_session_id
         return response
 
+    @staticmethod
+    def _extract_json_from_sse(text: str) -> str:
+        """Extract JSON payload from an SSE response body.
+
+        MCP Streamable HTTP servers may respond with ``text/event-stream``
+        instead of ``application/json``.  In that case the body looks like::
+
+            event: message
+            data: {"jsonrpc":"2.0", ...}
+
+        This helper finds the last ``data:`` line and returns its content,
+        which is the actual JSON-RPC response.
+        """
+        last_data = ""
+        for line in text.splitlines():
+            if line.startswith("data:"):
+                last_data = line[len("data:"):].strip()
+        return last_data
+
     def send(self, request: MCPRequest) -> MCPResponse:
-        """Send request via HTTP POST following the MCP Streamable HTTP spec."""
+        """Send request via HTTP POST following the MCP Streamable HTTP spec.
+
+        Handles both ``application/json`` and ``text/event-stream`` responses
+        as allowed by the MCP Streamable HTTP specification.
+        """
         response = self._post(request)
-        return MCPResponse.from_json(response.text)
+        content_type = response.headers.get("content-type", "")
+        body = response.text
+        if "text/event-stream" in content_type or body.lstrip().startswith("event:"):
+            body = self._extract_json_from_sse(body)
+        return MCPResponse.from_json(body)
 
     def send_notification(self, request: MCPRequest) -> None:
         """Send a notification — accept any 2xx, don't parse the body."""
