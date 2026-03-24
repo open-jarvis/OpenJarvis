@@ -191,6 +191,10 @@ class _OpenAICompatibleEngine(InferenceEngine):
         # Default to tool_choice=auto when tools are provided
         if "tools" in payload and "tool_choice" not in payload:
             payload["tool_choice"] = "auto"
+        logger.warning(
+            "stream_full request payload:\n%s",
+            json.dumps(payload, ensure_ascii=False, default=str),
+        )
         try:
             url = f"{self._api_prefix}/chat/completions"
             with self._client.stream("POST", url, json=payload) as resp:
