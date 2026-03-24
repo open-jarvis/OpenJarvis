@@ -13,6 +13,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from openjarvis.core.config import load_config
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import Conversation, Message, Role, ToolResult
 from openjarvis.engine._stubs import InferenceEngine
@@ -63,16 +64,43 @@ class BaseAgent(ABC):
         model: str,
         *,
         bus: Optional[EventBus] = None,
-        temperature: float = 0.7,
-        max_tokens: int = 1024,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
         prompt_builder: Optional[Any] = None,
     ) -> None:
         self._engine = engine
         self._model = model
         self._bus = bus
-        self._temperature = temperature
-        self._max_tokens = max_tokens
         self._prompt_builder = prompt_builder
+
+        # Three-tier resolution: explicit arg > config > class default > hardcoded
+        if temperature is not None and max_tokens is not None:
+            self._temperature = temperature
+            self._max_tokens = max_tokens
+        else:
+            try:
+                cfg = load_config()
+                self._temperature = (
+                    temperature
+                    if temperature is not None
+                    else cfg.intelligence.temperature
+                )
+                self._max_tokens = (
+                    max_tokens
+                    if max_tokens is not None
+                    else cfg.intelligence.max_tokens
+                )
+            except Exception:
+                self._temperature = (
+                    temperature
+                    if temperature is not None
+                    else getattr(self, "_default_temperature", 0.7)
+                )
+                self._max_tokens = (
+                    max_tokens
+                    if max_tokens is not None
+                    else getattr(self, "_default_max_tokens", 1024)
+                )
 
     # ------------------------------------------------------------------
     # Concrete helpers
@@ -197,7 +225,9 @@ class BaseAgent(ABC):
         """
         # Full <think>...</think> blocks
         text = re.sub(
-            r"<think>.*?</think>\s*", "", text,
+            r"<think>.*?</think>\s*",
+            "",
+            text,
             flags=re.DOTALL | re.IGNORECASE,
         )
         # Leading content before a bare </think> (no opening tag)
@@ -230,9 +260,9 @@ class ToolUsingAgent(BaseAgent):
         *,
         tools: Optional[List["BaseTool"]] = None,  # noqa: F821
         bus: Optional[EventBus] = None,
-        max_turns: int = 10,
-        temperature: float = 0.7,
-        max_tokens: int = 1024,
+        max_turns: Optional[int] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
         loop_guard_config: Optional[Any] = None,
         capability_policy: Optional[Any] = None,
         agent_id: Optional[str] = None,
@@ -240,21 +270,33 @@ class ToolUsingAgent(BaseAgent):
         confirm_callback: Optional[Any] = None,
     ) -> None:
         super().__init__(
-            engine, model, bus=bus,
-            temperature=temperature, max_tokens=max_tokens,
+            engine,
+            model,
+            bus=bus,
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
         from openjarvis.tools._stubs import ToolExecutor
 
         self._tools = tools or []
         _aid = agent_id or getattr(self, "agent_id", "")
         self._executor = ToolExecutor(
-            self._tools, bus=bus,
+            self._tools,
+            bus=bus,
             capability_policy=capability_policy,
             agent_id=_aid,
             interactive=interactive,
             confirm_callback=confirm_callback,
         )
-        self._max_turns = max_turns
+        # Resolve max_turns: explicit arg > config > class default > 10
+        if max_turns is not None:
+            self._max_turns = max_turns
+        else:
+            try:
+                cfg = load_config()
+                self._max_turns = cfg.agent.max_turns
+            except Exception:
+                self._max_turns = getattr(self, "_default_max_turns", 10)
 
         # Loop guard
         self._loop_guard = None
