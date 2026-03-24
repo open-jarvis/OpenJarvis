@@ -621,3 +621,49 @@ All agents publish events on the `EventBus` when a bus is provided:
     `INFERENCE_START` / `INFERENCE_END` events are published by the `InstrumentedEngine` wrapper, not by agents directly. This keeps telemetry opt-in and transparent to agent code.
 
 These events enable the telemetry and trace systems to record detailed interaction data automatically.
+
+---
+
+## Managed Agent Streaming
+
+The Managed Agent API (`/v1/managed-agents/{id}/messages`) supports real-time SSE streaming. Send a message with `stream: true` to receive the agent's response as a Server-Sent Events stream instead of the default asynchronous queue mode.
+
+### Streaming Messages
+
+```bash
+curl -N -X POST http://localhost:8000/v1/managed-agents/{id}/messages \
+  -H "Content-Type: application/json" \
+  -d '{"content": "What is 2+2?", "stream": true}'
+```
+
+The response follows the OpenAI SSE format:
+
+1. **Content chunks** -- `data: {"choices": [{"delta": {"content": "token"}}]}`
+2. **Tool results** (if the agent used tools) -- `event: tool_results\ndata: {"results": [...]}`
+3. **Final chunk** -- `data: {"choices": [{"delta": {}, "finish_reason": "stop"}]}`
+4. **Done sentinel** -- `data: [DONE]`
+
+When `stream: false` (the default), the endpoint behaves exactly as before -- the message is queued and the agent must be triggered separately via `/run`.
+
+### Behavior Details
+
+- The user message is always stored in the database before the agent runs.
+- After streaming completes, the full agent response is persisted as an `agent_to_user` message.
+- The agent is instantiated from the managed agent's stored `agent_type` and `config`.
+- Conversation history from prior messages is automatically loaded as context.
+- If the engine is not available on the server, a `503` error is returned.
+
+### Python Example
+
+```python
+import httpx
+
+with httpx.stream(
+    "POST",
+    "http://localhost:8000/v1/managed-agents/{id}/messages",
+    json={"content": "Summarize today's news", "stream": True},
+) as response:
+    for line in response.iter_lines():
+        if line.startswith("data:") and "[DONE]" not in line:
+            print(line[5:].strip())
+```

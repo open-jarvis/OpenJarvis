@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 from openjarvis.agents.manager import AgentManager
 
 try:
     from fastapi import APIRouter, HTTPException, Request
+    from fastapi.responses import StreamingResponse
     from pydantic import BaseModel
 except ImportError:
     raise ImportError("fastapi and pydantic are required for server routes")
+
+logger = logging.getLogger("openjarvis.server.agent_manager")
 
 
 class CreateAgentRequest(BaseModel):
@@ -46,6 +50,7 @@ class BindChannelRequest(BaseModel):
 class SendMessageRequest(BaseModel):
     content: str
     mode: str = "queued"
+    stream: bool = False  # SSE streaming mode
 
 
 class FeedbackRequest(BaseModel):
@@ -200,6 +205,174 @@ def build_tools_list() -> List[Dict[str, Any]]:
         pass
 
     return items
+
+
+async def _stream_managed_agent(
+    *,
+    manager: AgentManager,
+    agent_record: Dict[str, Any],
+    user_content: str,
+    message_id: str,
+    engine: Any,
+    bus: Any,
+) -> StreamingResponse:
+    """Run a managed agent and stream the response as SSE.
+
+    Instantiates the agent from its stored config, builds conversation
+    context from message history, executes the agent in a background
+    thread, and yields SSE-formatted chunks. After completion the
+    full response is persisted via ``manager.store_agent_response()``.
+    """
+    import asyncio
+    import json
+    import uuid
+
+    from openjarvis.agents._stubs import AgentContext
+    from openjarvis.core.registry import AgentRegistry
+    from openjarvis.core.types import Message, Role
+
+    agent_id = agent_record["id"]
+    config = agent_record.get("config", {})
+    agent_type = agent_record.get("agent_type", "orchestrator")
+    model = config.get("model", getattr(engine, "_model", ""))
+
+    # Resolve the agent class from registry
+    agent_cls = AgentRegistry.get(agent_type)
+    if agent_cls is None:
+        # Fallback to orchestrator if the type is not registered
+        agent_cls = AgentRegistry.get("orchestrator")
+    if agent_cls is None:
+        raise HTTPException(
+            status_code=500, detail=f"Agent type '{agent_type}' not found in registry",
+        )
+
+    # Build agent constructor kwargs from config
+    agent_kwargs: Dict[str, Any] = {
+        "engine": engine,
+        "model": model,
+    }
+    if bus is not None:
+        agent_kwargs["bus"] = bus
+    if config.get("system_prompt"):
+        agent_kwargs["system_prompt"] = config["system_prompt"]
+    if config.get("temperature") is not None:
+        agent_kwargs["temperature"] = config["temperature"]
+    if config.get("max_tokens") is not None:
+        agent_kwargs["max_tokens"] = config["max_tokens"]
+    if config.get("max_turns") is not None:
+        agent_kwargs["max_turns"] = config["max_turns"]
+
+    try:
+        agent = agent_cls(**agent_kwargs)
+    except TypeError as exc:
+        logger.warning(
+            "Agent instantiation failed with all kwargs, retrying minimal: %s",
+            exc,
+        )
+        agent = agent_cls(engine=engine, model=model)
+
+    # Build conversation context from existing messages
+    ctx = AgentContext()
+    messages = manager.list_messages(agent_id, limit=50)
+    # Messages come in DESC order, reverse for chronological
+    for m in reversed(messages):
+        # Skip the message we just stored (it will be the input)
+        if m["id"] == message_id:
+            continue
+        if m["direction"] == "user_to_agent":
+            ctx.conversation.add(Message(role=Role.USER, content=m["content"]))
+        elif m["direction"] == "agent_to_user":
+            ctx.conversation.add(Message(role=Role.ASSISTANT, content=m["content"]))
+
+    # Mark the user message as delivered
+    manager.mark_message_delivered(message_id)
+
+    chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+
+    async def generate():
+        """Async generator yielding SSE-formatted chunks."""
+        collected_content = ""
+
+        # Run agent.run() in a background thread
+        try:
+            result = await asyncio.to_thread(agent.run, user_content, context=ctx)
+        except Exception as exc:
+            logger.error("Managed agent stream error: %s", exc, exc_info=True)
+            error_data = {
+                "id": chunk_id,
+                "object": "chat.completion.chunk",
+                "model": model,
+                "choices": [{
+                    "index": 0,
+                    "delta": {"content": f"Error: {exc}"},
+                    "finish_reason": "stop",
+                }],
+            }
+            yield f"data: {json.dumps(error_data)}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+
+        content = result.content or ""
+        collected_content = content
+
+        # Emit tool results metadata if any
+        if result.tool_results:
+            tool_data = []
+            for tr in result.tool_results:
+                tool_data.append({
+                    "tool_name": tr.tool_name,
+                    "success": tr.success,
+                    "output": tr.content,
+                    "latency_ms": tr.latency_seconds * 1000,
+                })
+            yield f"event: tool_results\ndata: {json.dumps({'results': tool_data})}\n\n"
+
+        # Stream content word-by-word for real-time feel
+        if content:
+            words = content.split(" ")
+            for i, word in enumerate(words):
+                token = word if i == 0 else " " + word
+                chunk_data = {
+                    "id": chunk_id,
+                    "object": "chat.completion.chunk",
+                    "model": model,
+                    "choices": [{
+                        "index": 0,
+                        "delta": {"content": token},
+                        "finish_reason": None,
+                    }],
+                }
+                yield f"data: {json.dumps(chunk_data)}\n\n"
+                await asyncio.sleep(0.012)
+
+        # Final chunk with finish_reason
+        final_data = {
+            "id": chunk_id,
+            "object": "chat.completion.chunk",
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "delta": {},
+                "finish_reason": "stop",
+            }],
+        }
+        yield f"data: {json.dumps(final_data)}\n\n"
+        yield "data: [DONE]\n\n"
+
+        # Persist agent response in DB after streaming completes
+        if collected_content:
+            try:
+                manager.store_agent_response(agent_id, collected_content)
+            except Exception as store_exc:
+                logger.error(
+                    "Failed to store agent response: %s", store_exc, exc_info=True,
+                )
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )
 
 
 def create_agent_manager_router(
@@ -399,9 +572,34 @@ def create_agent_manager_router(
         return {"messages": manager.list_messages(agent_id)}
 
     @agents_router.post("/{agent_id}/messages")
-    def send_message(agent_id: str, req: SendMessageRequest):
+    async def send_message(agent_id: str, req: SendMessageRequest, request: Request):
+        agent_record = manager.get_agent(agent_id)
+        if not agent_record:
+            raise HTTPException(status_code=404, detail="Agent not found")
+
+        # Store user message in DB (always, regardless of stream mode)
         msg = manager.send_message(agent_id, req.content, mode=req.mode)
-        return msg
+
+        if not req.stream:
+            return msg
+
+        # --- Streaming mode: run agent and return SSE response ---
+        engine = getattr(request.app.state, "engine", None)
+        bus = getattr(request.app.state, "bus", None)
+        if engine is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Engine not available for streaming",
+            )
+
+        return await _stream_managed_agent(
+            manager=manager,
+            agent_record=agent_record,
+            user_content=req.content,
+            message_id=msg["id"],
+            engine=engine,
+            bus=bus,
+        )
 
     # ── State inspection ─────────────────────────────────────
 

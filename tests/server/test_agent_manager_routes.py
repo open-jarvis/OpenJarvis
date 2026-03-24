@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -200,3 +202,168 @@ class TestAgentManagerRoutes:
         assert "channels" in state
         assert "messages" in state
         assert "checkpoint" in state
+
+    def test_send_message_non_stream_unchanged(self, manager, client):
+        """stream=False (default) returns a normal JSON message, not SSE."""
+        agent = manager.create_agent(name="basic", agent_type="simple")
+        res = client.post(
+            f"/v1/managed-agents/{agent['id']}/messages",
+            json={"content": "hello", "stream": False},
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert data["content"] == "hello"
+        assert data["direction"] == "user_to_agent"
+
+    def test_send_message_stream_not_found(self, manager, client):
+        """Streaming to a non-existent agent returns 404."""
+        res = client.post(
+            "/v1/managed-agents/nonexistent/messages",
+            json={"content": "hello", "stream": True},
+        )
+        assert res.status_code == 404
+
+
+@pytest.mark.skipif(not HAS_FASTAPI, reason="fastapi not installed")
+class TestAgentManagerStreaming:
+    """Tests for the SSE streaming mode of the managed-agent messages endpoint."""
+
+    @pytest.fixture
+    def _mock_engine(self):
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine._model = "test-model"
+        engine.health.return_value = True
+        return engine
+
+    @pytest.fixture
+    def _mock_agent_cls(self):
+        """Register a mock agent class in the AgentRegistry for testing."""
+        from openjarvis.agents._stubs import AgentResult
+        from openjarvis.core.registry import AgentRegistry
+
+        class _MockStreamAgent:
+            agent_id = "mock_stream"
+
+            def __init__(self, engine, model, **kwargs):
+                self._engine = engine
+                self._model = model
+
+            def run(self, input_text, context=None, **kwargs):
+                return AgentResult(content=f"Echo: {input_text}", turns=1)
+
+        # Register under a unique key for test isolation
+        AgentRegistry._entries()["_test_stream"] = _MockStreamAgent
+        yield _MockStreamAgent
+        AgentRegistry._entries().pop("_test_stream", None)
+
+    @pytest.fixture
+    def stream_client(self, manager, _mock_engine, _mock_agent_cls):
+        from fastapi import FastAPI
+
+        from openjarvis.server.agent_manager_routes import create_agent_manager_router
+
+        app = FastAPI()
+        app.state.engine = _mock_engine
+        app.state.bus = None
+
+        routers = create_agent_manager_router(manager)
+        agents_router, templates_router, global_router, tools_router = routers
+        app.include_router(agents_router)
+        app.include_router(templates_router)
+        app.include_router(global_router)
+        app.include_router(tools_router)
+        return TestClient(app)
+
+    def test_send_message_stream(self, manager, stream_client, _mock_agent_cls):
+        """Test streaming mode returns SSE response with [DONE] sentinel."""
+        agent = manager.create_agent(
+            name="streamer", agent_type="_test_stream",
+        )
+        resp = stream_client.post(
+            f"/v1/managed-agents/{agent['id']}/messages",
+            json={"content": "What is 2+2?", "stream": True},
+        )
+        assert resp.status_code == 200
+        assert "text/event-stream" in resp.headers.get("content-type", "")
+
+        # Parse SSE events
+        lines = resp.text.strip().split("\n")
+        data_lines = [ln for ln in lines if ln.startswith("data:")]
+        assert len(data_lines) > 0
+        # Last data line must be [DONE]
+        assert data_lines[-1].strip() == "data: [DONE]"
+
+    def test_send_message_stream_content(self, manager, stream_client, _mock_agent_cls):
+        """Test streaming returns the correct agent response content."""
+        agent = manager.create_agent(
+            name="streamer2", agent_type="_test_stream",
+        )
+        resp = stream_client.post(
+            f"/v1/managed-agents/{agent['id']}/messages",
+            json={"content": "Hello world", "stream": True},
+        )
+        assert resp.status_code == 200
+
+        # Collect content tokens from stream
+        content = ""
+        for line in resp.text.strip().split("\n"):
+            if line.startswith("data:") and "[DONE]" not in line:
+                raw = line[5:].strip()
+                try:
+                    data = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                choices = data.get("choices", [{}])
+                delta_content = choices[0].get("delta", {}).get("content")
+                if delta_content:
+                    content += delta_content
+
+        assert content == "Echo: Hello world"
+
+    def test_send_message_stream_stores_response(
+        self, manager, stream_client, _mock_agent_cls,
+    ):
+        """After streaming, agent response is persisted in the DB."""
+        agent = manager.create_agent(
+            name="streamer3", agent_type="_test_stream",
+        )
+        resp = stream_client.post(
+            f"/v1/managed-agents/{agent['id']}/messages",
+            json={"content": "persist me", "stream": True},
+        )
+        assert resp.status_code == 200
+
+        # Check messages in DB
+        messages = manager.list_messages(agent["id"])
+        # Should have both the user message and the agent response
+        assert len(messages) == 2
+        directions = {m["direction"] for m in messages}
+        assert "user_to_agent" in directions
+        assert "agent_to_user" in directions
+        agent_msg = next(m for m in messages if m["direction"] == "agent_to_user")
+        assert "persist me" in agent_msg["content"]
+
+    def test_send_message_stream_finish_reason(
+        self, manager, stream_client, _mock_agent_cls,
+    ):
+        """The final chunk before [DONE] has finish_reason='stop'."""
+        agent = manager.create_agent(
+            name="streamer4", agent_type="_test_stream",
+        )
+        resp = stream_client.post(
+            f"/v1/managed-agents/{agent['id']}/messages",
+            json={"content": "check finish", "stream": True},
+        )
+        # Collect all data chunks (excluding [DONE])
+        chunks = []
+        for line in resp.text.strip().split("\n"):
+            if line.startswith("data:") and "[DONE]" not in line:
+                raw = line[5:].strip()
+                try:
+                    chunks.append(json.loads(raw))
+                except json.JSONDecodeError:
+                    continue
+
+        # Last chunk should have finish_reason="stop"
+        assert chunks[-1]["choices"][0]["finish_reason"] == "stop"
