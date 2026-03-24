@@ -10,6 +10,12 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List
 
+# Bump when token-counting methodology changes so that the leaderboard
+# can distinguish entries computed under different rules.
+#   v1 = original (Ollama prompt_eval_count, may under-count due to KV cache)
+#   v2 = full prompt token count, no KV-cache assumption, system prompt always counted
+TOKEN_COUNTING_VERSION: int = 2
+
 # ---------------------------------------------------------------------------
 # Cloud provider pricing (USD per 1M tokens)
 # params_b: model size in billions, for no-KV-cache FLOPs
@@ -75,6 +81,7 @@ class SavingsSummary:
     session_duration_hours: float = 0.0
     avg_cost_per_query: Dict[str, float] = field(default_factory=dict)
     cloud_agent_equivalent: Dict[str, int] = field(default_factory=dict)
+    token_counting_version: int = TOKEN_COUNTING_VERSION
 
 
 def compute_savings(
@@ -83,7 +90,18 @@ def compute_savings(
     total_calls: int = 0,
     session_start: float = 0.0,
 ) -> SavingsSummary:
-    """Compute savings vs cloud providers given token counts."""
+    """Compute savings vs cloud providers given token counts.
+
+    Token counting assumptions (these match cloud provider billing):
+    - **System prompt included**: ``prompt_tokens`` includes system
+      prompt tokens for every API call, matching what cloud providers
+      charge.
+    - **No KV-cache discount**: Each call's ``prompt_tokens`` reflects
+      the full context size (system prompt + conversation history).
+      Even though local engines may use KV caching internally, the
+      savings comparison uses the uncached token count because cloud
+      providers bill for all input tokens on every request.
+    """
     total_tokens = prompt_tokens + completion_tokens
     providers: List[ProviderSavings] = []
 

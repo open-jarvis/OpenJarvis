@@ -15,6 +15,7 @@ from openjarvis.core.types import Message
 from openjarvis.engine._base import (
     EngineConnectionError,
     InferenceEngine,
+    estimate_prompt_tokens,
     messages_to_dicts,
 )
 
@@ -105,7 +106,13 @@ class OllamaEngine(InferenceEngine):
                 f"Ollama returned {exc.response.status_code}: {body}"
             ) from exc
         data = resp.json()
-        prompt_tokens = data.get("prompt_eval_count", 0)
+        # Ollama's prompt_eval_count may exclude KV-cached tokens
+        # (system prompt, prior turns).  Use the larger of the reported
+        # count and a cache-agnostic estimate so that cost / FLOPs /
+        # energy calculations reflect the full prompt size.
+        reported_prompt = data.get("prompt_eval_count", 0)
+        estimated_prompt = estimate_prompt_tokens(messages)
+        prompt_tokens = max(reported_prompt, estimated_prompt)
         completion_tokens = data.get("eval_count", 0)
         content = data.get("message", {}).get("content", "")
         result: Dict[str, Any] = {
@@ -176,14 +183,18 @@ class OllamaEngine(InferenceEngine):
                     if content:
                         yield content
                     if chunk.get("done", False):
-                        # Capture usage from final chunk
+                        # Capture usage from final chunk.  Use the
+                        # cache-agnostic estimate for prompt tokens to
+                        # avoid under-counting when Ollama's KV cache
+                        # suppresses prompt_eval_count.
+                        reported_prompt = chunk.get("prompt_eval_count", 0)
+                        est_prompt = estimate_prompt_tokens(messages)
+                        full_prompt = max(reported_prompt, est_prompt)
+                        comp = chunk.get("eval_count", 0)
                         self._last_stream_usage = {
-                            "prompt_tokens": chunk.get("prompt_eval_count", 0),
-                            "completion_tokens": chunk.get("eval_count", 0),
-                            "total_tokens": (
-                                chunk.get("prompt_eval_count", 0)
-                                + chunk.get("eval_count", 0)
-                            ),
+                            "prompt_tokens": full_prompt,
+                            "completion_tokens": comp,
+                            "total_tokens": full_prompt + comp,
                         }
                         break
         except (httpx.ConnectError, httpx.TimeoutException) as exc:

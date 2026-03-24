@@ -476,6 +476,30 @@ async def savings(request: Request):
         agg.close()
 
 
+@router.post("/v1/telemetry/reset")
+async def reset_telemetry():
+    """Clear all stored telemetry records.
+
+    Useful after updating token-counting methodology — clears
+    historical records that were computed under the old rules so
+    that the savings dashboard and leaderboard submissions start
+    fresh with corrected values.
+    """
+    from openjarvis.core.config import DEFAULT_CONFIG_DIR
+    from openjarvis.telemetry.aggregator import TelemetryAggregator
+
+    db_path = DEFAULT_CONFIG_DIR / "telemetry.db"
+    if not db_path.exists():
+        return {"status": "ok", "records_cleared": 0}
+
+    agg = TelemetryAggregator(db_path)
+    try:
+        count = agg.clear()
+    finally:
+        agg.close()
+    return {"status": "ok", "records_cleared": count}
+
+
 @router.get("/v1/info")
 async def server_info(request: Request):
     """Return server configuration: model, agent, engine."""

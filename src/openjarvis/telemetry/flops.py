@@ -49,6 +49,10 @@ def estimate_flops(
 
     Uses the 2 * P * T approximation where P = params, T = total tokens.
     Returns (total_flops, flops_per_token).
+
+    ``input_tokens`` must include system-prompt tokens and must *not*
+    be reduced for KV-cache reuse — it should represent the full prompt
+    size that was sent to the engine.
     """
     params_b = _get_params_b(model)
     total_tokens = input_tokens + output_tokens
