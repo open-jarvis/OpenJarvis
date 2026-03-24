@@ -47,6 +47,8 @@ class ClaudeCodeAgent(BaseAgent):
 
     agent_id = "claude_code"
     accepts_tools = False
+    _default_temperature = 0.7
+    _default_max_tokens = 1024
 
     def __init__(
         self,
@@ -54,8 +56,8 @@ class ClaudeCodeAgent(BaseAgent):
         model: str,
         *,
         bus: Optional[EventBus] = None,
-        temperature: float = 0.7,
-        max_tokens: int = 1024,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
         api_key: str = "",
         workspace: str = "",
         session_id: str = "",

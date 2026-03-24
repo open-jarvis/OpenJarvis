@@ -54,6 +54,9 @@ class NativeOpenHandsAgent(ToolUsingAgent):
     """Native CodeAct agent -- generates and executes Python code."""
 
     agent_id = "native_openhands"
+    _default_temperature = 0.7
+    _default_max_tokens = 2048
+    _default_max_turns = 3
 
     def __init__(
         self,
@@ -62,9 +65,9 @@ class NativeOpenHandsAgent(ToolUsingAgent):
         *,
         tools: Optional[List[BaseTool]] = None,
         bus: Optional[EventBus] = None,
-        max_turns: int = 3,
-        temperature: float = 0.7,
-        max_tokens: int = 2048,
+        max_turns: Optional[int] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
         interactive: bool = False,
         confirm_callback=None,
     ) -> None:

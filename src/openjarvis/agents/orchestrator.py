@@ -41,6 +41,9 @@ class OrchestratorAgent(ToolUsingAgent):
     """
 
     agent_id = "orchestrator"
+    _default_temperature = 0.7
+    _default_max_tokens = 1024
+    _default_max_turns = 10
 
     def __init__(
         self,
@@ -49,9 +52,9 @@ class OrchestratorAgent(ToolUsingAgent):
         *,
         tools: Optional[List[BaseTool]] = None,
         bus: Optional[EventBus] = None,
-        max_turns: int = 10,
-        temperature: float = 0.7,
-        max_tokens: int = 1024,
+        max_turns: Optional[int] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
         mode: str = "function_calling",
         system_prompt: Optional[str] = None,
         parallel_tools: bool = True,

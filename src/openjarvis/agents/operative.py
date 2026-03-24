@@ -38,6 +38,9 @@ class OperativeAgent(ToolUsingAgent):
 
     agent_id = "operative"
     accepts_tools = True
+    _default_temperature = 0.3
+    _default_max_tokens = 2048
+    _default_max_turns = 20
 
     def __init__(
         self,
@@ -46,9 +49,9 @@ class OperativeAgent(ToolUsingAgent):
         *,
         tools: Optional[List[BaseTool]] = None,
         bus: Optional[EventBus] = None,
-        max_turns: int = 20,
-        temperature: float = 0.3,
-        max_tokens: int = 2048,
+        max_turns: Optional[int] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
         system_prompt: Optional[str] = None,
         operator_id: Optional[str] = None,
         session_store: Optional[Any] = None,

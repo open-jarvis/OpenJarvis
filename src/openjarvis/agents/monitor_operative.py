@@ -84,6 +84,9 @@ class MonitorOperativeAgent(ToolUsingAgent):
 
     agent_id = "monitor_operative"
     accepts_tools = True
+    _default_temperature = 0.3
+    _default_max_tokens = 4096
+    _default_max_turns = 25
 
     def __init__(
         self,
@@ -92,9 +95,9 @@ class MonitorOperativeAgent(ToolUsingAgent):
         *,
         tools: Optional[List[BaseTool]] = None,
         bus: Optional[EventBus] = None,
-        max_turns: int = 25,
-        temperature: float = 0.3,
-        max_tokens: int = 4096,
+        max_turns: Optional[int] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
         system_prompt: Optional[str] = None,
         # Strategy parameters
         memory_extraction: str = "causality_graph",
