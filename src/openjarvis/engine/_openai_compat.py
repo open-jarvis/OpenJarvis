@@ -72,6 +72,9 @@ class _OpenAICompatibleEngine(InferenceEngine):
             "chat_template_kwargs": {"enable_thinking": False},
             **kwargs,
         }
+        # Default to tool_choice=auto when tools are provided
+        if "tools" in payload and "tool_choice" not in payload:
+            payload["tool_choice"] = "auto"
         try:
             url = f"{self._api_prefix}/chat/completions"
             resp = self._client.post(url, json=payload)
@@ -136,6 +139,9 @@ class _OpenAICompatibleEngine(InferenceEngine):
             "stream": True,
             **kwargs,
         }
+        # Default to tool_choice=auto when tools are provided
+        if "tools" in payload and "tool_choice" not in payload:
+            payload["tool_choice"] = "auto"
         try:
             url = f"{self._api_prefix}/chat/completions"
             with self._client.stream("POST", url, json=payload) as resp:
@@ -182,6 +188,9 @@ class _OpenAICompatibleEngine(InferenceEngine):
             "stream": True,
             **kwargs,
         }
+        # Default to tool_choice=auto when tools are provided
+        if "tools" in payload and "tool_choice" not in payload:
+            payload["tool_choice"] = "auto"
         try:
             url = f"{self._api_prefix}/chat/completions"
             with self._client.stream("POST", url, json=payload) as resp:
