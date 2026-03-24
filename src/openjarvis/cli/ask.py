@@ -165,6 +165,7 @@ def _print_profile(
     engine_name: str,
     model_name: str,
     console: Console,
+    complexity_result=None,
 ) -> None:
     """Print an inference telemetry profile table from EventBus history."""
     # Collect all INFERENCE_END events (agents may fire multiple)
@@ -226,6 +227,12 @@ def _print_profile(
 
     def _row(label: str, val: str) -> None:
         table.add_row(label, val)
+
+    if complexity_result is not None:
+        _row("Complexity score", f"{complexity_result.score:.3f}")
+        _row("Complexity tier", complexity_result.tier)
+        _row("Suggested max tokens", str(complexity_result.suggested_max_tokens))
+        _row("", "")  # separator
 
     _row("Wall time", f"{wall_seconds:.3f} s")
     _row("Inference calls", str(total_calls))
@@ -324,11 +331,29 @@ def ask(
     # Load config
     config = load_config()
 
+    # Track whether the user explicitly set --max-tokens
+    user_set_max_tokens = max_tokens is not None
+
     # Fall back to config values for generation params
     if temperature is None:
         temperature = config.intelligence.temperature
     if max_tokens is None:
         max_tokens = config.intelligence.max_tokens
+
+    # Run complexity analysis on the query
+    from openjarvis.learning.routing.complexity import (
+        ComplexityResult,
+        adjust_tokens_for_model,
+        score_complexity,
+    )
+
+    complexity_result: ComplexityResult = score_complexity(query_text)
+    logger.debug(
+        "Complexity analysis: score=%.3f tier=%s suggested_max_tokens=%d",
+        complexity_result.score,
+        complexity_result.tier,
+        complexity_result.suggested_max_tokens,
+    )
 
     # Set up telemetry
     bus = EventBus(record_history=True)
@@ -397,6 +422,19 @@ def ask(
         console.print("[red]No model available on engine.[/red]")
         sys.exit(1)
 
+    # Apply complexity-suggested token budget when user didn't override.
+    # Use at least the config default so we never reduce tokens below what
+    # the user would have gotten without the analyzer.
+    if not user_set_max_tokens:
+        suggested = adjust_tokens_for_model(
+            complexity_result.suggested_max_tokens, model_name,
+        )
+        max_tokens = max(suggested, config.intelligence.max_tokens)
+        logger.debug(
+            "Using complexity-suggested max_tokens=%d (model=%s)",
+            max_tokens, model_name,
+        )
+
     # Agent mode
     if agent_name is not None:
         parsed_tools = resolve_tool_names(
@@ -435,6 +473,7 @@ def ask(
             _print_profile(
                 bus, time.monotonic() - wall_start,
                 engine_name, model_name, console,
+                complexity_result=complexity_result,
             )
 
         if telem_store is not None:
@@ -494,6 +533,7 @@ def ask(
         _print_profile(
             bus, time.monotonic() - wall_start,
             engine_name, model_name, console,
+            complexity_result=complexity_result,
         )
 
     # Cleanup

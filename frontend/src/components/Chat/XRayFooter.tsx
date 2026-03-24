@@ -18,6 +18,7 @@ export function XRayFooter({ usage, telemetry }: Props) {
   const parts: string[] = [];
   if (telemetry?.engine) parts.push(telemetry.engine);
   if (telemetry?.model_id) parts.push(telemetry.model_id);
+  if (telemetry?.complexity_tier) parts.push(telemetry.complexity_tier);
   if (telemetry?.total_ms) parts.push(formatMs(telemetry.total_ms));
   if (usage && (usage.prompt_tokens || usage.completion_tokens)) {
     parts.push(`${usage.prompt_tokens} input tokens`);
@@ -49,6 +50,15 @@ export function XRayFooter({ usage, telemetry }: Props) {
       }
     }
     rows.push({ label: 'Tokens', value: tokenParts.join(' \u00B7 ') });
+  }
+  if (telemetry?.complexity_tier) {
+    rows.push({
+      label: 'Complexity',
+      value: `${telemetry.complexity_tier} (${telemetry.complexity_score?.toFixed(2)})`,
+    });
+  }
+  if (telemetry?.suggested_max_tokens) {
+    rows.push({ label: 'Token budget', value: `${telemetry.suggested_max_tokens}` });
   }
   if (telemetry?.tokens_per_sec) {
     rows.push({ label: 'Speed', value: `${Math.round(telemetry.tokens_per_sec)} tok/s` });

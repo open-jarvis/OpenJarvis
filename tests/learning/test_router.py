@@ -95,12 +95,12 @@ class TestHeuristicRouter:
         )
         assert router.select_model(ctx) == "large"
 
-    def test_long_query_prefers_large(self) -> None:
+    def test_high_complexity_prefers_large(self) -> None:
         _register_models()
         router = HeuristicRouter(
             available_models=["small", "large", "coder"],
         )
-        ctx = RoutingContext(query="x" * 501, query_length=501)
+        ctx = RoutingContext(query="x" * 501, query_length=501, complexity_score=0.7)
         assert router.select_model(ctx) == "large"
 
     def test_high_urgency_overrides_to_small(self) -> None:
@@ -122,10 +122,11 @@ class TestHeuristicRouter:
             default_model="large",
             fallback_model="small",
         )
-        # Medium-length, no code/math, no reasoning → falls to default
+        # Medium complexity, no code/math, no reasoning → falls to default
         ctx = RoutingContext(
             query="Tell me about cats",
             query_length=60,
+            complexity_score=0.35,
         )
         assert router.select_model(ctx) == "large"
 
