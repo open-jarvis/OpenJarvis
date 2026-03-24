@@ -15,6 +15,7 @@ from openjarvis.engine._base import (
     InferenceEngine,
     messages_to_dicts,
 )
+from openjarvis.engine._stubs import StreamChunk
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +154,62 @@ class _OpenAICompatibleEngine(InferenceEngine):
                     content = delta.get("content")
                     if content:
                         yield content
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            raise EngineConnectionError(
+                f"{self.engine_id} engine not reachable at {self._host}"
+            ) from exc
+
+    async def stream_full(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+        **kwargs: Any,
+    ) -> AsyncIterator["StreamChunk"]:
+        """Yield StreamChunks with content, tool_calls, and finish_reason.
+
+        Parses the OpenAI SSE stream natively, providing richer data than
+        the plain-string ``stream()`` method.
+        """
+        msg_dicts = self._fix_tool_call_arguments(messages_to_dicts(messages))
+        payload: Dict[str, Any] = {
+            "model": model,
+            "messages": msg_dicts,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+            **kwargs,
+        }
+        try:
+            url = f"{self._api_prefix}/chat/completions"
+            with self._client.stream("POST", url, json=payload) as resp:
+                resp.raise_for_status()
+                for line in resp.iter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    data_str = line[len("data:"):].strip()
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+                    choice = chunk.get("choices", [{}])[0]
+                    delta = choice.get("delta", {})
+                    finish = choice.get("finish_reason")
+                    content = delta.get("content")
+                    tool_calls = delta.get("tool_calls")
+                    usage = chunk.get("usage")
+
+                    if content or tool_calls or finish or usage:
+                        yield StreamChunk(
+                            content=content,
+                            tool_calls=tool_calls,
+                            finish_reason=finish,
+                            usage=usage,
+                        )
         except (httpx.ConnectError, httpx.TimeoutException) as exc:
             raise EngineConnectionError(
                 f"{self.engine_id} engine not reachable at {self._host}"

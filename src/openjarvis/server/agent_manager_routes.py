@@ -207,6 +207,34 @@ def build_tools_list() -> List[Dict[str, Any]]:
     return items
 
 
+def _merge_tool_call_fragments(
+    accumulated: Dict[int, Dict[str, Any]],
+    fragments: List[Dict[str, Any]],
+) -> None:
+    """Merge incremental tool_call delta fragments into accumulated state.
+
+    OpenAI-compatible APIs send tool_calls as incremental fragments keyed
+    by ``index``. Each fragment may contain partial ``function.name`` and/or
+    ``function.arguments`` strings that must be concatenated.
+    """
+    for frag in fragments:
+        idx = frag.get("index", 0)
+        if idx not in accumulated:
+            accumulated[idx] = {
+                "id": frag.get("id", ""),
+                "type": "function",
+                "function": {"name": "", "arguments": ""},
+            }
+        entry = accumulated[idx]
+        if frag.get("id"):
+            entry["id"] = frag["id"]
+        fn = frag.get("function", {})
+        if fn.get("name"):
+            entry["function"]["name"] += fn["name"]
+        if fn.get("arguments"):
+            entry["function"]["arguments"] += fn["arguments"]
+
+
 async def _stream_managed_agent(
     *,
     manager: AgentManager,
@@ -216,131 +244,209 @@ async def _stream_managed_agent(
     engine: Any,
     bus: Any,
 ) -> StreamingResponse:
-    """Run a managed agent and stream the response as SSE.
+    """Run a managed agent with real LLM token streaming via SSE.
 
-    Instantiates the agent from its stored config, builds conversation
-    context from message history, executes the agent in a background
-    thread, and yields SSE-formatted chunks. After completion the
-    full response is persisted via ``manager.store_agent_response()``.
+    Uses ``engine.stream_full()`` to yield tokens as they arrive from the
+    LLM. Supports multi-turn tool-calling: when the model emits tool_calls,
+    they are executed and the results fed back for the next turn.
     """
-    import asyncio
     import json
     import uuid
 
-    from openjarvis.agents._stubs import AgentContext
-    from openjarvis.core.registry import AgentRegistry
     from openjarvis.core.types import Message, Role
 
     agent_id = agent_record["id"]
     config = agent_record.get("config", {})
-    agent_type = agent_record.get("agent_type", "orchestrator")
     model = config.get("model", getattr(engine, "_model", ""))
+    system_prompt = config.get("system_prompt")
+    temperature = config.get("temperature", 0.7)
+    max_tokens = config.get("max_tokens", 1024)
+    max_turns = config.get("max_turns", 10)
 
-    # Resolve the agent class from registry
-    agent_cls = AgentRegistry.get(agent_type)
-    if agent_cls is None:
-        # Fallback to orchestrator if the type is not registered
-        agent_cls = AgentRegistry.get("orchestrator")
-    if agent_cls is None:
-        raise HTTPException(
-            status_code=500, detail=f"Agent type '{agent_type}' not found in registry",
-        )
+    # Build conversation messages from history + current input
+    llm_messages: List[Message] = []
+    if system_prompt:
+        llm_messages.append(Message(role=Role.SYSTEM, content=system_prompt))
 
-    # Build agent constructor kwargs from config
-    agent_kwargs: Dict[str, Any] = {
-        "engine": engine,
-        "model": model,
-    }
-    if bus is not None:
-        agent_kwargs["bus"] = bus
-    if config.get("system_prompt"):
-        agent_kwargs["system_prompt"] = config["system_prompt"]
-    if config.get("temperature") is not None:
-        agent_kwargs["temperature"] = config["temperature"]
-    if config.get("max_tokens") is not None:
-        agent_kwargs["max_tokens"] = config["max_tokens"]
-    if config.get("max_turns") is not None:
-        agent_kwargs["max_turns"] = config["max_turns"]
-
-    try:
-        agent = agent_cls(**agent_kwargs)
-    except TypeError as exc:
-        logger.warning("Agent instantiation failed with all kwargs, retrying minimal: %s", exc)
-        agent = agent_cls(engine=engine, model=model)
-
-    # Build conversation context from existing messages
-    ctx = AgentContext()
-    messages = manager.list_messages(agent_id, limit=50)
-    # Messages come in DESC order, reverse for chronological
-    for m in reversed(messages):
-        # Skip the message we just stored (it will be the input)
+    # Load prior conversation context
+    history = manager.list_messages(agent_id, limit=50)
+    for m in reversed(history):
         if m["id"] == message_id:
             continue
         if m["direction"] == "user_to_agent":
-            ctx.conversation.add(Message(role=Role.USER, content=m["content"]))
+            llm_messages.append(Message(role=Role.USER, content=m["content"]))
         elif m["direction"] == "agent_to_user":
-            ctx.conversation.add(Message(role=Role.ASSISTANT, content=m["content"]))
+            llm_messages.append(Message(role=Role.ASSISTANT, content=m["content"]))
+
+    # Append the current user message
+    llm_messages.append(Message(role=Role.USER, content=user_content))
 
     # Mark the user message as delivered
     manager.mark_message_delivered(message_id)
 
     chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
 
+    # Build extra kwargs for stream_full (e.g. tools from config)
+    stream_kwargs: Dict[str, Any] = {}
+    if config.get("tools"):
+        stream_kwargs["tools"] = config["tools"]
+
     async def generate():
-        """Async generator yielding SSE-formatted chunks."""
+        """Async generator yielding SSE-formatted chunks with real token streaming."""
+        from openjarvis.engine._stubs import StreamChunk  # noqa: F811
+
         collected_content = ""
+        messages_for_llm = list(llm_messages)
+        turns = 0
 
-        # Run agent.run() in a background thread
-        try:
-            result = await asyncio.to_thread(agent.run, user_content, context=ctx)
-        except Exception as exc:
-            logger.error("Managed agent stream error: %s", exc, exc_info=True)
-            error_data = {
-                "id": chunk_id,
-                "object": "chat.completion.chunk",
-                "model": model,
-                "choices": [{
-                    "index": 0,
-                    "delta": {"content": f"Error: {exc}"},
-                    "finish_reason": "stop",
-                }],
-            }
-            yield f"data: {json.dumps(error_data)}\n\n"
-            yield "data: [DONE]\n\n"
-            return
+        while turns < max_turns:
+            turns += 1
+            turn_content = ""
+            tool_call_fragments: Dict[int, Dict[str, Any]] = {}
+            current_finish_reason = None
 
-        content = result.content or ""
-        collected_content = content
+            try:
+                async for chunk in engine.stream_full(
+                    messages_for_llm,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    **stream_kwargs,
+                ):
+                    # Stream content tokens immediately to the client
+                    if chunk.content:
+                        turn_content += chunk.content
+                        chunk_data = {
+                            "id": chunk_id,
+                            "object": "chat.completion.chunk",
+                            "model": model,
+                            "choices": [{
+                                "index": 0,
+                                "delta": {"content": chunk.content},
+                                "finish_reason": None,
+                            }],
+                        }
+                        yield f"data: {json.dumps(chunk_data)}\n\n"
 
-        # Emit tool results metadata if any
-        if result.tool_results:
-            tool_data = []
-            for tr in result.tool_results:
-                tool_data.append({
-                    "tool_name": tr.tool_name,
-                    "success": tr.success,
-                    "output": tr.content,
-                    "latency_ms": tr.latency_seconds * 1000,
-                })
-            yield f"event: tool_results\ndata: {json.dumps({'results': tool_data})}\n\n"
+                    # Accumulate tool_call fragments
+                    if chunk.tool_calls:
+                        _merge_tool_call_fragments(
+                            tool_call_fragments, chunk.tool_calls,
+                        )
 
-        # Stream content word-by-word for real-time feel
-        if content:
-            words = content.split(" ")
-            for i, word in enumerate(words):
-                token = word if i == 0 else " " + word
-                chunk_data = {
+                    if chunk.finish_reason:
+                        current_finish_reason = chunk.finish_reason
+
+            except Exception as exc:
+                logger.error("Managed agent stream error: %s", exc, exc_info=True)
+                error_data = {
                     "id": chunk_id,
                     "object": "chat.completion.chunk",
                     "model": model,
                     "choices": [{
                         "index": 0,
-                        "delta": {"content": token},
-                        "finish_reason": None,
+                        "delta": {"content": f"Error: {exc}"},
+                        "finish_reason": "stop",
                     }],
                 }
-                yield f"data: {json.dumps(chunk_data)}\n\n"
-                await asyncio.sleep(0.012)
+                yield f"data: {json.dumps(error_data)}\n\n"
+                yield "data: [DONE]\n\n"
+                return
+
+            # Handle tool calls: execute tools and loop for next turn
+            if tool_call_fragments and current_finish_reason == "tool_calls":
+                # Build the assistant message with tool_calls
+                sorted_tcs = [
+                    tool_call_fragments[i]
+                    for i in sorted(tool_call_fragments.keys())
+                ]
+
+                # Emit tool_calls metadata as SSE event
+                tool_meta = []
+                for tc in sorted_tcs:
+                    tool_meta.append({
+                        "tool_name": tc["function"]["name"],
+                        "arguments": tc["function"]["arguments"],
+                    })
+                yield (
+                    f"event: tool_calls\n"
+                    f"data: {json.dumps({'calls': tool_meta})}\n\n"
+                )
+
+                # Add assistant message with tool_calls to conversation
+                from openjarvis.core.types import ToolCall as MsgToolCall
+                assistant_msg = Message(
+                    role=Role.ASSISTANT,
+                    content=turn_content or None,
+                    tool_calls=[
+                        MsgToolCall(
+                            id=tc["id"],
+                            name=tc["function"]["name"],
+                            arguments=tc["function"]["arguments"],
+                        )
+                        for tc in sorted_tcs
+                    ],
+                )
+                messages_for_llm.append(assistant_msg)
+
+                # Execute each tool call and append results
+                for tc in sorted_tcs:
+                    tool_name = tc["function"]["name"]
+                    tool_args = tc["function"]["arguments"]
+                    tool_result_content = f"Tool '{tool_name}' not available"
+
+                    try:
+                        # Try to use ToolExecutor if tools are configured
+                        from openjarvis.tools._stubs import (
+                            ToolCall as StubToolCall,
+                            ToolExecutor,
+                        )
+                        from openjarvis.core.registry import ToolRegistry
+
+                        tool_cls = ToolRegistry.get(tool_name)
+                        if tool_cls is not None:
+                            tool_instance = tool_cls()
+                            executor = ToolExecutor(tools=[tool_instance], bus=bus)
+                            result = executor.execute(
+                                StubToolCall(
+                                    id=tc["id"],
+                                    name=tool_name,
+                                    arguments=tool_args,
+                                ),
+                            )
+                            tool_result_content = result.content
+                        else:
+                            logger.warning(
+                                "Tool '%s' not found in registry", tool_name,
+                            )
+                    except Exception as tool_exc:
+                        logger.error(
+                            "Tool execution error for %s: %s",
+                            tool_name, tool_exc, exc_info=True,
+                        )
+                        tool_result_content = f"Error executing {tool_name}: {tool_exc}"
+
+                    # Emit tool result as SSE event
+                    yield (
+                        f"event: tool_result\n"
+                        f"data: {json.dumps({'tool_name': tool_name, 'output': tool_result_content})}\n\n"
+                    )
+
+                    # Add tool result message to conversation
+                    messages_for_llm.append(Message(
+                        role=Role.TOOL,
+                        content=tool_result_content,
+                        tool_call_id=tc["id"],
+                        name=tool_name,
+                    ))
+
+                # Continue to next turn (loop back to stream_full)
+                collected_content += turn_content
+                continue
+
+            # No tool calls — this is the final response
+            collected_content += turn_content
+            break
 
         # Final chunk with finish_reason
         final_data = {

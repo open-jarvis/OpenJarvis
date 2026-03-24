@@ -626,7 +626,20 @@ These events enable the telemetry and trace systems to record detailed interacti
 
 ## Managed Agent Streaming
 
-The Managed Agent API (`/v1/managed-agents/{id}/messages`) supports real-time SSE streaming. Send a message with `stream: true` to receive the agent's response as a Server-Sent Events stream instead of the default asynchronous queue mode.
+The Managed Agent API (`/v1/managed-agents/{id}/messages`) supports **real LLM token streaming** via SSE. Send a message with `stream: true` to receive the model's response tokens as they are generated, rather than waiting for the full response.
+
+### How It Works
+
+The streaming endpoint calls `engine.stream_full()` directly, which yields `StreamChunk` objects containing content tokens, tool-call fragments, and finish reasons. This provides genuine token-by-token streaming from the LLM -- not a post-hoc word replay.
+
+For multi-turn tool-calling agents, the streaming loop automatically:
+
+1. Yields content tokens to the client as they arrive.
+2. Accumulates tool-call fragments (OpenAI sends these incrementally).
+3. Executes tools when `finish_reason="tool_calls"` is received.
+4. Emits tool results as named SSE events (`event: tool_result`).
+5. Feeds results back to the LLM for the next turn.
+6. Repeats until the model produces a final text response or `max_turns` is reached.
 
 ### Streaming Messages
 
@@ -639,19 +652,21 @@ curl -N -X POST http://localhost:8000/v1/managed-agents/{id}/messages \
 The response follows the OpenAI SSE format:
 
 1. **Content chunks** -- `data: {"choices": [{"delta": {"content": "token"}}]}`
-2. **Tool results** (if the agent used tools) -- `event: tool_results\ndata: {"results": [...]}`
-3. **Final chunk** -- `data: {"choices": [{"delta": {}, "finish_reason": "stop"}]}`
-4. **Done sentinel** -- `data: [DONE]`
+2. **Tool calls** (if the model requests tool use) -- `event: tool_calls\ndata: {"calls": [{"tool_name": "...", "arguments": "..."}]}`
+3. **Tool results** -- `event: tool_result\ndata: {"tool_name": "...", "output": "..."}`
+4. **Final chunk** -- `data: {"choices": [{"delta": {}, "finish_reason": "stop"}]}`
+5. **Done sentinel** -- `data: [DONE]`
 
 When `stream: false` (the default), the endpoint behaves exactly as before -- the message is queued and the agent must be triggered separately via `/run`.
 
 ### Behavior Details
 
-- The user message is always stored in the database before the agent runs.
-- After streaming completes, the full agent response is persisted as an `agent_to_user` message.
-- The agent is instantiated from the managed agent's stored `agent_type` and `config`.
-- Conversation history from prior messages is automatically loaded as context.
+- The user message is always stored in the database before streaming starts.
+- After streaming completes, the full collected response is persisted as an `agent_to_user` message.
+- Conversation history from prior messages is automatically loaded as LLM context.
+- The engine's `stream_full()` method is used for real token streaming. Engines that do not override it fall back to the default implementation which wraps the plain `stream()` method.
 - If the engine is not available on the server, a `503` error is returned.
+- Tool execution during streaming uses the `ToolRegistry` to find and instantiate tools.
 
 ### Python Example
 
