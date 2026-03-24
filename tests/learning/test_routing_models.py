@@ -85,12 +85,12 @@ class TestRouterWithNewModels:
         selected = router.select_model(ctx)
         assert selected == "gpt-oss:120b"
 
-    def test_long_context_routes_to_largest(self) -> None:
+    def test_high_complexity_routes_to_largest(self) -> None:
         _setup_models()
         router = HeuristicRouter(
             available_models=NEW_LOCAL_MODELS,
         )
-        ctx = RoutingContext(query="x" * 501, query_length=501)
+        ctx = RoutingContext(query="x" * 501, query_length=501, complexity_score=0.7)
         selected = router.select_model(ctx)
         assert selected == "gpt-oss:120b"
 
@@ -128,6 +128,7 @@ class TestRouterWithNewModels:
         ctx = RoutingContext(
             query="Tell me about the weather today",
             query_length=60,
+            complexity_score=0.35,
         )
         selected = router.select_model(ctx)
         assert selected == "glm-4.7-flash"
@@ -172,7 +173,11 @@ class TestRouterParameterized:
             ("hi", False),
             ("solve the integral of sin(x)", True),
             ("def foo(): pass", True),
-            ("x" * 501, True),
+            (
+                "Explain step by step how to solve the integral of x^2 "
+                "and then write code to compute the derivative",
+                True,
+            ),
         ],
     )
     def test_query_type_selects_expected_size(

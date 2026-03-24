@@ -13,6 +13,10 @@ from openjarvis.learning.learning_orchestrator import LearningOrchestrator
 from openjarvis.learning.optimize.llm_optimizer import LLMOptimizer
 from openjarvis.learning.optimize.optimizer import OptimizationEngine
 from openjarvis.learning.optimize.store import OptimizationStore
+from openjarvis.learning.routing.complexity import (
+    ComplexityQueryAnalyzer,
+    score_complexity,
+)
 from openjarvis.learning.routing.heuristic_reward import HeuristicRewardFunction
 from openjarvis.learning.routing.router import (
     HeuristicRouter,
@@ -59,6 +63,7 @@ def ensure_registered() -> None:
 
 __all__ = [
     "AgentConfigEvolver",
+    "ComplexityQueryAnalyzer",
     "HAS_TORCH",
     "HeuristicRewardFunction",
     "HeuristicRouter",
@@ -75,4 +80,5 @@ __all__ = [
     "TrainingDataMiner",
     "build_routing_context",
     "ensure_registered",
+    "score_complexity",
 ]
