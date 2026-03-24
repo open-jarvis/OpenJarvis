@@ -108,8 +108,8 @@ jarvis = "openjarvis.cli:main"
 packages = ["src/openjarvis"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"src/openjarvis/agents/claude_code_runner" = "openjarvis/agents/claude_code_runner"
-"src/openjarvis/channels/whatsapp_baileys_bridge" = "openjarvis/channels/whatsapp_baileys_bridge"
+"src/openjarvis/agents/claude_code_runner" = "_node_modules/claude_code_runner"
+"src/openjarvis/channels/whatsapp_baileys_bridge" = "_node_modules/whatsapp_baileys_bridge"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

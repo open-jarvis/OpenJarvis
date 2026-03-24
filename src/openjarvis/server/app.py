@@ -110,6 +110,18 @@ def create_app(
     app.state.agent_scheduler = agent_scheduler
     app.state.session_start = time.time()
 
+    # Wire up trace store if traces are enabled
+    app.state.trace_store = None
+    try:
+        from openjarvis.core.config import load_config
+        from openjarvis.traces.store import TraceStore
+
+        cfg = config if config is not None else load_config()
+        if cfg.traces.enabled:
+            app.state.trace_store = TraceStore(db_path=cfg.traces.db_path)
+    except Exception:
+        pass  # traces are optional; don't block server startup
+
     app.include_router(router)
     app.include_router(dashboard_router)
     app.include_router(comparison_router)

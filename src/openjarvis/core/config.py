@@ -762,7 +762,7 @@ class TelemetryConfig:
 class TracesConfig:
     """Trace system settings."""
 
-    enabled: bool = False
+    enabled: bool = True
     db_path: str = str(DEFAULT_CONFIG_DIR / "traces.db")
 
 
