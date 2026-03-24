@@ -243,10 +243,7 @@ def _get_mcp_tools(app_state: Any) -> Tuple[List[Dict[str, Any]], Dict[str, Any]
     """
     cached = getattr(app_state, "_mcp_tools_cache", None)
     if cached is not None:
-        logger.warning("MCP tools cache hit: %d tools", len(cached[0]))
         return cached
-
-    logger.warning("MCP tools cache miss — running discovery")
 
     import json as _json
 
@@ -257,9 +254,6 @@ def _get_mcp_tools(app_state: Any) -> Tuple[List[Dict[str, Any]], Dict[str, Any]
 
     try:
         app_config = load_config()
-        logger.warning("Config loaded, mcp.enabled=%s, mcp.servers=%r",
-                        app_config.tools.mcp.enabled,
-                        app_config.tools.mcp.servers[:80] if app_config.tools.mcp.servers else "")
     except Exception as exc:
         logger.warning("Failed to load config for MCP discovery: %s", exc)
         return openai_tools, adapters_by_name
@@ -403,18 +397,14 @@ async def _stream_managed_agent(
 
     # Discover MCP tools and merge into stream_kwargs
     mcp_adapters: Dict[str, Any] = {}
-    logger.warning("MCP injection: app_state=%s", "present" if app_state is not None else "None")
     if app_state is not None:
         try:
             mcp_openai_tools, mcp_adapters = _get_mcp_tools(app_state)
-            logger.warning("MCP discovery returned %d tools, %d adapters",
-                           len(mcp_openai_tools), len(mcp_adapters))
             if mcp_openai_tools:
                 existing_tools = stream_kwargs.get("tools", [])
                 stream_kwargs["tools"] = existing_tools + mcp_openai_tools
-                logger.warning(
-                    "Added %d MCP tools to stream_kwargs (total tools: %d)",
-                    len(mcp_openai_tools), len(stream_kwargs["tools"]),
+                logger.info(
+                    "Added %d MCP tools to streaming request", len(mcp_openai_tools),
                 )
         except Exception as exc:
             logger.warning("Failed to get MCP tools for streaming: %s", exc, exc_info=True)

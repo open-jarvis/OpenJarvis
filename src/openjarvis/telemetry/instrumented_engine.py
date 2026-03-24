@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import statistics
 import time
+from collections.abc import AsyncIterator
 from typing import Any, Dict, List, Optional, Sequence
 
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import Message, TelemetryRecord
-from openjarvis.engine._stubs import InferenceEngine
+from openjarvis.engine._stubs import InferenceEngine, StreamChunk
 from openjarvis.telemetry.gpu_monitor import GpuSample
 
 # ---------------------------------------------------------------------------
@@ -433,6 +434,22 @@ class InstrumentedEngine(InferenceEngine):
 
         self._bus.publish(EventType.INFERENCE_END, event_data)
         self._bus.publish(EventType.TELEMETRY_RECORD, {"record": record})
+
+    async def stream_full(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+        **kwargs: Any,
+    ) -> AsyncIterator["StreamChunk"]:
+        """Delegate to inner engine's stream_full for tool-call support."""
+        async for chunk in self._inner.stream_full(
+            messages, model=model, temperature=temperature,
+            max_tokens=max_tokens, **kwargs,
+        ):
+            yield chunk
 
     def list_models(self) -> List[str]:
         return self._inner.list_models()
