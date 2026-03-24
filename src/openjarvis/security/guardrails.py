@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import Message
-from openjarvis.engine._stubs import InferenceEngine
+from openjarvis.engine._stubs import InferenceEngine, StreamChunk
 from openjarvis.security._stubs import BaseScanner
 from openjarvis.security.scanner import PIIScanner, SecretScanner
 from openjarvis.security.types import RedactionMode, ScanResult
@@ -247,6 +247,22 @@ class GuardrailsEngine(InferenceEngine):
                             "mode": "stream_post_hoc",
                         },
                     )
+
+    async def stream_full(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+        **kwargs: Any,
+    ) -> AsyncIterator["StreamChunk"]:
+        """Delegate to wrapped engine's stream_full for tool-call support."""
+        async for chunk in self._engine.stream_full(
+            messages, model=model, temperature=temperature,
+            max_tokens=max_tokens, **kwargs,
+        ):
+            yield chunk
 
     def list_models(self) -> List[str]:
         """Delegate to wrapped engine."""
