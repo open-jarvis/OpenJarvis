@@ -35,22 +35,19 @@ class _OpenAICompatibleEngine(InferenceEngine):
 
     @staticmethod
     def _fix_tool_call_arguments(msg_dicts: list) -> list:
-        """Ensure tool_call arguments are dicts, not JSON strings.
+        """Ensure tool_call arguments are JSON strings, not dicts.
 
-        OpenAI-compatible servers (vLLM, SGLang, llama.cpp, etc.) expect
-        tool_call arguments as JSON objects.  ``messages_to_dicts`` may
-        serialize them as strings, which causes 400 errors on multi-turn
-        tool-calling conversations.
+        The OpenAI API spec requires ``function.arguments`` to be a
+        JSON-encoded string.  Internal message handling may store them
+        as parsed dicts; this method serializes them back to strings
+        before sending to vLLM / OpenAI-compatible servers.
         """
         for md in msg_dicts:
             for tc in md.get("tool_calls", []):
                 fn = tc.get("function", {})
                 args = fn.get("arguments")
-                if isinstance(args, str):
-                    try:
-                        fn["arguments"] = json.loads(args)
-                    except (json.JSONDecodeError, TypeError):
-                        pass
+                if isinstance(args, dict):
+                    fn["arguments"] = json.dumps(args)
         return msg_dicts
 
     def generate(
