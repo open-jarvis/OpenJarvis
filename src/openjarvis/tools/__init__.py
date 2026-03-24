@@ -91,4 +91,44 @@ try:
 except ImportError:
     pass
 
+try:
+    import openjarvis.tools.file_write  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.apply_patch  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.git_tool  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.db_query  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.pdf_tool  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.image_tool  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.audio_tool  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.knowledge_tools  # noqa: F401
+except ImportError:
+    pass
+
 __all__ = ["BaseTool", "ToolExecutor", "ToolSpec"]
