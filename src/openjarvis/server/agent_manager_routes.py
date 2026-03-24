@@ -242,7 +242,7 @@ def _get_mcp_tools(app_state: Any) -> Tuple[List[Dict[str, Any]], Dict[str, Any]
     so that subsequent requests reuse the same connections.
     """
     cached = getattr(app_state, "_mcp_tools_cache", None)
-    if cached is not None:
+    if cached is not None and cached[0]:  # Only use cache if tools were found
         return cached
 
     import json as _json
