@@ -235,6 +235,110 @@ def _merge_tool_call_fragments(
             entry["function"]["arguments"] += fn["arguments"]
 
 
+def _get_mcp_tools(app_state: Any) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """Return (openai_tools_list, mcp_adapters_by_name).
+
+    Lazily discovers MCP tools from config and caches them on ``app_state``
+    so that subsequent requests reuse the same connections.
+    """
+    cached = getattr(app_state, "_mcp_tools_cache", None)
+    if cached is not None:
+        return cached
+
+    import json as _json
+
+    from openjarvis.core.config import load_config
+
+    openai_tools: List[Dict[str, Any]] = []
+    adapters_by_name: Dict[str, Any] = {}
+
+    try:
+        app_config = load_config()
+    except Exception as exc:
+        logger.warning("Failed to load config for MCP discovery: %s", exc)
+        app_state._mcp_tools_cache = (openai_tools, adapters_by_name)
+        return openai_tools, adapters_by_name
+
+    if not app_config.tools.mcp.enabled or not app_config.tools.mcp.servers:
+        app_state._mcp_tools_cache = (openai_tools, adapters_by_name)
+        return openai_tools, adapters_by_name
+
+    from openjarvis.mcp.client import MCPClient
+    from openjarvis.mcp.transport import StdioTransport, StreamableHTTPTransport
+    from openjarvis.tools.mcp_adapter import MCPToolProvider
+
+    # Keep clients alive so transports persist for tool calls at runtime
+    mcp_clients: list = getattr(app_state, "_mcp_clients", [])
+
+    try:
+        server_list = _json.loads(app_config.tools.mcp.servers)
+    except (_json.JSONDecodeError, TypeError) as exc:
+        logger.warning("Failed to parse MCP server config: %s", exc)
+        app_state._mcp_tools_cache = (openai_tools, adapters_by_name)
+        return openai_tools, adapters_by_name
+
+    if not isinstance(server_list, list):
+        app_state._mcp_tools_cache = (openai_tools, adapters_by_name)
+        return openai_tools, adapters_by_name
+
+    for server_cfg in server_list:
+        cfg = _json.loads(server_cfg) if isinstance(server_cfg, str) else server_cfg
+        name = cfg.get("name", "<unnamed>")
+        url = cfg.get("url")
+        command = cfg.get("command", "")
+        args = cfg.get("args", [])
+
+        try:
+            if url:
+                transport = StreamableHTTPTransport(url=url)
+            elif command:
+                transport = StdioTransport(command=[command] + args)
+            else:
+                logger.warning(
+                    "MCP server '%s' has neither 'url' nor 'command' — skipping", name,
+                )
+                continue
+
+            client = MCPClient(transport)
+            client.initialize()
+            mcp_clients.append(client)
+
+            provider = MCPToolProvider(client)
+            discovered = provider.discover()
+
+            # Per-server tool filtering
+            include_tools = set(cfg.get("include_tools", []))
+            exclude_tools = set(cfg.get("exclude_tools", []))
+            if include_tools:
+                discovered = [t for t in discovered if t.spec.name in include_tools]
+            if exclude_tools:
+                discovered = [t for t in discovered if t.spec.name not in exclude_tools]
+
+            for adapter in discovered:
+                spec = adapter.spec
+                openai_tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": spec.name,
+                        "description": spec.description,
+                        "parameters": spec.parameters,
+                    },
+                })
+                adapters_by_name[spec.name] = adapter
+
+            logger.info(
+                "Discovered %d MCP tools from server '%s'", len(discovered), name,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to discover MCP tools from '%s': %s", name, exc,
+            )
+
+    app_state._mcp_clients = mcp_clients
+    app_state._mcp_tools_cache = (openai_tools, adapters_by_name)
+    return openai_tools, adapters_by_name
+
+
 async def _stream_managed_agent(
     *,
     manager: AgentManager,
@@ -243,6 +347,7 @@ async def _stream_managed_agent(
     message_id: str,
     engine: Any,
     bus: Any,
+    app_state: Any = None,
 ) -> StreamingResponse:
     """Run a managed agent with real LLM token streaming via SSE.
 
@@ -290,6 +395,20 @@ async def _stream_managed_agent(
     stream_kwargs: Dict[str, Any] = {}
     if config.get("tools"):
         stream_kwargs["tools"] = config["tools"]
+
+    # Discover MCP tools and merge into stream_kwargs
+    mcp_adapters: Dict[str, Any] = {}
+    if app_state is not None:
+        try:
+            mcp_openai_tools, mcp_adapters = _get_mcp_tools(app_state)
+            if mcp_openai_tools:
+                existing_tools = stream_kwargs.get("tools", [])
+                stream_kwargs["tools"] = existing_tools + mcp_openai_tools
+                logger.info(
+                    "Added %d MCP tools to streaming request", len(mcp_openai_tools),
+                )
+        except Exception as exc:
+            logger.warning("Failed to get MCP tools for streaming: %s", exc)
 
     async def generate():
         """Async generator yielding SSE-formatted chunks with real token streaming."""
@@ -396,29 +515,42 @@ async def _stream_managed_agent(
                     tool_result_content = f"Tool '{tool_name}' not available"
 
                     try:
-                        # Try to use ToolExecutor if tools are configured
-                        from openjarvis.tools._stubs import (
-                            ToolCall as StubToolCall,
-                            ToolExecutor,
-                        )
-                        from openjarvis.core.registry import ToolRegistry
+                        import json as _json
 
-                        tool_cls = ToolRegistry.get(tool_name)
-                        if tool_cls is not None:
-                            tool_instance = tool_cls()
-                            executor = ToolExecutor(tools=[tool_instance], bus=bus)
-                            result = executor.execute(
-                                StubToolCall(
-                                    id=tc["id"],
-                                    name=tool_name,
-                                    arguments=tool_args,
-                                ),
-                            )
+                        # Try MCP adapter first (external tools)
+                        mcp_adapter = mcp_adapters.get(tool_name)
+                        if mcp_adapter is not None:
+                            try:
+                                parsed_args = _json.loads(tool_args) if tool_args else {}
+                            except (_json.JSONDecodeError, TypeError):
+                                parsed_args = {}
+                            result = mcp_adapter.execute(**parsed_args)
                             tool_result_content = result.content
                         else:
-                            logger.warning(
-                                "Tool '%s' not found in registry", tool_name,
+                            # Try to use ToolExecutor if tools are configured
+                            from openjarvis.tools._stubs import (
+                                ToolCall as StubToolCall,
+                                ToolExecutor,
                             )
+                            from openjarvis.core.registry import ToolRegistry
+
+                            tool_cls = ToolRegistry.get(tool_name)
+                            if tool_cls is not None:
+                                tool_instance = tool_cls()
+                                executor = ToolExecutor(tools=[tool_instance], bus=bus)
+                                result = executor.execute(
+                                    StubToolCall(
+                                        id=tc["id"],
+                                        name=tool_name,
+                                        arguments=tool_args,
+                                    ),
+                                )
+                                tool_result_content = result.content
+                            else:
+                                logger.warning(
+                                    "Tool '%s' not found in registry or MCP adapters",
+                                    tool_name,
+                                )
                     except Exception as tool_exc:
                         logger.error(
                             "Tool execution error for %s: %s",
@@ -702,6 +834,7 @@ def create_agent_manager_router(
             message_id=msg["id"],
             engine=engine,
             bus=bus,
+            app_state=request.app.state,
         )
 
     # ── State inspection ─────────────────────────────────────
