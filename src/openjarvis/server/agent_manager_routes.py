@@ -265,7 +265,10 @@ async def _stream_managed_agent(
     try:
         agent = agent_cls(**agent_kwargs)
     except TypeError as exc:
-        logger.warning("Agent instantiation failed with all kwargs, retrying minimal: %s", exc)
+        logger.warning(
+            "Agent instantiation failed with all kwargs, retrying minimal: %s",
+            exc,
+        )
         agent = agent_cls(engine=engine, model=model)
 
     # Build conversation context from existing messages
