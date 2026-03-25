@@ -108,6 +108,9 @@ class GemmaCppEngine(InferenceEngine):
             )
         prompt = self._messages_to_prompt(messages)
         try:
+            # pygemma v0.1.3 completion() does not accept temperature/max_tokens;
+            # these params are accepted in the signature for ABC compliance but
+            # not forwarded until pygemma or a vendored wrapper supports them.
             raw = self._gemma.completion(prompt)
         except Exception as exc:
             raise RuntimeError(f"gemma.cpp inference failed: {exc}") from exc
@@ -135,6 +138,13 @@ class GemmaCppEngine(InferenceEngine):
         **kwargs: Any,
     ) -> AsyncIterator[str]:
         self._ensure_loaded()
+        if model != self._model_type:
+            logger.warning(
+                "gemma_cpp: requested model %r but loaded model is %r; "
+                "proceeding with loaded model",
+                model,
+                self._model_type,
+            )
         prompt = self._messages_to_prompt(messages)
         try:
             raw = self._gemma.completion(prompt)
