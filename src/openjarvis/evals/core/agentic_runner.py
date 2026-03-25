@@ -329,7 +329,8 @@ class AgenticRunner:
         if agent_bus is not None:
             for etype in (EventType.TOOL_CALL_START, EventType.TOOL_CALL_END):
                 def _relay(event, _etype=etype):
-                    event_recorder.record(_etype, **(event.data if hasattr(event, "data") else {}))
+                    data = event.data if hasattr(event, "data") else {}
+                    event_recorder.record(_etype, **data)
                 agent_bus.subscribe(etype, _relay)
                 _bus_unsubs.append((etype, _relay))
 

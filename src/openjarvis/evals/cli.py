@@ -121,7 +121,7 @@ BENCHMARKS = {
     },
     "pinchbench": {
         "category": "agentic",
-        "description": "PinchBench real-world agent tasks (23 tasks, multi-turn with tool use)",
+        "description": "PinchBench real-world agent tasks",
     },
 }
 
@@ -532,7 +532,10 @@ def _run_agentic(
     # Wire judge for PinchBench LLM-judge and hybrid grading
     if config.benchmark == "pinchbench" and hasattr(dataset, "set_judge"):
         judge_engine = getattr(config, "judge_engine", "cloud") or "cloud"
-        judge_model = getattr(config, "judge_model", None) or "anthropic/claude-opus-4-5"
+        judge_model = (
+            getattr(config, "judge_model", None)
+            or "anthropic/claude-opus-4-5"
+        )
         judge_backend = _build_judge_backend(judge_model, engine_key=judge_engine)
         dataset.set_judge(judge_backend, judge_model)
 
