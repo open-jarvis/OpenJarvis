@@ -196,3 +196,4 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 
 - Open a [Discussion](https://github.com/open-jarvis/OpenJarvis/discussions) for questions and help
 - Check the [documentation](https://open-jarvis.github.io/OpenJarvis/) for guides and API reference
+
