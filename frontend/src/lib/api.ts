@@ -511,7 +511,7 @@ export interface ToolInfo {
   name: string;
   description: string;
   category: string;
-  source: 'tool' | 'channel';
+  source: 'tool' | 'channel' | 'mcp';
   requires_credentials: boolean;
   credential_keys: string[];
   configured: boolean;

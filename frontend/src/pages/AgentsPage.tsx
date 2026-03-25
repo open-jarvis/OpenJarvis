@@ -173,7 +173,7 @@ const TOOL_NAME_FALLBACK: Record<string, string> = {
 
 const CATEGORY_ORDER = [
   'Communication', 'Search & Browse', 'Code & Dev', 'Files & Data',
-  'Memory & Knowledge', 'Reasoning & AI', 'Media',
+  'Memory & Knowledge', 'Reasoning & AI', 'Media', 'MCP / External',
 ];
 
 const POPULAR_TOOLS = new Set([
@@ -249,6 +249,7 @@ function LaunchWizard({
   const models = useAppStore((s) => s.models);
   const [availableTools, setAvailableTools] = useState<ToolInfo[]>([]);
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
+  const [toolFilter, setToolFilter] = useState('');
   const [credentialInputs, setCredentialInputs] = useState<Record<string, Record<string, string>>>({});
   const [savingCredentials, setSavingCredentials] = useState<string | null>(null);
 
@@ -257,6 +258,7 @@ function LaunchWizard({
   }, []);
 
   function getToolCategory(tool: ToolInfo): string {
+    if (tool.source === 'mcp' || tool.category === 'mcp') return 'MCP / External';
     if (tool.category && CATEGORY_MAP[tool.category]) return CATEGORY_MAP[tool.category];
     if (TOOL_NAME_FALLBACK[tool.name]) return TOOL_NAME_FALLBACK[tool.name];
     return 'Reasoning & AI';
@@ -371,7 +373,7 @@ function LaunchWizard({
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
-        className="w-full max-w-lg mx-4 rounded-xl overflow-hidden flex flex-col"
+        className="w-full max-w-lg md:max-w-2xl lg:max-w-3xl mx-4 rounded-xl overflow-hidden flex flex-col"
         style={{
           background: 'var(--color-bg)',
           border: '1px solid var(--color-border)',
@@ -671,6 +673,14 @@ function LaunchWizard({
                 <label className="block text-xs font-medium mb-2" style={{ color: 'var(--color-text-secondary)' }}>
                   Tools &amp; Channels
                 </label>
+                <input
+                  type="text"
+                  placeholder="Search tools..."
+                  value={toolFilter}
+                  onChange={(e) => setToolFilter(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded-lg text-xs bg-transparent outline-none mb-2"
+                  style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                />
                 {(() => {
                   const unconfiguredSelected = wizard.selectedTools.filter((t) => {
                     const tool = availableTools.find((at) => at.name === t);
@@ -682,9 +692,21 @@ function LaunchWizard({
                     </div>
                   ) : null;
                 })()}
-                <div className="space-y-3 max-h-64 overflow-y-auto">
+                <div
+                  className="space-y-3 max-h-64 overflow-y-auto p-3 rounded-lg"
+                  style={{
+                    border: '1px solid var(--color-border)',
+                    background: 'var(--color-bg-secondary)',
+                  }}
+                >
                   {CATEGORY_ORDER.map((cat) => {
-                    const catTools = availableTools.filter((t) => getToolCategory(t) === cat);
+                    const catTools = availableTools.filter((t) => {
+                      if (getToolCategory(t) !== cat) return false;
+                      if (!toolFilter) return true;
+                      const terms = toolFilter.toLowerCase().split(/\s+/).filter(Boolean);
+                      const haystack = (t.name + ' ' + t.name.replace(/_/g, ' ') + ' ' + (t.description || '')).toLowerCase();
+                      return terms.every((term) => haystack.includes(term));
+                    });
                     if (catTools.length === 0) return null;
                     const popular = catTools.filter((t) => POPULAR_TOOLS.has(t.name));
                     const rest = catTools.filter((t) => !POPULAR_TOOLS.has(t.name));
@@ -706,7 +728,7 @@ function LaunchWizard({
                             </span>
                           )}
                         </div>
-                        <div className="grid grid-cols-2 gap-1.5">
+                        <div className="grid grid-cols-2 lg:grid-cols-3 gap-1.5">
                           {shown.map((tool) => {
                             const isSelected = tool.name === 'browser'
                               ? BROWSER_SUB_TOOLS.every((t) => wizard.selectedTools.includes(t))
@@ -778,9 +800,25 @@ function LaunchWizard({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>
-                    Budget (optional)
-                  </label>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <label className="block text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+                      Budget (optional)
+                    </label>
+                    <div className="relative group">
+                      <span
+                        className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-[9px] font-bold cursor-help"
+                        style={{ background: 'var(--color-border)', color: 'var(--color-text-tertiary)' }}
+                      >
+                        i
+                      </span>
+                      <div
+                        className="absolute left-0 bottom-full mb-1 w-56 p-2 rounded-lg text-xs hidden group-hover:block z-50"
+                        style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}
+                      >
+                        Cloud API models only (OpenAI, Anthropic, Google). Local models have no cost.
+                      </div>
+                    </div>
+                  </div>
                   <input
                     type="number"
                     placeholder="e.g. 5.00"
@@ -791,9 +829,6 @@ function LaunchWizard({
                     className="w-full px-3 py-2 rounded-lg text-sm bg-transparent outline-none"
                     style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
                   />
-                  <div className="text-[10px] mt-0.5" style={{ color: 'var(--color-text-tertiary)' }}>
-                    Cloud API models only (OpenAI, Anthropic, Google). Local models have no cost.
-                  </div>
                 </div>
                 <div>
                   <div className="flex items-center gap-1.5 mb-1">

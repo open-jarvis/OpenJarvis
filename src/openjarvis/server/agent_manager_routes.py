@@ -207,6 +207,107 @@ def build_tools_list() -> List[Dict[str, Any]]:
     return items
 
 
+def _get_mcp_tools(app_state: Any) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """Return (openai_tools_list, mcp_adapters_by_name).
+
+    Lazily discovers MCP tools from config and caches them on ``app_state``
+    so that subsequent requests reuse the same connections.
+    """
+    cached = getattr(app_state, "_mcp_tools_cache", None)
+    if cached is not None:
+        return cached
+
+    import json as _json
+
+    from openjarvis.core.config import load_config
+
+    openai_tools: List[Dict[str, Any]] = []
+    adapters_by_name: Dict[str, Any] = {}
+
+    try:
+        app_config = load_config()
+    except Exception as exc:
+        logger.warning("Failed to load config for MCP discovery: %s", exc)
+        return openai_tools, adapters_by_name
+
+    if not app_config.tools.mcp.enabled or not app_config.tools.mcp.servers:
+        app_state._mcp_tools_cache = (openai_tools, adapters_by_name)
+        return openai_tools, adapters_by_name
+
+    from openjarvis.mcp.client import MCPClient
+    from openjarvis.mcp.transport import StdioTransport, StreamableHTTPTransport
+    from openjarvis.tools.mcp_adapter import MCPToolProvider
+
+    mcp_clients: list = getattr(app_state, "_mcp_clients", [])
+
+    try:
+        server_list = _json.loads(app_config.tools.mcp.servers)
+    except (_json.JSONDecodeError, TypeError) as exc:
+        logger.warning("Failed to parse MCP server config: %s", exc)
+        app_state._mcp_tools_cache = (openai_tools, adapters_by_name)
+        return openai_tools, adapters_by_name
+
+    if not isinstance(server_list, list):
+        app_state._mcp_tools_cache = (openai_tools, adapters_by_name)
+        return openai_tools, adapters_by_name
+
+    for server_cfg in server_list:
+        cfg = _json.loads(server_cfg) if isinstance(server_cfg, str) else server_cfg
+        name = cfg.get("name", "<unnamed>")
+        url = cfg.get("url")
+        command = cfg.get("command", "")
+        args = cfg.get("args", [])
+
+        try:
+            if url:
+                transport = StreamableHTTPTransport(url=url)
+            elif command:
+                transport = StdioTransport(command=[command] + args)
+            else:
+                logger.warning(
+                    "MCP server '%s' has neither 'url' nor 'command' — skipping", name,
+                )
+                continue
+
+            client = MCPClient(transport)
+            client.initialize()
+            mcp_clients.append(client)
+
+            provider = MCPToolProvider(client)
+            discovered = provider.discover()
+
+            include_tools = set(cfg.get("include_tools", []))
+            exclude_tools = set(cfg.get("exclude_tools", []))
+            if include_tools:
+                discovered = [t for t in discovered if t.spec.name in include_tools]
+            if exclude_tools:
+                discovered = [t for t in discovered if t.spec.name not in exclude_tools]
+
+            for adapter in discovered:
+                spec = adapter.spec
+                openai_tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": spec.name,
+                        "description": spec.description,
+                        "parameters": spec.parameters,
+                    },
+                })
+                adapters_by_name[spec.name] = adapter
+
+            logger.info(
+                "Discovered %d MCP tools from server '%s'", len(discovered), name,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to discover MCP tools from '%s': %s", name, exc,
+            )
+
+    app_state._mcp_clients = mcp_clients
+    app_state._mcp_tools_cache = (openai_tools, adapters_by_name)
+    return openai_tools, adapters_by_name
+
+
 async def _stream_managed_agent(
     *,
     manager: AgentManager,
@@ -738,8 +839,24 @@ def create_agent_manager_router(
     tools_router = APIRouter(prefix="/v1/tools", tags=["tools"])
 
     @tools_router.get("")
-    def list_tools():
-        return {"tools": build_tools_list()}
+    def list_tools(request: Request):
+        items = build_tools_list()
+        try:
+            mcp_tools, _ = _get_mcp_tools(request.app.state)
+            for tool in mcp_tools:
+                fn = tool.get("function", {})
+                items.append({
+                    "name": fn.get("name", ""),
+                    "description": fn.get("description", ""),
+                    "category": "mcp",
+                    "source": "mcp",
+                    "requires_credentials": False,
+                    "credential_keys": [],
+                    "configured": True,
+                })
+        except Exception:
+            pass
+        return {"tools": items}
 
     @tools_router.post("/{tool_name}/credentials")
     async def save_tool_credentials(tool_name: str, request: Request):
