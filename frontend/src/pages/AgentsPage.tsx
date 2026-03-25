@@ -799,9 +799,11 @@ function LaunchWizard({
 
               <div className="grid grid-cols-2 gap-3 items-start">
                 <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>
-                    Budget (optional)
-                  </label>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <label className="block text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+                      Budget (optional)
+                    </label>
+                  </div>
                   <input
                     type="number"
                     placeholder="e.g. 5.00"
