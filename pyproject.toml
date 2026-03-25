@@ -39,6 +39,7 @@ inference-google = [
     "google-genai>=1.0",
 ]
 inference-litellm = ["litellm>=1.40"]
+inference-gemma = ["pygemma>=0.1.3"]
 tools-search = [
     "tavily-python>=0.3",
     "ddgs>=9.11.4",
