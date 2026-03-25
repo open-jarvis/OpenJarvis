@@ -16,23 +16,34 @@ INTERNAL_ERROR = -32603
 
 @dataclass
 class MCPRequest:
-    """JSON-RPC 2.0 request message."""
+    """JSON-RPC 2.0 request message.
+
+    Set *id* to ``None`` to create a JSON-RPC **notification** (no ``id``
+    field will appear in the serialized output, and no response is expected).
+    """
 
     method: str
     params: Dict[str, Any] = field(default_factory=dict)
-    id: int | str = 0
+    id: Optional[int | str] = 0
     jsonrpc: str = "2.0"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Return a dict suitable for JSON serialization.
+
+        Omits the ``id`` key when it is ``None`` (notification).
+        """
+        obj: Dict[str, Any] = {
+            "jsonrpc": self.jsonrpc,
+            "method": self.method,
+            "params": self.params,
+        }
+        if self.id is not None:
+            obj["id"] = self.id
+        return obj
 
     def to_json(self) -> str:
         """Serialize to JSON string."""
-        return json.dumps(
-            {
-                "jsonrpc": self.jsonrpc,
-                "id": self.id,
-                "method": self.method,
-                "params": self.params,
-            }
-        )
+        return json.dumps(self.to_dict())
 
     @classmethod
     def from_json(cls, data: str) -> MCPRequest:
