@@ -703,8 +703,9 @@ function LaunchWizard({
                     const catTools = availableTools.filter((t) => {
                       if (getToolCategory(t) !== cat) return false;
                       if (!toolFilter) return true;
-                      const q = toolFilter.toLowerCase();
-                      return t.name.toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q);
+                      const terms = toolFilter.toLowerCase().split(/\s+/).filter(Boolean);
+                      const haystack = (t.name + ' ' + t.name.replace(/_/g, ' ') + ' ' + (t.description || '')).toLowerCase();
+                      return terms.every((term) => haystack.includes(term));
                     });
                     if (catTools.length === 0) return null;
                     const popular = catTools.filter((t) => POPULAR_TOOLS.has(t.name));
