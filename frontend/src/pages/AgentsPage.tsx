@@ -562,7 +562,7 @@ function LaunchWizard({
                   </label>
                   <div className="relative group">
                     <span
-                      className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-[9px] font-bold cursor-help"
+                      className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-[9px] font-bold cursor-help -mt-px"
                       style={{ background: 'var(--color-border)', color: 'var(--color-text-tertiary)' }}
                     >
                       i
@@ -641,7 +641,7 @@ function LaunchWizard({
                     </label>
                     <div className="relative group">
                       <span
-                        className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-[9px] font-bold cursor-help"
+                        className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-[9px] font-bold cursor-help -mt-px"
                         style={{ background: 'var(--color-border)', color: 'var(--color-text-tertiary)' }}
                       >
                         i
@@ -806,7 +806,7 @@ function LaunchWizard({
                     </label>
                     <div className="relative group">
                       <span
-                        className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-[9px] font-bold cursor-help"
+                        className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-[9px] font-bold cursor-help -mt-px"
                         style={{ background: 'var(--color-border)', color: 'var(--color-text-tertiary)' }}
                       >
                         i
@@ -837,7 +837,7 @@ function LaunchWizard({
                     </label>
                     <div className="relative group">
                       <span
-                        className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-[9px] font-bold cursor-help"
+                        className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-[9px] font-bold cursor-help -mt-px"
                         style={{ background: 'var(--color-border)', color: 'var(--color-text-tertiary)' }}
                       >
                         i
