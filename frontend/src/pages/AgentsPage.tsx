@@ -557,7 +557,7 @@ function LaunchWizard({
               {/* Schedule */}
               <div>
                 <div className="flex items-center gap-1.5 mb-1">
-                  <label className="block text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+                  <label className="block text-xs font-medium leading-none" style={{ color: 'var(--color-text-secondary)' }}>
                     Schedule
                   </label>
                   <div className="relative group">
@@ -636,7 +636,7 @@ function LaunchWizard({
               {wizard.scheduleType === 'cron' && (
                 <div>
                   <div className="flex items-center gap-1.5 mb-1">
-                    <label className="block text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+                    <label className="block text-xs font-medium leading-none" style={{ color: 'var(--color-text-secondary)' }}>
                       Cron Expression
                     </label>
                     <div className="relative group">
@@ -798,12 +798,26 @@ function LaunchWizard({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 items-start">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <div className="flex items-center gap-1.5 mb-1">
-                    <label className="block text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+                    <label className="block text-xs font-medium leading-none" style={{ color: 'var(--color-text-secondary)' }}>
                       Budget (optional)
                     </label>
+                    <div className="relative group">
+                      <span
+                        className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-[9px] font-bold cursor-help"
+                        style={{ background: 'var(--color-border)', color: 'var(--color-text-tertiary)' }}
+                      >
+                        i
+                      </span>
+                      <div
+                        className="absolute left-0 bottom-full mb-1 w-56 p-2 rounded-lg text-xs hidden group-hover:block z-50"
+                        style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}
+                      >
+                        Cloud API models only (OpenAI, Anthropic, Google). Local models have no cost.
+                      </div>
+                    </div>
                   </div>
                   <input
                     type="number"
@@ -815,13 +829,10 @@ function LaunchWizard({
                     className="w-full px-3 py-2 rounded-lg text-sm bg-transparent outline-none"
                     style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
                   />
-                  <div className="text-[10px] mt-0.5" style={{ color: 'var(--color-text-tertiary)' }}>
-                    Cloud API models only (OpenAI, Anthropic, Google). Local models have no cost.
-                  </div>
                 </div>
                 <div>
                   <div className="flex items-center gap-1.5 mb-1">
-                    <label className="block text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+                    <label className="block text-xs font-medium leading-none" style={{ color: 'var(--color-text-secondary)' }}>
                       Learning
                     </label>
                     <div className="relative group">
@@ -855,7 +866,7 @@ function LaunchWizard({
               {(!wizard.templateId || templates.find((t) => t.id === wizard.templateId)?.agent_type === 'monitor_operative') && (
                 <div>
                   <div className="flex items-center gap-1.5 mb-1">
-                    <label className="block text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+                    <label className="block text-xs font-medium leading-none" style={{ color: 'var(--color-text-secondary)' }}>
                       Agent Strategies
                     </label>
                   </div>
