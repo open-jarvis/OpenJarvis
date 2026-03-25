@@ -14,10 +14,10 @@ These are the areas where active development is happening and contributions are 
 
 ## How to Get Involved
 
-1. Browse the workstreams below for items that interest you
-2. Look for **Ready** items and **good first issue** tags
-3. Find the matching [GitHub issue](https://github.com/open-jarvis/OpenJarvis/issues) and comment **"take"** to claim it — if no issue exists yet, [open one](https://github.com/open-jarvis/OpenJarvis/issues/new/choose) describing what you'd like to work on
-4. Read the [Contributing Guide](https://github.com/open-jarvis/OpenJarvis/blob/main/CONTRIBUTING.md) for the full development setup, PR process, and code conventions
+1. Browse the workstreams below for an item that interests you
+2. Check if a [GitHub issue](https://github.com/open-jarvis/OpenJarvis/issues) already exists for it — if not, [open one](https://github.com/open-jarvis/OpenJarvis/issues/new/choose)
+3. Comment **"take"** on the issue to get auto-assigned
+4. Read the [Contributing Guide](https://github.com/open-jarvis/OpenJarvis/blob/main/CONTRIBUTING.md) for development setup and PR process
 
 ---
 

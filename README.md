@@ -46,79 +46,41 @@ You also need a local inference backend: [Ollama](https://ollama.com), [vLLM](ht
 
 ## Quick Start
 
-The fastest path is Ollama on any machine with Python 3.10+:
-
 ```bash
-# 1. Install OpenJarvis
+# 1. Install and detect hardware
 git clone https://github.com/open-jarvis/OpenJarvis.git
 cd OpenJarvis
 uv sync
-
-# 2. Detect hardware and generate config
 uv run jarvis init
 
-# 3. Install and start Ollama (https://ollama.com)
+# 2. Start Ollama and pull a model
 curl -fsSL https://ollama.com/install.sh | sh
-ollama serve                      # start the Ollama server
-
-# 4. Pull a model
+ollama serve &
 ollama pull qwen3:8b
 
-# 5. Ask a question
+# 3. Ask a question
 uv run jarvis ask "What is the capital of France?"
-
-# 6. Verify your setup
-uv run jarvis doctor
 ```
 
-`jarvis init` auto-detects your hardware and recommends the best engine. After init, it prints engine-specific next steps. Run `uv run jarvis doctor` at any time to diagnose configuration or connectivity issues.
+`jarvis init` auto-detects your hardware and recommends the best engine. Run `uv run jarvis doctor` at any time to diagnose issues.
 
-## Docker
+Full documentation — including Docker deployment, cloud engines, development setup, and tutorials — at **[open-jarvis.github.io/OpenJarvis](https://open-jarvis.github.io/OpenJarvis/)**.
 
-A Docker Compose configuration bundles Jarvis with Ollama:
+## Contributing
 
-```bash
-# CPU-only (default)
-docker compose -f deploy/docker/docker-compose.yml up -d
+We welcome contributions! See the [Contributing Guide](CONTRIBUTING.md) for incentives, contribution types, and the PR process.
 
-# NVIDIA GPU (requires NVIDIA Container Toolkit)
-docker compose -f deploy/docker/docker-compose.yml \
-  -f deploy/docker/docker-compose.gpu.nvidia.yml up -d
-
-# AMD GPU (requires ROCm)
-docker compose -f deploy/docker/docker-compose.yml \
-  -f deploy/docker/docker-compose.gpu.rocm.yml up -d
-
-# Pull a model into Ollama
-docker compose -f deploy/docker/docker-compose.yml exec ollama ollama pull qwen3:8b
-```
-
-Services: Jarvis on `:8000`, Ollama on `:11434`.
-
-## Development
-
-From source, you need to make sure Rust is installed on System:
+Quick start for contributors:
 
 ```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
-
-Then, you need the Rust extension for full functionality (security, tools, agents, etc.):
-
-```bash
-# 1. Clone and install Python deps
 git clone https://github.com/open-jarvis/OpenJarvis.git
 cd OpenJarvis
 uv sync --extra dev
-
-# 2. Build and install the Rust extension (requires Rust toolchain)
-uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml
-
-# 3. Run tests
+uv run pre-commit install
 uv run pytest tests/ -v
 ```
 
-See [Contributing](docs/development/contributing.md) for more.
+Browse the [Roadmap](https://open-jarvis.github.io/OpenJarvis/development/roadmap/) for areas where help is needed. Comment **"take"** on any issue to get auto-assigned.
 
 ## About
 

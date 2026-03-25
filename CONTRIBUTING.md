@@ -104,7 +104,10 @@ For detailed development setup, code conventions, and project structure, see the
 
 ## Claiming Issues
 
-Want to work on an issue? Comment **"take"** on the issue to claim it. This lets others know you're working on it and prevents duplicate effort.
+1. Browse the [Roadmap](https://open-jarvis.github.io/OpenJarvis/development/roadmap/) for an item that interests you
+2. Check if a [GitHub issue](https://github.com/open-jarvis/OpenJarvis/issues) already exists for it — if not, [open one](https://github.com/open-jarvis/OpenJarvis/issues/new/choose) describing what you'd like to work on
+3. Comment **"take"** on the issue to get auto-assigned
+4. Fork, branch, and start working
 
 If you've claimed an issue but can't finish it, please leave a comment so someone else can pick it up.
 
