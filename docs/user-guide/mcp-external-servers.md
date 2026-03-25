@@ -15,7 +15,9 @@ If a server is unreachable or returns an error, OpenJarvis logs a warning and co
 
 ## Configuration
 
-External MCP servers are configured in `config.toml` under `[tools.mcp]`:
+External MCP servers are configured in `config.toml` under `[tools.mcp]`. The `servers` field accepts either an **inline JSON string** or a **path to an external JSON file**.
+
+For simple setups with one or two servers, inline JSON works fine:
 
 ```toml
 [tools.mcp]
@@ -23,10 +25,16 @@ enabled = true
 servers = '[{"name": "homeassistant", "url": "http://172.16.3.1:9583/private_abc123"}]'
 ```
 
-The `servers` value is a **JSON-encoded string** containing an array of server objects. Each object defines one external MCP server.
+For larger setups, use an external file (see [External Server File](#external-server-file) below):
+
+```toml
+[tools.mcp]
+enabled = true
+servers = "mcp-servers.json"
+```
 
 !!! note
-    The value must be a JSON string (with single-quote TOML delimiters around it), not a native TOML array. This is because the configuration system passes it through as a single string field.
+    Inline JSON values must be a JSON string (with single-quote TOML delimiters around it), not a native TOML array. This is because the configuration system passes it through as a single string field.
 
 ## External Server File
 
@@ -107,14 +115,19 @@ When both `include_tools` and `exclude_tools` are specified, the whitelist is ap
 
 ## Examples
 
+All examples below use the external JSON file format for readability. The same server objects work inline in `config.toml` as well.
+
 ### Home Assistant via Streamable HTTP
 
 Connect to the [ha-mcp](https://github.com/tevonsb/ha-mcp) Home Assistant add-on:
 
-```toml
-[tools.mcp]
-enabled = true
-servers = '[{"name": "homeassistant", "url": "http://172.16.3.1:9583/private_abc123"}]'
+```json
+[
+  {
+    "name": "homeassistant",
+    "url": "http://172.16.3.1:9583/private_abc123"
+  }
+]
 ```
 
 This discovers all HA tools (entity control, automations, history, etc.) and makes them available to agents.
@@ -123,38 +136,65 @@ This discovers all HA tools (entity control, automations, history, etc.) and mak
 
 Launch a local MCP server as a subprocess:
 
-```toml
-[tools.mcp]
-enabled = true
-servers = '[{"name": "myserver", "command": "python", "args": ["-m", "my_mcp_server"]}]'
+```json
+[
+  {
+    "name": "myserver",
+    "command": "python",
+    "args": ["-m", "my_mcp_server"]
+  }
+]
 ```
 
 OpenJarvis starts the process automatically, communicates via JSON-RPC over stdin/stdout, and terminates it on shutdown.
 
 ### Multiple Servers
 
-```toml
-[tools.mcp]
-enabled = true
-servers = '[{"name": "homeassistant", "url": "http://172.16.3.1:9583/private_abc123"}, {"name": "database", "command": "db-mcp-server", "args": ["--db", "postgres://localhost/mydb"]}]'
+```json
+[
+  {
+    "name": "homeassistant",
+    "url": "http://172.16.3.1:9583/private_abc123"
+  },
+  {
+    "name": "database",
+    "command": "db-mcp-server",
+    "args": ["--db", "postgres://localhost/mydb"]
+  }
+]
 ```
 
 ### Tool Filtering
 
 When a server exposes many tools but you only need a few, use `include_tools` to whitelist:
 
-```toml
-[tools.mcp]
-enabled = true
-servers = '[{"name": "ha", "url": "http://172.16.3.1:9583/private_abc123", "include_tools": ["hassTurnOn", "hassTurnOff", "hassGetState"]}]'
+```json
+[
+  {
+    "name": "homeassistant",
+    "url": "http://172.16.3.1:9583/private_abc123",
+    "include_tools": [
+      "hassTurnOn",
+      "hassTurnOff",
+      "hassGetState"
+    ]
+  }
+]
 ```
 
 To load everything except specific tools, use `exclude_tools`:
 
-```toml
-[tools.mcp]
-enabled = true
-servers = '[{"name": "ha", "url": "http://172.16.3.1:9583/private_abc123", "exclude_tools": ["hassCreateBackup", "hassDeleteBackup"]}]'
+```json
+[
+  {
+    "name": "homeassistant",
+    "url": "http://172.16.3.1:9583/private_abc123",
+    "exclude_tools": [
+      "hassCreateBackup",
+      "hassDeleteBackup"
+    ]
+  }
+]
 ```
 
 ## Transport Types
