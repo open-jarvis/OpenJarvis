@@ -485,7 +485,11 @@ class TestOperativeAgent:
         from openjarvis.agents.operative import OperativeAgent
 
         engine = FakeEngine()
-        agent = OperativeAgent(engine, "test-model")
+        with patch(
+            "openjarvis.agents._stubs.load_config",
+            side_effect=Exception("no config"),
+        ):
+            agent = OperativeAgent(engine, "test-model")
         assert agent.agent_id == "operative"
         assert agent._temperature == 0.3
         assert agent._max_tokens == 2048

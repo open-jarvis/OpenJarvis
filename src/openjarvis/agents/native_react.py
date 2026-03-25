@@ -36,6 +36,9 @@ class NativeReActAgent(ToolUsingAgent):
     """ReAct agent: Thought -> Action -> Observation loop."""
 
     agent_id = "native_react"
+    _default_temperature = 0.7
+    _default_max_tokens = 1024
+    _default_max_turns = 10
 
     def __init__(
         self,
@@ -44,17 +47,22 @@ class NativeReActAgent(ToolUsingAgent):
         *,
         tools: Optional[List[BaseTool]] = None,
         bus: Optional[EventBus] = None,
-        max_turns: int = 10,
-        temperature: float = 0.7,
-        max_tokens: int = 1024,
+        max_turns: Optional[int] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
         interactive: bool = False,
         confirm_callback=None,
     ) -> None:
         super().__init__(
-            engine, model, tools=tools, bus=bus,
-            max_turns=max_turns, temperature=temperature,
+            engine,
+            model,
+            tools=tools,
+            bus=bus,
+            max_turns=max_turns,
+            temperature=temperature,
             max_tokens=max_tokens,
-            interactive=interactive, confirm_callback=confirm_callback,
+            interactive=interactive,
+            confirm_callback=confirm_callback,
         )
 
     def _parse_response(self, text: str) -> dict:
@@ -161,7 +169,8 @@ class NativeReActAgent(ToolUsingAgent):
             # Loop guard check before execution
             if self._loop_guard:
                 verdict = self._loop_guard.check_call(
-                    tool_call.name, tool_call.arguments,
+                    tool_call.name,
+                    tool_call.arguments,
                 )
                 if verdict.blocked:
                     tool_result = ToolResult(

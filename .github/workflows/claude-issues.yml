@@ -1,0 +1,74 @@
+name: Claude Issue Fixer
+
+on:
+  issues:
+    types: [opened, labeled]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+
+concurrency:
+  group: claude-issues-${{ github.event.issue.number || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' &&
+       (contains(github.event.issue.labels.*.name, 'bug') ||
+        contains(github.event.issue.labels.*.name, 'autofix'))) ||
+      (github.event_name == 'issue_comment' &&
+       !github.event.issue.pull_request &&
+       contains(github.event.comment.body, '@claude') &&
+       github.actor != 'claude[bot]')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            You are an automated issue fixer for the OpenJarvis repository. Follow these steps in order:
+
+            ## Step 1: Diagnose
+            Read the issue thoroughly. Explore the codebase to understand the problem. If this is a bug report, attempt to reproduce it. Identify the root cause and affected files.
+
+            ## Step 2: Comment your plan
+            BEFORE making any code changes, post a comment on this issue describing:
+            - Your root cause analysis
+            - Which files need to change and why
+            - Your implementation approach
+
+            ## Step 3: Implement
+            Create a branch named `claude/issue-${{ github.event.issue.number }}` and make the changes. Use conventional commit messages that reference the issue, e.g.:
+            `fix: handle empty tool responses in orchestrator (fixes #${{ github.event.issue.number }})`
+
+            ## Step 4: Test
+            Run these commands and ensure both pass:
+            - `uv run ruff check src/ tests/` (linting)
+            - `uv run pytest tests/ -v --tb=short` (tests)
+
+            If tests fail, fix the issues before proceeding. If you added new functionality, add corresponding tests in `tests/` mirroring the `src/` directory structure.
+
+            ## Step 5: Open PR
+            Create a pull request that:
+            - Links back to this issue (include `Fixes #${{ github.event.issue.number }}` in the PR body)
+            - Describes what was changed and why
+            - Includes a summary of test results
+
+            ## If you cannot fix it
+            If you cannot reproduce the issue, cannot determine the root cause, or the fix is beyond your capabilities, post a comment explaining:
+            - What you investigated
+            - What you found (or didn't find)
+            - What additional information you need from the reporter

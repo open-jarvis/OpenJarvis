@@ -84,6 +84,9 @@ class MonitorOperativeAgent(ToolUsingAgent):
 
     agent_id = "monitor_operative"
     accepts_tools = True
+    _default_temperature = 0.3
+    _default_max_tokens = 4096
+    _default_max_turns = 25
 
     def __init__(
         self,
@@ -92,9 +95,9 @@ class MonitorOperativeAgent(ToolUsingAgent):
         *,
         tools: Optional[List[BaseTool]] = None,
         bus: Optional[EventBus] = None,
-        max_turns: int = 25,
-        temperature: float = 0.3,
-        max_tokens: int = 4096,
+        max_turns: Optional[int] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
         system_prompt: Optional[str] = None,
         # Strategy parameters
         memory_extraction: str = "causality_graph",
@@ -110,10 +113,15 @@ class MonitorOperativeAgent(ToolUsingAgent):
         **kwargs: Any,
     ) -> None:
         super().__init__(
-            engine, model, tools=tools, bus=bus,
-            max_turns=max_turns, temperature=temperature,
+            engine,
+            model,
+            tools=tools,
+            bus=bus,
+            max_turns=max_turns,
+            temperature=temperature,
             max_tokens=max_tokens,
-            interactive=interactive, confirm_callback=confirm_callback,
+            interactive=interactive,
+            confirm_callback=confirm_callback,
         )
         # Validate strategies
         if memory_extraction not in VALID_MEMORY_EXTRACTION:
@@ -191,7 +199,8 @@ class MonitorOperativeAgent(ToolUsingAgent):
 
         # 4. Build messages
         messages = self._build_operative_messages(
-            input, context,
+            input,
+            context,
             system_prompt=system_prompt,
             session_messages=session_messages,
         )
@@ -238,18 +247,21 @@ class MonitorOperativeAgent(ToolUsingAgent):
             ]
 
             # Append assistant message with tool calls
-            messages.append(Message(
-                role=Role.ASSISTANT,
-                content=content,
-                tool_calls=tool_calls,
-            ))
+            messages.append(
+                Message(
+                    role=Role.ASSISTANT,
+                    content=content,
+                    tool_calls=tool_calls,
+                )
+            )
 
             # Execute each tool
             for tc in tool_calls:
                 # Loop guard check
                 if self._loop_guard:
                     verdict = self._loop_guard.check_call(
-                        tc.name, tc.arguments,
+                        tc.name,
+                        tc.arguments,
                     )
                     if verdict.blocked:
                         tool_result = ToolResult(
@@ -258,12 +270,14 @@ class MonitorOperativeAgent(ToolUsingAgent):
                             success=False,
                         )
                         all_tool_results.append(tool_result)
-                        messages.append(Message(
-                            role=Role.TOOL,
-                            content=tool_result.content,
-                            tool_call_id=tc.id,
-                            name=tc.name,
-                        ))
+                        messages.append(
+                            Message(
+                                role=Role.TOOL,
+                                content=tool_result.content,
+                                tool_call_id=tc.id,
+                                name=tc.name,
+                            )
+                        )
                         continue
 
                 tool_result = self._executor.execute(tc)
@@ -279,18 +293,21 @@ class MonitorOperativeAgent(ToolUsingAgent):
                     except (json.JSONDecodeError, TypeError) as exc:
                         logger.debug(
                             "Failed to parse tool call arguments"
-                            " for state tracking: %s", exc,
+                            " for state tracking: %s",
+                            exc,
                         )
 
                 # Compress observation if strategy requires it
                 observation_content = self._compress_observation(tool_result.content)
 
-                messages.append(Message(
-                    role=Role.TOOL,
-                    content=observation_content,
-                    tool_call_id=tc.id,
-                    name=tc.name,
-                ))
+                messages.append(
+                    Message(
+                        role=Role.TOOL,
+                        content=observation_content,
+                        tool_call_id=tc.id,
+                        name=tc.name,
+                    )
+                )
 
                 # Extract and store findings based on memory strategy
                 self._extract_and_store(tc.name, tool_result.content)
@@ -298,7 +315,9 @@ class MonitorOperativeAgent(ToolUsingAgent):
             # Max turns exceeded
             self._save_session(input, content)
             return self._max_turns_result(
-                all_tool_results, turns, content=content,
+                all_tool_results,
+                turns,
+                content=content,
                 metadata=total_usage,
             )
 
@@ -345,6 +364,7 @@ class MonitorOperativeAgent(ToolUsingAgent):
         if not self._tools:
             return ""
         from openjarvis.tools._stubs import build_tool_descriptions
+
         return build_tool_descriptions(self._tools)
 
     # ------------------------------------------------------------------
@@ -458,11 +478,13 @@ class MonitorOperativeAgent(ToolUsingAgent):
                             self._memory_backend.store(key, value)
                         except Exception as exc:
                             logger.debug(
-                                "Failed to store causality relation in memory: %s", exc,
+                                "Failed to store causality relation in memory: %s",
+                                exc,
                             )
         except (json.JSONDecodeError, Exception):
             logger.debug(
-                "Causality extraction failed for tool %s output", tool_name,
+                "Causality extraction failed for tool %s output",
+                tool_name,
             )
 
     def _store_scratchpad(self, tool_name: str, content: str) -> None:
@@ -503,7 +525,8 @@ class MonitorOperativeAgent(ToolUsingAgent):
             except Exception as exc:
                 logger.debug(
                     "Failed to store structured data for tool %s: %s",
-                    tool_name, exc,
+                    tool_name,
+                    exc,
                 )
 
     # ------------------------------------------------------------------
@@ -557,10 +580,12 @@ class MonitorOperativeAgent(ToolUsingAgent):
         session_id = f"monitor_operative:{self._operator_id}"
         try:
             self._session_store.save_message(
-                session_id, {"role": "user", "content": input_text},
+                session_id,
+                {"role": "user", "content": input_text},
             )
             self._session_store.save_message(
-                session_id, {"role": "assistant", "content": response},
+                session_id,
+                {"role": "assistant", "content": response},
             )
         except Exception:
             logger.debug(

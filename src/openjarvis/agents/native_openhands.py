@@ -54,6 +54,9 @@ class NativeOpenHandsAgent(ToolUsingAgent):
     """Native CodeAct agent -- generates and executes Python code."""
 
     agent_id = "native_openhands"
+    _default_temperature = 0.7
+    _default_max_tokens = 2048
+    _default_max_turns = 3
 
     def __init__(
         self,
@@ -62,17 +65,22 @@ class NativeOpenHandsAgent(ToolUsingAgent):
         *,
         tools: Optional[List[BaseTool]] = None,
         bus: Optional[EventBus] = None,
-        max_turns: int = 3,
-        temperature: float = 0.7,
-        max_tokens: int = 2048,
+        max_turns: Optional[int] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
         interactive: bool = False,
         confirm_callback=None,
     ) -> None:
         super().__init__(
-            engine, model, tools=tools, bus=bus,
-            max_turns=max_turns, temperature=temperature,
+            engine,
+            model,
+            tools=tools,
+            bus=bus,
+            max_turns=max_turns,
+            temperature=temperature,
             max_tokens=max_tokens,
-            interactive=interactive, confirm_callback=confirm_callback,
+            interactive=interactive,
+            confirm_callback=confirm_callback,
         )
 
     @staticmethod
@@ -93,9 +101,7 @@ class NativeOpenHandsAgent(ToolUsingAgent):
             content = WebSearchTool._fetch_url(url, max_chars=4000)
             header = f"\n\n--- Content from {url} ---\n"
             footer = "\n--- End of content ---\n"
-            expanded = text.replace(
-                url, f"{header}{content}{footer}"
-            )
+            expanded = text.replace(url, f"{header}{content}{footer}")
             return expanded, True
         except Exception:
             return text, False
@@ -121,9 +127,7 @@ class NativeOpenHandsAgent(ToolUsingAgent):
                     messages[i] = Message(
                         role=Role.USER,
                         content=(
-                            truncated
-                            + "\n\n[Input truncated"
-                            " to fit context window]"
+                            truncated + "\n\n[Input truncated to fit context window]"
                         ),
                     )
                 break
@@ -135,7 +139,9 @@ class NativeOpenHandsAgent(ToolUsingAgent):
         # Remove Action: ... Action Input: ... blocks
         text = re.sub(
             r"Action:\s*.+?(?:Action Input:\s*.+?)?(?=\n\n|\Z)",
-            "", text, flags=re.DOTALL | re.IGNORECASE,
+            "",
+            text,
+            flags=re.DOTALL | re.IGNORECASE,
         )
         # Remove <tool_call>...</tool_call> or </tool_name> blocks
         text = re.sub(r"<tool_call>.*?</\w+>", "", text, flags=re.DOTALL)
@@ -242,7 +248,9 @@ class NativeOpenHandsAgent(ToolUsingAgent):
                 usage = result.get("usage", {})
                 self._emit_turn_end(turns=1)
                 return AgentResult(
-                    content=content, tool_results=[], turns=1,
+                    content=content,
+                    tool_results=[],
+                    turns=1,
                     metadata={
                         "prompt_tokens": usage.get("prompt_tokens", 0),
                         "completion_tokens": usage.get("completion_tokens", 0),
@@ -258,10 +266,7 @@ class NativeOpenHandsAgent(ToolUsingAgent):
                         "Please try a shorter message."
                     )
                 else:
-                    error_msg = (
-                        "The model returned an error: "
-                        + error_str
-                    )
+                    error_msg = "The model returned an error: " + error_str
                 self._emit_turn_end(turns=1, error=True)
                 return AgentResult(
                     content=error_msg,
@@ -358,7 +363,9 @@ class NativeOpenHandsAgent(ToolUsingAgent):
             content = self._strip_tool_call_text(content)
             self._emit_turn_end(turns=turns)
             return AgentResult(
-                content=content, tool_results=all_tool_results, turns=turns,
+                content=content,
+                tool_results=all_tool_results,
+                turns=turns,
                 metadata=total_usage,
             )
 

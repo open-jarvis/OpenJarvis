@@ -33,28 +33,6 @@ class _OpenAICompatibleEngine(InferenceEngine):
 
     # -- InferenceEngine interface ------------------------------------------
 
-    @staticmethod
-    def _fix_tool_call_arguments(msg_dicts: list) -> list:
-        """Ensure tool_call arguments are dicts, not JSON strings.
-
-        Some internal message handling serializes arguments as JSON strings.
-        This base implementation parses them back to dicts for engines that
-        accept both formats (OpenAI, SGLang, etc.).
-
-        Subclasses may override — e.g. VLLMEngine re-serializes to strings
-        because vLLM's Pydantic validation requires string arguments.
-        """
-        for md in msg_dicts:
-            for tc in md.get("tool_calls", []):
-                fn = tc.get("function", {})
-                args = fn.get("arguments")
-                if isinstance(args, str):
-                    try:
-                        fn["arguments"] = json.loads(args)
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-        return msg_dicts
-
     def generate(
         self,
         messages: Sequence[Message],
@@ -64,10 +42,9 @@ class _OpenAICompatibleEngine(InferenceEngine):
         max_tokens: int = 1024,
         **kwargs: Any,
     ) -> Dict[str, Any]:
-        msg_dicts = self._fix_tool_call_arguments(messages_to_dicts(messages))
         payload: Dict[str, Any] = {
             "model": model,
-            "messages": msg_dicts,
+            "messages": messages_to_dicts(messages),
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": False,
@@ -131,10 +108,9 @@ class _OpenAICompatibleEngine(InferenceEngine):
         max_tokens: int = 1024,
         **kwargs: Any,
     ) -> AsyncIterator[str]:
-        msg_dicts = self._fix_tool_call_arguments(messages_to_dicts(messages))
         payload: Dict[str, Any] = {
             "model": model,
-            "messages": msg_dicts,
+            "messages": messages_to_dicts(messages),
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": True,
@@ -180,7 +156,7 @@ class _OpenAICompatibleEngine(InferenceEngine):
         Parses the OpenAI SSE stream natively, providing richer data than
         the plain-string ``stream()`` method.
         """
-        msg_dicts = self._fix_tool_call_arguments(messages_to_dicts(messages))
+        msg_dicts = messages_to_dicts(messages)
         payload: Dict[str, Any] = {
             "model": model,
             "messages": msg_dicts,

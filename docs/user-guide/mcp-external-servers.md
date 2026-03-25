@@ -10,7 +10,6 @@ When OpenJarvis starts, it reads the `[tools.mcp]` section in `config.toml`. For
 2. Performs the MCP initialize handshake (protocol version negotiation and `initialized` notification).
 3. Discovers available tools via `tools/list`.
 4. Wraps each discovered tool as a standard `BaseTool` so agents can call them like any built-in tool.
-5. Lists discovered MCP tools alongside built-in tools in the web UI, so they can be selected when creating agents.
 
 If a server is unreachable or returns an error, OpenJarvis logs a warning and continues loading the remaining servers. One broken server does not prevent other tools from being available.
 
@@ -151,7 +150,6 @@ No single server failure causes OpenJarvis to crash or prevents other tools from
 1. Run with debug logging to see which tools were discovered.
 2. Check if `include_tools` or `exclude_tools` filters are too restrictive.
 3. Verify the MCP server actually exposes tools via `tools/list` (some servers only expose resources or prompts).
-4. MCP tools appear under the **MCP / External** category in the agent creation wizard. If the category is missing, ensure the frontend build includes the latest changes.
 
 ### Stdio server crashes immediately
 

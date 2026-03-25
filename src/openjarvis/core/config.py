@@ -7,6 +7,7 @@ found in the TOML file.
 
 from __future__ import annotations
 
+import functools
 import os
 import platform
 import shutil
@@ -59,7 +60,10 @@ def _run_cmd(cmd: list[str]) -> str:
     """Run a command and return stripped stdout, or empty string on failure."""
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=10,  # noqa: S603
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=10,  # noqa: S603
         )
         return result.stdout.strip()
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
@@ -69,11 +73,13 @@ def _run_cmd(cmd: list[str]) -> str:
 def _detect_nvidia_gpu() -> Optional[GpuInfo]:
     if not shutil.which("nvidia-smi"):
         return None
-    raw = _run_cmd([
-        "nvidia-smi",
-        "--query-gpu=name,memory.total,count",
-        "--format=csv,noheader,nounits",
-    ])
+    raw = _run_cmd(
+        [
+            "nvidia-smi",
+            "--query-gpu=name,memory.total,count",
+            "--format=csv,noheader,nounits",
+        ]
+    )
     if not raw:
         return None
     try:
@@ -117,6 +123,7 @@ def _detect_amd_gpu() -> Optional[GpuInfo]:
     try:
         allinfo_raw = _run_cmd(["rocm-smi", "--showallinfo"])
         import re
+
         gpu_ids = set(re.findall(r"GPU\[(\d+)\]", allinfo_raw))
         if gpu_ids:
             count = len(gpu_ids)
@@ -448,26 +455,26 @@ class IntelligenceConfig:
 
     default_model: str = ""
     fallback_model: str = ""
-    model_path: str = ""          # Local weights (HF repo, GGUF file, etc.)
-    checkpoint_path: str = ""     # Checkpoint/adapter path
-    quantization: str = "none"    # none, fp8, int8, int4, gguf_q4, gguf_q8
-    preferred_engine: str = ""    # Override engine for this model (e.g., "vllm")
-    provider: str = ""            # local, openai, anthropic, google
+    model_path: str = ""  # Local weights (HF repo, GGUF file, etc.)
+    checkpoint_path: str = ""  # Checkpoint/adapter path
+    quantization: str = "none"  # none, fp8, int8, int4, gguf_q4, gguf_q8
+    preferred_engine: str = ""  # Override engine for this model (e.g., "vllm")
+    provider: str = ""  # local, openai, anthropic, google
     # Generation defaults (overridable per-call)
     temperature: float = 0.7
     max_tokens: int = 1024
     top_p: float = 0.9
     top_k: int = 40
     repetition_penalty: float = 1.0
-    stop_sequences: str = ""      # Comma-separated stop strings
+    stop_sequences: str = ""  # Comma-separated stop strings
 
 
 @dataclass(slots=True)
 class RoutingLearningConfig:
     """Routing sub-policy config within Learning."""
 
-    policy: str = "heuristic"   # heuristic | learned
-    min_samples: int = 5        # Min traces before trusting learned routing
+    policy: str = "heuristic"  # heuristic | learned
+    min_samples: int = 5  # Min traces before trusting learned routing
 
 
 @dataclass(slots=True)
@@ -716,9 +723,9 @@ class AgentConfig:
 
     default_agent: str = "simple"
     max_turns: int = 10
-    tools: str = ""               # comma-separated tool names
-    objective: str = ""           # concise purpose for routing/learning/docs
-    system_prompt: str = ""       # inline system prompt (takes precedence if set)
+    tools: str = ""  # comma-separated tool names
+    objective: str = ""  # concise purpose for routing/learning/docs
+    system_prompt: str = ""  # inline system prompt (takes precedence if set)
     system_prompt_path: str = ""  # path to system prompt file (.txt, .md)
     context_from_memory: bool = True  # inject relevant memory context into prompts
 
@@ -898,7 +905,7 @@ class BlueBubblesChannelConfig:
 class WhatsAppBaileysChannelConfig:
     """Per-channel config for WhatsApp via Baileys protocol."""
 
-    auth_dir: str = ""           # Defaults to ~/.openjarvis/whatsapp_auth
+    auth_dir: str = ""  # Defaults to ~/.openjarvis/whatsapp_auth
     assistant_name: str = "Jarvis"
     assistant_has_own_number: bool = False
 
@@ -1176,7 +1183,8 @@ def _migrate_toml_data(data: Dict[str, Any], cfg: "JarvisConfig") -> None:
         src = data.get(src_section, {})
         if isinstance(src, dict) and "context_injection" in src:
             data.setdefault("agent", {}).setdefault(
-                "context_from_memory", src.pop("context_injection"),
+                "context_from_memory",
+                src.pop("context_injection"),
             )
 
     if "tools" in data:
@@ -1185,10 +1193,12 @@ def _migrate_toml_data(data: Dict[str, Any], cfg: "JarvisConfig") -> None:
             storage_sub = tools_data.get("storage", {})
             if isinstance(storage_sub, dict) and "context_injection" in storage_sub:
                 data.setdefault("agent", {}).setdefault(
-                    "context_from_memory", storage_sub.pop("context_injection"),
+                    "context_from_memory",
+                    storage_sub.pop("context_injection"),
                 )
 
 
+@functools.lru_cache(maxsize=1)
 def load_config(path: Optional[Path] = None) -> JarvisConfig:
     """Detect hardware, build defaults, overlay TOML overrides.
 
@@ -1218,16 +1228,31 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
         # All top-level sections — recursive _apply_toml_section handles
         # nested sub-configs (engine.ollama, learning.routing, channel.*, etc.)
         top_sections = (
-            "engine", "intelligence", "learning", "agent",
-            "server", "telemetry", "traces", "security",
-            "channel", "tools", "sandbox", "scheduler",
-            "workflow", "sessions", "a2a", "operators",
-            "speech", "optimize", "agent_manager",
+            "engine",
+            "intelligence",
+            "learning",
+            "agent",
+            "server",
+            "telemetry",
+            "traces",
+            "security",
+            "channel",
+            "tools",
+            "sandbox",
+            "scheduler",
+            "workflow",
+            "sessions",
+            "a2a",
+            "operators",
+            "speech",
+            "optimize",
+            "agent_manager",
         )
         for section_name in top_sections:
             if section_name in data:
                 _apply_toml_section(
-                    getattr(cfg, section_name), data[section_name],
+                    getattr(cfg, section_name),
+                    data[section_name],
                 )
 
         # Memory: accept [memory] (old) → maps to tools.storage
@@ -1248,13 +1273,8 @@ def generate_minimal_toml(hw: HardwareInfo, engine: str | None = None) -> str:
     model = recommend_model(hw, engine)
     gpu_comment = ""
     if hw.gpu:
-        mem_label = (
-            "unified memory" if hw.gpu.vendor == "apple" else "VRAM"
-        )
-        gpu_comment = (
-            f"\n# GPU: {hw.gpu.name}"
-            f" ({hw.gpu.vram_gb} GB {mem_label})"
-        )
+        mem_label = "unified memory" if hw.gpu.vendor == "apple" else "VRAM"
+        gpu_comment = f"\n# GPU: {hw.gpu.name} ({hw.gpu.vram_gb} GB {mem_label})"
     return f"""\
 # OpenJarvis configuration
 # Hardware: {hw.cpu_brand} ({hw.cpu_count} cores, {hw.ram_gb} GB RAM){gpu_comment}
