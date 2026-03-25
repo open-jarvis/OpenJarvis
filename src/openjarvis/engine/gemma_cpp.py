@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 def _import_pygemma():
     """Import and return the pygemma.Gemma class. Raises ImportError if unavailable."""
     from pygemma import Gemma
+
     return Gemma
 
 
@@ -33,18 +34,11 @@ class GemmaCppEngine(InferenceEngine):
         model_type: str | None = None,
         num_threads: int = 0,
     ) -> None:
-        self._model_path = (
-            model_path
-            or os.environ.get("GEMMA_CPP_MODEL_PATH", "")
+        self._model_path = model_path or os.environ.get("GEMMA_CPP_MODEL_PATH", "")
+        self._tokenizer_path = tokenizer_path or os.environ.get(
+            "GEMMA_CPP_TOKENIZER_PATH", ""
         )
-        self._tokenizer_path = (
-            tokenizer_path
-            or os.environ.get("GEMMA_CPP_TOKENIZER_PATH", "")
-        )
-        self._model_type = (
-            model_type
-            or os.environ.get("GEMMA_CPP_MODEL_TYPE", "")
-        )
+        self._model_type = model_type or os.environ.get("GEMMA_CPP_MODEL_TYPE", "")
         self._num_threads = num_threads or int(
             os.environ.get("GEMMA_CPP_NUM_THREADS", "0")
         )
@@ -58,15 +52,11 @@ class GemmaCppEngine(InferenceEngine):
             if msg.role == Role.SYSTEM:
                 system_prefix += msg.content + "\n\n"
             elif msg.role == Role.USER:
-                content = (
-                    system_prefix + msg.content if system_prefix else msg.content
-                )
+                content = system_prefix + msg.content if system_prefix else msg.content
                 system_prefix = ""
                 parts.append(f"<start_of_turn>user\n{content}<end_of_turn>\n")
             elif msg.role == Role.ASSISTANT:
-                parts.append(
-                    f"<start_of_turn>model\n{msg.content}<end_of_turn>\n"
-                )
+                parts.append(f"<start_of_turn>model\n{msg.content}<end_of_turn>\n")
         parts.append("<start_of_turn>model\n")
         return "".join(parts)
 
@@ -113,7 +103,8 @@ class GemmaCppEngine(InferenceEngine):
             logger.warning(
                 "gemma_cpp: requested model %r but loaded model is %r; "
                 "proceeding with loaded model",
-                model, self._model_type,
+                model,
+                self._model_type,
             )
         prompt = self._messages_to_prompt(messages)
         try:

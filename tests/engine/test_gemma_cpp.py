@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import os
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from openjarvis.core.config import EngineConfig, GemmaCppEngineConfig
+from openjarvis.core.types import Message, Role
 
 
 class TestGemmaCppEngineConfig:
@@ -23,13 +25,11 @@ class TestGemmaCppEngineConfig:
         assert isinstance(ec.gemma_cpp, GemmaCppEngineConfig)
 
 
-from openjarvis.core.types import Message, Role
-
-
 class TestMessagesToPrompt:
     def _make_engine(self):
         """Create engine with no paths (won't load model, just test formatting)."""
         from openjarvis.engine.gemma_cpp import GemmaCppEngine
+
         return GemmaCppEngine()
 
     def test_single_user_message(self) -> None:
@@ -37,8 +37,7 @@ class TestMessagesToPrompt:
         msgs = [Message(role=Role.USER, content="Hello")]
         result = engine._messages_to_prompt(msgs)
         assert result == (
-            "<start_of_turn>user\nHello<end_of_turn>\n"
-            "<start_of_turn>model\n"
+            "<start_of_turn>user\nHello<end_of_turn>\n<start_of_turn>model\n"
         )
 
     def test_system_folded_into_user(self) -> None:
@@ -78,6 +77,7 @@ class TestMessagesToPrompt:
         assert result == "<start_of_turn>model\n"
 
     def test_multiple_system_messages_concatenated(self) -> None:
+
         engine = self._make_engine()
         msgs = [
             Message(role=Role.SYSTEM, content="Rule 1"),
@@ -92,12 +92,10 @@ class TestMessagesToPrompt:
         )
 
 
-from unittest.mock import MagicMock, patch
-
-
 class TestGemmaCppLifecycle:
     def _make_engine(self, **kwargs):
         from openjarvis.engine.gemma_cpp import GemmaCppEngine
+
         defaults = {
             "model_path": "/fake/model.sbs",
             "tokenizer_path": "/fake/tokenizer.spm",
@@ -168,6 +166,7 @@ class TestGemmaCppLifecycle:
 
         engine = self._make_engine(model_type="2b-it")
         from openjarvis.engine import gemma_cpp as gc_mod
+
         with patch.object(gc_mod.logger, "warning") as mock_warn:
             engine.generate(
                 [Message(role=Role.USER, content="Hi")],
@@ -202,6 +201,7 @@ class TestGemmaCppStream:
         mock_import.return_value = mock_gemma_cls
 
         from openjarvis.engine.gemma_cpp import GemmaCppEngine
+
         engine = GemmaCppEngine(
             model_path="/fake/model.sbs",
             tokenizer_path="/fake/tokenizer.spm",
@@ -224,6 +224,7 @@ class TestGemmaCppHealth:
         model_file.write_text("fake")
         tokenizer_file.write_text("fake")
         from openjarvis.engine.gemma_cpp import GemmaCppEngine
+
         engine = GemmaCppEngine(
             model_path=str(model_file),
             tokenizer_path=str(tokenizer_file),
@@ -234,6 +235,7 @@ class TestGemmaCppHealth:
 
     def test_health_false_when_files_missing(self) -> None:
         from openjarvis.engine.gemma_cpp import GemmaCppEngine
+
         engine = GemmaCppEngine(
             model_path="/nonexistent/model.sbs",
             tokenizer_path="/nonexistent/tokenizer.spm",
@@ -243,6 +245,7 @@ class TestGemmaCppHealth:
 
     def test_health_false_when_unconfigured(self) -> None:
         from openjarvis.engine.gemma_cpp import GemmaCppEngine
+
         engine = GemmaCppEngine()
         assert engine.health() is False
 
@@ -252,6 +255,7 @@ class TestGemmaCppHealth:
         model_file.write_text("fake")
         tokenizer_file.write_text("fake")
         from openjarvis.engine.gemma_cpp import GemmaCppEngine
+
         engine = GemmaCppEngine(
             model_path=str(model_file),
             tokenizer_path=str(tokenizer_file),
@@ -271,6 +275,7 @@ class TestGemmaCppListModels:
         model_file.write_text("fake")
         tokenizer_file.write_text("fake")
         from openjarvis.engine.gemma_cpp import GemmaCppEngine
+
         engine = GemmaCppEngine(
             model_path=str(model_file),
             tokenizer_path=str(tokenizer_file),
@@ -280,11 +285,13 @@ class TestGemmaCppListModels:
 
     def test_list_models_unconfigured(self) -> None:
         from openjarvis.engine.gemma_cpp import GemmaCppEngine
+
         engine = GemmaCppEngine()
         assert engine.list_models() == []
 
     def test_list_models_files_missing(self) -> None:
         from openjarvis.engine.gemma_cpp import GemmaCppEngine
+
         engine = GemmaCppEngine(
             model_path="/nonexistent/model.sbs",
             tokenizer_path="/nonexistent/tokenizer.spm",
@@ -296,12 +303,14 @@ class TestGemmaCppListModels:
 class TestGemmaCppConfigResolution:
     def test_explicit_args_take_priority(self) -> None:
         from openjarvis.engine.gemma_cpp import GemmaCppEngine
+
         with patch.dict(os.environ, {"GEMMA_CPP_MODEL_PATH": "/env/model"}):
             engine = GemmaCppEngine(model_path="/explicit/model")
         assert engine._model_path == "/explicit/model"
 
     def test_env_vars_fallback(self) -> None:
         from openjarvis.engine.gemma_cpp import GemmaCppEngine
+
         env = {
             "GEMMA_CPP_MODEL_PATH": "/env/model.sbs",
             "GEMMA_CPP_TOKENIZER_PATH": "/env/tokenizer.spm",
@@ -317,6 +326,7 @@ class TestGemmaCppConfigResolution:
 
     def test_defaults_when_nothing_set(self) -> None:
         from openjarvis.engine.gemma_cpp import GemmaCppEngine
+
         with patch.dict(os.environ, {}, clear=True):
             engine = GemmaCppEngine()
         assert engine._model_path == ""
@@ -328,6 +338,7 @@ class TestGemmaCppConfigResolution:
 class TestGemmaCppDiscovery:
     def test_host_map_contains_gemma_cpp(self) -> None:
         from openjarvis.engine._discovery import _HOST_MAP
+
         assert "gemma_cpp" in _HOST_MAP
         assert _HOST_MAP["gemma_cpp"] is None
 
