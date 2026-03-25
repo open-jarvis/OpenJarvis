@@ -249,6 +249,7 @@ function LaunchWizard({
   const models = useAppStore((s) => s.models);
   const [availableTools, setAvailableTools] = useState<ToolInfo[]>([]);
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
+  const [toolFilter, setToolFilter] = useState('');
   const [credentialInputs, setCredentialInputs] = useState<Record<string, Record<string, string>>>({});
   const [savingCredentials, setSavingCredentials] = useState<string | null>(null);
 
@@ -372,7 +373,7 @@ function LaunchWizard({
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
-        className="w-full max-w-lg mx-4 rounded-xl overflow-hidden flex flex-col"
+        className="w-full max-w-lg md:max-w-2xl lg:max-w-3xl mx-4 rounded-xl overflow-hidden flex flex-col"
         style={{
           background: 'var(--color-bg)',
           border: '1px solid var(--color-border)',
@@ -672,6 +673,14 @@ function LaunchWizard({
                 <label className="block text-xs font-medium mb-2" style={{ color: 'var(--color-text-secondary)' }}>
                   Tools &amp; Channels
                 </label>
+                <input
+                  type="text"
+                  placeholder="Search tools..."
+                  value={toolFilter}
+                  onChange={(e) => setToolFilter(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded-lg text-xs bg-transparent outline-none mb-2"
+                  style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                />
                 {(() => {
                   const unconfiguredSelected = wizard.selectedTools.filter((t) => {
                     const tool = availableTools.find((at) => at.name === t);
@@ -683,9 +692,20 @@ function LaunchWizard({
                     </div>
                   ) : null;
                 })()}
-                <div className="space-y-3 max-h-64 overflow-y-auto">
+                <div
+                  className="space-y-3 max-h-64 overflow-y-auto p-3 rounded-lg"
+                  style={{
+                    border: '1px solid var(--color-border)',
+                    background: 'var(--color-bg-secondary)',
+                  }}
+                >
                   {CATEGORY_ORDER.map((cat) => {
-                    const catTools = availableTools.filter((t) => getToolCategory(t) === cat);
+                    const catTools = availableTools.filter((t) => {
+                      if (getToolCategory(t) !== cat) return false;
+                      if (!toolFilter) return true;
+                      const q = toolFilter.toLowerCase();
+                      return t.name.toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q);
+                    });
                     if (catTools.length === 0) return null;
                     const popular = catTools.filter((t) => POPULAR_TOOLS.has(t.name));
                     const rest = catTools.filter((t) => !POPULAR_TOOLS.has(t.name));
