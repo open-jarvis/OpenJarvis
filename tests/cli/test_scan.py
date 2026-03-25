@@ -254,3 +254,70 @@ class TestPlatformFiltering:
         result_platforms = {r.platform for r in results}
         assert other_result_platform not in result_platforms
         assert "all" in result_platforms or current_plat in result_platforms
+
+
+class TestRemoteAccess:
+    """Tests for check_remote_access (Linux)."""
+
+    def test_no_remote_access(self) -> None:
+        scanner = PrivacyScanner()
+        with patch.object(scanner, "_run") as mock_run:
+            mock_run.return_value = CompletedProcess([], 1, stdout="", stderr="")
+            result = scanner.check_remote_access()
+        assert result.status == "ok"
+
+    def test_xrdp_running(self) -> None:
+        scanner = PrivacyScanner()
+        with patch.object(scanner, "_run") as mock_run:
+            def side_effect(cmd, **kw):
+                if any("xrdp" in str(c) for c in cmd):
+                    return CompletedProcess(cmd, 0, stdout="12345", stderr="")
+                return CompletedProcess(cmd, 1, stdout="", stderr="")
+            mock_run.side_effect = side_effect
+            result = scanner.check_remote_access()
+        assert result.status == "warn"
+
+
+class TestICloudSync:
+    """Tests for check_icloud_sync (macOS)."""
+
+    def test_no_icloud_sync(self) -> None:
+        scanner = PrivacyScanner()
+        with patch.object(scanner, "_run") as mock_run:
+            mock_run.return_value = CompletedProcess(
+                [], 0, stdout="no relevant output", stderr=""
+            )
+            result = scanner.check_icloud_sync()
+        assert result.status in ("ok", "skip")
+
+    def test_icloud_defaults_error_falls_through_to_ok(self) -> None:
+        scanner = PrivacyScanner()
+        # When _run raises, the nested try/except catches it and falls to ok
+        with patch.object(scanner, "_run", side_effect=FileNotFoundError):
+            result = scanner.check_icloud_sync()
+        assert result.status == "ok"
+
+
+class TestRunQuick:
+    """Tests for run_quick subset."""
+
+    def test_run_quick_returns_subset(self) -> None:
+        scanner = PrivacyScanner()
+        with patch.object(scanner, "check_filevault") as fv, \
+             patch.object(scanner, "check_luks") as luks, \
+             patch.object(scanner, "check_icloud_sync") as ic, \
+             patch.object(scanner, "check_cloud_sync_agents") as cs:
+            import sys
+            plat = sys.platform
+            fv.return_value = ScanResult("FV", "ok", "ok", "darwin")
+            luks.return_value = ScanResult("LUKS", "ok", "ok", "linux")
+            ic.return_value = ScanResult("iCloud", "ok", "ok", "darwin")
+            cs.return_value = ScanResult("Cloud", "ok", "ok", plat)
+            results = scanner.run_quick()
+        # Should only contain current platform results
+        for r in results:
+            assert r.platform in (plat, "all")
+        # Should not contain network or screen recording
+        names = {r.name for r in results}
+        assert "Network Exposure" not in names
+        assert "Screen Recording" not in names

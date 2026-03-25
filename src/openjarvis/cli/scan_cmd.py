@@ -31,7 +31,7 @@ _REMOTE_ACCESS_PROCS = ["xrdp", "x11vnc", "vncserver", "AnyDesk"]
 # ---------------------------------------------------------------------------
 
 
-@dataclass
+@dataclass(slots=True)
 class ScanResult:
     """Result of a single privacy/security check."""
 
@@ -258,7 +258,7 @@ class PrivacyScanner:
             exposed: list[int] = []
             for port in _ENGINE_PORTS:
                 # Look for patterns like *:PORT or 0.0.0.0:PORT
-                for token in (f"*:{port}", f"0.0.0.0:{port}", f":::{ port}"):
+                for token in (f"*:{port}", f"0.0.0.0:{port}", f":::{port}"):
                     if token.replace(" ", "") in output.replace(" ", ""):
                         exposed.append(port)
                         break
