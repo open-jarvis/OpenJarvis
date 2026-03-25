@@ -557,12 +557,12 @@ function LaunchWizard({
               {/* Schedule */}
               <div>
                 <div className="flex items-center gap-1.5 mb-1">
-                  <label className="block text-xs font-medium leading-none" style={{ color: 'var(--color-text-secondary)' }}>
+                  <label className="block text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
                     Schedule
                   </label>
                   <div className="relative group">
                     <span
-                      className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-[9px] font-bold cursor-help -mt-px"
+                      className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-[9px] font-bold cursor-help"
                       style={{ background: 'var(--color-border)', color: 'var(--color-text-tertiary)' }}
                     >
                       i
@@ -636,12 +636,12 @@ function LaunchWizard({
               {wizard.scheduleType === 'cron' && (
                 <div>
                   <div className="flex items-center gap-1.5 mb-1">
-                    <label className="block text-xs font-medium leading-none" style={{ color: 'var(--color-text-secondary)' }}>
+                    <label className="block text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
                       Cron Expression
                     </label>
                     <div className="relative group">
                       <span
-                        className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-[9px] font-bold cursor-help -mt-px"
+                        className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-[9px] font-bold cursor-help"
                         style={{ background: 'var(--color-border)', color: 'var(--color-text-tertiary)' }}
                       >
                         i
@@ -801,12 +801,12 @@ function LaunchWizard({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <div className="flex items-center gap-1.5 mb-1">
-                    <label className="block text-xs font-medium leading-none" style={{ color: 'var(--color-text-secondary)' }}>
+                    <label className="block text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
                       Budget (optional)
                     </label>
                     <div className="relative group">
                       <span
-                        className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-[9px] font-bold cursor-help -mt-px"
+                        className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-[9px] font-bold cursor-help"
                         style={{ background: 'var(--color-border)', color: 'var(--color-text-tertiary)' }}
                       >
                         i
@@ -832,12 +832,12 @@ function LaunchWizard({
                 </div>
                 <div>
                   <div className="flex items-center gap-1.5 mb-1">
-                    <label className="block text-xs font-medium leading-none" style={{ color: 'var(--color-text-secondary)' }}>
+                    <label className="block text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
                       Learning
                     </label>
                     <div className="relative group">
                       <span
-                        className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-[9px] font-bold cursor-help -mt-px"
+                        className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-[9px] font-bold cursor-help"
                         style={{ background: 'var(--color-border)', color: 'var(--color-text-tertiary)' }}
                       >
                         i
@@ -866,7 +866,7 @@ function LaunchWizard({
               {(!wizard.templateId || templates.find((t) => t.id === wizard.templateId)?.agent_type === 'monitor_operative') && (
                 <div>
                   <div className="flex items-center gap-1.5 mb-1">
-                    <label className="block text-xs font-medium leading-none" style={{ color: 'var(--color-text-secondary)' }}>
+                    <label className="block text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
                       Agent Strategies
                     </label>
                   </div>
