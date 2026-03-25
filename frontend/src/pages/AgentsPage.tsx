@@ -173,7 +173,7 @@ const TOOL_NAME_FALLBACK: Record<string, string> = {
 
 const CATEGORY_ORDER = [
   'Communication', 'Search & Browse', 'Code & Dev', 'Files & Data',
-  'Memory & Knowledge', 'Reasoning & AI', 'Media',
+  'Memory & Knowledge', 'Reasoning & AI', 'Media', 'MCP / External',
 ];
 
 const POPULAR_TOOLS = new Set([
@@ -257,6 +257,7 @@ function LaunchWizard({
   }, []);
 
   function getToolCategory(tool: ToolInfo): string {
+    if (tool.source === 'mcp' || tool.category === 'mcp') return 'MCP / External';
     if (tool.category && CATEGORY_MAP[tool.category]) return CATEGORY_MAP[tool.category];
     if (TOOL_NAME_FALLBACK[tool.name]) return TOOL_NAME_FALLBACK[tool.name];
     return 'Reasoning & AI';
