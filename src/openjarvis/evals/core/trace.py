@@ -28,6 +28,8 @@ class TurnTrace:
     cost_usd: Optional[float] = None
     # Per-action energy breakdown (lm_inference vs tool_call granularity)
     action_energy_breakdown: Optional[List[Dict[str, Any]]] = None
+    # Detailed tool call data: [{"name": str, "arguments": dict, "result": str}]
+    tool_calls: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -45,6 +47,7 @@ class TurnTrace:
             "cpu_power_avg_watts": self.cpu_power_avg_watts,
             "cost_usd": self.cost_usd,
             "action_energy_breakdown": self.action_energy_breakdown,
+            "tool_calls": [dict(tc) for tc in self.tool_calls],
         }
 
     @classmethod
@@ -64,6 +67,7 @@ class TurnTrace:
             cpu_power_avg_watts=d.get("cpu_power_avg_watts"),
             cost_usd=d.get("cost_usd"),
             action_energy_breakdown=d.get("action_energy_breakdown"),
+            tool_calls=d.get("tool_calls", []),
         )
 
 

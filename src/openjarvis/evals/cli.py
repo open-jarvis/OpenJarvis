@@ -119,6 +119,10 @@ BENCHMARKS = {
         "category": "use-case",
         "description": "Web research with fact verification",
     },
+    "pinchbench": {
+        "category": "agentic",
+        "description": "PinchBench real-world agent tasks",
+    },
 }
 
 BACKENDS = {
@@ -260,6 +264,9 @@ def _build_dataset(benchmark: str, subset: str | None = None):
     elif benchmark == "browser_assistant":
         from openjarvis.evals.datasets.browser_assistant import BrowserAssistantDataset
         return BrowserAssistantDataset()
+    elif benchmark == "pinchbench":
+        from openjarvis.evals.datasets.pinchbench import PinchBenchDataset
+        return PinchBenchDataset(path=subset)
     else:
         raise click.ClickException(f"Unknown benchmark: {benchmark}")
 
@@ -361,6 +368,9 @@ def _build_scorer(benchmark: str, judge_backend, judge_model: str):
     elif benchmark == "browser_assistant":
         from openjarvis.evals.scorers.browser_assistant import BrowserAssistantScorer
         return BrowserAssistantScorer(judge_backend, judge_model)
+    elif benchmark == "pinchbench":
+        from openjarvis.evals.scorers.pinchbench import PinchBenchScorer
+        return PinchBenchScorer(judge_backend, judge_model)
     else:
         raise click.ClickException(f"Unknown benchmark: {benchmark}")
 
@@ -518,6 +528,16 @@ def _run_agentic(
         split=config.dataset_split,
         seed=config.seed,
     )
+
+    # Wire judge for PinchBench LLM-judge and hybrid grading
+    if config.benchmark == "pinchbench" and hasattr(dataset, "set_judge"):
+        judge_engine = getattr(config, "judge_engine", "cloud") or "cloud"
+        judge_model = (
+            getattr(config, "judge_model", None)
+            or "anthropic/claude-opus-4-5"
+        )
+        judge_backend = _build_judge_backend(judge_model, engine_key=judge_engine)
+        dataset.set_judge(judge_backend, judge_model)
 
     # Verify backend requirements before doing any work
     if hasattr(dataset, "verify_requirements"):
