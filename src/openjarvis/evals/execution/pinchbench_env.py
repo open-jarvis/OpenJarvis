@@ -33,15 +33,24 @@ class PinchBenchTaskEnv:
         self._judge_backend = judge_backend
         self._judge_model = judge_model
         self._workspace: Optional[Path] = None
+        self._owns_workspace: bool = True
         self._event_recorder: Any = None
+        self._original_cwd: Optional[str] = None
 
     def set_event_recorder(self, recorder: Any) -> None:
         """Receive the EventRecorder from AgenticRunner for transcript building."""
         self._event_recorder = recorder
 
     def __enter__(self) -> PinchBenchTaskEnv:
-        # Create isolated workspace
-        self._workspace = Path(tempfile.mkdtemp(prefix="pinchbench_"))
+        # Use the AgenticRunner's workspace if already set (agent.set_workspace
+        # is called before create_task_env), otherwise create a temp dir.
+        existing = self._record.metadata.get("workspace_path")
+        if existing and Path(existing).is_dir():
+            self._workspace = Path(existing)
+            self._owns_workspace = False
+        else:
+            self._workspace = Path(tempfile.mkdtemp(prefix="pinchbench_"))
+            self._owns_workspace = True
 
         # Populate fixture files
         repo_dir = Path(self._record.metadata.get("pinchbench_repo_dir", ""))
@@ -68,6 +77,11 @@ class PinchBenchTaskEnv:
                     LOGGER.warning("Asset not found: %s", source)
 
         self._record.metadata["workspace_path"] = str(self._workspace)
+
+        # Change CWD so file_read/file_write resolve paths relative to workspace
+        self._original_cwd = os.getcwd()
+        os.chdir(str(self._workspace))
+
         LOGGER.info(
             "PinchBench workspace: %s (task %s)",
             self._workspace,
@@ -90,13 +104,19 @@ class PinchBenchTaskEnv:
         events = self._event_recorder.get_events() if self._event_recorder else []
         transcript = events_to_transcript(events)
 
-        result = grade_pinchbench_task(
-            record=self._record,
-            transcript=transcript,
-            workspace_path=workspace_path,
-            judge_backend=self._judge_backend,
-            judge_model=self._judge_model,
-        )
+        try:
+            result = grade_pinchbench_task(
+                record=self._record,
+                transcript=transcript,
+                workspace_path=workspace_path,
+                judge_backend=self._judge_backend,
+                judge_model=self._judge_model,
+            )
+        except Exception as exc:
+            LOGGER.error(
+                "Grading failed for %s: %s", self._record.record_id, exc,
+            )
+            result = {"score": 0.0, "breakdown": {}, "notes": f"Grading error: {exc}"}
 
         self._record.metadata["is_resolved"] = result["score"] >= 0.5
         self._record.metadata["reward"] = result["score"]
@@ -117,7 +137,16 @@ class PinchBenchTaskEnv:
         exc_val: Optional[BaseException],
         exc_tb: Optional[TracebackType],
     ) -> None:
-        if self._workspace and self._workspace.exists():
+        # Restore original CWD
+        if self._original_cwd:
+            try:
+                os.chdir(self._original_cwd)
+            except OSError:
+                pass
+            self._original_cwd = None
+
+        # Only clean up workspaces we created ourselves (not AgenticRunner's)
+        if self._owns_workspace and self._workspace and self._workspace.exists():
             keep = os.environ.get("PINCHBENCH_KEEP_WORKSPACES", "").strip()
             if keep and keep != "0":
                 LOGGER.info("Keeping workspace: %s", self._workspace)

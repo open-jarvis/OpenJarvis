@@ -342,6 +342,7 @@ class AgenticRunner:
             )
             workspace.mkdir(parents=True, exist_ok=True)
             agent.set_workspace(str(workspace))
+            record.metadata["workspace_path"] = str(workspace)
 
         # Create per-task execution environment (e.g. Docker for TerminalBench)
         task_env = None
