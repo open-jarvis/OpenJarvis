@@ -45,11 +45,13 @@ BUILTIN_MODELS: List[ModelSpec] = [
         parameter_count_b=3.0,
         active_parameter_count_b=0.6,
         context_length=131072,
-        supported_engines=("ollama", "vllm", "llamacpp", "sglang"),
+        supported_engines=("ollama", "vllm", "llamacpp", "sglang", "mlx"),
         provider="alibaba",
         metadata={
             "architecture": "moe",
             "hf_repo": "Qwen/Qwen3.5-3B",
+            "gguf_file": "qwen3.5-3b-q4_k_m.gguf",
+            "mlx_repo": "mlx-community/Qwen3.5-3B-4bit",
         },
     ),
     ModelSpec(
@@ -58,11 +60,13 @@ BUILTIN_MODELS: List[ModelSpec] = [
         parameter_count_b=8.0,
         active_parameter_count_b=1.0,
         context_length=131072,
-        supported_engines=("ollama", "vllm", "llamacpp", "sglang"),
+        supported_engines=("ollama", "vllm", "llamacpp", "sglang", "mlx"),
         provider="alibaba",
         metadata={
             "architecture": "moe",
             "hf_repo": "Qwen/Qwen3.5-8B",
+            "gguf_file": "qwen3.5-8b-q4_k_m.gguf",
+            "mlx_repo": "mlx-community/Qwen3.5-8B-4bit",
         },
     ),
     ModelSpec(
@@ -71,11 +75,13 @@ BUILTIN_MODELS: List[ModelSpec] = [
         parameter_count_b=14.0,
         active_parameter_count_b=2.0,
         context_length=131072,
-        supported_engines=("ollama", "vllm", "llamacpp", "sglang"),
+        supported_engines=("ollama", "vllm", "llamacpp", "sglang", "mlx"),
         provider="alibaba",
         metadata={
             "architecture": "moe",
             "hf_repo": "Qwen/Qwen3.5-14B",
+            "gguf_file": "qwen3.5-14b-q4_k_m.gguf",
+            "mlx_repo": "mlx-community/Qwen3.5-14B-4bit",
         },
     ),
     ModelSpec(
@@ -223,11 +229,13 @@ BUILTIN_MODELS: List[ModelSpec] = [
         active_parameter_count_b=0.5,
         context_length=262144,
         min_vram_gb=3.0,
-        supported_engines=("ollama", "vllm", "sglang", "llamacpp"),
+        supported_engines=("ollama", "vllm", "sglang", "llamacpp", "mlx"),
         provider="alibaba",
         metadata={
             "architecture": "moe",
             "hf_repo": "Qwen/Qwen3.5-4B",
+            "gguf_file": "qwen3.5-4b-q4_k_m.gguf",
+            "mlx_repo": "mlx-community/Qwen3.5-4B-4bit",
         },
     ),
     ModelSpec(

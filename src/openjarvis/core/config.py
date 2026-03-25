@@ -255,6 +255,11 @@ def recommend_model(hw: HardwareInfo, engine: str) -> str:
     return ""
 
 
+def estimated_download_gb(parameter_count_b: float) -> float:
+    """Estimate download size in GB for Q4_K_M quantized model."""
+    return parameter_count_b * 0.5 * 1.1
+
+
 # ---------------------------------------------------------------------------
 # Configuration hierarchy
 # ---------------------------------------------------------------------------
