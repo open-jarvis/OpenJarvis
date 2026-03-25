@@ -5,7 +5,6 @@ import json
 from openjarvis.core.registry import EngineRegistry
 from openjarvis.engine._openai_compat import _OpenAICompatibleEngine
 
-
 # ── vLLM: explicit class because it needs a tool_call arguments fix ──────
 
 @EngineRegistry.register("vllm")

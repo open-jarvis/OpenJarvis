@@ -11,7 +11,12 @@ import pytest
 
 from openjarvis.mcp.protocol import MCPRequest
 from openjarvis.mcp.server import MCPServer
-from openjarvis.mcp.transport import InProcessTransport, SSETransport, StreamableHTTPTransport, StdioTransport
+from openjarvis.mcp.transport import (
+    InProcessTransport,
+    SSETransport,
+    StdioTransport,
+    StreamableHTTPTransport,
+)
 from openjarvis.tools.calculator import CalculatorTool
 from openjarvis.tools.think import ThinkTool
 
@@ -230,7 +235,8 @@ class TestStreamableHTTPTransport:
 
     @patch("httpx.Client")
     def test_session_id_tracking(self, mock_client_cls):
-        """Verify Mcp-Session-Id is tracked from response and sent on subsequent requests."""
+        """Verify Mcp-Session-Id is tracked from response and sent on subsequent
+        requests."""
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
 

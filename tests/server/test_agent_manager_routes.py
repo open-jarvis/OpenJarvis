@@ -371,7 +371,6 @@ class TestAgentManagerStreaming:
 
     def test_send_message_stream_error_handling(self, manager):
         """Engine errors are reported gracefully via SSE."""
-        from openjarvis.engine._stubs import StreamChunk
 
         error_engine = MagicMock()
         error_engine.engine_id = "error"

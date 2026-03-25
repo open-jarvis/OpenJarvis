@@ -6,6 +6,7 @@ import logging
 from collections.abc import AsyncIterator, Sequence
 from typing import Any, Dict, List
 
+from openjarvis.core.types import Message
 from openjarvis.engine._base import InferenceEngine
 from openjarvis.engine._stubs import StreamChunk
 
@@ -66,7 +67,7 @@ class MultiEngine(InferenceEngine):
 
     def generate(
         self,
-        messages: Sequence[Any],
+        messages: Sequence[Message],
         *,
         model: str,
         temperature: float = 0.7,
@@ -80,7 +81,7 @@ class MultiEngine(InferenceEngine):
 
     async def stream(
         self,
-        messages: Sequence[Any],
+        messages: Sequence[Message],
         *,
         model: str,
         temperature: float = 0.7,
@@ -95,7 +96,7 @@ class MultiEngine(InferenceEngine):
 
     async def stream_full(
         self,
-        messages: Sequence[Any],
+        messages: Sequence[Message],
         *,
         model: str,
         **kwargs: Any,

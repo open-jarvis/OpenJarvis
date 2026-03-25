@@ -35,12 +35,24 @@ class _OpenAICompatibleEngine(InferenceEngine):
 
     @staticmethod
     def _fix_tool_call_arguments(msg_dicts: list) -> list:
-        """No-op base implementation.
+        """Ensure tool_call arguments are dicts, not JSON strings.
 
-        Subclasses may override this to fix ``function.arguments``
-        format before sending to the inference server.  For example,
-        vLLM requires arguments as a JSON string, not a dict.
+        Some internal message handling serializes arguments as JSON strings.
+        This base implementation parses them back to dicts for engines that
+        accept both formats (OpenAI, SGLang, etc.).
+
+        Subclasses may override — e.g. VLLMEngine re-serializes to strings
+        because vLLM's Pydantic validation requires string arguments.
         """
+        for md in msg_dicts:
+            for tc in md.get("tool_calls", []):
+                fn = tc.get("function", {})
+                args = fn.get("arguments")
+                if isinstance(args, str):
+                    try:
+                        fn["arguments"] = json.loads(args)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
         return msg_dicts
 
     def generate(

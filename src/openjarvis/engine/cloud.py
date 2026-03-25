@@ -957,6 +957,7 @@ class CloudEngine(InferenceEngine):
                 "max_tokens": max_tokens,
                 "temperature": temperature,
                 "stream": True,
+                **kwargs,
             }
         elif _is_minimax_model(model):
             client = self._minimax_client
@@ -999,8 +1000,10 @@ class CloudEngine(InferenceEngine):
                         "index": tc.index,
                         "id": tc.id or "",
                         "function": {
-                            "name": tc.function.name or "" if tc.function else "",
-                            "arguments": tc.function.arguments or "" if tc.function else "",
+                            "name": (tc.function.name or "") if tc.function else "",
+                            "arguments": (
+                                (tc.function.arguments or "") if tc.function else ""
+                            ),
                         },
                     }
                     for tc in delta.tool_calls

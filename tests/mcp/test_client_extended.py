@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -39,7 +39,8 @@ class TestInitialize:
         assert req.params["clientInfo"]["version"] == "0.1.0"
 
     def test_sends_initialized_notification(self, mock_transport):
-        """After initialize, notifications/initialized must be sent via send_notification."""
+        """After initialize, notifications/initialized must be sent via
+        send_notification."""
         mock_transport.send.return_value = MCPResponse(
             result={"protocolVersion": "2025-03-26", "capabilities": {}}
         )

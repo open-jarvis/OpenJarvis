@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from collections.abc import AsyncIterator
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List
 from unittest.mock import MagicMock
 
 import pytest
 
 from openjarvis.core.types import Message, Role
 from openjarvis.engine._stubs import InferenceEngine, StreamChunk
-
 
 # ---------------------------------------------------------------------------
 # StreamChunk dataclass tests
@@ -203,9 +201,19 @@ class TestOpenAICompatStreamFull:
         from openjarvis.engine._openai_compat import _OpenAICompatibleEngine
 
         # Simulate streamed tool_call fragments
+        _tc1 = (
+            '{"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_1",'
+            ' "function": {"name": "calc", "arguments": ""}}]},'
+            ' "finish_reason": null}]}'
+        )
+        _tc2 = (
+            '{"choices": [{"delta": {"tool_calls": [{"index": 0,'
+            ' "function": {"name": "", "arguments": "{\\"x\\": 1}"}}]},'
+            ' "finish_reason": null}]}'
+        )
         sse_lines = [
-            'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_1", "function": {"name": "calc", "arguments": ""}}]}, "finish_reason": null}]}',
-            'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"name": "", "arguments": "{\\"x\\": 1}"}}]}, "finish_reason": null}]}',
+            f"data: {_tc1}",
+            f"data: {_tc2}",
             'data: {"choices": [{"delta": {}, "finish_reason": "tool_calls"}]}',
             "data: [DONE]",
         ]

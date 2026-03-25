@@ -13,7 +13,7 @@ from openjarvis.mcp.protocol import MCPRequest
 @pytest.fixture
 def _mock_httpx_client():
     """Patch httpx.Client so no real HTTP connections are made."""
-    with patch("httpx.Client") as mock_cls, patch("httpx.Timeout") as mock_timeout:
+    with patch("httpx.Client") as mock_cls, patch("httpx.Timeout"):
         mock_instance = MagicMock()
         mock_cls.return_value = mock_instance
         yield mock_instance

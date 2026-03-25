@@ -108,7 +108,7 @@ Used when the `url` field is set. The transport sends JSON-RPC requests as HTTP 
 **Connection parameters:**
 
 - Connect timeout: 10 seconds
-- Request timeout: 30 seconds
+- Request timeout: 60 seconds
 
 ### Stdio
 
@@ -124,7 +124,7 @@ Used when the `command` field is set. OpenJarvis spawns the command as a subproc
 OpenJarvis handles MCP server failures gracefully:
 
 - **Server unreachable:** A warning is logged and the server is skipped. All other servers and built-in tools continue to load normally.
-- **Timeout:** HTTP requests time out after 30 seconds. The server is skipped with a warning.
+- **Timeout:** HTTP requests time out after 60 seconds. The server is skipped with a warning.
 - **Invalid config:** If the `servers` JSON is malformed or a server entry has neither `url` nor `command`, a warning is logged and that entry is skipped.
 - **Tool discovery failure:** If `tools/list` fails on a server, the error is caught and the server is skipped.
 - **Runtime tool call failure:** If a tool call to an external MCP server fails at runtime, it returns a `ToolResult` with `success=False` and the error message.

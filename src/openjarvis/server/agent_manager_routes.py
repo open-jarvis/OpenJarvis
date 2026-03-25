@@ -259,7 +259,6 @@ def _get_mcp_tools(app_state: Any) -> Tuple[List[Dict[str, Any]], Dict[str, Any]
         return openai_tools, adapters_by_name
 
     if not app_config.tools.mcp.enabled or not app_config.tools.mcp.servers:
-        app_state._mcp_tools_cache = (openai_tools, adapters_by_name)
         return openai_tools, adapters_by_name
 
     from openjarvis.mcp.client import MCPClient
@@ -273,11 +272,9 @@ def _get_mcp_tools(app_state: Any) -> Tuple[List[Dict[str, Any]], Dict[str, Any]
         server_list = _json.loads(app_config.tools.mcp.servers)
     except (_json.JSONDecodeError, TypeError) as exc:
         logger.warning("Failed to parse MCP server config: %s", exc)
-        app_state._mcp_tools_cache = (openai_tools, adapters_by_name)
         return openai_tools, adapters_by_name
 
     if not isinstance(server_list, list):
-        app_state._mcp_tools_cache = (openai_tools, adapters_by_name)
         return openai_tools, adapters_by_name
 
     for server_cfg in server_list:
@@ -334,7 +331,8 @@ def _get_mcp_tools(app_state: Any) -> Tuple[List[Dict[str, Any]], Dict[str, Any]
             )
 
     app_state._mcp_clients = mcp_clients
-    app_state._mcp_tools_cache = (openai_tools, adapters_by_name)
+    if openai_tools:
+        app_state._mcp_tools_cache = (openai_tools, adapters_by_name)
     return openai_tools, adapters_by_name
 
 
@@ -407,11 +405,12 @@ async def _stream_managed_agent(
                     "Added %d MCP tools to streaming request", len(mcp_openai_tools),
                 )
         except Exception as exc:
-            logger.warning("Failed to get MCP tools for streaming: %s", exc, exc_info=True)
+            logger.warning(
+                "Failed to get MCP tools for streaming: %s", exc, exc_info=True
+            )
 
     async def generate():
         """Async generator yielding SSE-formatted chunks with real token streaming."""
-        from openjarvis.engine._stubs import StreamChunk  # noqa: F811
 
         collected_content = ""
         messages_for_llm = list(llm_messages)
@@ -514,24 +513,24 @@ async def _stream_managed_agent(
                     tool_result_content = f"Tool '{tool_name}' not available"
 
                     try:
-                        import json as _json
-
                         # Try MCP adapter first (external tools)
                         mcp_adapter = mcp_adapters.get(tool_name)
                         if mcp_adapter is not None:
                             try:
-                                parsed_args = _json.loads(tool_args) if tool_args else {}
-                            except (_json.JSONDecodeError, TypeError):
+                                parsed_args = json.loads(tool_args) if tool_args else {}
+                            except (json.JSONDecodeError, TypeError):
                                 parsed_args = {}
                             result = mcp_adapter.execute(**parsed_args)
                             tool_result_content = result.content
                         else:
                             # Try to use ToolExecutor if tools are configured
+                            from openjarvis.core.registry import ToolRegistry
                             from openjarvis.tools._stubs import (
                                 ToolCall as StubToolCall,
+                            )
+                            from openjarvis.tools._stubs import (
                                 ToolExecutor,
                             )
-                            from openjarvis.core.registry import ToolRegistry
 
                             tool_cls = ToolRegistry.get(tool_name)
                             if tool_cls is not None:
@@ -558,9 +557,12 @@ async def _stream_managed_agent(
                         tool_result_content = f"Error executing {tool_name}: {tool_exc}"
 
                     # Emit tool result as SSE event
+                    tool_event_data = json.dumps(
+                        {"tool_name": tool_name, "output": tool_result_content}
+                    )
                     yield (
                         f"event: tool_result\n"
-                        f"data: {json.dumps({'tool_name': tool_name, 'output': tool_result_content})}\n\n"
+                        f"data: {tool_event_data}\n\n"
                     )
 
                     # Add tool result message to conversation
@@ -973,8 +975,24 @@ def create_agent_manager_router(
     tools_router = APIRouter(prefix="/v1/tools", tags=["tools"])
 
     @tools_router.get("")
-    def list_tools():
-        return {"tools": build_tools_list()}
+    def list_tools(request: Request):
+        items = build_tools_list()
+        try:
+            mcp_tools, _ = _get_mcp_tools(request.app.state)
+            for tool in mcp_tools:
+                fn = tool.get("function", {})
+                items.append({
+                    "name": fn.get("name", ""),
+                    "description": fn.get("description", ""),
+                    "category": "mcp",
+                    "source": "mcp",
+                    "requires_credentials": False,
+                    "credential_keys": [],
+                    "configured": True,
+                })
+        except Exception:
+            pass
+        return {"tools": items}
 
     @tools_router.post("/{tool_name}/credentials")
     async def save_tool_credentials(tool_name: str, request: Request):

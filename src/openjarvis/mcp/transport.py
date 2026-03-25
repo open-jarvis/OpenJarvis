@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import subprocess
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
 from openjarvis.mcp.protocol import MCPRequest, MCPResponse
 
@@ -142,7 +141,7 @@ class StreamableHTTPTransport(MCPTransport):
             headers["Mcp-Session-Id"] = self._session_id
         return headers
 
-    def _post(self, request: MCPRequest):
+    def _post(self, request: MCPRequest) -> Any:
         """Post a request and return the raw httpx response."""
         import httpx
 
@@ -164,7 +163,8 @@ class StreamableHTTPTransport(MCPTransport):
             ) from exc
         except httpx.HTTPStatusError as exc:
             raise RuntimeError(
-                f"MCP server at {self._safe_url()} returned HTTP {exc.response.status_code}"
+                f"MCP server at {self._safe_url()} returned HTTP "
+                f"{exc.response.status_code}"
             ) from exc
 
         # Track session id from the first response
@@ -190,6 +190,11 @@ class StreamableHTTPTransport(MCPTransport):
         for line in text.splitlines():
             if line.startswith("data:"):
                 last_data = line[len("data:"):].strip()
+        if not last_data:
+            raise RuntimeError(
+                "SSE response contained no 'data:' lines"
+                " — cannot extract JSON-RPC payload"
+            )
         return last_data
 
     def send(self, request: MCPRequest) -> MCPResponse:
@@ -207,10 +212,9 @@ class StreamableHTTPTransport(MCPTransport):
 
     def send_notification(self, request: MCPRequest) -> None:
         """Send a notification — accept any 2xx, don't parse the body."""
-        response = self._post(request)
         # Track session id but don't try to parse a JSON-RPC response.
         # Servers may return 202 Accepted with an empty body.
-        _ = response  # noqa: F841
+        self._post(request)
 
     def close(self) -> None:
         """Close the underlying httpx client."""
