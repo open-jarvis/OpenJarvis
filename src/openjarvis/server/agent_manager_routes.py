@@ -247,7 +247,7 @@ def _get_mcp_tools(app_state: Any) -> Tuple[List[Dict[str, Any]], Dict[str, Any]
 
     import json as _json
 
-    from openjarvis.core.config import load_config
+    from openjarvis.core.config import load_config, resolve_mcp_servers
 
     openai_tools: List[Dict[str, Any]] = []
     adapters_by_name: Dict[str, Any] = {}
@@ -269,12 +269,15 @@ def _get_mcp_tools(app_state: Any) -> Tuple[List[Dict[str, Any]], Dict[str, Any]
     mcp_clients: list = getattr(app_state, "_mcp_clients", [])
 
     try:
-        server_list = _json.loads(app_config.tools.mcp.servers)
-    except (_json.JSONDecodeError, TypeError) as exc:
-        logger.warning("Failed to parse MCP server config: %s", exc)
-        return openai_tools, adapters_by_name
-
-    if not isinstance(server_list, list):
+        server_list = resolve_mcp_servers(
+            app_config.tools.mcp.servers,
+            app_config._config_dir,
+        )
+    except (
+        ValueError, FileNotFoundError,
+        _json.JSONDecodeError, TypeError,
+    ) as exc:
+        logger.warning("Failed to resolve MCP server config: %s", exc)
         return openai_tools, adapters_by_name
 
     for server_cfg in server_list:

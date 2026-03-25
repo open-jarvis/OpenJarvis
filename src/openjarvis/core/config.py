@@ -697,6 +697,86 @@ class MCPConfig:
     servers: str = ""  # JSON list of MCP server configs
 
 
+def resolve_json_or_file(raw: str, config_dir: Path) -> Any:
+    """Resolve a config value that is either inline JSON or a path to a JSON file.
+
+    Parameters
+    ----------
+    raw:
+        Either a JSON string (starts with '[' or '{') or a file path
+        to a .json file containing the data.
+    config_dir:
+        Directory of config.toml, used to resolve relative file paths.
+
+    Returns
+    -------
+    Parsed JSON value (dict, list, etc.), or ``None`` if *raw* is empty.
+
+    Raises
+    ------
+    ValueError: If a relative path escapes the config directory.
+    FileNotFoundError: If the referenced file does not exist.
+    json.JSONDecodeError: If the JSON content is malformed.
+    """
+    import json
+
+    stripped = raw.strip()
+    if not stripped:
+        return None
+
+    # Inline JSON
+    if stripped.startswith("[") or stripped.startswith("{"):
+        return json.loads(stripped)
+
+    # File path reference
+    file_path = Path(stripped)
+    was_relative = not file_path.is_absolute()
+    if was_relative:
+        file_path = config_dir / file_path
+
+    resolved = file_path.resolve()
+
+    # Security check: relative paths must not escape the config directory
+    if was_relative:
+        config_resolved = config_dir.resolve()
+        if not (
+            str(resolved).startswith(str(config_resolved) + os.sep)
+            or resolved == config_resolved
+        ):
+            raise ValueError(
+                f"Path '{stripped}' resolves to '{resolved}' which is outside "
+                f"the config directory '{config_resolved}'"
+            )
+
+    if not resolved.exists():
+        raise FileNotFoundError(
+            f"MCP config file not found: {resolved} (from '{stripped}')"
+        )
+
+    content = resolved.read_text(encoding="utf-8")
+    return json.loads(content)
+
+
+def resolve_mcp_servers(raw: str, config_dir: Path) -> list:
+    """Resolve MCP server configuration from inline JSON or an external file.
+
+    Wraps :func:`resolve_json_or_file` with MCP-specific validation:
+    a single server object ``{...}`` is automatically wrapped in a list,
+    and the result must be a ``list``.
+    """
+    result = resolve_json_or_file(raw, config_dir)
+    if result is None:
+        return []
+    if isinstance(result, dict):
+        return [result]
+    if isinstance(result, list):
+        return result
+    raise ValueError(
+        "MCP servers config must be a JSON array or object, "
+        f"got {type(result).__name__}"
+    )
+
+
 @dataclass(slots=True)
 class BrowserConfig:
     """Browser automation settings (Playwright)."""
@@ -1129,6 +1209,7 @@ class JarvisConfig:
     system_prompt: SystemPromptConfig = field(default_factory=SystemPromptConfig)
     compression: CompressionConfig = field(default_factory=CompressionConfig)
     skills: SkillsConfig = field(default_factory=SkillsConfig)
+    _config_dir: Path = field(default_factory=lambda: DEFAULT_CONFIG_DIR, repr=False)
 
     @property
     def memory(self) -> StorageConfig:
@@ -1258,6 +1339,8 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
         # Memory: accept [memory] (old) → maps to tools.storage
         if "memory" in data:
             _apply_toml_section(cfg.tools.storage, data["memory"])
+
+    cfg._config_dir = config_path.parent
 
     return cfg
 
@@ -1565,4 +1648,6 @@ __all__ = [
     "load_config",
     "recommend_engine",
     "recommend_model",
+    "resolve_json_or_file",
+    "resolve_mcp_servers",
 ]
