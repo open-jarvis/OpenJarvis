@@ -8,6 +8,7 @@ from openjarvis.mcp.transport import (
     MCPTransport,
     SSETransport,
     StdioTransport,
+    StreamableHTTPTransport,
 )
 
 __all__ = [
@@ -21,4 +22,5 @@ __all__ = [
     "InProcessTransport",
     "SSETransport",
     "StdioTransport",
+    "StreamableHTTPTransport",
 ]
