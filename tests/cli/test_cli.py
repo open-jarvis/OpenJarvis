@@ -80,8 +80,11 @@ class TestCLI:
         with (
             mock.patch("openjarvis.cli.init_cmd.DEFAULT_CONFIG_DIR", config_dir),
             mock.patch("openjarvis.cli.init_cmd.DEFAULT_CONFIG_PATH", config_path),
+            mock.patch("openjarvis.cli.init_cmd.PrivacyScanner"),
         ):
-            result = CliRunner().invoke(cli, ["init", "--engine", "ollama"])
+            result = CliRunner().invoke(
+                cli, ["init", "--engine", "ollama", "--no-download"]
+            )
         assert result.exit_code == 0
         assert config_path.exists()
         content = config_path.read_text()
