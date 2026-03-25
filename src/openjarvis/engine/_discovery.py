@@ -25,12 +25,24 @@ _HOST_MAP: Dict[str, str | None] = {
     "apple_fm": "apple_fm_host",
     "cloud": None,
     "litellm": None,
+    "gemma_cpp": None,
 }
 
 
 def _make_engine(key: str, config: JarvisConfig) -> InferenceEngine:
     """Instantiate a registered engine with the appropriate config host."""
     cls = EngineRegistry.get(key)
+
+    # gemma_cpp: pass config fields instead of host
+    if key == "gemma_cpp":
+        cfg = config.engine.gemma_cpp
+        return cls(
+            model_path=cfg.model_path or None,
+            tokenizer_path=cfg.tokenizer_path or None,
+            model_type=cfg.model_type or None,
+            num_threads=cfg.num_threads,
+        )
+
     host_attr = _HOST_MAP.get(key)
     if host_attr is not None:
         host = getattr(config.engine, host_attr, None)

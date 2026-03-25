@@ -323,3 +323,37 @@ class TestGemmaCppConfigResolution:
         assert engine._tokenizer_path == ""
         assert engine._model_type == ""
         assert engine._num_threads == 0
+
+
+class TestGemmaCppDiscovery:
+    def test_host_map_contains_gemma_cpp(self) -> None:
+        from openjarvis.engine._discovery import _HOST_MAP
+        assert "gemma_cpp" in _HOST_MAP
+        assert _HOST_MAP["gemma_cpp"] is None
+
+    def test_make_engine_passes_config(self) -> None:
+        from openjarvis.core.config import GemmaCppEngineConfig, JarvisConfig
+        from openjarvis.core.registry import EngineRegistry
+        from openjarvis.engine._discovery import _make_engine
+        from openjarvis.engine.gemma_cpp import GemmaCppEngine
+
+        EngineRegistry.register_value("gemma_cpp", GemmaCppEngine)
+        config = JarvisConfig()
+        config.engine.gemma_cpp = GemmaCppEngineConfig(
+            model_path="/cfg/model.sbs",
+            tokenizer_path="/cfg/tokenizer.spm",
+            model_type="9b-it",
+            num_threads=4,
+        )
+        engine = _make_engine("gemma_cpp", config)
+        assert engine._model_path == "/cfg/model.sbs"
+        assert engine._tokenizer_path == "/cfg/tokenizer.spm"
+        assert engine._model_type == "9b-it"
+        assert engine._num_threads == 4
+
+    def test_registry_contains_gemma_cpp(self) -> None:
+        from openjarvis.core.registry import EngineRegistry
+        from openjarvis.engine.gemma_cpp import GemmaCppEngine
+
+        EngineRegistry.register_value("gemma_cpp", GemmaCppEngine)
+        assert EngineRegistry.contains("gemma_cpp")
