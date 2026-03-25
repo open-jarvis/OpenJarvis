@@ -424,17 +424,16 @@ class TestSavings:
         assert "total_calls" in d
 
     def test_energy_scales_linearly(self) -> None:
-        """Energy should scale with FLOPs (quadratic in N), not N^3."""
+        """Energy should scale linearly with evaluated tokens (KV-cache model)."""
         from openjarvis.server.savings import compute_savings
 
         s1 = compute_savings(1000, 0)
         s10 = compute_savings(10000, 0)
-        # FLOPs ~ N^2, so 10x tokens => ~100x FLOPs => ~100x energy
+        # FLOPs = 2*P*T (linear), so 10x tokens => 10x FLOPs => 10x energy
         for p1, p10 in zip(s1.per_provider, s10.per_provider):
             ratio = p10.energy_wh / p1.energy_wh
-            # Allow some tolerance for the (N+1) factor
-            assert 90 < ratio < 110, (
-                f"{p1.provider}: energy ratio {ratio:.1f}, expected ~100"
+            assert 9 < ratio < 11, (
+                f"{p1.provider}: energy ratio {ratio:.1f}, expected ~10"
             )
 
     def test_energy_wh_matches_direct_formula(self) -> None:

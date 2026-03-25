@@ -123,6 +123,7 @@ export interface SavingsData {
   total_tokens: number;
   local_cost: number;
   per_provider: ProviderSavings[];
+  token_counting_version?: number;
 }
 
 export interface ServerInfo {

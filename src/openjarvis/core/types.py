@@ -132,6 +132,7 @@ class TelemetryRecord:
     timestamp: float
     model_id: str
     prompt_tokens: int = 0
+    prompt_tokens_evaluated: int = 0  # KV-cache-aware: actual tokens processed
     completion_tokens: int = 0
     total_tokens: int = 0
     latency_seconds: float = 0.0

@@ -88,6 +88,7 @@ export default function App() {
               dollar_savings: dollarSavings,
               energy_wh_saved: energySaved,
               flops_saved: flopsSaved,
+              token_counting_version: data.token_counting_version ?? 1,
             });
           }
         })

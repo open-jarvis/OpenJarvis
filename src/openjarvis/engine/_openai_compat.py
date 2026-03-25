@@ -13,6 +13,7 @@ from openjarvis.core.types import Message
 from openjarvis.engine._base import (
     EngineConnectionError,
     InferenceEngine,
+    estimate_prompt_tokens,
     messages_to_dicts,
 )
 
@@ -72,12 +73,21 @@ class _OpenAICompatibleEngine(InferenceEngine):
             }
         choice = choices[0]
         usage = data.get("usage", {})
+        # Ensure prompt_tokens reflects the full prompt size (including
+        # system prompt and all conversation history).
+        # OpenAI-compat APIs (vLLM, SGLang) report full counts — KV
+        # caching is transparent, so evaluated == full.
+        reported_prompt = usage.get("prompt_tokens", 0)
+        estimated_prompt = estimate_prompt_tokens(messages)
+        prompt_tokens = max(reported_prompt, estimated_prompt)
+        completion_tokens = usage.get("completion_tokens", 0)
         result: Dict[str, Any] = {
             "content": choice["message"].get("content") or "",
             "usage": {
-                "prompt_tokens": usage.get("prompt_tokens", 0),
-                "completion_tokens": usage.get("completion_tokens", 0),
-                "total_tokens": usage.get("total_tokens", 0),
+                "prompt_tokens": prompt_tokens,
+                "prompt_tokens_evaluated": reported_prompt or prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": prompt_tokens + completion_tokens,
             },
             "model": data.get("model", model),
             "finish_reason": choice.get("finish_reason", "stop"),
