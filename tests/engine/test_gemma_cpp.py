@@ -291,3 +291,35 @@ class TestGemmaCppListModels:
             model_type="2b-it",
         )
         assert engine.list_models() == []
+
+
+class TestGemmaCppConfigResolution:
+    def test_explicit_args_take_priority(self) -> None:
+        from openjarvis.engine.gemma_cpp import GemmaCppEngine
+        with patch.dict(os.environ, {"GEMMA_CPP_MODEL_PATH": "/env/model"}):
+            engine = GemmaCppEngine(model_path="/explicit/model")
+        assert engine._model_path == "/explicit/model"
+
+    def test_env_vars_fallback(self) -> None:
+        from openjarvis.engine.gemma_cpp import GemmaCppEngine
+        env = {
+            "GEMMA_CPP_MODEL_PATH": "/env/model.sbs",
+            "GEMMA_CPP_TOKENIZER_PATH": "/env/tokenizer.spm",
+            "GEMMA_CPP_MODEL_TYPE": "9b-it",
+            "GEMMA_CPP_NUM_THREADS": "8",
+        }
+        with patch.dict(os.environ, env):
+            engine = GemmaCppEngine()
+        assert engine._model_path == "/env/model.sbs"
+        assert engine._tokenizer_path == "/env/tokenizer.spm"
+        assert engine._model_type == "9b-it"
+        assert engine._num_threads == 8
+
+    def test_defaults_when_nothing_set(self) -> None:
+        from openjarvis.engine.gemma_cpp import GemmaCppEngine
+        with patch.dict(os.environ, {}, clear=True):
+            engine = GemmaCppEngine()
+        assert engine._model_path == ""
+        assert engine._tokenizer_path == ""
+        assert engine._model_type == ""
+        assert engine._num_threads == 0
