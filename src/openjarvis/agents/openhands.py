@@ -25,6 +25,8 @@ class OpenHandsAgent(BaseAgent):
     """
 
     agent_id = "openhands"
+    _default_temperature = 0.7
+    _default_max_tokens = 1024
 
     def __init__(
         self,
@@ -32,14 +34,17 @@ class OpenHandsAgent(BaseAgent):
         model: str,
         *,
         bus: Optional[EventBus] = None,
-        temperature: float = 0.7,
-        max_tokens: int = 1024,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
         workspace: Optional[str] = None,
         api_key: Optional[str] = None,
     ) -> None:
         super().__init__(
-            engine, model, bus=bus,
-            temperature=temperature, max_tokens=max_tokens,
+            engine,
+            model,
+            bus=bus,
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
         self._workspace = workspace or os.getcwd()
         self._api_key = api_key or os.environ.get("LLM_API_KEY", "")
