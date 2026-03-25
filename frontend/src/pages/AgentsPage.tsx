@@ -727,7 +727,7 @@ function LaunchWizard({
                             </span>
                           )}
                         </div>
-                        <div className="grid grid-cols-2 gap-1.5">
+                        <div className="grid grid-cols-2 lg:grid-cols-3 gap-1.5">
                           {shown.map((tool) => {
                             const isSelected = tool.name === 'browser'
                               ? BROWSER_SUB_TOOLS.every((t) => wizard.selectedTools.includes(t))
@@ -797,7 +797,7 @@ function LaunchWizard({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3 items-start">
                 <div>
                   <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>
                     Budget (optional)
