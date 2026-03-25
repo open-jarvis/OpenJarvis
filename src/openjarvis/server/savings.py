@@ -89,20 +89,28 @@ def compute_savings(
     completion_tokens: int,
     total_calls: int = 0,
     session_start: float = 0.0,
+    prompt_tokens_evaluated: int = 0,
 ) -> SavingsSummary:
     """Compute savings vs cloud providers given token counts.
 
-    Token counting assumptions (these match cloud provider billing):
-    - **System prompt included**: ``prompt_tokens`` includes system
-      prompt tokens for every API call, matching what cloud providers
-      charge.
-    - **No KV-cache discount**: Each call's ``prompt_tokens`` reflects
-      the full context size (system prompt + conversation history).
-      Even though local engines may use KV caching internally, the
-      savings comparison uses the uncached token count because cloud
-      providers bill for all input tokens on every request.
+    Two token counts are used:
+
+    - ``prompt_tokens`` — full prompt size (system prompt + all history).
+      Used for **dollar cost** comparison since cloud providers bill for
+      every input token on every request.
+    - ``prompt_tokens_evaluated`` — actual tokens processed (KV-cache-
+      aware).  In multi-turn conversations, subsequent turns only
+      evaluate new tokens; the system prompt and prior context are
+      served from KV cache.  Used for **FLOPs** and **energy**
+      calculations since these reflect actual compute.
+
+    If ``prompt_tokens_evaluated`` is 0 (e.g. old telemetry without the
+    column), it falls back to ``prompt_tokens``.
     """
+    if prompt_tokens_evaluated <= 0:
+        prompt_tokens_evaluated = prompt_tokens
     total_tokens = prompt_tokens + completion_tokens
+    total_tokens_evaluated = prompt_tokens_evaluated + completion_tokens
     providers: List[ProviderSavings] = []
 
     now = time.time()
@@ -116,10 +124,15 @@ def compute_savings(
         output_cost = (completion_tokens / 1_000_000) * pricing["output_per_1m"]
         total_cost = input_cost + output_cost
 
-        # No-KV-cache FLOPs: P * N * (N+1)
+        # KV-cache-aware FLOPs: 2 * P * T_evaluated
+        # Only the actually-evaluated tokens require compute; cached
+        # tokens from prior turns are served from KV cache.
         params_b = pricing.get("params_b", 200.0)
         params = params_b * 1e9
-        flops = params * total_tokens * (total_tokens + 1) if total_tokens > 0 else 0.0
+        flops = (
+            2.0 * params * total_tokens_evaluated
+            if total_tokens_evaluated > 0 else 0.0
+        )
         # Derive Wh-per-FLOP from the provider's per-token constants:
         #   energy_wh_per_1k_tokens / (1000 * flops_per_token) = Wh per FLOP
         wh_per_flop = pricing["energy_wh_per_1k_tokens"] / (

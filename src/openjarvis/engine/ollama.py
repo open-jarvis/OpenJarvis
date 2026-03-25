@@ -106,19 +106,24 @@ class OllamaEngine(InferenceEngine):
                 f"Ollama returned {exc.response.status_code}: {body}"
             ) from exc
         data = resp.json()
-        # Ollama's prompt_eval_count may exclude KV-cached tokens
-        # (system prompt, prior turns).  Use the larger of the reported
-        # count and a cache-agnostic estimate so that cost / FLOPs /
-        # energy calculations reflect the full prompt size.
+        # prompt_eval_count = tokens actually evaluated (KV-cache-aware).
+        # estimate_prompt_tokens = full prompt size (for cost comparison).
+        # We report both so downstream can use the right one:
+        #   prompt_tokens        → full size (what cloud would charge)
+        #   prompt_tokens_evaluated → actual compute (with KV cache)
         reported_prompt = data.get("prompt_eval_count", 0)
         estimated_prompt = estimate_prompt_tokens(messages)
         prompt_tokens = max(reported_prompt, estimated_prompt)
+        prompt_tokens_evaluated = (
+            reported_prompt if reported_prompt > 0 else prompt_tokens
+        )
         completion_tokens = data.get("eval_count", 0)
         content = data.get("message", {}).get("content", "")
         result: Dict[str, Any] = {
             "content": content,
             "usage": {
                 "prompt_tokens": prompt_tokens,
+                "prompt_tokens_evaluated": prompt_tokens_evaluated,
                 "completion_tokens": completion_tokens,
                 "total_tokens": prompt_tokens + completion_tokens,
             },
@@ -183,16 +188,17 @@ class OllamaEngine(InferenceEngine):
                     if content:
                         yield content
                     if chunk.get("done", False):
-                        # Capture usage from final chunk.  Use the
-                        # cache-agnostic estimate for prompt tokens to
-                        # avoid under-counting when Ollama's KV cache
-                        # suppresses prompt_eval_count.
                         reported_prompt = chunk.get("prompt_eval_count", 0)
                         est_prompt = estimate_prompt_tokens(messages)
                         full_prompt = max(reported_prompt, est_prompt)
+                        evaluated = (
+                            reported_prompt if reported_prompt > 0
+                            else full_prompt
+                        )
                         comp = chunk.get("eval_count", 0)
                         self._last_stream_usage = {
                             "prompt_tokens": full_prompt,
+                            "prompt_tokens_evaluated": evaluated,
                             "completion_tokens": comp,
                             "total_tokens": full_prompt + comp,
                         }

@@ -95,8 +95,9 @@ class _OpenAICompatibleEngine(InferenceEngine):
         choice = choices[0]
         usage = data.get("usage", {})
         # Ensure prompt_tokens reflects the full prompt size (including
-        # system prompt and all conversation history) without assuming
-        # KV-cache savings.
+        # system prompt and all conversation history).
+        # OpenAI-compat APIs (vLLM, SGLang) report full counts — KV
+        # caching is transparent, so evaluated == full.
         reported_prompt = usage.get("prompt_tokens", 0)
         estimated_prompt = estimate_prompt_tokens(messages)
         prompt_tokens = max(reported_prompt, estimated_prompt)
@@ -105,6 +106,7 @@ class _OpenAICompatibleEngine(InferenceEngine):
             "content": choice["message"].get("content") or "",
             "usage": {
                 "prompt_tokens": prompt_tokens,
+                "prompt_tokens_evaluated": reported_prompt or prompt_tokens,
                 "completion_tokens": completion_tokens,
                 "total_tokens": prompt_tokens + completion_tokens,
             },

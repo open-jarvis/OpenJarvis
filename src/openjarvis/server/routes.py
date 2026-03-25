@@ -470,6 +470,9 @@ async def savings(request: Request):
             ),
             total_calls=sum(m.call_count for m in local_models),
             session_start=session_start if session_start else 0.0,
+            prompt_tokens_evaluated=sum(
+                m.prompt_tokens_evaluated for m in local_models
+            ),
         )
         return savings_to_dict(result)
     finally:
