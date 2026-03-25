@@ -207,6 +207,138 @@ def build_tools_list() -> List[Dict[str, Any]]:
     return items
 
 
+def _merge_tool_call_fragments(
+    accumulated: Dict[int, Dict[str, Any]],
+    fragments: List[Dict[str, Any]],
+) -> None:
+    """Merge incremental tool_call delta fragments into accumulated state.
+
+    OpenAI-compatible APIs send tool_calls as incremental fragments keyed
+    by ``index``. Each fragment may contain partial ``function.name`` and/or
+    ``function.arguments`` strings that must be concatenated.
+    """
+    for frag in fragments:
+        idx = frag.get("index", 0)
+        if idx not in accumulated:
+            accumulated[idx] = {
+                "id": frag.get("id", ""),
+                "type": "function",
+                "function": {"name": "", "arguments": ""},
+            }
+        entry = accumulated[idx]
+        if frag.get("id"):
+            entry["id"] = frag["id"]
+        fn = frag.get("function", {})
+        if fn.get("name"):
+            entry["function"]["name"] += fn["name"]
+        if fn.get("arguments"):
+            entry["function"]["arguments"] += fn["arguments"]
+
+
+def _get_mcp_tools(app_state: Any) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """Return (openai_tools_list, mcp_adapters_by_name).
+
+    Lazily discovers MCP tools from config and caches them on ``app_state``
+    so that subsequent requests reuse the same connections.
+    """
+    cached = getattr(app_state, "_mcp_tools_cache", None)
+    if cached is not None:
+        return cached
+
+    import json as _json
+
+    from openjarvis.core.config import load_config, resolve_mcp_servers
+
+    openai_tools: List[Dict[str, Any]] = []
+    adapters_by_name: Dict[str, Any] = {}
+
+    try:
+        app_config = load_config()
+    except Exception as exc:
+        logger.warning("Failed to load config for MCP discovery: %s", exc)
+        return openai_tools, adapters_by_name
+
+    if not app_config.tools.mcp.enabled or not app_config.tools.mcp.servers:
+        return openai_tools, adapters_by_name
+
+    from openjarvis.mcp.client import MCPClient
+    from openjarvis.mcp.transport import StdioTransport, StreamableHTTPTransport
+    from openjarvis.tools.mcp_adapter import MCPToolProvider
+
+    # Keep clients alive so transports persist for tool calls at runtime
+    mcp_clients: list = getattr(app_state, "_mcp_clients", [])
+
+    try:
+        server_list = resolve_mcp_servers(
+            app_config.tools.mcp.servers,
+            app_config._config_dir,
+        )
+    except (
+        ValueError, FileNotFoundError,
+        _json.JSONDecodeError, TypeError,
+    ) as exc:
+        logger.warning("Failed to resolve MCP server config: %s", exc)
+        return openai_tools, adapters_by_name
+
+    for server_cfg in server_list:
+        cfg = _json.loads(server_cfg) if isinstance(server_cfg, str) else server_cfg
+        name = cfg.get("name", "<unnamed>")
+        url = cfg.get("url")
+        command = cfg.get("command", "")
+        args = cfg.get("args", [])
+
+        try:
+            if url:
+                transport = StreamableHTTPTransport(url=url)
+            elif command:
+                transport = StdioTransport(command=[command] + args)
+            else:
+                logger.warning(
+                    "MCP server '%s' has neither 'url' nor 'command' — skipping", name,
+                )
+                continue
+
+            client = MCPClient(transport)
+            client.initialize()
+            mcp_clients.append(client)
+
+            provider = MCPToolProvider(client)
+            discovered = provider.discover()
+
+            # Per-server tool filtering
+            include_tools = set(cfg.get("include_tools", []))
+            exclude_tools = set(cfg.get("exclude_tools", []))
+            if include_tools:
+                discovered = [t for t in discovered if t.spec.name in include_tools]
+            if exclude_tools:
+                discovered = [t for t in discovered if t.spec.name not in exclude_tools]
+
+            for adapter in discovered:
+                spec = adapter.spec
+                openai_tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": spec.name,
+                        "description": spec.description,
+                        "parameters": spec.parameters,
+                    },
+                })
+                adapters_by_name[spec.name] = adapter
+
+            logger.info(
+                "Discovered %d MCP tools from server '%s'", len(discovered), name,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to discover MCP tools from '%s': %s", name, exc,
+            )
+
+    app_state._mcp_clients = mcp_clients
+    if openai_tools:
+        app_state._mcp_tools_cache = (openai_tools, adapters_by_name)
+    return openai_tools, adapters_by_name
+
+
 async def _stream_managed_agent(
     *,
     manager: AgentManager,
