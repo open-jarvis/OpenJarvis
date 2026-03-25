@@ -255,12 +255,14 @@ class ToolExecutor:
 
         # Emit end event
         if self._bus:
+            result_text = str(result.content)[:10240] if result.content else ""
             self._bus.publish(
                 EventType.TOOL_CALL_END,
                 {
                     "tool": tool_call.name,
                     "success": result.success,
                     "latency": latency,
+                    "result": result_text,
                 },
             )
 
