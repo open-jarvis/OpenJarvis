@@ -1654,4 +1654,5 @@ __all__ = [
     "load_config",
     "recommend_engine",
     "recommend_model",
+    "validate_config_key",
 ]
