@@ -477,11 +477,11 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
             return;
         }
 
-        let clone_target = format!("{}/OpenJarvis", home_dir());
-        let target_path = std::path::PathBuf::from(&clone_target);
+        let target_path = std::path::PathBuf::from(home_dir()).join("OpenJarvis");
+        let clone_target = target_path.display().to_string();
 
         // If the directory exists but is not a valid project, don't overwrite
-        if target_path.exists() {
+        if target_path.exists() && !target_path.join("pyproject.toml").exists() {
             let mut s = status.lock().await;
             s.error = Some(format!(
                 "{} exists but is not a valid OpenJarvis project. \
