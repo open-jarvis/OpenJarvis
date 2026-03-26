@@ -20,7 +20,7 @@ from openjarvis.core.registry import ConnectorRegistry
 # ---------------------------------------------------------------------------
 
 _LIST_RESPONSE = {
-    "data": [
+    "notes": [
         {
             "id": "not_abc12345678901",
             "title": "Sprint Planning",

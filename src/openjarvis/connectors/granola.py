@@ -56,7 +56,7 @@ def _granola_api_list_notes(
     Returns
     -------
     dict
-        Raw API response containing ``data`` list, ``hasMore`` flag, and
+        Raw API response containing ``notes`` list, ``hasMore`` flag, and
         optional ``cursor``.
     """
     params: Dict[str, Any] = {"page_size": 30}
@@ -134,7 +134,12 @@ def _format_note_content(note: Dict[str, Any]) -> str:
     parts.append("## Transcript")
     if transcript:
         for turn in transcript:
-            speaker: str = turn.get("speaker", "unknown")
+            raw_speaker = turn.get("speaker", "unknown")
+            # API may return speaker as dict {"source": "microphone"}
+            if isinstance(raw_speaker, dict):
+                speaker = raw_speaker.get("source", "unknown")
+            else:
+                speaker = str(raw_speaker)
             text: str = turn.get("text", "")
             parts.append(f"**{speaker}:** {text}")
     # (empty transcript → section header with no turns is fine)
@@ -284,7 +289,7 @@ class GranolaConnector(BaseConnector):
                 cursor=page_cursor,
                 created_after=created_after,
             )
-            notes: List[Dict[str, Any]] = list_resp.get("data", [])
+            notes: List[Dict[str, Any]] = list_resp.get("notes", [])
 
             for note_summary in notes:
                 note_id: str = note_summary.get("id", "")
