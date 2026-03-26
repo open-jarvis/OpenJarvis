@@ -575,4 +575,42 @@ async def channel_status(request: Request):
     return {"status": bridge.status().value}
 
 
+# ---------------------------------------------------------------------------
+# Security scan endpoint
+# ---------------------------------------------------------------------------
+
+
+@router.get("/v1/security/scan")
+async def security_scan():
+    """Run a read-only security environment audit and return findings.
+
+    Each finding includes:
+    - ``check``: identifier for the check (e.g. ``disk_encryption``)
+    - ``severity``: ``"info"`` | ``"warn"`` | ``"critical"``
+    - ``title``: one-line summary
+    - ``detail``: explanation of the finding
+    - ``remediation``: suggested fix (empty string if none needed)
+
+    Also returns top-level ``has_critical`` and ``has_warnings`` booleans
+    so callers can gate on overall posture without scanning the list.
+    """
+    from openjarvis.security.environment import run_all_checks
+
+    report = run_all_checks()
+    return {
+        "has_critical": report.has_critical,
+        "has_warnings": report.has_warnings,
+        "findings": [
+            {
+                "check": f.check,
+                "severity": f.severity.value,
+                "title": f.title,
+                "detail": f.detail,
+                "remediation": f.remediation,
+            }
+            for f in report.findings
+        ],
+    }
+
+
 __all__ = ["router"]
