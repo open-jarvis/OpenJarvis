@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 
@@ -78,3 +80,15 @@ def test_sync_status(app):
     data = resp.json()
     assert "state" in data
     assert data["connector_id"] == "obsidian"
+
+
+def test_trigger_sync(app, tmp_path: Path) -> None:
+    """POST /v1/connectors/obsidian/sync triggers an incremental sync."""
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    (vault / "note.md").write_text("# Test note\n\nContent here.")
+    app.post("/v1/connectors/obsidian/connect", json={"path": str(vault)})
+    resp = app.post("/v1/connectors/obsidian/sync")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["chunks_indexed"] >= 1

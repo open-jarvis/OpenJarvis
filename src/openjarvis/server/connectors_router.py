@@ -236,6 +236,33 @@ def create_connectors_router():
             "status": "disconnected",
         }
 
+    @router.post("/{connector_id}/sync")
+    def trigger_sync(connector_id: str) -> Dict[str, Any]:
+        """Trigger an incremental sync for a connector."""
+        _ensure_connectors_registered()
+        if not ConnectorRegistry.contains(connector_id):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Connector '{connector_id}' not found",
+            )
+        inst = _get_or_create(connector_id)
+        if not inst.is_connected():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Connector '{connector_id}' is not connected",
+            )
+
+        from openjarvis.connectors.pipeline import IngestionPipeline
+        from openjarvis.connectors.store import KnowledgeStore
+        from openjarvis.connectors.sync_engine import SyncEngine
+
+        store = KnowledgeStore()
+        pipeline = IngestionPipeline(store=store)
+        engine = SyncEngine(pipeline=pipeline)
+        chunks = engine.sync(inst)
+
+        return {"connector_id": connector_id, "chunks_indexed": chunks, "status": "complete"}
+
     @router.get("/{connector_id}/sync")
     async def sync_status(connector_id: str):
         """Return the current sync status for a connector."""
