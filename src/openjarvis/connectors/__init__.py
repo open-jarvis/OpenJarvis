@@ -42,3 +42,13 @@ try:
     import openjarvis.connectors.imessage  # noqa: F401
 except ImportError:
     pass
+
+try:
+    import openjarvis.connectors.apple_notes  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.connectors.dropbox  # noqa: F401
+except ImportError:
+    pass  # httpx may not be installed
