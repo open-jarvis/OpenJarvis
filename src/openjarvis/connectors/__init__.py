@@ -52,3 +52,8 @@ try:
     import openjarvis.connectors.dropbox  # noqa: F401
 except ImportError:
     pass  # httpx may not be installed
+
+try:
+    import openjarvis.connectors.whatsapp  # noqa: F401
+except ImportError:
+    pass
