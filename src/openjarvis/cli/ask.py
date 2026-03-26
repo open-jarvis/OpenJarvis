@@ -44,7 +44,8 @@ def _get_memory_backend(config):
 
         if key == "sqlite":
             backend = MemoryRegistry.create(
-                key, db_path=config.memory.db_path,
+                key,
+                db_path=config.memory.db_path,
             )
         else:
             backend = MemoryRegistry.create(key)
@@ -106,8 +107,7 @@ def _run_agent(
 
     if not AgentRegistry.contains(agent_name):
         raise click.ClickException(
-            f"Unknown agent: {agent_name}. "
-            f"Available: {', '.join(AgentRegistry.keys())}"
+            f"Unknown agent: {agent_name}. Available: {', '.join(AgentRegistry.keys())}"
         )
 
     agent_cls = AgentRegistry.get(agent_name)
@@ -117,6 +117,7 @@ def _run_agent(
     if tool_names:
         # Trigger tool registration
         import openjarvis.tools  # noqa: F401
+
         tools = _build_tools(tool_names, config, engine, model_name)
 
     # Build agent with appropriate kwargs
@@ -149,7 +150,10 @@ def _run_agent(
                     max_context_tokens=config.memory.context_max_tokens,
                 )
                 context_messages = inject_context(
-                    query_text, [], backend, config=ctx_cfg,
+                    query_text,
+                    [],
+                    backend,
+                    config=ctx_cfg,
                 )
                 for msg in context_messages:
                     ctx.conversation.add(msg)
@@ -169,9 +173,7 @@ def _print_profile(
 ) -> None:
     """Print an inference telemetry profile table from EventBus history."""
     # Collect all INFERENCE_END events (agents may fire multiple)
-    inf_events = [
-        e for e in bus.history if e.event_type == EventType.INFERENCE_END
-    ]
+    inf_events = [e for e in bus.history if e.event_type == EventType.INFERENCE_END]
     if not inf_events:
         console.print("[dim]No inference telemetry recorded.[/dim]")
         return
@@ -186,13 +188,15 @@ def _print_profile(
         for e in inf_events
     )
     total_prompt = sum(
-        e.data.get("usage", {}).get("prompt_tokens", 0)
-        for e in inf_events
+        e.data.get("usage", {}).get("prompt_tokens", 0) for e in inf_events
     )
     total_energy = sum(e.data.get("energy_joules", 0.0) for e in inf_events)
     avg_power = 0.0
-    power_vals = [e.data.get("power_watts", 0.0) for e in inf_events
-                  if e.data.get("power_watts", 0.0) > 0]
+    power_vals = [
+        e.data.get("power_watts", 0.0)
+        for e in inf_events
+        if e.data.get("power_watts", 0.0) > 0
+    ]
     if power_vals:
         avg_power = sum(power_vals) / len(power_vals)
 
@@ -284,29 +288,42 @@ def _print_profile(
 @click.option("-m", "--model", "model_name", default=None, help="Model to use.")
 @click.option("-e", "--engine", "engine_key", default=None, help="Engine backend.")
 @click.option(
-    "-t", "--temperature", default=None, type=float,
+    "-t",
+    "--temperature",
+    default=None,
+    type=float,
     help="Sampling temperature (default: from config).",
 )
 @click.option(
-    "--max-tokens", default=None, type=int,
+    "--max-tokens",
+    default=None,
+    type=int,
     help="Max tokens to generate (default: from config).",
 )
 @click.option("--json", "output_json", is_flag=True, help="Output raw JSON result.")
 @click.option("--no-stream", is_flag=True, help="Disable streaming (sync mode).")
 @click.option(
-    "--no-context", is_flag=True,
+    "--no-context",
+    is_flag=True,
     help="Disable memory context injection.",
 )
 @click.option(
-    "-a", "--agent", "agent_name", default=None,
+    "-a",
+    "--agent",
+    "agent_name",
+    default=None,
     help="Agent to use (simple, orchestrator).",
 )
 @click.option(
-    "--tools", "tool_names", default=None,
+    "--tools",
+    "tool_names",
+    default=None,
     help="Comma-separated tool names to enable (e.g. calculator,think).",
 )
 @click.option(
-    "--profile", "enable_profile", is_flag=True,
+    "--profile",
+    "enable_profile",
+    is_flag=True,
     help="Print inference telemetry profile (latency, tokens, energy, IPW).",
 )
 def ask(
@@ -377,7 +394,10 @@ def ask(
             "  [cyan]ollama serve[/cyan]          — start Ollama\n"
             "  [cyan]vllm serve <model>[/cyan]    — start vLLM\n"
             "  [cyan]llama-server -m <gguf>[/cyan] — start llama.cpp\n\n"
-            "Or set OPENAI_API_KEY / ANTHROPIC_API_KEY for cloud inference."
+            "Or set OPENAI_API_KEY / ANTHROPIC_API_KEY for cloud inference.\n\n"
+            "[dim]To use a remote engine:[/dim]\n"
+            "  [cyan]jarvis config set engine.ollama.host http://<remote-ip>:11434[/cyan]\n"
+            "  [dim]or[/dim] [cyan]export OLLAMA_HOST=http://<remote-ip>:11434[/cyan]"
         )
         sys.exit(1)
 
@@ -385,6 +405,7 @@ def ask(
 
     # Apply security guardrails
     from openjarvis.security import setup_security
+
     sec = setup_security(config, engine, bus)
     engine = sec.engine
 
@@ -427,12 +448,14 @@ def ask(
     # the user would have gotten without the analyzer.
     if not user_set_max_tokens:
         suggested = adjust_tokens_for_model(
-            complexity_result.suggested_max_tokens, model_name,
+            complexity_result.suggested_max_tokens,
+            model_name,
         )
         max_tokens = max(suggested, config.intelligence.max_tokens)
         logger.debug(
             "Using complexity-suggested max_tokens=%d (model=%s)",
-            max_tokens, model_name,
+            max_tokens,
+            model_name,
         )
 
     # Agent mode
@@ -444,8 +467,15 @@ def ask(
         )
         try:
             result = _run_agent(
-                agent_name, query_text, engine, model_name,
-                parsed_tools, config, bus, temperature, max_tokens,
+                agent_name,
+                query_text,
+                engine,
+                model_name,
+                parsed_tools,
+                config,
+                bus,
+                temperature,
+                max_tokens,
                 capability_policy=sec.capability_policy,
             )
         except EngineConnectionError as exc:
@@ -454,25 +484,33 @@ def ask(
             sys.exit(1)
 
         if output_json:
-            click.echo(json_mod.dumps({
-                "content": result.content,
-                "turns": result.turns,
-                "tool_results": [
+            click.echo(
+                json_mod.dumps(
                     {
-                        "tool_name": tr.tool_name,
-                        "content": tr.content,
-                        "success": tr.success,
-                    }
-                    for tr in result.tool_results
-                ],
-            }, indent=2))
+                        "content": result.content,
+                        "turns": result.turns,
+                        "tool_results": [
+                            {
+                                "tool_name": tr.tool_name,
+                                "content": tr.content,
+                                "success": tr.success,
+                            }
+                            for tr in result.tool_results
+                        ],
+                    },
+                    indent=2,
+                )
+            )
         else:
             click.echo(result.content)
 
         if enable_profile:
             _print_profile(
-                bus, time.monotonic() - wall_start,
-                engine_name, model_name, console,
+                bus,
+                time.monotonic() - wall_start,
+                engine_name,
+                model_name,
+                console,
                 complexity_result=complexity_result,
             )
 
@@ -493,17 +531,18 @@ def ask(
                 ContextConfig,
                 inject_context,
             )
+
             backend = _get_memory_backend(config)
             if backend is not None:
                 ctx_cfg = ContextConfig(
                     top_k=config.memory.context_top_k,
                     min_score=config.memory.context_min_score,
-                    max_context_tokens=(
-                        config.memory.context_max_tokens
-                    ),
+                    max_context_tokens=(config.memory.context_max_tokens),
                 )
                 messages = inject_context(
-                    query_text, messages, backend,
+                    query_text,
+                    messages,
+                    backend,
                     config=ctx_cfg,
                 )
         except Exception as exc:
@@ -531,8 +570,11 @@ def ask(
 
     if enable_profile:
         _print_profile(
-            bus, time.monotonic() - wall_start,
-            engine_name, model_name, console,
+            bus,
+            time.monotonic() - wall_start,
+            engine_name,
+            model_name,
+            console,
             complexity_result=complexity_result,
         )
 

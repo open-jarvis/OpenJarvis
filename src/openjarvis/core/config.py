@@ -1158,6 +1158,80 @@ class JarvisConfig:
 
 
 # ---------------------------------------------------------------------------
+# Config key validation
+# ---------------------------------------------------------------------------
+
+# Sections that users may set via ``jarvis config set``.
+# ``hardware`` is auto-detected and not user-settable.
+_SETTABLE_SECTIONS = frozenset(JarvisConfig.__dataclass_fields__.keys()) - {"hardware"}
+
+
+def validate_config_key(dotted_key: str) -> type:
+    """Validate a dotted config key and return the leaf field's Python type.
+
+    Raises :class:`ValueError` when the key does not map to a known field.
+    The function walks the ``JarvisConfig`` dataclass hierarchy using
+    ``dataclasses.fields()``.
+
+    Examples::
+
+        validate_config_key("engine.ollama.host")      # -> str
+        validate_config_key("intelligence.temperature") # -> float
+    """
+    from dataclasses import fields as dc_fields
+
+    parts = dotted_key.split(".")
+    if len(parts) < 2:
+        raise ValueError(
+            f"Config key must have at least two segments (e.g. engine.default), "
+            f"got: {dotted_key!r}"
+        )
+
+    if parts[0] not in _SETTABLE_SECTIONS:
+        raise ValueError(
+            f"Unknown config key: {dotted_key!r} "
+            f"(valid top-level sections: {sorted(_SETTABLE_SECTIONS)})"
+        )
+
+    # Walk the dataclass tree
+    current_cls = JarvisConfig
+    for i, part in enumerate(parts):
+        field_map = {f.name: f for f in dc_fields(current_cls)}
+        if part not in field_map:
+            path_so_far = ".".join(parts[: i + 1])
+            raise ValueError(
+                f"Unknown config key: {dotted_key!r} "
+                f"(no field {part!r} at {path_so_far}; "
+                f"valid fields: {sorted(field_map.keys())})"
+            )
+        fld = field_map[part]
+        # Resolve the type — unwrap Optional, etc.
+        fld_type = fld.type
+        if isinstance(fld_type, str):
+            # Evaluate forward references in the config module namespace
+            import openjarvis.core.config as _cfg_mod
+
+            fld_type = eval(fld_type, vars(_cfg_mod))  # noqa: S307
+
+        if i == len(parts) - 1:
+            # Leaf — return the primitive type
+            return fld_type
+        else:
+            # Must be a nested dataclass
+            if not hasattr(fld_type, "__dataclass_fields__"):
+                path_so_far = ".".join(parts[: i + 1])
+                raise ValueError(
+                    f"Unknown config key: {dotted_key!r} "
+                    f"({path_so_far} is a leaf of type {fld_type.__name__}, "
+                    f"not a section)"
+                )
+            current_cls = fld_type
+
+    # Should not reach here, but satisfy type checker
+    raise ValueError(f"Unknown config key: {dotted_key!r}")
+
+
+# ---------------------------------------------------------------------------
 # TOML loading
 # ---------------------------------------------------------------------------
 
@@ -1283,7 +1357,9 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
 # ---------------------------------------------------------------------------
 
 
-def generate_minimal_toml(hw: HardwareInfo, engine: str | None = None) -> str:
+def generate_minimal_toml(
+    hw: HardwareInfo, engine: str | None = None, *, host: str | None = None
+) -> str:
     """Render a minimal TOML config with only essential settings."""
     engine = engine or recommend_engine(hw)
     model = recommend_model(hw, engine)
@@ -1291,6 +1367,14 @@ def generate_minimal_toml(hw: HardwareInfo, engine: str | None = None) -> str:
     if hw.gpu:
         mem_label = "unified memory" if hw.gpu.vendor == "apple" else "VRAM"
         gpu_comment = f"\n# GPU: {hw.gpu.name} ({hw.gpu.vram_gb} GB {mem_label})"
+    if host:
+        engine_host_section = f'\n[engine.{engine}]\nhost = "{host}"\n'
+    else:
+        engine_host_section = (
+            f"\n[engine.{engine}]\n"
+            f'# host = "http://localhost:11434"  '
+            f"# set to remote URL if engine runs elsewhere\n"
+        )
     return f"""\
 # OpenJarvis configuration
 # Hardware: {hw.cpu_brand} ({hw.cpu_count} cores, {hw.ram_gb} GB RAM){gpu_comment}
@@ -1298,7 +1382,7 @@ def generate_minimal_toml(hw: HardwareInfo, engine: str | None = None) -> str:
 
 [engine]
 default = "{engine}"
-
+{engine_host_section}
 [intelligence]
 default_model = "{model}"
 
@@ -1310,7 +1394,9 @@ enabled = ["code_interpreter", "web_search", "file_read", "shell_exec"]
 """
 
 
-def generate_default_toml(hw: HardwareInfo, engine: str | None = None) -> str:
+def generate_default_toml(
+    hw: HardwareInfo, engine: str | None = None, *, host: str | None = None
+) -> str:
     """Render a commented TOML string suitable for ``~/.openjarvis/config.toml``."""
     engine = engine or recommend_engine(hw)
     model = recommend_model(hw, engine)
@@ -1322,7 +1408,7 @@ def generate_default_toml(hw: HardwareInfo, engine: str | None = None) -> str:
     if model:
         model_comment = "  # recommended for your hardware"
 
-    return f"""\
+    result = f"""\
 # OpenJarvis configuration
 # Generated by `jarvis init`
 #
@@ -1517,6 +1603,13 @@ ssrf_protection = true
 # assistant_name = "Jarvis"
 # assistant_has_own_number = false
 """
+    if host:
+        import re as _re
+
+        pattern = _re.escape(f"[engine.{engine}]") + r"\nhost = \"[^\"]*\""
+        replacement = f'[engine.{engine}]\\nhost = "{host}"'
+        result = _re.sub(pattern, replacement, result)
+    return result
 
 
 __all__ = [
@@ -1581,4 +1674,5 @@ __all__ = [
     "load_config",
     "recommend_engine",
     "recommend_model",
+    "validate_config_key",
 ]

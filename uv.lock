@@ -894,6 +894,15 @@ wheels = [
 ]
 
 [[package]]
+name = "cfgv"
+version = "3.5.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/4e/b5/721b8799b04bf9afe054a3899c6cf4e880fcf8563cc71c15610242490a0c/cfgv-3.5.0.tar.gz", hash = "sha256:d5b1034354820651caa73ede66a6294d6e95c1b00acc5e9b098e917404669132", size = 7334, upload-time = "2025-11-19T20:55:51.612Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl", hash = "sha256:a8dc6b26ad22ff227d2634a65cb388215ce6cc96bbcc5cfde7641ae87e8dacc0", size = 7445, upload-time = "2025-11-19T20:55:50.744Z" },
+]
+
+[[package]]
 name = "charset-normalizer"
 version = "3.4.4"
 source = { registry = "https://pypi.org/simple" }
@@ -1630,6 +1639,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/3f/21/1c1ffc1a039ddcc459db43cc108658f32c57d271d7289a2794e401d0fdb6/diskcache-5.6.3.tar.gz", hash = "sha256:2c3a3fa2743d8535d832ec61c2054a1641f41775aa7c556758a109941e33e4fc", size = 67916, upload-time = "2023-08-31T06:12:00.316Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3f/27/4570e78fc0bf5ea0ca45eb1de3818a23787af9b390c0b0a0033a1b8236f9/diskcache-5.6.3-py3-none-any.whl", hash = "sha256:5e31b2d5fbad117cc363ebaf6b689474db18a1f6438bc82358b024abd4c2ca19", size = 45550, upload-time = "2023-08-31T06:11:58.822Z" },
+]
+
+[[package]]
+name = "distlib"
+version = "0.4.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/96/8e/709914eb2b5749865801041647dc7f4e6d00b549cfe88b65ca192995f07c/distlib-0.4.0.tar.gz", hash = "sha256:feec40075be03a04501a973d81f633735b4b69f98b05450592310c0f401a4e0d", size = 614605, upload-time = "2025-07-17T16:52:00.465Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/33/6b/e0547afaf41bf2c42e52430072fa5658766e3d65bd4b03a563d1b6336f57/distlib-0.4.0-py2.py3-none-any.whl", hash = "sha256:9659f7d87e46584a30b5780e43ac7a2143098441670ff0a49d5f9034c54a6c16", size = 469047, upload-time = "2025-07-17T16:51:58.613Z" },
 ]
 
 [[package]]
@@ -2467,6 +2485,7 @@ wheels = [
 name = "griffelib"
 version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ad/06/eccbd311c9e2b3ca45dbc063b93134c57a1ccc7607c5e545264ad092c4a9/griffelib-2.0.0.tar.gz", hash = "sha256:e504d637a089f5cab9b5daf18f7645970509bf4f53eda8d79ed71cce8bd97934", size = 166312, upload-time = "2026-03-23T21:06:55.954Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/4d/51/c936033e16d12b627ea334aaaaf42229c37620d0f15593456ab69ab48161/griffelib-2.0.0-py3-none-any.whl", hash = "sha256:01284878c966508b6d6f1dbff9b6fa607bc062d8261c5c7253cb285b06422a7f", size = 142004, upload-time = "2026-02-09T19:09:40.561Z" },
 ]
@@ -2693,6 +2712,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/7c/b7/8cb61d2eece5fb05a83271da168186721c450eb74e3c31f7ef3169fa475b/huggingface_hub-0.36.2.tar.gz", hash = "sha256:1934304d2fb224f8afa3b87007d58501acfda9215b334eed53072dd5e815ff7a", size = 649782, upload-time = "2026-02-06T09:24:13.098Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a8/af/48ac8483240de756d2438c380746e7130d1c6f75802ef22f3c6d49982787/huggingface_hub-0.36.2-py3-none-any.whl", hash = "sha256:48f0c8eac16145dfce371e9d2d7772854a4f591bcb56c9cf548accf531d54270", size = 566395, upload-time = "2026-02-06T09:24:11.133Z" },
+]
+
+[[package]]
+name = "identify"
+version = "2.6.18"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/46/c4/7fb4db12296cdb11893d61c92048fe617ee853f8523b9b296ac03b43757e/identify-2.6.18.tar.gz", hash = "sha256:873ac56a5e3fd63e7438a7ecbc4d91aca692eb3fefa4534db2b7913f3fc352fd", size = 99580, upload-time = "2026-03-15T18:39:50.319Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/46/33/92ef41c6fad0233e41d3d84ba8e8ad18d1780f1e5d99b3c683e6d7f98b63/identify-2.6.18-py2.py3-none-any.whl", hash = "sha256:8db9d3c8ea9079db92cafb0ebf97abdc09d52e97f4dcf773a2e694048b7cd737", size = 99394, upload-time = "2026-03-15T18:39:48.915Z" },
 ]
 
 [[package]]
@@ -4238,6 +4266,15 @@ wheels = [
 ]
 
 [[package]]
+name = "nodeenv"
+version = "1.10.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/24/bf/d1bda4f6168e0b2e9e5958945e01910052158313224ada5ce1fb2e1113b8/nodeenv-1.10.0.tar.gz", hash = "sha256:996c191ad80897d076bdfba80a41994c2b47c68e224c542b48feba42ba00f8bb", size = 55611, upload-time = "2025-12-20T14:08:54.006Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/88/b2/d0896bdcdc8d28a7fc5717c305f1a861c26e18c05047949fb371034d98bd/nodeenv-1.10.0-py2.py3-none-any.whl", hash = "sha256:5bb13e3eed2923615535339b3c620e76779af4cb4c6a90deccc9e36b274d3827", size = 23438, upload-time = "2025-12-20T14:08:52.782Z" },
+]
+
+[[package]]
 name = "numba"
 version = "0.61.2"
 source = { registry = "https://pypi.org/simple" }
@@ -4682,6 +4719,7 @@ dependencies = [
     { name = "python-telegram-bot" },
     { name = "rich" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
+    { name = "tomlkit" },
 ]
 
 [package.optional-dependencies]
@@ -4734,6 +4772,7 @@ dashboard = [
 ]
 dev = [
     { name = "maturin" },
+    { name = "pre-commit" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
@@ -4771,6 +4810,9 @@ gpu-metrics = [
 inference-cloud = [
     { name = "anthropic" },
     { name = "openai" },
+]
+inference-gemma = [
+    { name = "pygemma" },
 ]
 inference-google = [
     { name = "google-genai" },
@@ -4895,7 +4937,9 @@ requires-dist = [
     { name = "pdfplumber", marker = "extra == 'pdf'", specifier = ">=0.10" },
     { name = "playwright", marker = "extra == 'browser'", specifier = ">=1.40" },
     { name = "praw", marker = "extra == 'channel-reddit'", specifier = ">=7.0" },
+    { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.0" },
     { name = "pydantic", marker = "extra == 'server'", specifier = ">=2.0" },
+    { name = "pygemma", marker = "extra == 'inference-gemma'", specifier = ">=0.1.3" },
     { name = "pymessenger", marker = "extra == 'channel-messenger'", specifier = ">=0.0.7" },
     { name = "pynostr", marker = "extra == 'channel-nostr'", specifier = ">=0.6" },
     { name = "pynvml", marker = "extra == 'energy-all'", specifier = ">=12.0" },
@@ -4917,6 +4961,7 @@ requires-dist = [
     { name = "tavily-python", marker = "extra == 'tools-search'", specifier = ">=0.3" },
     { name = "textual", marker = "extra == 'dashboard'", specifier = ">=0.80" },
     { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0" },
+    { name = "tomlkit", specifier = ">=0.12" },
     { name = "torch", marker = "extra == 'memory-colbert'", specifier = ">=2.0" },
     { name = "torch", marker = "extra == 'orchestrator-training'", specifier = ">=2.0" },
     { name = "transformers", marker = "extra == 'orchestrator-training'", specifier = ">=4.40" },
@@ -4930,7 +4975,7 @@ requires-dist = [
     { name = "zeus-ml", extras = ["apple"], marker = "extra == 'energy-apple'" },
     { name = "zulip", marker = "extra == 'channel-zulip'", specifier = ">=0.9" },
 ]
-provides-extras = ["dev", "inference-mlx", "inference-vllm", "inference-cloud", "inference-google", "inference-litellm", "tools-search", "memory-faiss", "memory-colbert", "memory-pdf", "memory-bm25", "server", "openhands", "gpu-metrics", "energy-amd", "energy-apple", "energy-all", "orchestrator-training", "learning-dspy", "learning-gepa", "channel-telegram", "channel-discord", "channel-slack", "channel-line", "channel-viber", "channel-messenger", "channel-reddit", "channel-mastodon", "channel-xmpp", "channel-rocketchat", "channel-zulip", "channel-twitch", "channel-nostr", "browser", "media", "pdf", "scheduler", "security-signing", "sandbox-wasm", "sandbox-docker", "dashboard", "speech", "speech-deepgram", "eval-wandb", "eval-sheets", "docs"]
+provides-extras = ["dev", "inference-mlx", "inference-vllm", "inference-cloud", "inference-google", "inference-litellm", "inference-gemma", "tools-search", "memory-faiss", "memory-colbert", "memory-pdf", "memory-bm25", "server", "openhands", "gpu-metrics", "energy-amd", "energy-apple", "energy-all", "orchestrator-training", "learning-dspy", "learning-gepa", "channel-telegram", "channel-discord", "channel-slack", "channel-line", "channel-viber", "channel-messenger", "channel-reddit", "channel-mastodon", "channel-xmpp", "channel-rocketchat", "channel-zulip", "channel-twitch", "channel-nostr", "browser", "media", "pdf", "scheduler", "security-signing", "sandbox-wasm", "sandbox-docker", "dashboard", "speech", "speech-deepgram", "eval-wandb", "eval-sheets", "docs"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "maturin", specifier = ">=1.12.6" }]
@@ -5599,6 +5644,22 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/8a/62/d4c99cf472205f1e5da846b058435a6a7c988abf8eb6f7d632a7f32f4a77/prawcore-2.4.0.tar.gz", hash = "sha256:b7b2b5a1d04406e086ab4e79988dc794df16059862f329f4c6a43ed09986c335", size = 15862, upload-time = "2023-10-01T23:30:49.408Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/96/5c/8af904314e42d5401afcfaff69940dc448e974f80f7aa39b241a4fbf0cf1/prawcore-2.4.0-py3-none-any.whl", hash = "sha256:29af5da58d85704b439ad3c820873ad541f4535e00bb98c66f0fbcc8c603065a", size = 17203, upload-time = "2023-10-01T23:30:47.651Z" },
+]
+
+[[package]]
+name = "pre-commit"
+version = "4.5.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cfgv" },
+    { name = "identify" },
+    { name = "nodeenv" },
+    { name = "pyyaml" },
+    { name = "virtualenv" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/40/f1/6d86a29246dfd2e9b6237f0b5823717f60cad94d47ddc26afa916d21f525/pre_commit-4.5.1.tar.gz", hash = "sha256:eb545fcff725875197837263e977ea257a402056661f09dae08e4b149b030a61", size = 198232, upload-time = "2025-12-16T21:14:33.552Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5d/19/fd3ef348460c80af7bb4669ea7926651d1f95c23ff2df18b9d24bab4f3fa/pre_commit-4.5.1-py2.py3-none-any.whl", hash = "sha256:3b3afd891e97337708c1674210f8eba659b52a38ea5f822ff142d10786221f77", size = 226437, upload-time = "2025-12-16T21:14:32.409Z" },
 ]
 
 [[package]]
@@ -6387,6 +6448,16 @@ wheels = [
 ]
 
 [[package]]
+name = "pygemma"
+version = "0.1.3.post3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ed/23/ec5446b040c35be02431dffcc04f808b2cb8007af03d811b76a4fd3d08a0/pygemma-0.1.3.post3.tar.gz", hash = "sha256:2456accacd5643514ef28b43931261f86ece5e61e1da4fe51e3e0ce7ec0ac109", size = 3997, upload-time = "2024-03-19T02:09:42.599Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/08/51/426d2e3b3b1253bacb281357d698815c432456ad0827d49cc09e456ac3e1/pygemma-0.1.3.post3-cp311-cp311-macosx_14_0_arm64.whl", hash = "sha256:d1a61added2ea6765130b55e12e2fc305afbddb77b2cb88e257fcec91c766464", size = 1650822, upload-time = "2024-03-19T02:09:40.274Z" },
+    { url = "https://files.pythonhosted.org/packages/72/4a/4bd0aafd5e9073c9a4c3926f56bcc681290cc0811479638290fc7e189b7e/pygemma-0.1.3.post3-cp311-cp311-manylinux1_x86_64.whl", hash = "sha256:5a54175b7ecf76b3fcd6df061f7cc7d3eab90c1f0e00b6884ca9948852e3dd04", size = 1848325, upload-time = "2024-03-19T11:14:02.634Z" },
+]
+
+[[package]]
 name = "pygments"
 version = "2.19.2"
 source = { registry = "https://pypi.org/simple" }
@@ -6557,6 +6628,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/66/c0/0c8b6ad9f17a802ee498c46e004a0eb49bc148f2fd230864601a86dcf6db/python-dateutil-2.9.0.post0.tar.gz", hash = "sha256:37dd54208da7e1cd875388217d5e00ebd4179249f90fb72437e91a35459a0ad3", size = 342432, upload-time = "2024-03-01T18:36:20.211Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ec/57/56b9bcc3c9c6a792fcbaf139543cee77261f3651ca9da0c93f5c1221264b/python_dateutil-2.9.0.post0-py2.py3-none-any.whl", hash = "sha256:a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427", size = 229892, upload-time = "2024-03-01T18:36:18.57Z" },
+]
+
+[[package]]
+name = "python-discovery"
+version = "1.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "filelock" },
+    { name = "platformdirs" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9c/90/bcce6b46823c9bec1757c964dc37ed332579be512e17a30e9698095dcae4/python_discovery-1.2.0.tar.gz", hash = "sha256:7d33e350704818b09e3da2bd419d37e21e7c30db6e0977bb438916e06b41b5b1", size = 58055, upload-time = "2026-03-19T01:43:08.248Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c2/3c/2005227cb951df502412de2fa781f800663cccbef8d90ec6f1b371ac2c0d/python_discovery-1.2.0-py3-none-any.whl", hash = "sha256:1e108f1bbe2ed0ef089823d28805d5ad32be8e734b86a5f212bf89b71c266e4a", size = 31524, upload-time = "2026-03-19T01:43:07.045Z" },
 ]
 
 [[package]]
@@ -8374,6 +8458,15 @@ wheels = [
 ]
 
 [[package]]
+name = "tomlkit"
+version = "0.14.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c3/af/14b24e41977adb296d6bd1fb59402cf7d60ce364f90c890bd2ec65c43b5a/tomlkit-0.14.0.tar.gz", hash = "sha256:cf00efca415dbd57575befb1f6634c4f42d2d87dbba376128adb42c121b87064", size = 187167, upload-time = "2026-01-13T01:14:53.304Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b5/11/87d6d29fb5d237229d67973a6c9e06e048f01cf4994dee194ab0ea841814/tomlkit-0.14.0-py3-none-any.whl", hash = "sha256:592064ed85b40fa213469f81ac584f67a4f2992509a7c3ea2d632208623a3680", size = 39310, upload-time = "2026-01-13T01:14:51.965Z" },
+]
+
+[[package]]
 name = "torch"
 version = "2.10.0"
 source = { registry = "https://pypi.org/simple" }
@@ -8930,6 +9023,22 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/35/04/4b369f15a58415f449b204a90b23128acda59444ecd52666c98ca4329800/viberbot-1.0.12.tar.gz", hash = "sha256:763641f623a8486525fabcdaa4418951212123c66e532eb1dd5508683abe1d92", size = 15515, upload-time = "2021-01-27T13:46:02.084Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5d/c1/f01846f10c8383b197a67b4cdfea6eea476aab678ed9f6f5d9ccc8c8dddf/viberbot-1.0.12-py3-none-any.whl", hash = "sha256:ca43fea2945d650c2ef2cbd777f3c546c795bf945278f6620ceda42f4101d801", size = 26164, upload-time = "2021-01-27T13:45:43.726Z" },
+]
+
+[[package]]
+name = "virtualenv"
+version = "21.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "distlib" },
+    { name = "filelock" },
+    { name = "platformdirs" },
+    { name = "python-discovery" },
+    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/aa/92/58199fe10049f9703c2666e809c4f686c54ef0a68b0f6afccf518c0b1eb9/virtualenv-21.2.0.tar.gz", hash = "sha256:1720dc3a62ef5b443092e3f499228599045d7fea4c79199770499df8becf9098", size = 5840618, upload-time = "2026-03-09T17:24:38.013Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c6/59/7d02447a55b2e55755011a647479041bc92a82e143f96a8195cb33bd0a1c/virtualenv-21.2.0-py3-none-any.whl", hash = "sha256:1bd755b504931164a5a496d217c014d098426cddc79363ad66ac78125f9d908f", size = 5825084, upload-time = "2026-03-09T17:24:35.378Z" },
 ]
 
 [[package]]
