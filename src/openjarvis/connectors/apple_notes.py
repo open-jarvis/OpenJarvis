@@ -91,17 +91,14 @@ def _extract_text_from_zdata(zdata: bytes) -> str:
         return ""
 
     text = raw.decode("utf-8", errors="replace")
-    # Strip HTML tags first (handles test fixtures and any HTML-formatted notes)
-    text = re.sub(r"<[^>]+>", "", text)
+    # Strip HTML tags (replace with space to preserve word boundaries)
+    text = re.sub(r"<[^>]+>", " ", text)
     # Strip non-printable control bytes and U+FFFD replacement chars that
     # come from the protobuf wire format.
     cleaned = re.sub(r"[\x00-\x09\x0b\x0c\x0e-\x1f\x7f-\x9f\ufffd]+", " ", text)
     # Collapse whitespace runs
     cleaned = re.sub(r" {2,}", " ", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
-    cleaned = cleaned.strip()
-    # Strip short leading protobuf varint artifacts (e.g. "3 3 " or "b b ")
-    cleaned = re.sub(r"^(?:[a-z0-9] ){1,4}", "", cleaned)
     return cleaned.strip()
 
 
@@ -174,14 +171,25 @@ class AppleNotesConnector(BaseConnector):
             return
 
         try:
-            rows = conn.execute(
-                "SELECT n.ZIDENTIFIER, "
-                "  COALESCE(n.ZTITLE1, n.ZTITLE, '') AS title, "
-                "  n.ZMODIFICATIONDATE, d.ZDATA "
-                "FROM ZICCLOUDSYNCINGOBJECT n "
-                "JOIN ZICNOTEDATA d ON d.ZNOTE = n.Z_PK "
-                "ORDER BY n.ZMODIFICATIONDATE ASC"
-            ).fetchall()
+            try:
+                rows = conn.execute(
+                    "SELECT n.ZIDENTIFIER, "
+                    "  COALESCE(n.ZTITLE1, n.ZTITLE, '') AS title, "
+                    "  n.ZMODIFICATIONDATE, d.ZDATA "
+                    "FROM ZICCLOUDSYNCINGOBJECT n "
+                    "JOIN ZICNOTEDATA d ON d.ZNOTE = n.Z_PK "
+                    "ORDER BY n.ZMODIFICATIONDATE ASC"
+                ).fetchall()
+            except sqlite3.OperationalError:
+                # Older macOS schemas may lack ZTITLE1
+                rows = conn.execute(
+                    "SELECT n.ZIDENTIFIER, "
+                    "  COALESCE(n.ZTITLE, '') AS title, "
+                    "  n.ZMODIFICATIONDATE, d.ZDATA "
+                    "FROM ZICCLOUDSYNCINGOBJECT n "
+                    "JOIN ZICNOTEDATA d ON d.ZNOTE = n.Z_PK "
+                    "ORDER BY n.ZMODIFICATIONDATE ASC"
+                ).fetchall()
 
             self._items_total = len(rows)
             synced = 0
