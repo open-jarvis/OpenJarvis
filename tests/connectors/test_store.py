@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
 from openjarvis.connectors.store import KnowledgeStore
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -54,7 +52,12 @@ def ks(tmp_path: Path) -> KnowledgeStore:
 
 def test_store_and_retrieve_basic(ks: KnowledgeStore) -> None:
     """Stored content can be retrieved by a matching query."""
-    _store(ks, content="The quick brown fox jumps over the lazy dog", source="notes", doc_type="note")
+    _store(
+        ks,
+        content="The quick brown fox jumps over the lazy dog",
+        source="notes",
+        doc_type="note",
+    )
     results = ks.retrieve("quick brown fox", top_k=5)
     assert len(results) >= 1
     assert "fox" in results[0].content.lower() or "quick" in results[0].content.lower()
@@ -64,7 +67,12 @@ def test_store_and_retrieve_basic(ks: KnowledgeStore) -> None:
 def test_retrieve_filter_by_source(ks: KnowledgeStore) -> None:
     """retrieve() with source= returns only chunks from that source."""
     _store(ks, content="Email about project alpha", source="gmail", doc_type="email")
-    _store(ks, content="Note about project alpha progress", source="obsidian", doc_type="note")
+    _store(
+        ks,
+        content="Note about project alpha progress",
+        source="obsidian",
+        doc_type="note",
+    )
 
     gmail_results = ks.retrieve("project alpha", top_k=10, source="gmail")
     for r in gmail_results:
@@ -80,8 +88,18 @@ def test_retrieve_filter_by_source(ks: KnowledgeStore) -> None:
 
 def test_retrieve_filter_by_doc_type(ks: KnowledgeStore) -> None:
     """retrieve() with doc_type= filters correctly."""
-    _store(ks, content="Meeting notes from Monday", source="calendar", doc_type="meeting")
-    _store(ks, content="Meeting email received Tuesday", source="gmail", doc_type="email")
+    _store(
+        ks,
+        content="Meeting notes from Monday",
+        source="calendar",
+        doc_type="meeting",
+    )
+    _store(
+        ks,
+        content="Meeting email received Tuesday",
+        source="gmail",
+        doc_type="email",
+    )
 
     meeting_results = ks.retrieve("meeting", top_k=10, doc_type="meeting")
     for r in meeting_results:
@@ -97,10 +115,24 @@ def test_retrieve_filter_by_doc_type(ks: KnowledgeStore) -> None:
 
 def test_retrieve_filter_by_author(ks: KnowledgeStore) -> None:
     """retrieve() with author= filters correctly."""
-    _store(ks, content="Alice wrote about machine learning research", source="gmail", doc_type="email", author="alice@example.com")
-    _store(ks, content="Bob wrote about machine learning deployment", source="gmail", doc_type="email", author="bob@example.com")
+    _store(
+        ks,
+        content="Alice wrote about machine learning research",
+        source="gmail",
+        doc_type="email",
+        author="alice@example.com",
+    )
+    _store(
+        ks,
+        content="Bob wrote about machine learning deployment",
+        source="gmail",
+        doc_type="email",
+        author="bob@example.com",
+    )
 
-    alice_results = ks.retrieve("machine learning", top_k=10, author="alice@example.com")
+    alice_results = ks.retrieve(
+        "machine learning", top_k=10, author="alice@example.com"
+    )
     for r in alice_results:
         assert r.metadata.get("author") == "alice@example.com"
 
@@ -132,9 +164,27 @@ def test_retrieve_filter_by_timestamp_since(ks: KnowledgeStore) -> None:
 def test_delete_by_doc_id(ks: KnowledgeStore) -> None:
     """delete() removes all chunks with matching doc_id."""
     doc_id = "test:doc:001"
-    _store(ks, content="First chunk of the document", source="notes", doc_id=doc_id, chunk_index=0)
-    _store(ks, content="Second chunk of the document", source="notes", doc_id=doc_id, chunk_index=1)
-    _store(ks, content="Other document content", source="notes", doc_id="other:doc:001", chunk_index=0)
+    _store(
+        ks,
+        content="First chunk of the document",
+        source="notes",
+        doc_id=doc_id,
+        chunk_index=0,
+    )
+    _store(
+        ks,
+        content="Second chunk of the document",
+        source="notes",
+        doc_id=doc_id,
+        chunk_index=1,
+    )
+    _store(
+        ks,
+        content="Other document content",
+        source="notes",
+        doc_id="other:doc:001",
+        chunk_index=0,
+    )
 
     # Confirm items are stored
     before = ks.retrieve("document", top_k=10)
@@ -212,7 +262,11 @@ def test_retrieve_empty_store(ks: KnowledgeStore) -> None:
 def test_retrieve_top_k_respected(ks: KnowledgeStore) -> None:
     """top_k limits the number of returned results."""
     for i in range(10):
-        _store(ks, content=f"Research document number {i} about topic X", source="notes")
+        _store(
+            ks,
+            content=f"Research document number {i} about topic X",
+            source="notes",
+        )
 
     results = ks.retrieve("research topic", top_k=3)
     assert len(results) <= 3
@@ -231,8 +285,18 @@ def test_retrieve_filter_by_until(ks: KnowledgeStore) -> None:
     new_ts = datetime(2025, 6, 1, tzinfo=timezone.utc)
     cutoff = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
-    _store(ks, content="Old quarterly report analysis", source="notes", timestamp=old_ts)
-    _store(ks, content="New quarterly report analysis", source="notes", timestamp=new_ts)
+    _store(
+        ks,
+        content="Old quarterly report analysis",
+        source="notes",
+        timestamp=old_ts,
+    )
+    _store(
+        ks,
+        content="New quarterly report analysis",
+        source="notes",
+        timestamp=new_ts,
+    )
 
     results = ks.retrieve("quarterly report", top_k=10, until=cutoff)
     for r in results:

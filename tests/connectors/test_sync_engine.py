@@ -13,7 +13,6 @@ from openjarvis.connectors.pipeline import IngestionPipeline
 from openjarvis.connectors.store import KnowledgeStore
 from openjarvis.connectors.sync_engine import SyncEngine
 
-
 # ---------------------------------------------------------------------------
 # StubConnector test helper
 # ---------------------------------------------------------------------------
@@ -54,7 +53,9 @@ class StubConnector(BaseConnector):
 # ---------------------------------------------------------------------------
 
 
-def _make_doc(doc_id: str, source: str = "stub", content: str = "Test content.") -> Document:
+def _make_doc(
+    doc_id: str, source: str = "stub", content: str = "Test content."
+) -> Document:
     return Document(
         doc_id=doc_id,
         source=source,
@@ -93,7 +94,10 @@ def engine(pipeline: IngestionPipeline, tmp_path: Path) -> SyncEngine:
 
 def test_sync_connector(engine: SyncEngine, store: KnowledgeStore) -> None:
     """StubConnector yields 5 docs; all are ingested and retrievable."""
-    docs = [_make_doc(f"doc:{i}", content=f"Unique content for document {i}") for i in range(5)]
+    docs = [
+        _make_doc(f"doc:{i}", content=f"Unique content for document {i}")
+        for i in range(5)
+    ]
     connector = StubConnector(docs)
 
     items = engine.sync(connector)
@@ -141,7 +145,7 @@ def test_sync_status_for_unsynced(engine: SyncEngine) -> None:
 def test_sync_multiple_connectors(
     pipeline: IngestionPipeline, store: KnowledgeStore, tmp_path: Path
 ) -> None:
-    """Two connectors with different sources can be filtered independently in the store."""
+    """Two connectors with different sources can be filtered independently."""
 
     class StubConnectorA(StubConnector):
         connector_id = "stub_a"
@@ -149,8 +153,14 @@ def test_sync_multiple_connectors(
     class StubConnectorB(StubConnector):
         connector_id = "stub_b"
 
-    docs_a = [_make_doc(f"a:doc:{i}", source="source_a", content=f"Alpha content {i}") for i in range(3)]
-    docs_b = [_make_doc(f"b:doc:{i}", source="source_b", content=f"Beta content {i}") for i in range(4)]
+    docs_a = [
+        _make_doc(f"a:doc:{i}", source="source_a", content=f"Alpha content {i}")
+        for i in range(3)
+    ]
+    docs_b = [
+        _make_doc(f"b:doc:{i}", source="source_b", content=f"Beta content {i}")
+        for i in range(4)
+    ]
 
     engine = SyncEngine(pipeline, state_db=str(tmp_path / "multi_sync_state.db"))
 

@@ -148,9 +148,18 @@ def test_render_blocks_to_markdown() -> None:
     from openjarvis.connectors.notion import _render_blocks_to_markdown  # noqa: PLC0415
 
     blocks = [
-        {"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": "Para text"}]}},
-        {"type": "heading_1", "heading_1": {"rich_text": [{"plain_text": "H1 Title"}]}},
-        {"type": "heading_2", "heading_2": {"rich_text": [{"plain_text": "H2 Title"}]}},
+        {
+            "type": "paragraph",
+            "paragraph": {"rich_text": [{"plain_text": "Para text"}]},
+        },
+        {
+            "type": "heading_1",
+            "heading_1": {"rich_text": [{"plain_text": "H1 Title"}]},
+        },
+        {
+            "type": "heading_2",
+            "heading_2": {"rich_text": [{"plain_text": "H2 Title"}]},
+        },
         {"type": "heading_3", "heading_3": {"rich_text": [{"plain_text": "H3 Title"}]}},
         {
             "type": "bulleted_list_item",
@@ -162,7 +171,10 @@ def test_render_blocks_to_markdown() -> None:
         },
         {
             "type": "to_do",
-            "to_do": {"rich_text": [{"plain_text": "Unchecked task"}], "checked": False},
+            "to_do": {
+                "rich_text": [{"plain_text": "Unchecked task"}],
+                "checked": False,
+            },
         },
         {
             "type": "to_do",
