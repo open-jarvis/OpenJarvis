@@ -26,8 +26,11 @@ class TestInitHost:
             result = CliRunner().invoke(
                 cli,
                 [
-                    "init", "--engine", "ollama",
-                    "--host", "http://192.168.1.50:11434",
+                    "init",
+                    "--engine",
+                    "ollama",
+                    "--host",
+                    "http://192.168.1.50:11434",
                     _NO_DL,
                 ],
             )
@@ -80,9 +83,7 @@ class TestInitHost:
             mock.patch("openjarvis.cli.init_cmd.DEFAULT_CONFIG_PATH", config_path),
             mock.patch("openjarvis.cli.init_cmd.PrivacyScanner"),
         ):
-            result = CliRunner().invoke(
-                cli, ["init", "--engine", "ollama", _NO_DL]
-            )
+            result = CliRunner().invoke(cli, ["init", "--engine", "ollama", _NO_DL])
         assert result.exit_code == 0
         content = config_path.read_text()
         assert "[engine]" in content
@@ -91,19 +92,26 @@ class TestInitHost:
 class TestGenerateTomlHost:
     def test_minimal_toml_with_host(self) -> None:
         from openjarvis.core.config import HardwareInfo
+
         hw = HardwareInfo()
-        toml_str = generate_minimal_toml(hw, engine="ollama", host="http://remote:11434")
+        toml_str = generate_minimal_toml(
+            hw, engine="ollama", host="http://remote:11434"
+        )
         assert "http://remote:11434" in toml_str
         assert "[engine.ollama]" in toml_str
 
     def test_minimal_toml_without_host_has_comment(self) -> None:
         from openjarvis.core.config import HardwareInfo
+
         hw = HardwareInfo()
         toml_str = generate_minimal_toml(hw, engine="ollama")
         assert "# host" in toml_str
 
     def test_default_toml_with_host(self) -> None:
         from openjarvis.core.config import HardwareInfo
+
         hw = HardwareInfo()
-        toml_str = generate_default_toml(hw, engine="ollama", host="http://remote:11434")
+        toml_str = generate_default_toml(
+            hw, engine="ollama", host="http://remote:11434"
+        )
         assert "http://remote:11434" in toml_str

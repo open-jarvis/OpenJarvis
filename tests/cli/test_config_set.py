@@ -70,6 +70,7 @@ class TestConfigSet:
                 cli, ["config", "set", "engine.olllama.host", "http://x:1234"]
             )
         assert result.exit_code != 0
+        assert "Unknown config key" in result.output
 
     def test_set_engine_host_probes_reachable(self, tmp_path: Path) -> None:
         """config set probes engine host and reports reachability."""
