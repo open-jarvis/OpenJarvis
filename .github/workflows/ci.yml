@@ -63,7 +63,7 @@ jobs:
         run: uv run maturin develop --manifest-path rust/crates/openjarvis-python/Cargo.toml
 
       - name: Run tests
-        run: uv run pytest tests/ -v --tb=short
+        run: uv run pytest tests/ -v --tb=short -m "not live and not cloud"
 
   rust:
     runs-on: ubuntu-latest
