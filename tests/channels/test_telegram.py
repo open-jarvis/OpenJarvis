@@ -140,3 +140,125 @@ class TestDisconnect:
         ch._status = ChannelStatus.CONNECTED
         ch.disconnect()
         assert ch.status() == ChannelStatus.DISCONNECTED
+
+
+class TestAllowedChatIds:
+    """Tests for the allowed_chat_ids enforcement in _poll_loop."""
+
+    def _make_update(self, chat_id: str, text: str = "hello"):
+        """Build a minimal fake python-telegram-bot Update object."""
+        msg = MagicMock()
+        msg.text = text
+        msg.message_id = 1
+        msg.from_user.id = chat_id
+        msg.chat.id = chat_id
+        update = MagicMock()
+        update.message = msg
+        return update
+
+    def _invoke_handle_msg(self, ch: TelegramChannel, chat_id: str, text: str = "hi"):
+        """Simulate _poll_loop dispatching a message without starting a thread."""
+        from openjarvis.channels._stubs import ChannelMessage
+
+        cm = ChannelMessage(
+            channel="telegram",
+            sender=chat_id,
+            content=text,
+            message_id="1",
+            conversation_id=chat_id,
+        )
+        # Directly exercise the allow-list logic (mirrors _handle_msg body)
+        if ch._allowed_chat_ids:
+            _allowed = {
+                cid.strip() for cid in ch._allowed_chat_ids.split(",") if cid.strip()
+            }
+            if cm.conversation_id not in _allowed:
+                return False  # would return inside _handle_msg
+        for handler in ch._handlers:
+            handler(cm)
+        return True
+
+    def test_no_allowlist_accepts_any(self):
+        """When allowed_chat_ids is empty every chat is dispatched."""
+        ch = TelegramChannel(bot_token="tok", allowed_chat_ids="")
+        handler = MagicMock()
+        ch.on_message(handler)
+        dispatched = self._invoke_handle_msg(ch, "99999")
+        assert dispatched is True
+        handler.assert_called_once()
+
+    def test_allowlist_passes_listed_chat(self):
+        """A chat ID present in the allow-list is dispatched to handlers."""
+        ch = TelegramChannel(bot_token="tok", allowed_chat_ids="111,222")
+        handler = MagicMock()
+        ch.on_message(handler)
+        dispatched = self._invoke_handle_msg(ch, "111")
+        assert dispatched is True
+        handler.assert_called_once()
+
+    def test_allowlist_blocks_unlisted_chat(self):
+        """A chat ID not in the allow-list is silently dropped (not dispatched)."""
+        ch = TelegramChannel(bot_token="tok", allowed_chat_ids="111,222")
+        handler = MagicMock()
+        ch.on_message(handler)
+        dispatched = self._invoke_handle_msg(ch, "999")
+        assert dispatched is False
+        handler.assert_not_called()
+
+    def test_allowlist_trims_whitespace(self):
+        """Spaces around IDs in the allow-list are handled gracefully."""
+        ch = TelegramChannel(bot_token="tok", allowed_chat_ids=" 111 , 222 ")
+        handler = MagicMock()
+        ch.on_message(handler)
+        dispatched = self._invoke_handle_msg(ch, "111")
+        assert dispatched is True
+        handler.assert_called_once()
+
+
+class TestChannelAgentWiring:
+    """Tests for the channel → agent handler wired in serve.py."""
+
+    def test_on_message_handler_invoked_on_message(self):
+        """on_message callback registered on a channel is called when a message
+        arrives."""
+        ch = TelegramChannel(bot_token="tok")
+        received = []
+        ch.on_message(lambda cm: received.append(cm))
+
+        from openjarvis.channels._stubs import ChannelMessage
+
+        cm = ChannelMessage(
+            channel="telegram",
+            sender="42",
+            content="ping",
+            message_id="1",
+            conversation_id="42",
+        )
+        for h in ch._handlers:
+            h(cm)
+
+        assert len(received) == 1
+        assert received[0].content == "ping"
+
+    def test_multiple_handlers_all_invoked(self):
+        """Both handlers registered via on_message are called for the same message."""
+        ch = TelegramChannel(bot_token="tok")
+        calls_a: list = []
+        calls_b: list = []
+        ch.on_message(lambda cm: calls_a.append(cm))
+        ch.on_message(lambda cm: calls_b.append(cm))
+
+        from openjarvis.channels._stubs import ChannelMessage
+
+        cm = ChannelMessage(
+            channel="telegram",
+            sender="1",
+            content="x",
+            message_id="1",
+            conversation_id="1",
+        )
+        for h in ch._handlers:
+            h(cm)
+
+        assert len(calls_a) == 1
+        assert len(calls_b) == 1

@@ -34,6 +34,7 @@ interface SavingsData {
     heavy_low: number;
     heavy_high: number;
   };
+  token_counting_version?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -335,6 +336,7 @@ export function SavingsDashboard({ apiUrl }: { apiUrl: string }) {
         dollar_savings: dollarSavings,
         energy_wh_saved: energySaved,
         flops_saved: flopsSaved,
+        token_counting_version: data.token_counting_version ?? 1,
       },
     }).catch(() => {});
   }, [data, optInEnabled, displayName, anonId]);

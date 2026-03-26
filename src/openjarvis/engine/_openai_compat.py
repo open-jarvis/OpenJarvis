@@ -13,6 +13,7 @@ from openjarvis.core.types import Message
 from openjarvis.engine._base import (
     EngineConnectionError,
     InferenceEngine,
+    estimate_prompt_tokens,
     messages_to_dicts,
 )
 
@@ -32,26 +33,6 @@ class _OpenAICompatibleEngine(InferenceEngine):
 
     # -- InferenceEngine interface ------------------------------------------
 
-    @staticmethod
-    def _fix_tool_call_arguments(msg_dicts: list) -> list:
-        """Ensure tool_call arguments are dicts, not JSON strings.
-
-        OpenAI-compatible servers (vLLM, SGLang, llama.cpp, etc.) expect
-        tool_call arguments as JSON objects.  ``messages_to_dicts`` may
-        serialize them as strings, which causes 400 errors on multi-turn
-        tool-calling conversations.
-        """
-        for md in msg_dicts:
-            for tc in md.get("tool_calls", []):
-                fn = tc.get("function", {})
-                args = fn.get("arguments")
-                if isinstance(args, str):
-                    try:
-                        fn["arguments"] = json.loads(args)
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-        return msg_dicts
-
     def generate(
         self,
         messages: Sequence[Message],
@@ -61,14 +42,12 @@ class _OpenAICompatibleEngine(InferenceEngine):
         max_tokens: int = 1024,
         **kwargs: Any,
     ) -> Dict[str, Any]:
-        msg_dicts = self._fix_tool_call_arguments(messages_to_dicts(messages))
         payload: Dict[str, Any] = {
             "model": model,
-            "messages": msg_dicts,
+            "messages": messages_to_dicts(messages),
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": False,
-            "chat_template_kwargs": {"enable_thinking": False},
             **kwargs,
         }
         try:
@@ -94,12 +73,21 @@ class _OpenAICompatibleEngine(InferenceEngine):
             }
         choice = choices[0]
         usage = data.get("usage", {})
+        # Ensure prompt_tokens reflects the full prompt size (including
+        # system prompt and all conversation history).
+        # OpenAI-compat APIs (vLLM, SGLang) report full counts — KV
+        # caching is transparent, so evaluated == full.
+        reported_prompt = usage.get("prompt_tokens", 0)
+        estimated_prompt = estimate_prompt_tokens(messages)
+        prompt_tokens = max(reported_prompt, estimated_prompt)
+        completion_tokens = usage.get("completion_tokens", 0)
         result: Dict[str, Any] = {
             "content": choice["message"].get("content") or "",
             "usage": {
-                "prompt_tokens": usage.get("prompt_tokens", 0),
-                "completion_tokens": usage.get("completion_tokens", 0),
-                "total_tokens": usage.get("total_tokens", 0),
+                "prompt_tokens": prompt_tokens,
+                "prompt_tokens_evaluated": reported_prompt or prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": prompt_tokens + completion_tokens,
             },
             "model": data.get("model", model),
             "finish_reason": choice.get("finish_reason", "stop"),
@@ -126,10 +114,9 @@ class _OpenAICompatibleEngine(InferenceEngine):
         max_tokens: int = 1024,
         **kwargs: Any,
     ) -> AsyncIterator[str]:
-        msg_dicts = self._fix_tool_call_arguments(messages_to_dicts(messages))
         payload: Dict[str, Any] = {
             "model": model,
-            "messages": msg_dicts,
+            "messages": messages_to_dicts(messages),
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": True,

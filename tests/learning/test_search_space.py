@@ -36,8 +36,7 @@ class TestBuildSearchSpace:
                 },
                 "constraints": {
                     "rules": [
-                        "SimpleAgent should only have "
-                        "max_turns = 1",
+                        "SimpleAgent should only have max_turns = 1",
                     ],
                 },
             },
@@ -350,9 +349,16 @@ class TestDefaultSearchSpace:
         dim = _find_dim("engine.backend")
         assert dim.dim_type == "categorical"
         expected = {
-            "ollama", "vllm", "sglang",
-            "llamacpp", "mlx", "lmstudio",
-            "exo", "nexa", "uzu", "apple_fm",
+            "ollama",
+            "vllm",
+            "sglang",
+            "llamacpp",
+            "mlx",
+            "lmstudio",
+            "exo",
+            "nexa",
+            "uzu",
+            "apple_fm",
         }
         assert set(dim.values) == expected
 
@@ -360,8 +366,10 @@ class TestDefaultSearchSpace:
         dim = _find_dim("agent.type")
         assert dim.dim_type == "categorical"
         expected = {
-            "simple", "orchestrator",
-            "native_react", "native_openhands",
+            "simple",
+            "orchestrator",
+            "native_react",
+            "native_openhands",
         }
         assert set(dim.values) == expected
 
@@ -388,15 +396,11 @@ class TestDefaultSearchSpace:
 
     def test_all_dimensions_have_descriptions(self) -> None:
         for dim in _DIMS:
-            assert dim.description != "", (
-                f"Dimension {dim.name} has no description"
-            )
+            assert dim.description != "", f"Dimension {dim.name} has no description"
 
     def test_all_dimensions_have_primitives(self) -> None:
         for dim in _DIMS:
-            assert dim.primitive != "", (
-                f"Dimension {dim.name} has no primitive"
-            )
+            assert dim.primitive != "", f"Dimension {dim.name} has no primitive"
 
 
 # ---------------------------------------------------------------------------
@@ -415,15 +419,16 @@ class TestToPromptDescription:
     def test_all_dimensions_appear_in_description(self) -> None:
         desc = DEFAULT_SEARCH_SPACE.to_prompt_description()
         for dim in _DIMS:
-            assert dim.name in desc, (
-                f"Dimension {dim.name} not in description"
-            )
+            assert dim.name in desc, f"Dimension {dim.name} not in description"
 
     def test_all_primitive_headers_in_description(self) -> None:
         desc = DEFAULT_SEARCH_SPACE.to_prompt_description()
         for primitive in (
-            "Intelligence", "Engine", "Agent",
-            "Tools", "Learning",
+            "Intelligence",
+            "Engine",
+            "Agent",
+            "Tools",
+            "Learning",
         ):
             assert f"## {primitive}" in desc, (
                 f"Primitive header {primitive} not in description"

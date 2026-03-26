@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any
 
@@ -15,6 +16,7 @@ from openjarvis.server.models import (
     ChatCompletionResponse,
     Choice,
     ChoiceMessage,
+    ComplexityInfo,
     DeltaMessage,
     ModelListResponse,
     ModelObject,
@@ -46,6 +48,85 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
     agent = getattr(request.app.state, "agent", None)
     model = request_body.model
 
+    # Inject memory context into messages before dispatching
+    config = getattr(request.app.state, "config", None)
+    memory_backend = getattr(request.app.state, "memory_backend", None)
+    if (
+        config is not None
+        and memory_backend is not None
+        and config.agent.context_from_memory
+        and request_body.messages
+    ):
+        try:
+            from openjarvis.tools.storage.context import ContextConfig, inject_context
+
+            # Extract query from the last user message
+            query_text = ""
+            for m in reversed(request_body.messages):
+                if m.role == "user" and m.content:
+                    query_text = m.content
+                    break
+
+            if query_text:
+                messages = _to_messages(request_body.messages)
+                ctx_cfg = ContextConfig(
+                    top_k=config.memory.context_top_k,
+                    min_score=config.memory.context_min_score,
+                    max_context_tokens=config.memory.context_max_tokens,
+                )
+                enriched = inject_context(
+                    query_text, messages, memory_backend, config=ctx_cfg,
+                )
+                # Rebuild request messages from enriched Message objects
+                if len(enriched) > len(messages):
+                    from openjarvis.server.models import ChatMessage
+
+                    new_msgs = []
+                    for msg in enriched:
+                        new_msgs.append(ChatMessage(
+                            role=msg.role.value,
+                            content=msg.content,
+                            name=msg.name,
+                            tool_call_id=getattr(msg, "tool_call_id", None),
+                        ))
+                    request_body.messages = new_msgs
+        except Exception:
+            logging.getLogger("openjarvis.server").debug(
+                "Memory context injection failed", exc_info=True,
+            )
+
+    # Run complexity analysis on the last user message
+    complexity_info = None
+    query_text_for_complexity = ""
+    for m in reversed(request_body.messages):
+        if m.role == "user" and m.content:
+            query_text_for_complexity = m.content
+            break
+    if query_text_for_complexity:
+        try:
+            from openjarvis.learning.routing.complexity import (
+                adjust_tokens_for_model,
+                score_complexity,
+            )
+
+            cr = score_complexity(query_text_for_complexity)
+            suggested = adjust_tokens_for_model(
+                cr.suggested_max_tokens, model,
+            )
+            complexity_info = ComplexityInfo(
+                score=cr.score,
+                tier=cr.tier,
+                suggested_max_tokens=suggested,
+            )
+            # Bump max_tokens when complexity suggests more than what
+            # the client requested — never reduce below the request value.
+            if suggested > request_body.max_tokens:
+                request_body.max_tokens = suggested
+        except Exception:
+            logging.getLogger("openjarvis.server").debug(
+                "Complexity analysis failed", exc_info=True,
+            )
+
     if request_body.stream:
         bus = getattr(request.app.state, "bus", None)
         # Use the agent stream bridge only when tools are present (the
@@ -54,18 +135,22 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
         # directly from the engine for true token-by-token output.
         if agent is not None and bus is not None and request_body.tools:
             return await _handle_agent_stream(agent, bus, model, request_body)
-        return await _handle_stream(engine, model, request_body)
+        return await _handle_stream(engine, model, request_body, complexity_info)
 
     # Non-streaming: use agent if available, otherwise direct engine call
     if agent is not None:
-        return _handle_agent(agent, model, request_body)
+        return _handle_agent(agent, model, request_body, complexity_info)
 
     bus = getattr(request.app.state, "bus", None)
-    return _handle_direct(engine, model, request_body, bus=bus)
+    return _handle_direct(
+        engine, model, request_body,
+        bus=bus, complexity_info=complexity_info,
+    )
 
 
 def _handle_direct(
     engine, model: str, req: ChatCompletionRequest, bus=None,
+    complexity_info=None,
 ) -> ChatCompletionResponse:
     """Direct engine call without agent."""
     messages = _to_messages(req.messages)
@@ -118,11 +203,13 @@ def _handle_direct(
             completion_tokens=usage.get("completion_tokens", 0),
             total_tokens=usage.get("total_tokens", 0),
         ),
+        complexity=complexity_info,
     )
 
 
 def _handle_agent(
     agent, model: str, req: ChatCompletionRequest,
+    complexity_info=None,
 ) -> ChatCompletionResponse:
     """Run through agent."""
     from openjarvis.agents._stubs import AgentContext
@@ -159,6 +246,7 @@ def _handle_agent(
             finish_reason="stop",
         )],
         usage=usage,
+        complexity=complexity_info,
     )
 
 
@@ -169,7 +257,10 @@ async def _handle_agent_stream(agent, bus, model, req):
     return await create_agent_stream(agent, bus, model, req)
 
 
-async def _handle_stream(engine, model: str, req: ChatCompletionRequest):
+async def _handle_stream(
+    engine, model: str, req: ChatCompletionRequest,
+    complexity_info=None,
+):
     """Stream response using SSE format."""
     messages = _to_messages(req.messages)
     chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
@@ -245,6 +336,9 @@ async def _handle_stream(engine, model: str, req: ChatCompletionRequest):
         stream_usage = getattr(raw_engine, "_last_stream_usage", None)
         if isinstance(stream_usage, dict) and stream_usage.get("total_tokens", 0) > 0:
             finish_dict["usage"] = stream_usage
+
+        if complexity_info is not None:
+            finish_dict["complexity"] = complexity_info.model_dump()
 
         yield f"data: {_json.dumps(finish_dict)}\n\n"
         yield "data: [DONE]\n\n"
@@ -376,10 +470,37 @@ async def savings(request: Request):
             ),
             total_calls=sum(m.call_count for m in local_models),
             session_start=session_start if session_start else 0.0,
+            prompt_tokens_evaluated=sum(
+                m.prompt_tokens_evaluated for m in local_models
+            ),
         )
         return savings_to_dict(result)
     finally:
         agg.close()
+
+
+@router.post("/v1/telemetry/reset")
+async def reset_telemetry():
+    """Clear all stored telemetry records.
+
+    Useful after updating token-counting methodology — clears
+    historical records that were computed under the old rules so
+    that the savings dashboard and leaderboard submissions start
+    fresh with corrected values.
+    """
+    from openjarvis.core.config import DEFAULT_CONFIG_DIR
+    from openjarvis.telemetry.aggregator import TelemetryAggregator
+
+    db_path = DEFAULT_CONFIG_DIR / "telemetry.db"
+    if not db_path.exists():
+        return {"status": "ok", "records_cleared": 0}
+
+    agg = TelemetryAggregator(db_path)
+    try:
+        count = agg.clear()
+    finally:
+        agg.close()
+    return {"status": "ok", "records_cleared": count}
 
 
 @router.get("/v1/info")

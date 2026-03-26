@@ -77,40 +77,51 @@ class TestEnergyMonitorABC:
 
 class TestCreateEnergyMonitor:
     def test_returns_none_when_nothing_available(self):
-        with patch(
-            "openjarvis.telemetry.energy_nvidia.NvidiaEnergyMonitor.available",
-            return_value=False,
-        ), patch(
-            "openjarvis.telemetry.energy_amd.AmdEnergyMonitor.available",
-            return_value=False,
-        ), patch(
-            "openjarvis.telemetry.energy_apple.AppleEnergyMonitor.available",
-            return_value=False,
-        ), patch(
-            "openjarvis.telemetry.energy_rapl.RaplEnergyMonitor.available",
-            return_value=False,
+        with (
+            patch(
+                "openjarvis.telemetry.energy_nvidia.NvidiaEnergyMonitor.available",
+                return_value=False,
+            ),
+            patch(
+                "openjarvis.telemetry.energy_amd.AmdEnergyMonitor.available",
+                return_value=False,
+            ),
+            patch(
+                "openjarvis.telemetry.energy_apple.AppleEnergyMonitor.available",
+                return_value=False,
+            ),
+            patch(
+                "openjarvis.telemetry.energy_rapl.RaplEnergyMonitor.available",
+                return_value=False,
+            ),
         ):
             result = create_energy_monitor()
             assert result is None
 
     def test_prefer_vendor_parameter(self):
         """When prefer_vendor is set, that vendor is tried first."""
-        with patch(
-            "openjarvis.telemetry.energy_nvidia.NvidiaEnergyMonitor.available",
-            return_value=False,
-        ), patch(
-            "openjarvis.telemetry.energy_amd.AmdEnergyMonitor.available",
-            return_value=False,
-        ), patch(
-            "openjarvis.telemetry.energy_apple.AppleEnergyMonitor.available",
-            return_value=False,
-        ), patch(
-            "openjarvis.telemetry.energy_rapl.RaplEnergyMonitor.available",
-            return_value=True,
-        ), patch(
-            "openjarvis.telemetry.energy_rapl.RaplEnergyMonitor.__init__",
-            return_value=None,
-        ) as mock_init:
+        with (
+            patch(
+                "openjarvis.telemetry.energy_nvidia.NvidiaEnergyMonitor.available",
+                return_value=False,
+            ),
+            patch(
+                "openjarvis.telemetry.energy_amd.AmdEnergyMonitor.available",
+                return_value=False,
+            ),
+            patch(
+                "openjarvis.telemetry.energy_apple.AppleEnergyMonitor.available",
+                return_value=False,
+            ),
+            patch(
+                "openjarvis.telemetry.energy_rapl.RaplEnergyMonitor.available",
+                return_value=True,
+            ),
+            patch(
+                "openjarvis.telemetry.energy_rapl.RaplEnergyMonitor.__init__",
+                return_value=None,
+            ) as mock_init,
+        ):
             create_energy_monitor(prefer_vendor="cpu_rapl")
             # RaplEnergyMonitor was available and preferred
             mock_init.assert_called_once_with(poll_interval_ms=50)
@@ -127,21 +138,27 @@ class TestCreateEnergyMonitor:
             call_order.append("amd")
             return True
 
-        with patch(
-            "openjarvis.telemetry.energy_nvidia.NvidiaEnergyMonitor.available",
-            side_effect=nvidia_available,
-        ), patch(
-            "openjarvis.telemetry.energy_amd.AmdEnergyMonitor.available",
-            side_effect=amd_available,
-        ), patch(
-            "openjarvis.telemetry.energy_apple.AppleEnergyMonitor.available",
-            return_value=False,
-        ), patch(
-            "openjarvis.telemetry.energy_rapl.RaplEnergyMonitor.available",
-            return_value=False,
-        ), patch(
-            "openjarvis.telemetry.energy_nvidia.NvidiaEnergyMonitor.__init__",
-            return_value=None,
+        with (
+            patch(
+                "openjarvis.telemetry.energy_nvidia.NvidiaEnergyMonitor.available",
+                side_effect=nvidia_available,
+            ),
+            patch(
+                "openjarvis.telemetry.energy_amd.AmdEnergyMonitor.available",
+                side_effect=amd_available,
+            ),
+            patch(
+                "openjarvis.telemetry.energy_apple.AppleEnergyMonitor.available",
+                return_value=False,
+            ),
+            patch(
+                "openjarvis.telemetry.energy_rapl.RaplEnergyMonitor.available",
+                return_value=False,
+            ),
+            patch(
+                "openjarvis.telemetry.energy_nvidia.NvidiaEnergyMonitor.__init__",
+                return_value=None,
+            ),
         ):
             create_energy_monitor()
             # NVIDIA was tried first and returned True
@@ -159,21 +176,27 @@ class TestCreateEnergyMonitor:
             call_order.append("amd")
             return True
 
-        with patch(
-            "openjarvis.telemetry.energy_nvidia.NvidiaEnergyMonitor.available",
-            side_effect=nvidia_available,
-        ), patch(
-            "openjarvis.telemetry.energy_amd.AmdEnergyMonitor.available",
-            side_effect=amd_available,
-        ), patch(
-            "openjarvis.telemetry.energy_apple.AppleEnergyMonitor.available",
-            return_value=False,
-        ), patch(
-            "openjarvis.telemetry.energy_rapl.RaplEnergyMonitor.available",
-            return_value=False,
-        ), patch(
-            "openjarvis.telemetry.energy_amd.AmdEnergyMonitor.__init__",
-            return_value=None,
+        with (
+            patch(
+                "openjarvis.telemetry.energy_nvidia.NvidiaEnergyMonitor.available",
+                side_effect=nvidia_available,
+            ),
+            patch(
+                "openjarvis.telemetry.energy_amd.AmdEnergyMonitor.available",
+                side_effect=amd_available,
+            ),
+            patch(
+                "openjarvis.telemetry.energy_apple.AppleEnergyMonitor.available",
+                return_value=False,
+            ),
+            patch(
+                "openjarvis.telemetry.energy_rapl.RaplEnergyMonitor.available",
+                return_value=False,
+            ),
+            patch(
+                "openjarvis.telemetry.energy_amd.AmdEnergyMonitor.__init__",
+                return_value=None,
+            ),
         ):
             create_energy_monitor()
             assert call_order == ["nvidia", "amd"]
@@ -198,18 +221,23 @@ class TestCreateEnergyMonitor:
             call_order.append("apple")
             return False
 
-        with patch(
-            "openjarvis.telemetry.energy_nvidia.NvidiaEnergyMonitor.available",
-            side_effect=nvidia_available,
-        ), patch(
-            "openjarvis.telemetry.energy_amd.AmdEnergyMonitor.available",
-            side_effect=amd_available,
-        ), patch(
-            "openjarvis.telemetry.energy_apple.AppleEnergyMonitor.available",
-            side_effect=apple_available,
-        ), patch(
-            "openjarvis.telemetry.energy_rapl.RaplEnergyMonitor.available",
-            side_effect=rapl_available,
+        with (
+            patch(
+                "openjarvis.telemetry.energy_nvidia.NvidiaEnergyMonitor.available",
+                side_effect=nvidia_available,
+            ),
+            patch(
+                "openjarvis.telemetry.energy_amd.AmdEnergyMonitor.available",
+                side_effect=amd_available,
+            ),
+            patch(
+                "openjarvis.telemetry.energy_apple.AppleEnergyMonitor.available",
+                side_effect=apple_available,
+            ),
+            patch(
+                "openjarvis.telemetry.energy_rapl.RaplEnergyMonitor.available",
+                side_effect=rapl_available,
+            ),
         ):
             result = create_energy_monitor(prefer_vendor="cpu_rapl")
             assert result is None

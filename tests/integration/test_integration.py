@@ -138,7 +138,8 @@ class TestOrchestratorWithCalculator:
         bus = EventBus(record_history=True)
         agent_cls = AgentRegistry.get("orchestrator")
         agent = agent_cls(
-            engine, "test-model",
+            engine,
+            "test-model",
             tools=[CalculatorTool()],
             bus=bus,
         )
@@ -250,8 +251,7 @@ class TestTelemetryThroughAgent:
         agent.run("Hello")
 
         telem_events = [
-            e for e in bus.history
-            if e.event_type == EventType.TELEMETRY_RECORD
+            e for e in bus.history if e.event_type == EventType.TELEMETRY_RECORD
         ]
         assert len(telem_events) == 1
         rec = telem_events[0].data["record"]
@@ -286,14 +286,8 @@ class TestToolExecutorIntegration:
         assert think_result.content == "Step 1: solve"
 
         # Verify events
-        starts = [
-            e for e in bus.history
-            if e.event_type == EventType.TOOL_CALL_START
-        ]
-        ends = [
-            e for e in bus.history
-            if e.event_type == EventType.TOOL_CALL_END
-        ]
+        starts = [e for e in bus.history if e.event_type == EventType.TOOL_CALL_START]
+        ends = [e for e in bus.history if e.event_type == EventType.TOOL_CALL_END]
         assert len(starts) == 2
         assert len(ends) == 2
 
@@ -321,7 +315,9 @@ class TestHeuristicRewardWithTelemetry:
         )
         rf = HeuristicRewardFunction()
         score = rf.compute(
-            RoutingContext(query="test"), rec.model_id, "response",
+            RoutingContext(query="test"),
+            rec.model_id,
+            "response",
             latency_seconds=rec.latency_seconds,
             cost_usd=rec.cost_usd,
             prompt_tokens=rec.prompt_tokens,
@@ -352,16 +348,30 @@ class TestTelemetryPipeline:
 
         db = tmp_path / "telemetry.db"
         store = TelemetryStore(db)
-        store.record(TelemetryRecord(
-            timestamp=time.time(), model_id="m1", engine="ollama",
-            prompt_tokens=10, completion_tokens=5, total_tokens=15,
-            latency_seconds=1.0, cost_usd=0.001,
-        ))
-        store.record(TelemetryRecord(
-            timestamp=time.time(), model_id="m2", engine="vllm",
-            prompt_tokens=20, completion_tokens=10, total_tokens=30,
-            latency_seconds=0.5, cost_usd=0.002,
-        ))
+        store.record(
+            TelemetryRecord(
+                timestamp=time.time(),
+                model_id="m1",
+                engine="ollama",
+                prompt_tokens=10,
+                completion_tokens=5,
+                total_tokens=15,
+                latency_seconds=1.0,
+                cost_usd=0.001,
+            )
+        )
+        store.record(
+            TelemetryRecord(
+                timestamp=time.time(),
+                model_id="m2",
+                engine="vllm",
+                prompt_tokens=20,
+                completion_tokens=10,
+                total_tokens=30,
+                latency_seconds=0.5,
+                cost_usd=0.002,
+            )
+        )
         store.close()
 
         agg = TelemetryAggregator(db)
@@ -387,8 +397,12 @@ class TestEventBusTelemetryAggregator:
 
         # Publish a telemetry event
         rec = TelemetryRecord(
-            timestamp=1000.0, model_id="event-model", engine="test",
-            prompt_tokens=5, completion_tokens=3, total_tokens=8,
+            timestamp=1000.0,
+            model_id="event-model",
+            engine="test",
+            prompt_tokens=5,
+            completion_tokens=3,
+            total_tokens=8,
             latency_seconds=0.1,
         )
         bus.publish(EventType.TELEMETRY_RECORD, {"record": rec})
@@ -435,11 +449,18 @@ class TestRewardTelemetryIntegration:
 
         db = tmp_path / "telemetry.db"
         store = TelemetryStore(db)
-        store.record(TelemetryRecord(
-            timestamp=time.time(), model_id="scored-model", engine="test",
-            prompt_tokens=50, completion_tokens=25, total_tokens=75,
-            latency_seconds=3.0, cost_usd=0.003,
-        ))
+        store.record(
+            TelemetryRecord(
+                timestamp=time.time(),
+                model_id="scored-model",
+                engine="test",
+                prompt_tokens=50,
+                completion_tokens=25,
+                total_tokens=75,
+                latency_seconds=3.0,
+                cost_usd=0.003,
+            )
+        )
         store.close()
 
         agg = TelemetryAggregator(db)
@@ -448,7 +469,9 @@ class TestRewardTelemetryIntegration:
 
         rf = HeuristicRewardFunction()
         score = rf.compute(
-            RoutingContext(query="test"), ms.model_id, "response",
+            RoutingContext(query="test"),
+            ms.model_id,
+            "response",
             latency_seconds=ms.avg_latency,
             cost_usd=ms.total_cost,
             prompt_tokens=ms.prompt_tokens,
@@ -581,7 +604,8 @@ class TestFullPipeline:
 
             def run(self, input, context=None, **kwargs):
                 result = self.engine.generate(
-                    [], model=self.model,
+                    [],
+                    model=self.model,
                 )
                 return AgentResult(content=result["content"], turns=1)
 

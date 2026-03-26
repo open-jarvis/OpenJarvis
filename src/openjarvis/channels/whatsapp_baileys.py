@@ -27,7 +27,15 @@ from openjarvis.core.registry import ChannelRegistry
 logger = logging.getLogger(__name__)
 
 # Path to the bundled bridge shipped inside the package.
+# In editable installs this lives next to this file; in wheel installs
+# it is placed under _node_modules/ to avoid namespace package conflicts.
 _BRIDGE_SRC = Path(__file__).resolve().parent / "whatsapp_baileys_bridge"
+if not _BRIDGE_SRC.exists():
+    _BRIDGE_SRC = (
+        Path(__file__).resolve().parents[2]
+        / "_node_modules"
+        / "whatsapp_baileys_bridge"
+    )
 
 # Default runtime directory (npm install + auth state).
 _DEFAULT_RUNTIME_DIR = Path.home() / ".openjarvis" / "whatsapp_baileys_bridge"

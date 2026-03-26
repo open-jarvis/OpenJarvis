@@ -60,9 +60,7 @@ class TestBuildSystemPrompt:
         assert "custom_tool_xyz" in prompt
 
     def test_with_memory_tools(self):
-        prompt = build_system_prompt(
-            ["calculator", "memory_search", "memory_store"]
-        )
+        prompt = build_system_prompt(["calculator", "memory_search", "memory_store"])
         assert "memory_search" in prompt
 
     def test_with_llm_tool(self):

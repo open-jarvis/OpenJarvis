@@ -40,15 +40,18 @@ def _api_prefix(engine_key: str) -> str:
         return ""
     return "/v1"
 
-ENGINES_AND_HOSTS = [
-    (key, host) for key, host, _ in _OPENAI_COMPAT_ENGINES
-] + [
+
+ENGINES_AND_HOSTS = [(key, host) for key, host, _ in _OPENAI_COMPAT_ENGINES] + [
     ("ollama", "http://testhost:11434"),
 ]
 
 MODELS = [
-    "gpt-oss:120b", "qwen3:8b", "glm-4.7-flash", "trinity-mini",
-    "qwen3.5:35b-a3b", "LiquidAI/LFM2.5-1.2B-Instruct-GGUF",
+    "gpt-oss:120b",
+    "qwen3:8b",
+    "glm-4.7-flash",
+    "trinity-mini",
+    "qwen3.5:35b-a3b",
+    "LiquidAI/LFM2.5-1.2B-Instruct-GGUF",
 ]
 
 _ENGINE_CLASSES = {key: cls for key, _, cls in _OPENAI_COMPAT_ENGINES}
@@ -69,26 +72,34 @@ def _mock_simple_chat(respx_mock, engine_key: str, host: str, model: str):
     """Set up mock for a simple chat response."""
     if engine_key == "ollama":
         respx_mock.post(f"{host}/api/chat").mock(
-            return_value=httpx.Response(200, json={
-                "message": {"role": "assistant", "content": "Hello!"},
-                "model": model,
-                "prompt_eval_count": 10,
-                "eval_count": 5,
-                "done": True,
-            })
+            return_value=httpx.Response(
+                200,
+                json={
+                    "message": {"role": "assistant", "content": "Hello!"},
+                    "model": model,
+                    "prompt_eval_count": 10,
+                    "eval_count": 5,
+                    "done": True,
+                },
+            )
         )
     else:  # All OpenAI-compatible engines
         prefix = _api_prefix(engine_key)
         respx_mock.post(f"{host}{prefix}/chat/completions").mock(
-            return_value=httpx.Response(200, json={
-                "choices": [
-                    {"message": {"content": "Hello!"}, "finish_reason": "stop"},
-                ],
-                "usage": {
-                    "prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15,
+            return_value=httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {"message": {"content": "Hello!"}, "finish_reason": "stop"},
+                    ],
+                    "usage": {
+                        "prompt_tokens": 10,
+                        "completion_tokens": 5,
+                        "total_tokens": 15,
+                    },
+                    "model": model,
                 },
-                "model": model,
-            })
+            )
         )
 
 
@@ -96,39 +107,59 @@ def _mock_tool_call(respx_mock, engine_key: str, host: str, model: str):
     """Set up mock for a tool-call response."""
     if engine_key == "ollama":
         respx_mock.post(f"{host}/api/chat").mock(
-            return_value=httpx.Response(200, json={
-                "message": {
-                    "content": "",
-                    "tool_calls": [{
-                        "function": {"name": "calculator", "arguments": '{"x":1}'},
-                    }],
+            return_value=httpx.Response(
+                200,
+                json={
+                    "message": {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "function": {
+                                    "name": "calculator",
+                                    "arguments": '{"x":1}',
+                                },
+                            }
+                        ],
+                    },
+                    "model": model,
+                    "prompt_eval_count": 10,
+                    "eval_count": 8,
+                    "done": True,
                 },
-                "model": model,
-                "prompt_eval_count": 10,
-                "eval_count": 8,
-                "done": True,
-            })
+            )
         )
     else:  # All OpenAI-compatible engines
         prefix = _api_prefix(engine_key)
         respx_mock.post(f"{host}{prefix}/chat/completions").mock(
-            return_value=httpx.Response(200, json={
-                "choices": [{
-                    "message": {
-                        "content": "",
-                        "tool_calls": [{
-                            "id": "call_1",
-                            "type": "function",
-                            "function": {"name": "calculator", "arguments": '{"x":1}'},
-                        }],
+            return_value=httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "",
+                                "tool_calls": [
+                                    {
+                                        "id": "call_1",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "calculator",
+                                            "arguments": '{"x":1}',
+                                        },
+                                    }
+                                ],
+                            },
+                            "finish_reason": "tool_calls",
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 10,
+                        "completion_tokens": 8,
+                        "total_tokens": 18,
                     },
-                    "finish_reason": "tool_calls",
-                }],
-                "usage": {
-                    "prompt_tokens": 10, "completion_tokens": 8, "total_tokens": 18,
+                    "model": model,
                 },
-                "model": model,
-            })
+            )
         )
 
 
@@ -176,9 +207,7 @@ class TestEngineScenarios:
         engine = _create_engine(engine_key, host)
         _mock_error(respx_mock, engine_key, host)
         with pytest.raises(EngineConnectionError):
-            engine.generate(
-                [Message(role=Role.USER, content="Hi")], model="qwen3:8b"
-            )
+            engine.generate([Message(role=Role.USER, content="Hi")], model="qwen3:8b")
 
 
 # ---------------------------------------------------------------------------
@@ -190,7 +219,11 @@ class TestEngineScenarios:
 @pytest.mark.parametrize("model_id", MODELS)
 class TestEngineModelMatrix:
     def test_generate_with_model(
-        self, respx_mock, engine_key: str, host: str, model_id: str,
+        self,
+        respx_mock,
+        engine_key: str,
+        host: str,
+        model_id: str,
     ) -> None:
         engine = _create_engine(engine_key, host)
         _mock_simple_chat(respx_mock, engine_key, host, model_id)

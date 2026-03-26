@@ -38,6 +38,9 @@ class OperativeAgent(ToolUsingAgent):
 
     agent_id = "operative"
     accepts_tools = True
+    _default_temperature = 0.3
+    _default_max_tokens = 2048
+    _default_max_turns = 20
 
     def __init__(
         self,
@@ -46,9 +49,9 @@ class OperativeAgent(ToolUsingAgent):
         *,
         tools: Optional[List[BaseTool]] = None,
         bus: Optional[EventBus] = None,
-        max_turns: int = 20,
-        temperature: float = 0.3,
-        max_tokens: int = 2048,
+        max_turns: Optional[int] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
         system_prompt: Optional[str] = None,
         operator_id: Optional[str] = None,
         session_store: Optional[Any] = None,
@@ -58,10 +61,15 @@ class OperativeAgent(ToolUsingAgent):
         **kwargs: Any,
     ) -> None:
         super().__init__(
-            engine, model, tools=tools, bus=bus,
-            max_turns=max_turns, temperature=temperature,
+            engine,
+            model,
+            tools=tools,
+            bus=bus,
+            max_turns=max_turns,
+            temperature=temperature,
             max_tokens=max_tokens,
-            interactive=interactive, confirm_callback=confirm_callback,
+            interactive=interactive,
+            confirm_callback=confirm_callback,
         )
         self._system_prompt = system_prompt or ""
         self._operator_id = operator_id
@@ -94,7 +102,9 @@ class OperativeAgent(ToolUsingAgent):
 
         # 4. Build messages
         messages = self._build_operative_messages(
-            input, context, system_prompt=system_prompt,
+            input,
+            context,
+            system_prompt=system_prompt,
             session_messages=session_messages,
         )
 
@@ -104,6 +114,11 @@ class OperativeAgent(ToolUsingAgent):
         turns = 0
         content = ""
         state_stored_by_tool = False
+        total_usage: dict[str, int] = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
 
         for _turn in range(self._max_turns):
             turns += 1
@@ -116,6 +131,9 @@ class OperativeAgent(ToolUsingAgent):
                 gen_kwargs["tools"] = openai_tools
 
             result = self._generate(messages, **gen_kwargs)
+            usage = result.get("usage", {})
+            for k in total_usage:
+                total_usage[k] += usage.get(k, 0)
             content = result.get("content", "")
             raw_tool_calls = result.get("tool_calls", [])
 
@@ -132,11 +150,13 @@ class OperativeAgent(ToolUsingAgent):
                 for i, tc in enumerate(raw_tool_calls)
             ]
 
-            messages.append(Message(
-                role=Role.ASSISTANT,
-                content=content,
-                tool_calls=tool_calls,
-            ))
+            messages.append(
+                Message(
+                    role=Role.ASSISTANT,
+                    content=content,
+                    tool_calls=tool_calls,
+                )
+            )
 
             for tc in tool_calls:
                 # Loop guard check
@@ -149,12 +169,14 @@ class OperativeAgent(ToolUsingAgent):
                             success=False,
                         )
                         all_tool_results.append(tool_result)
-                        messages.append(Message(
-                            role=Role.TOOL,
-                            content=tool_result.content,
-                            tool_call_id=tc.id,
-                            name=tc.name,
-                        ))
+                        messages.append(
+                            Message(
+                                role=Role.TOOL,
+                                content=tool_result.content,
+                                tool_call_id=tc.id,
+                                name=tc.name,
+                            )
+                        )
                         continue
 
                 tool_result = self._executor.execute(tc)
@@ -170,16 +192,25 @@ class OperativeAgent(ToolUsingAgent):
                     except (json.JSONDecodeError, TypeError):
                         pass
 
-                messages.append(Message(
-                    role=Role.TOOL,
-                    content=tool_result.content,
-                    tool_call_id=tc.id,
-                    name=tc.name,
-                ))
+                messages.append(
+                    Message(
+                        role=Role.TOOL,
+                        content=tool_result.content,
+                        tool_call_id=tc.id,
+                        name=tc.name,
+                    )
+                )
         else:
             # Max turns exceeded
             self._save_session(input, content)
-            return self._max_turns_result(all_tool_results, turns, content=content)
+            meta = dict(total_usage)
+            meta["max_turns_exceeded"] = True
+            return AgentResult(
+                content=content or "Maximum turns reached without a final answer.",
+                tool_results=all_tool_results,
+                turns=turns,
+                metadata=meta,
+            )
 
         # 6. Save session
         self._save_session(input, content)
@@ -193,6 +224,7 @@ class OperativeAgent(ToolUsingAgent):
             content=content,
             tool_results=all_tool_results,
             turns=turns,
+            metadata=total_usage,
         )
 
     def _build_operative_messages(
@@ -258,10 +290,12 @@ class OperativeAgent(ToolUsingAgent):
         session_id = f"operator:{self._operator_id}"
         try:
             self._session_store.save_message(
-                session_id, {"role": "user", "content": input_text},
+                session_id,
+                {"role": "user", "content": input_text},
             )
             self._session_store.save_message(
-                session_id, {"role": "assistant", "content": response},
+                session_id,
+                {"role": "assistant", "content": response},
             )
         except Exception:
             logger.debug("Could not save session for operator %s", self._operator_id)

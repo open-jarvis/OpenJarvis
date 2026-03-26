@@ -84,7 +84,10 @@ class JarvisSystem:
                     max_context_tokens=self.config.memory.context_max_tokens,
                 )
                 messages = inject_context(
-                    query, messages, self.memory_backend, config=ctx_cfg,
+                    query,
+                    messages,
+                    self.memory_backend,
+                    config=ctx_cfg,
                 )
             except Exception as exc:
                 logger.warning("Failed to inject memory context: %s", exc)
@@ -93,14 +96,22 @@ class JarvisSystem:
         use_agent = agent or self.agent_name
         if use_agent and use_agent != "none":
             return self._run_agent(
-                query, messages, use_agent, tools, temperature, max_tokens,
-                system_prompt=system_prompt, operator_id=operator_id,
+                query,
+                messages,
+                use_agent,
+                tools,
+                temperature,
+                max_tokens,
+                system_prompt=system_prompt,
+                operator_id=operator_id,
             )
 
         # Direct engine mode
         result = self.engine.generate(
-            messages, model=self.model,
-            temperature=temperature, max_tokens=max_tokens,
+            messages,
+            model=self.model,
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
         return {
             "content": result.get("content", ""),
@@ -110,8 +121,16 @@ class JarvisSystem:
         }
 
     def _run_agent(
-        self, query, messages, agent_name, tool_names, temperature, max_tokens,
-        *, system_prompt=None, operator_id=None,
+        self,
+        query,
+        messages,
+        agent_name,
+        tool_names,
+        temperature,
+        max_tokens,
+        *,
+        system_prompt=None,
+        operator_id=None,
     ) -> Dict[str, Any]:
         """Run through an agent."""
         from openjarvis.agents._stubs import AgentContext
@@ -202,29 +221,22 @@ class JarvisSystem:
                 "ttft": telemetry_events[0].get("ttft", 0.0),
                 "energy_joules": total_energy,
                 "power_watts": (
-                    sum(power_vals) / len(power_vals)
-                    if power_vals else 0.0
+                    sum(power_vals) / len(power_vals) if power_vals else 0.0
                 ),
                 "gpu_utilization_pct": (
-                    sum(util_vals) / len(util_vals)
-                    if util_vals else 0.0
+                    sum(util_vals) / len(util_vals) if util_vals else 0.0
                 ),
                 "throughput_tok_per_sec": (
                     sum(throughput_vals) / len(throughput_vals)
-                    if throughput_vals else 0.0
+                    if throughput_vals
+                    else 0.0
                 ),
                 "gpu_memory_used_gb": max(
-                    (
-                        e.get("gpu_memory_used_gb", 0.0)
-                        for e in telemetry_events
-                    ),
+                    (e.get("gpu_memory_used_gb", 0.0) for e in telemetry_events),
                     default=0.0,
                 ),
                 "gpu_temperature_c": max(
-                    (
-                        e.get("gpu_temperature_c", 0.0)
-                        for e in telemetry_events
-                    ),
+                    (e.get("gpu_temperature_c", 0.0) for e in telemetry_events),
                     default=0.0,
                 ),
                 "inference_calls": len(telemetry_events),
@@ -268,6 +280,95 @@ class JarvisSystem:
             except Exception as exc:
                 logger.warning("Failed to build tool %r: %s", name, exc)
         return tools
+
+    def wire_channel(self, channel_bridge: Any) -> None:
+        """Register a message handler on *channel_bridge* that routes every
+        incoming message through this system (agent or engine) and replies.
+
+        Sessions are isolated per ``"<channel>:<conversation_id>"`` key so
+        each chat retains its own history.
+
+        Parameters
+        ----------
+        channel_bridge:
+            A connected :class:`~openjarvis.channels._stubs.BaseChannel`
+            instance whose ``on_message`` method accepts a callable.
+        """
+        from openjarvis.agents._stubs import AgentContext
+        from openjarvis.core.types import Message, Role
+        from openjarvis.sessions.session import SessionStore
+
+        if self.session_store is None:
+            from pathlib import Path
+
+            self.session_store = SessionStore(
+                db_path=Path(self.config.sessions.db_path).expanduser(),
+                max_age_hours=self.config.sessions.max_age_hours,
+                consolidation_threshold=self.config.sessions.consolidation_threshold,
+            )
+
+        _system = self  # capture for closure
+
+        def _on_channel_message(cm) -> None:
+            session_key = f"{cm.channel}:{cm.conversation_id}"
+            session = _system.session_store.get_or_create(
+                session_key,
+                channel=cm.channel,
+                channel_user_id=cm.sender,
+            )
+
+            # Rebuild prior conversation turns into AgentContext
+            ctx = AgentContext()
+            for sm in session.messages:
+                try:
+                    role = Role(sm.role)
+                except ValueError:
+                    role = Role.USER
+                ctx.conversation.add(Message(role=role, content=sm.content))
+
+            reply = ""
+            try:
+                if _system.agent_name and _system.agent_name != "none":
+                    result = _system.ask(
+                        cm.content,
+                        context=False,
+                        agent=_system.agent_name,
+                    )
+                    reply = result.get("content", "")
+                else:
+                    result = _system.ask(cm.content, context=False)
+                    reply = result.get("content", "")
+            except Exception:
+                logger.exception("Channel message handler error")
+                reply = "Sorry, I encountered an error processing your message."
+
+            try:
+                _system.session_store.save_message(
+                    session.session_id,
+                    "user",
+                    cm.content,
+                    channel=cm.channel,
+                )
+                _system.session_store.save_message(
+                    session.session_id,
+                    "assistant",
+                    reply,
+                    channel=cm.channel,
+                )
+            except Exception:
+                logger.debug("Session save error", exc_info=True)
+
+            if reply:
+                try:
+                    channel_bridge.send(
+                        cm.channel,
+                        reply,
+                        conversation_id=cm.conversation_id,
+                    )
+                except Exception:
+                    logger.exception("Channel send error")
+
+        channel_bridge.on_message(_on_channel_message)
 
     def close(self) -> None:
         """Release resources."""
@@ -391,8 +492,7 @@ class SystemBuilder:
 
         # Compute telemetry_enabled once
         telemetry_enabled = (
-            self._telemetry if self._telemetry is not None
-            else config.telemetry.enabled
+            self._telemetry if self._telemetry is not None else config.telemetry.enabled
         )
         gpu_monitor = None
         energy_monitor = None
@@ -424,6 +524,7 @@ class SystemBuilder:
 
         # Apply security guardrails FIRST (innermost wrapper)
         from openjarvis.security import setup_security
+
         sec = setup_security(config, engine, bus)
         engine = sec.engine
 
@@ -434,7 +535,8 @@ class SystemBuilder:
             )
 
             engine = InstrumentedEngine(
-                engine, bus,
+                engine,
+                bus,
                 gpu_monitor=gpu_monitor,
                 energy_monitor=energy_monitor,
             )
@@ -452,7 +554,11 @@ class SystemBuilder:
 
         # Resolve tools
         tool_list = self._resolve_tools(
-            config, engine, model, memory_backend, channel_backend,
+            config,
+            engine,
+            model,
+            memory_backend,
+            channel_backend,
         )
 
         # Build tool executor
@@ -502,9 +608,23 @@ class SystemBuilder:
                 from openjarvis.agents.executor import AgentExecutor
                 from openjarvis.agents.scheduler import AgentScheduler
 
+                # Wire TraceStore into executor when tracing is enabled
+                _trace_store = None
+                if config.traces.enabled:
+                    try:
+                        from openjarvis.traces.store import TraceStore
+
+                        _trace_store = TraceStore(config.traces.db_path)
+                    except Exception:
+                        logger.warning(
+                            "Failed to initialize TraceStore",
+                            exc_info=True,
+                        )
+
                 agent_executor = AgentExecutor(
                     manager=agent_manager,
                     event_bus=bus,
+                    trace_store=_trace_store,
                 )
                 agent_scheduler = AgentScheduler(
                     manager=agent_manager,
@@ -519,6 +639,7 @@ class SystemBuilder:
         if speech_enabled:
             try:
                 from openjarvis.speech._discovery import get_speech_backend
+
                 speech_backend = get_speech_backend(config)
             except Exception as exc:
                 logger.warning("Failed to initialize speech backend: %s", exc)
@@ -735,8 +856,9 @@ class SystemBuilder:
             logger.warning("Failed to resolve channel backend %r: %s", key, exc)
             return None
 
-    def _resolve_tools(self, config, engine, model, memory_backend,
-                       channel_backend=None):
+    def _resolve_tools(
+        self, config, engine, model, memory_backend, channel_backend=None
+    ):
         """Resolve tool instances via MCPServer (primary) + external MCP servers."""
         from openjarvis.mcp.server import MCPServer
 
@@ -772,6 +894,7 @@ class SystemBuilder:
         if config.tools.mcp.servers:
             try:
                 import json
+
                 server_list = json.loads(config.tools.mcp.servers)
                 if isinstance(server_list, list):
                     for server_cfg in server_list:
@@ -779,13 +902,15 @@ class SystemBuilder:
                             external_tools = self._discover_external_mcp(server_cfg)
                             if tool_names:
                                 external_tools = [
-                                    t for t in external_tools
+                                    t
+                                    for t in external_tools
                                     if t.spec.name in tool_names
                                 ]
                             tools.extend(external_tools)
                         except Exception as exc:
                             logger.warning(
-                                "Failed to discover external MCP tools: %s", exc,
+                                "Failed to discover external MCP tools: %s",
+                                exc,
                             )
             except (json.JSONDecodeError, TypeError) as exc:
                 logger.warning("Failed to parse MCP server config: %s", exc)
@@ -811,8 +936,10 @@ class SystemBuilder:
             if hasattr(tool, "_channel"):
                 tool._channel = channel_backend
         elif name in (
-            "schedule_task", "list_scheduled_tasks",
-            "pause_scheduled_task", "resume_scheduled_task",
+            "schedule_task",
+            "list_scheduled_tasks",
+            "pause_scheduled_task",
+            "resume_scheduled_task",
             "cancel_scheduled_task",
         ):
             pass  # scheduler injection handled post-build
@@ -820,8 +947,7 @@ class SystemBuilder:
     def _setup_sandbox(self, config):
         """Set up container sandbox runner if enabled."""
         sandbox_enabled = (
-            self._sandbox if self._sandbox is not None
-            else config.sandbox.enabled
+            self._sandbox if self._sandbox is not None else config.sandbox.enabled
         )
         if not sandbox_enabled:
             return None
@@ -842,8 +968,7 @@ class SystemBuilder:
     def _setup_scheduler(self, config, bus):
         """Set up task scheduler if enabled."""
         scheduler_enabled = (
-            self._scheduler if self._scheduler is not None
-            else config.scheduler.enabled
+            self._scheduler if self._scheduler is not None else config.scheduler.enabled
         )
         if not scheduler_enabled:
             return None, None
@@ -875,8 +1000,7 @@ class SystemBuilder:
     def _setup_workflow(self, config, bus):
         """Set up workflow engine if enabled."""
         workflow_enabled = (
-            self._workflow if self._workflow is not None
-            else config.workflow.enabled
+            self._workflow if self._workflow is not None else config.workflow.enabled
         )
         if not workflow_enabled:
             return None
@@ -895,8 +1019,7 @@ class SystemBuilder:
     def _setup_sessions(self, config):
         """Set up session store if enabled."""
         sessions_enabled = (
-            self._sessions if self._sessions is not None
-            else config.sessions.enabled
+            self._sessions if self._sessions is not None else config.sessions.enabled
         )
         if not sessions_enabled:
             return None

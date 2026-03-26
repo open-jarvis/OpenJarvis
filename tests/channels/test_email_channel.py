@@ -26,7 +26,8 @@ class TestRegistration:
 
     def test_channel_id(self):
         ch = EmailChannel(
-            smtp_host="smtp.example.com", username="user@example.com",
+            smtp_host="smtp.example.com",
+            username="user@example.com",
         )
         assert ch.channel_id == "email"
 
@@ -62,10 +63,13 @@ class TestInit:
         assert ch._use_tls is False
 
     def test_env_var_fallback(self):
-        with patch.dict(os.environ, {
-            "EMAIL_USERNAME": "env@example.com",
-            "EMAIL_PASSWORD": "env-pass",
-        }):
+        with patch.dict(
+            os.environ,
+            {
+                "EMAIL_USERNAME": "env@example.com",
+                "EMAIL_PASSWORD": "env-pass",
+            },
+        ):
             ch = EmailChannel()
             assert ch._username == "env@example.com"
             assert ch._password == "env-pass"
@@ -206,7 +210,8 @@ class TestOnMessage:
 class TestDisconnect:
     def test_disconnect(self):
         ch = EmailChannel(
-            smtp_host="smtp.example.com", username="user@example.com",
+            smtp_host="smtp.example.com",
+            username="user@example.com",
         )
         ch._status = ChannelStatus.CONNECTED
         ch.disconnect()

@@ -314,8 +314,11 @@ name = "Discovered"
         mgr = OperatorManager(system)
 
         m = OperatorManifest(
-            id="test_op", name="Test",
-            tools=["think"], schedule_type="interval", schedule_value="60",
+            id="test_op",
+            name="Test",
+            tools=["think"],
+            schedule_type="interval",
+            schedule_value="60",
         )
         mgr.register(m)
         task_id = mgr.activate("test_op")
@@ -352,8 +355,10 @@ name = "Discovered"
         mgr = OperatorManager(system)
 
         m = OperatorManifest(
-            id="meta_test", name="Meta",
-            system_prompt="Do stuff", temperature=0.5,
+            id="meta_test",
+            name="Meta",
+            system_prompt="Do stuff",
+            temperature=0.5,
         )
         mgr.register(m)
         mgr.activate("meta_test")
@@ -452,8 +457,10 @@ name = "Discovered"
 
         mgr = OperatorManager(system)
         m = OperatorManifest(
-            id="run_test", name="Run",
-            system_prompt="Test prompt", tools=["think"],
+            id="run_test",
+            name="Run",
+            system_prompt="Test prompt",
+            tools=["think"],
         )
         mgr.register(m)
 
@@ -478,7 +485,11 @@ class TestOperativeAgent:
         from openjarvis.agents.operative import OperativeAgent
 
         engine = FakeEngine()
-        agent = OperativeAgent(engine, "test-model")
+        with patch(
+            "openjarvis.agents._stubs.load_config",
+            side_effect=Exception("no config"),
+        ):
+            agent = OperativeAgent(engine, "test-model")
         assert agent.agent_id == "operative"
         assert agent._temperature == 0.3
         assert agent._max_tokens == 2048
@@ -494,7 +505,8 @@ class TestOperativeAgent:
 
         engine = FakeEngine([{"content": "Response with prompt."}])
         agent = OperativeAgent(
-            engine, "test-model",
+            engine,
+            "test-model",
             system_prompt="You are a test operator.",
         )
         result = agent.run("Execute tick")
@@ -504,8 +516,7 @@ class TestOperativeAgent:
         call = engine.calls[0]
         messages = call["messages"]
         assert any(
-            m.role.value == "system" and "test operator" in m.content
-            for m in messages
+            m.role.value == "system" and "test operator" in m.content for m in messages
         )
 
     def test_run_loads_session(self):
@@ -521,7 +532,8 @@ class TestOperativeAgent:
 
         engine = FakeEngine([{"content": "New tick done."}])
         agent = OperativeAgent(
-            engine, "test-model",
+            engine,
+            "test-model",
             operator_id="test_op",
             session_store=session_store,
         )
@@ -535,7 +547,8 @@ class TestOperativeAgent:
 
         engine = FakeEngine([{"content": "Tick response."}])
         agent = OperativeAgent(
-            engine, "test-model",
+            engine,
+            "test-model",
             operator_id="save_test",
             session_store=session_store,
         )
@@ -555,7 +568,8 @@ class TestOperativeAgent:
 
         engine = FakeEngine([{"content": "State recalled."}])
         agent = OperativeAgent(
-            engine, "test-model",
+            engine,
+            "test-model",
             operator_id="recall_test",
             memory_backend=memory,
         )
@@ -583,22 +597,25 @@ class TestOperativeAgent:
         tool.spec.taint_labels = []
         tool.run = MagicMock(return_value="Thought result")
 
-        engine = FakeEngine([
-            {
-                "content": "",
-                "tool_calls": [
-                    {
-                        "id": "call_1",
-                        "name": "think",
-                        "arguments": '{"thought": "test"}',
-                    },
-                ],
-            },
-            {"content": "Final answer after tool use."},
-        ])
+        engine = FakeEngine(
+            [
+                {
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "name": "think",
+                            "arguments": '{"thought": "test"}',
+                        },
+                    ],
+                },
+                {"content": "Final answer after tool use."},
+            ]
+        )
 
         agent = OperativeAgent(
-            engine, "test-model",
+            engine,
+            "test-model",
             tools=[tool],
         )
         result = agent.run("Do something")
@@ -620,7 +637,8 @@ class TestOperativeAgent:
 
         engine = FakeEngine([{"content": "Tick complete."}])
         agent = OperativeAgent(
-            engine, "test-model",
+            engine,
+            "test-model",
             operator_id="persist_test",
             memory_backend=memory,
         )
@@ -660,7 +678,8 @@ class TestOperativeAgent:
         tool.run = MagicMock(return_value="thought")
 
         agent = OperativeAgent(
-            engine, "test-model",
+            engine,
+            "test-model",
             tools=[tool],
             max_turns=3,
         )
@@ -685,15 +704,26 @@ class TestSystemAskPassthrough:
         # Patch _run_agent to capture kwargs
         captured = {}
 
-        def patched_run_agent(self, query, messages, agent_name, tool_names,
-                              temperature, max_tokens, **kwargs):
+        def patched_run_agent(
+            self,
+            query,
+            messages,
+            agent_name,
+            tool_names,
+            temperature,
+            max_tokens,
+            **kwargs,
+        ):
             captured.update(kwargs)
             return {"content": "OK"}
 
         with patch.object(JarvisSystem, "_run_agent", patched_run_agent):
             real_system = JarvisSystem(
-                config=system.config, bus=system.bus,
-                engine=engine, engine_key="test", model="test-model",
+                config=system.config,
+                bus=system.bus,
+                engine=engine,
+                engine_key="test",
+                model="test-model",
                 agent_name="operative",
             )
             real_system.ask("test", system_prompt="Custom prompt")
@@ -709,15 +739,26 @@ class TestSystemAskPassthrough:
 
         captured = {}
 
-        def patched_run_agent(self, query, messages, agent_name, tool_names,
-                              temperature, max_tokens, **kwargs):
+        def patched_run_agent(
+            self,
+            query,
+            messages,
+            agent_name,
+            tool_names,
+            temperature,
+            max_tokens,
+            **kwargs,
+        ):
             captured.update(kwargs)
             return {"content": "OK"}
 
         with patch.object(JarvisSystem, "_run_agent", patched_run_agent):
             real_system = JarvisSystem(
-                config=system.config, bus=system.bus,
-                engine=engine, engine_key="test", model="test-model",
+                config=system.config,
+                bus=system.bus,
+                engine=engine,
+                engine_key="test",
+                model="test-model",
                 agent_name="operative",
             )
             real_system.ask("test", operator_id="my_op")
@@ -762,8 +803,10 @@ class TestSchedulerOperatorExecution:
         mock_system.ask.assert_called_once()
         call_kwargs = mock_system.ask.call_args
         # The scheduler passes agent and tools
-        assert call_kwargs.kwargs.get("agent") == "operative" or \
-            call_kwargs[1].get("agent") == "operative"
+        assert (
+            call_kwargs.kwargs.get("agent") == "operative"
+            or call_kwargs[1].get("agent") == "operative"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -815,6 +858,7 @@ class TestAgentRegistration:
         # Re-register if cleared by another test
         if not AgentRegistry.contains("operative"):
             from openjarvis.agents.operative import OperativeAgent
+
             AgentRegistry.register_value("operative", OperativeAgent)
 
         assert AgentRegistry.contains("operative")

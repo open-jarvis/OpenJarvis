@@ -64,10 +64,7 @@ def test_checklist_scorer_all_pass():
 
 
 def test_checklist_scorer_partial():
-    response = (
-        "1. yes — Redis is mentioned\n"
-        "2. no — Port number not found\n"
-    )
+    response = "1. yes — Redis is mentioned\n2. no — Port number not found\n"
     backend = FakeJudgeBackend(response)
     scorer = ChecklistScorer(backend, "test-model")
     score, details = scorer.score_checklist(

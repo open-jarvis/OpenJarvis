@@ -39,7 +39,8 @@ class TestBackwardCompatShims:
         ctx = build_routing_context("hello")
         assert ctx.query == "hello"
         router = HeuristicRouter(
-            available_models=[], default_model="m",
+            available_models=[],
+            default_model="m",
         )
         assert router.select_model(ctx) == "m"
 

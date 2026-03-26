@@ -589,6 +589,7 @@ export interface SavingsSubmission {
   dollar_savings: number;
   energy_wh_saved: number;
   flops_saved: number;
+  token_counting_version?: number;
 }
 
 export async function submitSavings(data: SavingsSubmission): Promise<boolean> {

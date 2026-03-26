@@ -330,18 +330,20 @@ class TestItlStorage:
 
     def test_store_and_query_itl(self, tmp_path):
         store = TelemetryStore(tmp_path / "test.db")
-        store.record(TelemetryRecord(
-            timestamp=time.time(),
-            model_id="m1",
-            engine="mock",
-            mean_itl_ms=15.0,
-            median_itl_ms=14.0,
-            p90_itl_ms=20.0,
-            p95_itl_ms=25.0,
-            p99_itl_ms=30.0,
-            std_itl_ms=5.0,
-            is_streaming=True,
-        ))
+        store.record(
+            TelemetryRecord(
+                timestamp=time.time(),
+                model_id="m1",
+                engine="mock",
+                mean_itl_ms=15.0,
+                median_itl_ms=14.0,
+                p90_itl_ms=20.0,
+                p95_itl_ms=25.0,
+                p99_itl_ms=30.0,
+                std_itl_ms=5.0,
+                is_streaming=True,
+            )
+        )
 
         agg = TelemetryAggregator(tmp_path / "test.db")
         stats = agg.per_model_stats()

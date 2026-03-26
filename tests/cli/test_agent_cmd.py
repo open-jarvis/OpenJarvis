@@ -80,8 +80,19 @@ class TestNewAgentCommands:
         result = CliRunner().invoke(cli, ["agents", "--help"])
         assert result.exit_code == 0
         cmds = (
-            "launch", "start", "stop", "run", "status", "logs",
-            "daemon", "watch", "recover", "errors", "ask", "instruct", "messages",
+            "launch",
+            "start",
+            "stop",
+            "run",
+            "status",
+            "logs",
+            "daemon",
+            "watch",
+            "recover",
+            "errors",
+            "ask",
+            "instruct",
+            "messages",
         )
         for cmd in cmds:
             assert cmd in result.output, f"Missing command: {cmd}"

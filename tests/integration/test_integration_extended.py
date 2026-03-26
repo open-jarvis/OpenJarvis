@@ -87,16 +87,15 @@ class TestReActPipeline:
                 "Action: calculator\n"
                 'Action Input: {"expression":"2+2"}'
             ),
-            _simple_response(
-                "Thought: The result is 4.\n"
-                "Final Answer: 2+2 equals 4."
-            ),
+            _simple_response("Thought: The result is 4.\nFinal Answer: 2+2 equals 4."),
         ]
         engine = _make_engine(responses)
         bus = EventBus(record_history=True)
         agent = NativeReActAgent(
-            engine, "test-model",
-            tools=[CalculatorTool()], bus=bus,
+            engine,
+            "test-model",
+            tools=[CalculatorTool()],
+            bus=bus,
         )
         result = agent.run("What is 2+2?")
 
@@ -118,13 +117,14 @@ class TestReActPipeline:
                 'Action Input: {"thought":"Step 1: analyze"}'
             ),
             _simple_response(
-                "Thought: I have my analysis.\n"
-                "Final Answer: The answer is clear."
+                "Thought: I have my analysis.\nFinal Answer: The answer is clear."
             ),
         ]
         engine = _make_engine(responses)
         agent = NativeReActAgent(
-            engine, "test-model", tools=[ThinkTool()],
+            engine,
+            "test-model",
+            tools=[ThinkTool()],
         )
         result = agent.run("Analyze this.")
         assert result.turns == 2
@@ -136,10 +136,7 @@ class TestReActPipeline:
         from openjarvis.agents.native_react import NativeReActAgent
 
         engine = _make_engine(
-            _simple_response(
-                "Thought: This is simple.\n"
-                "Final Answer: Hello!"
-            )
+            _simple_response("Thought: This is simple.\nFinal Answer: Hello!")
         )
         agent = NativeReActAgent(engine, "test-model")
         result = agent.run("Say hello")
@@ -155,14 +152,12 @@ class TestReActPipeline:
         _register_all()
         from openjarvis.agents.native_react import NativeReActAgent
 
-        engine = _make_engine(
-            _simple_response(
-                "Thought: done.\nFinal Answer: ok"
-            )
-        )
+        engine = _make_engine(_simple_response("Thought: done.\nFinal Answer: ok"))
         bus = EventBus(record_history=True)
         agent = NativeReActAgent(
-            engine, "test-model", bus=bus,
+            engine,
+            "test-model",
+            bus=bus,
         )
         agent.run("Test")
 
@@ -188,19 +183,18 @@ class TestOpenHandsPipeline:
 
         if not ToolRegistry.contains("code_interpreter"):
             ToolRegistry.register_value(
-                "code_interpreter", CodeInterpreterTool,
+                "code_interpreter",
+                CodeInterpreterTool,
             )
 
         responses = [
-            _simple_response(
-                "I'll calculate this:\n"
-                "```python\nprint(2 + 2)\n```"
-            ),
+            _simple_response("I'll calculate this:\n```python\nprint(2 + 2)\n```"),
             _simple_response("The result is 4."),
         ]
         engine = _make_engine(responses)
         agent = NativeOpenHandsAgent(
-            engine, "test-model",
+            engine,
+            "test-model",
             tools=[CodeInterpreterTool()],
         )
         result = agent.run("What is 2+2?")
@@ -216,9 +210,7 @@ class TestOpenHandsPipeline:
         _register_all()
         from openjarvis.agents.native_openhands import NativeOpenHandsAgent
 
-        engine = _make_engine(
-            _simple_response("Hello! How can I help?")
-        )
+        engine = _make_engine(_simple_response("Hello! How can I help?"))
         agent = NativeOpenHandsAgent(engine, "test-model")
         result = agent.run("Say hello")
         assert result.content == "Hello! How can I help?"
@@ -229,12 +221,12 @@ class TestOpenHandsPipeline:
         _register_all()
         from openjarvis.agents.native_openhands import NativeOpenHandsAgent
 
-        engine = _make_engine(
-            _simple_response("Direct answer.")
-        )
+        engine = _make_engine(_simple_response("Direct answer."))
         bus = EventBus(record_history=True)
         agent = NativeOpenHandsAgent(
-            engine, "test-model", bus=bus,
+            engine,
+            "test-model",
+            bus=bus,
         )
         agent.run("Test")
 
@@ -275,14 +267,16 @@ class TestMCPIntegration:
 
         # Call calculator
         result = client.call_tool(
-            "calculator", {"expression": "10*5"},
+            "calculator",
+            {"expression": "10*5"},
         )
         assert result["content"][0]["text"] == "50.0"
         assert result["isError"] is False
 
         # Call think
         result = client.call_tool(
-            "think", {"thought": "reasoning step"},
+            "think",
+            {"thought": "reasoning step"},
         )
         assert result["content"][0]["text"] == "reasoning step"
 
@@ -325,7 +319,8 @@ class TestMCPIntegration:
 
         # 3. Call tool
         result = client.call_tool(
-            "calculator", {"expression": "7+3"},
+            "calculator",
+            {"expression": "7+3"},
         )
         assert result["content"][0]["text"] == "10.0"
 
@@ -372,15 +367,13 @@ class TestCrossEngineConsistency:
                     "Action: calculator\n"
                     'Action Input: {"expression":"3*3"}'
                 ),
-                _simple_response(
-                    "Thought: got 9.\n"
-                    "Final Answer: 9"
-                ),
+                _simple_response("Thought: got 9.\nFinal Answer: 9"),
             ]
             engine = _make_engine(responses)
             engine.engine_id = engine_name
             agent = NativeReActAgent(
-                engine, "test-model",
+                engine,
+                "test-model",
                 tools=[CalculatorTool()],
             )
             result = agent.run("What is 3*3?")
@@ -453,13 +446,9 @@ class TestModelCatalogIntegration:
             BUILTIN_MODELS,
         )
 
-        local = [
-            s for s in BUILTIN_MODELS if not s.requires_api_key
-        ]
+        local = [s for s in BUILTIN_MODELS if not s.requires_api_key]
         for spec in local:
-            assert len(spec.supported_engines) >= 1, (
-                f"{spec.model_id} has no engines"
-            )
+            assert len(spec.supported_engines) >= 1, f"{spec.model_id} has no engines"
 
     def test_cloud_models_require_api_key(self):
         """All cloud models require an API key."""
@@ -478,9 +467,7 @@ class TestModelCatalogIntegration:
             "gemini-3-flash",
         ]
         for mid in cloud_ids:
-            matches = [
-                s for s in BUILTIN_MODELS if s.model_id == mid
-            ]
+            matches = [s for s in BUILTIN_MODELS if s.model_id == mid]
             assert len(matches) == 1, f"Missing {mid}"
             assert matches[0].requires_api_key is True
 
@@ -494,7 +481,8 @@ class TestAgentRoutingMatrix:
     """Agents run consistently across different configurations."""
 
     @pytest.mark.parametrize(
-        "agent_key", ["native_react", "native_openhands"],
+        "agent_key",
+        ["native_react", "native_openhands"],
     )
     def test_agent_returns_valid_result(self, agent_key):
         _register_all()
@@ -515,7 +503,8 @@ class TestAgentRoutingMatrix:
         assert len(result.content) > 0
 
     @pytest.mark.parametrize(
-        "agent_key", ["native_react", "native_openhands"],
+        "agent_key",
+        ["native_react", "native_openhands"],
     )
     def test_agent_emits_events(self, agent_key):
         _register_all()
@@ -543,15 +532,16 @@ class TestAgentRoutingMatrix:
 
         engine = _make_engine(
             _simple_response(
-                "Thought: I see the system message.\n"
-                "Final Answer: Got context."
+                "Thought: I see the system message.\nFinal Answer: Got context."
             )
         )
         conv = Conversation()
-        conv.add(Message(
-            role=Role.SYSTEM,
-            content="You are helpful.",
-        ))
+        conv.add(
+            Message(
+                role=Role.SYSTEM,
+                content="You are helpful.",
+            )
+        )
         ctx = AgentContext(conversation=conv)
         agent = NativeReActAgent(engine, "test-model")
         result = agent.run("Hello", context=ctx)
@@ -561,6 +551,4 @@ class TestAgentRoutingMatrix:
         call_args = engine.generate.call_args
         msgs = call_args[0][0]
         # First message is ReAct system prompt, then context
-        assert any(
-            m.content == "You are helpful." for m in msgs
-        )
+        assert any(m.content == "You are helpful." for m in msgs)

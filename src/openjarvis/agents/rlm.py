@@ -35,8 +35,8 @@ RLM_SYSTEM_PROMPT = (
     "final answer.\n"
     "- `FINAL_VAR(var_name: str)` — Terminate and return the "
     "value of variable `var_name`.\n"
-    "- `answer` dict — Set `answer[\"value\"] = ...` and "
-    "`answer[\"ready\"] = True` to terminate.\n\n"
+    '- `answer` dict — Set `answer["value"] = ...` and '
+    '`answer["ready"] = True` to terminate.\n\n'
     "{tool_section}"
     "## Available Modules\n\n"
     "json, re, math, collections, itertools, functools, "
@@ -52,7 +52,7 @@ RLM_SYSTEM_PROMPT = (
     "and use `llm_query()` on each chunk.\n"
     "3. Combine sub-results programmatically.\n"
     "4. When you have the final answer, call "
-    "`FINAL(answer_value)` or `FINAL_VAR(\"var_name\")`.\n"
+    '`FINAL(answer_value)` or `FINAL_VAR("var_name")`.\n'
     "5. If you can answer directly without code, just respond "
     "with text (no code block).\n\n"
     "## Strategy Tips\n\n"
@@ -84,6 +84,9 @@ class RLMAgent(ToolUsingAgent):
     """
 
     agent_id = "rlm"
+    _default_temperature = 0.7
+    _default_max_tokens = 2048
+    _default_max_turns = 10
 
     def __init__(
         self,
@@ -92,9 +95,9 @@ class RLMAgent(ToolUsingAgent):
         *,
         tools: Optional[List[BaseTool]] = None,
         bus: Optional[EventBus] = None,
-        max_turns: int = 10,
-        temperature: float = 0.7,
-        max_tokens: int = 2048,
+        max_turns: Optional[int] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
         sub_model: Optional[str] = None,
         sub_temperature: float = 0.3,
         sub_max_tokens: int = 1024,
@@ -104,10 +107,15 @@ class RLMAgent(ToolUsingAgent):
         confirm_callback=None,
     ) -> None:
         super().__init__(
-            engine, model, tools=tools, bus=bus,
-            max_turns=max_turns, temperature=temperature,
+            engine,
+            model,
+            tools=tools,
+            bus=bus,
+            max_turns=max_turns,
+            temperature=temperature,
             max_tokens=max_tokens,
-            interactive=interactive, confirm_callback=confirm_callback,
+            interactive=interactive,
+            confirm_callback=confirm_callback,
         )
         # Override executor: RLM only creates one if tools are provided
         if not self._tools:
@@ -168,16 +176,26 @@ class RLMAgent(ToolUsingAgent):
 
         # Build conversation
         messages = self._build_messages(
-            input, context, system_prompt=system_prompt,
+            input,
+            context,
+            system_prompt=system_prompt,
         )
 
         all_tool_results: list[ToolResult] = []
         turns = 0
+        total_usage: dict[str, int] = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
 
         for _turn in range(self._max_turns):
             turns += 1
 
             result = self._generate(messages)
+            usage = result.get("usage", {})
+            for k in total_usage:
+                total_usage[k] += usage.get(k, 0)
             content = result.get("content", "")
 
             # Strip <think> tags
@@ -193,6 +211,7 @@ class RLMAgent(ToolUsingAgent):
                     content=content,
                     tool_results=all_tool_results,
                     turns=turns,
+                    metadata=total_usage,
                 )
 
             # Execute code in REPL
@@ -218,14 +237,13 @@ class RLMAgent(ToolUsingAgent):
                     content=final_str,
                     tool_results=all_tool_results,
                     turns=turns,
+                    metadata=total_usage,
                 )
 
             # Feed output back as user message
             messages.append(Message(role=Role.ASSISTANT, content=content))
             feedback = (
-                f"REPL Output: {output}"
-                if output
-                else "REPL Output: (no output)"
+                f"REPL Output: {output}" if output else "REPL Output: (no output)"
             )
             messages.append(Message(role=Role.USER, content=feedback))
 
@@ -236,7 +254,9 @@ class RLMAgent(ToolUsingAgent):
         else:
             final_content = ""
 
-        return self._max_turns_result(all_tool_results, turns, content=final_content)
+        return self._max_turns_result(
+            all_tool_results, turns, content=final_content, metadata=total_usage
+        )
 
     # ------------------------------------------------------------------
     # Sub-LM callbacks
@@ -269,19 +289,23 @@ class RLMAgent(ToolUsingAgent):
                 )
                 for i, tc in enumerate(raw_tool_calls)
             ]
-            messages.append(Message(
-                role=Role.ASSISTANT,
-                content=content,
-                tool_calls=tool_calls,
-            ))
+            messages.append(
+                Message(
+                    role=Role.ASSISTANT,
+                    content=content,
+                    tool_calls=tool_calls,
+                )
+            )
             for tc in tool_calls:
                 tr = self._executor.execute(tc)
-                messages.append(Message(
-                    role=Role.TOOL,
-                    content=tr.content,
-                    tool_call_id=tc.id,
-                    name=tc.name,
-                ))
+                messages.append(
+                    Message(
+                        role=Role.TOOL,
+                        content=tr.content,
+                        tool_call_id=tc.id,
+                        name=tc.name,
+                    )
+                )
             followup = self._engine.generate(
                 messages,
                 model=self._sub_model,

@@ -321,6 +321,19 @@ class AgenticRunner:
 
         event_recorder.clear()
 
+        # Bridge EventBus → EventRecorder so tool events are captured.
+        # ToolExecutor publishes to JarvisSystem.bus; we relay those into
+        # the EventRecorder for transcript building and trace enrichment.
+        _bus_unsubs: list[tuple] = []
+        agent_bus = getattr(agent, "bus", None)
+        if agent_bus is not None:
+            for etype in (EventType.TOOL_CALL_START, EventType.TOOL_CALL_END):
+                def _relay(event, _etype=etype):
+                    data = event.data if hasattr(event, "data") else {}
+                    event_recorder.record(_etype, **data)
+                agent_bus.subscribe(etype, _relay)
+                _bus_unsubs.append((etype, _relay))
+
         # Set up per-query workspace
         if self._run_dir and hasattr(agent, "set_workspace"):
             instance_id = record.metadata.get("instance_id", record.record_id)
@@ -330,6 +343,7 @@ class AgenticRunner:
             )
             workspace.mkdir(parents=True, exist_ok=True)
             agent.set_workspace(str(workspace))
+            record.metadata["workspace_path"] = str(workspace)
 
         # Create per-task execution environment (e.g. Docker for TerminalBench)
         task_env = None
@@ -397,6 +411,10 @@ class AgenticRunner:
                     else:
                         response_text = str(agent(record.problem))
 
+                # Wire event recorder to task env if supported
+                if task_env is not None and hasattr(task_env, "set_event_recorder"):
+                    task_env.set_event_recorder(event_recorder)
+
                 # Run tests if task env supports it
                 if task_env is not None and hasattr(task_env, "run_tests"):
                     task_env.run_tests()
@@ -425,6 +443,13 @@ class AgenticRunner:
         except Exception as exc:
             LOGGER.warning("Agent failed on query %s: %s", query_id, exc)
             end_time = time.time()
+            # Unsubscribe EventBus relays
+            if agent_bus is not None:
+                for etype, cb in _bus_unsubs:
+                    try:
+                        agent_bus.unsubscribe(etype, cb)
+                    except Exception:
+                        pass
             return QueryTrace(
                 query_id=query_id,
                 workload_type=str(workload_type),
@@ -434,6 +459,14 @@ class AgenticRunner:
                 completed=False,
                 is_resolved=record.metadata.get("is_resolved"),
             )
+
+        # Unsubscribe EventBus relays
+        if agent_bus is not None:
+            for etype, cb in _bus_unsubs:
+                try:
+                    agent_bus.unsubscribe(etype, cb)
+                except Exception:
+                    pass
 
         end_time = time.time()
         end_ns = time.monotonic_ns()
@@ -578,6 +611,8 @@ class AgenticRunner:
         current_turn_start: Optional[float] = None
         current_tools: list[str] = []
         current_tool_latencies: dict[str, float] = {}
+        current_tool_calls: list[dict[str, Any]] = []
+        current_tool_args: dict[str, Any] = {}
         tool_start_times: dict[str, float] = {}
         input_tokens = 0
         output_tokens = 0
@@ -624,6 +659,7 @@ class AgenticRunner:
                     output_tokens=output_tokens,
                     tools_called=list(current_tools),
                     tool_latencies_s=dict(current_tool_latencies),
+                    tool_calls=list(current_tool_calls),
                     wall_clock_s=wall_clock,
                     action_energy_breakdown=action_breakdown,
                 )
@@ -633,6 +669,8 @@ class AgenticRunner:
                 current_turn_start = None
                 current_tools = []
                 current_tool_latencies = {}
+                current_tool_calls = []
+                current_tool_args = {}
                 current_action_spans = []
                 input_tokens = 0
                 output_tokens = 0
@@ -640,10 +678,16 @@ class AgenticRunner:
             elif etype == EventType.TOOL_CALL_START:
                 tool_name = event.metadata.get("tool", "unknown")
                 tool_start_times[tool_name] = event.timestamp
+                current_tool_args[tool_name] = event.metadata.get("arguments", {})
 
             elif etype == EventType.TOOL_CALL_END:
                 tool_name = event.metadata.get("tool", "unknown")
                 current_tools.append(tool_name)
+                current_tool_calls.append({
+                    "name": tool_name,
+                    "arguments": current_tool_args.pop(tool_name, {}),
+                    "result": event.metadata.get("result", ""),
+                })
                 start_ts = tool_start_times.pop(tool_name, None)
                 if start_ts is not None:
                     duration = event.timestamp - start_ts
@@ -662,6 +706,7 @@ class AgenticRunner:
                     turn_index=0,
                     tools_called=current_tools,
                     tool_latencies_s=current_tool_latencies,
+                    tool_calls=list(current_tool_calls),
                 )
             )
 

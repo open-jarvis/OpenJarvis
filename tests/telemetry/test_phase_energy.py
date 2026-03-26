@@ -85,9 +85,7 @@ class TestDecodeLatency:
         ie.generate([Message(role=Role.USER, content="hi")], model="m")
         rec = records[0]
         # decode_latency = latency - ttft
-        assert rec.decode_latency_seconds == pytest.approx(
-            rec.latency_seconds - 0.1
-        )
+        assert rec.decode_latency_seconds == pytest.approx(rec.latency_seconds - 0.1)
 
     def test_decode_latency_zero_when_no_ttft(self):
         bus = EventBus()
@@ -213,14 +211,16 @@ class TestPhaseEnergyStorage:
 
     def test_store_and_aggregate(self, tmp_path):
         store = TelemetryStore(tmp_path / "test.db")
-        store.record(TelemetryRecord(
-            timestamp=time.time(),
-            model_id="m1",
-            engine="mock",
-            energy_joules=10.0,
-            prefill_energy_joules=3.0,
-            decode_energy_joules=7.0,
-        ))
+        store.record(
+            TelemetryRecord(
+                timestamp=time.time(),
+                model_id="m1",
+                engine="mock",
+                energy_joules=10.0,
+                prefill_energy_joules=3.0,
+                decode_energy_joules=7.0,
+            )
+        )
 
         agg = TelemetryAggregator(tmp_path / "test.db")
         stats = agg.per_model_stats()

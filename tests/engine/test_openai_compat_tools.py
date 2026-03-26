@@ -24,17 +24,20 @@ class TestOpenAICompatToolCalls:
     def test_no_tool_calls(self, respx_mock):
         """When no tool_calls in response, result has no tool_calls key."""
         respx_mock.post("http://localhost:9999/v1/chat/completions").mock(
-            return_value=httpx.Response(200, json={
-                "choices": [
-                    {"message": {"content": "Hi"}, "finish_reason": "stop"},
-                ],
-                "usage": {
-                    "prompt_tokens": 5,
-                    "completion_tokens": 2,
-                    "total_tokens": 7,
+            return_value=httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {"message": {"content": "Hi"}, "finish_reason": "stop"},
+                    ],
+                    "usage": {
+                        "prompt_tokens": 5,
+                        "completion_tokens": 2,
+                        "total_tokens": 7,
+                    },
+                    "model": "test",
                 },
-                "model": "test",
-            })
+            )
         )
         engine = _TestEngine()
         result = engine.generate(
@@ -47,28 +50,35 @@ class TestOpenAICompatToolCalls:
     def test_with_tool_calls(self, respx_mock):
         """Extract tool_calls from OpenAI-format response."""
         respx_mock.post("http://localhost:9999/v1/chat/completions").mock(
-            return_value=httpx.Response(200, json={
-                "choices": [{
-                    "message": {
-                        "content": None,
-                        "tool_calls": [{
-                            "id": "call_abc",
-                            "type": "function",
-                            "function": {
-                                "name": "calculator",
-                                "arguments": '{"expression":"2+2"}',
+            return_value=httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {
+                                "content": None,
+                                "tool_calls": [
+                                    {
+                                        "id": "call_abc",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "calculator",
+                                            "arguments": '{"expression":"2+2"}',
+                                        },
+                                    }
+                                ],
                             },
-                        }],
+                            "finish_reason": "tool_calls",
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 5,
+                        "completion_tokens": 10,
+                        "total_tokens": 15,
                     },
-                    "finish_reason": "tool_calls",
-                }],
-                "usage": {
-                    "prompt_tokens": 5,
-                    "completion_tokens": 10,
-                    "total_tokens": 15,
+                    "model": "test",
                 },
-                "model": "test",
-            })
+            )
         )
         engine = _TestEngine()
         result = engine.generate(
@@ -89,11 +99,16 @@ class TestOpenAICompatToolCalls:
 
         def capture(request):
             captured["body"] = json.loads(request.content)
-            return httpx.Response(200, json={
-                "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
-                "usage": {},
-                "model": "test",
-            })
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {"message": {"content": "ok"}, "finish_reason": "stop"}
+                    ],
+                    "usage": {},
+                    "model": "test",
+                },
+            )
 
         respx_mock.post("http://localhost:9999/v1/chat/completions").mock(
             side_effect=capture,
@@ -108,26 +123,33 @@ class TestOpenAICompatToolCalls:
 
     def test_multiple_tool_calls(self, respx_mock):
         respx_mock.post("http://localhost:9999/v1/chat/completions").mock(
-            return_value=httpx.Response(200, json={
-                "choices": [{
-                    "message": {
-                        "content": "",
-                        "tool_calls": [
-                            {
-                                "id": "c1", "type": "function",
-                                "function": {"name": "a", "arguments": "{}"},
+            return_value=httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "",
+                                "tool_calls": [
+                                    {
+                                        "id": "c1",
+                                        "type": "function",
+                                        "function": {"name": "a", "arguments": "{}"},
+                                    },
+                                    {
+                                        "id": "c2",
+                                        "type": "function",
+                                        "function": {"name": "b", "arguments": "{}"},
+                                    },
+                                ],
                             },
-                            {
-                                "id": "c2", "type": "function",
-                                "function": {"name": "b", "arguments": "{}"},
-                            },
-                        ],
-                    },
-                    "finish_reason": "tool_calls",
-                }],
-                "usage": {},
-                "model": "test",
-            })
+                            "finish_reason": "tool_calls",
+                        }
+                    ],
+                    "usage": {},
+                    "model": "test",
+                },
+            )
         )
         engine = _TestEngine()
         result = engine.generate(
@@ -145,12 +167,15 @@ class TestOpenAICompatToolCalls:
 class TestOllamaToolCalls:
     def test_no_tool_calls(self, respx_mock):
         respx_mock.post("http://localhost:11434/api/chat").mock(
-            return_value=httpx.Response(200, json={
-                "message": {"content": "Hi"},
-                "model": "test",
-                "prompt_eval_count": 5,
-                "eval_count": 2,
-            })
+            return_value=httpx.Response(
+                200,
+                json={
+                    "message": {"content": "Hi"},
+                    "model": "test",
+                    "prompt_eval_count": 5,
+                    "eval_count": 2,
+                },
+            )
         )
         engine = OllamaEngine()
         result = engine.generate(
@@ -161,20 +186,25 @@ class TestOllamaToolCalls:
 
     def test_with_tool_calls(self, respx_mock):
         respx_mock.post("http://localhost:11434/api/chat").mock(
-            return_value=httpx.Response(200, json={
-                "message": {
-                    "content": "",
-                    "tool_calls": [{
-                        "function": {
-                            "name": "calculator",
-                            "arguments": '{"expression":"3*3"}',
-                        },
-                    }],
+            return_value=httpx.Response(
+                200,
+                json={
+                    "message": {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "function": {
+                                    "name": "calculator",
+                                    "arguments": '{"expression":"3*3"}',
+                                },
+                            }
+                        ],
+                    },
+                    "model": "test",
+                    "prompt_eval_count": 5,
+                    "eval_count": 3,
                 },
-                "model": "test",
-                "prompt_eval_count": 5,
-                "eval_count": 3,
-            })
+            )
         )
         engine = OllamaEngine()
         result = engine.generate(
@@ -189,10 +219,13 @@ class TestOllamaToolCalls:
 
         def capture(request):
             captured["body"] = json.loads(request.content)
-            return httpx.Response(200, json={
-                "message": {"content": "ok"},
-                "model": "test",
-            })
+            return httpx.Response(
+                200,
+                json={
+                    "message": {"content": "ok"},
+                    "model": "test",
+                },
+            )
 
         respx_mock.post("http://localhost:11434/api/chat").mock(side_effect=capture)
         engine = OllamaEngine()
@@ -205,23 +238,26 @@ class TestOllamaToolCalls:
 
     def test_dict_arguments_serialized_to_json(self, respx_mock):
         """Ollama returns arguments as dict — engine must serialize."""
-        respx_mock.post(
-            "http://localhost:11434/api/chat"
-        ).mock(
-            return_value=httpx.Response(200, json={
-                "message": {
-                    "content": "",
-                    "tool_calls": [{
-                        "function": {
-                            "name": "calculator",
-                            "arguments": {"expression": "3*3"},
-                        },
-                    }],
+        respx_mock.post("http://localhost:11434/api/chat").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "message": {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "function": {
+                                    "name": "calculator",
+                                    "arguments": {"expression": "3*3"},
+                                },
+                            }
+                        ],
+                    },
+                    "model": "test",
+                    "prompt_eval_count": 5,
+                    "eval_count": 3,
                 },
-                "model": "test",
-                "prompt_eval_count": 5,
-                "eval_count": 3,
-            })
+            )
         )
         engine = OllamaEngine()
         result = engine.generate(
@@ -240,10 +276,13 @@ class TestOllamaToolCalls:
 
         def capture(request):
             captured["body"] = json.loads(request.content)
-            return httpx.Response(200, json={
-                "message": {"content": "ok"},
-                "model": "test",
-            })
+            return httpx.Response(
+                200,
+                json={
+                    "message": {"content": "ok"},
+                    "model": "test",
+                },
+            )
 
         respx_mock.post("http://localhost:11434/api/chat").mock(side_effect=capture)
         engine = OllamaEngine()

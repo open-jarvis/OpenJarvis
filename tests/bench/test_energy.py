@@ -78,7 +78,10 @@ class TestEnergyBenchmark:
 
         b = EnergyBenchmark()
         result = b.run(
-            engine, "test-model", num_samples=3, warmup_samples=0,
+            engine,
+            "test-model",
+            num_samples=3,
+            warmup_samples=0,
             energy_monitor=monitor,
         )
 

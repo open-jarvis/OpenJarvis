@@ -111,8 +111,8 @@ class TestNativeReActParsing:
     def test_parse_thought_action(self):
         parse = self._parser()
         text = (
-            'Thought: I need to calculate 2+2.\n'
-            'Action: calculator\n'
+            "Thought: I need to calculate 2+2.\n"
+            "Action: calculator\n"
             'Action Input: {"expression": "2+2"}'
         )
         result = parse(text)
@@ -157,8 +157,8 @@ class TestNativeReActParsing:
     def test_parse_case_insensitive_thought_action(self):
         parse = self._parser()
         text = (
-            'thought: I need to calculate 2+2.\n'
-            'action: calculator\n'
+            "thought: I need to calculate 2+2.\n"
+            "action: calculator\n"
             'action input: {"expression": "2+2"}'
         )
         result = parse(text)
@@ -199,18 +199,18 @@ class TestNativeReActAgent:
         engine.engine_id = "mock"
         engine.generate.side_effect = [
             _engine_response(
-                'Thought: I need to calculate.\n'
-                'Action: calculator\n'
+                "Thought: I need to calculate.\n"
+                "Action: calculator\n"
                 'Action Input: {"expression": "2+2"}'
             ),
-            _engine_response(
-                "Thought: The result is 4.\nFinal Answer: 4"
-            ),
+            _engine_response("Thought: The result is 4.\nFinal Answer: 4"),
         ]
         bus = EventBus(record_history=True)
         agent = NativeReActAgent(
-            engine, "test-model",
-            tools=[_CalculatorStub()], bus=bus,
+            engine,
+            "test-model",
+            tools=[_CalculatorStub()],
+            bus=bus,
         )
         result = agent.run("What is 2+2?")
         assert result.content == "4"
@@ -225,7 +225,7 @@ class TestNativeReActAgent:
         engine.engine_id = "mock"
         engine.generate.side_effect = [
             _engine_response(
-                'Thought: Calculate.\nAction: calculator\n'
+                "Thought: Calculate.\nAction: calculator\n"
                 'Action Input: {"expression": "3*7"}'
             ),
             _engine_response("Thought: Done.\nFinal Answer: 21"),
@@ -241,21 +241,22 @@ class TestNativeReActAgent:
         engine.engine_id = "mock"
         engine.generate.side_effect = [
             _engine_response(
-                'Thought: Step 1.\nAction: calculator\n'
+                "Thought: Step 1.\nAction: calculator\n"
                 'Action Input: {"expression": "1+1"}'
             ),
             _engine_response(
-                'Thought: Step 2.\nAction: calculator\n'
+                "Thought: Step 2.\nAction: calculator\n"
                 'Action Input: {"expression": "2+2"}'
             ),
             _engine_response(
-                'Thought: Step 3.\nAction: think\n'
+                "Thought: Step 3.\nAction: think\n"
                 'Action Input: {"thought": "combining results"}'
             ),
             _engine_response("Thought: All done.\nFinal Answer: Complete."),
         ]
         agent = NativeReActAgent(
-            engine, "test-model",
+            engine,
+            "test-model",
             tools=[_CalculatorStub(), _ThinkStub()],
         )
         result = agent.run("Multi step")
@@ -268,11 +269,12 @@ class TestNativeReActAgent:
         engine = MagicMock()
         engine.engine_id = "mock"
         engine.generate.return_value = _engine_response(
-            'Thought: Keep going.\nAction: calculator\n'
+            "Thought: Keep going.\nAction: calculator\n"
             'Action Input: {"expression": "1+1"}'
         )
         agent = NativeReActAgent(
-            engine, "test-model",
+            engine,
+            "test-model",
             tools=[_CalculatorStub()],
             max_turns=3,
         )
@@ -287,12 +289,10 @@ class TestNativeReActAgent:
         engine.engine_id = "mock"
         engine.generate.side_effect = [
             _engine_response(
-                'Thought: Use a tool.\nAction: nonexistent\n'
-                'Action Input: {}'
+                "Thought: Use a tool.\nAction: nonexistent\nAction Input: {}"
             ),
             _engine_response(
-                "Thought: Error occurred.\n"
-                "Final Answer: Could not run tool."
+                "Thought: Error occurred.\nFinal Answer: Could not run tool."
             ),
         ]
         agent = NativeReActAgent(engine, "test-model", tools=[_CalculatorStub()])
@@ -322,14 +322,16 @@ class TestNativeReActAgent:
         engine.engine_id = "mock"
         engine.generate.side_effect = [
             _engine_response(
-                'Thought: Calc.\nAction: calculator\n'
+                "Thought: Calc.\nAction: calculator\n"
                 'Action Input: {"expression": "1+1"}'
             ),
             _engine_response("Thought: Done.\nFinal Answer: 2"),
         ]
         agent = NativeReActAgent(
-            engine, "test-model",
-            tools=[_CalculatorStub()], bus=bus,
+            engine,
+            "test-model",
+            tools=[_CalculatorStub()],
+            bus=bus,
         )
         agent.run("Calc")
         event_types = [e.event_type for e in bus.history]
@@ -365,7 +367,7 @@ class TestNativeReActAgent:
         engine.engine_id = "mock"
         engine.generate.side_effect = [
             _engine_response(
-                'Thought: Let me reason.\nAction: think\n'
+                "Thought: Let me reason.\nAction: think\n"
                 'Action Input: {"thought": "The user wants a greeting"}'
             ),
             _engine_response("Thought: Now I know.\nFinal Answer: Greetings!"),
@@ -403,7 +405,7 @@ class TestNativeReActAgent:
         engine.engine_id = "mock"
         engine.generate.side_effect = [
             _engine_response(
-                'Thought: Calc.\nAction: calculator\n'
+                "Thought: Calc.\nAction: calculator\n"
                 'Action Input: {"expression": "5+5"}'
             ),
             _engine_response("Thought: Got it.\nFinal Answer: 10"),
@@ -427,7 +429,8 @@ class TestNativeReActAgent:
             "Thought: Done.\nFinal Answer: ok"
         )
         agent = NativeReActAgent(
-            engine, "test-model",
+            engine,
+            "test-model",
             tools=[_CalculatorStub(), _ThinkStub()],
         )
         agent.run("Hello")
@@ -455,11 +458,11 @@ class TestNativeReActAgent:
         engine = MagicMock()
         engine.engine_id = "mock"
         engine.generate.return_value = _engine_response(
-            'Thought: Go.\nAction: calculator\n'
-            'Action Input: {"expression": "1"}'
+            'Thought: Go.\nAction: calculator\nAction Input: {"expression": "1"}'
         )
         agent = NativeReActAgent(
-            engine, "test-model",
+            engine,
+            "test-model",
             tools=[_CalculatorStub()],
             max_turns=1,
         )
@@ -478,13 +481,11 @@ class TestNativeReActAgent:
         agent = NativeReActAgent(engine, "test-model", bus=bus)
         agent.run("test input")
         start_events = [
-            e for e in bus.history
-            if e.event_type == EventType.AGENT_TURN_START
+            e for e in bus.history if e.event_type == EventType.AGENT_TURN_START
         ]
         assert len(start_events) == 1
         assert start_events[0].data["agent"] == "native_react"
         assert start_events[0].data["input"] == "test input"
-
 
     def test_system_prompt_enriched_descriptions(self):
         """System prompt should include parameter schemas, not just names."""
@@ -494,7 +495,8 @@ class TestNativeReActAgent:
             "Thought: Done.\nFinal Answer: ok"
         )
         agent = NativeReActAgent(
-            engine, "test-model",
+            engine,
+            "test-model",
             tools=[_CalculatorStub(), _ThinkStub()],
         )
         agent.run("Hello")
@@ -514,16 +516,15 @@ class TestNativeReActAgent:
         engine.engine_id = "mock"
         engine.generate.side_effect = [
             _engine_response(
-                'thought: I need to calculate.\n'
-                'action: calculator\n'
+                "thought: I need to calculate.\n"
+                "action: calculator\n"
                 'action input: {"expression": "2+2"}'
             ),
-            _engine_response(
-                "thought: The result is 4.\nfinal answer: 4"
-            ),
+            _engine_response("thought: The result is 4.\nfinal answer: 4"),
         ]
         agent = NativeReActAgent(
-            engine, "test-model",
+            engine,
+            "test-model",
             tools=[_CalculatorStub()],
         )
         result = agent.run("What is 2+2?")

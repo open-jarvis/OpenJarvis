@@ -111,7 +111,10 @@ class TestGuardrailsEngineInputScanning:
         bus = EventBus(record_history=True)
         mock = _make_mock_engine("OK")
         ge = GuardrailsEngine(
-            mock, mode=RedactionMode.WARN, scan_input=True, bus=bus,
+            mock,
+            mode=RedactionMode.WARN,
+            scan_input=True,
+            bus=bus,
         )
 
         secret = "my key sk-abc123def456ghi789jkl012"
@@ -129,7 +132,9 @@ class TestGuardrailsEngineInputScanning:
         """REDACT mode on input must send redacted messages."""
         mock = _make_mock_engine("OK")
         ge = GuardrailsEngine(
-            mock, mode=RedactionMode.REDACT, scan_input=True,
+            mock,
+            mode=RedactionMode.REDACT,
+            scan_input=True,
         )
 
         secret = "my key sk-abc123def456ghi789jkl012"
@@ -147,7 +152,9 @@ class TestGuardrailsEngineInputScanning:
         bus = EventBus(record_history=True)
         mock = _make_mock_engine("OK")
         ge = GuardrailsEngine(
-            mock, mode=RedactionMode.WARN, scan_input=False,
+            mock,
+            mode=RedactionMode.WARN,
+            scan_input=False,
             bus=bus,
         )
 

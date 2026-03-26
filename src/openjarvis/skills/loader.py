@@ -104,4 +104,18 @@ def load_skill(
     return manifest
 
 
-__all__ = ["load_skill"]
+def discover_skills(directory: str | Path) -> list[SkillManifest]:
+    """Scan directory for TOML skill files and load them."""
+    directory = Path(directory).expanduser()
+    if not directory.exists():
+        return []
+    manifests = []
+    for toml_file in sorted(directory.glob("*.toml")):
+        try:
+            manifests.append(load_skill(toml_file))
+        except Exception:
+            continue
+    return manifests
+
+
+__all__ = ["load_skill", "discover_skills"]

@@ -31,15 +31,18 @@ def _patch_engine(engine):
     """Return context managers that patch engine discovery to use our mock."""
     return (
         mock.patch.object(
-            _ask_mod, "get_engine",
+            _ask_mod,
+            "get_engine",
             return_value=("mock", engine),
         ),
         mock.patch.object(
-            _ask_mod, "discover_engines",
+            _ask_mod,
+            "discover_engines",
             return_value={"mock": engine},
         ),
         mock.patch.object(
-            _ask_mod, "discover_models",
+            _ask_mod,
+            "discover_models",
             return_value={"mock": ["test-model"]},
         ),
         mock.patch.object(_ask_mod, "register_builtin_models"),
@@ -64,7 +67,8 @@ class TestAskModelResolution:
         patches = _patch_engine(engine)
         with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
             result = CliRunner().invoke(
-                cli, ["ask", "-m", "test-model", "Hello"],
+                cli,
+                ["ask", "-m", "test-model", "Hello"],
             )
         assert result.exit_code == 0
         assert "Hello!" in result.output
@@ -74,15 +78,23 @@ class TestAskModelResolution:
         engine = _mock_engine()
         patches = _patch_engine(engine)
         with (
-            patches[0], patches[1], patches[2], patches[3], patches[4], patches[5],
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
             mock.patch.object(
-                _ask_mod, "load_config",
+                _ask_mod,
+                "load_config",
             ) as mock_config,
         ):
             cfg = mock_config.return_value
             cfg.telemetry.enabled = False
             cfg.intelligence.default_model = ""
             cfg.intelligence.fallback_model = ""
+            cfg.intelligence.temperature = 0.7
+            cfg.intelligence.max_tokens = 1024
             cfg.agent.context_from_memory = False
             result = CliRunner().invoke(cli, ["ask", "Hello"])
         assert result.exit_code == 0
@@ -93,20 +105,27 @@ class TestAskModelResolution:
         patches = _patch_engine(engine)
         # Override discover_models to return empty list
         with (
-            patches[0], patches[1],
+            patches[0],
+            patches[1],
             mock.patch.object(
-                _ask_mod, "discover_models",
+                _ask_mod,
+                "discover_models",
                 return_value={"mock": []},
             ),
-            patches[3], patches[4], patches[5],
+            patches[3],
+            patches[4],
+            patches[5],
             mock.patch.object(
-                _ask_mod, "load_config",
+                _ask_mod,
+                "load_config",
             ) as mock_config,
         ):
             cfg = mock_config.return_value
             cfg.telemetry.enabled = False
             cfg.intelligence.default_model = ""
             cfg.intelligence.fallback_model = "fallback-model"
+            cfg.intelligence.temperature = 0.7
+            cfg.intelligence.max_tokens = 1024
             cfg.agent.context_from_memory = False
             result = CliRunner().invoke(cli, ["ask", "Hello"])
         assert result.exit_code == 0

@@ -17,25 +17,27 @@ from openjarvis.evals.core.trace import QueryTrace, TurnTrace
 def _make_traces(n=3):
     traces = []
     for i in range(n):
-        traces.append(QueryTrace(
-            query_id=f"q{i:04d}",
-            workload_type="test",
-            query_text=f"Question {i}",
-            response_text=f"Answer {i}",
-            turns=[
-                TurnTrace(
-                    turn_index=0,
-                    input_tokens=100 + i * 10,
-                    output_tokens=50 + i * 5,
-                    wall_clock_s=1.0 + i * 0.5,
-                    gpu_energy_joules=5.0 + i,
-                    cost_usd=0.01,
-                ),
-            ],
-            total_wall_clock_s=1.0 + i * 0.5,
-            completed=True,
-            is_resolved=i % 2 == 0,
-        ))
+        traces.append(
+            QueryTrace(
+                query_id=f"q{i:04d}",
+                workload_type="test",
+                query_text=f"Question {i}",
+                response_text=f"Answer {i}",
+                turns=[
+                    TurnTrace(
+                        turn_index=0,
+                        input_tokens=100 + i * 10,
+                        output_tokens=50 + i * 5,
+                        wall_clock_s=1.0 + i * 0.5,
+                        gpu_energy_joules=5.0 + i,
+                        cost_usd=0.01,
+                    ),
+                ],
+                total_wall_clock_s=1.0 + i * 0.5,
+                completed=True,
+                is_resolved=i % 2 == 0,
+            )
+        )
     return traces
 
 
@@ -89,11 +91,20 @@ class TestExportSummaryJson:
         summary = json.loads(path.read_text())
         stats = summary["statistics"]
         expected_stat_keys = {
-            "wall_clock_s", "gpu_energy_joules", "cpu_energy_joules",
-            "gpu_power_watts", "cpu_power_watts",
-            "input_tokens", "output_tokens", "total_tokens",
-            "throughput_tokens_per_sec", "energy_per_token_joules",
-            "cost_usd", "turns", "tool_calls", "mbu_avg_pct",
+            "wall_clock_s",
+            "gpu_energy_joules",
+            "cpu_energy_joules",
+            "gpu_power_watts",
+            "cpu_power_watts",
+            "input_tokens",
+            "output_tokens",
+            "total_tokens",
+            "throughput_tokens_per_sec",
+            "energy_per_token_joules",
+            "cost_usd",
+            "turns",
+            "tool_calls",
+            "mbu_avg_pct",
         }
         assert set(stats.keys()) == expected_stat_keys
 
@@ -152,8 +163,10 @@ class TestComputeEfficiency:
     def test_no_scored_traces(self):
         traces = [
             QueryTrace(
-                query_id="q0", workload_type="test",
-                completed=True, is_resolved=None,
+                query_id="q0",
+                workload_type="test",
+                completed=True,
+                is_resolved=None,
             ),
         ]
         result = _compute_efficiency(traces, 5.0, 1.0)
@@ -169,8 +182,10 @@ class TestComputeEfficiency:
     def test_with_gpu_power(self):
         traces = [
             QueryTrace(
-                query_id="q0", workload_type="test",
-                completed=True, is_resolved=True,
+                query_id="q0",
+                workload_type="test",
+                completed=True,
+                is_resolved=True,
                 query_gpu_power_avg_watts=100.0,
             ),
         ]
@@ -351,35 +366,37 @@ class TestActionEnergyBreakdown:
     def test_action_energy_summary_in_export(self, tmp_path):
         traces = []
         for i in range(2):
-            traces.append(QueryTrace(
-                query_id=f"q{i:04d}",
-                workload_type="test",
-                turns=[
-                    TurnTrace(
-                        turn_index=0,
-                        input_tokens=100,
-                        output_tokens=50,
-                        wall_clock_s=2.0,
-                        gpu_energy_joules=5.0,
-                        action_energy_breakdown=[
-                            {
-                                "action_type": "lm_inference",
-                                "duration_s": 1.5,
-                                "gpu_energy_joules": 4.0,
-                                "cpu_energy_joules": 0.3,
-                            },
-                            {
-                                "action_type": "tool_call:search",
-                                "duration_s": 0.5,
-                                "gpu_energy_joules": 1.0,
-                                "cpu_energy_joules": 0.1,
-                            },
-                        ],
-                    ),
-                ],
-                total_wall_clock_s=2.0,
-                completed=True,
-            ))
+            traces.append(
+                QueryTrace(
+                    query_id=f"q{i:04d}",
+                    workload_type="test",
+                    turns=[
+                        TurnTrace(
+                            turn_index=0,
+                            input_tokens=100,
+                            output_tokens=50,
+                            wall_clock_s=2.0,
+                            gpu_energy_joules=5.0,
+                            action_energy_breakdown=[
+                                {
+                                    "action_type": "lm_inference",
+                                    "duration_s": 1.5,
+                                    "gpu_energy_joules": 4.0,
+                                    "cpu_energy_joules": 0.3,
+                                },
+                                {
+                                    "action_type": "tool_call:search",
+                                    "duration_s": 0.5,
+                                    "gpu_energy_joules": 1.0,
+                                    "cpu_energy_joules": 0.1,
+                                },
+                            ],
+                        ),
+                    ],
+                    total_wall_clock_s=2.0,
+                    completed=True,
+                )
+            )
         path = tmp_path / "summary.json"
         export_summary_json(traces, {}, path)
         summary = json.loads(path.read_text())

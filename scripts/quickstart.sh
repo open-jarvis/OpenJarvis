@@ -146,6 +146,12 @@ info "Installing Python dependencies..."
 uv sync --extra server --quiet 2>/dev/null || uv sync --extra server
 ok "Python dependencies installed"
 
+# ── 7b. Build Rust extension ──────────────────────────────────────
+info "Building Rust extension..."
+uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml --quiet 2>/dev/null \
+  || uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml
+ok "Rust extension built"
+
 # ── 8. Install frontend dependencies ────────────────────────────────
 info "Installing frontend dependencies..."
 (cd frontend && npm install --silent 2>/dev/null || npm install)

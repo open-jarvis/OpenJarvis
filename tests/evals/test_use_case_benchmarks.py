@@ -25,12 +25,14 @@ import pytest
 class TestEmailTriageDataset:
     def test_instantiation(self) -> None:
         from openjarvis.evals.datasets.email_triage import EmailTriageDataset
+
         ds = EmailTriageDataset()
         assert ds.dataset_id == "email_triage"
         assert ds.dataset_name == "Email Triage"
 
     def test_load(self) -> None:
         from openjarvis.evals.datasets.email_triage import EmailTriageDataset
+
         ds = EmailTriageDataset()
         ds.load(max_samples=5, seed=42)
         assert ds.size() == 5
@@ -44,6 +46,7 @@ class TestEmailTriageDataset:
 
     def test_load_all(self) -> None:
         from openjarvis.evals.datasets.email_triage import EmailTriageDataset
+
         ds = EmailTriageDataset()
         ds.load()
         assert ds.size() == 30
@@ -52,12 +55,14 @@ class TestEmailTriageDataset:
 class TestMorningBriefDataset:
     def test_instantiation(self) -> None:
         from openjarvis.evals.datasets.morning_brief import MorningBriefDataset
+
         ds = MorningBriefDataset()
         assert ds.dataset_id == "morning_brief"
         assert ds.dataset_name == "Morning Brief"
 
     def test_load(self) -> None:
         from openjarvis.evals.datasets.morning_brief import MorningBriefDataset
+
         ds = MorningBriefDataset()
         ds.load(max_samples=5, seed=42)
         assert ds.size() == 5
@@ -68,6 +73,7 @@ class TestMorningBriefDataset:
 
     def test_load_all(self) -> None:
         from openjarvis.evals.datasets.morning_brief import MorningBriefDataset
+
         ds = MorningBriefDataset()
         ds.load()
         assert ds.size() == 15
@@ -76,12 +82,14 @@ class TestMorningBriefDataset:
 class TestResearchMiningDataset:
     def test_instantiation(self) -> None:
         from openjarvis.evals.datasets.research_mining import ResearchMiningDataset
+
         ds = ResearchMiningDataset()
         assert ds.dataset_id == "research_mining"
         assert ds.dataset_name == "Research Mining"
 
     def test_load(self) -> None:
         from openjarvis.evals.datasets.research_mining import ResearchMiningDataset
+
         ds = ResearchMiningDataset()
         ds.load(max_samples=5, seed=42)
         assert ds.size() == 5
@@ -92,6 +100,7 @@ class TestResearchMiningDataset:
 
     def test_load_all(self) -> None:
         from openjarvis.evals.datasets.research_mining import ResearchMiningDataset
+
         ds = ResearchMiningDataset()
         ds.load()
         assert ds.size() == 31
@@ -100,12 +109,14 @@ class TestResearchMiningDataset:
 class TestKnowledgeBaseDataset:
     def test_instantiation(self) -> None:
         from openjarvis.evals.datasets.knowledge_base import KnowledgeBaseDataset
+
         ds = KnowledgeBaseDataset()
         assert ds.dataset_id == "knowledge_base"
         assert ds.dataset_name == "Knowledge Base"
 
     def test_load(self) -> None:
         from openjarvis.evals.datasets.knowledge_base import KnowledgeBaseDataset
+
         ds = KnowledgeBaseDataset()
         ds.load(max_samples=5, seed=42)
         assert ds.size() == 5
@@ -116,6 +127,7 @@ class TestKnowledgeBaseDataset:
 
     def test_load_all(self) -> None:
         from openjarvis.evals.datasets.knowledge_base import KnowledgeBaseDataset
+
         ds = KnowledgeBaseDataset()
         ds.load()
         assert ds.size() == 30
@@ -124,12 +136,14 @@ class TestKnowledgeBaseDataset:
 class TestCodingTaskDataset:
     def test_instantiation(self) -> None:
         from openjarvis.evals.datasets.coding_task import CodingTaskDataset
+
         ds = CodingTaskDataset()
         assert ds.dataset_id == "coding_task"
         assert ds.dataset_name == "Coding Task"
 
     def test_load(self) -> None:
         from openjarvis.evals.datasets.coding_task import CodingTaskDataset
+
         ds = CodingTaskDataset()
         ds.load(max_samples=5, seed=42)
         assert ds.size() == 5
@@ -141,6 +155,7 @@ class TestCodingTaskDataset:
 
     def test_load_all(self) -> None:
         from openjarvis.evals.datasets.coding_task import CodingTaskDataset
+
         ds = CodingTaskDataset()
         ds.load()
         assert ds.size() == 29
@@ -157,26 +172,31 @@ class TestScorerInstantiation:
 
     def test_email_triage_scorer(self) -> None:
         from openjarvis.evals.scorers.email_triage import EmailTriageScorer
+
         scorer = EmailTriageScorer(self._mock_backend(), "gpt-5-mini")
         assert scorer.scorer_id == "email_triage"
 
     def test_morning_brief_scorer(self) -> None:
         from openjarvis.evals.scorers.morning_brief import MorningBriefScorer
+
         scorer = MorningBriefScorer(self._mock_backend(), "gpt-5-mini")
         assert scorer.scorer_id == "morning_brief"
 
     def test_research_mining_scorer(self) -> None:
         from openjarvis.evals.scorers.research_mining import ResearchMiningScorer
+
         scorer = ResearchMiningScorer(self._mock_backend(), "gpt-5-mini")
         assert scorer.scorer_id == "research_mining"
 
     def test_knowledge_base_scorer(self) -> None:
         from openjarvis.evals.scorers.knowledge_base import KnowledgeBaseScorer
+
         scorer = KnowledgeBaseScorer(self._mock_backend(), "gpt-5-mini")
         assert scorer.scorer_id == "knowledge_base"
 
     def test_coding_task_scorer(self) -> None:
         from openjarvis.evals.scorers.coding_task import CodingTaskScorer
+
         scorer = CodingTaskScorer(self._mock_backend(), "gpt-5-mini")
         assert scorer.scorer_id == "coding_task"
 
@@ -208,10 +228,7 @@ class TestCodingTaskScoring:
                 ),
             },
         )
-        answer = (
-            "def is_palindrome(s):\n"
-            "    return s == s[::-1]"
-        )
+        answer = "def is_palindrome(s):\n    return s == s[::-1]"
         is_correct, meta = scorer.score(record, answer)
         assert is_correct is True
         assert meta["tests_passed"] == 3
@@ -228,10 +245,7 @@ class TestCodingTaskScoring:
             reference="",
             category="use-case",
             metadata={
-                "test_cases": (
-                    "assert add(1, 2) == 3\n"
-                    "assert add(0, 0) == 0"
-                ),
+                "test_cases": ("assert add(1, 2) == 3\nassert add(0, 0) == 0"),
             },
         )
         # Wrong implementation
@@ -285,27 +299,35 @@ class TestEmailTriageScoring:
 class TestCLIFactories:
     """Test that _build_dataset and _build_scorer work for new benchmarks."""
 
-    @pytest.mark.parametrize("benchmark", [
-        "email_triage",
-        "morning_brief",
-        "research_mining",
-        "knowledge_base",
-        "coding_task",
-    ])
+    @pytest.mark.parametrize(
+        "benchmark",
+        [
+            "email_triage",
+            "morning_brief",
+            "research_mining",
+            "knowledge_base",
+            "coding_task",
+        ],
+    )
     def test_build_dataset(self, benchmark: str) -> None:
         from openjarvis.evals.cli import _build_dataset
+
         ds = _build_dataset(benchmark)
         assert ds.dataset_id == benchmark
 
-    @pytest.mark.parametrize("benchmark", [
-        "email_triage",
-        "morning_brief",
-        "research_mining",
-        "knowledge_base",
-        "coding_task",
-    ])
+    @pytest.mark.parametrize(
+        "benchmark",
+        [
+            "email_triage",
+            "morning_brief",
+            "research_mining",
+            "knowledge_base",
+            "coding_task",
+        ],
+    )
     def test_build_scorer(self, benchmark: str) -> None:
         from openjarvis.evals.cli import _build_scorer
+
         scorer = _build_scorer(benchmark, MagicMock(), "gpt-5-mini")
         assert scorer.scorer_id == benchmark
 
@@ -320,6 +342,7 @@ class TestCostCalculator:
 
     def test_estimate_monthly_cost(self) -> None:
         from openjarvis.server.cost_calculator import estimate_monthly_cost
+
         est = estimate_monthly_cost(
             calls_per_month=1000,
             avg_input_tokens=500,
@@ -332,6 +355,7 @@ class TestCostCalculator:
 
     def test_estimate_scenario(self) -> None:
         from openjarvis.server.cost_calculator import estimate_scenario
+
         estimates = estimate_scenario("daily_briefing")
         assert len(estimates) == 3  # 3 cloud providers
         for est in estimates:
@@ -339,16 +363,19 @@ class TestCostCalculator:
 
     def test_estimate_all_scenarios(self) -> None:
         from openjarvis.server.cost_calculator import estimate_all_scenarios
+
         all_est = estimate_all_scenarios()
         assert len(all_est) == 5  # 5 scenarios
 
     def test_unknown_provider(self) -> None:
         from openjarvis.server.cost_calculator import estimate_monthly_cost
+
         with pytest.raises(ValueError, match="Unknown provider"):
             estimate_monthly_cost(100, 100, 100, "nonexistent")
 
     def test_unknown_scenario(self) -> None:
         from openjarvis.server.cost_calculator import estimate_scenario
+
         with pytest.raises(ValueError, match="Unknown scenario"):
             estimate_scenario("nonexistent")
 
@@ -363,6 +390,7 @@ class TestSavings:
 
     def test_compute_savings_basic(self) -> None:
         from openjarvis.server.savings import compute_savings
+
         summary = compute_savings(1000, 500, total_calls=10)
         assert summary.total_calls == 10
         assert summary.total_tokens == 1500
@@ -375,17 +403,58 @@ class TestSavings:
         import time
 
         from openjarvis.server.savings import compute_savings
+
         start = time.time() - 3600  # 1 hour ago
         summary = compute_savings(
-            100000, 50000, total_calls=100, session_start=start,
+            100000,
+            50000,
+            total_calls=100,
+            session_start=start,
         )
         assert summary.session_duration_hours > 0
         assert summary.monthly_projection  # not empty
 
     def test_savings_to_dict(self) -> None:
         from openjarvis.server.savings import compute_savings, savings_to_dict
+
         summary = compute_savings(1000, 500, total_calls=5)
         d = savings_to_dict(summary)
         assert isinstance(d, dict)
         assert "per_provider" in d
         assert "total_calls" in d
+
+    def test_energy_scales_linearly(self) -> None:
+        """Energy should scale linearly with evaluated tokens (KV-cache model)."""
+        from openjarvis.server.savings import compute_savings
+
+        s1 = compute_savings(1000, 0)
+        s10 = compute_savings(10000, 0)
+        # FLOPs = 2*P*T (linear), so 10x tokens => 10x FLOPs => 10x energy
+        for p1, p10 in zip(s1.per_provider, s10.per_provider):
+            ratio = p10.energy_wh / p1.energy_wh
+            assert 9 < ratio < 11, (
+                f"{p1.provider}: energy ratio {ratio:.1f}, expected ~10"
+            )
+
+    def test_energy_wh_matches_direct_formula(self) -> None:
+        """Energy must equal flops * wh_per_flop for known constants."""
+        from openjarvis.server.savings import CLOUD_PRICING, compute_savings
+
+        summary = compute_savings(10000, 0)
+        for p in summary.per_provider:
+            pricing = CLOUD_PRICING[p.provider]
+            wh_per_flop = pricing["energy_wh_per_1k_tokens"] / (
+                1000 * pricing.get("flops_per_token", 3e12)
+            )
+            expected = p.flops * wh_per_flop
+            assert abs(p.energy_wh - expected) < 1e-6, (
+                f"{p.provider}: energy_wh={p.energy_wh}, expected={expected}"
+            )
+
+    def test_energy_not_zero(self) -> None:
+        """Energy must be positive for non-zero token counts."""
+        from openjarvis.server.savings import compute_savings
+
+        summary = compute_savings(500, 500)
+        for p in summary.per_provider:
+            assert p.energy_wh > 0, f"{p.provider}: energy_wh should be > 0"

@@ -69,6 +69,7 @@ try:
         MODEL_PARAMS_B,
         compute_mfu,
         estimate_flops,
+        estimate_flops_no_kv_cache,
     )
 except ImportError:
     pass
@@ -100,6 +101,7 @@ __all__ = [
     "split_at_ttft",
     "compute_itl_stats",
     "estimate_flops",
+    "estimate_flops_no_kv_cache",
     "compute_mfu",
     "GPU_PEAK_TFLOPS_BF16",
     "MODEL_PARAMS_B",

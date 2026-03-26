@@ -45,12 +45,15 @@ class TestInit:
         assert ch._password == "pass123"
 
     def test_env_var_fallback(self):
-        with patch.dict(os.environ, {
-            "IRC_SERVER": "irc.env.com",
-            "IRC_NICK": "envbot",
-            "IRC_PASSWORD": "envpass",
-            "IRC_PORT": "6697",
-        }):
+        with patch.dict(
+            os.environ,
+            {
+                "IRC_SERVER": "irc.env.com",
+                "IRC_NICK": "envbot",
+                "IRC_PASSWORD": "envpass",
+                "IRC_PORT": "6697",
+            },
+        ):
             ch = IRCChannel()
             assert ch._server == "irc.env.com"
             assert ch._nick == "envbot"
@@ -58,11 +61,14 @@ class TestInit:
             assert ch._port == 6697
 
     def test_constructor_overrides_env(self):
-        with patch.dict(os.environ, {
-            "IRC_SERVER": "irc.env.com",
-            "IRC_NICK": "envbot",
-            "IRC_PASSWORD": "envpass",
-        }):
+        with patch.dict(
+            os.environ,
+            {
+                "IRC_SERVER": "irc.env.com",
+                "IRC_NICK": "envbot",
+                "IRC_PASSWORD": "envpass",
+            },
+        ):
             ch = IRCChannel(
                 server="irc.explicit.com",
                 nick="explicit",

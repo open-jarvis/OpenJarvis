@@ -1,0 +1,29 @@
+name: Auto-assign on "take"
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+
+jobs:
+  assign:
+    if: >-
+      !github.event.issue.pull_request
+      && contains(fromJSON('["take", "Take", "TAKE"]'), trim(github.event.comment.body))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assign commenter
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          COMMENTER="${{ github.event.comment.user.login }}"
+          ISSUE="${{ github.event.issue.number }}"
+          CURRENT=$(gh issue view "$ISSUE" --repo "${{ github.repository }}" --json assignees --jq '.assignees[].login' 2>/dev/null)
+          if echo "$CURRENT" | grep -qx "$COMMENTER"; then
+            echo "$COMMENTER is already assigned to #$ISSUE"
+          else
+            gh issue edit "$ISSUE" --repo "${{ github.repository }}" --add-assignee "$COMMENTER"
+            echo "Assigned $COMMENTER to #$ISSUE"
+          fi

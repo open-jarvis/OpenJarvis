@@ -15,10 +15,12 @@ _real_import = builtins.__import__
 
 def _selective_import_blocker(*blocked: str):
     """Return an __import__ replacement that blocks specific packages."""
+
     def _import(name, *args, **kwargs):
         if name in blocked:
             raise ImportError(f"mocked: {name} not installed")
         return _real_import(name, *args, **kwargs)
+
     return _import
 
 
@@ -45,8 +47,7 @@ class TestDoctorOptionalLabels:
             result = runner.invoke(cli, ["doctor", "--json"])
         data = json.loads(result.output)
         apple_checks = [
-            c for c in data
-            if c["name"] == "Optional: Apple Silicon energy monitoring"
+            c for c in data if c["name"] == "Optional: Apple Silicon energy monitoring"
         ]
         assert len(apple_checks) == 1
         assert "Not installed (openjarvis[energy-apple])" == apple_checks[0]["message"]
@@ -59,8 +60,7 @@ class TestDoctorOptionalLabels:
             result = runner.invoke(cli, ["doctor", "--json"])
         data = json.loads(result.output)
         nvidia_checks = [
-            c for c in data
-            if c["name"] == "Optional: NVIDIA energy monitoring"
+            c for c in data if c["name"] == "Optional: NVIDIA energy monitoring"
         ]
         assert len(nvidia_checks) == 1
         assert "Not installed (openjarvis[gpu-metrics])" == nvidia_checks[0]["message"]

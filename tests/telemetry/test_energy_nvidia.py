@@ -34,14 +34,10 @@ def _make_fake_pynvml(device_count: int = 1, power_mw: int = 300_000):
     mod.nvmlInit = MagicMock()
     mod.nvmlShutdown = MagicMock()
     mod.nvmlDeviceGetCount = MagicMock(return_value=device_count)
-    mod.nvmlDeviceGetHandleByIndex = MagicMock(
-        side_effect=lambda i: f"handle-{i}"
-    )
+    mod.nvmlDeviceGetHandleByIndex = MagicMock(side_effect=lambda i: f"handle-{i}")
     mod.nvmlDeviceGetName = MagicMock(return_value="NVIDIA A100-SXM")
     mod.nvmlDeviceGetPowerUsage = MagicMock(return_value=power_mw)
-    mod.nvmlDeviceGetUtilizationRates = MagicMock(
-        return_value=_FakeUtilization()
-    )
+    mod.nvmlDeviceGetUtilizationRates = MagicMock(return_value=_FakeUtilization())
     mod.nvmlDeviceGetMemoryInfo = MagicMock(return_value=_FakeMemInfo())
     mod.nvmlDeviceGetTemperature = MagicMock(return_value=65)
     mod.nvmlDeviceGetTotalEnergyConsumption = MagicMock(return_value=5000.0)
@@ -115,8 +111,8 @@ class TestHwCounterProbe:
     def test_probe_fails_on_pre_volta(self):
         """nvmlDeviceGetTotalEnergyConsumption raises => polling fallback."""
         fake_pynvml = _make_fake_pynvml(device_count=1)
-        fake_pynvml.nvmlDeviceGetTotalEnergyConsumption.side_effect = (
-            RuntimeError("Not supported")
+        fake_pynvml.nvmlDeviceGetTotalEnergyConsumption.side_effect = RuntimeError(
+            "Not supported"
         )
 
         with patch.dict(sys.modules, {"pynvml": fake_pynvml}):
@@ -155,8 +151,8 @@ class TestEnergyMethod:
 
     def test_returns_polling_when_no_hw_counter(self):
         fake_pynvml = _make_fake_pynvml(device_count=1)
-        fake_pynvml.nvmlDeviceGetTotalEnergyConsumption.side_effect = (
-            RuntimeError("Not supported")
+        fake_pynvml.nvmlDeviceGetTotalEnergyConsumption.side_effect = RuntimeError(
+            "Not supported"
         )
 
         with patch.dict(sys.modules, {"pynvml": fake_pynvml}):
@@ -238,8 +234,8 @@ class TestSamplePolling:
         """Fallback mode uses trapezoidal integration of power readings."""
         fake_pynvml = _make_fake_pynvml(device_count=1, power_mw=300_000)
         # Make hw counter probe fail => polling mode
-        fake_pynvml.nvmlDeviceGetTotalEnergyConsumption.side_effect = (
-            RuntimeError("Not supported")
+        fake_pynvml.nvmlDeviceGetTotalEnergyConsumption.side_effect = RuntimeError(
+            "Not supported"
         )
 
         with patch.dict(sys.modules, {"pynvml": fake_pynvml}):
@@ -276,16 +272,18 @@ class TestSampleMultiGpu:
 
         # 2 devices: __init__ probe reads device 0 once.
         # Then sample() reads start (dev0, dev1), end (dev0, dev1).
-        readings = iter([
-            1000.0,  # probe: device 0
-            2000.0,  # sample start: device 0
-            3000.0,  # sample start: device 1
-            5000.0,  # sample end: device 0
-            7000.0,  # sample end: device 1
-        ])
+        readings = iter(
+            [
+                1000.0,  # probe: device 0
+                2000.0,  # sample start: device 0
+                3000.0,  # sample start: device 1
+                5000.0,  # sample end: device 0
+                7000.0,  # sample end: device 1
+            ]
+        )
 
-        fake_pynvml.nvmlDeviceGetTotalEnergyConsumption.side_effect = (
-            lambda h: next(readings)
+        fake_pynvml.nvmlDeviceGetTotalEnergyConsumption.side_effect = lambda h: next(
+            readings
         )
 
         with patch.dict(sys.modules, {"pynvml": fake_pynvml}):

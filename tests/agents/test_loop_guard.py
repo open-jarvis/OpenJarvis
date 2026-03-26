@@ -8,6 +8,8 @@ from openjarvis.core.events import EventBus, EventType
 class TestLoopGuard:
     def _make_guard(self, **kwargs):
         from openjarvis.agents.loop_guard import LoopGuard, LoopGuardConfig
+
+        kwargs.setdefault("warn_before_block", False)
         config = LoopGuardConfig(**kwargs)
         bus = EventBus(record_history=True)
         return LoopGuard(config, bus=bus), bus
@@ -54,8 +56,7 @@ class TestLoopGuard:
         guard.check_call("x", '{"a": 1}')
         guard.check_call("x", '{"a": 1}')
         events = [
-            e for e in bus.history
-            if e.event_type == EventType.LOOP_GUARD_TRIGGERED
+            e for e in bus.history if e.event_type == EventType.LOOP_GUARD_TRIGGERED
         ]
         assert len(events) == 1
 
@@ -69,6 +70,7 @@ class TestLoopGuard:
 
     def test_context_compression_no_overflow(self):
         from openjarvis.core.types import Message, Role
+
         guard, _ = self._make_guard(max_context_messages=100)
         messages = [Message(role=Role.USER, content=f"msg {i}") for i in range(10)]
         result = guard.compress_context(messages)
@@ -76,42 +78,43 @@ class TestLoopGuard:
 
     def test_context_compression_with_overflow(self):
         from openjarvis.core.types import Message, Role
+
         guard, _ = self._make_guard(max_context_messages=10)
-        messages = [
-            Message(role=Role.SYSTEM, content="sys"),
-        ] + [
-            Message(role=Role.USER, content=f"msg {i}")
-            for i in range(50)
-        ] + [
-            Message(role=Role.TOOL, content=f"result {i}", tool_call_id=f"t{i}")
-            for i in range(50)
-        ]
+        messages = (
+            [
+                Message(role=Role.SYSTEM, content="sys"),
+            ]
+            + [Message(role=Role.USER, content=f"msg {i}") for i in range(50)]
+            + [
+                Message(role=Role.TOOL, content=f"result {i}", tool_call_id=f"t{i}")
+                for i in range(50)
+            ]
+        )
         result = guard.compress_context(messages)
         assert len(result) <= 10
 
     def test_context_compression_stage4_uses_current_state(self):
         """Stage 4 should derive from compressed state."""
         from openjarvis.core.types import Message, Role
+
         guard, _ = self._make_guard(max_context_messages=5)
-        messages = [
-            Message(role=Role.SYSTEM, content="sys"),
-        ] + [
-            Message(role=Role.USER, content=f"msg {i}")
-            for i in range(100)
-        ] + [
-            Message(
-                role=Role.TOOL,
-                content=f"result {i}",
-                tool_call_id=f"t{i}",
-            )
-            for i in range(100)
-        ]
+        messages = (
+            [
+                Message(role=Role.SYSTEM, content="sys"),
+            ]
+            + [Message(role=Role.USER, content=f"msg {i}") for i in range(100)]
+            + [
+                Message(
+                    role=Role.TOOL,
+                    content=f"result {i}",
+                    tool_call_id=f"t{i}",
+                )
+                for i in range(100)
+            ]
+        )
         result = guard.compress_context(messages)
         assert len(result) == 5
-        system_count = sum(
-            1 for m in result
-            if getattr(m, 'role', None) == 'system'
-        )
+        system_count = sum(1 for m in result if getattr(m, "role", None) == "system")
         assert system_count == 1
 
     def test_check_response_returns_unblocked(self):
@@ -121,6 +124,7 @@ class TestLoopGuard:
 
     def test_disabled_loop_guard(self):
         from openjarvis.agents.loop_guard import LoopGuard, LoopGuardConfig
+
         config = LoopGuardConfig(enabled=False)
         guard = LoopGuard(config)
         # Even though we'd normally block, disabled guard shouldn't

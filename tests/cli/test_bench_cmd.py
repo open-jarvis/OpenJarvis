@@ -56,7 +56,8 @@ class TestBenchCLI:
             return_value=("mock", engine),
         ):
             result = CliRunner().invoke(
-                cli, ["bench", "run", "-n", "2", "--json"],
+                cli,
+                ["bench", "run", "-n", "2", "--json"],
             )
         assert result.exit_code == 0
         assert "benchmark_count" in result.output
@@ -76,7 +77,8 @@ class TestBenchCLI:
             return_value=("mock", engine),
         ):
             result = CliRunner().invoke(
-                cli, ["bench", "run", "-n", "2", "-o", str(out_file)],
+                cli,
+                ["bench", "run", "-n", "2", "-o", str(out_file)],
             )
         assert result.exit_code == 0
         assert out_file.exists()

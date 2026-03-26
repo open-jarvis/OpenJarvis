@@ -18,6 +18,8 @@ export function InputArea() {
   const streamState = useAppStore((s) => s.streamState);
   const messages = useAppStore((s) => s.messages);
   const speechEnabled = useAppStore((s) => s.settings.speechEnabled);
+  const maxTokens = useAppStore((s) => s.settings.maxTokens);
+  const temperature = useAppStore((s) => s.settings.temperature);
   const createConversation = useAppStore((s) => s.createConversation);
   const addMessage = useAppStore((s) => s.addMessage);
   const updateLastAssistant = useAppStore((s) => s.updateLastAssistant);
@@ -127,6 +129,7 @@ export function InputArea() {
 
     let accumulatedContent = '';
     let usage: TokenUsage | undefined;
+    let complexity: { score: number; tier: string; suggested_max_tokens: number } | undefined;
     const toolCalls: ToolCallInfo[] = [];
     let lastFlush = 0;
     let ttftMs: number | undefined;
@@ -147,7 +150,7 @@ export function InputArea() {
 
     try {
       for await (const sseEvent of streamChat(
-        { model: selectedModel, messages: apiMessages, stream: true },
+        { model: selectedModel, messages: apiMessages, stream: true, temperature, max_tokens: maxTokens },
         controller.signal,
       )) {
         const eventName = sseEvent.event;
@@ -202,6 +205,7 @@ export function InputArea() {
             const data = JSON.parse(sseEvent.data);
             const delta = data.choices?.[0]?.delta;
             if (data.usage) usage = data.usage;
+            if (data.complexity) complexity = data.complexity;
             if (delta?.content) {
               if (!ttftMs) ttftMs = Date.now() - startTime;
               accumulatedContent += delta.content;
@@ -248,6 +252,9 @@ export function InputArea() {
         tokens_per_sec: usage?.completion_tokens
           ? usage.completion_tokens / (totalMs / 1000)
           : undefined,
+        complexity_score: complexity?.score,
+        complexity_tier: complexity?.tier,
+        suggested_max_tokens: complexity?.suggested_max_tokens,
       };
       updateLastAssistant(
         convId,

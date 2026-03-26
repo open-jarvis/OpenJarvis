@@ -183,9 +183,7 @@ class TestInit:
     def test_stores_optimizer_backend(self) -> None:
         space = _make_search_space()
         backend = _make_mock_backend("")
-        opt = LLMOptimizer(
-            search_space=space, optimizer_backend=backend
-        )
+        opt = LLMOptimizer(search_space=space, optimizer_backend=backend)
         assert opt.optimizer_backend is backend
 
     def test_default_backend_is_none(self) -> None:
@@ -203,13 +201,15 @@ class TestProposeInitial:
     """Tests for LLMOptimizer.propose_initial."""
 
     def test_returns_trial_config(self) -> None:
-        response = json.dumps({
-            "params": {
-                "agent.type": "native_react",
-                "intelligence.temperature": 0.3,
-            },
-            "reasoning": "Balanced starting point",
-        })
+        response = json.dumps(
+            {
+                "params": {
+                    "agent.type": "native_react",
+                    "intelligence.temperature": 0.3,
+                },
+                "reasoning": "Balanced starting point",
+            }
+        )
         response = f"```json\n{response}\n```"
         backend = _make_mock_backend(response)
         opt = LLMOptimizer(
@@ -265,14 +265,16 @@ class TestProposeNext:
     """Tests for LLMOptimizer.propose_next."""
 
     def test_returns_trial_config_with_history(self) -> None:
-        response = json.dumps({
-            "params": {
-                "agent.type": "native_react",
-                "intelligence.temperature": 0.2,
-                "agent.max_turns": 15,
-            },
-            "reasoning": "Lower temp for better accuracy",
-        })
+        response = json.dumps(
+            {
+                "params": {
+                    "agent.type": "native_react",
+                    "intelligence.temperature": 0.2,
+                    "agent.max_turns": 15,
+                },
+                "reasoning": "Lower temp for better accuracy",
+            }
+        )
         response = f"```json\n{response}\n```"
         backend = _make_mock_backend(response)
         opt = LLMOptimizer(
@@ -507,8 +509,7 @@ class TestParseConfigResponse:
     def test_raw_json(self) -> None:
         opt = self._make_optimizer()
         response = (
-            'I suggest: {"params": {"agent.max_turns": 10}, '
-            '"reasoning": "More turns"}'
+            'I suggest: {"params": {"agent.max_turns": 10}, "reasoning": "More turns"}'
         )
         config = opt._parse_config_response(response)
         assert config.params["agent.max_turns"] == 10
@@ -666,10 +667,7 @@ class TestFormatTraces:
 
     def test_limits_to_last_10(self) -> None:
         opt = LLMOptimizer(search_space=_make_search_space())
-        traces = [
-            _make_trace(trace_id=f"trace-{i:03d}")
-            for i in range(20)
-        ]
+        traces = [_make_trace(trace_id=f"trace-{i:03d}") for i in range(20)]
         result = opt._format_traces(traces)
         # Should only include the last 10 (indices 10-19)
         assert "trace-010" in result
@@ -740,26 +738,24 @@ class TestIntegration:
         """Simulate a two-step optimization loop."""
         space = _make_search_space()
         initial_response = (
-            '```json\n'
+            "```json\n"
             '{"params": {"agent.type": "orchestrator", '
             '"intelligence.temperature": 0.5, "agent.max_turns": 10}, '
             '"reasoning": "Balanced start"}\n'
-            '```'
+            "```"
         )
         next_response = (
-            '```json\n'
+            "```json\n"
             '{"params": {"agent.type": "native_react", '
             '"intelligence.temperature": 0.2, "agent.max_turns": 15}, '
             '"reasoning": "Switch to ReAct for better tool use"}\n'
-            '```'
+            "```"
         )
         backend = MagicMock(spec=InferenceBackend)
         backend.backend_id = "mock"
         backend.generate.side_effect = [initial_response, next_response]
 
-        opt = LLMOptimizer(
-            search_space=space, optimizer_backend=backend
-        )
+        opt = LLMOptimizer(search_space=space, optimizer_backend=backend)
 
         # Step 1: initial proposal
         config1 = opt.propose_initial()
@@ -781,10 +777,10 @@ class TestIntegration:
         """Simulate propose -> evaluate -> analyze."""
         space = _make_search_space()
         propose_response = (
-            '```json\n'
+            "```json\n"
             '{"params": {"agent.type": "orchestrator"}, '
             '"reasoning": "Start with orchestrator"}\n'
-            '```'
+            "```"
         )
         analysis_response = (
             "The orchestrator agent achieved moderate accuracy. "
@@ -798,9 +794,7 @@ class TestIntegration:
             analysis_response,
         ]
 
-        opt = LLMOptimizer(
-            search_space=space, optimizer_backend=backend
-        )
+        opt = LLMOptimizer(search_space=space, optimizer_backend=backend)
 
         config = opt.propose_initial()
         summary = _make_run_summary()
@@ -833,13 +827,15 @@ class TestAnalyzeTrialStructured:
 
     def test_analyze_trial_returns_trial_feedback(self) -> None:
         """Mock backend returns structured JSON -> TrialFeedback."""
-        feedback_json = json.dumps({
-            "summary_text": "Good accuracy but high latency",
-            "failure_patterns": ["timeout on complex queries"],
-            "primitive_ratings": {"agent": "high", "intelligence": "medium"},
-            "suggested_changes": ["reduce max_turns"],
-            "target_primitive": "agent",
-        })
+        feedback_json = json.dumps(
+            {
+                "summary_text": "Good accuracy but high latency",
+                "failure_patterns": ["timeout on complex queries"],
+                "primitive_ratings": {"agent": "high", "intelligence": "medium"},
+                "suggested_changes": ["reduce max_turns"],
+                "target_primitive": "agent",
+            }
+        )
         response = f"```json\n{feedback_json}\n```"
         backend = _make_mock_backend(response)
         opt = LLMOptimizer(
@@ -875,13 +871,15 @@ class TestAnalyzeTrialStructured:
 
     def test_analyze_trial_with_sample_scores(self) -> None:
         """Verify sample_scores are included in the prompt."""
-        feedback_json = json.dumps({
-            "summary_text": "Analysis with scores",
-            "failure_patterns": [],
-            "primitive_ratings": {},
-            "suggested_changes": [],
-            "target_primitive": "",
-        })
+        feedback_json = json.dumps(
+            {
+                "summary_text": "Analysis with scores",
+                "failure_patterns": [],
+                "primitive_ratings": {},
+                "suggested_changes": [],
+                "target_primitive": "",
+            }
+        )
         response = f"```json\n{feedback_json}\n```"
         backend = _make_mock_backend(response)
         opt = LLMOptimizer(
@@ -909,14 +907,16 @@ class TestProposeTargeted:
     """Tests for LLMOptimizer.propose_targeted."""
 
     def test_preserves_non_target_params(self) -> None:
-        response = json.dumps({
-            "params": {
-                "agent.type": "native_react",
-                "agent.max_turns": 20,
-                "intelligence.temperature": 0.9,
-            },
-            "reasoning": "Change agent only",
-        })
+        response = json.dumps(
+            {
+                "params": {
+                    "agent.type": "native_react",
+                    "agent.max_turns": 20,
+                    "intelligence.temperature": 0.9,
+                },
+                "reasoning": "Change agent only",
+            }
+        )
         response = f"```json\n{response}\n```"
         backend = _make_mock_backend(response)
         opt = LLMOptimizer(

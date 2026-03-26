@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
@@ -9,6 +10,8 @@ from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
 from openjarvis.security.ssrf import check_ssrf
 from openjarvis.tools._stubs import BaseTool, ToolSpec
+
+logger = logging.getLogger(__name__)
 
 
 @ToolRegistry.register("web_search")
@@ -41,7 +44,7 @@ class WebSearchTool(BaseTool):
                 "required": ["query"],
             },
             category="search",
-            metadata={"requires_api_key": "TAVILY_API_KEY"},
+            metadata={"requires_api_key": "TAVILY_API_KEY", "fallback": "duckduckgo"},
         )
 
     @staticmethod
@@ -84,7 +87,9 @@ class WebSearchTool(BaseTool):
             url.strip(),
             follow_redirects=True,
             timeout=30.0,
-            headers={"User-Agent": "Mozilla/5.0 (compatible; OpenJarvis/1.0; +https://github.com/openjarvis)"},
+            headers={
+                "User-Agent": "Mozilla/5.0 (compatible; OpenJarvis/1.0; +https://github.com/openjarvis)"
+            },
         )
         resp.raise_for_status()
         content_type = resp.headers.get("content-type", "")
@@ -96,7 +101,9 @@ class WebSearchTool(BaseTool):
         html = resp.text
         # Strip script/style tags and their contents
         html = _re.sub(
-            r"<(script|style)[^>]*>.*?</\1>", "", html,
+            r"<(script|style)[^>]*>.*?</\1>",
+            "",
+            html,
             flags=_re.DOTALL | _re.IGNORECASE,
         )
         # Strip HTML tags
@@ -106,6 +113,19 @@ class WebSearchTool(BaseTool):
         if len(text) > max_chars:
             text = text[:max_chars] + "\n\n[Content truncated]"
         return text
+
+    def _duckduckgo_search(self, query: str, max_results: int) -> str:
+        """Search using DuckDuckGo as fallback."""
+        from ddgs import DDGS
+
+        ddgs = DDGS()
+        results = list(ddgs.text(query, max_results=max_results))
+        formatted = "\n\n".join(
+            f"**{r.get('title', 'Untitled')}**\n"
+            f"{r.get('href', '')}\n{r.get('body', '')}"
+            for r in results
+        )
+        return formatted
 
     def execute(self, **params: Any) -> ToolResult:
         query = params.get("query", "")
@@ -134,13 +154,8 @@ class WebSearchTool(BaseTool):
                     success=False,
                 )
 
-        if not self._api_key:
-            return ToolResult(
-                tool_name="web_search",
-                content="No API key configured. Set TAVILY_API_KEY.",
-                success=False,
-            )
         max_results = params.get("max_results", self._max_results)
+
         try:
             from tavily import TavilyClient
 
@@ -156,14 +171,27 @@ class WebSearchTool(BaseTool):
                 tool_name="web_search",
                 content=formatted or "No results found.",
                 success=True,
-                metadata={"num_results": len(results)},
+                metadata={"num_results": len(results), "engine": "tavily"},
+            )
+        except Exception as exc:
+            logger.debug(
+                "Tavily error (%s), falling back to DuckDuckGo", type(exc).__name__
+            )
+
+        try:
+            formatted = self._duckduckgo_search(query, max_results)
+            return ToolResult(
+                tool_name="web_search",
+                content=formatted or "No results found.",
+                success=True,
+                metadata={"engine": "duckduckgo"},
             )
         except ImportError:
             return ToolResult(
                 tool_name="web_search",
                 content=(
-                    "tavily-python not installed."
-                    " Install with: pip install tavily-python"
+                    "tavily-python not installed and ddgs not available."
+                    " Install with: pip install tavily-python ddgs"
                 ),
                 success=False,
             )

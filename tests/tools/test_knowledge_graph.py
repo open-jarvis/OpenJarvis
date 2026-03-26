@@ -16,8 +16,10 @@ class TestKnowledgeGraph:
     def test_add_and_get_entity(self, tmp_path):
         kg = self._make_kg(tmp_path)
         entity = Entity(
-            entity_id="e1", entity_type="concept",
-            name="Machine Learning", properties={"field": "AI"},
+            entity_id="e1",
+            entity_type="concept",
+            name="Machine Learning",
+            properties={"field": "AI"},
         )
         kg.add_entity(entity)
         result = kg.get_entity("e1")
@@ -35,10 +37,13 @@ class TestKnowledgeGraph:
         kg = self._make_kg(tmp_path)
         kg.add_entity(Entity(entity_id="a", entity_type="concept", name="A"))
         kg.add_entity(Entity(entity_id="b", entity_type="concept", name="B"))
-        kg.add_relation(Relation(
-            source_id="a", target_id="b",
-            relation_type="depends_on",
-        ))
+        kg.add_relation(
+            Relation(
+                source_id="a",
+                target_id="b",
+                relation_type="depends_on",
+            )
+        )
         assert kg.relation_count() == 1
         kg.close()
 
@@ -61,10 +66,13 @@ class TestKnowledgeGraph:
         kg.add_entity(Entity(entity_id="b", entity_type="concept", name="B"))
         kg.add_entity(Entity(entity_id="c", entity_type="concept", name="C"))
         kg.add_relation(Relation(source_id="a", target_id="b", relation_type="uses"))
-        kg.add_relation(Relation(
-            source_id="a", target_id="c",
-            relation_type="produces",
-        ))
+        kg.add_relation(
+            Relation(
+                source_id="a",
+                target_id="c",
+                relation_type="produces",
+            )
+        )
         neighbors = kg.neighbors("a", relation_type="uses", direction="out")
         assert len(neighbors) == 1
         assert neighbors[0].name == "B"

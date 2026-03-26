@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from typing import List, Optional
 
 from openjarvis.core.registry import ModelRegistry
@@ -12,32 +11,33 @@ from openjarvis.learning._stubs import QueryAnalyzer, RouterPolicy
 
 logger = logging.getLogger(__name__)
 
-# Detection patterns
-_CODE_PATTERNS = re.compile(
-    r"```|`[^`]+`|\bdef\s|\bclass\s|\bimport\s|\bfunction\s|\bconst\s|\bvar\s|\blet\s|"
-    r"\bif\s*\(|->|=>|\{\s*\}|\bfor\s+\w+\s+in\s|#include|System\.out",
-    re.IGNORECASE,
-)
-_MATH_PATTERNS = re.compile(
-    r"\bsolve\b|\bintegral\b|\bequation\b|\bproof\b|\bderivative\b|\bmatrix\b|"
-    r"\btheorem\b|\bcalculate\b|\bcompute\b|\bsigma\b|\bsum\b|\blimit\b|\bprobability\b",
-    re.IGNORECASE,
-)
-_REASONING_KEYWORDS = re.compile(
-    r"\bexplain\b|\banalyze\b|\bcompare\b|\bwhy\b"
-    r"|\bstep[- ]by[- ]step\b|\breason\b|\bthink\b",
-    re.IGNORECASE,
-)
 
+def build_routing_context(
+    query: str, *, urgency: float = 0.5, model: str | None = None
+) -> RoutingContext:
+    """Populate a ``RoutingContext`` from a raw query string.
 
-def build_routing_context(query: str, *, urgency: float = 0.5) -> RoutingContext:
-    """Populate a ``RoutingContext`` from a raw query string."""
+    When *model* is provided, the suggested token budget is adjusted
+    for thinking models that need extra headroom.
+    """
+    from openjarvis.learning.routing.complexity import (
+        adjust_tokens_for_model,
+        score_complexity,
+    )
+
+    result = score_complexity(query)
+    tokens = adjust_tokens_for_model(result.suggested_max_tokens, model)
+
     return RoutingContext(
         query=query,
         query_length=len(query),
-        has_code=bool(_CODE_PATTERNS.search(query)),
-        has_math=bool(_MATH_PATTERNS.search(query)),
+        has_code=result.signals.get("has_code", False),
+        has_math=result.signals.get("has_math", False),
+        has_reasoning=result.signals.get("has_reasoning", False),
         urgency=urgency,
+        complexity_score=result.score,
+        suggested_max_tokens=tokens,
+        metadata={"complexity_tier": result.tier, "signals": result.signals},
     )
 
 
@@ -94,8 +94,8 @@ class HeuristicRouter(RouterPolicy):
     Rules (applied in order):
     1. Code detected → prefer model with "code"/"coder" in name
     2. Math detected → prefer larger model
-    3. Short query (<50 chars, no code/math) → prefer smaller/faster model
-    4. Long/complex query (>500 chars OR reasoning keywords) → prefer larger model
+    3. Low complexity (score < 0.20) → prefer smaller/faster model
+    4. High complexity (score >= 0.55 OR reasoning keywords) → prefer larger model
     5. High urgency (>0.8) → override to smaller model
     6. Default fallback → default_model → fallback_model → first available
     """
@@ -139,12 +139,12 @@ class HeuristicRouter(RouterPolicy):
         if context.has_math:
             return _largest_model(available) or available[0]
 
-        # Rule 3: Short simple query → prefer smaller model
-        if context.query_length < 50:
+        # Rule 3: Low complexity → prefer smaller model
+        if context.complexity_score < 0.20:
             return _smallest_model(available) or available[0]
 
-        # Rule 4: Long/complex query → prefer larger model
-        if context.query_length > 500 or _REASONING_KEYWORDS.search(context.query):
+        # Rule 4: High complexity or reasoning → prefer larger model
+        if context.complexity_score >= 0.55 or context.has_reasoning:
             return _largest_model(available) or available[0]
 
         # Rule 6: Default fallback
@@ -162,7 +162,14 @@ class DefaultQueryAnalyzer(QueryAnalyzer):
         urgency = kwargs.get("urgency", 0.5)
         if not isinstance(urgency, (int, float)):
             urgency = 0.5
-        return build_routing_context(query, urgency=urgency)
+        model = kwargs.get("model")
+        if not isinstance(model, str):
+            model = None
+        return build_routing_context(query, urgency=urgency, model=model)
 
 
-__all__ = ["DefaultQueryAnalyzer", "HeuristicRouter", "build_routing_context"]
+__all__ = [
+    "DefaultQueryAnalyzer",
+    "HeuristicRouter",
+    "build_routing_context",
+]

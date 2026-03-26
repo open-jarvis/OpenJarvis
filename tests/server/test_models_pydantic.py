@@ -83,10 +83,12 @@ class TestModelListResponse:
         assert resp.data == []
 
     def test_with_models(self):
-        resp = ModelListResponse(data=[
-            ModelObject(id="model-a"),
-            ModelObject(id="model-b"),
-        ])
+        resp = ModelListResponse(
+            data=[
+                ModelObject(id="model-a"),
+                ModelObject(id="model-b"),
+            ]
+        )
         assert len(resp.data) == 2
         assert resp.data[0].id == "model-a"
         assert resp.data[0].object == "model"

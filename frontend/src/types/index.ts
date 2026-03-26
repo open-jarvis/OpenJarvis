@@ -56,6 +56,9 @@ export interface MessageTelemetry {
   tokens_per_sec?: number;
   ttft_ms?: number;
   total_ms?: number;
+  complexity_score?: number;
+  complexity_tier?: string;
+  suggested_max_tokens?: number;
 }
 
 export interface ChatMessage {
@@ -120,6 +123,7 @@ export interface SavingsData {
   total_tokens: number;
   local_cost: number;
   per_provider: ProviderSavings[];
+  token_counting_version?: number;
 }
 
 export interface ServerInfo {

@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS telemetry (
     engine          TEXT    NOT NULL DEFAULT '',
     agent           TEXT    NOT NULL DEFAULT '',
     prompt_tokens   INTEGER NOT NULL DEFAULT 0,
+    prompt_tokens_evaluated INTEGER NOT NULL DEFAULT 0,
     completion_tokens INTEGER NOT NULL DEFAULT 0,
     total_tokens    INTEGER NOT NULL DEFAULT 0,
     latency_seconds REAL    NOT NULL DEFAULT 0.0,
@@ -59,7 +60,7 @@ CREATE TABLE IF NOT EXISTS telemetry (
 _INSERT = """\
 INSERT INTO telemetry (
     timestamp, model_id, engine, agent,
-    prompt_tokens, completion_tokens, total_tokens,
+    prompt_tokens, prompt_tokens_evaluated, completion_tokens, total_tokens,
     latency_seconds, ttft, cost_usd, energy_joules, power_watts,
     gpu_utilization_pct, gpu_memory_used_gb, gpu_temperature_c,
     throughput_tok_per_sec, prefill_latency_seconds, decode_latency_seconds,
@@ -75,7 +76,7 @@ INSERT INTO telemetry (
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-    ?, ?, ?, ?, ?, ?, ?, ?
+    ?, ?, ?, ?, ?, ?, ?, ?, ?
 )
 """
 
@@ -105,6 +106,7 @@ _MIGRATE_COLUMNS = [
     ("p99_itl_ms", "REAL NOT NULL DEFAULT 0.0"),
     ("std_itl_ms", "REAL NOT NULL DEFAULT 0.0"),
     ("is_streaming", "INTEGER NOT NULL DEFAULT 0"),
+    ("prompt_tokens_evaluated", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 
@@ -139,6 +141,7 @@ class TelemetryStore:
                 rec.engine,
                 rec.agent,
                 rec.prompt_tokens,
+                rec.prompt_tokens_evaluated,
                 rec.completion_tokens,
                 rec.total_tokens,
                 rec.latency_seconds,

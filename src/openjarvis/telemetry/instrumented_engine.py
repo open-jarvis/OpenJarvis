@@ -109,6 +109,7 @@ class InstrumentedEngine(InferenceEngine):
 
         usage = result.get("usage", {})
         completion_tokens = usage.get("completion_tokens", 0)
+        prompt_tokens_evaluated = usage.get("prompt_tokens_evaluated", 0)
         ttft = result.get("ttft", 0.0)
         throughput = completion_tokens / latency if latency > 0 else 0.0
 
@@ -186,6 +187,7 @@ class InstrumentedEngine(InferenceEngine):
             timestamp=t0,
             model_id=model,
             prompt_tokens=prompt_tok,
+            prompt_tokens_evaluated=prompt_tokens_evaluated or prompt_tok,
             completion_tokens=completion_tokens,
             total_tokens=prompt_tok + completion_tokens,
             latency_seconds=latency,

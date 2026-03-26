@@ -7,6 +7,7 @@ found in the TOML file.
 
 from __future__ import annotations
 
+import functools
 import os
 import platform
 import shutil
@@ -59,7 +60,10 @@ def _run_cmd(cmd: list[str]) -> str:
     """Run a command and return stripped stdout, or empty string on failure."""
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=10,  # noqa: S603
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=10,  # noqa: S603
         )
         return result.stdout.strip()
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
@@ -69,11 +73,13 @@ def _run_cmd(cmd: list[str]) -> str:
 def _detect_nvidia_gpu() -> Optional[GpuInfo]:
     if not shutil.which("nvidia-smi"):
         return None
-    raw = _run_cmd([
-        "nvidia-smi",
-        "--query-gpu=name,memory.total,count",
-        "--format=csv,noheader,nounits",
-    ])
+    raw = _run_cmd(
+        [
+            "nvidia-smi",
+            "--query-gpu=name,memory.total,count",
+            "--format=csv,noheader,nounits",
+        ]
+    )
     if not raw:
         return None
     try:
@@ -117,6 +123,7 @@ def _detect_amd_gpu() -> Optional[GpuInfo]:
     try:
         allinfo_raw = _run_cmd(["rocm-smi", "--showallinfo"])
         import re
+
         gpu_ids = set(re.findall(r"GPU\[(\d+)\]", allinfo_raw))
         if gpu_ids:
             count = len(gpu_ids)
@@ -248,6 +255,11 @@ def recommend_model(hw: HardwareInfo, engine: str) -> str:
     return ""
 
 
+def estimated_download_gb(parameter_count_b: float) -> float:
+    """Estimate download size in GB for Q4_K_M quantized model."""
+    return parameter_count_b * 0.5 * 1.1
+
+
 # ---------------------------------------------------------------------------
 # Configuration hierarchy
 # ---------------------------------------------------------------------------
@@ -325,6 +337,16 @@ class AppleFmEngineConfig:
     host: str = "http://localhost:8079"
 
 
+@dataclass(slots=True)
+class GemmaCppEngineConfig:
+    """Per-engine config for gemma.cpp."""
+
+    model_path: str = ""
+    tokenizer_path: str = ""
+    model_type: str = ""
+    num_threads: int = 0
+
+
 @dataclass
 class EngineConfig:
     """Inference engine settings with nested per-engine configs."""
@@ -340,6 +362,7 @@ class EngineConfig:
     nexa: NexaEngineConfig = field(default_factory=NexaEngineConfig)
     uzu: UzuEngineConfig = field(default_factory=UzuEngineConfig)
     apple_fm: AppleFmEngineConfig = field(default_factory=AppleFmEngineConfig)
+    gemma_cpp: GemmaCppEngineConfig = field(default_factory=GemmaCppEngineConfig)
 
     # Backward-compat properties for old flat attribute names
     @property
@@ -448,26 +471,26 @@ class IntelligenceConfig:
 
     default_model: str = ""
     fallback_model: str = ""
-    model_path: str = ""          # Local weights (HF repo, GGUF file, etc.)
-    checkpoint_path: str = ""     # Checkpoint/adapter path
-    quantization: str = "none"    # none, fp8, int8, int4, gguf_q4, gguf_q8
-    preferred_engine: str = ""    # Override engine for this model (e.g., "vllm")
-    provider: str = ""            # local, openai, anthropic, google
+    model_path: str = ""  # Local weights (HF repo, GGUF file, etc.)
+    checkpoint_path: str = ""  # Checkpoint/adapter path
+    quantization: str = "none"  # none, fp8, int8, int4, gguf_q4, gguf_q8
+    preferred_engine: str = ""  # Override engine for this model (e.g., "vllm")
+    provider: str = ""  # local, openai, anthropic, google
     # Generation defaults (overridable per-call)
     temperature: float = 0.7
     max_tokens: int = 1024
     top_p: float = 0.9
     top_k: int = 40
     repetition_penalty: float = 1.0
-    stop_sequences: str = ""      # Comma-separated stop strings
+    stop_sequences: str = ""  # Comma-separated stop strings
 
 
 @dataclass(slots=True)
 class RoutingLearningConfig:
     """Routing sub-policy config within Learning."""
 
-    policy: str = "heuristic"   # heuristic | learned
-    min_samples: int = 5        # Min traces before trusting learned routing
+    policy: str = "heuristic"  # heuristic | learned
+    min_samples: int = 5  # Min traces before trusting learned routing
 
 
 @dataclass(slots=True)
@@ -716,9 +739,9 @@ class AgentConfig:
 
     default_agent: str = "simple"
     max_turns: int = 10
-    tools: str = ""               # comma-separated tool names
-    objective: str = ""           # concise purpose for routing/learning/docs
-    system_prompt: str = ""       # inline system prompt (takes precedence if set)
+    tools: str = ""  # comma-separated tool names
+    objective: str = ""  # concise purpose for routing/learning/docs
+    system_prompt: str = ""  # inline system prompt (takes precedence if set)
     system_prompt_path: str = ""  # path to system prompt file (.txt, .md)
     context_from_memory: bool = True  # inject relevant memory context into prompts
 
@@ -762,7 +785,7 @@ class TelemetryConfig:
 class TracesConfig:
     """Trace system settings."""
 
-    enabled: bool = False
+    enabled: bool = True
     db_path: str = str(DEFAULT_CONFIG_DIR / "traces.db")
 
 
@@ -898,7 +921,7 @@ class BlueBubblesChannelConfig:
 class WhatsAppBaileysChannelConfig:
     """Per-channel config for WhatsApp via Baileys protocol."""
 
-    auth_dir: str = ""           # Defaults to ~/.openjarvis/whatsapp_auth
+    auth_dir: str = ""  # Defaults to ~/.openjarvis/whatsapp_auth
     assistant_name: str = "Jarvis"
     assistant_has_own_number: bool = False
 
@@ -1055,6 +1078,45 @@ class AgentManagerConfig:
     db_path: str = str(DEFAULT_CONFIG_DIR / "agents.db")
 
 
+@dataclass(slots=True)
+class MemoryFilesConfig:
+    """Persistent memory-file paths and nudge settings."""
+
+    soul_path: str = "~/.openjarvis/SOUL.md"
+    memory_path: str = "~/.openjarvis/MEMORY.md"
+    user_path: str = "~/.openjarvis/USER.md"
+    nudge_interval: int = 10
+
+
+@dataclass(slots=True)
+class SystemPromptConfig:
+    """Limits and strategy for system-prompt assembly."""
+
+    soul_max_chars: int = 4000
+    memory_max_chars: int = 2500
+    user_max_chars: int = 1500
+    skill_desc_max_chars: int = 60
+    truncation_strategy: str = "head_tail"
+
+
+@dataclass(slots=True)
+class CompressionConfig:
+    """Configuration for context compression."""
+
+    enabled: bool = True
+    threshold: float = 0.50
+    strategy: str = "session_consolidation"
+
+
+@dataclass(slots=True)
+class SkillsConfig:
+    """Configuration for agent-authored procedural skills."""
+
+    skills_dir: str = "~/.openjarvis/skills/"
+    nudge_interval: int = 15
+    auto_discover: bool = True
+
+
 @dataclass
 class JarvisConfig:
     """Top-level configuration for OpenJarvis."""
@@ -1079,6 +1141,10 @@ class JarvisConfig:
     speech: SpeechConfig = field(default_factory=SpeechConfig)
     optimize: OptimizeConfig = field(default_factory=OptimizeConfig)
     agent_manager: AgentManagerConfig = field(default_factory=AgentManagerConfig)
+    memory_files: MemoryFilesConfig = field(default_factory=MemoryFilesConfig)
+    system_prompt: SystemPromptConfig = field(default_factory=SystemPromptConfig)
+    compression: CompressionConfig = field(default_factory=CompressionConfig)
+    skills: SkillsConfig = field(default_factory=SkillsConfig)
 
     @property
     def memory(self) -> StorageConfig:
@@ -1089,6 +1155,80 @@ class JarvisConfig:
     def memory(self, value: StorageConfig) -> None:
         """Backward-compatible setter."""
         self.tools.storage = value
+
+
+# ---------------------------------------------------------------------------
+# Config key validation
+# ---------------------------------------------------------------------------
+
+# Sections that users may set via ``jarvis config set``.
+# ``hardware`` is auto-detected and not user-settable.
+_SETTABLE_SECTIONS = frozenset(JarvisConfig.__dataclass_fields__.keys()) - {"hardware"}
+
+
+def validate_config_key(dotted_key: str) -> type:
+    """Validate a dotted config key and return the leaf field's Python type.
+
+    Raises :class:`ValueError` when the key does not map to a known field.
+    The function walks the ``JarvisConfig`` dataclass hierarchy using
+    ``dataclasses.fields()``.
+
+    Examples::
+
+        validate_config_key("engine.ollama.host")      # -> str
+        validate_config_key("intelligence.temperature") # -> float
+    """
+    from dataclasses import fields as dc_fields
+
+    parts = dotted_key.split(".")
+    if len(parts) < 2:
+        raise ValueError(
+            f"Config key must have at least two segments (e.g. engine.default), "
+            f"got: {dotted_key!r}"
+        )
+
+    if parts[0] not in _SETTABLE_SECTIONS:
+        raise ValueError(
+            f"Unknown config key: {dotted_key!r} "
+            f"(valid top-level sections: {sorted(_SETTABLE_SECTIONS)})"
+        )
+
+    # Walk the dataclass tree
+    current_cls = JarvisConfig
+    for i, part in enumerate(parts):
+        field_map = {f.name: f for f in dc_fields(current_cls)}
+        if part not in field_map:
+            path_so_far = ".".join(parts[: i + 1])
+            raise ValueError(
+                f"Unknown config key: {dotted_key!r} "
+                f"(no field {part!r} at {path_so_far}; "
+                f"valid fields: {sorted(field_map.keys())})"
+            )
+        fld = field_map[part]
+        # Resolve the type — unwrap Optional, etc.
+        fld_type = fld.type
+        if isinstance(fld_type, str):
+            # Evaluate forward references in the config module namespace
+            import openjarvis.core.config as _cfg_mod
+
+            fld_type = eval(fld_type, vars(_cfg_mod))  # noqa: S307
+
+        if i == len(parts) - 1:
+            # Leaf — return the primitive type
+            return fld_type
+        else:
+            # Must be a nested dataclass
+            if not hasattr(fld_type, "__dataclass_fields__"):
+                path_so_far = ".".join(parts[: i + 1])
+                raise ValueError(
+                    f"Unknown config key: {dotted_key!r} "
+                    f"({path_so_far} is a leaf of type {fld_type.__name__}, "
+                    f"not a section)"
+                )
+            current_cls = fld_type
+
+    # Should not reach here, but satisfy type checker
+    raise ValueError(f"Unknown config key: {dotted_key!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -1139,7 +1279,8 @@ def _migrate_toml_data(data: Dict[str, Any], cfg: "JarvisConfig") -> None:
         src = data.get(src_section, {})
         if isinstance(src, dict) and "context_injection" in src:
             data.setdefault("agent", {}).setdefault(
-                "context_from_memory", src.pop("context_injection"),
+                "context_from_memory",
+                src.pop("context_injection"),
             )
 
     if "tools" in data:
@@ -1148,10 +1289,12 @@ def _migrate_toml_data(data: Dict[str, Any], cfg: "JarvisConfig") -> None:
             storage_sub = tools_data.get("storage", {})
             if isinstance(storage_sub, dict) and "context_injection" in storage_sub:
                 data.setdefault("agent", {}).setdefault(
-                    "context_from_memory", storage_sub.pop("context_injection"),
+                    "context_from_memory",
+                    storage_sub.pop("context_injection"),
                 )
 
 
+@functools.lru_cache(maxsize=1)
 def load_config(path: Optional[Path] = None) -> JarvisConfig:
     """Detect hardware, build defaults, overlay TOML overrides.
 
@@ -1181,16 +1324,31 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
         # All top-level sections — recursive _apply_toml_section handles
         # nested sub-configs (engine.ollama, learning.routing, channel.*, etc.)
         top_sections = (
-            "engine", "intelligence", "learning", "agent",
-            "server", "telemetry", "traces", "security",
-            "channel", "tools", "sandbox", "scheduler",
-            "workflow", "sessions", "a2a", "operators",
-            "speech", "optimize", "agent_manager",
+            "engine",
+            "intelligence",
+            "learning",
+            "agent",
+            "server",
+            "telemetry",
+            "traces",
+            "security",
+            "channel",
+            "tools",
+            "sandbox",
+            "scheduler",
+            "workflow",
+            "sessions",
+            "a2a",
+            "operators",
+            "speech",
+            "optimize",
+            "agent_manager",
         )
         for section_name in top_sections:
             if section_name in data:
                 _apply_toml_section(
-                    getattr(cfg, section_name), data[section_name],
+                    getattr(cfg, section_name),
+                    data[section_name],
                 )
 
         # Memory: accept [memory] (old) → maps to tools.storage
@@ -1205,18 +1363,23 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
 # ---------------------------------------------------------------------------
 
 
-def generate_minimal_toml(hw: HardwareInfo, engine: str | None = None) -> str:
+def generate_minimal_toml(
+    hw: HardwareInfo, engine: str | None = None, *, host: str | None = None
+) -> str:
     """Render a minimal TOML config with only essential settings."""
     engine = engine or recommend_engine(hw)
     model = recommend_model(hw, engine)
     gpu_comment = ""
     if hw.gpu:
-        mem_label = (
-            "unified memory" if hw.gpu.vendor == "apple" else "VRAM"
-        )
-        gpu_comment = (
-            f"\n# GPU: {hw.gpu.name}"
-            f" ({hw.gpu.vram_gb} GB {mem_label})"
+        mem_label = "unified memory" if hw.gpu.vendor == "apple" else "VRAM"
+        gpu_comment = f"\n# GPU: {hw.gpu.name} ({hw.gpu.vram_gb} GB {mem_label})"
+    if host:
+        engine_host_section = f'\n[engine.{engine}]\nhost = "{host}"\n'
+    else:
+        engine_host_section = (
+            f"\n[engine.{engine}]\n"
+            f'# host = "http://localhost:11434"  '
+            f"# set to remote URL if engine runs elsewhere\n"
         )
     return f"""\
 # OpenJarvis configuration
@@ -1225,7 +1388,7 @@ def generate_minimal_toml(hw: HardwareInfo, engine: str | None = None) -> str:
 
 [engine]
 default = "{engine}"
-
+{engine_host_section}
 [intelligence]
 default_model = "{model}"
 
@@ -1237,7 +1400,9 @@ enabled = ["code_interpreter", "web_search", "file_read", "shell_exec"]
 """
 
 
-def generate_default_toml(hw: HardwareInfo, engine: str | None = None) -> str:
+def generate_default_toml(
+    hw: HardwareInfo, engine: str | None = None, *, host: str | None = None
+) -> str:
     """Render a commented TOML string suitable for ``~/.openjarvis/config.toml``."""
     engine = engine or recommend_engine(hw)
     model = recommend_model(hw, engine)
@@ -1249,7 +1414,7 @@ def generate_default_toml(hw: HardwareInfo, engine: str | None = None) -> str:
     if model:
         model_comment = "  # recommended for your hardware"
 
-    return f"""\
+    result = f"""\
 # OpenJarvis configuration
 # Generated by `jarvis init`
 #
@@ -1444,6 +1609,13 @@ ssrf_protection = true
 # assistant_name = "Jarvis"
 # assistant_has_own_number = false
 """
+    if host:
+        import re as _re
+
+        pattern = _re.escape(f"[engine.{engine}]") + r"\nhost = \"[^\"]*\""
+        replacement = f'[engine.{engine}]\\nhost = "{host}"'
+        result = _re.sub(pattern, replacement, result)
+    return result
 
 
 __all__ = [
@@ -1508,4 +1680,5 @@ __all__ = [
     "load_config",
     "recommend_engine",
     "recommend_model",
+    "validate_config_key",
 ]

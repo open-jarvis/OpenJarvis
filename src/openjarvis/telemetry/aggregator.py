@@ -19,6 +19,7 @@ class ModelStats:
     call_count: int = 0
     total_tokens: int = 0
     prompt_tokens: int = 0
+    prompt_tokens_evaluated: int = 0
     completion_tokens: int = 0
     total_latency: float = 0.0
     avg_latency: float = 0.0
@@ -128,11 +129,17 @@ class TelemetryAggregator:
 
         # Build optional columns for new fields (graceful on old DBs)
         extra_cols = ""
+        has_pte = self._safe_col("prompt_tokens_evaluated")
         has_tpj = self._safe_col("tokens_per_joule")
         has_derived = self._safe_col("energy_per_output_token_joules")
         has_phase = self._safe_col("prefill_energy_joules")
         has_itl = self._safe_col("mean_itl_ms")
 
+        if has_pte:
+            extra_cols += (
+                ", SUM(prompt_tokens_evaluated)"
+                " AS prompt_tokens_evaluated"
+            )
         if has_tpj:
             extra_cols += (
                 ", AVG(tokens_per_joule) AS avg_tokens_per_joule"
@@ -189,6 +196,10 @@ class TelemetryAggregator:
                 avg_gpu_utilization_pct=r["avg_gpu_utilization_pct"] or 0.0,
                 avg_throughput_tok_per_sec=r["avg_throughput_tok_per_sec"] or 0.0,
             )
+            if has_pte:
+                ms.prompt_tokens_evaluated = (
+                    r["prompt_tokens_evaluated"] or 0
+                )
             if has_tpj:
                 ms.avg_tokens_per_joule = r["avg_tokens_per_joule"] or 0.0
             if has_derived:

@@ -71,7 +71,6 @@ class TestModelPull:
         engine = _make_ollama_engine()
         client = TestClient(_app(engine, engine_name="ollama"))
 
-
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.raise_for_status = MagicMock()
@@ -157,11 +156,14 @@ class TestStreamingResilience:
         app = create_app(engine, "test-model")
         client = TestClient(app)
 
-        resp = client.post("/v1/chat/completions", json={
-            "model": "bad-model",
-            "messages": [{"role": "user", "content": "Hello"}],
-            "stream": True,
-        })
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "bad-model",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "stream": True,
+            },
+        )
         assert resp.status_code == 200
 
         # Should contain partial content + error message + [DONE]
@@ -176,11 +178,14 @@ class TestStreamingResilience:
         app = create_app(engine, "test-model")
         client = TestClient(app)
 
-        resp = client.post("/v1/chat/completions", json={
-            "model": "test-model",
-            "messages": [{"role": "user", "content": "Hello"}],
-            "stream": True,
-        })
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "stream": True,
+            },
+        )
         assert resp.status_code == 200
 
         # Collect tokens
@@ -203,18 +208,22 @@ class TestStreamingResilience:
         agent = MagicMock()
         agent.agent_id = "simple"
         agent.run.return_value = AgentResult(
-            content="agent response", turns=1,
+            content="agent response",
+            turns=1,
         )
 
         app = create_app(engine, "test-model", agent=agent)
         client = TestClient(app)
 
-        resp = client.post("/v1/chat/completions", json={
-            "model": "test-model",
-            "messages": [{"role": "user", "content": "Hello"}],
-            "stream": True,
-            # No tools — should use direct engine stream
-        })
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "stream": True,
+                # No tools — should use direct engine stream
+            },
+        )
         assert resp.status_code == 200
 
         # Should get engine tokens, not agent response

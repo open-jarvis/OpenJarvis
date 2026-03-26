@@ -5,6 +5,8 @@ export interface ChatRequest {
   model: string;
   messages: Array<{ role: string; content: string }>;
   stream: true;
+  temperature?: number;
+  max_tokens?: number;
 }
 
 export async function* streamChat(

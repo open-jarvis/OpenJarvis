@@ -91,10 +91,7 @@ class TestSimpleAgent:
         agent = SimpleAgent(engine, "test-model", bus=bus)
         agent.run("test input")
         evts = bus.history
-        start = [
-            e for e in evts
-            if e.event_type == EventType.AGENT_TURN_START
-        ][0]
+        start = [e for e in evts if e.event_type == EventType.AGENT_TURN_START][0]
         assert start.data["agent"] == "simple"
         assert start.data["input"] == "test input"
 

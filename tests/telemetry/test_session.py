@@ -40,14 +40,16 @@ class TestPythonRingBuffer:
         buf = _PythonRingBuffer(capacity=100)
         # 100W GPU, 50W CPU for 1 second (10 samples, 100ms apart)
         for i in range(11):
-            buf.push(TelemetrySample(
-                timestamp_ns=i * 100_000_000,  # 0ms, 100ms, ..., 1000ms
-                gpu_power_w=100.0,
-                cpu_power_w=50.0,
-            ))
+            buf.push(
+                TelemetrySample(
+                    timestamp_ns=i * 100_000_000,  # 0ms, 100ms, ..., 1000ms
+                    gpu_power_w=100.0,
+                    cpu_power_w=50.0,
+                )
+            )
         gpu_j, cpu_j = buf.compute_energy_delta(0, 1_000_000_000)
         assert abs(gpu_j - 100.0) < 1.0  # 100W * 1s = 100J
-        assert abs(cpu_j - 50.0) < 1.0   # 50W * 1s = 50J
+        assert abs(cpu_j - 50.0) < 1.0  # 50W * 1s = 50J
 
     def test_energy_delta_insufficient_samples(self):
         buf = _PythonRingBuffer(capacity=100)
@@ -59,10 +61,13 @@ class TestPythonRingBuffer:
     def test_avg_power(self):
         buf = _PythonRingBuffer(capacity=100)
         buf.push(TelemetrySample(timestamp_ns=0, gpu_power_w=100.0, cpu_power_w=40.0))
-        buf.push(TelemetrySample(
-            timestamp_ns=500_000_000, gpu_power_w=200.0,
-            cpu_power_w=60.0,
-        ))
+        buf.push(
+            TelemetrySample(
+                timestamp_ns=500_000_000,
+                gpu_power_w=200.0,
+                cpu_power_w=60.0,
+            )
+        )
         gpu_w, cpu_w = buf.compute_avg_power(0, 1_000_000_000)
         assert gpu_w == 150.0
         assert cpu_w == 50.0

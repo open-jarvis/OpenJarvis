@@ -29,8 +29,16 @@ logger = logging.getLogger(__name__)
 _OUTPUT_START = "---OPENJARVIS_OUTPUT_START---"
 _OUTPUT_END = "---OPENJARVIS_OUTPUT_END---"
 
-# Path to the bundled runner source (relative to this module)
+# Path to the bundled runner source (relative to this module).
+# In editable installs this lives next to this file; in wheel installs
+# it is placed under _node_modules/ to avoid namespace package conflicts.
 _RUNNER_SRC = Path(__file__).resolve().parent / "claude_code_runner"
+if not _RUNNER_SRC.exists():
+    _RUNNER_SRC = (
+        Path(__file__).resolve().parents[2]
+        / "_node_modules"
+        / "claude_code_runner"
+    )
 
 
 @AgentRegistry.register("claude_code")
@@ -47,6 +55,8 @@ class ClaudeCodeAgent(BaseAgent):
 
     agent_id = "claude_code"
     accepts_tools = False
+    _default_temperature = 0.7
+    _default_max_tokens = 1024
 
     def __init__(
         self,
@@ -54,8 +64,8 @@ class ClaudeCodeAgent(BaseAgent):
         model: str,
         *,
         bus: Optional[EventBus] = None,
-        temperature: float = 0.7,
-        max_tokens: int = 1024,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
         api_key: str = "",
         workspace: str = "",
         session_id: str = "",
@@ -64,8 +74,11 @@ class ClaudeCodeAgent(BaseAgent):
         timeout: int = 300,
     ) -> None:
         super().__init__(
-            engine, model, bus=bus,
-            temperature=temperature, max_tokens=max_tokens,
+            engine,
+            model,
+            bus=bus,
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
         self._api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
         self._workspace = workspace or os.getcwd()
@@ -170,7 +183,8 @@ class ClaudeCodeAgent(BaseAgent):
             stderr = proc.stderr.strip() if proc.stderr else "Unknown error"
             logger.error(
                 "claude_code_runner exited with code %d: %s",
-                proc.returncode, stderr,
+                proc.returncode,
+                stderr,
             )
             self._emit_turn_end(turns=1, error=True)
             return AgentResult(
@@ -209,7 +223,7 @@ class ClaudeCodeAgent(BaseAgent):
             # No sentinels -- treat entire stdout as plain content
             return stdout.strip(), [], {}
 
-        json_str = stdout[start + len(_OUTPUT_START):end].strip()
+        json_str = stdout[start + len(_OUTPUT_START) : end].strip()
 
         try:
             data = json.loads(json_str)

@@ -412,4 +412,4 @@ policy:
 5. Add an entry in `pyproject.toml` under `[project.optional-dependencies]`
    if the component requires new packages
 
-See the [Extending OpenJarvis](extending.md) guide for complete examples.
+See the [registry pattern](#registry-pattern) section above for complete examples.

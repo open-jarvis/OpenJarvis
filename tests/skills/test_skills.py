@@ -11,6 +11,7 @@ from openjarvis.tools._stubs import BaseTool, ToolExecutor, ToolSpec
 
 class EchoTool(BaseTool):
     """Simple tool that echoes input."""
+
     tool_id = "echo"
 
     @property
@@ -27,6 +28,7 @@ class EchoTool(BaseTool):
 
 class UpperTool(BaseTool):
     """Simple tool that uppercases input."""
+
     tool_id = "upper"
 
     @property
@@ -68,11 +70,13 @@ class TestSkillExecutor:
         executor = self._make_executor()
         manifest = SkillManifest(
             name="single",
-            steps=[SkillStep(
-                tool_name="echo",
-                arguments_template='{"text": "hello"}',
-                output_key="result",
-            )],
+            steps=[
+                SkillStep(
+                    tool_name="echo",
+                    arguments_template='{"text": "hello"}',
+                    output_key="result",
+                )
+            ],
         )
         result = executor.run(manifest)
         assert result.success
@@ -116,11 +120,13 @@ class TestSkillExecutor:
         executor = self._make_executor()
         manifest = SkillManifest(
             name="with_ctx",
-            steps=[SkillStep(
-                tool_name="echo",
-                arguments_template='{"text": "{greeting}"}',
-                output_key="result",
-            )],
+            steps=[
+                SkillStep(
+                    tool_name="echo",
+                    arguments_template='{"text": "{greeting}"}',
+                    output_key="result",
+                )
+            ],
         )
         result = executor.run(manifest, initial_context={"greeting": "hi"})
         assert result.success
@@ -152,11 +158,13 @@ class TestSkillTool:
         manifest = SkillManifest(
             name="tool_skill",
             description="A skill exposed as a tool",
-            steps=[SkillStep(
-                tool_name="echo",
-                arguments_template='{"text": "{input}"}',
-                output_key="result",
-            )],
+            steps=[
+                SkillStep(
+                    tool_name="echo",
+                    arguments_template='{"text": "{input}"}',
+                    output_key="result",
+                )
+            ],
         )
         skill_tool = SkillTool(manifest, executor)
         assert skill_tool.spec.name == "skill_tool_skill"

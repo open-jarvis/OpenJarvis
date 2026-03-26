@@ -115,3 +115,43 @@ class TestRecommendModelEdgeCases:
         # With ollama, 397b is excluded (only vllm, sglang)
         result = recommend_model(hw, "ollama")
         assert result == "qwen3.5:122b"
+
+
+class TestRecommendModelMlx:
+    """Apple Silicon (MLX) model recommendation."""
+
+    def test_apple_silicon_8gb_mlx(self) -> None:
+        hw = HardwareInfo(
+            platform="darwin",
+            ram_gb=8.0,
+            gpu=GpuInfo(vendor="apple", name="Apple M1", vram_gb=8.0, count=1),
+        )
+        result = recommend_model(hw, "mlx")
+        assert result == "qwen3.5:8b"
+
+    def test_apple_silicon_16gb_mlx(self) -> None:
+        hw = HardwareInfo(
+            platform="darwin",
+            ram_gb=16.0,
+            gpu=GpuInfo(vendor="apple", name="Apple M2", vram_gb=16.0, count=1),
+        )
+        result = recommend_model(hw, "mlx")
+        assert result == "qwen3.5:14b"
+
+    def test_apple_silicon_32gb_mlx(self) -> None:
+        hw = HardwareInfo(
+            platform="darwin",
+            ram_gb=32.0,
+            gpu=GpuInfo(vendor="apple", name="Apple M2 Pro", vram_gb=32.0, count=1),
+        )
+        result = recommend_model(hw, "mlx")
+        assert result == "qwen3.5:14b"
+
+    def test_apple_silicon_64gb_mlx(self) -> None:
+        hw = HardwareInfo(
+            platform="darwin",
+            ram_gb=64.0,
+            gpu=GpuInfo(vendor="apple", name="Apple M2 Max", vram_gb=64.0, count=1),
+        )
+        result = recommend_model(hw, "mlx")
+        assert result == "qwen3.5:14b"

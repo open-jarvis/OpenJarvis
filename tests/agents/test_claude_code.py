@@ -141,16 +141,19 @@ class TestClaudeCodeRun:
 
     def test_successful_run(self):
         agent = self._make_agent()
-        output = _wrap_output({
-            "content": "Hello from Claude Code!",
-            "tool_results": [],
-            "metadata": {"message_count": 3},
-        })
+        output = _wrap_output(
+            {
+                "content": "Hello from Claude Code!",
+                "tool_results": [],
+                "metadata": {"message_count": 3},
+            }
+        )
         proc = _mock_proc(stdout=output)
 
         with (
             patch.object(
-                agent, "_ensure_runner",
+                agent,
+                "_ensure_runner",
                 return_value="/fake/runner",
             ),
             patch("subprocess.run", return_value=proc),
@@ -165,22 +168,25 @@ class TestClaudeCodeRun:
 
     def test_run_with_tool_results(self):
         agent = self._make_agent()
-        output = _wrap_output({
-            "content": "I read the file.",
-            "tool_results": [
-                {
-                    "tool_name": "Read",
-                    "content": "file contents",
-                    "success": True,
-                },
-            ],
-            "metadata": {},
-        })
+        output = _wrap_output(
+            {
+                "content": "I read the file.",
+                "tool_results": [
+                    {
+                        "tool_name": "Read",
+                        "content": "file contents",
+                        "success": True,
+                    },
+                ],
+                "metadata": {},
+            }
+        )
         proc = _mock_proc(stdout=output)
 
         with (
             patch.object(
-                agent, "_ensure_runner",
+                agent,
+                "_ensure_runner",
                 return_value="/fake/runner",
             ),
             patch("subprocess.run", return_value=proc),
@@ -200,20 +206,24 @@ class TestClaudeCodeRun:
             allowed_tools=["Read", "Write"],
             system_prompt="Be helpful.",
         )
-        output = _wrap_output({
-            "content": "ok",
-            "tool_results": [],
-            "metadata": {},
-        })
+        output = _wrap_output(
+            {
+                "content": "ok",
+                "tool_results": [],
+                "metadata": {},
+            }
+        )
         proc = _mock_proc(stdout=output)
 
         with (
             patch.object(
-                agent, "_ensure_runner",
+                agent,
+                "_ensure_runner",
                 return_value="/fake/runner",
             ),
             patch(
-                "subprocess.run", return_value=proc,
+                "subprocess.run",
+                return_value=proc,
             ) as mock_run,
         ):
             agent.run("Do something")
@@ -230,12 +240,14 @@ class TestClaudeCodeRun:
     def test_timeout_handling(self):
         agent = self._make_agent(timeout=5)
         exc = subprocess.TimeoutExpired(
-            cmd="node", timeout=5,
+            cmd="node",
+            timeout=5,
         )
 
         with (
             patch.object(
-                agent, "_ensure_runner",
+                agent,
+                "_ensure_runner",
                 return_value="/fake/runner",
             ),
             patch("subprocess.run", side_effect=exc),
@@ -249,12 +261,14 @@ class TestClaudeCodeRun:
     def test_nonzero_exit_code(self):
         agent = self._make_agent()
         proc = _mock_proc(
-            returncode=1, stderr="ENOENT: module not found",
+            returncode=1,
+            stderr="ENOENT: module not found",
         )
 
         with (
             patch.object(
-                agent, "_ensure_runner",
+                agent,
+                "_ensure_runner",
                 return_value="/fake/runner",
             ),
             patch("subprocess.run", return_value=proc),
@@ -273,7 +287,8 @@ class TestClaudeCodeRun:
 
         with (
             patch.object(
-                agent, "_ensure_runner",
+                agent,
+                "_ensure_runner",
                 return_value="/fake/runner",
             ),
             patch("subprocess.run", return_value=proc),
@@ -291,7 +306,8 @@ class TestClaudeCodeRun:
 
         with (
             patch.object(
-                agent, "_ensure_runner",
+                agent,
+                "_ensure_runner",
                 return_value="/fake/runner",
             ),
             patch("subprocess.run", return_value=proc),
@@ -312,18 +328,24 @@ class TestClaudeCodeEvents:
         engine = MagicMock()
         engine.engine_id = "mock"
         agent = ClaudeCodeAgent(
-            engine, "test-model", bus=bus, api_key="k",
+            engine,
+            "test-model",
+            bus=bus,
+            api_key="k",
         )
-        output = _wrap_output({
-            "content": "hi",
-            "tool_results": [],
-            "metadata": {},
-        })
+        output = _wrap_output(
+            {
+                "content": "hi",
+                "tool_results": [],
+                "metadata": {},
+            }
+        )
         proc = _mock_proc(stdout=output)
 
         with (
             patch.object(
-                agent, "_ensure_runner",
+                agent,
+                "_ensure_runner",
                 return_value="/fake/runner",
             ),
             patch("subprocess.run", return_value=proc),
@@ -339,18 +361,24 @@ class TestClaudeCodeEvents:
         engine = MagicMock()
         engine.engine_id = "mock"
         agent = ClaudeCodeAgent(
-            engine, "test-model", bus=bus, api_key="k",
+            engine,
+            "test-model",
+            bus=bus,
+            api_key="k",
         )
-        output = _wrap_output({
-            "content": "hi",
-            "tool_results": [],
-            "metadata": {},
-        })
+        output = _wrap_output(
+            {
+                "content": "hi",
+                "tool_results": [],
+                "metadata": {},
+            }
+        )
         proc = _mock_proc(stdout=output)
 
         with (
             patch.object(
-                agent, "_ensure_runner",
+                agent,
+                "_ensure_runner",
                 return_value="/fake/runner",
             ),
             patch("subprocess.run", return_value=proc),
@@ -358,8 +386,7 @@ class TestClaudeCodeEvents:
             agent.run("test input")
 
         start_events = [
-            e for e in bus.history
-            if e.event_type == EventType.AGENT_TURN_START
+            e for e in bus.history if e.event_type == EventType.AGENT_TURN_START
         ]
         assert len(start_events) == 1
         assert start_events[0].data["agent"] == "claude_code"
@@ -370,13 +397,17 @@ class TestClaudeCodeEvents:
         engine = MagicMock()
         engine.engine_id = "mock"
         agent = ClaudeCodeAgent(
-            engine, "test-model", bus=bus, api_key="k",
+            engine,
+            "test-model",
+            bus=bus,
+            api_key="k",
         )
         proc = _mock_proc(returncode=1, stderr="error")
 
         with (
             patch.object(
-                agent, "_ensure_runner",
+                agent,
+                "_ensure_runner",
                 return_value="/fake/runner",
             ),
             patch("subprocess.run", return_value=proc),
@@ -449,11 +480,7 @@ class TestParseOutput:
             "tool_results": [],
             "metadata": {},
         }
-        stdout = (
-            "some debug output\n"
-            + _wrap_output(payload)
-            + "\nmore output"
-        )
+        stdout = "some debug output\n" + _wrap_output(payload) + "\nmore output"
         content, tools, meta = ClaudeCodeAgent._parse_output(
             stdout,
         )
@@ -485,7 +512,9 @@ class TestClaudeCodeDefaults:
         engine = MagicMock()
         engine.engine_id = "mock"
         agent = ClaudeCodeAgent(
-            engine, "test-model", api_key="explicit-key",
+            engine,
+            "test-model",
+            api_key="explicit-key",
         )
         assert agent._api_key == "explicit-key"
 
@@ -499,7 +528,9 @@ class TestClaudeCodeDefaults:
         engine = MagicMock()
         engine.engine_id = "mock"
         agent = ClaudeCodeAgent(
-            engine, "test-model", timeout=60,
+            engine,
+            "test-model",
+            timeout=60,
         )
         assert agent._timeout == 60
 
@@ -507,18 +538,23 @@ class TestClaudeCodeDefaults:
         engine = MagicMock()
         engine.engine_id = "mock"
         agent = ClaudeCodeAgent(
-            engine, "test-model", api_key="k",
+            engine,
+            "test-model",
+            api_key="k",
         )
-        output = _wrap_output({
-            "content": "ok",
-            "tool_results": [],
-            "metadata": {},
-        })
+        output = _wrap_output(
+            {
+                "content": "ok",
+                "tool_results": [],
+                "metadata": {},
+            }
+        )
         proc = _mock_proc(stdout=output)
 
         with (
             patch.object(
-                agent, "_ensure_runner",
+                agent,
+                "_ensure_runner",
                 return_value="/fake/runner",
             ),
             patch("subprocess.run", return_value=proc),

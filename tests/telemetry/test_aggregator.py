@@ -71,11 +71,14 @@ class TestTelemetryAggregator:
         agg.close()
 
     def test_multiple_models_grouped(self, tmp_path: Path) -> None:
-        agg = _setup(tmp_path, [
-            _make_record(model_id="m1"),
-            _make_record(model_id="m1"),
-            _make_record(model_id="m2"),
-        ])
+        agg = _setup(
+            tmp_path,
+            [
+                _make_record(model_id="m1"),
+                _make_record(model_id="m1"),
+                _make_record(model_id="m2"),
+            ],
+        )
         stats = agg.per_model_stats()
         assert len(stats) == 2
         # Ordered by call_count DESC
@@ -86,11 +89,14 @@ class TestTelemetryAggregator:
         agg.close()
 
     def test_per_engine_stats(self, tmp_path: Path) -> None:
-        agg = _setup(tmp_path, [
-            _make_record(engine="ollama"),
-            _make_record(engine="vllm"),
-            _make_record(engine="vllm"),
-        ])
+        agg = _setup(
+            tmp_path,
+            [
+                _make_record(engine="ollama"),
+                _make_record(engine="vllm"),
+                _make_record(engine="vllm"),
+            ],
+        )
         stats = agg.per_engine_stats()
         assert len(stats) == 2
         assert stats[0].engine == "vllm"
@@ -105,22 +111,28 @@ class TestTelemetryAggregator:
         agg.close()
 
     def test_top_models_ordering(self, tmp_path: Path) -> None:
-        agg = _setup(tmp_path, [
-            _make_record(model_id="rare"),
-            _make_record(model_id="popular"),
-            _make_record(model_id="popular"),
-            _make_record(model_id="popular"),
-        ])
+        agg = _setup(
+            tmp_path,
+            [
+                _make_record(model_id="rare"),
+                _make_record(model_id="popular"),
+                _make_record(model_id="popular"),
+                _make_record(model_id="popular"),
+            ],
+        )
         top = agg.top_models(n=2)
         assert top[0].model_id == "popular"
         assert top[0].call_count == 3
         agg.close()
 
     def test_summary_totals(self, tmp_path: Path) -> None:
-        agg = _setup(tmp_path, [
-            _make_record(prompt_tokens=10, completion_tokens=5, cost=0.001),
-            _make_record(prompt_tokens=20, completion_tokens=10, cost=0.002),
-        ])
+        agg = _setup(
+            tmp_path,
+            [
+                _make_record(prompt_tokens=10, completion_tokens=5, cost=0.001),
+                _make_record(prompt_tokens=20, completion_tokens=10, cost=0.002),
+            ],
+        )
         s = agg.summary()
         assert s.total_calls == 2
         assert s.total_tokens == 45  # (10+5) + (20+10)
@@ -136,11 +148,14 @@ class TestTelemetryAggregator:
 
     def test_time_range_since(self, tmp_path: Path) -> None:
         now = time.time()
-        agg = _setup(tmp_path, [
-            _make_record(ts=now - 100),
-            _make_record(ts=now - 10),
-            _make_record(ts=now),
-        ])
+        agg = _setup(
+            tmp_path,
+            [
+                _make_record(ts=now - 100),
+                _make_record(ts=now - 10),
+                _make_record(ts=now),
+            ],
+        )
         stats = agg.per_model_stats(since=now - 50)
         total = sum(s.call_count for s in stats)
         assert total == 2
@@ -148,10 +163,13 @@ class TestTelemetryAggregator:
 
     def test_time_range_until(self, tmp_path: Path) -> None:
         now = time.time()
-        agg = _setup(tmp_path, [
-            _make_record(ts=now - 100),
-            _make_record(ts=now),
-        ])
+        agg = _setup(
+            tmp_path,
+            [
+                _make_record(ts=now - 100),
+                _make_record(ts=now),
+            ],
+        )
         stats = agg.per_model_stats(until=now - 50)
         total = sum(s.call_count for s in stats)
         assert total == 1
@@ -159,11 +177,14 @@ class TestTelemetryAggregator:
 
     def test_time_range_since_and_until(self, tmp_path: Path) -> None:
         now = time.time()
-        agg = _setup(tmp_path, [
-            _make_record(ts=now - 200),
-            _make_record(ts=now - 100),
-            _make_record(ts=now),
-        ])
+        agg = _setup(
+            tmp_path,
+            [
+                _make_record(ts=now - 200),
+                _make_record(ts=now - 100),
+                _make_record(ts=now),
+            ],
+        )
         stats = agg.per_model_stats(since=now - 150, until=now - 50)
         total = sum(s.call_count for s in stats)
         assert total == 1
@@ -178,10 +199,13 @@ class TestTelemetryAggregator:
 
     def test_export_records_filtered(self, tmp_path: Path) -> None:
         now = time.time()
-        agg = _setup(tmp_path, [
-            _make_record(ts=now - 100),
-            _make_record(ts=now),
-        ])
+        agg = _setup(
+            tmp_path,
+            [
+                _make_record(ts=now - 100),
+                _make_record(ts=now),
+            ],
+        )
         records = agg.export_records(since=now - 50)
         assert len(records) == 1
         agg.close()

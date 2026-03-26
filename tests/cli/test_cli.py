@@ -31,11 +31,7 @@ class TestCLI:
         # Either exits with error (no engine) or succeeds (deps missing)
         # Both are valid states for testing
         out = result.output.lower()
-        assert (
-            result.exit_code != 0
-            or "not installed" in out
-            or "no inference" in out
-        )
+        assert result.exit_code != 0 or "not installed" in out or "no inference" in out
 
     def test_model_subcommands_exist(self) -> None:
         result = CliRunner().invoke(cli, ["model", "--help"])
@@ -82,14 +78,13 @@ class TestCLI:
         config_dir = tmp_path / ".openjarvis"
         config_path = config_dir / "config.toml"
         with (
-            mock.patch(
-                "openjarvis.cli.init_cmd.DEFAULT_CONFIG_DIR", config_dir
-            ),
-            mock.patch(
-                "openjarvis.cli.init_cmd.DEFAULT_CONFIG_PATH", config_path
-            ),
+            mock.patch("openjarvis.cli.init_cmd.DEFAULT_CONFIG_DIR", config_dir),
+            mock.patch("openjarvis.cli.init_cmd.DEFAULT_CONFIG_PATH", config_path),
+            mock.patch("openjarvis.cli.init_cmd.PrivacyScanner"),
         ):
-            result = CliRunner().invoke(cli, ["init", "--engine", "ollama"])
+            result = CliRunner().invoke(
+                cli, ["init", "--engine", "ollama", "--no-download"]
+            )
         assert result.exit_code == 0
         assert config_path.exists()
         content = config_path.read_text()
