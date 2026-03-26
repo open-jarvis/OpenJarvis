@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 import click
+import httpx
 from rich.console import Console
 from rich.markup import escape
 from rich.panel import Panel
@@ -228,12 +229,18 @@ def _do_download(engine: str, model: str, spec, console: Console) -> None:
 @click.option(
     "--no-download", is_flag=True, default=False, help="Skip the model download prompt."
 )
+@click.option(
+    "--host",
+    default=None,
+    help="Remote engine host URL (e.g. http://192.168.1.50:11434).",
+)
 def init(
     force: bool,
     config: Optional[Path],
     full_config: bool = False,
     engine: Optional[str] = None,
     no_download: bool = False,
+    host: Optional[str] = None,
 ) -> None:
     """Detect hardware and generate ~/.openjarvis/config.toml."""
     console = Console()
@@ -313,13 +320,31 @@ def init(
             default=default,
         )
 
+    # Probe remote host if specified
+    if host:
+        console.print("\n[bold]Checking remote host...[/bold]")
+        try:
+            resp = httpx.get(host.rstrip("/") + "/", timeout=2.0)
+            if resp.status_code < 500:
+                console.print(f"  [green]Reachable[/green] ({host})")
+            else:
+                console.print(
+                    f"  [yellow]Warning:[/yellow] Host returned status "
+                    f"{resp.status_code} — writing config anyway."
+                )
+        except Exception:
+            console.print(
+                f"  [yellow]Warning:[/yellow] Host unreachable ({host}) "
+                f"— writing config anyway."
+            )
+
     if config:
         toml_content = config.read_text()
     else:
         if full_config:
-            toml_content = generate_default_toml(hw, engine=engine)
+            toml_content = generate_default_toml(hw, engine=engine, host=host)
         else:
-            toml_content = generate_minimal_toml(hw, engine=engine)
+            toml_content = generate_minimal_toml(hw, engine=engine, host=host)
 
     DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     if config:
