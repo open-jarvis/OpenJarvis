@@ -16,6 +16,20 @@ from openjarvis.core.types import Message, Role, ToolCall, ToolResult
 from openjarvis.engine._stubs import InferenceEngine
 from openjarvis.tools._stubs import BaseTool
 
+
+def _tc_name(tc: dict) -> str:
+    """Extract tool call name from OpenAI or flat format."""
+    if "function" in tc:
+        return tc["function"]["name"]
+    return tc["name"]
+
+
+def _tc_args(tc: dict) -> str:
+    """Extract tool call arguments from OpenAI or flat format."""
+    if "function" in tc:
+        return tc["function"]["arguments"]
+    return tc["arguments"]
+
 DEEP_RESEARCH_SYSTEM_PROMPT = """\
 You are a deep research agent. Your job is to search the user's personal \
 knowledge base thoroughly and produce a well-cited narrative report.
@@ -150,8 +164,8 @@ class DeepResearchAgent(ToolUsingAgent):
             assistant_tool_calls = [
                 ToolCall(
                     id=tc["id"],
-                    name=tc["function"]["name"],
-                    arguments=tc["function"]["arguments"],
+                    name=_tc_name(tc),
+                    arguments=_tc_args(tc),
                 )
                 for tc in tool_calls_raw
             ]
@@ -167,8 +181,8 @@ class DeepResearchAgent(ToolUsingAgent):
             for tc_raw in tool_calls_raw:
                 tc = ToolCall(
                     id=tc_raw["id"],
-                    name=tc_raw["function"]["name"],
-                    arguments=tc_raw["function"]["arguments"],
+                    name=_tc_name(tc_raw),
+                    arguments=_tc_args(tc_raw),
                 )
 
                 # Loop guard check before execution
