@@ -297,7 +297,15 @@ def _probe_engine_host(url: str, console: Console) -> None:
 def _coerce_value(value: str, target_type: type) -> object:
     """Coerce a CLI string value to the target Python type."""
     if target_type is bool:
-        return value.lower() in ("true", "1", "yes")
+        low = value.lower()
+        if low in ("true", "1", "yes"):
+            return True
+        if low in ("false", "0", "no"):
+            return False
+        raise ValueError(
+            f"Invalid boolean value: {value!r} "
+            f"(expected: true/false, yes/no, 1/0)"
+        )
     if target_type is int:
         return int(value)
     if target_type is float:

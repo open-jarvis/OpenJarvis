@@ -30,7 +30,10 @@ class TestConfigSet:
         config_file = tmp_path / "config.toml"
         config_file.write_text('[engine]\ndefault = "ollama"\n')
         env = {"OPENJARVIS_CONFIG": str(config_file)}
-        with mock.patch.dict(os.environ, env):
+        with (
+            mock.patch.dict(os.environ, env),
+            mock.patch("openjarvis.cli.config_cmd.httpx"),
+        ):
             result = CliRunner().invoke(
                 cli,
                 ["config", "set", "engine.ollama.host", "http://192.168.1.50:11434"],
