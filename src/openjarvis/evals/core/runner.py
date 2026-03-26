@@ -102,9 +102,13 @@ class EvalRunner:
         # default iter_episodes() that wraps each record in its own episode,
         # so hasattr() is always True — we must check for a real override.
         from openjarvis.evals.core.dataset import DatasetProvider as _DP
-        if not cfg.episode_mode and (
-            type(self._dataset).iter_episodes is not _DP.iter_episodes
-        ):
+        try:
+            _overrides_episodes = (
+                type(self._dataset).iter_episodes is not _DP.iter_episodes
+            )
+        except AttributeError:
+            _overrides_episodes = False
+        if not cfg.episode_mode and _overrides_episodes:
             LOGGER.info(
                 "%s requires sequential episode processing — "
                 "auto-enabling episode_mode.",
@@ -114,10 +118,13 @@ class EvalRunner:
             self._config = cfg
 
         # Detect if dataset provides task environments (e.g. PinchBench)
-        self._has_task_env = (
-            type(self._dataset).create_task_env
-            is not _DP.create_task_env
-        )
+        try:
+            self._has_task_env = (
+                type(self._dataset).create_task_env
+                is not _DP.create_task_env
+            )
+        except AttributeError:
+            self._has_task_env = False
 
         records = list(self._dataset.iter_records())
         LOGGER.info(
