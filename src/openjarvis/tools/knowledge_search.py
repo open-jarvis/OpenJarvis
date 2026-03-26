@@ -2,16 +2,20 @@
 
 Wraps ``KnowledgeStore`` so agents can search ingested documents by text query
 and optional provenance filters (source, doc_type, author, date range).
+Optionally delegates to a ``TwoStageRetriever`` for BM25 + reranking.
 """
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from openjarvis.connectors.store import KnowledgeStore
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
 from openjarvis.tools._stubs import BaseTool, ToolSpec
+
+if TYPE_CHECKING:
+    from openjarvis.connectors.retriever import TwoStageRetriever
 
 
 @ToolRegistry.register("knowledge_search")
@@ -19,12 +23,19 @@ class KnowledgeSearchTool(BaseTool):
     """Search the knowledge store using filtered BM25 retrieval.
 
     Results include source attribution so agents can cite provenance.
+    When a ``TwoStageRetriever`` is supplied it is used in place of the
+    store's direct ``retrieve`` method, enabling optional semantic reranking.
     """
 
     tool_id = "knowledge_search"
 
-    def __init__(self, store: Optional[KnowledgeStore] = None) -> None:
+    def __init__(
+        self,
+        store: Optional[KnowledgeStore] = None,
+        retriever: Optional["TwoStageRetriever"] = None,
+    ) -> None:
         self._store = store
+        self._retriever = retriever
 
     @property
     def spec(self) -> ToolSpec:
@@ -83,7 +94,7 @@ class KnowledgeSearchTool(BaseTool):
         )
 
     def execute(self, **params: Any) -> ToolResult:
-        if self._store is None:
+        if self._store is None and self._retriever is None:
             return ToolResult(
                 tool_name="knowledge_search",
                 content="No knowledge store configured.",
@@ -105,15 +116,26 @@ class KnowledgeSearchTool(BaseTool):
         since: Optional[str] = params.get("since")
         until: Optional[str] = params.get("until")
 
-        results = self._store.retrieve(
-            query,
-            top_k=top_k,
-            source=source,
-            doc_type=doc_type,
-            author=author,
-            since=since,
-            until=until,
-        )
+        if self._retriever is not None:
+            results = self._retriever.retrieve(
+                query,
+                top_k=top_k,
+                source=source or "",
+                doc_type=doc_type or "",
+                author=author or "",
+                since=since or "",
+                until=until or "",
+            )
+        else:
+            results = self._store.retrieve(  # type: ignore[union-attr]
+                query,
+                top_k=top_k,
+                source=source,
+                doc_type=doc_type,
+                author=author,
+                since=since,
+                until=until,
+            )
 
         if not results:
             return ToolResult(
