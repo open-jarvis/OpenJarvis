@@ -155,21 +155,21 @@ class FileWriteTool(BaseTool):
                     success=False,
                 )
 
-        from openjarvis._rust_bridge import get_rust_module
-        _rust = get_rust_module()
         if mode == "write":
             try:
+                from openjarvis._rust_bridge import get_rust_module
+                _rust = get_rust_module()
                 _rust.FileWriteTool().execute(str(path), content)
+            except ImportError:
+                try:
+                    path.write_text(content, encoding="utf-8")
+                except OSError as exc:
+                    return ToolResult(
+                        tool_name="file_write",
+                        content=f"Write error: {exc}",
+                        success=False,
+                    )
             except Exception as exc:
-                return ToolResult(
-                    tool_name="file_write",
-                    content=f"Write error: {exc}",
-                    success=False,
-                )
-        elif False:  # dead code — all write modes go through Rust
-            try:
-                path.write_text(content, encoding="utf-8")
-            except OSError as exc:
                 return ToolResult(
                     tool_name="file_write",
                     content=f"Write error: {exc}",

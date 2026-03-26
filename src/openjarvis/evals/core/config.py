@@ -43,6 +43,7 @@ KNOWN_BENCHMARKS = {
     "knowledge_base", "coding_task",
     "coding_assistant", "security_scanner", "daily_digest",
     "doc_qa", "browser_assistant",
+    "pinchbench",
 }
 
 
