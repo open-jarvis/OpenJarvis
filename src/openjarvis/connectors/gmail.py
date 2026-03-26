@@ -31,9 +31,7 @@ from openjarvis.tools._stubs import ToolSpec
 
 _GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
 _GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
-_DEFAULT_CREDENTIALS_PATH = str(
-    DEFAULT_CONFIG_DIR / "connectors" / "gmail.json"
-)
+_DEFAULT_CREDENTIALS_PATH = str(DEFAULT_CONFIG_DIR / "connectors" / "gmail.json")
 
 # ---------------------------------------------------------------------------
 # Module-level API functions (easy to patch in tests)
@@ -227,7 +225,7 @@ class GmailConnector(BaseConnector):
     def sync(
         self,
         *,
-        since: Optional[datetime] = None,  # noqa: ARG002 — reserved for future use
+        since: Optional[datetime] = None,
         cursor: Optional[str] = None,
     ) -> Iterator[Document]:
         """Yield :class:`Document` objects for Gmail messages.
@@ -238,7 +236,8 @@ class GmailConnector(BaseConnector):
         Parameters
         ----------
         since:
-            Not yet used (Gmail API filtering is done server-side via query).
+            When provided, only messages received after this timestamp are
+            returned.  Translated to a Gmail ``after:<epoch>`` search query.
         cursor:
             ``nextPageToken`` from a previous sync to resume pagination.
         """
@@ -250,11 +249,19 @@ class GmailConnector(BaseConnector):
         if not token:
             return
 
+        query = ""
+        if since is not None:
+            # Gmail's after: operator accepts Unix epoch seconds.
+            epoch = int(since.timestamp())
+            query = f"after:{epoch}"
+
         page_token: Optional[str] = cursor
         synced = 0
 
         while True:
-            list_resp = _gmail_api_list_messages(token, page_token=page_token)
+            list_resp = _gmail_api_list_messages(
+                token, page_token=page_token, query=query
+            )
             messages: List[Dict[str, Any]] = list_resp.get("messages", [])
 
             for msg_stub in messages:
@@ -352,9 +359,7 @@ class GmailConnector(BaseConnector):
             ),
             ToolSpec(
                 name="gmail_get_thread",
-                description=(
-                    "Retrieve all messages in a Gmail thread by thread ID."
-                ),
+                description=("Retrieve all messages in a Gmail thread by thread ID."),
                 parameters={
                     "type": "object",
                     "properties": {

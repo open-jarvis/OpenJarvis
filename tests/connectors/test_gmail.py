@@ -130,15 +130,11 @@ def test_sync_yields_documents(
     """sync() yields one Document per message with correct metadata."""
     # Set up fake credentials so is_connected() returns True
     creds_path = Path(connector._credentials_path)
-    creds_path.write_text(
-        json.dumps({"token": "fake-access-token"}), encoding="utf-8"
-    )
+    creds_path.write_text(json.dumps({"token": "fake-access-token"}), encoding="utf-8")
 
     # Configure mocks
     mock_list.return_value = _LIST_RESPONSE
-    mock_get.side_effect = lambda token, msg_id: (
-        _MSG1 if msg_id == "msg1" else _MSG2
-    )
+    mock_get.side_effect = lambda token, msg_id: _MSG1 if msg_id == "msg1" else _MSG2
 
     docs: List[Document] = list(connector.sync())
 
@@ -174,9 +170,7 @@ def test_sync_yields_documents(
 def test_disconnect(connector, tmp_path: Path) -> None:
     """disconnect() deletes the credentials file."""
     creds_path = Path(connector._credentials_path)
-    creds_path.write_text(
-        json.dumps({"token": "fake-access-token"}), encoding="utf-8"
-    )
+    creds_path.write_text(json.dumps({"token": "fake-access-token"}), encoding="utf-8")
     assert connector.is_connected() is True
 
     connector.disconnect()
@@ -201,7 +195,66 @@ def test_mcp_tools(connector) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 7 — ConnectorRegistry contains "gmail" after import
+# Test 7 — sync passes since as an after: query to the list messages API
+# ---------------------------------------------------------------------------
+
+
+@patch("openjarvis.connectors.gmail._gmail_api_list_messages")
+@patch("openjarvis.connectors.gmail._gmail_api_get_message")
+def test_sync_passes_since_as_query(
+    mock_get,
+    mock_list,
+    connector,
+    tmp_path: Path,
+) -> None:
+    """sync(since=...) passes an after:<epoch> query to _gmail_api_list_messages."""
+    from datetime import datetime, timezone  # noqa: PLC0415
+
+    creds_path = Path(connector._credentials_path)
+    creds_path.write_text(json.dumps({"token": "fake-access-token"}), encoding="utf-8")
+
+    mock_list.return_value = {"messages": []}  # no messages needed for this test
+
+    since_dt = datetime(2024, 6, 1, 0, 0, 0, tzinfo=timezone.utc)
+    list(connector.sync(since=since_dt))
+
+    mock_list.assert_called_once()
+    _, call_kwargs = mock_list.call_args
+    assert "query" in call_kwargs
+    assert call_kwargs["query"].startswith("after:")
+    # Verify the epoch value is correct
+    expected_epoch = int(since_dt.timestamp())
+    assert call_kwargs["query"] == f"after:{expected_epoch}"
+
+
+# ---------------------------------------------------------------------------
+# Test 8 — sync without since passes an empty query
+# ---------------------------------------------------------------------------
+
+
+@patch("openjarvis.connectors.gmail._gmail_api_list_messages")
+@patch("openjarvis.connectors.gmail._gmail_api_get_message")
+def test_sync_without_since_passes_empty_query(
+    mock_get,
+    mock_list,
+    connector,
+    tmp_path: Path,
+) -> None:
+    """sync() without since= passes an empty query string."""
+    creds_path = Path(connector._credentials_path)
+    creds_path.write_text(json.dumps({"token": "fake-access-token"}), encoding="utf-8")
+
+    mock_list.return_value = {"messages": []}
+
+    list(connector.sync())
+
+    mock_list.assert_called_once()
+    _, call_kwargs = mock_list.call_args
+    assert call_kwargs.get("query", "") == ""
+
+
+# ---------------------------------------------------------------------------
+# Test 9 — ConnectorRegistry contains "gmail" after import
 # ---------------------------------------------------------------------------
 
 
