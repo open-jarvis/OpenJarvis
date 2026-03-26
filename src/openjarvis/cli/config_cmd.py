@@ -303,8 +303,7 @@ def _coerce_value(value: str, target_type: type) -> object:
         if low in ("false", "0", "no"):
             return False
         raise ValueError(
-            f"Invalid boolean value: {value!r} "
-            f"(expected: true/false, yes/no, 1/0)"
+            f"Invalid boolean value: {value!r} (expected: true/false, yes/no, 1/0)"
         )
     if target_type is int:
         return int(value)

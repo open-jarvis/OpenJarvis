@@ -1210,6 +1210,7 @@ def validate_config_key(dotted_key: str) -> type:
         if isinstance(fld_type, str):
             # Evaluate forward references in the config module namespace
             import openjarvis.core.config as _cfg_mod
+
             fld_type = eval(fld_type, vars(_cfg_mod))  # noqa: S307
 
         if i == len(parts) - 1:
@@ -1367,14 +1368,11 @@ def generate_minimal_toml(
         mem_label = "unified memory" if hw.gpu.vendor == "apple" else "VRAM"
         gpu_comment = f"\n# GPU: {hw.gpu.name} ({hw.gpu.vram_gb} GB {mem_label})"
     if host:
-        engine_host_section = (
-            f"\n[engine.{engine}]\n"
-            f'host = "{host}"\n'
-        )
+        engine_host_section = f'\n[engine.{engine}]\nhost = "{host}"\n'
     else:
         engine_host_section = (
             f"\n[engine.{engine}]\n"
-            f"# host = \"http://localhost:11434\"  "
+            f'# host = "http://localhost:11434"  '
             f"# set to remote URL if engine runs elsewhere\n"
         )
     return f"""\
@@ -1607,8 +1605,9 @@ ssrf_protection = true
 """
     if host:
         import re as _re
+
         pattern = _re.escape(f"[engine.{engine}]") + r"\nhost = \"[^\"]*\""
-        replacement = f"[engine.{engine}]\\nhost = \"{host}\""
+        replacement = f'[engine.{engine}]\\nhost = "{host}"'
         result = _re.sub(pattern, replacement, result)
     return result
 
