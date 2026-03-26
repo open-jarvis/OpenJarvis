@@ -37,3 +37,8 @@ try:
     import openjarvis.connectors.gcontacts  # noqa: F401
 except ImportError:
     pass
+
+try:
+    import openjarvis.connectors.imessage  # noqa: F401
+except ImportError:
+    pass
