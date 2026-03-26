@@ -460,17 +460,90 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
         return;
     }
 
-    let project_root = find_project_root();
+    let mut project_root = find_project_root();
 
     if project_root.is_none() {
-        let mut s = status.lock().await;
-        s.error = Some(
-            "Could not find the OpenJarvis project directory. \
-             Clone it with: git clone https://github.com/open-jarvis/OpenJarvis.git ~/OpenJarvis \
-             then relaunch."
-                .into(),
-        );
-        return;
+        // Auto-clone on first launch
+        let git_bin = resolve_bin("git");
+
+        // Check that git is installed
+        if !std::path::Path::new(&git_bin).exists() && git_bin == "git" {
+            let mut s = status.lock().await;
+            s.error = Some(
+                "Could not find 'git'. \
+                 Install it from https://git-scm.com then relaunch."
+                    .into(),
+            );
+            return;
+        }
+
+        let clone_target = format!("{}/OpenJarvis", home_dir());
+        let target_path = std::path::PathBuf::from(&clone_target);
+
+        // If the directory exists but is not a valid project, don't overwrite
+        if target_path.exists() {
+            let mut s = status.lock().await;
+            s.error = Some(format!(
+                "{} exists but is not a valid OpenJarvis project. \
+                 Remove it and relaunch, or set OPENJARVIS_ROOT to the correct path.",
+                clone_target,
+            ));
+            return;
+        }
+
+        {
+            let mut s = status.lock().await;
+            s.detail = "Downloading OpenJarvis (first launch)...".into();
+        }
+
+        let clone_result = tokio::process::Command::new(&git_bin)
+            .args([
+                "clone",
+                "--depth",
+                "1",
+                "https://github.com/open-jarvis/OpenJarvis.git",
+                &clone_target,
+            ])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .spawn();
+
+        match clone_result {
+            Ok(child) => match child.wait_with_output().await {
+                Ok(output) if output.status.success() => {
+                    project_root = Some(target_path);
+                }
+                Ok(output) => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    let mut s = status.lock().await;
+                    s.error = Some(format!(
+                        "Failed to download OpenJarvis: {}. \
+                         Clone manually: git clone https://github.com/open-jarvis/OpenJarvis.git {}",
+                        stderr.trim(),
+                        clone_target,
+                    ));
+                    return;
+                }
+                Err(e) => {
+                    let mut s = status.lock().await;
+                    s.error = Some(format!(
+                        "Failed to download OpenJarvis: {}. \
+                         Clone manually: git clone https://github.com/open-jarvis/OpenJarvis.git {}",
+                        e, clone_target,
+                    ));
+                    return;
+                }
+            },
+            Err(e) => {
+                let mut s = status.lock().await;
+                s.error = Some(format!(
+                    "Could not run git: {}. \
+                     Install git from https://git-scm.com then relaunch.",
+                    e,
+                ));
+                return;
+            }
+        }
     }
 
     // Kill any leftover server on our port from a previous run
