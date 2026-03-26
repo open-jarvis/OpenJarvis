@@ -412,7 +412,7 @@ def _grade_hybrid(
     judge_model: str,
 ) -> Dict[str, Any]:
     """Run both automated and LLM judge grading, combine with weights."""
-    weights = record.metadata.get("grading_weights", {"automated": 0.5, "llm_judge": 0.5})
+    weights = record.metadata.get("grading_weights") or {"automated": 0.5, "llm_judge": 0.5}
     auto = _grade_automated(record, transcript, workspace_path)
     llm = _grade_llm_judge(record, transcript, workspace_path, judge_backend, judge_model)
 
