@@ -285,6 +285,16 @@ class SlackConnector(BaseConnector):
                     )
 
                     for msg in messages:
+                        # Skip bot messages and non-content subtypes
+                        if msg.get("bot_id") or msg.get("subtype") in (
+                            "message_changed",
+                            "message_deleted",
+                            "bot_message",
+                            "channel_join",
+                            "channel_leave",
+                        ):
+                            continue
+
                         ts: str = msg.get("ts", "")
                         user_id: str = msg.get("user", "")
                         text: str = msg.get("text", "")
