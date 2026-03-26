@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from openjarvis.connectors.retriever import Reranker, TwoStageRetriever
+from openjarvis.connectors.retriever import ColBERTReranker, Reranker, TwoStageRetriever
 from openjarvis.connectors.store import KnowledgeStore
 from openjarvis.tools.storage._stubs import RetrievalResult
 
@@ -208,3 +208,98 @@ def test_retrieve_recall_k_larger_than_top_k(
     assert len(call_log) == 1
     # recall_k=50 vs top_k*3=6 → should use 50
     assert call_log[0] == 50
+
+
+# ---------------------------------------------------------------------------
+# Test 9: reranker_uses_cached_embeddings — EmbeddingStore integration
+# ---------------------------------------------------------------------------
+
+
+def test_reranker_uses_cached_embeddings() -> None:
+    """ColBERTReranker checks EmbeddingStore.get() before calling docFromText().
+
+    When a cached embedding is found, docFromText() should NOT be called for
+    that candidate.
+    """
+    import torch  # type: ignore[import]
+
+    # Create a fake cached embedding (T=20 tokens, dim=128)
+    cached_emb = torch.randn(20, 128)
+
+    # Mock the embedding store
+    mock_store = MagicMock()
+    mock_store.get.return_value = cached_emb
+
+    # Create a reranker with the mocked embedding store
+    reranker = ColBERTReranker(embedding_store=mock_store)
+
+    # Mock the ColBERT model so _load_model succeeds
+    mock_model = MagicMock()
+    # queryFromText returns a (Q, dim) tensor
+    mock_model.queryFromText.return_value = [torch.randn(32, 128)]
+    reranker._model = mock_model  # bypass _load_model()
+
+    candidates = [
+        RetrievalResult(
+            content="Some document about AI",
+            score=1.0,
+            source="gmail",
+            metadata={"chunk_id": "chunk-123"},
+        ),
+    ]
+
+    results = reranker.rerank("AI research", candidates, top_k=1)
+
+    # Embedding store should have been consulted
+    mock_store.get.assert_called_once_with("chunk-123")
+
+    # docFromText should NOT have been called (cache hit)
+    mock_model.docFromText.assert_not_called()
+
+    # We should still get a result back
+    assert len(results) == 1
+
+
+# ---------------------------------------------------------------------------
+# Test 10: reranker_caches_new_embeddings — stores after compute
+# ---------------------------------------------------------------------------
+
+
+def test_reranker_caches_new_embeddings() -> None:
+    """When EmbeddingStore.get() returns None, docFromText() is called and
+    the result is stored back via EmbeddingStore.store()."""
+    import torch  # type: ignore[import]
+
+    mock_store = MagicMock()
+    mock_store.get.return_value = None  # cache miss
+
+    reranker = ColBERTReranker(embedding_store=mock_store)
+
+    mock_model = MagicMock()
+    mock_model.queryFromText.return_value = [torch.randn(32, 128)]
+    # docFromText returns (1, T, dim) which the reranker squeezes
+    doc_emb = torch.randn(1, 20, 128)
+    mock_model.docFromText.return_value = [doc_emb]
+    reranker._model = mock_model
+
+    candidates = [
+        RetrievalResult(
+            content="Document about neural nets",
+            score=1.0,
+            source="obsidian",
+            metadata={"chunk_id": "chunk-456"},
+        ),
+    ]
+
+    results = reranker.rerank("neural nets", candidates, top_k=1)
+
+    # docFromText should have been called (cache miss)
+    mock_model.docFromText.assert_called_once()
+
+    # The computed embedding should be stored back
+    mock_store.store.assert_called_once()
+    call_args = mock_store.store.call_args
+    assert call_args[0][0] == "chunk-456"  # chunk_id
+    assert call_args[0][1].shape == (20, 128)  # squeezed tensor
+
+    assert len(results) == 1

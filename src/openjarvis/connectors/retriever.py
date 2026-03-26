@@ -16,10 +16,13 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from openjarvis.connectors.store import KnowledgeStore
 from openjarvis.tools.storage._stubs import RetrievalResult
+
+if TYPE_CHECKING:
+    from openjarvis.connectors.embedding_store import EmbeddingStore
 
 logger = logging.getLogger(__name__)
 
@@ -74,12 +77,22 @@ class ColBERTReranker(Reranker):
     checkpoint:
         Path or HuggingFace model ID for the ColBERT checkpoint.
         Defaults to ``"colbert-ir/colbertv2.0"``.
+    embedding_store:
+        Optional :class:`EmbeddingStore` for caching per-chunk ColBERT
+        token embeddings on disk.  When provided, the reranker looks up
+        pre-computed embeddings before falling back to ``docFromText()``,
+        and stores newly computed embeddings for future reuse.
     """
 
-    def __init__(self, checkpoint: str = "colbert-ir/colbertv2.0") -> None:
+    def __init__(
+        self,
+        checkpoint: str = "colbert-ir/colbertv2.0",
+        embedding_store: Optional["EmbeddingStore"] = None,
+    ) -> None:
         self._checkpoint = checkpoint
         self._model = None
         self._warned = False
+        self._embedding_store = embedding_store
 
     def _load_model(self) -> bool:
         """Attempt to load the ColBERT model.  Returns True on success."""
@@ -138,24 +151,35 @@ class ColBERTReranker(Reranker):
 
             # Encode query: (Q, dim) where Q=query_maxlen (32)
             q_emb = self._model.queryFromText([query])[0]
-            doc_texts = [r.content for r in candidates]
 
-            # Score each candidate via MaxSim
+            # Score each candidate via MaxSim, using cached embeddings
+            # from the EmbeddingStore when available.
             scores = []
-            for text in doc_texts:
-                d_emb = self._model.docFromText([text], bsize=1)[0]
-                # d_emb shape: (1, T, dim) or (T, dim)
-                if d_emb.dim() == 3:
-                    d_emb = d_emb.squeeze(0)
+            for r in candidates:
+                chunk_id = r.metadata.get("chunk_id", "")
+
+                # Try cached embedding first
+                d_emb = None
+                if self._embedding_store and chunk_id:
+                    d_emb = self._embedding_store.get(chunk_id)
+
+                if d_emb is None:
+                    # Encode on the fly
+                    d_emb = self._model.docFromText([r.content], bsize=1)[0]
+                    # d_emb shape: (1, T, dim) or (T, dim)
+                    if d_emb.dim() == 3:
+                        d_emb = d_emb.squeeze(0)
+                    # Cache for future queries
+                    if self._embedding_store and chunk_id:
+                        self._embedding_store.store(chunk_id, d_emb)
+
                 sim = torch.nn.functional.cosine_similarity(
                     q_emb.unsqueeze(1), d_emb.unsqueeze(0), dim=2
                 )
                 maxsim = sim.max(dim=1).values.sum().item()
                 scores.append(maxsim)
 
-            ranked = sorted(
-                zip(scores, candidates), key=lambda x: x[0], reverse=True
-            )
+            ranked = sorted(zip(scores, candidates), key=lambda x: x[0], reverse=True)
             reranked = []
             for score, result in ranked[:top_k]:
                 reranked.append(

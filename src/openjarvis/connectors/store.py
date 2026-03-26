@@ -118,6 +118,7 @@ class KnowledgeStore(MemoryBackend):
     def __init__(self, db_path: Union[str, Path] = "") -> None:
         if not db_path:
             from openjarvis.core.config import DEFAULT_CONFIG_DIR
+
             db_path = DEFAULT_CONFIG_DIR / "knowledge.db"
 
         self._db_path = str(db_path)
@@ -138,10 +139,7 @@ class KnowledgeStore(MemoryBackend):
         self._conn.execute("PRAGMA journal_mode=WAL;")
         self._conn.execute("PRAGMA foreign_keys=ON;")
         self._conn.executescript(
-            _CREATE_MAIN_TABLE
-            + _CREATE_FTS_TABLE
-            + _CREATE_TRIGGERS
-            + _CREATE_INDEXES
+            _CREATE_MAIN_TABLE + _CREATE_FTS_TABLE + _CREATE_TRIGGERS + _CREATE_INDEXES
         )
         self._conn.commit()
 
@@ -179,6 +177,7 @@ class KnowledgeStore(MemoryBackend):
 
         # Merge provenance fields into metadata for easy access in results
         combined_meta: Dict[str, Any] = dict(metadata or {})
+        combined_meta["chunk_id"] = chunk_id
         combined_meta["source"] = source
         combined_meta["doc_type"] = doc_type
         combined_meta["doc_id"] = doc_id
@@ -310,6 +309,10 @@ class KnowledgeStore(MemoryBackend):
         results: List[RetrievalResult] = []
         for row in rows:
             meta = json.loads(row["metadata"]) if row["metadata"] else {}
+            # Ensure chunk_id is always present in metadata (backfill for
+            # rows stored before this field was added to combined_meta).
+            if "chunk_id" not in meta:
+                meta["chunk_id"] = row["id"]
             results.append(
                 RetrievalResult(
                     content=row["content"],

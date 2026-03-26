@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Iterator, List, Optional
+from typing import Iterator, Optional
 
 from openjarvis.connectors._stubs import (
     Attachment,
@@ -12,7 +12,6 @@ from openjarvis.connectors._stubs import (
     SyncStatus,
 )
 from openjarvis.core.registry import ConnectorRegistry
-from openjarvis.tools._stubs import ToolSpec
 
 
 class FakeConnector(BaseConnector):
