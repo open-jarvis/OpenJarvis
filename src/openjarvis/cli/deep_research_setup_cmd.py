@@ -104,13 +104,21 @@ def _instantiate_connector(connector_id: str, config: Dict[str, Any]) -> Any:
 def ingest_sources(
     sources: List[Dict[str, Any]],
     store: KnowledgeStore,
+    *,
+    state_db: str = "",
 ) -> int:
     """Connect and ingest all sources into the KnowledgeStore.
+
+    Parameters
+    ----------
+    state_db:
+        Path for the SyncEngine checkpoint database.  Defaults to
+        ``~/.openjarvis/sync_state.db`` when empty.
 
     Returns total chunks indexed across all sources.
     """
     pipeline = IngestionPipeline(store)
-    engine = SyncEngine(pipeline)
+    engine = SyncEngine(pipeline, state_db=state_db)
     total = 0
     for src in sources:
         connector = _instantiate_connector(src["connector_id"], src["config"])

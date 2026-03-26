@@ -131,8 +131,9 @@ def test_ingest_sources(tmp_path: Path) -> None:
     )
 
     db_path = tmp_path / "knowledge.db"
+    state_db = str(tmp_path / "sync_state.db")
     store = KnowledgeStore(str(db_path))
-    total = ingest_sources(sources, store)
+    total = ingest_sources(sources, store, state_db=state_db)
 
     assert total > 0
     assert store.count() > 0
