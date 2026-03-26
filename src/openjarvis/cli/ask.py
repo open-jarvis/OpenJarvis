@@ -377,7 +377,10 @@ def ask(
             "  [cyan]ollama serve[/cyan]          — start Ollama\n"
             "  [cyan]vllm serve <model>[/cyan]    — start vLLM\n"
             "  [cyan]llama-server -m <gguf>[/cyan] — start llama.cpp\n\n"
-            "Or set OPENAI_API_KEY / ANTHROPIC_API_KEY for cloud inference."
+            "Or set OPENAI_API_KEY / ANTHROPIC_API_KEY for cloud inference.\n\n"
+            "[dim]To use a remote engine:[/dim]\n"
+            "  [cyan]jarvis config set engine.ollama.host http://<remote-ip>:11434[/cyan]\n"
+            "  [dim]or[/dim] [cyan]export OLLAMA_HOST=http://<remote-ip>:11434[/cyan]"
         )
         sys.exit(1)
 

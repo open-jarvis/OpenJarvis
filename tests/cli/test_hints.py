@@ -35,3 +35,13 @@ class TestHintFunctions:
     def test_hint_no_model_with_name(self):
         msg = hint_no_model("qwen3:8b")
         assert "qwen3:8b" in msg
+
+    def test_hint_no_engine_includes_remote_tip(self):
+        msg = hint_no_engine()
+        assert "config set" in msg
+        assert "OLLAMA_HOST" in msg
+
+    def test_hint_no_engine_with_name_includes_remote_tip(self):
+        msg = hint_no_engine("vllm")
+        assert "config set" in msg
+        assert "engine.vllm.host" in msg
