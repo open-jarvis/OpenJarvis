@@ -257,7 +257,10 @@ def deep_research_setup(obsidian_vault: Optional[str], skip_chat: bool) -> None:
         chunks = engine.sync(connector)
         console.print(f"  {src['display_name']}: [green]{chunks} chunks[/green]")
 
-    console.print(f"\n[bold green]Done![/bold green] {store.count()} total chunks in {db_path}\n")
+    total = store.count()
+    console.print(
+        f"\n[bold green]Done![/bold green] {total} total chunks in {db_path}\n"
+    )
 
     # 4. Chat
     if skip_chat:
