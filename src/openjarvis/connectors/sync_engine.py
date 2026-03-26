@@ -135,11 +135,12 @@ class SyncEngine:
         return items_ingested
 
     def get_checkpoint(self, connector_id: str) -> Optional[Dict[str, Any]]:
-        """Return the last checkpoint for *connector_id*, or ``None`` if never synced."""
-        row = self._conn.execute(
-            "SELECT items_synced, cursor, last_sync, error FROM sync_state WHERE connector_id = ?",
-            (connector_id,),
-        ).fetchone()
+        """Return the last checkpoint, or ``None`` if never synced."""
+        sql = (
+            "SELECT items_synced, cursor, last_sync, error"
+            " FROM sync_state WHERE connector_id = ?"
+        )
+        row = self._conn.execute(sql, (connector_id,)).fetchone()
 
         if row is None:
             return None
@@ -167,7 +168,8 @@ class SyncEngine:
         now = datetime.now(tz=timezone.utc).isoformat()
         self._conn.execute(
             """
-            INSERT INTO sync_state (connector_id, items_synced, cursor, last_sync, error)
+            INSERT INTO sync_state
+                (connector_id, items_synced, cursor, last_sync, error)
             VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(connector_id) DO UPDATE SET
                 items_synced = excluded.items_synced,
