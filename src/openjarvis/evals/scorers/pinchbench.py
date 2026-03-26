@@ -52,12 +52,12 @@ def events_to_transcript(events: List[Any]) -> List[Dict[str, Any]]:
         if etype == EventType.TOOL_CALL_START or etype == EventType.TOOL_CALL_START.value:
             tool_name = event.metadata.get("tool", "unknown")
             mapped = _TOOL_NAME_MAP.get(tool_name, tool_name)
-            arguments = event.metadata.get("arguments", {})
+            arguments = event.metadata.get("arguments") or {}
             transcript.append({
                 "type": "message",
                 "message": {
                     "role": "assistant",
-                    "content": [{"type": "toolCall", "name": mapped, "arguments": arguments}],
+                    "content": [{"type": "toolCall", "name": mapped, "params": arguments}],
                 },
             })
         elif etype == EventType.TOOL_CALL_END or etype == EventType.TOOL_CALL_END.value:
@@ -78,12 +78,14 @@ def _trace_to_transcript(trace: Any) -> List[Dict[str, Any]]:
     transcript: List[Dict[str, Any]] = []
     for turn in trace.turns:
         for tc in getattr(turn, "tool_calls", []):
+            if tc is None:
+                continue
             mapped = _TOOL_NAME_MAP.get(tc["name"], tc["name"])
             transcript.append({
                 "type": "message",
                 "message": {
                     "role": "assistant",
-                    "content": [{"type": "toolCall", "name": mapped, "arguments": tc.get("arguments", {})}],
+                    "content": [{"type": "toolCall", "name": mapped, "params": tc.get("arguments") or {}}],
                 },
             })
             transcript.append({
@@ -93,6 +95,42 @@ def _trace_to_transcript(trace: Any) -> List[Dict[str, Any]]:
                     "content": [{"text": tc.get("result", "")}],
                 },
             })
+
+    # Capture final assistant text response (for tasks graded on text output)
+    response_text = getattr(trace, "response_text", "")
+    if response_text:
+        transcript.append({
+            "type": "message",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": response_text}],
+            },
+        })
+    return transcript
+
+
+def _tool_results_to_transcript(
+    tool_results: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Build transcript from JarvisAgentBackend tool_results list."""
+    transcript: List[Dict[str, Any]] = []
+    for tr in tool_results:
+        tool_name = tr.get("tool_name", "unknown")
+        mapped = _TOOL_NAME_MAP.get(tool_name, tool_name)
+        transcript.append({
+            "type": "message",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "toolCall", "name": mapped, "params": {}}],
+            },
+        })
+        transcript.append({
+            "type": "message",
+            "message": {
+                "role": "toolResult",
+                "content": [{"text": tr.get("content", "")}],
+            },
+        })
     return transcript
 
 
@@ -118,8 +156,10 @@ def _summarize_transcript(transcript: List[Dict[str, Any]]) -> str:
             for item in msg.get("content", []):
                 if item.get("type") == "toolCall":
                     parts.append(
-                        f"Tool: {item.get('name')}({json.dumps(item.get('arguments', {}))})"
+                        f"Tool: {item.get('name')}({json.dumps(item.get('params', {}))})"
                     )
+                elif item.get("type") == "text":
+                    parts.append(f"Assistant: {item.get('text', '')}")
         elif role == "toolResult":
             content = msg.get("content", [])
             if content:
@@ -372,7 +412,7 @@ def _grade_hybrid(
     judge_model: str,
 ) -> Dict[str, Any]:
     """Run both automated and LLM judge grading, combine with weights."""
-    weights = record.metadata.get("grading_weights", {"automated": 0.5, "llm_judge": 0.5})
+    weights = record.metadata.get("grading_weights") or {"automated": 0.5, "llm_judge": 0.5}
     auto = _grade_automated(record, transcript, workspace_path)
     llm = _grade_llm_judge(record, transcript, workspace_path, judge_backend, judge_model)
 
@@ -426,7 +466,24 @@ class PinchBenchScorer(LLMJudgeScorer):
         self, record: EvalRecord, model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         trace = record.metadata.get("query_trace")
-        transcript = _trace_to_transcript(trace) if trace else []
+        if trace:
+            transcript = _trace_to_transcript(trace)
+        else:
+            # No trace — build transcript from tool_results if available
+            tool_results = record.metadata.get("tool_results", [])
+            transcript = _tool_results_to_transcript(tool_results)
+
+        # Always append final model answer as assistant text message
+        # so grading functions that check for text responses can find it
+        if model_answer:
+            transcript.append({
+                "type": "message",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": model_answer}],
+                },
+            })
+
         result = grade_pinchbench_task(
             record=record,
             transcript=transcript,
@@ -442,4 +499,5 @@ __all__ = [
     "PinchBenchScorer",
     "events_to_transcript",
     "grade_pinchbench_task",
+    "_tool_results_to_transcript",
 ]

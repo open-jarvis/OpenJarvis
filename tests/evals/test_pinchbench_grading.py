@@ -74,7 +74,7 @@ def grade(transcript, workspace_path):
                     {
                         "type": "toolCall",
                         "name": "read_file",
-                        "arguments": {"path": "a.txt"},
+                        "params": {"path": "a.txt"},
                     }
                 ],
             },
@@ -124,7 +124,7 @@ class TestSummarizeTranscript:
                         {
                             "type": "toolCall",
                             "name": "read_file",
-                            "arguments": {"path": "a.txt"},
+                            "params": {"path": "a.txt"},
                         }
                     ],
                 },
