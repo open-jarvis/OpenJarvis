@@ -86,11 +86,24 @@ class ColBERTReranker(Reranker):
         if self._model is not None:
             return True
         try:
-            from colbert import Searcher  # type: ignore[import]
-            from colbert.infra import ColBERTConfig  # type: ignore[import]
+            import os
 
-            config = ColBERTConfig(checkpoint=self._checkpoint)
-            self._model = Searcher(index=None, config=config)
+            from colbert.infra.config import ColBERTConfig  # type: ignore[import]
+            from colbert.modeling.checkpoint import Checkpoint  # type: ignore[import]
+
+            # Force CPU if CUDA unavailable
+            gpus = 0
+            try:
+                import torch  # type: ignore[import]
+
+                if torch.cuda.is_available():
+                    gpus = 1
+            except Exception:
+                pass
+
+            os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+            config = ColBERTConfig(gpus=gpus)
+            self._model = Checkpoint(self._checkpoint, colbert_config=config)
             return True
         except Exception as exc:
             if not self._warned:
@@ -121,19 +134,23 @@ class ColBERTReranker(Reranker):
             return candidates[:top_k]
 
         try:
-            # Encode query and document texts
-            query_enc = self._model.encode_query(query)  # (1, L, dim)
-            doc_texts = [r.content for r in candidates]
-            doc_encs = self._model.encode_passages(doc_texts)  # (N, D, dim)
-
-            # MaxSim: for each doc, max over doc tokens, sum over query tokens
             import torch  # type: ignore[import]
 
+            # Encode query: (Q, dim) where Q=query_maxlen (32)
+            q_emb = self._model.queryFromText([query])[0]
+            doc_texts = [r.content for r in candidates]
+
+            # Score each candidate via MaxSim
             scores = []
-            for d_enc in doc_encs:
-                # query_enc: (L, dim), d_enc: (D, dim)
-                sim = torch.matmul(query_enc, d_enc.T)  # (L, D)
-                maxsim = sim.max(dim=-1).values.sum().item()
+            for text in doc_texts:
+                d_emb = self._model.docFromText([text], bsize=1)[0]
+                # d_emb shape: (1, T, dim) or (T, dim)
+                if d_emb.dim() == 3:
+                    d_emb = d_emb.squeeze(0)
+                sim = torch.nn.functional.cosine_similarity(
+                    q_emb.unsqueeze(1), d_emb.unsqueeze(0), dim=2
+                )
+                maxsim = sim.max(dim=1).values.sum().item()
                 scores.append(maxsim)
 
             ranked = sorted(
