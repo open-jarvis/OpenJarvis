@@ -47,15 +47,8 @@ export interface ConnectRequest {
 
 export type WizardStep = "pick" | "connect" | "ingest" | "ready";
 
-export interface SourceCard {
-  connector_id: string;
-  display_name: string;
-  auth_type: string;
-  category: "communication" | "documents" | "pim";
-  icon: string;
-  color: string;
-  description: string;
-}
+// Backward-compatible alias
+export type SourceCard = ConnectorMeta;
 
 export const SOURCE_CATALOG: ConnectorMeta[] = [
   {
