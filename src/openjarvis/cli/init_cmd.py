@@ -237,6 +237,13 @@ def _do_download(engine: str, model: str, spec, console: Console) -> None:
     "--no-download", is_flag=True, default=False, help="Skip the model download prompt."
 )
 @click.option(
+    "--no-scan",
+    "skip_scan",
+    is_flag=True,
+    default=False,
+    help="Skip the post-init security environment audit.",
+)
+@click.option(
     "--host",
     default=None,
     help="Remote engine host URL (e.g. http://192.168.1.50:11434).",
@@ -247,6 +254,7 @@ def init(
     full_config: bool = False,
     engine: Optional[str] = None,
     no_download: bool = False,
+    skip_scan: bool = False,
     host: Optional[str] = None,
 ) -> None:
     """Detect hardware and generate ~/.openjarvis/config.toml."""
@@ -405,7 +413,8 @@ def init(
             if click.confirm(prompt, default=True):
                 _do_download(selected_engine, model, spec, console)
 
-    _quick_privacy_check(console)
+    if not skip_scan:
+        _quick_privacy_check(console)
     console.print()
     console.print(
         Panel(

@@ -31,9 +31,7 @@ def _make_proc(
 
 class TestScanResultDataclass:
     def test_fields_exist(self) -> None:
-        r = ScanResult(
-            name="test", status="ok", message="all good", platform="all"
-        )
+        r = ScanResult(name="test", status="ok", message="all good", platform="all")
         assert r.name == "test"
         assert r.status == "ok"
         assert r.message == "all good"
@@ -246,15 +244,9 @@ class TestPlatformFiltering:
         other_plat = "linux" if current_plat == "darwin" else "darwin"
 
         with patch.object(scanner, "_get_all_checks") as mock_get:
-            darwin_ck = MagicMock(
-                return_value=ScanResult("d", "ok", "msg", "darwin")
-            )
-            linux_ck = MagicMock(
-                return_value=ScanResult("l", "ok", "msg", "linux")
-            )
-            all_ck = MagicMock(
-                return_value=ScanResult("a", "ok", "msg", "all")
-            )
+            darwin_ck = MagicMock(return_value=ScanResult("d", "ok", "msg", "darwin"))
+            linux_ck = MagicMock(return_value=ScanResult("l", "ok", "msg", "linux"))
+            all_ck = MagicMock(return_value=ScanResult("a", "ok", "msg", "all"))
 
             mock_get.return_value = [darwin_ck, linux_ck, all_ck]
             results = scanner.run_all()
@@ -275,23 +267,19 @@ class TestRemoteAccess:
     def test_no_remote_access(self) -> None:
         scanner = PrivacyScanner()
         with patch.object(scanner, "_run") as mock_run:
-            mock_run.return_value = CompletedProcess(
-                [], 1, stdout="", stderr=""
-            )
+            mock_run.return_value = CompletedProcess([], 1, stdout="", stderr="")
             result = scanner.check_remote_access()
         assert result.status == "ok"
 
     def test_xrdp_running(self) -> None:
         scanner = PrivacyScanner()
         with patch.object(scanner, "_run") as mock_run:
+
             def side_effect(cmd, **kw):
                 if any("xrdp" in str(c) for c in cmd):
-                    return CompletedProcess(
-                        cmd, 0, stdout="12345", stderr=""
-                    )
-                return CompletedProcess(
-                    cmd, 1, stdout="", stderr=""
-                )
+                    return CompletedProcess(cmd, 0, stdout="12345", stderr="")
+                return CompletedProcess(cmd, 1, stdout="", stderr="")
+
             mock_run.side_effect = side_effect
             result = scanner.check_remote_access()
         assert result.status == "warn"
@@ -348,3 +336,128 @@ class TestRunQuick:
         names = {r.name for r in results}
         assert "Network Exposure" not in names
         assert "Screen Recording" not in names
+
+
+# ---------------------------------------------------------------------------
+# TestDNS
+# ---------------------------------------------------------------------------
+
+
+class TestDNS:
+    """Tests for check_dns (macOS)."""
+
+    def test_encrypted_dns_detected(self) -> None:
+        scanner = PrivacyScanner()
+        scutil_out = (
+            "resolver #1\n  nameserver[0] : 127.0.0.1\n  flags    : dns-over-https\n"
+        )
+        with (
+            patch("sys.platform", "darwin"),
+            patch("subprocess.run", return_value=_make_proc(stdout=scutil_out)),
+        ):
+            result = scanner.check_dns()
+        assert result.status == "ok"
+        assert "Encrypted" in result.message or "DoH" in result.message
+
+    def test_plain_dns_detected(self) -> None:
+        scanner = PrivacyScanner()
+        scutil_out = (
+            "resolver #1\n  nameserver[0] : 8.8.8.8\n  nameserver[1] : 8.8.4.4\n"
+        )
+        with (
+            patch("sys.platform", "darwin"),
+            patch("subprocess.run", return_value=_make_proc(stdout=scutil_out)),
+        ):
+            result = scanner.check_dns()
+        assert result.status == "warn"
+        assert "8.8.8.8" in result.message
+
+    def test_private_dns(self) -> None:
+        scanner = PrivacyScanner()
+        scutil_out = "resolver #1\n  nameserver[0] : 192.168.1.1\n"
+        with (
+            patch("sys.platform", "darwin"),
+            patch("subprocess.run", return_value=_make_proc(stdout=scutil_out)),
+        ):
+            result = scanner.check_dns()
+        assert result.status == "ok"
+        assert "192.168.1.1" in result.message
+
+    def test_skip_on_linux(self) -> None:
+        scanner = PrivacyScanner()
+        with patch("sys.platform", "linux"):
+            result = scanner.check_dns()
+        assert result.status == "skip"
+
+    def test_scutil_not_available(self) -> None:
+        scanner = PrivacyScanner()
+        with (
+            patch("sys.platform", "darwin"),
+            patch("subprocess.run", side_effect=FileNotFoundError),
+        ):
+            result = scanner.check_dns()
+        assert result.status == "skip"
+
+
+# ---------------------------------------------------------------------------
+# TestExpandedRemoteAccess
+# ---------------------------------------------------------------------------
+
+
+class TestExpandedRemoteAccess:
+    """Verify expanded remote-access process list."""
+
+    def test_ngrok_detected(self) -> None:
+        scanner = PrivacyScanner()
+        with patch.object(scanner, "_run") as mock_run:
+
+            def side_effect(cmd, **kw):
+                if any("ngrok" in str(c) for c in cmd):
+                    return CompletedProcess(cmd, 0, stdout="99999", stderr="")
+                return CompletedProcess(cmd, 1, stdout="", stderr="")
+
+            mock_run.side_effect = side_effect
+            result = scanner.check_remote_access()
+        assert result.status == "warn"
+        assert "ngrok" in result.message
+
+    def test_tailscaled_detected(self) -> None:
+        scanner = PrivacyScanner()
+        with patch.object(scanner, "_run") as mock_run:
+
+            def side_effect(cmd, **kw):
+                if any("tailscaled" in str(c) for c in cmd):
+                    return CompletedProcess(cmd, 0, stdout="88888", stderr="")
+                return CompletedProcess(cmd, 1, stdout="", stderr="")
+
+            mock_run.side_effect = side_effect
+            result = scanner.check_remote_access()
+        assert result.status == "warn"
+
+
+# ---------------------------------------------------------------------------
+# TestJsonOutput
+# ---------------------------------------------------------------------------
+
+
+class TestJsonOutput:
+    """Test --json output flag."""
+
+    def test_json_output_structure(self) -> None:
+        from click.testing import CliRunner
+
+        from openjarvis.cli.scan_cmd import scan
+
+        runner = CliRunner()
+        with patch(
+            "openjarvis.cli.scan_cmd.PrivacyScanner.run_all",
+            return_value=[
+                ScanResult("Test", "ok", "all good", "all"),
+            ],
+        ):
+            result = runner.invoke(scan, ["--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert isinstance(data, list)
+        assert data[0]["name"] == "Test"
+        assert data[0]["status"] == "ok"

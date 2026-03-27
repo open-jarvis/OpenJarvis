@@ -32,12 +32,14 @@ def _to_messages(chat_messages) -> list[Message]:
     messages = []
     for m in chat_messages:
         role = Role(m.role) if m.role in {r.value for r in Role} else Role.USER
-        messages.append(Message(
-            role=role,
-            content=m.content or "",
-            name=m.name,
-            tool_call_id=m.tool_call_id,
-        ))
+        messages.append(
+            Message(
+                role=role,
+                content=m.content or "",
+                name=m.name,
+                tool_call_id=m.tool_call_id,
+            )
+        )
     return messages
 
 
@@ -75,7 +77,10 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
                     max_context_tokens=config.memory.context_max_tokens,
                 )
                 enriched = inject_context(
-                    query_text, messages, memory_backend, config=ctx_cfg,
+                    query_text,
+                    messages,
+                    memory_backend,
+                    config=ctx_cfg,
                 )
                 # Rebuild request messages from enriched Message objects
                 if len(enriched) > len(messages):
@@ -83,16 +88,19 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
 
                     new_msgs = []
                     for msg in enriched:
-                        new_msgs.append(ChatMessage(
-                            role=msg.role.value,
-                            content=msg.content,
-                            name=msg.name,
-                            tool_call_id=getattr(msg, "tool_call_id", None),
-                        ))
+                        new_msgs.append(
+                            ChatMessage(
+                                role=msg.role.value,
+                                content=msg.content,
+                                name=msg.name,
+                                tool_call_id=getattr(msg, "tool_call_id", None),
+                            )
+                        )
                     request_body.messages = new_msgs
         except Exception:
             logging.getLogger("openjarvis.server").debug(
-                "Memory context injection failed", exc_info=True,
+                "Memory context injection failed",
+                exc_info=True,
             )
 
     # Run complexity analysis on the last user message
@@ -111,7 +119,8 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
 
             cr = score_complexity(query_text_for_complexity)
             suggested = adjust_tokens_for_model(
-                cr.suggested_max_tokens, model,
+                cr.suggested_max_tokens,
+                model,
             )
             complexity_info = ComplexityInfo(
                 score=cr.score,
@@ -124,7 +133,8 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
                 request_body.max_tokens = suggested
         except Exception:
             logging.getLogger("openjarvis.server").debug(
-                "Complexity analysis failed", exc_info=True,
+                "Complexity analysis failed",
+                exc_info=True,
             )
 
     if request_body.stream:
@@ -143,13 +153,19 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
 
     bus = getattr(request.app.state, "bus", None)
     return _handle_direct(
-        engine, model, request_body,
-        bus=bus, complexity_info=complexity_info,
+        engine,
+        model,
+        request_body,
+        bus=bus,
+        complexity_info=complexity_info,
     )
 
 
 def _handle_direct(
-    engine, model: str, req: ChatCompletionRequest, bus=None,
+    engine,
+    model: str,
+    req: ChatCompletionRequest,
+    bus=None,
     complexity_info=None,
 ) -> ChatCompletionResponse:
     """Direct engine call without agent."""
@@ -161,8 +177,12 @@ def _handle_direct(
         from openjarvis.telemetry.wrapper import instrumented_generate
 
         result = instrumented_generate(
-            engine, messages, model=model, bus=bus,
-            temperature=req.temperature, max_tokens=req.max_tokens,
+            engine,
+            messages,
+            model=model,
+            bus=bus,
+            temperature=req.temperature,
+            max_tokens=req.max_tokens,
             **kwargs,
         )
     else:
@@ -194,10 +214,12 @@ def _handle_direct(
 
     return ChatCompletionResponse(
         model=model,
-        choices=[Choice(
-            message=choice_msg,
-            finish_reason=result.get("finish_reason", "stop"),
-        )],
+        choices=[
+            Choice(
+                message=choice_msg,
+                finish_reason=result.get("finish_reason", "stop"),
+            )
+        ],
         usage=UsageInfo(
             prompt_tokens=usage.get("prompt_tokens", 0),
             completion_tokens=usage.get("completion_tokens", 0),
@@ -208,7 +230,9 @@ def _handle_direct(
 
 
 def _handle_agent(
-    agent, model: str, req: ChatCompletionRequest,
+    agent,
+    model: str,
+    req: ChatCompletionRequest,
     complexity_info=None,
 ) -> ChatCompletionResponse:
     """Run through agent."""
@@ -241,10 +265,12 @@ def _handle_agent(
 
     return ChatCompletionResponse(
         model=model,
-        choices=[Choice(
-            message=ChoiceMessage(role="assistant", content=result.content),
-            finish_reason="stop",
-        )],
+        choices=[
+            Choice(
+                message=ChoiceMessage(role="assistant", content=result.content),
+                finish_reason="stop",
+            )
+        ],
         usage=usage,
         complexity=complexity_info,
     )
@@ -258,7 +284,9 @@ async def _handle_agent_stream(agent, bus, model, req):
 
 
 async def _handle_stream(
-    engine, model: str, req: ChatCompletionRequest,
+    engine,
+    model: str,
+    req: ChatCompletionRequest,
     complexity_info=None,
 ):
     """Stream response using SSE format."""
@@ -270,9 +298,11 @@ async def _handle_stream(
         first_chunk = ChatCompletionChunk(
             id=chunk_id,
             model=model,
-            choices=[StreamChoice(
-                delta=DeltaMessage(role="assistant"),
-            )],
+            choices=[
+                StreamChoice(
+                    delta=DeltaMessage(role="assistant"),
+                )
+            ],
         )
         yield f"data: {first_chunk.model_dump_json()}\n\n"
 
@@ -287,27 +317,34 @@ async def _handle_stream(
                 chunk = ChatCompletionChunk(
                     id=chunk_id,
                     model=model,
-                    choices=[StreamChoice(
-                        delta=DeltaMessage(content=token),
-                    )],
+                    choices=[
+                        StreamChoice(
+                            delta=DeltaMessage(content=token),
+                        )
+                    ],
                 )
                 yield f"data: {chunk.model_dump_json()}\n\n"
         except Exception as exc:
             # Surface errors as a content chunk so the frontend can
             # display them instead of silently failing.
             import logging
+
             logging.getLogger("openjarvis.server").error(
-                "Stream error: %s", exc, exc_info=True,
+                "Stream error: %s",
+                exc,
+                exc_info=True,
             )
             error_chunk = ChatCompletionChunk(
                 id=chunk_id,
                 model=model,
-                choices=[StreamChoice(
-                    delta=DeltaMessage(
-                        content=f"\n\nError during generation: {exc}",
-                    ),
-                    finish_reason="stop",
-                )],
+                choices=[
+                    StreamChoice(
+                        delta=DeltaMessage(
+                            content=f"\n\nError during generation: {exc}",
+                        ),
+                        finish_reason="stop",
+                    )
+                ],
             )
             yield f"data: {error_chunk.model_dump_json()}\n\n"
             yield "data: [DONE]\n\n"
@@ -315,13 +352,16 @@ async def _handle_stream(
 
         # Send finish chunk with usage data if available
         import json as _json
+
         finish_data = ChatCompletionChunk(
             id=chunk_id,
             model=model,
-            choices=[StreamChoice(
-                delta=DeltaMessage(),
-                finish_reason="stop",
-            )],
+            choices=[
+                StreamChoice(
+                    delta=DeltaMessage(),
+                    finish_reason="stop",
+                )
+            ],
         )
         finish_dict = _json.loads(finish_data.model_dump_json())
 
@@ -456,18 +496,22 @@ async def savings(request: Request):
         # Exclude cloud model tokens from savings — only local
         # inference counts toward cost savings.
         _cloud_prefixes = (
-            "gpt-", "o1-", "o3-", "o4-",
-            "claude-", "gemini-", "openrouter/",
+            "gpt-",
+            "o1-",
+            "o3-",
+            "o4-",
+            "claude-",
+            "gemini-",
+            "openrouter/",
         )
         local_models = [
-            m for m in summary.per_model
+            m
+            for m in summary.per_model
             if not any(m.model_id.startswith(p) for p in _cloud_prefixes)
         ]
         result = compute_savings(
             prompt_tokens=sum(m.prompt_tokens for m in local_models),
-            completion_tokens=sum(
-                m.completion_tokens for m in local_models
-            ),
+            completion_tokens=sum(m.completion_tokens for m in local_models),
             total_calls=sum(m.call_count for m in local_models),
             session_start=session_start if session_start else 0.0,
             prompt_tokens_evaluated=sum(
@@ -557,7 +601,8 @@ async def channel_send(request: Request):
 
     if not channel_name or not content:
         raise HTTPException(
-            status_code=400, detail="'channel' and 'content' are required",
+            status_code=400,
+            detail="'channel' and 'content' are required",
         )
 
     ok = bridge.send(channel_name, content, conversation_id=conversation_id)
@@ -573,6 +618,33 @@ async def channel_status(request: Request):
     if bridge is None:
         return {"status": "not_configured"}
     return {"status": bridge.status().value}
+
+
+# ---------------------------------------------------------------------------
+# Security scan endpoint
+# ---------------------------------------------------------------------------
+
+
+@router.get("/v1/security/scan")
+async def security_scan():
+    """Run a read-only security environment audit and return findings."""
+    from openjarvis.cli.scan_cmd import PrivacyScanner
+
+    scanner = PrivacyScanner()
+    results = scanner.run_all()
+    return {
+        "has_warnings": any(r.status == "warn" for r in results),
+        "has_failures": any(r.status == "fail" for r in results),
+        "findings": [
+            {
+                "name": r.name,
+                "status": r.status,
+                "message": r.message,
+                "platform": r.platform,
+            }
+            for r in results
+        ],
+    }
 
 
 __all__ = ["router"]
