@@ -1569,10 +1569,10 @@ export function AgentsPage() {
               const sectionTitle = { fontSize: 11, fontWeight: 600, color: 'var(--color-text-tertiary)', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 8 };
               return (
                 <div className="p-4 rounded-xl" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}>
-                  <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--color-text)' }}>Cloud Savings for Agent</h3>
                   <div className="flex gap-0 flex-wrap items-stretch">
-                    {/* Usage */}
+                    {/* Agent Statistics */}
                     <div className="pr-5">
+                      <p style={sectionTitle}>Agent Statistics</p>
                       <div className="flex gap-5">
                         <div>
                           <p className="text-xl font-bold leading-none" style={{ color: 'var(--color-text)' }}>{selectedAgent.total_runs ?? 0}</p>
