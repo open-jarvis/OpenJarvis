@@ -30,3 +30,4 @@ serde_json = { workspace = true }
 tokio = { workspace = true }
 once_cell = { workspace = true }
 parking_lot = { workspace = true }
+synapse-client = { workspace = true }

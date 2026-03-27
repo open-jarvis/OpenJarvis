@@ -1343,6 +1343,7 @@ dependencies = [
  "pyo3",
  "serde",
  "serde_json",
+ "synapse-client",
  "tokio",
 ]
 
@@ -1462,6 +1463,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "synapse-client",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
@@ -2449,6 +2451,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "synapse-client"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "684dc415e67a433632b2b8a350fb816b7efa297e04bbb4235ed965a29fc3bebf"
+dependencies = [
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
 ]
 
 [[package]]
