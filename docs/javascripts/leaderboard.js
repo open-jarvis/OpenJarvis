@@ -9,20 +9,27 @@
   var allRows = [];
   var currentPage = 0;
 
-  // No-KV-cache formula: FLOPs = params_b * 1e9 * N * (N+1)
-  // Reference values only (GPT-5.3 constants) — recompute functions below
-  // are defined but not called; the leaderboard displays database values directly.
-  var DEFAULT_PARAMS_B = 137;
-  var ENERGY_WH_PER_FLOP = 0.4 / (1000 * 3e12);
+  // Claude Opus 4.6 constants — recompute energy and FLOPs from
+  // total_tokens so submitted values cannot be gamed.
+  var CLAUDE_PARAMS_B = 137;
+  var CLAUDE_FLOPS_PER_TOKEN = 4.0e12;
+  var CLAUDE_WH_PER_FLOP = 0.5 / (1000 * CLAUDE_FLOPS_PER_TOKEN);
+  // Max possible $/token: all tokens are output at $25/1M
+  var MAX_DOLLAR_PER_TOKEN = 25.0 / 1e6;
 
-  function recomputeFlopsNoKvCache(totalTokens) {
+  function recomputeFlops(totalTokens) {
     var n = Number(totalTokens) || 0;
     if (n <= 0) return 0;
-    return DEFAULT_PARAMS_B * 1e9 * n * (n + 1);
+    return 2.0 * CLAUDE_PARAMS_B * 1e9 * n;
   }
 
-  function recomputeEnergyNoKvCache(flops) {
-    return flops * ENERGY_WH_PER_FLOP;
+  function recomputeEnergy(totalTokens) {
+    return recomputeFlops(totalTokens) * CLAUDE_WH_PER_FLOP;
+  }
+
+  function clampDollars(dollarSavings, totalTokens) {
+    var max = (Number(totalTokens) || 0) * MAX_DOLLAR_PER_TOKEN;
+    return Math.min(Number(dollarSavings) || 0, max);
   }
 
   function escapeHtml(s) {
@@ -58,15 +65,19 @@
       var medal =
         rank === 1 ? "\uD83E\uDD47" : rank === 2 ? "\uD83E\uDD48" : rank === 3 ? "\uD83E\uDD49" : "";
       var row = pageRows[j];
+      var tokens = Number(row.total_tokens || 0);
+      var dollars = clampDollars(row.dollar_savings, tokens);
+      var flops = recomputeFlops(tokens);
+      var energyWh = recomputeEnergy(tokens);
       html +=
         "<tr>" +
         '<td><span class="lb-rank' + rankClass + '">' + (medal || rank) + "</span></td>" +
         '<td class="lb-name">' + escapeHtml(row.display_name) + "</td>" +
-        '<td class="lb-number">$' + Number(row.dollar_savings || 0).toFixed(4) + "</td>" +
-        '<td class="lb-number">' + Number(row.energy_wh_saved || 0).toFixed(2) + "</td>" +
-        '<td class="lb-number">' + fmtLarge(Number(row.flops_saved || 0)) + "</td>" +
+        '<td class="lb-number">$' + dollars.toFixed(4) + "</td>" +
+        '<td class="lb-number">' + energyWh.toFixed(2) + "</td>" +
+        '<td class="lb-number">' + fmtLarge(flops) + "</td>" +
         '<td class="lb-number">' + Number(row.total_calls || 0).toLocaleString() + "</td>" +
-        '<td class="lb-number">' + Number(row.total_tokens || 0).toLocaleString() + "</td>" +
+        '<td class="lb-number">' + tokens.toLocaleString() + "</td>" +
         "</tr>";
     }
     tbody.innerHTML = html;
@@ -141,9 +152,10 @@
         var totalRequests = 0;
         var totalTokens = 0;
         for (var i = 0; i < rows.length; i++) {
-          totalDollars += Number(rows[i].dollar_savings || 0);
+          var t = Number(rows[i].total_tokens || 0);
+          totalDollars += clampDollars(rows[i].dollar_savings, t);
           totalRequests += Number(rows[i].total_calls || 0);
-          totalTokens += Number(rows[i].total_tokens || 0);
+          totalTokens += t;
         }
 
         var elMembers = document.getElementById("stat-members");
