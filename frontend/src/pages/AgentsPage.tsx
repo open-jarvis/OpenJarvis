@@ -480,14 +480,46 @@ function LaunchWizard({
                 <option value="interval">Interval</option>
                 <option value="cron">Cron</option>
               </select>
-              {wizard.scheduleType !== 'manual' && (
+              {wizard.scheduleType === 'cron' && (
                 <input
                   value={wizard.scheduleValue}
                   onChange={(e) => setWizard((w) => ({ ...w, scheduleValue: e.target.value }))}
-                  placeholder={wizard.scheduleType === 'cron' ? '0 9 * * *' : 'Seconds (e.g. 3600)'}
+                  placeholder="0 9 * * *"
                   className="w-full px-3 py-1.5 rounded-lg text-xs bg-transparent mt-1.5"
                   style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
                 />
+              )}
+              {wizard.scheduleType === 'interval' && (
+                <div className="flex gap-2 mt-1.5">
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number" min="0" max="24"
+                      value={Math.floor(parseInt(wizard.scheduleValue || '0', 10) / 3600)}
+                      onChange={(e) => {
+                        const hrs = Math.min(24, Math.max(0, parseInt(e.target.value, 10) || 0));
+                        const mins = Math.floor((parseInt(wizard.scheduleValue || '0', 10) % 3600) / 60);
+                        setWizard((w) => ({ ...w, scheduleValue: String(hrs * 3600 + mins * 60) }));
+                      }}
+                      className="w-14 px-2 py-1 rounded text-xs text-center"
+                      style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                    />
+                    <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>hrs</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number" min="0" max="59"
+                      value={Math.floor((parseInt(wizard.scheduleValue || '0', 10) % 3600) / 60)}
+                      onChange={(e) => {
+                        const hrs = Math.floor(parseInt(wizard.scheduleValue || '0', 10) / 3600);
+                        const mins = Math.min(59, Math.max(0, parseInt(e.target.value, 10) || 0));
+                        setWizard((w) => ({ ...w, scheduleValue: String(hrs * 3600 + mins * 60) }));
+                      }}
+                      className="w-14 px-2 py-1 rounded text-xs text-center"
+                      style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                    />
+                    <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>min</span>
+                  </div>
+                </div>
               )}
             </div>
           </div>
@@ -1519,26 +1551,58 @@ export function AgentsPage() {
               ))}
             </div>
 
-            {/* Savings summary */}
-            {savings && savings.per_provider && savings.per_provider.length > 0 && (
-              <div
-                className="p-3 rounded-lg"
-                style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
-              >
-                <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--color-text)' }}>
-                  Cloud Savings (this session)
-                </h3>
-                <div className="grid grid-cols-3 gap-2 text-xs">
-                  {savings.per_provider.map((p) => (
-                    <div key={p.provider} className="flex flex-col">
-                      <span style={{ color: 'var(--color-text-tertiary)' }}>{p.label}</span>
-                      <span className="font-semibold" style={{ color: '#22c55e' }}>${p.total_cost.toFixed(2)} saved</span>
-                      <span style={{ color: 'var(--color-text-tertiary)' }}>{(p.energy_wh / 1000).toFixed(2)} kWh</span>
+            {/* Per-agent savings estimate */}
+            {(() => {
+              const inTok = selectedAgent.input_tokens ?? 0;
+              const outTok = selectedAgent.output_tokens ?? 0;
+              if (inTok + outTok === 0) return null;
+              // Estimate FLOPs: 2 * params * tokens (assume 9B model as reference)
+              const modelName = (selectedAgent.config?.model as string) || '';
+              const paramMatch = modelName.match(/:(\d+(?:\.\d+)?)b/i);
+              const paramsB = paramMatch ? parseFloat(paramMatch[1]) : 9;
+              const flops = 2 * paramsB * 1e9 * (inTok + outTok);
+              // Cloud pricing per 1M tokens (input/output)
+              const providers = [
+                { label: 'GPT-5.3', inPer1M: 2.0, outPer1M: 10.0 },
+                { label: 'Claude Opus 4.6', inPer1M: 5.0, outPer1M: 25.0 },
+                { label: 'Gemini 3.1 Pro', inPer1M: 2.0, outPer1M: 12.0 },
+              ];
+              // Energy: ~0.4 Wh per 1k tokens (cloud average)
+              const energyWh = (inTok + outTok) / 1000 * 0.4;
+              const energyKj = energyWh * 3.6;
+              const fmtFlops = flops >= 1e15 ? `${(flops / 1e15).toFixed(1)} PFLOPs` : `${(flops / 1e12).toFixed(1)} TFLOPs`;
+              return (
+                <div
+                  className="p-3 rounded-lg"
+                  style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
+                >
+                  <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--color-text)' }}>
+                    Cloud Savings for Agent
+                  </h3>
+                  <div className="flex gap-4 text-xs mb-2">
+                    <div>
+                      <span style={{ color: 'var(--color-text-tertiary)' }}>FLOPs: </span>
+                      <span className="font-medium" style={{ color: 'var(--color-text)' }}>{fmtFlops}</span>
                     </div>
-                  ))}
+                    <div>
+                      <span style={{ color: 'var(--color-text-tertiary)' }}>Energy: </span>
+                      <span className="font-medium" style={{ color: 'var(--color-text)' }}>{energyKj.toFixed(2)} kJ</span>
+                    </div>
+                  </div>
+                  <div className="flex gap-3 text-xs">
+                    {providers.map((p) => {
+                      const cost = (inTok / 1e6) * p.inPer1M + (outTok / 1e6) * p.outPer1M;
+                      return (
+                        <div key={p.label}>
+                          <span style={{ color: 'var(--color-text-tertiary)' }}>{p.label}: </span>
+                          <span className="font-semibold" style={{ color: '#22c55e' }}>${cost.toFixed(4)} saved</span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Instruction — separate section */}
             <AgentInstructionSection agent={selectedAgent} onAgentUpdated={refresh} />
