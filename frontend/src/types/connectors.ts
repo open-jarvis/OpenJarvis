@@ -210,11 +210,12 @@ export const SOURCE_CATALOG: ConnectorMeta[] = [
         urlLabel: 'Open Credentials',
       },
       {
-        label: 'Copy the Client ID and Client Secret, then paste them below',
+        label: 'Copy the Client ID and Client Secret from your OAuth client, then paste each one below',
       },
     ],
     inputFields: [
-      { name: 'token', placeholder: 'Client ID:Client Secret', type: 'password' },
+      { name: 'email', placeholder: 'Client ID (e.g. 123456-abc.apps.googleusercontent.com)', type: 'text' },
+      { name: 'password', placeholder: 'Client Secret', type: 'password' },
     ],
   },
   {
@@ -243,11 +244,12 @@ export const SOURCE_CATALOG: ConnectorMeta[] = [
         urlLabel: 'Open Credentials',
       },
       {
-        label: 'Copy the Client ID and Client Secret, then paste them below',
+        label: 'Copy the Client ID and Client Secret from your OAuth client, then paste each one below',
       },
     ],
     inputFields: [
-      { name: 'token', placeholder: 'Client ID:Client Secret', type: 'password' },
+      { name: 'email', placeholder: 'Client ID (e.g. 123456-abc.apps.googleusercontent.com)', type: 'text' },
+      { name: 'password', placeholder: 'Client Secret', type: 'password' },
     ],
   },
   {
@@ -276,11 +278,12 @@ export const SOURCE_CATALOG: ConnectorMeta[] = [
         urlLabel: 'Open Credentials',
       },
       {
-        label: 'Copy the Client ID and Client Secret, then paste them below',
+        label: 'Copy the Client ID and Client Secret from your OAuth client, then paste each one below',
       },
     ],
     inputFields: [
-      { name: 'token', placeholder: 'Client ID:Client Secret', type: 'password' },
+      { name: 'email', placeholder: 'Client ID (e.g. 123456-abc.apps.googleusercontent.com)', type: 'text' },
+      { name: 'password', placeholder: 'Client Secret', type: 'password' },
     ],
   },
   {
@@ -329,7 +332,8 @@ export const SOURCE_CATALOG: ConnectorMeta[] = [
       },
     ],
     inputFields: [
-      { name: 'token', placeholder: 'Client ID:Client Secret', type: 'password' },
+      { name: 'email', placeholder: 'Client ID (e.g. 123456-abc.apps.googleusercontent.com)', type: 'text' },
+      { name: 'password', placeholder: 'Client Secret', type: 'password' },
     ],
   },
   {
