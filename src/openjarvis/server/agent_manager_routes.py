@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re as _re
 from typing import Any, Dict, List, Optional, Tuple
 
 from openjarvis.agents.manager import AgentManager
@@ -59,9 +60,89 @@ class FeedbackRequest(BaseModel):
 
 
 _BROWSER_SUB_TOOLS = {
-    "browser_navigate", "browser_click", "browser_type",
-    "browser_screenshot", "browser_extract", "browser_axtree",
+    "browser_navigate",
+    "browser_click",
+    "browser_type",
+    "browser_screenshot",
+    "browser_extract",
+    "browser_axtree",
 }
+
+
+class _LightweightSystem:
+    """Minimal system facade for the executor — avoids rebuilding the
+    full JarvisSystem (which picks a random model from Ollama)."""
+
+    def __init__(self, engine: Any, model: str, config: Any = None):
+        self.engine = engine
+        self.model = model
+        self.config = config
+        self.memory_backend = None
+
+
+def _make_lightweight_system(
+    engine: Any,
+    model: str,
+    config: Any = None,
+) -> _LightweightSystem:
+    """Build a minimal system with a plain OllamaEngine.
+
+    The server's ``app.state.engine`` is heavily wrapped
+    (MultiEngine -> InstrumentedEngine -> GuardrailsEngine) and can
+    return empty content from background threads.  Create a fresh
+    OllamaEngine directly (no health checks or model discovery that
+    could interfere with in-flight Ollama requests).
+    """
+    try:
+        from openjarvis.engine.ollama import OllamaEngine
+
+        cfg = config
+        if cfg is None:
+            from openjarvis.core.config import load_config
+
+            cfg = load_config()
+        host = cfg.engine.ollama.host if cfg else ""
+        plain_engine = OllamaEngine(host=host) if host else OllamaEngine()
+        return _LightweightSystem(plain_engine, model, cfg)
+    except Exception:
+        pass
+    return _LightweightSystem(engine, model, config)
+
+
+def _parse_param_count(model_name: str) -> float:
+    """Extract parameter count in billions from model name.
+
+    Examples: 'qwen3.5:9b' -> 9.0, 'qwen3.5:0.8b' -> 0.8
+    """
+    m = _re.search(r":(\d+(?:\.\d+)?)b", model_name.lower())
+    return float(m.group(1)) if m else 0.0
+
+
+_CLOUD_PREFIXES = ("gpt-", "claude-", "gemini-", "o1-", "o3-", "o4-")
+
+
+def _pick_recommended_model(
+    model_ids: list[str],
+) -> dict[str, str]:
+    """Pick the second-largest local model from a list."""
+    local = [
+        m for m in model_ids
+        if not any(m.startswith(p) for p in _CLOUD_PREFIXES)
+    ]
+    if not local:
+        return {
+            "model": model_ids[0] if model_ids else "",
+            "reason": "Only model available",
+        }
+    sized = sorted(local, key=_parse_param_count, reverse=True)
+    if len(sized) == 1:
+        return {"model": sized[0], "reason": "Only local model available"}
+    pick = sized[1]  # second-largest
+    params = _parse_param_count(pick)
+    return {
+        "model": pick,
+        "reason": f"Second-largest local model ({params}B parameters)",
+    }
 
 
 def _ensure_registries_populated() -> None:
@@ -97,9 +178,8 @@ def _ensure_registries_populated() -> None:
     # If registries are still empty, reload individual submodules from sys.modules
     if not ChannelRegistry.keys():
         for mod_name in list(sys.modules):
-            if (
-                mod_name.startswith("openjarvis.channels.")
-                and not mod_name.endswith("_stubs")
+            if mod_name.startswith("openjarvis.channels.") and not mod_name.endswith(
+                "_stubs"
             ):
                 try:
                     importlib.reload(sys.modules[mod_name])
@@ -154,53 +234,63 @@ def build_tools_list() -> List[Dict[str, Any]]:
                 except Exception:
                     spec = None
             cred_keys = TOOL_CREDENTIALS.get(name, [])
-            items.append({
-                "name": name,
-                "description": spec.description if spec else "",
-                "category": spec.category if spec else "",
-                "source": "tool",
-                "requires_credentials": len(cred_keys) > 0,
-                "credential_keys": cred_keys,
-                "configured": (
-                    all(bool(os.environ.get(k)) for k in cred_keys)
-                    if cred_keys else True
-                ),
-            })
+            items.append(
+                {
+                    "name": name,
+                    "description": spec.description if spec else "",
+                    "category": spec.category if spec else "",
+                    "source": "tool",
+                    "requires_credentials": len(cred_keys) > 0,
+                    "credential_keys": cred_keys,
+                    "configured": (
+                        all(bool(os.environ.get(k)) for k in cred_keys)
+                        if cred_keys
+                        else True
+                    ),
+                }
+            )
     except Exception:
         pass
 
     try:
         if any(ToolRegistry.contains(n) for n in _BROWSER_SUB_TOOLS):
-            items.append({
-                "name": "browser",
-                "description": (
-                    "Web browser automation"
-                    " (navigate, click, type, screenshot, extract)"
-                ),
-                "category": "browser",
-                "source": "tool",
-                "requires_credentials": False,
-                "credential_keys": [],
-                "configured": True,
-            })
+            items.append(
+                {
+                    "name": "browser",
+                    "description": (
+                        "Web browser automation"
+                        " (navigate, click, type, screenshot, extract)"
+                    ),
+                    "category": "browser",
+                    "source": "tool",
+                    "requires_credentials": False,
+                    "credential_keys": [],
+                    "configured": True,
+                }
+            )
     except Exception:
         pass
 
     try:
         for name, _cls in ChannelRegistry.items():
             cred_keys = TOOL_CREDENTIALS.get(name, [])
-            items.append({
-                "name": name,
-                "description": f"{name.replace('_', ' ').title()} messaging channel",
-                "category": "communication",
-                "source": "channel",
-                "requires_credentials": len(cred_keys) > 0,
-                "credential_keys": cred_keys,
-                "configured": (
-                    all(bool(os.environ.get(k)) for k in cred_keys)
-                    if cred_keys else True
-                ),
-            })
+            items.append(
+                {
+                    "name": name,
+                    "description": (
+                        f"{name.replace('_', ' ').title()} messaging channel"
+                    ),
+                    "category": "communication",
+                    "source": "channel",
+                    "requires_credentials": len(cred_keys) > 0,
+                    "credential_keys": cred_keys,
+                    "configured": (
+                        all(bool(os.environ.get(k)) for k in cred_keys)
+                        if cred_keys
+                        else True
+                    ),
+                }
+            )
     except Exception:
         pass
 
@@ -242,6 +332,142 @@ def _build_deep_research_tools(
     ]
 
 
+def _merge_tool_call_fragments(
+    accumulated: Dict[int, Dict[str, Any]],
+    fragments: List[Dict[str, Any]],
+) -> None:
+    """Merge incremental tool_call delta fragments into accumulated state.
+
+    OpenAI-compatible APIs send tool_calls as incremental fragments keyed
+    by ``index``. Each fragment may contain partial ``function.name`` and/or
+    ``function.arguments`` strings that must be concatenated.
+    """
+    for frag in fragments:
+        idx = frag.get("index", 0)
+        if idx not in accumulated:
+            accumulated[idx] = {
+                "id": frag.get("id", ""),
+                "type": "function",
+                "function": {"name": "", "arguments": ""},
+            }
+        entry = accumulated[idx]
+        if frag.get("id"):
+            entry["id"] = frag["id"]
+        fn = frag.get("function", {})
+        if fn.get("name"):
+            entry["function"]["name"] += fn["name"]
+        if fn.get("arguments"):
+            entry["function"]["arguments"] += fn["arguments"]
+
+
+def _get_mcp_tools(app_state: Any) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """Return (openai_tools_list, mcp_adapters_by_name).
+
+    Lazily discovers MCP tools from config and caches them on ``app_state``
+    so that subsequent requests reuse the same connections.
+    """
+    cached = getattr(app_state, "_mcp_tools_cache", None)
+    if cached is not None:
+        return cached
+
+    import json as _json
+
+    from openjarvis.core.config import load_config
+
+    openai_tools: List[Dict[str, Any]] = []
+    adapters_by_name: Dict[str, Any] = {}
+
+    try:
+        app_config = load_config()
+    except Exception as exc:
+        logger.warning("Failed to load config for MCP discovery: %s", exc)
+        return openai_tools, adapters_by_name
+
+    if not app_config.tools.mcp.enabled or not app_config.tools.mcp.servers:
+        return openai_tools, adapters_by_name
+
+    from openjarvis.mcp.client import MCPClient
+    from openjarvis.mcp.transport import StdioTransport, StreamableHTTPTransport
+    from openjarvis.tools.mcp_adapter import MCPToolProvider
+
+    # Keep clients alive so transports persist for tool calls at runtime
+    mcp_clients: list = getattr(app_state, "_mcp_clients", [])
+
+    try:
+        server_list = _json.loads(app_config.tools.mcp.servers)
+    except (_json.JSONDecodeError, TypeError) as exc:
+        logger.warning("Failed to parse MCP server config: %s", exc)
+        return openai_tools, adapters_by_name
+
+    if not isinstance(server_list, list):
+        return openai_tools, adapters_by_name
+
+    for server_cfg in server_list:
+        cfg = _json.loads(server_cfg) if isinstance(server_cfg, str) else server_cfg
+        name = cfg.get("name", "<unnamed>")
+        url = cfg.get("url")
+        command = cfg.get("command", "")
+        args = cfg.get("args", [])
+
+        try:
+            if url:
+                transport = StreamableHTTPTransport(url=url)
+            elif command:
+                transport = StdioTransport(command=[command] + args)
+            else:
+                logger.warning(
+                    "MCP server '%s' has neither 'url' nor 'command' — skipping",
+                    name,
+                )
+                continue
+
+            client = MCPClient(transport)
+            client.initialize()
+            mcp_clients.append(client)
+
+            provider = MCPToolProvider(client)
+            discovered = provider.discover()
+
+            # Per-server tool filtering
+            include_tools = set(cfg.get("include_tools", []))
+            exclude_tools = set(cfg.get("exclude_tools", []))
+            if include_tools:
+                discovered = [t for t in discovered if t.spec.name in include_tools]
+            if exclude_tools:
+                discovered = [t for t in discovered if t.spec.name not in exclude_tools]
+
+            for adapter in discovered:
+                spec = adapter.spec
+                openai_tools.append(
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": spec.name,
+                            "description": spec.description,
+                            "parameters": spec.parameters,
+                        },
+                    }
+                )
+                adapters_by_name[spec.name] = adapter
+
+            logger.info(
+                "Discovered %d MCP tools from server '%s'",
+                len(discovered),
+                name,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to discover MCP tools from '%s': %s",
+                name,
+                exc,
+            )
+
+    app_state._mcp_clients = mcp_clients
+    if openai_tools:
+        app_state._mcp_tools_cache = (openai_tools, adapters_by_name)
+    return openai_tools, adapters_by_name
+
+
 async def _stream_managed_agent(
     *,
     manager: AgentManager,
@@ -250,36 +476,31 @@ async def _stream_managed_agent(
     message_id: str,
     engine: Any,
     bus: Any,
+    app_state: Any = None,
 ) -> StreamingResponse:
-    """Run a managed agent and stream the response as SSE.
+    """Run a managed agent with real LLM token streaming via SSE.
 
-    Instantiates the agent from its stored config, builds conversation
-    context from message history, executes the agent in a background
-    thread, and yields SSE-formatted chunks. After completion the
-    full response is persisted via ``manager.store_agent_response()``.
+    Uses ``engine.stream_full()`` to yield tokens as they arrive from the
+    LLM. Supports multi-turn tool-calling: when the model emits tool_calls,
+    they are executed and the results fed back for the next turn.
     """
-    import asyncio
     import json
     import uuid
 
-    from openjarvis.agents._stubs import AgentContext
-    from openjarvis.core.registry import AgentRegistry
     from openjarvis.core.types import Message, Role
 
     agent_id = agent_record["id"]
     config = agent_record.get("config", {})
-    agent_type = agent_record.get("agent_type", "orchestrator")
     model = config.get("model", getattr(engine, "_model", ""))
+    system_prompt = config.get("system_prompt")
+    temperature = config.get("temperature", 0.7)
+    max_tokens = config.get("max_tokens", 1024)
+    max_turns = config.get("max_turns", 10)
 
-    # Resolve the agent class from registry
-    agent_cls = AgentRegistry.get(agent_type)
-    if agent_cls is None:
-        # Fallback to orchestrator if the type is not registered
-        agent_cls = AgentRegistry.get("orchestrator")
-    if agent_cls is None:
-        raise HTTPException(
-            status_code=500, detail=f"Agent type '{agent_type}' not found in registry",
-        )
+    # Build conversation messages from history + current input
+    llm_messages: List[Message] = []
+    if system_prompt:
+        llm_messages.append(Message(role=Role.SYSTEM, content=system_prompt))
 
     # Build agent constructor kwargs from config
     agent_kwargs: Dict[str, Any] = {
@@ -317,85 +538,234 @@ async def _stream_managed_agent(
     messages = manager.list_messages(agent_id, limit=50)
     # Messages come in DESC order, reverse for chronological
     for m in reversed(messages):
-        # Skip the message we just stored (it will be the input)
         if m["id"] == message_id:
             continue
         if m["direction"] == "user_to_agent":
-            ctx.conversation.add(Message(role=Role.USER, content=m["content"]))
+            llm_messages.append(Message(role=Role.USER, content=m["content"]))
         elif m["direction"] == "agent_to_user":
-            ctx.conversation.add(Message(role=Role.ASSISTANT, content=m["content"]))
+            llm_messages.append(Message(role=Role.ASSISTANT, content=m["content"]))
+
+    # Append the current user message
+    llm_messages.append(Message(role=Role.USER, content=user_content))
 
     # Mark the user message as delivered
     manager.mark_message_delivered(message_id)
 
     chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
 
-    async def generate():
-        """Async generator yielding SSE-formatted chunks."""
-        collected_content = ""
+    # Build extra kwargs for stream_full (e.g. tools from config)
+    stream_kwargs: Dict[str, Any] = {}
+    if config.get("tools"):
+        stream_kwargs["tools"] = config["tools"]
 
-        # Run agent.run() in a background thread
+    # Discover MCP tools and merge into stream_kwargs
+    mcp_adapters: Dict[str, Any] = {}
+    if app_state is not None:
         try:
-            result = await asyncio.to_thread(agent.run, user_content, context=ctx)
+            mcp_openai_tools, mcp_adapters = _get_mcp_tools(app_state)
+            if mcp_openai_tools:
+                existing_tools = stream_kwargs.get("tools", [])
+                stream_kwargs["tools"] = existing_tools + mcp_openai_tools
+                logger.info(
+                    "Added %d MCP tools to streaming request",
+                    len(mcp_openai_tools),
+                )
         except Exception as exc:
-            logger.error("Managed agent stream error: %s", exc, exc_info=True)
-            error_data = {
-                "id": chunk_id,
-                "object": "chat.completion.chunk",
-                "model": model,
-                "choices": [{
-                    "index": 0,
-                    "delta": {"content": f"Error: {exc}"},
-                    "finish_reason": "stop",
-                }],
-            }
-            yield f"data: {json.dumps(error_data)}\n\n"
-            yield "data: [DONE]\n\n"
-            return
+            logger.warning(
+                "Failed to get MCP tools for streaming: %s", exc, exc_info=True
+            )
 
-        content = result.content or ""
-        collected_content = content
+    async def generate():
+        """Async generator yielding SSE-formatted chunks with real token streaming."""
 
-        # Emit tool results metadata if any
-        if result.tool_results:
-            tool_data = []
-            for tr in result.tool_results:
-                tool_data.append({
-                    "tool_name": tr.tool_name,
-                    "success": tr.success,
-                    "output": tr.content,
-                    "latency_ms": tr.latency_seconds * 1000,
-                })
-            yield f"event: tool_results\ndata: {json.dumps({'results': tool_data})}\n\n"
+        collected_content = ""
+        messages_for_llm = list(llm_messages)
+        turns = 0
 
-        # Stream content word-by-word for real-time feel
-        if content:
-            words = content.split(" ")
-            for i, word in enumerate(words):
-                token = word if i == 0 else " " + word
-                chunk_data = {
+        while turns < max_turns:
+            turns += 1
+            turn_content = ""
+            tool_call_fragments: Dict[int, Dict[str, Any]] = {}
+            current_finish_reason = None
+
+            try:
+                async for chunk in engine.stream_full(
+                    messages_for_llm,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    **stream_kwargs,
+                ):
+                    # Stream content tokens immediately to the client
+                    if chunk.content:
+                        turn_content += chunk.content
+                        chunk_data = {
+                            "id": chunk_id,
+                            "object": "chat.completion.chunk",
+                            "model": model,
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {"content": chunk.content},
+                                    "finish_reason": None,
+                                }
+                            ],
+                        }
+                        yield f"data: {json.dumps(chunk_data)}\n\n"
+
+                    # Accumulate tool_call fragments
+                    if chunk.tool_calls:
+                        _merge_tool_call_fragments(
+                            tool_call_fragments,
+                            chunk.tool_calls,
+                        )
+
+                    if chunk.finish_reason:
+                        current_finish_reason = chunk.finish_reason
+
+            except Exception as exc:
+                logger.error("Managed agent stream error: %s", exc, exc_info=True)
+                error_data = {
                     "id": chunk_id,
                     "object": "chat.completion.chunk",
                     "model": model,
-                    "choices": [{
-                        "index": 0,
-                        "delta": {"content": token},
-                        "finish_reason": None,
-                    }],
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": f"Error: {exc}"},
+                            "finish_reason": "stop",
+                        }
+                    ],
                 }
-                yield f"data: {json.dumps(chunk_data)}\n\n"
-                await asyncio.sleep(0.012)
+                yield f"data: {json.dumps(error_data)}\n\n"
+                yield "data: [DONE]\n\n"
+                return
+
+            # Handle tool calls: execute tools and loop for next turn
+            if tool_call_fragments and current_finish_reason == "tool_calls":
+                # Build the assistant message with tool_calls
+                sorted_tcs = [
+                    tool_call_fragments[i] for i in sorted(tool_call_fragments.keys())
+                ]
+
+                # Emit tool_calls metadata as SSE event
+                tool_meta = []
+                for tc in sorted_tcs:
+                    tool_meta.append(
+                        {
+                            "tool_name": tc["function"]["name"],
+                            "arguments": tc["function"]["arguments"],
+                        }
+                    )
+                yield (
+                    f"event: tool_calls\ndata: {json.dumps({'calls': tool_meta})}\n\n"
+                )
+
+                # Add assistant message with tool_calls to conversation
+                from openjarvis.core.types import ToolCall as MsgToolCall
+
+                assistant_msg = Message(
+                    role=Role.ASSISTANT,
+                    content=turn_content or None,
+                    tool_calls=[
+                        MsgToolCall(
+                            id=tc["id"],
+                            name=tc["function"]["name"],
+                            arguments=tc["function"]["arguments"],
+                        )
+                        for tc in sorted_tcs
+                    ],
+                )
+                messages_for_llm.append(assistant_msg)
+
+                # Execute each tool call and append results
+                for tc in sorted_tcs:
+                    tool_name = tc["function"]["name"]
+                    tool_args = tc["function"]["arguments"]
+                    tool_result_content = f"Tool '{tool_name}' not available"
+
+                    try:
+                        # Try MCP adapter first (external tools)
+                        mcp_adapter = mcp_adapters.get(tool_name)
+                        if mcp_adapter is not None:
+                            try:
+                                parsed_args = json.loads(tool_args) if tool_args else {}
+                            except (json.JSONDecodeError, TypeError):
+                                parsed_args = {}
+                            result = mcp_adapter.execute(**parsed_args)
+                            tool_result_content = result.content
+                        else:
+                            # Try to use ToolExecutor if tools are configured
+                            from openjarvis.core.registry import ToolRegistry
+                            from openjarvis.tools._stubs import (
+                                ToolCall as StubToolCall,
+                            )
+                            from openjarvis.tools._stubs import (
+                                ToolExecutor,
+                            )
+
+                            tool_cls = ToolRegistry.get(tool_name)
+                            if tool_cls is not None:
+                                tool_instance = tool_cls()
+                                executor = ToolExecutor(tools=[tool_instance], bus=bus)
+                                result = executor.execute(
+                                    StubToolCall(
+                                        id=tc["id"],
+                                        name=tool_name,
+                                        arguments=tool_args,
+                                    ),
+                                )
+                                tool_result_content = result.content
+                            else:
+                                logger.warning(
+                                    "Tool '%s' not found in registry or MCP adapters",
+                                    tool_name,
+                                )
+                    except Exception as tool_exc:
+                        logger.error(
+                            "Tool execution error for %s: %s",
+                            tool_name,
+                            tool_exc,
+                            exc_info=True,
+                        )
+                        tool_result_content = f"Error executing {tool_name}: {tool_exc}"
+
+                    # Emit tool result as SSE event
+                    tool_event_data = json.dumps(
+                        {"tool_name": tool_name, "output": tool_result_content}
+                    )
+                    yield (f"event: tool_result\ndata: {tool_event_data}\n\n")
+
+                    # Add tool result message to conversation
+                    messages_for_llm.append(
+                        Message(
+                            role=Role.TOOL,
+                            content=tool_result_content,
+                            tool_call_id=tc["id"],
+                            name=tool_name,
+                        )
+                    )
+
+                # Continue to next turn (loop back to stream_full)
+                collected_content += turn_content
+                continue
+
+            # No tool calls — this is the final response
+            collected_content += turn_content
+            break
 
         # Final chunk with finish_reason
         final_data = {
             "id": chunk_id,
             "object": "chat.completion.chunk",
             "model": model,
-            "choices": [{
-                "index": 0,
-                "delta": {},
-                "finish_reason": "stop",
-            }],
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {},
+                    "finish_reason": "stop",
+                }
+            ],
         }
         yield f"data: {json.dumps(final_data)}\n\n"
         yield "data: [DONE]\n\n"
@@ -406,7 +776,9 @@ async def _stream_managed_agent(
                 manager.store_agent_response(agent_id, collected_content)
             except Exception as store_exc:
                 logger.error(
-                    "Failed to store agent response: %s", store_exc, exc_info=True,
+                    "Failed to store agent response: %s",
+                    store_exc,
+                    exc_info=True,
                 )
 
     return StreamingResponse(
@@ -493,7 +865,7 @@ def create_agent_manager_router(
         return {"status": "idle"}
 
     @agents_router.post("/{agent_id}/run")
-    async def run_agent(agent_id: str):
+    async def run_agent(agent_id: str, request: Request):
         import threading
 
         agent = manager.get_agent(agent_id)
@@ -501,30 +873,46 @@ def create_agent_manager_router(
             raise HTTPException(status_code=404, detail="Agent not found")
         if agent["status"] == "archived":
             raise HTTPException(status_code=400, detail="Agent is archived")
-        if agent["status"] == "running":
+
+        # Auto-recover from error/needs_attention state
+        if agent["status"] in ("error", "needs_attention"):
+            manager.update_agent(agent_id, status="idle")
+
+        # Acquire tick BEFORE spawning thread — prevents race
+        try:
+            manager.start_tick(agent_id)
+        except ValueError:
             raise HTTPException(status_code=409, detail="Agent is already running")
+
+        # Re-use the server's engine + model so we don't pick a
+        # random model from Ollama's list.
+        server_engine = getattr(request.app.state, "engine", None)
+        server_model = getattr(request.app.state, "model", "")
+        server_config = getattr(request.app.state, "config", None)
 
         def _run_tick():
             try:
                 from openjarvis.agents.executor import AgentExecutor
                 from openjarvis.core.events import get_event_bus
-                from openjarvis.system import SystemBuilder
 
                 executor = AgentExecutor(
-                    manager=manager, event_bus=get_event_bus(),
+                    manager=manager,
+                    event_bus=get_event_bus(),
                 )
-                try:
-                    system = SystemBuilder().build()
-                    executor.set_system(system)
-                except Exception as build_err:
-                    manager.update_agent(agent_id, status="error")
-                    manager.update_summary_memory(
-                        agent_id,
-                        f"ERROR: Failed to build system: {build_err}",
-                    )
-                    return
+                system = _make_lightweight_system(
+                    server_engine,
+                    server_model,
+                    server_config,
+                )
+                executor.set_system(system)
                 executor.execute_tick(agent_id)
             except Exception as exc:
+                logger.error(
+                    "Run-tick failed for agent %s: %s",
+                    agent_id,
+                    exc,
+                    exc_info=True,
+                )
                 try:
                     manager.end_tick(agent_id)
                 except Exception:
@@ -618,10 +1006,84 @@ def create_agent_manager_router(
         if not agent_record:
             raise HTTPException(status_code=404, detail="Agent not found")
 
+        # Auto-recover error-state agents on immediate messages
+        if req.mode == "immediate" and agent_record["status"] in (
+            "error",
+            "needs_attention",
+        ):
+            manager.update_agent(agent_id, status="idle")
+
         # Store user message in DB (always, regardless of stream mode)
         msg = manager.send_message(agent_id, req.content, mode=req.mode)
 
-        if not req.stream:
+        if not req.stream and req.mode != "immediate":
+            return msg
+
+        if not req.stream and req.mode == "immediate":
+            # Non-streaming immediate: trigger a background tick so the
+            # agent processes the message, then return the stored msg.
+            # Re-use the server's existing system (correct model/engine).
+            import threading
+            import time as _time
+
+            from openjarvis.agents.executor import AgentExecutor
+            from openjarvis.core.events import get_event_bus
+
+            _srv_engine = getattr(request.app.state, "engine", None)
+            _srv_model = getattr(request.app.state, "model", "")
+            _srv_config = getattr(request.app.state, "config", None)
+
+            def _immediate_tick():
+                _start = _time.time()
+                logger.info(
+                    "Immediate tick starting for agent %s (model=%s)",
+                    agent_id,
+                    _srv_model,
+                )
+                try:
+                    executor = AgentExecutor(
+                        manager=manager,
+                        event_bus=get_event_bus(),
+                    )
+                    system = _make_lightweight_system(
+                        _srv_engine,
+                        _srv_model,
+                        _srv_config,
+                    )
+                    executor.set_system(system)
+                    logger.info(
+                        "Immediate tick: system ready in %.1fs, "
+                        "executing tick for agent %s",
+                        _time.time() - _start,
+                        agent_id,
+                    )
+                    executor.execute_tick(agent_id)
+                    logger.info(
+                        "Immediate tick completed for agent %s in %.1fs",
+                        agent_id,
+                        _time.time() - _start,
+                    )
+                except Exception as exc:
+                    logger.error(
+                        "Immediate tick failed for agent %s: %s",
+                        agent_id,
+                        exc,
+                        exc_info=True,
+                    )
+                    try:
+                        manager.end_tick(agent_id)
+                    except Exception:
+                        pass
+                    manager.update_agent(agent_id, status="error")
+                    manager.update_summary_memory(
+                        agent_id,
+                        f"ERROR: {exc}",
+                    )
+
+            threading.Thread(
+                target=_immediate_tick,
+                daemon=True,
+            ).start()
             return msg
 
         # --- Streaming mode: run agent and return SSE response ---
@@ -640,6 +1102,7 @@ def create_agent_manager_router(
             message_id=msg["id"],
             engine=engine,
             bus=bus,
+            app_state=request.app.state,
         )
 
     # ── State inspection ─────────────────────────────────────
@@ -745,9 +1208,7 @@ def create_agent_manager_router(
 
     @templates_router.post("/{template_id}/instantiate")
     async def instantiate_template(template_id: str, req: CreateAgentRequest):
-        return manager.create_from_template(
-            template_id, req.name, overrides=req.config
-        )
+        return manager.create_from_template(template_id, req.name, overrides=req.config)
 
     # ── Global agent endpoints ───────────────────────────────
 
@@ -774,13 +1235,42 @@ def create_agent_manager_router(
             "by_status": dict(counts),
         }
 
+    @global_router.get("/v1/recommended-model")
+    def recommended_model(request: Request):
+        engine = getattr(request.app.state, "engine", None)
+        if engine is None:
+            return {"model": "", "reason": "No engine available"}
+        try:
+            models = engine.list_models()
+        except Exception:
+            models = []
+        return _pick_recommended_model(models)
+
     # ── Tools & credentials ──────────────────────────────────
 
     tools_router = APIRouter(prefix="/v1/tools", tags=["tools"])
 
     @tools_router.get("")
-    def list_tools():
-        return {"tools": build_tools_list()}
+    def list_tools(request: Request):
+        items = build_tools_list()
+        try:
+            mcp_tools, _ = _get_mcp_tools(request.app.state)
+            for tool in mcp_tools:
+                fn = tool.get("function", {})
+                items.append(
+                    {
+                        "name": fn.get("name", ""),
+                        "description": fn.get("description", ""),
+                        "category": "mcp",
+                        "source": "mcp",
+                        "requires_credentials": False,
+                        "credential_keys": [],
+                        "configured": True,
+                    }
+                )
+        except Exception:
+            pass
+        return {"tools": items}
 
     @tools_router.post("/{tool_name}/credentials")
     async def save_tool_credentials(tool_name: str, request: Request):
@@ -796,6 +1286,7 @@ def create_agent_manager_router(
     @tools_router.get("/{tool_name}/credentials/status")
     def credential_status(tool_name: str):
         from openjarvis.core.credentials import get_credential_status
+
         return get_credential_status(tool_name)
 
     return agents_router, templates_router, global_router, tools_router

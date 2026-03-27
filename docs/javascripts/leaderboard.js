@@ -9,20 +9,24 @@
   var allRows = [];
   var currentPage = 0;
 
-  // No-KV-cache formula: FLOPs = params_b * 1e9 * N * (N+1)
-  // Reference values only (GPT-5.3 constants) — recompute functions below
-  // are defined but not called; the leaderboard displays database values directly.
-  var DEFAULT_PARAMS_B = 137;
-  var ENERGY_WH_PER_FLOP = 0.4 / (1000 * 3e12);
+  // Outlier detection — hide entries with values that are physically
+  // implausible relative to their token count.  Thresholds are ~1000x
+  // above legitimate per-token values to avoid false positives.
+  var MAX_ENERGY_WH_PER_TOKEN = 10;        // legit ≈ 0.001 Wh/tok
+  var MAX_FLOPS_PER_TOKEN = 1e17;           // legit ≈ 1e12 /tok
+  var MAX_DOLLAR_PER_TOKEN = 25.0 / 1e6;   // hard ceiling: $25/1M output
 
-  function recomputeFlopsNoKvCache(totalTokens) {
-    var n = Number(totalTokens) || 0;
-    if (n <= 0) return 0;
-    return DEFAULT_PARAMS_B * 1e9 * n * (n + 1);
-  }
-
-  function recomputeEnergyNoKvCache(flops) {
-    return flops * ENERGY_WH_PER_FLOP;
+  function isOutlier(row) {
+    var tokens = Number(row.total_tokens) || 0;
+    if (tokens <= 0) return false;
+    var energy = Number(row.energy_wh_saved) || 0;
+    var flops = Number(row.flops_saved) || 0;
+    var dollars = Number(row.dollar_savings) || 0;
+    return (
+      energy / tokens > MAX_ENERGY_WH_PER_TOKEN ||
+      flops / tokens > MAX_FLOPS_PER_TOKEN ||
+      dollars / tokens > MAX_DOLLAR_PER_TOKEN
+    );
   }
 
   function escapeHtml(s) {
@@ -133,17 +137,17 @@
           return;
         }
 
-        allRows = rows;
+        allRows = rows.filter(function (r) { return !isOutlier(r); });
         currentPage = 0;
 
-        var totalMembers = rows.length;
+        var totalMembers = allRows.length;
         var totalDollars = 0;
         var totalRequests = 0;
         var totalTokens = 0;
-        for (var i = 0; i < rows.length; i++) {
-          totalDollars += Number(rows[i].dollar_savings || 0);
-          totalRequests += Number(rows[i].total_calls || 0);
-          totalTokens += Number(rows[i].total_tokens || 0);
+        for (var i = 0; i < allRows.length; i++) {
+          totalDollars += Number(allRows[i].dollar_savings || 0);
+          totalRequests += Number(allRows[i].total_calls || 0);
+          totalTokens += Number(allRows[i].total_tokens || 0);
         }
 
         var elMembers = document.getElementById("stat-members");

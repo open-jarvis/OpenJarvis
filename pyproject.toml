@@ -17,6 +17,7 @@ dependencies = [
     "python-telegram-bot>=22.6",
     "rich>=13",
     "tomli>=2.0; python_version < '3.11'",
+    "tomlkit>=0.12",
 ]
 
 [project.optional-dependencies]
@@ -83,6 +84,12 @@ channel-zulip = ["zulip>=0.9"]
 channel-twitch = ["twitchio>=2.6"]
 channel-nostr = ["pynostr>=0.6"]
 channel-twilio = ["twilio>=9.0"]
+channel-gmail = [
+    "google-api-python-client>=2.0",
+    "google-auth-oauthlib>=1.0",
+    "google-auth-httplib2>=0.2",
+]
+channel-twitter = ["tweepy>=4.14"]
 browser = ["playwright>=1.40"]
 media = ["openai>=1.30"]
 pdf = ["pdfplumber>=0.10"]
@@ -123,6 +130,7 @@ markers = [
     "apple: requires Apple Silicon",
     "macos15: requires macOS 15+ (Sequoia) for Apple FM",
     "slow: long-running test",
+    "live_channel: requires real channel credentials (env vars)",
 ]
 
 [tool.ruff]

@@ -96,11 +96,19 @@ class EvalRunner:
             seed=cfg.seed,
         )
 
-        # Auto-enable episode_mode when the dataset has iter_episodes()
-        # (i.e. it is a lifelong/sequential benchmark like LifelongAgentBench).
-        # This is enforced at the runner level so it applies regardless of
-        # how the runner is invoked (CLI, SDK, tests, etc.).
-        if not cfg.episode_mode and hasattr(self._dataset, "iter_episodes"):
+        # Auto-enable episode_mode when the dataset *overrides*
+        # iter_episodes() (i.e. it is a lifelong/sequential benchmark like
+        # LifelongAgentBench).  The base DatasetProvider always defines a
+        # default iter_episodes() that wraps each record in its own episode,
+        # so hasattr() is always True — we must check for a real override.
+        from openjarvis.evals.core.dataset import DatasetProvider as _DP
+        try:
+            _overrides_episodes = (
+                type(self._dataset).iter_episodes is not _DP.iter_episodes
+            )
+        except AttributeError:
+            _overrides_episodes = False
+        if not cfg.episode_mode and _overrides_episodes:
             LOGGER.info(
                 "%s requires sequential episode processing — "
                 "auto-enabling episode_mode.",
@@ -108,6 +116,15 @@ class EvalRunner:
             )
             cfg = dataclasses.replace(cfg, episode_mode=True)
             self._config = cfg
+
+        # Detect if dataset provides task environments (e.g. PinchBench)
+        try:
+            self._has_task_env = (
+                type(self._dataset).create_task_env
+                is not _DP.create_task_env
+            )
+        except AttributeError:
+            self._has_task_env = False
 
         records = list(self._dataset.iter_records())
         LOGGER.info(
@@ -145,6 +162,15 @@ class EvalRunner:
         try:
             if cfg.episode_mode:
                 self._run_episode_mode(records, progress_callback, total)
+            elif self._has_task_env:
+                # Task environments (PinchBench etc.) change CWD —
+                # must process sequentially for thread safety.
+                for record in records:
+                    result = self._process_one(record)
+                    self._results.append(result)
+                    self._flush_result(result)
+                    if progress_callback is not None:
+                        progress_callback(len(self._results), total)
             else:
                 with ThreadPoolExecutor(max_workers=cfg.max_workers) as pool:
                     futures = {
@@ -224,16 +250,59 @@ class EvalRunner:
             )
             if cfg.system_prompt:
                 gen_kwargs["system"] = cfg.system_prompt
-            full = self._backend.generate_full(
-                record.problem,
-                **gen_kwargs,
-            )
-            content = full.get("content", "")
+
+            if getattr(self, "_has_task_env", False):
+                from contextlib import nullcontext
+                task_env = self._dataset.create_task_env(record)
+                ctx = task_env if task_env is not None else nullcontext()
+                with ctx:
+                    full = self._backend.generate_full(
+                        record.problem,
+                        **gen_kwargs,
+                    )
+                    full = full or {}
+                    all_tool_results = list(full.get(
+                        "tool_results", [],
+                    ))
+
+                    # Multi-session: execute remaining sessions
+                    sessions = record.metadata.get("sessions", [])
+                    if (
+                        record.metadata.get("multi_session")
+                        and len(sessions) > 1
+                    ):
+                        for session in sessions[1:]:
+                            prompt = session.get("prompt", "")
+                            if not prompt:
+                                continue
+                            sfull = self._backend.generate_full(
+                                prompt, **gen_kwargs,
+                            )
+                            sfull = sfull or {}
+                            all_tool_results.extend(
+                                sfull.get("tool_results", []),
+                            )
+
+                    record.metadata["tool_results"] = all_tool_results
+                    # Score INSIDE context so workspace files still exist
+                    content = full.get("content", "")
+                    is_correct, scoring_meta = self._scorer.score(
+                        record, content,
+                    )
+            else:
+                full = self._backend.generate_full(
+                    record.problem,
+                    **gen_kwargs,
+                )
+                full = full or {}
+                content = full.get("content", "")
+                is_correct, scoring_meta = self._scorer.score(
+                    record, content,
+                )
+
             usage = full.get("usage", {})
             latency = full.get("latency_seconds", 0.0)
             cost = full.get("cost_usd", 0.0)
-
-            is_correct, scoring_meta = self._scorer.score(record, content)
 
             energy_j = full.get("energy_joules", 0.0)
             power_w = full.get("power_watts", 0.0)

@@ -181,10 +181,16 @@ def serve(
                     _DEFAULT_TOOLS = {"think", "calculator", "web_search"}
                     configured = config.agent.tools
                     if configured:
-                        allowed = {
-                            t.strip() for t in configured.split(",")
-                            if t.strip()
-                        }
+                        if isinstance(configured, list):
+                            allowed = {
+                                t.strip() for t in configured
+                                if isinstance(t, str) and t.strip()
+                            }
+                        else:
+                            allowed = {
+                                t.strip() for t in configured.split(",")
+                                if t.strip()
+                            }
                     else:
                         allowed = _DEFAULT_TOOLS
 

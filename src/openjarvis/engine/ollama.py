@@ -75,6 +75,13 @@ class OllamaEngine(InferenceEngine):
                 "num_ctx": kwargs.get("num_ctx", 8192),
             },
         }
+        # Disable extended thinking by default (Qwen3.5 etc.).
+        # When enabled, thinking tokens consume the entire budget and
+        # the visible content comes back empty.
+        if "think" not in kwargs:
+            payload["think"] = False
+        elif kwargs["think"] is not None:
+            payload["think"] = kwargs["think"]
         # Pass tools if provided
         tools = kwargs.get("tools")
         if tools:

@@ -5,13 +5,18 @@ from __future__ import annotations
 import json
 import sys
 import textwrap
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from openjarvis.mcp.protocol import MCPRequest
 from openjarvis.mcp.server import MCPServer
-from openjarvis.mcp.transport import InProcessTransport, SSETransport, StdioTransport
+from openjarvis.mcp.transport import (
+    InProcessTransport,
+    SSETransport,
+    StdioTransport,
+    StreamableHTTPTransport,
+)
 from openjarvis.tools.calculator import CalculatorTool
 from openjarvis.tools.think import ThinkTool
 
@@ -156,65 +161,108 @@ class TestStdioTransport:
         transport.close()  # Should not raise
 
 
-class TestSSETransport:
-    def test_send_receive(self, monkeypatch):
-        """Mock httpx to simulate HTTP response."""
+class TestStreamableHTTPTransport:
+    """Tests for StreamableHTTPTransport (also aliased as SSETransport)."""
+
+    def _make_mock_response(self, body: dict) -> MagicMock:
+        """Create a mock httpx.Response with the given JSON body."""
         mock_response = MagicMock()
-        mock_response.text = json.dumps(
+        mock_response.text = json.dumps(body)
+        mock_response.headers = {}
+        mock_response.raise_for_status = MagicMock()
+        return mock_response
+
+    @patch("httpx.Client")
+    def test_send_receive(self, mock_client_cls):
+        """Mock httpx.Client to simulate HTTP response."""
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.post.return_value = self._make_mock_response(
             {"jsonrpc": "2.0", "id": 1, "result": {"tools": []}}
         )
-        mock_response.raise_for_status = MagicMock()
 
-        mock_httpx = MagicMock()
-        mock_httpx.post.return_value = mock_response
-        monkeypatch.setitem(sys.modules, "httpx", mock_httpx)
-
-        transport = SSETransport("http://localhost:8080/mcp")
+        transport = StreamableHTTPTransport("http://localhost:8080/mcp")
         req = MCPRequest(method="tools/list", id=1)
         resp = transport.send(req)
         assert resp.error is None
         assert resp.result == {"tools": []}
 
-    def test_send_posts_json(self, monkeypatch):
+    @patch("httpx.Client")
+    def test_send_posts_json(self, mock_client_cls):
         """Verify the HTTP POST includes correct headers and body."""
-        mock_response = MagicMock()
-        mock_response.text = json.dumps({"jsonrpc": "2.0", "id": 1, "result": {}})
-        mock_response.raise_for_status = MagicMock()
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.post.return_value = self._make_mock_response(
+            {"jsonrpc": "2.0", "id": 1, "result": {}}
+        )
 
-        mock_httpx = MagicMock()
-        mock_httpx.post.return_value = mock_response
-        monkeypatch.setitem(sys.modules, "httpx", mock_httpx)
-
-        transport = SSETransport("http://localhost:8080/mcp")
+        transport = StreamableHTTPTransport("http://localhost:8080/mcp")
         req = MCPRequest(method="initialize", id=1)
         transport.send(req)
 
-        call_args = mock_httpx.post.call_args
+        call_args = mock_client.post.call_args
         assert call_args[0][0] == "http://localhost:8080/mcp"
         assert call_args[1]["headers"]["Content-Type"] == "application/json"
 
-    def test_close_is_noop(self):
-        transport = SSETransport("http://localhost:8080/mcp")
-        transport.close()  # Should not raise
+    @patch("httpx.Client")
+    def test_close_closes_client(self, mock_client_cls):
+        """close() should close the underlying httpx.Client."""
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
 
-    def test_error_response(self, monkeypatch):
+        transport = StreamableHTTPTransport("http://localhost:8080/mcp")
+        transport.close()
+        mock_client.close.assert_called_once()
+
+    @patch("httpx.Client")
+    def test_error_response(self, mock_client_cls):
         """Simulate server returning an error response."""
-        mock_response = MagicMock()
-        mock_response.text = json.dumps(
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.post.return_value = self._make_mock_response(
             {
                 "jsonrpc": "2.0",
                 "id": 1,
                 "error": {"code": -32601, "message": "Not found"},
             }
         )
-        mock_response.raise_for_status = MagicMock()
 
-        mock_httpx = MagicMock()
-        mock_httpx.post.return_value = mock_response
-        monkeypatch.setitem(sys.modules, "httpx", mock_httpx)
-
-        transport = SSETransport("http://localhost:8080/mcp")
+        transport = StreamableHTTPTransport("http://localhost:8080/mcp")
         req = MCPRequest(method="unknown", id=1)
         resp = transport.send(req)
         assert resp.error is not None
         assert resp.error["code"] == -32601
+
+    @patch("httpx.Client")
+    def test_session_id_tracking(self, mock_client_cls):
+        """Verify Mcp-Session-Id is tracked from response and sent on subsequent
+        requests."""
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+
+        # First response sets a session id
+        first_response = self._make_mock_response(
+            {"jsonrpc": "2.0", "id": 1, "result": {}}
+        )
+        first_response.headers = {"mcp-session-id": "sess-abc-123"}
+
+        # Second response
+        second_response = self._make_mock_response(
+            {"jsonrpc": "2.0", "id": 2, "result": {}}
+        )
+        second_response.headers = {}
+
+        mock_client.post.side_effect = [first_response, second_response]
+
+        transport = StreamableHTTPTransport("http://localhost:8080/mcp")
+        transport.send(MCPRequest(method="initialize", id=1))
+        assert transport._session_id == "sess-abc-123"
+
+        transport.send(MCPRequest(method="tools/list", id=2))
+        # Second call should include session id in headers
+        second_call_headers = mock_client.post.call_args_list[1][1]["headers"]
+        assert second_call_headers["Mcp-Session-Id"] == "sess-abc-123"
+
+    def test_sse_transport_alias(self):
+        """SSETransport should be an alias for StreamableHTTPTransport."""
+        assert SSETransport is StreamableHTTPTransport

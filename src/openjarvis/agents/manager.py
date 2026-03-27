@@ -111,6 +111,9 @@ class AgentManager:
             "ALTER TABLE managed_agents ADD COLUMN last_run_at REAL",
             "ALTER TABLE managed_agents ADD COLUMN last_activity_at REAL",
             "ALTER TABLE managed_agents ADD COLUMN stall_retries INTEGER DEFAULT 0",
+            "ALTER TABLE managed_agents ADD COLUMN current_activity TEXT DEFAULT ''",
+            "ALTER TABLE managed_agents ADD COLUMN input_tokens INTEGER DEFAULT 0",
+            "ALTER TABLE managed_agents ADD COLUMN output_tokens INTEGER DEFAULT 0",
         ]
         for migration in _MIGRATIONS:
             try:
@@ -160,7 +163,7 @@ class AgentManager:
     def update_agent(self, agent_id: str, **kwargs: Any) -> Dict[str, Any]:
         sets: List[str] = []
         vals: List[Any] = []
-        for key in ("name", "agent_type", "status"):
+        for key in ("name", "agent_type", "status", "current_activity"):
             if key in kwargs:
                 sets.append(f"{key} = ?")
                 vals.append(kwargs[key])
@@ -181,6 +184,14 @@ class AgentManager:
         if total_tokens_increment:
             sets.append("total_tokens = total_tokens + ?")
             vals.append(total_tokens_increment)
+        input_tokens_increment = kwargs.get("input_tokens_increment", 0)
+        if input_tokens_increment:
+            sets.append("input_tokens = input_tokens + ?")
+            vals.append(input_tokens_increment)
+        output_tokens_increment = kwargs.get("output_tokens_increment", 0)
+        if output_tokens_increment:
+            sets.append("output_tokens = output_tokens + ?")
+            vals.append(output_tokens_increment)
         if "last_activity_at" in kwargs:
             sets.append("last_activity_at = ?")
             vals.append(kwargs["last_activity_at"])
@@ -222,7 +233,12 @@ class AgentManager:
         self._set_status(agent_id, "running")
 
     def end_tick(self, agent_id: str) -> None:
-        self._set_status(agent_id, "idle")
+        self._conn.execute(
+            "UPDATE managed_agents SET status = 'idle', "
+            "current_activity = '', updated_at = ? WHERE id = ?",
+            (time.time(), agent_id),
+        )
+        self._conn.commit()
 
     # ── Checkpoints ───────────────────────────────────────────────
 
@@ -472,6 +488,15 @@ class AgentManager:
         if overrides:
             config.update(overrides)
         agent_type = config.pop("agent_type", "monitor_operative")
+
+        # Expand system_prompt_template with instruction
+        prompt_tpl = config.pop("system_prompt_template", "")
+        if prompt_tpl:
+            instruction = config.get("instruction", "")
+            config["system_prompt"] = prompt_tpl.format(
+                instruction=instruction or "(No specific instruction provided)",
+            )
+
         return self.create_agent(name=name, agent_type=agent_type, config=config)
 
     # ── Message queue ─────────────────────────────────────────────
@@ -638,6 +663,9 @@ class AgentManager:
             "last_run_at": row["last_run_at"],
             "last_activity_at": row["last_activity_at"],
             "stall_retries": row["stall_retries"] or 0,
+            "current_activity": row["current_activity"] or "",
+            "input_tokens": row["input_tokens"] or 0,
+            "output_tokens": row["output_tokens"] or 0,
         }
 
     @staticmethod

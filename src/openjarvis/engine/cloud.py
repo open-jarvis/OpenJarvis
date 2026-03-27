@@ -6,7 +6,9 @@ import json
 import os
 import time
 from collections.abc import AsyncIterator, Sequence
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
+
+import httpx
 
 from openjarvis.core.registry import EngineRegistry
 from openjarvis.core.types import Message
@@ -15,6 +17,7 @@ from openjarvis.engine._base import (
     InferenceEngine,
     messages_to_dicts,
 )
+from openjarvis.engine._stubs import StreamChunk
 
 # Pricing per million tokens (input, output)
 PRICING: Dict[str, tuple[float, float]] = {
@@ -46,7 +49,12 @@ PRICING: Dict[str, tuple[float, float]] = {
 
 # Well-known model IDs per provider
 _OPENAI_MODELS = [
-    "gpt-4o", "gpt-4o-mini", "gpt-5", "gpt-5.4", "gpt-5-mini", "o3-mini",
+    "gpt-4o",
+    "gpt-4o-mini",
+    "gpt-5",
+    "gpt-5.4",
+    "gpt-5-mini",
+    "o3-mini",
 ]
 _ANTHROPIC_MODELS = [
     "claude-sonnet-4-20250514",
@@ -85,6 +93,16 @@ _OPENROUTER_POPULAR = [
     "openrouter/qwen/qwen3-235b-a22b",
 ]
 
+# Codex models — prefixed with "codex/" for ChatGPT Plus/Pro subscribers.
+# Uses the Responses API at chatgpt.com, not the standard OpenAI API.
+_CODEX_MODELS = [
+    "codex/gpt-4o",
+    "codex/gpt-4o-mini",
+    "codex/o3-mini",
+    "codex/gpt-5-mini",
+    "codex/gpt-5-mini-2025-08-07",
+]
+
 
 def _is_minimax_model(model: str) -> bool:
     return model.lower().startswith("minimax")
@@ -92,6 +110,10 @@ def _is_minimax_model(model: str) -> bool:
 
 def _is_openrouter_model(model: str) -> bool:
     return model.startswith("openrouter/")
+
+
+def _is_codex_model(model: str) -> bool:
+    return model.startswith("codex/")
 
 
 def _is_anthropic_model(model: str) -> bool:
@@ -159,11 +181,13 @@ def _convert_tools_to_anthropic(
     result = []
     for tool in openai_tools:
         func = tool.get("function", {})
-        result.append({
-            "name": func.get("name", ""),
-            "description": func.get("description", ""),
-            "input_schema": func.get("parameters", {}),
-        })
+        result.append(
+            {
+                "name": func.get("name", ""),
+                "description": func.get("description", ""),
+                "input_schema": func.get("parameters", {}),
+            }
+        )
     return result
 
 
@@ -174,11 +198,13 @@ def _convert_tools_to_google(
     declarations = []
     for tool in openai_tools:
         func = tool.get("function", {})
-        declarations.append({
-            "name": func.get("name", ""),
-            "description": func.get("description", ""),
-            "parameters": func.get("parameters", {}),
-        })
+        declarations.append(
+            {
+                "name": func.get("name", ""),
+                "description": func.get("description", ""),
+                "parameters": func.get("parameters", {}),
+            }
+        )
     return declarations
 
 
@@ -194,28 +220,33 @@ class CloudEngine(InferenceEngine):
         self._google_client: Any = None
         self._openrouter_client: Any = None
         self._minimax_client: Any = None
+        self._codex_client: Any = None
+        # Gemini thought_signatures: tool_call_id -> signature bytes
+        self._thought_sigs: Dict[str, bytes] = {}
         self._init_clients()
 
     def _init_clients(self) -> None:
         if os.environ.get("OPENAI_API_KEY"):
             try:
                 import openai
+
                 self._openai_client = openai.OpenAI()
             except ImportError:
                 pass
         if os.environ.get("ANTHROPIC_API_KEY"):
             try:
                 import anthropic
+
                 self._anthropic_client = anthropic.Anthropic()
             except ImportError:
                 pass
-        gemini_key = (
-            os.environ.get("GEMINI_API_KEY")
-            or os.environ.get("GOOGLE_API_KEY")
+        gemini_key = os.environ.get("GEMINI_API_KEY") or os.environ.get(
+            "GOOGLE_API_KEY"
         )
         if gemini_key:
             try:
                 from google import genai
+
                 self._google_client = genai.Client(api_key=gemini_key)
             except ImportError:
                 pass
@@ -223,6 +254,7 @@ class CloudEngine(InferenceEngine):
         if openrouter_key:
             try:
                 import openai
+
                 self._openrouter_client = openai.OpenAI(
                     base_url="https://openrouter.ai/api/v1",
                     api_key=openrouter_key,
@@ -233,12 +265,180 @@ class CloudEngine(InferenceEngine):
         if minimax_key:
             try:
                 import openai
+
                 self._minimax_client = openai.OpenAI(
                     base_url="https://api.minimax.io/v1",
                     api_key=minimax_key,
                 )
             except ImportError:
                 pass
+        # Codex — uses the OpenAI Responses API.
+        # Supports both standard API keys (api.openai.com) and ChatGPT
+        # OAuth tokens (chatgpt.com) via OPENAI_CODEX_BASE_URL override.
+        codex_token = os.environ.get("OPENAI_CODEX_API_KEY")
+        if codex_token:
+            codex_url = os.environ.get(
+                "OPENAI_CODEX_BASE_URL",
+                "https://api.openai.com/v1",
+            ).rstrip("/")
+            if not codex_url.endswith("/responses"):
+                codex_url += "/responses"
+            self._codex_client = {
+                "token": codex_token,
+                "url": codex_url,
+            }
+
+    def _prepare_anthropic_messages(
+        self,
+        messages: Sequence[Message],
+    ) -> Tuple[str, List[Dict[str, Any]]]:
+        """Extract system text and convert messages to Anthropic format."""
+        system_text = ""
+        chat_msgs: List[Dict[str, Any]] = []
+        for m in messages:
+            if m.role.value == "system":
+                system_text = m.content
+            elif m.role.value == "tool":
+                tool_result_block = {
+                    "type": "tool_result",
+                    "tool_use_id": m.tool_call_id or "",
+                    "content": m.content,
+                }
+                if (
+                    chat_msgs
+                    and chat_msgs[-1]["role"] == "user"
+                    and isinstance(chat_msgs[-1]["content"], list)
+                    and chat_msgs[-1]["content"]
+                    and chat_msgs[-1]["content"][-1].get("type") == "tool_result"
+                ):
+                    chat_msgs[-1]["content"].append(tool_result_block)
+                else:
+                    chat_msgs.append(
+                        {
+                            "role": "user",
+                            "content": [tool_result_block],
+                        }
+                    )
+            elif m.role.value == "assistant" and m.tool_calls:
+                content_blocks: List[Dict[str, Any]] = []
+                if m.content:
+                    content_blocks.append({"type": "text", "text": m.content})
+                for tc in m.tool_calls:
+                    args = tc.arguments
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args)
+                        except (json.JSONDecodeError, TypeError):
+                            args = {"input": args}
+                    content_blocks.append(
+                        {
+                            "type": "tool_use",
+                            "id": tc.id,
+                            "name": tc.name,
+                            "input": args if isinstance(args, dict) else {},
+                        }
+                    )
+                chat_msgs.append({"role": "assistant", "content": content_blocks})
+            else:
+                chat_msgs.append({"role": m.role.value, "content": m.content})
+        return system_text, chat_msgs
+
+    @staticmethod
+    def _codex_build_input(
+        messages: Sequence[Message],
+    ) -> tuple[str, List[Dict[str, Any]]]:
+        """Convert Message list to Codex Responses API format.
+
+        Returns (system_instructions, input_messages).
+        """
+        instructions = ""
+        input_msgs: List[Dict[str, Any]] = []
+        for m in messages:
+            if m.role.value == "system":
+                instructions = m.content
+            elif m.role.value in ("user", "assistant"):
+                input_msgs.append(
+                    {
+                        "role": m.role.value,
+                        "content": [{"type": "input_text", "text": m.content}],
+                    }
+                )
+        return instructions, input_msgs
+
+    def _generate_codex(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        """Generate via Codex Responses API (ChatGPT Plus/Pro)."""
+        if self._codex_client is None:
+            raise EngineConnectionError(
+                "Codex client not available — set OPENAI_CODEX_API_KEY"
+            )
+        actual_model = model.removeprefix("codex/")
+        instructions, input_msgs = self._codex_build_input(messages)
+
+        body: Dict[str, Any] = {
+            "model": actual_model,
+            "input": input_msgs,
+            "store": False,
+            "stream": False,
+        }
+        if instructions:
+            body["instructions"] = instructions
+
+        headers = {
+            "Authorization": f"Bearer {self._codex_client['token']}",
+            "Content-Type": "application/json",
+            "OpenAI-Beta": "responses=experimental",
+        }
+
+        t0 = time.monotonic()
+        resp = httpx.post(
+            self._codex_client["url"],
+            json=body,
+            headers=headers,
+            timeout=120.0,
+        )
+        elapsed = time.monotonic() - t0
+        resp.raise_for_status()
+        data = resp.json()
+
+        # Extract text from Responses API output.
+        # The output array contains items of type "reasoning" and "message";
+        # we want the "message" item's content blocks.
+        content = data.get("output_text", "")
+        if not content:
+            for item in data.get("output", []):
+                if item.get("type") not in ("message", None):
+                    continue
+                for block in item.get("content", []):
+                    if block.get("type") == "output_text":
+                        content = block.get("text", "")
+                        break
+                if content:
+                    break
+
+        usage_data = data.get("usage", {})
+        prompt_tokens = usage_data.get("input_tokens", 0)
+        completion_tokens = usage_data.get("output_tokens", 0)
+
+        return {
+            "content": content,
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": prompt_tokens + completion_tokens,
+            },
+            "model": actual_model,
+            "finish_reason": "stop",
+            "cost_usd": 0.0,
+            "ttft": elapsed,
+        }
 
     def _generate_openai(
         self,
@@ -333,56 +533,7 @@ class CloudEngine(InferenceEngine):
                 "ANTHROPIC_API_KEY and install "
                 "openjarvis[inference-cloud]"
             )
-        # Separate system message and convert to Anthropic message format
-        system_text = ""
-        chat_msgs: List[Dict[str, Any]] = []
-        for m in messages:
-            if m.role.value == "system":
-                system_text = m.content
-            elif m.role.value == "tool":
-                # Anthropic expects tool results as role="user" with
-                # tool_result content blocks
-                tool_result_block = {
-                    "type": "tool_result",
-                    "tool_use_id": m.tool_call_id or "",
-                    "content": m.content,
-                }
-                # Merge consecutive tool results into a single user message
-                if (
-                    chat_msgs
-                    and chat_msgs[-1]["role"] == "user"
-                    and isinstance(chat_msgs[-1]["content"], list)
-                    and chat_msgs[-1]["content"]
-                    and chat_msgs[-1]["content"][-1].get("type") == "tool_result"
-                ):
-                    chat_msgs[-1]["content"].append(tool_result_block)
-                else:
-                    chat_msgs.append({
-                        "role": "user",
-                        "content": [tool_result_block],
-                    })
-            elif m.role.value == "assistant" and m.tool_calls:
-                # Convert assistant messages with tool_calls to Anthropic
-                # content blocks (text + tool_use)
-                content_blocks: List[Dict[str, Any]] = []
-                if m.content:
-                    content_blocks.append({"type": "text", "text": m.content})
-                for tc in m.tool_calls:
-                    args = tc.arguments
-                    if isinstance(args, str):
-                        try:
-                            args = json.loads(args)
-                        except (json.JSONDecodeError, TypeError):
-                            args = {"input": args}
-                    content_blocks.append({
-                        "type": "tool_use",
-                        "id": tc.id,
-                        "name": tc.name,
-                        "input": args if isinstance(args, dict) else {},
-                    })
-                chat_msgs.append({"role": "assistant", "content": content_blocks})
-            else:
-                chat_msgs.append({"role": m.role.value, "content": m.content})
+        system_text, chat_msgs = self._prepare_anthropic_messages(messages)
         create_kwargs: Dict[str, Any] = {
             "model": model,
             "messages": chat_msgs,
@@ -426,13 +577,15 @@ class CloudEngine(InferenceEngine):
         tool_calls: list[Dict[str, Any]] = []
         for block in resp.content:
             if getattr(block, "type", None) == "tool_use":
-                tool_calls.append({
-                    "id": block.id,
-                    "name": block.name,
-                    "arguments": json.dumps(block.input)
-                    if isinstance(block.input, dict)
-                    else str(block.input),
-                })
+                tool_calls.append(
+                    {
+                        "id": block.id,
+                        "name": block.name,
+                        "arguments": json.dumps(block.input)
+                        if isinstance(block.input, dict)
+                        else str(block.input),
+                    }
+                )
             elif hasattr(block, "text"):
                 content_parts.append(block.text)
 
@@ -510,12 +663,17 @@ class CloudEngine(InferenceEngine):
                             args = json.loads(args)
                         except (json.JSONDecodeError, TypeError):
                             args = {"input": args}
-                    parts.append({
+                    fc_part: Dict[str, Any] = {
                         "function_call": {
                             "name": tc.name,
                             "args": args if isinstance(args, dict) else {},
                         }
-                    })
+                    }
+                    # Replay thought_signature for Gemini reasoning models
+                    sig = self._thought_sigs.get(tc.id)
+                    if sig is not None:
+                        fc_part["thought_signature"] = sig
+                    parts.append(fc_part)
                 contents.append({"role": "model", "parts": parts})
             elif m.role.value == "assistant":
                 contents.append({"role": "model", "parts": [{"text": m.content}]})
@@ -564,14 +722,18 @@ class CloudEngine(InferenceEngine):
             for part in parts:
                 if hasattr(part, "function_call") and part.function_call:
                     fc = part.function_call
-                    fc_args = (
-                        dict(fc.args) if hasattr(fc.args, "items") else {}
-                    )
-                    tool_calls.append({
+                    fc_args = dict(fc.args) if hasattr(fc.args, "items") else {}
+                    tc_dict: Dict[str, Any] = {
                         "id": f"google_{fc.name}",
                         "name": fc.name,
                         "arguments": json.dumps(fc_args),
-                    })
+                    }
+                    # Preserve thought_signature for Gemini reasoning models
+                    sig = getattr(part, "thought_signature", None)
+                    if sig is not None:
+                        tc_dict["thought_signature"] = sig
+                        self._thought_sigs[tc_dict["id"]] = sig
+                    tool_calls.append(tc_dict)
                 elif hasattr(part, "text") and part.text:
                     text_parts.append(part.text)
 
@@ -585,12 +747,8 @@ class CloudEngine(InferenceEngine):
                 content = ""
 
         um = resp.usage_metadata
-        prompt_tokens = (
-            getattr(um, "prompt_token_count", 0) if um else 0
-        )
-        completion_tokens = (
-            getattr(um, "candidates_token_count", 0) if um else 0
-        )
+        prompt_tokens = getattr(um, "prompt_token_count", 0) if um else 0
+        completion_tokens = getattr(um, "candidates_token_count", 0) if um else 0
 
         result: Dict[str, Any] = {
             "content": content,
@@ -719,6 +877,8 @@ class CloudEngine(InferenceEngine):
             max_tokens=max_tokens,
             **kwargs,
         )
+        if _is_codex_model(model):
+            return self._generate_codex(messages, **kw)
         if _is_openrouter_model(model):
             return self._generate_openrouter(messages, **kw)
         if _is_minimax_model(model):
@@ -744,31 +904,80 @@ class CloudEngine(InferenceEngine):
             max_tokens=max_tokens,
             **kwargs,
         )
-        if _is_openrouter_model(model):
-            async for token in self._stream_openrouter(
-                messages, **kw
-            ):
+        if _is_codex_model(model):
+            async for token in self._stream_codex(messages, **kw):
+                yield token
+        elif _is_openrouter_model(model):
+            async for token in self._stream_openrouter(messages, **kw):
                 yield token
         elif _is_minimax_model(model):
-            async for token in self._stream_minimax(
-                messages, **kw
-            ):
+            async for token in self._stream_minimax(messages, **kw):
                 yield token
         elif _is_anthropic_model(model):
-            async for token in self._stream_anthropic(
-                messages, **kw
-            ):
+            async for token in self._stream_anthropic(messages, **kw):
                 yield token
         elif _is_google_model(model):
-            async for token in self._stream_google(
-                messages, **kw
-            ):
+            async for token in self._stream_google(messages, **kw):
                 yield token
         else:
-            async for token in self._stream_openai(
-                messages, **kw
-            ):
+            async for token in self._stream_openai(messages, **kw):
                 yield token
+
+    async def _stream_codex(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        **kwargs: Any,
+    ) -> AsyncIterator[str]:
+        """Stream via Codex Responses API (SSE)."""
+        if self._codex_client is None:
+            raise EngineConnectionError("Codex client not available")
+        actual_model = model.removeprefix("codex/")
+        instructions, input_msgs = self._codex_build_input(messages)
+
+        body: Dict[str, Any] = {
+            "model": actual_model,
+            "input": input_msgs,
+            "store": False,
+            "stream": True,
+        }
+        if instructions:
+            body["instructions"] = instructions
+
+        headers = {
+            "Authorization": f"Bearer {self._codex_client['token']}",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "OpenAI-Beta": "responses=experimental",
+        }
+
+        async with httpx.AsyncClient() as client:
+            async with client.stream(
+                "POST",
+                self._codex_client["url"],
+                json=body,
+                headers=headers,
+                timeout=120.0,
+            ) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    payload = line[6:]
+                    if payload == "[DONE]":
+                        break
+                    try:
+                        event = json.loads(payload)
+                    except (json.JSONDecodeError, ValueError):
+                        continue
+                    etype = event.get("type", "")
+                    if etype == "response.output_text.delta":
+                        delta = event.get("delta", "")
+                        if delta:
+                            yield delta
 
     async def _stream_openai(
         self,
@@ -915,6 +1124,188 @@ class CloudEngine(InferenceEngine):
             if delta and delta.content:
                 yield delta.content
 
+    # -- stream_full: rich streaming with tool_calls support ----------------
+
+    async def _stream_full_openai(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        **kwargs: Any,
+    ) -> AsyncIterator[StreamChunk]:
+        """Yield StreamChunks from an OpenAI-compatible streaming response.
+
+        Works for OpenAI, OpenRouter, MiniMax, and Codex.
+        """
+        if _is_codex_model(model):
+            # Codex uses Responses API — fall back to base stream_full wrapper
+            async for chunk in super().stream_full(
+                messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                **kwargs,
+            ):
+                yield chunk
+            return
+        if _is_openrouter_model(model):
+            client = self._openrouter_client
+            if client is None:
+                raise EngineConnectionError("OpenRouter client not available")
+            actual_model = model.removeprefix("openrouter/")
+            create_kwargs: Dict[str, Any] = {
+                "model": actual_model,
+                "messages": messages_to_dicts(messages),
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "stream": True,
+                **kwargs,
+            }
+        elif _is_minimax_model(model):
+            client = self._minimax_client
+            if client is None:
+                raise EngineConnectionError("MiniMax client not available")
+            temperature = max(temperature, 0.01)
+            temperature = min(temperature, 1.0)
+            create_kwargs = {
+                "model": model,
+                "messages": messages_to_dicts(messages),
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "stream": True,
+                **kwargs,
+            }
+        else:
+            client = self._openai_client
+            if client is None:
+                raise EngineConnectionError("OpenAI client not available")
+            create_kwargs = {
+                "model": model,
+                "messages": messages_to_dicts(messages),
+                "max_completion_tokens": max_tokens,
+                "stream": True,
+                **kwargs,
+            }
+            if not _is_openai_reasoning_model(model):
+                create_kwargs["temperature"] = temperature
+        resp = client.chat.completions.create(**create_kwargs)
+        for chunk in resp:
+            choice = chunk.choices[0] if chunk.choices else None
+            if not choice:
+                continue
+            delta = choice.delta
+            content = delta.content if delta else None
+            tool_calls = None
+            if delta and delta.tool_calls:
+                tool_calls = [
+                    {
+                        "index": tc.index,
+                        "id": tc.id or "",
+                        "function": {
+                            "name": (tc.function.name or "") if tc.function else "",
+                            "arguments": (
+                                (tc.function.arguments or "") if tc.function else ""
+                            ),
+                        },
+                    }
+                    for tc in delta.tool_calls
+                ]
+            finish = choice.finish_reason
+            if content or tool_calls or finish:
+                yield StreamChunk(
+                    content=content,
+                    tool_calls=tool_calls,
+                    finish_reason=finish,
+                )
+
+    async def _stream_full_anthropic(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        **kwargs: Any,
+    ) -> AsyncIterator[StreamChunk]:
+        """Yield StreamChunks from an Anthropic streaming response."""
+        if self._anthropic_client is None:
+            raise EngineConnectionError("Anthropic client not available")
+        system_text, chat_msgs = self._prepare_anthropic_messages(messages)
+        create_kwargs: Dict[str, Any] = {
+            "model": model,
+            "messages": chat_msgs,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if system_text:
+            create_kwargs["system"] = system_text
+        raw_tools = kwargs.pop("tools", None)
+        if raw_tools:
+            create_kwargs["tools"] = _convert_tools_to_anthropic(raw_tools)
+        kwargs.pop("tool_choice", None)
+
+        with self._anthropic_client.messages.stream(**create_kwargs) as stream:
+            tool_index = -1
+            for event in stream:
+                if event.type == "content_block_start":
+                    block = event.content_block
+                    if block.type == "tool_use":
+                        tool_index += 1
+                        yield StreamChunk(
+                            tool_calls=[
+                                {
+                                    "index": tool_index,
+                                    "id": block.id,
+                                    "function": {"name": block.name, "arguments": ""},
+                                }
+                            ]
+                        )
+                elif event.type == "content_block_delta":
+                    delta = event.delta
+                    if delta.type == "text_delta":
+                        yield StreamChunk(content=delta.text)
+                    elif delta.type == "input_json_delta":
+                        yield StreamChunk(
+                            tool_calls=[
+                                {
+                                    "index": tool_index,
+                                    "function": {"arguments": delta.partial_json},
+                                }
+                            ]
+                        )
+                elif event.type == "message_delta":
+                    stop_reason = event.delta.stop_reason
+                    finish = "tool_calls" if stop_reason == "tool_use" else "stop"
+                    yield StreamChunk(finish_reason=finish)
+
+    async def stream_full(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+        **kwargs: Any,
+    ) -> AsyncIterator[StreamChunk]:
+        """Yield StreamChunks with content, tool_calls, and finish_reason."""
+        kw = dict(
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs,
+        )
+        if _is_anthropic_model(model):
+            async for chunk in self._stream_full_anthropic(messages, **kw):
+                yield chunk
+        elif _is_google_model(model):
+            async for chunk in super().stream_full(messages, **kw):
+                yield chunk
+        else:
+            async for chunk in self._stream_full_openai(messages, **kw):
+                yield chunk
+
     def list_models(self) -> List[str]:
         models: List[str] = []
         if self._openai_client is not None:
@@ -927,6 +1318,8 @@ class CloudEngine(InferenceEngine):
             models.extend(_OPENROUTER_POPULAR)
         if self._minimax_client is not None:
             models.extend(_MINIMAX_MODELS)
+        if self._codex_client is not None:
+            models.extend(_CODEX_MODELS)
         return models
 
     def health(self) -> bool:
@@ -936,6 +1329,7 @@ class CloudEngine(InferenceEngine):
             or self._google_client is not None
             or self._openrouter_client is not None
             or self._minimax_client is not None
+            or self._codex_client is not None
         )
 
     def close(self) -> None:
@@ -957,6 +1351,8 @@ class CloudEngine(InferenceEngine):
             if hasattr(self._minimax_client, "close"):
                 self._minimax_client.close()
             self._minimax_client = None
+        if self._codex_client is not None:
+            self._codex_client = None
 
 
 __all__ = ["CloudEngine", "PRICING", "_annotate_anthropic_cache", "estimate_cost"]

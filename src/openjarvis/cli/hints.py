@@ -22,7 +22,11 @@ def hint_no_engine(engine_name: Optional[str] = None) -> str:
         f"[yellow]Hint:[/yellow] Engine '{name}' is not reachable.\n"
         f"  Make sure the {name} server is running.\n"
         "  Run [bold]jarvis doctor[/bold] to check all engines.\n"
-        "  Run [bold]jarvis quickstart[/bold] for guided setup."
+        "  Run [bold]jarvis quickstart[/bold] for guided setup.\n"
+        "\n"
+        "  [dim]To use a remote engine:[/dim]\n"
+        f"    [cyan]jarvis config set engine.{name}.host http://<remote-ip>:<port>[/cyan]\n"
+        f"    [dim]or[/dim] [cyan]export OLLAMA_HOST=http://<remote-ip>:11434[/cyan]"
     )
 
 
@@ -36,6 +40,6 @@ def hint_no_model(model_name: Optional[str] = None) -> str:
         )
     return (
         "[yellow]Hint:[/yellow] No models available.\n"
-        "  Pull a model first: [bold]ollama pull qwen3.5:3b[/bold]\n"
+        "  Pull a model first: [bold]ollama pull qwen3.5:2b[/bold]\n"
         "  Run [bold]jarvis model list[/bold] to see available models."
     )

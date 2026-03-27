@@ -67,10 +67,10 @@ export default function App() {
         .then((data) => {
           setSavings(data);
           if (optInEnabled && optInDisplayName && data) {
-            const dollarSavings = data.per_provider.reduce(
-              (sum, p) => sum + p.total_cost,
-              0,
+            const claudeEntry = data.per_provider.find(
+              (p) => p.provider === 'claude-opus-4.6',
             );
+            const dollarSavings = claudeEntry ? claudeEntry.total_cost : 0;
             const energySaved = data.per_provider.reduce(
               (sum, p) => sum + (p.energy_wh || 0),
               0,

@@ -119,17 +119,15 @@ class AgentStreamBridge:
             from openjarvis.core.types import Message, Role
 
             for m in self._request.messages[:-1]:
-                role = (
-                    Role(m.role)
-                    if m.role in {r.value for r in Role}
-                    else Role.USER
+                role = Role(m.role) if m.role in {r.value for r in Role} else Role.USER
+                ctx.conversation.add(
+                    Message(
+                        role=role,
+                        content=m.content or "",
+                        name=m.name,
+                        tool_call_id=m.tool_call_id,
+                    )
                 )
-                ctx.conversation.add(Message(
-                    role=role,
-                    content=m.content or "",
-                    name=m.name,
-                    tool_call_id=m.tool_call_id,
-                ))
 
         input_text = (
             self._request.messages[-1].content if self._request.messages else ""
@@ -166,9 +164,11 @@ class AgentStreamBridge:
             first_chunk = ChatCompletionChunk(
                 id=self._chunk_id,
                 model=self._model,
-                choices=[StreamChoice(
-                    delta=DeltaMessage(role="assistant"),
-                )],
+                choices=[
+                    StreamChoice(
+                        delta=DeltaMessage(role="assistant"),
+                    )
+                ],
             )
             yield f"data: {first_chunk.model_dump_json()}\n\n"
 
@@ -202,18 +202,18 @@ class AgentStreamBridge:
                         "Please try a shorter message."
                     )
                 elif "400" in error_str:
-                    error_content = (
-                        f"The model returned an error: {error_str}"
-                    )
+                    error_content = f"The model returned an error: {error_str}"
                 else:
                     error_content = f"Sorry, an error occurred: {error_str}"
                 error_chunk = ChatCompletionChunk(
                     id=self._chunk_id,
                     model=self._model,
-                    choices=[StreamChoice(
-                        delta=DeltaMessage(content=error_content),
-                        finish_reason="stop",
-                    )],
+                    choices=[
+                        StreamChoice(
+                            delta=DeltaMessage(content=error_content),
+                            finish_reason="stop",
+                        )
+                    ],
                 )
                 yield f"data: {error_chunk.model_dump_json()}\n\n"
                 yield "data: [DONE]\n\n"
@@ -222,31 +222,88 @@ class AgentStreamBridge:
             # Emit tool results metadata if any
             tool_results_data = []
             for tr in agent_result.tool_results:
-                tool_results_data.append({
-                    "tool_name": tr.tool_name,
-                    "success": tr.success,
-                    "output": tr.content,
-                    "latency_ms": tr.latency_seconds * 1000,
-                })
+                tool_results_data.append(
+                    {
+                        "tool_name": tr.tool_name,
+                        "success": tr.success,
+                        "output": tr.content,
+                        "latency_ms": tr.latency_seconds * 1000,
+                    }
+                )
 
             if tool_results_data:
                 yield self._format_named_event(
-                    "tool_results", {"results": tool_results_data},
+                    "tool_results",
+                    {"results": tool_results_data},
                 )
 
-            # Stream content progressively (word-by-word) for a
-            # real-time feel, then send a final chunk with usage.
+            # Stream content using real LLM token streaming via
+            # engine.stream_full() when the engine is available.
             content = agent_result.content or ""
-            if content:
+            engine = getattr(self._agent, "_engine", None)
+            used_real_streaming = False
+
+            if engine is not None and hasattr(engine, "stream_full") and content:
+                # Re-stream using the engine for real token delivery.
+                # Build the same messages the agent used for its final turn.
+                try:
+                    from openjarvis.core.types import Message as MsgType
+                    from openjarvis.core.types import Role as RoleType
+
+                    replay_messages = []
+                    for m in self._request.messages:
+                        role = (
+                            RoleType(m.role)
+                            if m.role in {r.value for r in RoleType}
+                            else RoleType.USER
+                        )
+                        replay_messages.append(
+                            MsgType(
+                                role=role,
+                                content=m.content or "",
+                                name=m.name,
+                                tool_call_id=m.tool_call_id,
+                            )
+                        )
+
+                    async for sc in engine.stream_full(
+                        replay_messages,
+                        model=self._model,
+                    ):
+                        if sc.content:
+                            chunk = ChatCompletionChunk(
+                                id=self._chunk_id,
+                                model=self._model,
+                                choices=[
+                                    StreamChoice(
+                                        delta=DeltaMessage(content=sc.content),
+                                    )
+                                ],
+                            )
+                            yield f"data: {chunk.model_dump_json()}\n\n"
+                    used_real_streaming = True
+                except Exception as stream_exc:
+                    import logging as _logging
+
+                    _logger = _logging.getLogger("openjarvis.server")
+                    _logger.warning(
+                        "Real streaming failed, falling back to word replay: %s",
+                        stream_exc,
+                    )
+
+            # Fallback: word-by-word replay if real streaming was not used
+            if not used_real_streaming and content:
                 words = content.split(" ")
                 for i, word in enumerate(words):
                     token = word if i == 0 else " " + word
                     chunk = ChatCompletionChunk(
                         id=self._chunk_id,
                         model=self._model,
-                        choices=[StreamChoice(
-                            delta=DeltaMessage(content=token),
-                        )],
+                        choices=[
+                            StreamChoice(
+                                delta=DeltaMessage(content=token),
+                            )
+                        ],
                     )
                     yield f"data: {chunk.model_dump_json()}\n\n"
                     await asyncio.sleep(0.012)
@@ -254,7 +311,8 @@ class AgentStreamBridge:
             # Final chunk: finish_reason + usage
             prompt_tokens = agent_result.metadata.get("prompt_tokens", 0)
             completion_tokens = agent_result.metadata.get(
-                "completion_tokens", 0,
+                "completion_tokens",
+                0,
             )
             total_tokens = agent_result.metadata.get("total_tokens", 0)
             if total_tokens == 0:
@@ -266,10 +324,12 @@ class AgentStreamBridge:
             final_chunk = ChatCompletionChunk(
                 id=self._chunk_id,
                 model=self._model,
-                choices=[StreamChoice(
-                    delta=DeltaMessage(),
-                    finish_reason="stop",
-                )],
+                choices=[
+                    StreamChoice(
+                        delta=DeltaMessage(),
+                        finish_reason="stop",
+                    )
+                ],
             )
             final_data = json.loads(final_chunk.model_dump_json())
             final_data["usage"] = UsageInfo(

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 import click
+import httpx
 from rich.console import Console
 from rich.panel import Panel
 from rich.syntax import Syntax
@@ -272,6 +274,102 @@ def hardware() -> None:
 
 # Register the show group under config
 config.add_command(show_group, "show")
+
+
+def _probe_engine_host(url: str, console: Console) -> None:
+    """Probe an engine host URL and print reachability status."""
+    try:
+        resp = httpx.get(url.rstrip("/") + "/", timeout=2.0)
+        if resp.status_code < 500:
+            console.print(f"  [green]Reachable[/green] ({url})")
+        else:
+            console.print(
+                f"  [yellow]Warning:[/yellow] Host returned status "
+                f"{resp.status_code} — config saved anyway."
+            )
+    except Exception:
+        console.print(
+            f"  [yellow]Warning:[/yellow] Host unreachable ({url}) "
+            f"— config saved anyway."
+        )
+
+
+def _coerce_value(value: str, target_type: type) -> object:
+    """Coerce a CLI string value to the target Python type."""
+    if target_type is bool:
+        low = value.lower()
+        if low in ("true", "1", "yes"):
+            return True
+        if low in ("false", "0", "no"):
+            return False
+        raise ValueError(
+            f"Invalid boolean value: {value!r} (expected: true/false, yes/no, 1/0)"
+        )
+    if target_type is int:
+        return int(value)
+    if target_type is float:
+        return float(value)
+    return value
+
+
+@click.command("set")
+@click.argument("key")
+@click.argument("value")
+def set_config(key: str, value: str) -> None:
+    """Set a configuration value (e.g. jarvis config set engine.ollama.host URL)."""
+    import tomlkit
+
+    from openjarvis.core.config import DEFAULT_CONFIG_DIR, validate_config_key
+
+    console = Console(stderr=True)
+
+    # Validate key
+    try:
+        target_type = validate_config_key(key)
+    except ValueError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise SystemExit(1)
+
+    # Coerce value
+    try:
+        typed_value = _coerce_value(value, target_type)
+    except (ValueError, TypeError) as exc:
+        console.print(
+            f"[red]Error:[/red] Cannot convert {value!r} to "
+            f"{target_type.__name__}: {exc}"
+        )
+        raise SystemExit(1)
+
+    # Load or create TOML document
+    config_path = Path(
+        os.environ.get("OPENJARVIS_CONFIG", DEFAULT_CONFIG_DIR / "config.toml")
+    )
+    if config_path.exists():
+        doc = tomlkit.parse(config_path.read_text())
+    else:
+        doc = tomlkit.document()
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Set nested key
+    parts = key.split(".")
+    current = doc
+    for part in parts[:-1]:
+        if part not in current:
+            current.add(part, tomlkit.table())
+        current = current[part]
+    current[parts[-1]] = typed_value
+
+    # Write back
+    config_path.write_text(tomlkit.dumps(doc))
+
+    console.print(f"[green]Set[/green] {key} = {value!r}")
+
+    # Probe engine host if applicable
+    if re.match(r"^engine\.\w+\.host$", key):
+        _probe_engine_host(value, console)
+
+
+config.add_command(set_config, "set")
 
 
 __all__ = ["config"]

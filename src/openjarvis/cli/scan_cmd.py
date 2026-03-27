@@ -19,11 +19,24 @@ _CLOUD_SYNC_PROCS = ["Dropbox", "OneDrive", "Google Drive", "iCloudDrive"]
 
 # Screen-recording / remote-access processes (macOS).
 _SCREEN_RECORDING_PROCS = [
-    "TeamViewer", "AnyDesk", "ScreenConnect", "vncviewer", "Vine"
+    "TeamViewer",
+    "AnyDesk",
+    "ScreenConnect",
+    "vncviewer",
+    "Vine",
 ]
 
-# Remote-access processes (Linux).
-_REMOTE_ACCESS_PROCS = ["xrdp", "x11vnc", "vncserver", "AnyDesk"]
+# Remote-access processes (cross-platform).
+_REMOTE_ACCESS_PROCS = [
+    "xrdp",
+    "x11vnc",
+    "vncserver",
+    "AnyDesk",
+    "ngrok",
+    "tailscaled",
+    "cloudflared",
+    "ZeroTier",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -295,12 +308,83 @@ class PrivacyScanner:
         )
 
     def check_remote_access(self) -> ScanResult:
-        """Check for running remote-access processes (Linux)."""
+        """Check for running remote-access / tunneling processes."""
         return self._check_processes(
             names=_REMOTE_ACCESS_PROCS,
             check_name="Remote Access",
             warn_msg="{name} is running — system may be accessible remotely.",
-            platform="linux",
+            platform="all",
+        )
+
+    def check_dns(self) -> ScanResult:
+        """Check DNS configuration for encrypted resolvers (macOS)."""
+        if sys.platform != "darwin":
+            return ScanResult(
+                name="DNS Configuration",
+                status="skip",
+                message="DNS check not yet implemented for this platform.",
+                platform="darwin",
+            )
+        try:
+            proc = self._run(["scutil", "--dns"])
+            output = proc.stdout
+        except Exception:
+            return ScanResult(
+                name="DNS Configuration",
+                status="skip",
+                message="scutil command not available.",
+                platform="darwin",
+            )
+
+        _DOH_INDICATORS = [
+            "dns-over-https",
+            "dns-over-tls",
+            "encrypted",
+            "doh",
+            "dot",
+        ]
+        if any(ind in output.lower() for ind in _DOH_INDICATORS):
+            return ScanResult(
+                name="DNS Configuration",
+                status="ok",
+                message="Encrypted DNS (DoH/DoT) appears to be active.",
+                platform="darwin",
+            )
+
+        # Extract nameserver IPs
+        nameservers: list[str] = []
+        for line in output.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("nameserver["):
+                parts = stripped.split(":", 1)
+                if len(parts) == 2:
+                    nameservers.append(parts[1].strip())
+
+        if not nameservers:
+            return ScanResult(
+                name="DNS Configuration",
+                status="ok",
+                message="Could not parse DNS nameservers from scutil output.",
+                platform="darwin",
+            )
+
+        _PLAIN_DNS = {"8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1", "9.9.9.9"}
+        plain = [ns for ns in nameservers if ns in _PLAIN_DNS]
+        if plain:
+            return ScanResult(
+                name="DNS Configuration",
+                status="warn",
+                message=(
+                    f"Plain DNS in use ({', '.join(plain)}). "
+                    "Queries may be visible to your ISP or resolver."
+                ),
+                platform="darwin",
+            )
+        return ScanResult(
+            name="DNS Configuration",
+            status="ok",
+            message=f"DNS resolvers: {', '.join(nameservers[:3])}.",
+            platform="darwin",
         )
 
     # -- Orchestration -------------------------------------------------------
@@ -315,6 +399,7 @@ class PrivacyScanner:
             self.check_luks,
             self.check_screen_recording,
             self.check_remote_access,
+            self.check_dns,
         ]
 
     def run_all(self) -> list[ScanResult]:
@@ -350,37 +435,88 @@ class PrivacyScanner:
 # CLI command
 # ---------------------------------------------------------------------------
 
-_STATUS_ICONS = {"ok": "✓", "warn": "!", "fail": "✗", "skip": "-"}
+_RICH_ICONS = {
+    "ok": "[green]\u2713[/green]",
+    "warn": "[yellow]![/yellow]",
+    "fail": "[red]\u2717[/red]",
+    "skip": "[dim]-[/dim]",
+}
+
+
+def _render_results(results: List[ScanResult]) -> None:
+    """Render scan results as a Rich table."""
+    from rich.console import Console
+    from rich.table import Table
+
+    console = Console()
+    console.print()
+    console.print("[bold]OpenJarvis Security Scan[/bold]")
+    console.print()
+
+    table = Table(show_header=True, header_style="bold", show_lines=True)
+    table.add_column("", width=3, justify="center")
+    table.add_column("Check")
+    table.add_column("Finding")
+
+    for r in results:
+        icon = _RICH_ICONS.get(r.status, "?")
+        style = {"ok": "green", "warn": "yellow", "fail": "red"}.get(r.status, "white")
+        table.add_row(icon, r.name, f"[{style}]{r.message}[/{style}]")
+
+    console.print(table)
+
+    ok_count = sum(1 for r in results if r.status == "ok")
+    warn_count = sum(1 for r in results if r.status == "warn")
+    fail_count = sum(1 for r in results if r.status == "fail")
+
+    console.print()
+    parts = [f"[green]{ok_count} ok[/green]"]
+    if warn_count:
+        parts.append(f"[yellow]{warn_count} warning(s)[/yellow]")
+    if fail_count:
+        parts.append(f"[red]{fail_count} issue(s)[/red]")
+    console.print("  " + ", ".join(parts))
+    console.print()
+
+    if fail_count:
+        console.print(
+            "[red bold]Action required:[/red bold] address critical findings "
+            "before storing sensitive data with OpenJarvis."
+        )
+        console.print()
+    elif warn_count:
+        console.print(
+            "[yellow]Review warnings above[/yellow] — they may not block "
+            "usage but could affect your privacy posture."
+        )
+        console.print()
 
 
 @click.command()
 @click.option("--quick", is_flag=True, default=False, help="Run only critical checks.")
-def scan(quick: bool) -> None:
+@click.option("--json", "as_json", is_flag=True, default=False, help="Output as JSON.")
+def scan(quick: bool, as_json: bool) -> None:
     """Audit your environment for privacy and security risks."""
     scanner = PrivacyScanner()
     results: List[ScanResult] = scanner.run_quick() if quick else scanner.run_all()
+
+    if as_json:
+        import json as json_mod
+
+        output = [
+            {
+                "name": r.name,
+                "status": r.status,
+                "message": r.message,
+                "platform": r.platform,
+            }
+            for r in results
+        ]
+        click.echo(json_mod.dumps(output, indent=2))
+        return
 
     if not results:
         click.echo("No applicable checks for this platform.")
         return
 
-    warnings = 0
-    failures = 0
-    for r in results:
-        icon = _STATUS_ICONS.get(r.status, "?")
-        click.echo(f"  [{icon}] {r.name}: {r.message}")
-        if r.status == "warn":
-            warnings += 1
-        elif r.status == "fail":
-            failures += 1
-
-    click.echo("")
-    parts = []
-    if warnings:
-        parts.append(f"{warnings} warning(s)")
-    if failures:
-        parts.append(f"{failures} issue(s)")
-    if parts:
-        click.echo("Summary: " + ", ".join(parts) + ".")
-    else:
-        click.echo("Summary: all checks passed.")
+    _render_results(results)

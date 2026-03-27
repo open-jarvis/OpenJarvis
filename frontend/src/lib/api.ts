@@ -100,6 +100,12 @@ export async function fetchModels(): Promise<ModelInfo[]> {
   return data.data || [];
 }
 
+export async function fetchRecommendedModel(): Promise<{ model: string; reason: string }> {
+  const res = await fetch(`${getBase()}/v1/recommended-model`);
+  if (!res.ok) return { model: '', reason: 'Failed to fetch' };
+  return res.json();
+}
+
 export async function pullModel(modelName: string): Promise<void> {
   // In Tauri, go through the Rust backend directly (avoids CORS / timeout
   // issues with long model downloads via fetch).
@@ -296,6 +302,8 @@ export interface ManagedAgent {
   total_runs?: number;
   total_cost?: number;
   total_tokens?: number;
+  input_tokens?: number;
+  output_tokens?: number;
   last_run_at?: number | null;
   // Schedule
   schedule_type?: string;
@@ -304,6 +312,8 @@ export interface ManagedAgent {
   budget?: number;
   // Learning
   learning_enabled?: boolean;
+  // Live progress
+  current_activity?: string;
 }
 
 export interface AgentTask {

@@ -47,6 +47,34 @@ class AgentExecutor:
         """Deferred system injection — called after JarvisSystem is constructed."""
         self._system = system
 
+    def _set_activity(self, agent_id: str, activity: str) -> None:
+        """Update the agent's current_activity for progress visibility."""
+        try:
+            self._manager.update_agent(agent_id, current_activity=activity)
+        except Exception:
+            pass  # Non-critical
+
+    def _inject_tool_deps(self, tool: Any) -> None:
+        """Inject runtime dependencies into a tool instance.
+
+        Mirrors SystemBuilder._inject_tool_deps (system.py:920-945)
+        but uses the lightweight system's references.
+        """
+        if self._system is None:
+            return
+        name = getattr(getattr(tool, "spec", None), "name", "")
+        if name == "llm":
+            if hasattr(tool, "_engine"):
+                tool._engine = self._system.engine
+            if hasattr(tool, "_model"):
+                tool._model = self._system.model
+        elif name == "retrieval" or name.startswith("memory_"):
+            if hasattr(tool, "_backend"):
+                tool._backend = getattr(self._system, "memory_backend", None)
+        elif name.startswith("channel_"):
+            if hasattr(tool, "_channel"):
+                tool._channel = getattr(self._system, "channel_backend", None)
+
     def run_ephemeral(
         self,
         agent_type: str,
@@ -75,6 +103,7 @@ class AgentExecutor:
         """
         try:
             self._manager.start_tick(agent_id)
+            self._set_activity(agent_id, "Preparing tick...")
         except ValueError:
             logger.warning("Agent %s already running, skipping tick", agent_id)
             return
@@ -203,6 +232,13 @@ class AgentExecutor:
         if not model:
             raise FatalError("No model configured for agent")
 
+        logger.info(
+            "Agent %s [%s]: using model=%s, engine=%s",
+            agent["name"], agent["id"],
+            model, type(engine).__name__,
+        )
+        self._set_activity(agent["id"], f"Loading model {model}...")
+
         # Optionally override model via router policy
         router_policy_key = config.get("router_policy")
         if router_policy_key and self._system:
@@ -224,12 +260,44 @@ class AgentExecutor:
             except Exception:
                 pass  # Fall back to configured model
 
-        # Construct agent instance (BaseAgent requires engine, model as positional args)
+        # Resolve tools from config via ToolRegistry
+        tool_names = config.get("tools", [])
+        if isinstance(tool_names, str):
+            tool_names = [t.strip() for t in tool_names.split(",") if t.strip()]
+
+        tool_instances: list[Any] = []
+        if tool_names:
+            try:
+                from openjarvis.server.agent_manager_routes import (
+                    _ensure_registries_populated,
+                )
+
+                _ensure_registries_populated()
+            except ImportError:
+                pass
+            from openjarvis.core.registry import ToolRegistry
+
+            for tname in tool_names:
+                if ToolRegistry.contains(tname):
+                    try:
+                        tool_cls = ToolRegistry.get(tname)
+                        tool = tool_cls()
+                        self._inject_tool_deps(tool)
+                        tool_instances.append(tool)
+                    except Exception:
+                        logger.warning("Failed to instantiate tool %s", tname)
+            if tool_instances:
+                logger.info(
+                    "Agent %s: resolved %d/%d tools",
+                    agent["name"], len(tool_instances), len(tool_names),
+                )
+
+        # Construct agent instance
         agent_instance = agent_cls(
             engine,
             model,
             system_prompt=config.get("system_prompt"),
-            tools=[],
+            tools=tool_instances,
         )
 
         # Build input from instruction + summary_memory + pending messages
@@ -247,6 +315,20 @@ class AgentExecutor:
             input_text = f"{input_text}\n\nNew instructions:\n{user_msgs}"
             for m in pending:
                 self._manager.mark_message_delivered(m["id"])
+            logger.info(
+                "Agent %s: delivering %d pending message(s)",
+                agent["name"], len(pending),
+            )
+            self._set_activity(
+                agent["id"],
+                f"Delivering {len(pending)} message(s)...",
+            )
+        else:
+            logger.info(
+                "Agent %s: no pending messages, running with "
+                "instruction only",
+                agent["name"],
+            )
 
         # Build AgentContext with memory results from FTS5 backend
         from openjarvis.agents._stubs import AgentContext
@@ -298,7 +380,36 @@ class AgentExecutor:
                 pass  # Don't break agent tick if memory retrieval fails
 
         agent_ctx.memory_results = memory_results
-        return agent_instance.run(input_text, context=agent_ctx)
+        self._set_activity(agent["id"], "Generating response...")
+        logger.info(
+            "Agent %s: calling agent.run() with %d chars input",
+            agent["name"], len(input_text),
+        )
+        _t0 = time.time()
+        result = agent_instance.run(input_text, context=agent_ctx)
+
+        # Retry once if the model returned empty content (common with
+        # Qwen3.5 thinking mode consuming all tokens).
+        if not (result.content or "").strip():
+            self._set_activity(
+                agent["id"], "Retrying (empty response)...",
+            )
+            logger.warning(
+                "Agent %s: empty content, retrying once",
+                agent["name"],
+            )
+            result = agent_instance.run(input_text, context=agent_ctx)
+
+        _elapsed = time.time() - _t0
+        logger.info(
+            "Agent %s: agent.run() completed in %.1fs, "
+            "content_len=%d, turns=%d, tokens=%s",
+            agent["name"], _elapsed,
+            len(result.content or ""),
+            result.turns,
+            result.metadata.get("total_tokens", "?"),
+        )
+        return result
 
     def _build_error_detail(self, error: AgentTickError) -> dict[str, Any]:
         """Build structured error detail for trace metadata."""
@@ -334,18 +445,37 @@ class AgentExecutor:
         duration: float,
     ) -> None:
         """Update agent state after tick completion or failure."""
+        self._set_activity(agent_id, "Finalizing...")
         if error is None:
             # Success
+            logger.info(
+                "Tick succeeded for agent %s in %.1fs, "
+                "response_len=%d",
+                agent_id, duration,
+                len(result.content or "") if result else 0,
+            )
             self._manager.end_tick(agent_id)
             self._manager.update_agent(agent_id, total_runs_increment=1)
 
             # Accumulate budget metrics from AgentResult metadata
             if result:
-                tokens = result.metadata.get("tokens_used", 0)
+                tokens = (
+                    result.metadata.get("total_tokens")
+                    or result.metadata.get("tokens_used")
+                    or 0
+                )
+                in_tokens = result.metadata.get("prompt_tokens", 0)
+                out_tokens = result.metadata.get(
+                    "completion_tokens", 0,
+                )
                 cost = result.metadata.get("cost", 0.0)
                 budget_kwargs: dict[str, Any] = {"stall_retries": 0}
                 if tokens > 0:
                     budget_kwargs["total_tokens_increment"] = tokens
+                if in_tokens > 0:
+                    budget_kwargs["input_tokens_increment"] = in_tokens
+                if out_tokens > 0:
+                    budget_kwargs["output_tokens_increment"] = out_tokens
                 if cost > 0:
                     budget_kwargs["total_cost_increment"] = cost
                 self._manager.update_agent(agent_id, **budget_kwargs)
@@ -381,6 +511,10 @@ class AgentExecutor:
                 "status": "ok",
             })
         elif isinstance(error, EscalateError):
+            logger.warning(
+                "Tick escalated for agent %s after %.1fs: %s",
+                agent_id, duration, error,
+            )
             self._manager.end_tick(agent_id)
             self._manager.update_agent(agent_id, status="needs_attention")
             self._bus.publish(EventType.AGENT_TICK_ERROR, {
@@ -390,6 +524,10 @@ class AgentExecutor:
                 "duration": duration,
             })
         else:
+            logger.error(
+                "Tick failed for agent %s after %.1fs: %s",
+                agent_id, duration, error, exc_info=error,
+            )
             self._manager.end_tick(agent_id)
             self._manager.update_agent(agent_id, status="error")
             # Write error detail to summary_memory so frontend can display it

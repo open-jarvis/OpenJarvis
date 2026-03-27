@@ -114,10 +114,15 @@ class FileReadTool(BaseTool):
                 content=f"File too large: {size} bytes (max {_MAX_SIZE_BYTES}).",
                 success=False,
             )
-        from openjarvis._rust_bridge import get_rust_module
-        _rust = get_rust_module()
         try:
+            from openjarvis._rust_bridge import get_rust_module
+            _rust = get_rust_module()
             text = _rust.FileReadTool().execute(str(path))
+        except ImportError:
+            try:
+                text = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                text = path.read_text(encoding="utf-8", errors="replace")
         except Exception as exc:
             return ToolResult(
                 tool_name="file_read",

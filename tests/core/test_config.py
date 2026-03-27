@@ -447,6 +447,41 @@ class TestSchedulerConfig:
 # ---------------------------------------------------------------------------
 
 
+class TestApplyTomlSectionListNormalization:
+    def test_apply_toml_section_list_to_str_field(self) -> None:
+        """TOML arrays assigned to str-typed fields should be joined with ','."""
+        from openjarvis.core.config import ToolsConfig, _apply_toml_section
+
+        target = ToolsConfig()
+        tools = ["code_interpreter", "web_search", "file_read"]
+        _apply_toml_section(target, {"enabled": tools})
+        assert isinstance(target.enabled, str)
+        assert target.enabled == "code_interpreter,web_search,file_read"
+
+    def test_apply_toml_section_list_to_property_setter(self) -> None:
+        """TOML arrays passed to backward-compat property setters should be
+        normalized to comma-separated strings, not passed as raw lists."""
+        from openjarvis.core.config import _apply_toml_section
+
+        target = LearningConfig()
+        _apply_toml_section(target, {
+            "reward_weights": ["accuracy=0.8", "latency=0.2"],
+        })
+        assert target.metrics.accuracy_weight == 0.8
+        assert target.metrics.latency_weight == 0.2
+
+    def test_apply_toml_section_agent_tools_list(self) -> None:
+        """Agent tools should work as a TOML array."""
+        from openjarvis.core.config import _apply_toml_section
+
+        target = AgentConfig()
+        _apply_toml_section(target, {
+            "tools": ["web_search", "http_request", "file_read"],
+        })
+        assert isinstance(target.tools, str)
+        assert target.tools == "web_search,http_request,file_read"
+
+
 class TestWhatsAppBaileysChannelConfig:
     def test_defaults(self) -> None:
         wc = WhatsAppBaileysChannelConfig()

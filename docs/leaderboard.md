@@ -16,7 +16,7 @@ See how the OpenJarvis community saves money, energy, and compute by running AI 
     <div class="lb-stat-value" id="stat-members">—</div>
   </div>
   <div class="lb-stat-card">
-    <div class="lb-stat-label">Total Saved</div>
+    <div class="lb-stat-label">Total Saved*</div>
     <div class="lb-stat-value" id="stat-dollars">—</div>
   </div>
   <div class="lb-stat-card">
@@ -35,7 +35,7 @@ See how the OpenJarvis community saves money, energy, and compute by running AI 
       <tr>
         <th style="width:50px">#</th>
         <th>Name</th>
-        <th style="text-align:right">$ Saved</th>
+        <th style="text-align:right">$ Saved*</th>
         <th style="text-align:right">Energy (Wh)</th>
         <th style="text-align:right">FLOPs</th>
         <th style="text-align:right">Requests</th>
@@ -55,5 +55,5 @@ See how the OpenJarvis community saves money, energy, and compute by running AI 
 <div id="leaderboard-pagination" class="lb-pagination"></div>
 
 <p style="font-size:12px;opacity:0.6;margin-top:12px">
-*Dollar savings estimates assume local open-source models (e.g. Qwen, Nemotron, Kimi) produce roughly the same number of tokens per request, on average, as closed-source cloud models.
+*Dollar savings estimated vs. Claude Opus 4.6 API pricing ($5/1M input, $25/1M output tokens). Assumes local open-source models produce roughly the same number of tokens per request as cloud models.
 </p>

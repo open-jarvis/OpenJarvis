@@ -283,14 +283,25 @@ class NativeOpenHandsAgent(ToolUsingAgent):
         last_content = ""
         total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
+        # Build OpenAI-format tool schemas for native function calling
+        openai_tools = (
+            self._executor.get_openai_tools() if self._tools else []
+        )
+        # Side dict for Gemini thought_signatures (ToolCall uses slots)
+        _thought_sigs: dict[str, bytes] = {}
+
         for _turn in range(self._max_turns):
             turns += 1
             # Truncate before every generate call -- tool results may have
             # expanded the context beyond what the model supports.
             messages = self._truncate_if_needed(messages)
 
+            gen_kwargs: dict[str, Any] = {}
+            if openai_tools:
+                gen_kwargs["tools"] = openai_tools
+
             try:
-                result = self._generate(messages)
+                result = self._generate(messages, **gen_kwargs)
             except Exception as exc:
                 error_str = str(exc)
                 if "400" in error_str:
@@ -317,6 +328,46 @@ class NativeOpenHandsAgent(ToolUsingAgent):
             # Strip think tags so they don't interfere with parsing
             content = self._strip_think_tags(content)
             last_content = content
+
+            # --- Native function-calling path (OpenAI, Anthropic, etc.) ---
+            raw_tool_calls = result.get("tool_calls", [])
+            if raw_tool_calls:
+                native_calls = []
+                for i, tc in enumerate(raw_tool_calls):
+                    call = ToolCall(
+                        id=tc.get("id", f"call_{turns}_{i}"),
+                        name=tc.get("name", ""),
+                        arguments=tc.get("arguments", "{}"),
+                    )
+                    # Preserve thought_signature for Gemini reasoning
+                    sig = tc.get("thought_signature")
+                    if sig is not None:
+                        _thought_sigs[call.id] = sig
+                    native_calls.append(call)
+                messages.append(
+                    Message(
+                        role=Role.ASSISTANT,
+                        content=content,
+                        tool_calls=native_calls,
+                    )
+                )
+                for tc in native_calls:
+                    tool_result = self._executor.execute(tc)
+                    all_tool_results.append(tool_result)
+                    obs_text = tool_result.content
+                    if len(obs_text) > 4000:
+                        obs_text = obs_text[:4000] + "\n\n[Output truncated]"
+                    messages.append(
+                        Message(
+                            role=Role.TOOL,
+                            content=obs_text,
+                            tool_call_id=tc.id,
+                            name=tc.name,
+                        )
+                    )
+                continue
+
+            # --- Text-based fallback (CodeAct / Action-Input format) ---
 
             # Try to extract code
             code = self._extract_code(content)

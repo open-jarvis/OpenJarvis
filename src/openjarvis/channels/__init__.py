@@ -39,6 +39,8 @@ _CHANNEL_MODULES = [
     "twitch_channel",
     "nostr_channel",
     "twilio_sms",
+    "twitter",
+    "gmail",
 ]
 
 for _mod in _CHANNEL_MODULES:

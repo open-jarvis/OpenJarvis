@@ -143,6 +143,7 @@ nav:
   - Home: index.md
   - Getting Started:
       - Installation: getting-started/installation.md
+      - macOS Guide: getting-started/macos.md
       - Quick Start: getting-started/quickstart.md
       - Code Snippets: getting-started/snippets.md
       - Configuration: getting-started/configuration.md
@@ -163,5 +164,8 @@ nav:
       - Security: architecture/security.md
       - Design Principles: architecture/design-principles.md
   - API Reference: api-reference/
+  - User Guide:
+      - Tools: user-guide/tools.md
+      - External MCP Servers: user-guide/mcp-external-servers.md
   - Leaderboard: leaderboard.md
   - Roadmap: development/roadmap.md
