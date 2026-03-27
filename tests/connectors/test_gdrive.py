@@ -74,11 +74,11 @@ def test_not_connected(connector) -> None:
 
 
 def test_auth_url(connector) -> None:
-    """auth_url() returns a Google OAuth URL with drive.readonly scope."""
+    """auth_url() returns the credentials page when no client_id is stored."""
     url = connector.auth_url()
     assert isinstance(url, str)
-    assert url.startswith("https://accounts.google.com/o/oauth2/v2/auth")
-    assert "drive.readonly" in url
+    # Without a stored client_id, points to the Cloud Console credentials page
+    assert url == "https://console.cloud.google.com/apis/credentials"
 
 
 # ---------------------------------------------------------------------------
