@@ -251,6 +251,7 @@ class JarvisSystem:
                     "tool_name": tr.tool_name,
                     "content": tr.content,
                     "success": tr.success,
+                    "arguments": tr.metadata.get("arguments", {}),
                 }
                 for tr in getattr(result, "tool_results", [])
             ],

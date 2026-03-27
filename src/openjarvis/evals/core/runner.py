@@ -261,10 +261,29 @@ class EvalRunner:
                         **gen_kwargs,
                     )
                     full = full or {}
-                    # Store tool results for the scorer to build transcripts
-                    record.metadata["tool_results"] = full.get(
+                    all_tool_results = list(full.get(
                         "tool_results", [],
-                    )
+                    ))
+
+                    # Multi-session: execute remaining sessions
+                    sessions = record.metadata.get("sessions", [])
+                    if (
+                        record.metadata.get("multi_session")
+                        and len(sessions) > 1
+                    ):
+                        for session in sessions[1:]:
+                            prompt = session.get("prompt", "")
+                            if not prompt:
+                                continue
+                            sfull = self._backend.generate_full(
+                                prompt, **gen_kwargs,
+                            )
+                            sfull = sfull or {}
+                            all_tool_results.extend(
+                                sfull.get("tool_results", []),
+                            )
+
+                    record.metadata["tool_results"] = all_tool_results
                     # Score INSIDE context so workspace files still exist
                     content = full.get("content", "")
                     is_correct, scoring_meta = self._scorer.score(
