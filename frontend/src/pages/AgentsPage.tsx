@@ -1530,28 +1530,44 @@ export function AgentsPage() {
         {/* Tab: Overview */}
         {detailTab === 'overview' && (
           <div className="space-y-3">
-            {/* Stat cards — compact row */}
+            {/* Instruction */}
+            <AgentInstructionSection agent={selectedAgent} onAgentUpdated={refresh} />
+
+            {/* Configuration */}
+            <div
+              className="p-3 rounded-lg"
+              style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
+            >
+              <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--color-text)' }}>
+                Configuration
+              </h3>
+              <AgentConfigGrid agent={selectedAgent} onAgentUpdated={refresh} />
+              <div className="mt-2 pt-2" style={{ borderTop: '1px solid var(--color-border)' }}>
+                <span className="text-xs font-mono" style={{ color: 'var(--color-text-tertiary)' }}>
+                  ID: {selectedAgent.id}
+                </span>
+              </div>
+            </div>
+
+            {/* Usage stats */}
             <div className="grid grid-cols-3 gap-2">
               {[
-                { label: 'Total Queries', value: String(selectedAgent.total_runs ?? 0), icon: Activity, color: '#3b82f6' },
-                { label: 'Input Tokens', value: String(selectedAgent.input_tokens ?? 0), icon: Zap, color: '#22c55e' },
-                { label: 'Output Tokens', value: String(selectedAgent.output_tokens ?? 0), icon: Zap, color: '#f59e0b' },
-              ].map(({ label, value, icon: Icon, color }) => (
+                { label: 'Total Queries', value: String(selectedAgent.total_runs ?? 0) },
+                { label: 'Input Tokens', value: String(selectedAgent.input_tokens ?? 0) },
+                { label: 'Output Tokens', value: String(selectedAgent.output_tokens ?? 0) },
+              ].map(({ label, value }) => (
                 <div
                   key={label}
-                  className="p-3 rounded-lg flex items-center gap-3"
+                  className="p-2 rounded-lg text-center"
                   style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
                 >
-                  <Icon size={16} style={{ color, flexShrink: 0 }} />
-                  <div>
-                    <p className="text-base font-semibold leading-tight" style={{ color: 'var(--color-text)' }}>{value}</p>
-                    <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{label}</p>
-                  </div>
+                  <p className="text-lg font-bold leading-tight" style={{ color: 'var(--color-text)' }}>{value}</p>
+                  <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{label}</p>
                 </div>
               ))}
             </div>
 
-            {/* Per-agent savings estimate */}
+            {/* Per-agent savings */}
             {(() => {
               const inTok = selectedAgent.input_tokens ?? 0;
               const outTok = selectedAgent.output_tokens ?? 0;
@@ -1570,27 +1586,24 @@ export function AgentsPage() {
               const fmtFlops = flops >= 1e15 ? `${(flops / 1e15).toFixed(1)} PFLOPs` : `${(flops / 1e12).toFixed(1)} TFLOPs`;
               return (
                 <div>
-                  <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--color-text)' }}>
+                  <h3 className="text-sm font-semibold mb-1.5" style={{ color: 'var(--color-text)' }}>
                     Cloud Savings for Agent
                   </h3>
-                  <div className="grid grid-cols-3 gap-2">
-                    {/* Compute */}
-                    <div className="p-3 rounded-lg text-center" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}>
+                  <div className="flex gap-2">
+                    <div className="p-2 rounded-lg" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}>
                       <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Compute</p>
-                      <p className="text-base font-semibold" style={{ color: '#22c55e' }}>{fmtFlops}</p>
+                      <p className="text-sm font-semibold" style={{ color: '#22c55e' }}>{fmtFlops}</p>
                     </div>
-                    {/* Energy */}
-                    <div className="p-3 rounded-lg text-center" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}>
+                    <div className="p-2 rounded-lg" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}>
                       <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Energy</p>
-                      <p className="text-base font-semibold" style={{ color: '#22c55e' }}>{energyKj.toFixed(2)} kJ</p>
+                      <p className="text-sm font-semibold" style={{ color: '#22c55e' }}>{energyKj.toFixed(2)} kJ</p>
                     </div>
-                    {/* Dollar savings */}
-                    <div className="p-3 rounded-lg" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}>
-                      <p className="text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>Dollar Savings</p>
+                    <div className="p-2 rounded-lg flex-1" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}>
+                      <p className="text-xs mb-0.5" style={{ color: 'var(--color-text-tertiary)' }}>Dollar Savings</p>
                       {providers.map((p) => {
                         const cost = (inTok / 1e6) * p.inPer1M + (outTok / 1e6) * p.outPer1M;
                         return (
-                          <div key={p.label} className="flex justify-between text-xs">
+                          <div key={p.label} className="flex justify-between text-xs leading-snug">
                             <span style={{ color: 'var(--color-text-tertiary)' }}>{p.label}</span>
                             <span className="font-semibold" style={{ color: '#22c55e' }}>${cost.toFixed(4)}</span>
                           </div>
@@ -1601,25 +1614,6 @@ export function AgentsPage() {
                 </div>
               );
             })()}
-
-            {/* Instruction — separate section */}
-            <AgentInstructionSection agent={selectedAgent} onAgentUpdated={refresh} />
-
-            {/* Config display — tighter spacing */}
-            <div
-              className="p-3 rounded-lg"
-              style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
-            >
-              <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--color-text)' }}>
-                Configuration
-              </h3>
-              <AgentConfigGrid agent={selectedAgent} onAgentUpdated={refresh} />
-              <div className="mt-2 pt-2" style={{ borderTop: '1px solid var(--color-border)' }}>
-                <span className="text-xs font-mono" style={{ color: 'var(--color-text-tertiary)' }}>
-                  ID: {selectedAgent.id}
-                </span>
-              </div>
-            </div>
 
             {/* Channels summary */}
             {channels.length > 0 && (
