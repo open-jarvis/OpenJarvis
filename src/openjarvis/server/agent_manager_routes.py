@@ -207,6 +207,41 @@ def build_tools_list() -> List[Dict[str, Any]]:
     return items
 
 
+def _build_deep_research_tools(
+    engine: Any,
+    model: str,
+    knowledge_db_path: str = "",
+) -> list:
+    """Build the 4 DeepResearch tools from a KnowledgeStore.
+
+    Returns an empty list if the knowledge DB does not exist.
+    """
+    from pathlib import Path
+
+    if not knowledge_db_path:
+        from openjarvis.core.config import DEFAULT_CONFIG_DIR
+        knowledge_db_path = str(DEFAULT_CONFIG_DIR / "knowledge.db")
+
+    if not Path(knowledge_db_path).exists():
+        return []
+
+    from openjarvis.connectors.retriever import TwoStageRetriever
+    from openjarvis.connectors.store import KnowledgeStore
+    from openjarvis.tools.knowledge_search import KnowledgeSearchTool
+    from openjarvis.tools.knowledge_sql import KnowledgeSQLTool
+    from openjarvis.tools.scan_chunks import ScanChunksTool
+    from openjarvis.tools.think import ThinkTool
+
+    store = KnowledgeStore(knowledge_db_path)
+    retriever = TwoStageRetriever(store)
+    return [
+        KnowledgeSearchTool(retriever=retriever),
+        KnowledgeSQLTool(store=store),
+        ScanChunksTool(store=store, engine=engine, model=model),
+        ThinkTool(),
+    ]
+
+
 async def _stream_managed_agent(
     *,
     manager: AgentManager,
@@ -261,6 +296,12 @@ async def _stream_managed_agent(
         agent_kwargs["max_tokens"] = config["max_tokens"]
     if config.get("max_turns") is not None:
         agent_kwargs["max_turns"] = config["max_turns"]
+
+    # Build DeepResearch tools when applicable
+    if agent_type == "deep_research":
+        dr_tools = _build_deep_research_tools(engine=engine, model=model)
+        if dr_tools:
+            agent_kwargs["tools"] = dr_tools
 
     try:
         agent = agent_cls(**agent_kwargs)
