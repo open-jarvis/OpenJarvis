@@ -1566,38 +1566,39 @@ export function AgentsPage() {
               const energyKj = energyWh * 3.6;
               const fmtFlops = flops >= 1e15 ? `${(flops / 1e15).toFixed(1)} PFLOPs` : `${(flops / 1e12).toFixed(1)} TFLOPs`;
               const hasSavings = inTok + outTok > 0;
-              const boxStyle = { background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' };
               return (
-                <div>
-                  <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--color-text)' }}>Cloud Savings for Agent</h3>
-                  <div className="flex gap-2 flex-wrap">
-                    <div className="px-3 py-1.5 rounded-lg" style={boxStyle}>
-                      <p className="text-sm font-bold" style={{ color: 'var(--color-text)' }}>{selectedAgent.total_runs ?? 0}</p>
-                      <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Total Queries</p>
+                <div className="p-4 rounded-xl" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}>
+                  <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--color-text)' }}>Cloud Savings for Agent</h3>
+                  <div className="flex gap-5 flex-wrap items-start">
+                    <div>
+                      <p className="text-xl font-bold leading-none" style={{ color: 'var(--color-text)' }}>{selectedAgent.total_runs ?? 0}</p>
+                      <p className="text-xs mt-1" style={{ color: 'var(--color-text-tertiary)' }}>Total Queries</p>
                     </div>
-                    <div className="px-3 py-1.5 rounded-lg" style={boxStyle}>
-                      <p className="text-sm font-bold" style={{ color: 'var(--color-text)' }}>{inTok}</p>
-                      <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Input Tokens</p>
+                    <div>
+                      <p className="text-xl font-bold leading-none" style={{ color: 'var(--color-text)' }}>{inTok.toLocaleString()}</p>
+                      <p className="text-xs mt-1" style={{ color: 'var(--color-text-tertiary)' }}>Input Tokens</p>
                     </div>
-                    <div className="px-3 py-1.5 rounded-lg" style={boxStyle}>
-                      <p className="text-sm font-bold" style={{ color: 'var(--color-text)' }}>{outTok}</p>
-                      <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Output Tokens</p>
+                    <div>
+                      <p className="text-xl font-bold leading-none" style={{ color: 'var(--color-text)' }}>{outTok.toLocaleString()}</p>
+                      <p className="text-xs mt-1" style={{ color: 'var(--color-text-tertiary)' }}>Output Tokens</p>
                     </div>
                     {hasSavings && (<>
-                      <div className="px-3 py-1.5 rounded-lg" style={boxStyle}>
-                        <p className="text-sm font-bold" style={{ color: '#22c55e' }}>{fmtFlops}</p>
-                        <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Compute</p>
+                      <div style={{ width: 1, background: 'var(--color-border)', alignSelf: 'stretch', minHeight: 32 }} />
+                      <div>
+                        <p className="text-xl font-bold leading-none" style={{ color: '#22c55e' }}>{fmtFlops}</p>
+                        <p className="text-xs mt-1" style={{ color: 'var(--color-text-tertiary)' }}>Compute</p>
                       </div>
-                      <div className="px-3 py-1.5 rounded-lg" style={boxStyle}>
-                        <p className="text-sm font-bold" style={{ color: '#22c55e' }}>{energyKj.toFixed(2)} kJ</p>
-                        <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Energy</p>
+                      <div>
+                        <p className="text-xl font-bold leading-none" style={{ color: '#22c55e' }}>{energyKj.toFixed(2)} kJ</p>
+                        <p className="text-xs mt-1" style={{ color: 'var(--color-text-tertiary)' }}>Energy</p>
                       </div>
+                      <div style={{ width: 1, background: 'var(--color-border)', alignSelf: 'stretch', minHeight: 32 }} />
                       {providers.map((p) => {
                         const cost = (inTok / 1e6) * p.inPer1M + (outTok / 1e6) * p.outPer1M;
                         return (
-                          <div key={p.label} className="px-3 py-1.5 rounded-lg" style={boxStyle}>
-                            <p className="text-sm font-bold" style={{ color: '#22c55e' }}>${cost.toFixed(4)}</p>
-                            <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{p.label}</p>
+                          <div key={p.label}>
+                            <p className="text-xl font-bold leading-none" style={{ color: '#22c55e' }}>${cost.toFixed(4)}</p>
+                            <p className="text-xs mt-1" style={{ color: 'var(--color-text-tertiary)' }}>{p.label}</p>
                           </div>
                         );
                       })}
