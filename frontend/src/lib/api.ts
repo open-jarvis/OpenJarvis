@@ -100,6 +100,12 @@ export async function fetchModels(): Promise<ModelInfo[]> {
   return data.data || [];
 }
 
+export async function fetchRecommendedModel(): Promise<{ model: string; reason: string }> {
+  const res = await fetch(`${getBase()}/v1/recommended-model`);
+  if (!res.ok) return { model: '', reason: 'Failed to fetch' };
+  return res.json();
+}
+
 export async function pullModel(modelName: string): Promise<void> {
   // In Tauri, go through the Rust backend directly (avoids CORS / timeout
   // issues with long model downloads via fetch).
