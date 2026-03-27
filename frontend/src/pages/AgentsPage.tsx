@@ -1070,30 +1070,34 @@ function ChannelsTab({ agentId }: { agentId: string }) {
         <div style={{
           display: 'grid',
           gridTemplateColumns: '1fr 1fr',
-          gap: 8, marginBottom: 12,
+          gap: 6, marginBottom: 12,
         }}>
-          {connected.map((c) => (
+          {connected.map((c) => {
+            const meta = SOURCE_CATALOG.find(s => s.connector_id === c.connector_id);
+            const unit = meta?.unitLabel || 'items';
+            return (
             <div
               key={c.connector_id}
               style={{
                 background: 'var(--color-bg-secondary)',
                 border: '1px solid #2a5a3a',
-                borderRadius: 6, padding: '10px 12px',
+                borderRadius: 6, padding: '12px 14px',
                 display: 'flex', alignItems: 'center', gap: 8,
               }}
             >
-              <span>{iconMap[c.connector_id] || '\uD83D\uDD17'}</span>
+              <span style={{ fontSize: 20 }}>{iconMap[c.connector_id] || '\uD83D\uDD17'}</span>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 12, fontWeight: 500 }}>
+                <div style={{ fontSize: 14, fontWeight: 600 }}>
                   {c.display_name}
                 </div>
-                <div style={{ fontSize: 10, color: '#4ade80' }}>
-                  {c.chunks.toLocaleString()} chunks
+                <div style={{ fontSize: 12, color: '#4ade80' }}>
+                  {c.chunks.toLocaleString()} {unit}
                 </div>
               </div>
               <span style={{ color: '#4ade80', fontSize: 12 }}>{'\u2713'}</span>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -1102,7 +1106,7 @@ function ChannelsTab({ agentId }: { agentId: string }) {
         <div style={{
           display: 'grid',
           gridTemplateColumns: '1fr 1fr',
-          gap: 8,
+          gap: 6,
         }}>
           {notConnected.map((c) => {
             const meta = getMeta(c.connector_id);
@@ -1121,7 +1125,7 @@ function ChannelsTab({ agentId }: { agentId: string }) {
               >
                 <div
                   style={{
-                    padding: '10px 12px', display: 'flex',
+                    padding: '12px 14px', display: 'flex',
                     alignItems: 'center', gap: 8,
                     cursor: 'pointer',
                   }}
@@ -1129,13 +1133,13 @@ function ChannelsTab({ agentId }: { agentId: string }) {
                     setExpandedId(isExpanded ? null : c.connector_id)
                   }
                 >
-                  <span>{iconMap[c.connector_id] || '\uD83D\uDD17'}</span>
+                  <span style={{ fontSize: 20 }}>{iconMap[c.connector_id] || '\uD83D\uDD17'}</span>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 12, fontWeight: 500,
+                    <div style={{ fontSize: 14, fontWeight: 600,
                       color: 'var(--color-text-secondary)' }}>
                       {c.display_name}
                     </div>
-                    <div style={{ fontSize: 10,
+                    <div style={{ fontSize: 12,
                       color: 'var(--color-text-secondary)' }}>
                       Not connected
                     </div>
