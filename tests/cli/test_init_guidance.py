@@ -23,9 +23,7 @@ class TestInitShowsNextSteps:
             mock.patch("openjarvis.cli.init_cmd.DEFAULT_CONFIG_PATH", config_path),
             mock.patch("openjarvis.cli.init_cmd.PrivacyScanner"),
         ):
-            result = CliRunner().invoke(
-                cli, ["init", "--engine", "llamacpp", _NO_DL]
-            )
+            result = CliRunner().invoke(cli, ["init", "--engine", "llamacpp", _NO_DL])
         assert result.exit_code == 0
         assert "Getting Started" in result.output
         assert "jarvis ask" in result.output
@@ -40,9 +38,7 @@ class TestInitShowsNextSteps:
             mock.patch("openjarvis.cli.init_cmd.DEFAULT_CONFIG_PATH", config_path),
             mock.patch("openjarvis.cli.init_cmd.PrivacyScanner"),
         ):
-            result = CliRunner().invoke(
-                cli, ["init", "--engine", "llamacpp", _NO_DL]
-            )
+            result = CliRunner().invoke(cli, ["init", "--engine", "llamacpp", _NO_DL])
         assert result.exit_code == 0
         assert "[engine]" in result.output
         assert "[intelligence]" in result.output
@@ -57,12 +53,12 @@ class TestNextStepsOllama:
         assert "jarvis doctor" in text
 
     def test_next_steps_ollama_with_model(self) -> None:
-        text = _next_steps_text("ollama", "qwen3.5:14b")
-        assert "ollama pull qwen3.5:14b" in text
+        text = _next_steps_text("ollama", "qwen3.5:27b")
+        assert "ollama pull qwen3.5:27b" in text
 
     def test_next_steps_ollama_default_model(self) -> None:
         text = _next_steps_text("ollama")
-        assert "ollama pull qwen3.5:3b" in text
+        assert "ollama pull qwen3.5:2b" in text
 
 
 class TestNextStepsVllm:
@@ -102,9 +98,7 @@ class TestMinimalConfig:
             mock.patch("openjarvis.cli.init_cmd.DEFAULT_CONFIG_PATH", config_path),
             mock.patch("openjarvis.cli.init_cmd.PrivacyScanner"),
         ):
-            result = CliRunner().invoke(
-                cli, ["init", "--engine", "ollama", _NO_DL]
-            )
+            result = CliRunner().invoke(cli, ["init", "--engine", "ollama", _NO_DL])
         assert result.exit_code == 0
         content = config_path.read_text()
         # Minimal config should be short
@@ -158,9 +152,7 @@ class TestInitDownloadPrompt:
             mock.patch("openjarvis.cli.init_cmd.DEFAULT_CONFIG_PATH", config_path),
             mock.patch("openjarvis.cli.init_cmd.PrivacyScanner"),
         ):
-            result = CliRunner().invoke(
-                cli, ["init", "--engine", "ollama", _NO_DL]
-            )
+            result = CliRunner().invoke(cli, ["init", "--engine", "ollama", _NO_DL])
         assert result.exit_code == 0
         assert "Download" not in result.output
 
@@ -175,13 +167,10 @@ class TestInitEmptyModelFallback:
             mock.patch("openjarvis.cli.init_cmd.recommend_model", return_value=""),
             mock.patch("openjarvis.cli.init_cmd.PrivacyScanner"),
         ):
-            result = CliRunner().invoke(
-                cli, ["init", "--engine", "llamacpp"]
-            )
+            result = CliRunner().invoke(cli, ["init", "--engine", "llamacpp"])
         assert result.exit_code == 0
         assert (
-            "Not enough memory" in result.output
-            or "not enough memory" in result.output
+            "Not enough memory" in result.output or "not enough memory" in result.output
         )
 
 
@@ -200,9 +189,7 @@ class TestNextStepsExoNexa:
 
 
 class TestInitDownloadDispatch:
-    def test_init_ollama_download_calls_ollama_pull(
-        self, tmp_path: Path
-    ) -> None:
+    def test_init_ollama_download_calls_ollama_pull(self, tmp_path: Path) -> None:
         config_dir = tmp_path / ".openjarvis"
         config_path = config_dir / "config.toml"
         with (
@@ -228,9 +215,7 @@ class TestInitDownloadDispatch:
             mock.patch("openjarvis.cli.init_cmd.DEFAULT_CONFIG_PATH", config_path),
             mock.patch("openjarvis.cli.init_cmd.PrivacyScanner"),
         ):
-            result = CliRunner().invoke(
-                cli, ["init", "--engine", "vllm"], input="y\n"
-            )
+            result = CliRunner().invoke(cli, ["init", "--engine", "vllm"], input="y\n")
         assert result.exit_code == 0
         assert "automatically" in result.output
 
@@ -245,12 +230,11 @@ class TestInitPrivacyHook:
             mock.patch("openjarvis.cli.init_cmd.PrivacyScanner") as MockScanner,
         ):
             from openjarvis.cli.scan_cmd import ScanResult
+
             instance = MockScanner.return_value
             instance.run_quick.return_value = [
                 ScanResult("FileVault", "ok", "FileVault enabled", "darwin"),
             ]
-            result = CliRunner().invoke(
-                cli, ["init", "--engine", "llamacpp", _NO_DL]
-            )
+            result = CliRunner().invoke(cli, ["init", "--engine", "llamacpp", _NO_DL])
         assert result.exit_code == 0
         assert "jarvis scan" in result.output

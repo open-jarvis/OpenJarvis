@@ -27,7 +27,7 @@ class TestRecommendModelGpu:
         result = recommend_model(hw, "ollama")
         # 14B * 0.5 * 1.1 = 7.7 GB; available = 8 * 0.9 = 7.2 → too big
         # 8B * 0.5 * 1.1 = 4.4 GB; available = 7.2 → fits
-        assert result == "qwen3.5:8b"
+        assert result == "qwen3.5:9b"
 
     def test_4gb_gpu_picks_qwen35_4b(self) -> None:
         hw = HardwareInfo(
@@ -47,7 +47,7 @@ class TestRecommendModelGpu:
         )
         result = recommend_model(hw, "ollama")
         # 3B * 0.5 * 1.1 = 1.65 GB; available = 2 * 0.9 = 1.8 → fits
-        assert result == "qwen3.5:3b"
+        assert result == "qwen3.5:2b"
 
     def test_multi_gpu_picks_larger_model(self) -> None:
         hw = HardwareInfo(
@@ -80,8 +80,9 @@ class TestRecommendModelCpuOnly:
         hw = HardwareInfo(platform="linux", ram_gb=16.0, gpu=None)
         result = recommend_model(hw, "llamacpp")
         # available = (16 - 4) * 0.8 = 9.6 GB
-        # 14B * 0.5 * 1.1 = 7.7 → fits
-        assert result == "qwen3.5:14b"
+        # 27B * 0.5 * 1.1 = 14.85 → too big
+        # 9B * 0.5 * 1.1 = 4.95 → fits
+        assert result == "qwen3.5:9b"
 
     def test_cpu_only_8gb_ram(self) -> None:
         hw = HardwareInfo(platform="linux", ram_gb=8.0, gpu=None)
@@ -127,7 +128,7 @@ class TestRecommendModelMlx:
             gpu=GpuInfo(vendor="apple", name="Apple M1", vram_gb=8.0, count=1),
         )
         result = recommend_model(hw, "mlx")
-        assert result == "qwen3.5:8b"
+        assert result == "qwen3.5:9b"
 
     def test_apple_silicon_16gb_mlx(self) -> None:
         hw = HardwareInfo(
@@ -136,7 +137,10 @@ class TestRecommendModelMlx:
             gpu=GpuInfo(vendor="apple", name="Apple M2", vram_gb=16.0, count=1),
         )
         result = recommend_model(hw, "mlx")
-        assert result == "qwen3.5:14b"
+        # available = 16 * 0.9 = 14.4 GB
+        # 27B * 0.5 * 1.1 = 14.85 → too big
+        # 9B * 0.5 * 1.1 = 4.95 → fits
+        assert result == "qwen3.5:9b"
 
     def test_apple_silicon_32gb_mlx(self) -> None:
         hw = HardwareInfo(
@@ -145,7 +149,7 @@ class TestRecommendModelMlx:
             gpu=GpuInfo(vendor="apple", name="Apple M2 Pro", vram_gb=32.0, count=1),
         )
         result = recommend_model(hw, "mlx")
-        assert result == "qwen3.5:14b"
+        assert result == "qwen3.5:27b"
 
     def test_apple_silicon_64gb_mlx(self) -> None:
         hw = HardwareInfo(
@@ -154,4 +158,4 @@ class TestRecommendModelMlx:
             gpu=GpuInfo(vendor="apple", name="Apple M2 Max", vram_gb=64.0, count=1),
         )
         result = recommend_model(hw, "mlx")
-        assert result == "qwen3.5:14b"
+        assert result == "qwen3.5:27b"

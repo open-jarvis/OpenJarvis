@@ -186,26 +186,26 @@ class TestCloudModelSpecs:
 class TestQwen35ModelSpecs:
     """Verify Qwen3.5 MoE model entries."""
 
-    def test_qwen35_3b(self) -> None:
-        spec = _get_spec("qwen3.5:3b")
-        assert spec.parameter_count_b == 3.0
-        assert spec.active_parameter_count_b == 0.6
+    def test_qwen35_2b(self) -> None:
+        spec = _get_spec("qwen3.5:2b")
+        assert spec.parameter_count_b == 2.0
+        assert spec.active_parameter_count_b == 0.4
         assert spec.context_length == 131072
         assert spec.provider == "alibaba"
         assert spec.metadata["architecture"] == "moe"
         for e in ("ollama", "vllm", "llamacpp", "sglang"):
             assert e in spec.supported_engines
 
-    def test_qwen35_8b(self) -> None:
-        spec = _get_spec("qwen3.5:8b")
-        assert spec.parameter_count_b == 8.0
-        assert spec.active_parameter_count_b == 1.0
+    def test_qwen35_9b(self) -> None:
+        spec = _get_spec("qwen3.5:9b")
+        assert spec.parameter_count_b == 9.0
+        assert spec.active_parameter_count_b == 1.5
         assert spec.context_length == 131072
 
-    def test_qwen35_14b(self) -> None:
-        spec = _get_spec("qwen3.5:14b")
-        assert spec.parameter_count_b == 14.0
-        assert spec.active_parameter_count_b == 2.0
+    def test_qwen35_27b(self) -> None:
+        spec = _get_spec("qwen3.5:27b")
+        assert spec.parameter_count_b == 27.0
+        assert spec.active_parameter_count_b == 3.0
 
     def test_qwen35_35b(self) -> None:
         spec = _get_spec("qwen3.5:35b")
@@ -300,9 +300,9 @@ class TestModelDiscovery:
             "gpt-oss:120b",
             "glm-4.7-flash",
             "trinity-mini",
-            "qwen3.5:3b",
-            "qwen3.5:8b",
-            "qwen3.5:14b",
+            "qwen3.5:2b",
+            "qwen3.5:9b",
+            "qwen3.5:27b",
             "qwen3.5:35b",
             "qwen3.5:122b",
             "qwen3.5:397b",

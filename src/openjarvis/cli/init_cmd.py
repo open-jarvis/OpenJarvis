@@ -64,7 +64,7 @@ def _detect_running_engines() -> list[str]:
 
 def _next_steps_text(engine: str, model: str = "") -> str:
     """Return engine-specific next-steps guidance after init."""
-    pull_model = model or "qwen3.5:3b"
+    pull_model = model or "qwen3.5:2b"
     steps: dict[str, str] = {
         "ollama": (
             "Next steps:\n"

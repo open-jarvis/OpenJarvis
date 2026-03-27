@@ -40,6 +40,6 @@ def hint_no_model(model_name: Optional[str] = None) -> str:
         )
     return (
         "[yellow]Hint:[/yellow] No models available.\n"
-        "  Pull a model first: [bold]ollama pull qwen3.5:3b[/bold]\n"
+        "  Pull a model first: [bold]ollama pull qwen3.5:2b[/bold]\n"
         "  Run [bold]jarvis model list[/bold] to see available models."
     )

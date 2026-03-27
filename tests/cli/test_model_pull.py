@@ -15,6 +15,7 @@ class TestOllamaPull:
 
     def test_ollama_pull_success(self) -> None:
         import io
+
         console = Console(file=io.StringIO())
         mock_lines = [
             '{"status": "pulling manifest"}',
@@ -28,7 +29,7 @@ class TestOllamaPull:
         mock_resp.__exit__ = mock.MagicMock(return_value=False)
 
         with mock.patch("httpx.stream", return_value=mock_resp):
-            result = ollama_pull("http://localhost:11434", "qwen3.5:3b", console)
+            result = ollama_pull("http://localhost:11434", "qwen3.5:2b", console)
         assert result is True
 
     def test_ollama_pull_connect_error(self) -> None:
@@ -38,7 +39,7 @@ class TestOllamaPull:
 
         console = Console(file=io.StringIO())
         with mock.patch("httpx.stream", side_effect=httpx.ConnectError("refused")):
-            result = ollama_pull("http://localhost:11434", "qwen3.5:3b", console)
+            result = ollama_pull("http://localhost:11434", "qwen3.5:2b", console)
         assert result is False
 
 
@@ -58,14 +59,14 @@ class TestPullCliMultiEngine:
             mock_run.return_value = mock.MagicMock(returncode=0)
 
             result = runner.invoke(
-                cli, ["model", "pull", "qwen3.5:8b", "--engine", "llamacpp"]
+                cli, ["model", "pull", "qwen3.5:9b", "--engine", "llamacpp"]
             )
 
         assert result.exit_code == 0
         mock_run.assert_called_once()
         call_args = mock_run.call_args[0][0]
         assert "huggingface-cli" in call_args
-        assert "qwen3.5-8b-q4_k_m.gguf" in call_args
+        assert "qwen3.5-9b-q4_k_m.gguf" in call_args
 
     def test_pull_mlx_uses_huggingface_cli(self) -> None:
         from openjarvis.cli import cli
@@ -80,14 +81,14 @@ class TestPullCliMultiEngine:
             mock_run.return_value = mock.MagicMock(returncode=0)
 
             result = runner.invoke(
-                cli, ["model", "pull", "qwen3.5:8b", "--engine", "mlx"]
+                cli, ["model", "pull", "qwen3.5:9b", "--engine", "mlx"]
             )
 
         assert result.exit_code == 0
         mock_run.assert_called_once()
         call_args = mock_run.call_args[0][0]
         assert "huggingface-cli" in call_args
-        assert "mlx-community/Qwen3.5-8B-4bit" in call_args
+        assert "mlx-community/Qwen3.5-9B-MLX-4bit" in call_args
 
     def test_pull_llamacpp_huggingface_cli_not_found(self) -> None:
         from openjarvis.cli import cli
@@ -101,7 +102,7 @@ class TestPullCliMultiEngine:
             mock_cfg.return_value.engine.ollama_host = None
 
             result = runner.invoke(
-                cli, ["model", "pull", "qwen3.5:8b", "--engine", "llamacpp"]
+                cli, ["model", "pull", "qwen3.5:9b", "--engine", "llamacpp"]
             )
 
         assert result.exit_code != 0

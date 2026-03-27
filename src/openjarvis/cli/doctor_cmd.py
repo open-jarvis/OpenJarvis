@@ -35,17 +35,13 @@ def _check_python_version() -> CheckResult:
     version_str = f"{ver.major}.{ver.minor}.{ver.micro}"
     if (ver.major, ver.minor) >= (3, 10):
         return CheckResult("Python version", "ok", version_str)
-    return CheckResult(
-        "Python version", "fail", f"{version_str} (requires >= 3.10)"
-    )
+    return CheckResult("Python version", "fail", f"{version_str} (requires >= 3.10)")
 
 
 def _check_config_exists() -> CheckResult:
     """Check that the config file exists."""
     if DEFAULT_CONFIG_PATH.exists():
-        return CheckResult(
-            "Config file", "ok", str(DEFAULT_CONFIG_PATH)
-        )
+        return CheckResult("Config file", "ok", str(DEFAULT_CONFIG_PATH))
     return CheckResult(
         "Config file",
         "warn",
@@ -57,16 +53,12 @@ def _check_config_exists() -> CheckResult:
 def _check_config_parses() -> CheckResult:
     """Check that the config file parses successfully."""
     if not DEFAULT_CONFIG_PATH.exists():
-        return CheckResult(
-            "Config parsing", "warn", "Skipped (no config file)"
-        )
+        return CheckResult("Config parsing", "warn", "Skipped (no config file)")
     try:
         load_config()
         return CheckResult("Config parsing", "ok", "Config loaded successfully")
     except Exception as exc:
-        return CheckResult(
-            "Config parsing", "fail", f"Parse error: {exc}"
-        )
+        return CheckResult("Config parsing", "fail", f"Parse error: {exc}")
 
 
 def _ensure_engines_imported() -> None:
@@ -102,22 +94,16 @@ def _check_engines() -> List[CheckResult]:
         try:
             engine = _discovery._make_engine(key, config)
             if engine.health():
-                results.append(
-                    CheckResult(f"Engine: {key}", "ok", "Reachable")
-                )
+                results.append(CheckResult(f"Engine: {key}", "ok", "Reachable"))
             else:
-                results.append(
-                    CheckResult(f"Engine: {key}", "warn", "Unreachable")
-                )
+                results.append(CheckResult(f"Engine: {key}", "warn", "Unreachable"))
         except Exception as exc:
             results.append(
                 CheckResult(f"Engine: {key}", "warn", f"Unreachable ({exc})")
             )
 
     if not results:
-        results.append(
-            CheckResult("Engines", "warn", "No engines registered")
-        )
+        results.append(CheckResult("Engines", "warn", "No engines registered"))
 
     return results
 
@@ -154,7 +140,7 @@ def _check_models() -> List[CheckResult]:
                             f"Models: {key}",
                             "warn",
                             "No models available",
-                            details="Pull a model (e.g. `ollama pull qwen3.5:3b`).",
+                            details="Pull a model (e.g. `ollama pull qwen3.5:2b`).",
                         )
                     )
         except Exception:
@@ -168,9 +154,7 @@ def _check_default_model() -> CheckResult:
     try:
         config = load_config()
     except Exception:
-        return CheckResult(
-            "Default model", "warn", "Skipped (config unavailable)"
-        )
+        return CheckResult("Default model", "warn", "Skipped (config unavailable)")
 
     default_model = config.intelligence.default_model
     if not default_model:
@@ -221,9 +205,7 @@ def _check_optional_deps() -> List[CheckResult]:
     for pkg, install_hint, description in optional_packages:
         try:
             __import__(pkg)
-            results.append(
-                CheckResult(f"Optional: {description}", "ok", "Installed")
-            )
+            results.append(CheckResult(f"Optional: {description}", "ok", "Installed"))
         except Exception:
             results.append(
                 CheckResult(
@@ -266,8 +248,7 @@ def _check_nodejs() -> CheckResult:
             "warn",
             f"{version_str} (requires >= v22)",
             details=(
-                "Upgrade Node.js for ClaudeCodeAgent and WhatsApp "
-                "Baileys support."
+                "Upgrade Node.js for ClaudeCodeAgent and WhatsApp Baileys support."
             ),
         )
     except Exception as exc:
@@ -335,7 +316,5 @@ def doctor(as_json: bool) -> None:
     warn_count = sum(1 for c in checks if c.status == "warn")
     fail_count = sum(1 for c in checks if c.status == "fail")
     console.print()
-    console.print(
-        f"  {ok_count} passed, {warn_count} warnings, {fail_count} failures"
-    )
+    console.print(f"  {ok_count} passed, {warn_count} warnings, {fail_count} failures")
     console.print()
