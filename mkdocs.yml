@@ -164,5 +164,8 @@ nav:
       - Security: architecture/security.md
       - Design Principles: architecture/design-principles.md
   - API Reference: api-reference/
+  - User Guide:
+      - Tools: user-guide/tools.md
+      - External MCP Servers: user-guide/mcp-external-servers.md
   - Leaderboard: leaderboard.md
   - Roadmap: development/roadmap.md

@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import Message
-from openjarvis.engine._stubs import InferenceEngine
+from openjarvis.engine._stubs import InferenceEngine, StreamChunk
 from openjarvis.security._stubs import BaseScanner
 from openjarvis.security.scanner import PIIScanner, SecretScanner
 from openjarvis.security.types import RedactionMode, ScanResult
@@ -50,10 +50,14 @@ class GuardrailsEngine(InferenceEngine):
         bus: Optional[EventBus] = None,
     ) -> None:
         self._engine = engine
-        self._scanners: List[BaseScanner] = scanners if scanners is not None else [
-            SecretScanner(),
-            PIIScanner(),
-        ]
+        self._scanners: List[BaseScanner] = (
+            scanners
+            if scanners is not None
+            else [
+                SecretScanner(),
+                PIIScanner(),
+            ]
+        )
         self._mode = mode
         self._scan_input = scan_input
         self._scan_output = scan_output
@@ -180,7 +184,9 @@ class GuardrailsEngine(InferenceEngine):
                         processed[i] = Message(
                             role=msg.role,
                             content=self._handle_findings(
-                                msg.content, result, "input",
+                                msg.content,
+                                result,
+                                "input",
                             ),
                             name=msg.name,
                             tool_calls=msg.tool_calls,
@@ -191,8 +197,11 @@ class GuardrailsEngine(InferenceEngine):
 
         # Call wrapped engine
         response = self._engine.generate(
-            messages, model=model, temperature=temperature,
-            max_tokens=max_tokens, **kwargs,
+            messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs,
         )
 
         # Scan output
@@ -219,8 +228,11 @@ class GuardrailsEngine(InferenceEngine):
         """Yield tokens in real-time, scan accumulated output post-hoc."""
         accumulated = []
         async for token in self._engine.stream(
-            messages, model=model, temperature=temperature,
-            max_tokens=max_tokens, **kwargs,
+            messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs,
         ):
             accumulated.append(token)
             yield token
@@ -245,6 +257,51 @@ class GuardrailsEngine(InferenceEngine):
                             "direction": "output",
                             "findings": finding_dicts,
                             "mode": "stream_post_hoc",
+                        },
+                    )
+
+    async def stream_full(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+        **kwargs: Any,
+    ) -> AsyncIterator["StreamChunk"]:
+        """Delegate to wrapped engine, scan accumulated output post-hoc."""
+        accumulated: list[str] = []
+        async for chunk in self._engine.stream_full(
+            messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs,
+        ):
+            if chunk.content:
+                accumulated.append(chunk.content)
+            yield chunk
+
+        # Post-hoc scan of accumulated output
+        if self._scan_output:
+            full_output = "".join(accumulated)
+            if full_output:
+                result = self._scan_text(full_output)
+                if not result.clean and self._bus:
+                    finding_dicts = [
+                        {
+                            "pattern": f.pattern_name,
+                            "threat": f.threat_level.value,
+                            "description": f.description,
+                        }
+                        for f in result.findings
+                    ]
+                    self._bus.publish(
+                        EventType.SECURITY_ALERT,
+                        {
+                            "direction": "output",
+                            "findings": finding_dicts,
+                            "mode": "stream_full_post_hoc",
                         },
                     )
 

@@ -49,6 +49,7 @@ class JarvisSystem:
     agent_executor: Optional[Any] = None  # AgentExecutor
     speech_backend: Optional[Any] = None  # SpeechBackend
     _learning_orchestrator: Optional[Any] = None  # LearningOrchestrator
+    _mcp_clients: List = field(default_factory=list)
 
     def ask(
         self,
@@ -371,6 +372,14 @@ class JarvisSystem:
 
         channel_bridge.on_message(_on_channel_message)
 
+    def _close_mcp_clients(self) -> None:
+        """Close all persistent MCP client connections."""
+        for client in self._mcp_clients:
+            try:
+                client.close()
+            except Exception:
+                logger.debug("Error closing MCP client", exc_info=True)
+
     def close(self) -> None:
         """Release resources."""
         if self.scheduler and hasattr(self.scheduler, "stop"):
@@ -393,6 +402,7 @@ class JarvisSystem:
             self.agent_manager.close()
         if self.agent_scheduler is not None:
             self.agent_scheduler.stop()
+        self._close_mcp_clients()
 
     def __enter__(self) -> JarvisSystem:
         return self
@@ -431,6 +441,7 @@ class SystemBuilder:
         self._workflow: Optional[bool] = None
         self._sessions: Optional[bool] = None
         self._speech: Optional[bool] = None
+        self._mcp_clients: List = []
 
     def engine(self, key: str) -> SystemBuilder:
         self._engine_key = key
@@ -671,6 +682,8 @@ class SystemBuilder:
             speech_backend=speech_backend,
         )
         system._learning_orchestrator = learning_orchestrator
+        # Transfer MCP clients so JarvisSystem.close() can shut them down
+        system._mcp_clients = list(getattr(self, "_mcp_clients", []))
         # Wire system reference — must happen before scheduler.start()
         if system.agent_executor is not None:
             system.agent_executor.set_system(system)
@@ -1069,24 +1082,60 @@ class SystemBuilder:
             logger.warning("Failed to set up learning orchestrator: %s", exc)
             return None
 
-    @staticmethod
-    def _discover_external_mcp(server_cfg) -> List[BaseTool]:
-        """Discover tools from an external MCP server configuration."""
+    def _discover_external_mcp(self, server_cfg) -> List[BaseTool]:
+        """Discover tools from an external MCP server configuration.
+
+        Supports both stdio (command + args) and Streamable HTTP (url)
+        transports. Persists MCP clients on ``self._mcp_clients`` so
+        that transports stay alive for runtime tool calls.
+        """
         import json
 
         from openjarvis.mcp.client import MCPClient
-        from openjarvis.mcp.transport import StdioTransport
+        from openjarvis.mcp.transport import StdioTransport, StreamableHTTPTransport
         from openjarvis.tools.mcp_adapter import MCPToolProvider
 
         cfg = json.loads(server_cfg) if isinstance(server_cfg, str) else server_cfg
+        name = cfg.get("name", "<unnamed>")
+        url = cfg.get("url")
         command = cfg.get("command", "")
         args = cfg.get("args", [])
-        if not command:
+
+        # Build transport based on config keys
+        if url:
+            transport = StreamableHTTPTransport(url=url)
+        elif command:
+            transport = StdioTransport(command=[command] + args)
+        else:
+            logger.warning(
+                "MCP server '%s' has neither 'url' nor 'command' — skipping",
+                name,
+            )
             return []
-        transport = StdioTransport(command=command, args=args)
+
         client = MCPClient(transport)
+        client.initialize()
+
+        # Persist client so the transport stays alive for tool calls
+        self._mcp_clients.append(client)
+
         provider = MCPToolProvider(client)
-        return provider.discover()
+        discovered = provider.discover()
+
+        # Per-server tool filtering
+        include_tools = set(cfg.get("include_tools", []))
+        exclude_tools = set(cfg.get("exclude_tools", []))
+        if include_tools:
+            discovered = [t for t in discovered if t.spec.name in include_tools]
+        if exclude_tools:
+            discovered = [t for t in discovered if t.spec.name not in exclude_tools]
+
+        logger.info(
+            "Discovered %d tools from MCP server '%s'",
+            len(discovered),
+            name,
+        )
+        return discovered
 
 
 __all__ = ["JarvisSystem", "SystemBuilder"]

@@ -244,39 +244,40 @@ def test_run_agent_concurrent_returns_409(tmp_path):
 
 @pytest.mark.skipif(not HAS_FASTAPI, reason="fastapi not installed")
 class TestAgentManagerStreaming:
-    """Tests for the SSE streaming mode of the managed-agent messages endpoint."""
+    """Tests for the SSE streaming mode of the managed-agent messages endpoint.
+
+    The new implementation uses engine.stream_full() for real token streaming
+    instead of agent.run() + word-by-word replay.
+    """
 
     @pytest.fixture
     def _mock_engine(self):
+        """Create a mock engine with a working stream_full() method."""
+        from openjarvis.engine._stubs import StreamChunk
+
         engine = MagicMock()
         engine.engine_id = "mock"
         engine._model = "test-model"
         engine.health.return_value = True
+
+        # Default stream_full: echo the last user message token-by-token
+        async def _stream_full(messages, *, model, **kwargs):
+            # Find the last user message content
+            last_content = ""
+            for m in reversed(messages):
+                if hasattr(m, "role") and m.role.value == "user":
+                    last_content = m.content
+                    break
+            response = f"Echo: {last_content}"
+            for token in response.split(" "):
+                yield StreamChunk(content=token + " ")
+            yield StreamChunk(finish_reason="stop")
+
+        engine.stream_full = _stream_full
         return engine
 
     @pytest.fixture
-    def _mock_agent_cls(self):
-        """Register a mock agent class in the AgentRegistry for testing."""
-        from openjarvis.agents._stubs import AgentResult
-        from openjarvis.core.registry import AgentRegistry
-
-        class _MockStreamAgent:
-            agent_id = "mock_stream"
-
-            def __init__(self, engine, model, **kwargs):
-                self._engine = engine
-                self._model = model
-
-            def run(self, input_text, context=None, **kwargs):
-                return AgentResult(content=f"Echo: {input_text}", turns=1)
-
-        # Register under a unique key for test isolation
-        AgentRegistry._entries()["_test_stream"] = _MockStreamAgent
-        yield _MockStreamAgent
-        AgentRegistry._entries().pop("_test_stream", None)
-
-    @pytest.fixture
-    def stream_client(self, manager, _mock_engine, _mock_agent_cls):
+    def stream_client(self, manager, _mock_engine):
         from fastapi import FastAPI
 
         from openjarvis.server.agent_manager_routes import create_agent_manager_router
@@ -293,10 +294,11 @@ class TestAgentManagerStreaming:
         app.include_router(tools_router)
         return TestClient(app)
 
-    def test_send_message_stream(self, manager, stream_client, _mock_agent_cls):
+    def test_send_message_stream(self, manager, stream_client):
         """Test streaming mode returns SSE response with [DONE] sentinel."""
         agent = manager.create_agent(
-            name="streamer", agent_type="_test_stream",
+            name="streamer",
+            agent_type="simple",
         )
         resp = stream_client.post(
             f"/v1/managed-agents/{agent['id']}/messages",
@@ -312,10 +314,11 @@ class TestAgentManagerStreaming:
         # Last data line must be [DONE]
         assert data_lines[-1].strip() == "data: [DONE]"
 
-    def test_send_message_stream_content(self, manager, stream_client, _mock_agent_cls):
-        """Test streaming returns the correct agent response content."""
+    def test_send_message_stream_real_tokens(self, manager, stream_client):
+        """Content arrives as real tokens, not word-burst after completion."""
         agent = manager.create_agent(
-            name="streamer2", agent_type="_test_stream",
+            name="streamer_tokens",
+            agent_type="simple",
         )
         resp = stream_client.post(
             f"/v1/managed-agents/{agent['id']}/messages",
@@ -324,7 +327,7 @@ class TestAgentManagerStreaming:
         assert resp.status_code == 200
 
         # Collect content tokens from stream
-        content = ""
+        content_chunks = []
         for line in resp.text.strip().split("\n"):
             if line.startswith("data:") and "[DONE]" not in line:
                 raw = line[5:].strip()
@@ -335,16 +338,19 @@ class TestAgentManagerStreaming:
                 choices = data.get("choices", [{}])
                 delta_content = choices[0].get("delta", {}).get("content")
                 if delta_content:
-                    content += delta_content
+                    content_chunks.append(delta_content)
 
-        assert content == "Echo: Hello world"
+        # Should have multiple token chunks (real streaming, not single burst)
+        assert len(content_chunks) > 1
+        full_content = "".join(content_chunks)
+        assert "Echo:" in full_content
+        assert "Hello world" in full_content
 
-    def test_send_message_stream_stores_response(
-        self, manager, stream_client, _mock_agent_cls,
-    ):
+    def test_send_message_stream_stores_response(self, manager, stream_client):
         """After streaming, agent response is persisted in the DB."""
         agent = manager.create_agent(
-            name="streamer3", agent_type="_test_stream",
+            name="streamer3",
+            agent_type="simple",
         )
         resp = stream_client.post(
             f"/v1/managed-agents/{agent['id']}/messages",
@@ -362,12 +368,11 @@ class TestAgentManagerStreaming:
         agent_msg = next(m for m in messages if m["direction"] == "agent_to_user")
         assert "persist me" in agent_msg["content"]
 
-    def test_send_message_stream_finish_reason(
-        self, manager, stream_client, _mock_agent_cls,
-    ):
+    def test_send_message_stream_finish_reason(self, manager, stream_client):
         """The final chunk before [DONE] has finish_reason='stop'."""
         agent = manager.create_agent(
-            name="streamer4", agent_type="_test_stream",
+            name="streamer4",
+            agent_type="simple",
         )
         resp = stream_client.post(
             f"/v1/managed-agents/{agent['id']}/messages",
@@ -385,3 +390,38 @@ class TestAgentManagerStreaming:
 
         # Last chunk should have finish_reason="stop"
         assert chunks[-1]["choices"][0]["finish_reason"] == "stop"
+
+    def test_send_message_stream_error_handling(self, manager):
+        """Engine errors are reported gracefully via SSE."""
+
+        error_engine = MagicMock()
+        error_engine.engine_id = "error"
+        error_engine._model = "test-model"
+
+        async def _stream_full_error(messages, *, model, **kwargs):
+            raise RuntimeError("LLM connection failed")
+            yield  # make it a generator  # noqa: E501
+
+        error_engine.stream_full = _stream_full_error
+
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient as TC
+
+        from openjarvis.server.agent_manager_routes import create_agent_manager_router
+
+        app = FastAPI()
+        app.state.engine = error_engine
+        app.state.bus = None
+        routers = create_agent_manager_router(manager)
+        for r in routers:
+            app.include_router(r)
+        client = TC(app)
+
+        agent = manager.create_agent(name="err_agent", agent_type="simple")
+        resp = client.post(
+            f"/v1/managed-agents/{agent['id']}/messages",
+            json={"content": "fail", "stream": True},
+        )
+        assert resp.status_code == 200
+        assert "Error:" in resp.text or "error" in resp.text.lower()
+        assert "data: [DONE]" in resp.text
