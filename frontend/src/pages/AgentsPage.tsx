@@ -22,6 +22,7 @@ import {
   saveToolCredentials,
   fetchModels,
   updateManagedAgent,
+  fetchRecommendedModel,
 } from '../lib/api';
 import type { AgentTask, ChannelBinding, AgentTemplate, AgentMessage, ManagedAgent, LearningLogEntry, AgentTrace, ToolInfo } from '../lib/api';
 import {
@@ -205,8 +206,9 @@ function serializeInterval(hours: number, minutes: number, seconds: number): str
 }
 
 interface WizardState {
-  step: number;
+  step: 1 | 2;
   templateId: string;
+  templateData: AgentTemplate | null;
   name: string;
   instruction: string;
   model: string;
@@ -219,7 +221,10 @@ interface WizardState {
   observationCompression: string;
   retrievalStrategy: string;
   taskDecomposition: string;
+  maxTurns: number;
+  temperature: number;
 }
+
 
 function LaunchWizard({
   templates,
@@ -230,9 +235,19 @@ function LaunchWizard({
   onClose: () => void;
   onLaunched: () => void;
 }) {
+  const UNIVERSAL_DEFAULTS = {
+    memoryExtraction: 'structured_json',
+    observationCompression: 'summarize',
+    retrievalStrategy: 'sqlite',
+    taskDecomposition: 'hierarchical',
+    maxTurns: 25,
+    temperature: 0.3,
+  };
+
   const [wizard, setWizard] = useState<WizardState>({
     step: 1,
     templateId: '',
+    templateData: null,
     name: '',
     instruction: '',
     model: '',
@@ -241,94 +256,60 @@ function LaunchWizard({
     selectedTools: [],
     budget: '',
     routerPolicy: '',
-    memoryExtraction: 'causality_graph',
-    observationCompression: 'summarize',
-    retrievalStrategy: 'hybrid_with_self_eval',
-    taskDecomposition: 'phased',
+    ...UNIVERSAL_DEFAULTS,
   });
   const [launching, setLaunching] = useState(false);
+  const [recommendedModel, setRecommendedModel] = useState('');
   const models = useAppStore((s) => s.models);
-  const [availableTools, setAvailableTools] = useState<ToolInfo[]>([]);
-  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
-  const [credentialInputs, setCredentialInputs] = useState<Record<string, Record<string, string>>>({});
-  const [savingCredentials, setSavingCredentials] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchAvailableTools().then(setAvailableTools).catch(() => {});
+    fetchRecommendedModel().then((r) => {
+      setRecommendedModel(r.model);
+      if (!wizard.model) {
+        setWizard((w) => ({ ...w, model: r.model }));
+      }
+    }).catch(() => {});
   }, []);
 
-  function getToolCategory(tool: ToolInfo): string {
-    if (tool.category && CATEGORY_MAP[tool.category]) return CATEGORY_MAP[tool.category];
-    if (TOOL_NAME_FALLBACK[tool.name]) return TOOL_NAME_FALLBACK[tool.name];
-    return 'Reasoning & AI';
-  }
-
-  function toggleCategory(cat: string) {
-    setExpandedCategories((prev) => {
-      const next = new Set(prev);
-      if (next.has(cat)) next.delete(cat);
-      else next.add(cat);
-      return next;
-    });
-  }
-
-  function handleToggleTool(name: string) {
-    if (name === 'browser') {
-      const has = BROWSER_SUB_TOOLS.every((t) => wizard.selectedTools.includes(t));
-      if (has) {
-        update({ selectedTools: wizard.selectedTools.filter((t) => !BROWSER_SUB_TOOLS.includes(t)) });
-      } else {
-        update({ selectedTools: [...new Set([...wizard.selectedTools, ...BROWSER_SUB_TOOLS])] });
-      }
+  function selectTemplate(tpl: AgentTemplate | null) {
+    if (tpl) {
+      setWizard((w) => ({
+        ...w,
+        step: 2,
+        templateId: tpl.id,
+        templateData: tpl,
+        name: '',
+        instruction: '',
+        model: recommendedModel || w.model,
+        scheduleType: (tpl as any).schedule_type || 'manual',
+        scheduleValue: (tpl as any).schedule_value || '',
+        selectedTools: (tpl as any).tools || [],
+        memoryExtraction: (tpl as any).memory_extraction || UNIVERSAL_DEFAULTS.memoryExtraction,
+        observationCompression: (tpl as any).observation_compression || UNIVERSAL_DEFAULTS.observationCompression,
+        retrievalStrategy: (tpl as any).retrieval_strategy || UNIVERSAL_DEFAULTS.retrievalStrategy,
+        taskDecomposition: (tpl as any).task_decomposition || UNIVERSAL_DEFAULTS.taskDecomposition,
+        maxTurns: (tpl as any).max_turns || UNIVERSAL_DEFAULTS.maxTurns,
+        temperature: (tpl as any).temperature ?? UNIVERSAL_DEFAULTS.temperature,
+      }));
     } else {
-      toggleTool(name);
+      setWizard((w) => ({
+        ...w,
+        step: 2,
+        templateId: '',
+        templateData: null,
+        name: '',
+        instruction: '',
+        model: recommendedModel || w.model,
+        scheduleType: 'manual',
+        scheduleValue: '',
+        selectedTools: [],
+        ...UNIVERSAL_DEFAULTS,
+      }));
     }
-  }
-
-  async function handleSaveCredentials(toolName: string) {
-    const inputs = credentialInputs[toolName];
-    if (!inputs) return;
-    setSavingCredentials(toolName);
-    try {
-      await saveToolCredentials(toolName, inputs);
-      toast.success(`Credentials saved for ${toolName}`);
-      const updated = await fetchAvailableTools();
-      setAvailableTools(updated);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to save credentials');
-    } finally {
-      setSavingCredentials(null);
-    }
-  }
-
-  function update(partial: Partial<WizardState>) {
-    setWizard((prev) => ({ ...prev, ...partial }));
-  }
-
-  function toggleTool(id: string) {
-    const next = wizard.selectedTools.includes(id)
-      ? wizard.selectedTools.filter((t) => t !== id)
-      : [...wizard.selectedTools, id];
-    update({ selectedTools: next });
-  }
-
-  function selectTemplate(id: string) {
-    const tpl = templates.find((t) => t.id === id);
-    update({
-      templateId: id,
-      name: tpl?.name || wizard.name,
-    });
   }
 
   async function handleLaunch() {
-    if ((wizard.scheduleType === 'cron' || wizard.scheduleType === 'interval') && !wizard.instruction.trim()) {
-      toast.error('Instruction is required for scheduled agents');
-      return;
-    }
-    if (!wizard.name.trim()) {
-      toast.error('Agent name is required');
-      return;
-    }
+    if (!wizard.name.trim()) { toast.error('Name is required'); return; }
     setLaunching(true);
     try {
       const config: Record<string, unknown> = {
@@ -336,633 +317,259 @@ function LaunchWizard({
         schedule_value: wizard.scheduleValue || undefined,
         tools: wizard.selectedTools,
         learning_enabled: !!wizard.routerPolicy,
+        memory_extraction: wizard.memoryExtraction,
+        observation_compression: wizard.observationCompression,
+        retrieval_strategy: wizard.retrievalStrategy,
+        task_decomposition: wizard.taskDecomposition,
+        max_turns: wizard.maxTurns,
+        temperature: wizard.temperature,
       };
       if (wizard.budget) config.budget = parseFloat(wizard.budget);
       if (wizard.instruction.trim()) config.instruction = wizard.instruction.trim();
       if (wizard.model) config.model = wizard.model;
       if (wizard.routerPolicy) config.router_policy = wizard.routerPolicy;
-      config.memory_extraction = wizard.memoryExtraction;
-      config.observation_compression = wizard.observationCompression;
-      config.retrieval_strategy = wizard.retrievalStrategy;
-      config.task_decomposition = wizard.taskDecomposition;
-      const created = await createManagedAgent({
-        name: wizard.name,
+
+      await createManagedAgent({
+        name: wizard.name.trim(),
         template_id: wizard.templateId || undefined,
         config,
       });
-      toast.success(`Agent "${wizard.name}" launched`);
-      // Auto-run first tick for interval agents
-      if (wizard.scheduleType === 'interval' && created.id) {
-        runManagedAgent(created.id).catch(() => {});
-      }
+      toast.success(`Agent "${wizard.name}" created`);
       onLaunched();
-    } catch (err) {
-      toast.error('Could not create agent', {
-        description: 'Agent manager endpoint not available. Check that agent_manager.enabled = true in your config.',
-      });
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to create agent');
     } finally {
       setLaunching(false);
     }
   }
 
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: 'rgba(0,0,0,0.5)' }}
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-    >
-      <div
-        className="w-full max-w-lg mx-4 rounded-xl overflow-hidden flex flex-col"
-        style={{
-          background: 'var(--color-bg)',
-          border: '1px solid var(--color-border)',
-          maxHeight: '85vh',
-        }}
-      >
-        {/* Header */}
-        <div
-          className="flex items-center justify-between px-6 py-4"
-          style={{ borderBottom: '1px solid var(--color-border)' }}
-        >
-          <div className="flex items-center gap-2">
-            <Bot size={18} style={{ color: 'var(--color-accent)' }} />
-            <h2 className="font-semibold" style={{ color: 'var(--color-text)' }}>
-              Launch Agent
-            </h2>
+  const formatScheduleLabel = (type: string, value: string) => {
+    if (type === 'manual') return 'Manual (run on demand)';
+    if (type === 'cron') return `Cron: ${value}`;
+    if (type === 'interval') {
+      const secs = parseInt(value, 10);
+      if (secs >= 3600) return `Every ${secs / 3600}h`;
+      if (secs >= 60) return `Every ${secs / 60}m`;
+      return `Every ${secs}s`;
+    }
+    return type;
+  };
+
+  // ── Step 1: Template Selection ──
+  if (wizard.step === 1) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)' }}>
+        <div className="rounded-xl p-6 w-full max-w-lg" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold" style={{ color: 'var(--color-text)' }}>New Agent — Choose Template</h2>
+            <button onClick={onClose} className="p-1 rounded hover:bg-opacity-10" style={{ color: 'var(--color-text-tertiary)' }}><X size={18} /></button>
           </div>
-          <div className="flex items-center gap-4">
-            {/* Step indicator */}
-            <div className="flex items-center gap-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
-              {([1, 2, 3] as const).map((s) => (
-                <span key={s} className="flex items-center gap-1">
-                  <span
-                    className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium"
-                    style={{
-                      background: wizard.step === s ? 'var(--color-accent)' : wizard.step > s ? 'var(--color-accent)' + '40' : 'var(--color-bg-secondary)',
-                      color: wizard.step >= s ? (wizard.step === s ? '#fff' : 'var(--color-accent)') : 'var(--color-text-tertiary)',
-                    }}
-                  >
-                    {s}
-                  </span>
-                  {s < 3 && <ChevronRight size={10} />}
-                </span>
-              ))}
-            </div>
-            <button onClick={onClose} className="cursor-pointer" style={{ color: 'var(--color-text-tertiary)' }}>
-              <X size={18} />
+          <div className="grid grid-cols-2 gap-3">
+            {templates.map((tpl) => (
+              <button
+                key={tpl.id}
+                onClick={() => selectTemplate(tpl)}
+                className="text-left p-4 rounded-lg transition-colors"
+                style={{ border: '1px solid var(--color-border)', background: 'var(--color-bg-secondary)' }}
+              >
+                <div className="text-xl mb-1">{(tpl as any).icon || '🤖'}</div>
+                <div className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>{tpl.name}</div>
+                <div className="text-xs mt-1" style={{ color: 'var(--color-text-tertiary)' }}>{tpl.description}</div>
+                {(tpl as any).tools && (
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {((tpl as any).tools as string[]).slice(0, 4).map((t: string) => (
+                      <span key={t} className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(124,58,237,0.12)', color: '#a78bfa' }}>{t}</span>
+                    ))}
+                    {((tpl as any).tools as string[]).length > 4 && (
+                      <span className="text-xs px-1.5 py-0.5 rounded" style={{ color: 'var(--color-text-tertiary)' }}>+{((tpl as any).tools as string[]).length - 4}</span>
+                    )}
+                  </div>
+                )}
+              </button>
+            ))}
+            <button
+              onClick={() => selectTemplate(null)}
+              className="text-left p-4 rounded-lg transition-colors"
+              style={{ border: '1px solid var(--color-border)', background: 'var(--color-bg-secondary)' }}
+            >
+              <div className="text-xl mb-1">⚙️</div>
+              <div className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>Custom Agent</div>
+              <div className="text-xs mt-1" style={{ color: 'var(--color-text-tertiary)' }}>Start from scratch. Pick your own tools, schedule, and behavior.</div>
             </button>
           </div>
         </div>
+      </div>
+    );
+  }
 
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
-          {/* Step 1: Template Picker */}
-          {wizard.step === 1 && (
+  // ── Step 2: Configuration ──
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)' }}>
+      <div className="rounded-xl p-6 w-full max-w-lg max-h-[85vh] overflow-y-auto" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>
+        <div className="flex justify-between items-center mb-4">
+          <div className="flex items-center gap-2">
+            <button onClick={() => setWizard((w) => ({ ...w, step: 1 }))} className="p-1 rounded" style={{ color: 'var(--color-text-tertiary)' }}><ChevronLeft size={18} /></button>
+            <h2 className="text-lg font-semibold" style={{ color: 'var(--color-text)' }}>
+              {wizard.templateData ? `New ${wizard.templateData.name}` : 'New Custom Agent'}
+            </h2>
+          </div>
+          <button onClick={onClose} className="p-1 rounded" style={{ color: 'var(--color-text-tertiary)' }}><X size={18} /></button>
+        </div>
+
+        <div className="space-y-4">
+          {/* Name */}
+          <div>
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Agent Name</label>
+            <input
+              value={wizard.name}
+              onChange={(e) => setWizard((w) => ({ ...w, name: e.target.value }))}
+              placeholder="e.g. AI Research Tracker"
+              className="w-full px-3 py-2 rounded-lg text-sm bg-transparent"
+              style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+            />
+          </div>
+
+          {/* Instruction */}
+          <div>
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>What should this agent do?</label>
+            <textarea
+              value={wizard.instruction}
+              onChange={(e) => setWizard((w) => ({ ...w, instruction: e.target.value }))}
+              placeholder="e.g. Monitor the latest research papers on reasoning and chain-of-thought in LLMs"
+              rows={3}
+              className="w-full px-3 py-2 rounded-lg text-sm bg-transparent resize-none"
+              style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+            />
+          </div>
+
+          {/* Model + Schedule row */}
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <p className="text-sm font-medium mb-3" style={{ color: 'var(--color-text-secondary)' }}>
-                Choose a template or start from scratch
-              </p>
-              <div className="space-y-2">
-                {/* Custom option */}
-                <button
-                  onClick={() => update({ templateId: '' })}
-                  className="w-full text-left p-3 rounded-lg transition-colors cursor-pointer"
-                  style={{
-                    background: wizard.templateId === '' ? 'var(--color-accent)' + '15' : 'var(--color-bg-secondary)',
-                    border: `1px solid ${wizard.templateId === '' ? 'var(--color-accent)' : 'var(--color-border)'}`,
-                  }}
-                >
-                  <div className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-                    Custom Agent
-                  </div>
-                  <div className="text-xs mt-0.5" style={{ color: 'var(--color-text-tertiary)' }}>
-                    Start from scratch with full control
-                  </div>
-                </button>
-                {templates.map((t) => (
-                  <button
-                    key={t.id}
-                    onClick={() => selectTemplate(t.id)}
-                    className="w-full text-left p-3 rounded-lg transition-colors cursor-pointer"
-                    style={{
-                      background: wizard.templateId === t.id ? 'var(--color-accent)' + '15' : 'var(--color-bg-secondary)',
-                      border: `1px solid ${wizard.templateId === t.id ? 'var(--color-accent)' : 'var(--color-border)'}`,
-                    }}
-                  >
-                    <div className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-                      {t.name}
-                    </div>
-                    {t.description && (
-                      <div className="text-xs mt-0.5" style={{ color: 'var(--color-text-tertiary)' }}>
-                        {t.description.slice(0, 80)}
-                      </div>
-                    )}
-                  </button>
+              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Intelligence</label>
+              <select
+                value={wizard.model}
+                onChange={(e) => setWizard((w) => ({ ...w, model: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg text-sm"
+                style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+              >
+                {models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.id}{m.id === recommendedModel ? ' (recommended)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Schedule</label>
+              <div className="px-3 py-2 rounded-lg text-sm" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
+                {formatScheduleLabel(wizard.scheduleType, wizard.scheduleValue)}
+              </div>
+            </div>
+          </div>
+
+          {/* Tools tags */}
+          {wizard.selectedTools.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>
+                Tools <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>(from template)</span>
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {wizard.selectedTools.map((t) => (
+                  <span key={t} className="text-xs px-2 py-1 rounded" style={{ background: 'rgba(124,58,237,0.12)', color: '#a78bfa' }}>{t}</span>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Step 2: Config Form */}
-          {wizard.step === 2 && (
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>
-                  Agent Name *
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Research Assistant"
-                  value={wizard.name}
-                  onChange={(e) => update({ name: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg text-sm bg-transparent outline-none"
-                  style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
-                />
-              </div>
-
-              {/* Instruction */}
-              <div>
-                <div className="text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
-                  What should this agent do?
-                  {(wizard.scheduleType === 'cron' || wizard.scheduleType === 'interval') && (
-                    <span style={{ color: 'var(--color-error)' }}> *</span>
-                  )}
-                </div>
-                <textarea
-                  value={wizard.instruction}
-                  onChange={(e) => update({ instruction: e.target.value })}
-                  placeholder="e.g. Monitor my inbox and summarize new emails every hour"
-                  rows={3}
-                  className="w-full text-sm px-3 py-2 rounded-lg outline-none resize-none"
-                  style={{
-                    background: 'var(--color-bg-secondary)',
-                    color: 'var(--color-text)',
-                    border: '1px solid var(--color-border)',
-                  }}
-                />
-                <div className="text-[10px] mt-0.5" style={{ color: 'var(--color-text-tertiary)' }}>
-                  This instruction runs every tick. Tasks are optional one-off goals.
-                </div>
-              </div>
-
-              {/* Model */}
-              <div>
-                <div className="text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>Intelligence (Model)</div>
-                <select
-                  value={wizard.model}
-                  onChange={(e) => update({ model: e.target.value })}
-                  className="w-full text-sm px-3 py-2 rounded-lg outline-none cursor-pointer"
-                  style={{
-                    background: 'var(--color-bg-secondary)',
-                    color: 'var(--color-text)',
-                    border: '1px solid var(--color-border)',
-                  }}
-                >
-                  <option value="">Server default</option>
-                  {(() => {
-                    const local = models.filter((m) => !m.id.includes('/') && !m.id.startsWith('gpt') && !m.id.startsWith('claude') && !m.id.startsWith('gemini'));
-                    const cloud = models.filter((m) => m.id.includes('/') || m.id.startsWith('gpt') || m.id.startsWith('claude') || m.id.startsWith('gemini'));
-                    const formatModel = (m: { id: string; context_length?: number; params?: string }) => {
-                      const parts = [m.id];
-                      if ((m as any).params) parts.push(`(${(m as any).params})`);
-                      if ((m as any).context_length) parts.push(`${Math.round((m as any).context_length / 1024)}K ctx`);
-                      return parts.join(' ');
-                    };
-                    return (
-                      <>
-                        {local.length > 0 && (
-                          <optgroup label="Local (Running)">
-                            {local.map((m) => (
-                              <option key={m.id} value={m.id}>{formatModel(m)}</option>
-                            ))}
-                          </optgroup>
-                        )}
-                        {cloud.length > 0 && (
-                          <optgroup label="Cloud">
-                            {cloud.map((m) => (
-                              <option key={m.id} value={m.id}>{formatModel(m)}</option>
-                            ))}
-                          </optgroup>
-                        )}
-                        {local.length === 0 && cloud.length === 0 && (
-                          <option disabled>No models available — start an engine or add API keys</option>
-                        )}
-                      </>
-                    );
-                  })()}
-                </select>
-              </div>
-
-              {/* Schedule */}
-              <div>
-                <div className="flex items-center gap-1.5 mb-1">
-                  <label className="block text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
-                    Schedule
-                  </label>
-                  <div className="relative group">
-                    <span
-                      className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-[9px] font-bold cursor-help"
-                      style={{ background: 'var(--color-border)', color: 'var(--color-text-tertiary)' }}
-                    >
-                      i
-                    </span>
-                    <div
-                      className="absolute left-0 bottom-full mb-1 w-64 p-2 rounded-lg text-xs hidden group-hover:block z-50"
-                      style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}
-                    >
-                      <div className="space-y-1.5">
-                        <div><strong>Manual</strong> — Run only when you click &quot;Run Now&quot;</div>
-                        <div><strong>Cron</strong> — UNIX cron schedule (e.g. <code>0 9 * * *</code> = daily at 9 AM)</div>
-                        <div><strong>Interval</strong> — Fixed delay between runs for continuous monitoring</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <select
-                  value={wizard.scheduleType}
-                  onChange={(e) => update({ scheduleType: e.target.value, scheduleValue: '' })}
-                  className="w-full px-3 py-2 rounded-lg text-sm"
-                  style={{
-                    background: 'var(--color-bg)',
-                    border: '1px solid var(--color-border)',
-                    color: 'var(--color-text)',
-                  }}
-                >
-                  <option value="manual">Manual — Run on demand only</option>
-                  <option value="cron">Cron — Recurring fixed-time schedule</option>
-                  <option value="interval">Interval — Fixed delay between runs</option>
-                </select>
-              </div>
-
-              {/* Interval spinners */}
-              {wizard.scheduleType === 'interval' && (
+          {/* Advanced Settings */}
+          <details className="rounded-lg" style={{ border: '1px solid var(--color-border)' }}>
+            <summary className="px-3 py-2 cursor-pointer text-sm font-medium" style={{ color: 'var(--color-text-tertiary)' }}>
+              Advanced Settings
+            </summary>
+            <div className="px-3 pb-3 pt-1 space-y-3" style={{ borderTop: '1px solid var(--color-border)' }}>
+              <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>
-                    Run Every
-                  </label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(['hours', 'minutes', 'seconds'] as const).map((unit) => {
-                      const max = unit === 'hours' ? 999 : 59;
-                      const vals = parseIntervalParts(wizard.scheduleValue);
-                      return (
-                        <div key={unit} className="flex flex-col">
-                          <input
-                            type="number"
-                            min={0}
-                            max={max}
-                            value={vals[unit]}
-                            onChange={(e) => {
-                              const v = { ...vals, [unit]: Math.max(0, Math.min(max, parseInt(e.target.value) || 0)) };
-                              update({ scheduleValue: serializeInterval(v.hours, v.minutes, v.seconds) });
-                            }}
-                            className="w-full px-2 py-2 rounded-lg text-sm text-center bg-transparent outline-none"
-                            style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
-                          />
-                          <span className="text-[10px] text-center mt-0.5" style={{ color: 'var(--color-text-tertiary)' }}>{unit}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {wizard.scheduleValue && parseInt(wizard.scheduleValue) > 0 && parseInt(wizard.scheduleValue) < 10 && (
-                    <div className="text-[10px] mt-1" style={{ color: 'var(--color-error)' }}>
-                      Minimum interval is 10 seconds
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Cron input */}
-              {wizard.scheduleType === 'cron' && (
-                <div>
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <label className="block text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
-                      Cron Expression
-                    </label>
-                    <div className="relative group">
-                      <span
-                        className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-[9px] font-bold cursor-help"
-                        style={{ background: 'var(--color-border)', color: 'var(--color-text-tertiary)' }}
-                      >
-                        i
-                      </span>
-                      <div
-                        className="absolute left-0 bottom-full mb-1 w-52 p-2 rounded-lg text-xs hidden group-hover:block z-50"
-                        style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}
-                      >
-                        <div className="space-y-1">
-                          <div><code>0 * * * *</code> — Every hour</div>
-                          <div><code>0 9 * * *</code> — Daily at 9 AM</div>
-                          <div><code>0 9 * * 1</code> — Mondays at 9 AM</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="0 * * * *"
-                    value={wizard.scheduleValue}
-                    onChange={(e) => update({ scheduleValue: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg text-sm bg-transparent outline-none"
-                    style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
-                  />
-                </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-medium mb-2" style={{ color: 'var(--color-text-secondary)' }}>
-                  Tools &amp; Channels
-                </label>
-                {(() => {
-                  const unconfiguredSelected = wizard.selectedTools.filter((t) => {
-                    const tool = availableTools.find((at) => at.name === t);
-                    return tool && tool.requires_credentials && !tool.configured;
-                  });
-                  return unconfiguredSelected.length > 0 ? (
-                    <div className="text-[10px] mb-2 px-2 py-1 rounded" style={{ background: '#f59e0b20', color: '#f59e0b' }}>
-                      {unconfiguredSelected.length} tool{unconfiguredSelected.length > 1 ? 's' : ''} need setup — credentials required before they will work
-                    </div>
-                  ) : null;
-                })()}
-                <div className="space-y-3 max-h-64 overflow-y-auto">
-                  {CATEGORY_ORDER.map((cat) => {
-                    const catTools = availableTools.filter((t) => getToolCategory(t) === cat);
-                    if (catTools.length === 0) return null;
-                    const popular = catTools.filter((t) => POPULAR_TOOLS.has(t.name));
-                    const rest = catTools.filter((t) => !POPULAR_TOOLS.has(t.name));
-                    const isExpanded = expandedCategories.has(cat);
-                    const shown = isExpanded ? catTools : popular;
-
-                    return (
-                      <div key={cat}>
-                        <div
-                          className="flex items-center justify-between cursor-pointer mb-1"
-                          onClick={() => rest.length > 0 && toggleCategory(cat)}
-                        >
-                          <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'var(--color-text-tertiary)' }}>
-                            {cat} ({catTools.length})
-                          </span>
-                          {rest.length > 0 && (
-                            <span className="text-[10px]" style={{ color: 'var(--color-accent)' }}>
-                              {isExpanded ? 'Show less' : `Show all (${catTools.length})`}
-                            </span>
-                          )}
-                        </div>
-                        <div className="grid grid-cols-2 gap-1.5">
-                          {shown.map((tool) => {
-                            const isSelected = tool.name === 'browser'
-                              ? BROWSER_SUB_TOOLS.every((t) => wizard.selectedTools.includes(t))
-                              : wizard.selectedTools.includes(tool.name);
-                            const needsSetup = tool.requires_credentials && !tool.configured;
-                            return (
-                              <div key={tool.name}>
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleTool(tool.name)}
-                                  className="w-full text-left p-2 rounded-lg text-xs transition-colors cursor-pointer"
-                                  style={{
-                                    background: isSelected ? 'var(--color-accent)' + '10' : 'var(--color-bg-secondary)',
-                                    border: `1px solid ${isSelected ? 'var(--color-accent)' + '50' : 'var(--color-border)'}`,
-                                    color: 'var(--color-text)',
-                                  }}
-                                >
-                                  <div className="flex items-center gap-1.5">
-                                    {isSelected && <span style={{ color: 'var(--color-accent)' }}>&#10003;</span>}
-                                    <span className="font-medium">{tool.name.replace(/_/g, ' ')}</span>
-                                    {needsSetup && <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: '#f59e0b' }} />}
-                                  </div>
-                                  {tool.description && (
-                                    <div className="text-[10px] mt-0.5 truncate" style={{ color: 'var(--color-text-tertiary)' }}>
-                                      {tool.description.slice(0, 60)}
-                                    </div>
-                                  )}
-                                </button>
-                                {isSelected && needsSetup && (
-                                  <div className="mt-1 p-2 rounded-lg text-xs space-y-1.5" style={{ background: 'var(--color-bg)', border: '1px solid #f59e0b40' }}>
-                                    {tool.credential_keys.map((key) => (
-                                      <div key={key}>
-                                        <label className="block text-[10px] mb-0.5" style={{ color: 'var(--color-text-tertiary)' }}>
-                                          {key.replace(/_/g, ' ')}
-                                        </label>
-                                        <input
-                                          type="password"
-                                          value={credentialInputs[tool.name]?.[key] || ''}
-                                          onChange={(e) => setCredentialInputs((prev) => ({
-                                            ...prev,
-                                            [tool.name]: { ...prev[tool.name], [key]: e.target.value },
-                                          }))}
-                                          className="w-full px-2 py-1 rounded text-xs bg-transparent outline-none"
-                                          style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
-                                          placeholder={`Enter ${key}`}
-                                        />
-                                      </div>
-                                    ))}
-                                    <button
-                                      type="button"
-                                      onClick={() => handleSaveCredentials(tool.name)}
-                                      disabled={savingCredentials === tool.name}
-                                      className="px-2 py-1 rounded text-[10px] font-medium cursor-pointer"
-                                      style={{ background: 'var(--color-accent)', color: 'white' }}
-                                    >
-                                      {savingCredentials === tool.name ? 'Saving...' : 'Save'}
-                                    </button>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>
-                    Budget (optional)
-                  </label>
-                  <input
-                    type="number"
-                    placeholder="e.g. 5.00"
-                    min="0"
-                    step="0.01"
-                    value={wizard.budget}
-                    onChange={(e) => update({ budget: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg text-sm bg-transparent outline-none"
-                    style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
-                  />
-                  <div className="text-[10px] mt-0.5" style={{ color: 'var(--color-text-tertiary)' }}>
-                    Cloud API models only (OpenAI, Anthropic, Google). Local models have no cost.
-                  </div>
+                  <label className="block text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>Memory Extraction</label>
+                  <select value={wizard.memoryExtraction} onChange={(e) => setWizard((w) => ({ ...w, memoryExtraction: e.target.value }))}
+                    className="w-full px-2 py-1 rounded text-xs" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
+                    <option value="structured_json">Structured JSON</option>
+                    <option value="causality_graph">Causality Graph</option>
+                    <option value="scratchpad">Scratchpad</option>
+                    <option value="none">None</option>
+                  </select>
                 </div>
                 <div>
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <label className="block text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
-                      Learning
-                    </label>
-                    <div className="relative group">
-                      <span
-                        className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-[9px] font-bold cursor-help"
-                        style={{ background: 'var(--color-border)', color: 'var(--color-text-tertiary)' }}
-                      >
-                        i
-                      </span>
-                      <div
-                        className="absolute right-0 bottom-full mb-1 w-56 p-2 rounded-lg text-xs hidden group-hover:block z-50"
-                        style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}
-                      >
-                        Router policies let the agent learn which model works best for different query types over time.
-                      </div>
-                    </div>
-                  </div>
-                  <select
-                    value={wizard.routerPolicy}
-                    onChange={(e) => update({ routerPolicy: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg text-sm"
-                    style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
-                  >
-                    <option value="">None — Always use selected model</option>
-                    <option value="heuristic">Heuristic — Rule-based model selection</option>
-                    <option value="learned">Trace-Driven — Learns from past runs</option>
+                  <label className="block text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>Observation Compression</label>
+                  <select value={wizard.observationCompression} onChange={(e) => setWizard((w) => ({ ...w, observationCompression: e.target.value }))}
+                    className="w-full px-2 py-1 rounded text-xs" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
+                    <option value="summarize">Summarize</option>
+                    <option value="truncate">Truncate</option>
+                    <option value="none">None</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>Retrieval Strategy</label>
+                  <select value={wizard.retrievalStrategy} onChange={(e) => setWizard((w) => ({ ...w, retrievalStrategy: e.target.value }))}
+                    className="w-full px-2 py-1 rounded text-xs" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
+                    <option value="sqlite">BM25 (SQLite FTS5)</option>
+                    <option value="hybrid">Hybrid (BM25 + Semantic)</option>
+                    <option value="colbert">ColBERTv2</option>
+                    <option value="none">None</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>Task Decomposition</label>
+                  <select value={wizard.taskDecomposition} onChange={(e) => setWizard((w) => ({ ...w, taskDecomposition: e.target.value }))}
+                    className="w-full px-2 py-1 rounded text-xs" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
+                    <option value="hierarchical">Hierarchical</option>
+                    <option value="phased">Phased</option>
+                    <option value="monolithic">Monolithic</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>Max Turns</label>
+                  <input type="number" value={wizard.maxTurns} onChange={(e) => setWizard((w) => ({ ...w, maxTurns: parseInt(e.target.value, 10) || 25 }))}
+                    className="w-full px-2 py-1 rounded text-xs" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }} />
+                </div>
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>Temperature</label>
+                  <input type="number" step="0.1" min="0" max="2" value={wizard.temperature}
+                    onChange={(e) => setWizard((w) => ({ ...w, temperature: parseFloat(e.target.value) || 0.3 }))}
+                    className="w-full px-2 py-1 rounded text-xs" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }} />
+                </div>
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>Budget ($)</label>
+                  <input type="number" step="0.01" value={wizard.budget} onChange={(e) => setWizard((w) => ({ ...w, budget: e.target.value }))}
+                    placeholder="Unlimited"
+                    className="w-full px-2 py-1 rounded text-xs" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }} />
+                </div>
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>Schedule Type</label>
+                  <select value={wizard.scheduleType} onChange={(e) => setWizard((w) => ({ ...w, scheduleType: e.target.value }))}
+                    className="w-full px-2 py-1 rounded text-xs" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
+                    <option value="manual">Manual</option>
+                    <option value="cron">Cron</option>
+                    <option value="interval">Interval</option>
                   </select>
                 </div>
               </div>
-              {/* Agent Strategies — shown for monitor_operative (default when no template selected) */}
-              {(!wizard.templateId || templates.find((t) => t.id === wizard.templateId)?.agent_type === 'monitor_operative') && (
-                <div>
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <label className="block text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
-                      Agent Strategies
-                    </label>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {([
-                      { label: 'Memory Extraction', key: 'memoryExtraction' as const, tooltip: 'How the agent stores findings between runs',
-                        options: [['causality_graph', 'Causality Graph'], ['scratchpad', 'Scratchpad'], ['structured_json', 'Structured JSON'], ['none', 'None']] },
-                      { label: 'Observation Compression', key: 'observationCompression' as const, tooltip: 'How long tool outputs are compressed',
-                        options: [['summarize', 'Summarize'], ['truncate', 'Truncate'], ['none', 'None']] },
-                      { label: 'Retrieval Strategy', key: 'retrievalStrategy' as const, tooltip: 'How the agent retrieves past context',
-                        options: [['hybrid_with_self_eval', 'Hybrid + Self-Eval'], ['keyword', 'Keyword'], ['semantic', 'Semantic'], ['none', 'None']] },
-                      { label: 'Task Decomposition', key: 'taskDecomposition' as const, tooltip: 'How complex instructions are broken down',
-                        options: [['phased', 'Phased'], ['monolithic', 'Monolithic'], ['hierarchical', 'Hierarchical']] },
-                    ] as const).map((s) => (
-                      <div key={s.key}>
-                        <div className="flex items-center gap-1 mb-0.5">
-                          <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>{s.label}</span>
-                          <div className="relative group">
-                            <span className="inline-flex items-center justify-center w-3 h-3 rounded-full text-[8px] font-bold cursor-help"
-                              style={{ background: 'var(--color-border)', color: 'var(--color-text-tertiary)' }}>i</span>
-                            <div className="absolute left-0 bottom-full mb-1 w-48 p-1.5 rounded text-[10px] hidden group-hover:block z-50"
-                              style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}>
-                              {s.tooltip}
-                            </div>
-                          </div>
-                        </div>
-                        <select
-                          value={wizard[s.key]}
-                          onChange={(e) => update({ [s.key]: e.target.value } as Partial<WizardState>)}
-                          className="w-full px-2 py-1.5 rounded text-xs"
-                          style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
-                        >
-                          {s.options.map(([val, label]) => (
-                            <option key={val} value={val}>{label}</option>
-                          ))}
-                        </select>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
-          )}
+          </details>
 
-          {/* Step 3: Review */}
-          {wizard.step === 3 && (
-            <div className="space-y-4">
-              <p className="text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>
-                Review your configuration
-              </p>
-              <div
-                className="rounded-lg p-4 space-y-3 text-sm"
-                style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
-              >
-                <div className="flex justify-between">
-                  <span style={{ color: 'var(--color-text-tertiary)' }}>Name</span>
-                  <span style={{ color: 'var(--color-text)' }}>{wizard.name || '(unnamed)'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span style={{ color: 'var(--color-text-tertiary)' }}>Template</span>
-                  <span style={{ color: 'var(--color-text)' }}>
-                    {wizard.templateId ? (templates.find((t) => t.id === wizard.templateId)?.name ?? wizard.templateId) : 'Custom'}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span style={{ color: 'var(--color-text-tertiary)' }}>Schedule</span>
-                  <span style={{ color: 'var(--color-text)' }}>
-                    {formatSchedule(wizard.scheduleType, wizard.scheduleValue)}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span style={{ color: 'var(--color-text-tertiary)' }}>Tools</span>
-                  <span style={{ color: 'var(--color-text)' }}>
-                    {wizard.selectedTools.length > 0 ? wizard.selectedTools.join(', ') : 'None'}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span style={{ color: 'var(--color-text-tertiary)' }}>Budget</span>
-                  <span style={{ color: 'var(--color-text)' }}>{wizard.budget ? `$${wizard.budget}` : 'Unlimited (local models free)'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span style={{ color: 'var(--color-text-tertiary)' }}>Learning</span>
-                  <span style={{ color: 'var(--color-text)' }}>
-                    {wizard.routerPolicy ? (wizard.routerPolicy === 'heuristic' ? 'Heuristic Router' : 'Trace-Driven Router') : 'Disabled'}
-                  </span>
-                </div>
-                {wizard.routerPolicy && (
-                  <div className="flex justify-between">
-                    <span style={{ color: 'var(--color-text-tertiary)' }}>Strategies</span>
-                    <span className="text-xs text-right" style={{ color: 'var(--color-text)' }}>
-                      {wizard.memoryExtraction}, {wizard.observationCompression}, {wizard.retrievalStrategy}, {wizard.taskDecomposition}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div
-          className="flex justify-between items-center px-6 py-4"
-          style={{ borderTop: '1px solid var(--color-border)' }}
-        >
-          <button
-            onClick={() => (wizard.step > 1 ? update({ step: (wizard.step - 1) as 1 | 2 | 3 }) : onClose())}
-            className="px-4 py-2 rounded-lg text-sm cursor-pointer"
-            style={{ color: 'var(--color-text-secondary)' }}
-          >
-            {wizard.step === 1 ? 'Cancel' : 'Back'}
-          </button>
-          {wizard.step < 3 ? (
-            <button
-              onClick={() => update({ step: (wizard.step + 1) as 2 | 3 })}
-              className="px-4 py-2 rounded-lg text-sm font-medium cursor-pointer"
-              style={{ background: 'var(--color-accent)', color: '#fff' }}
-            >
-              Next
-            </button>
-          ) : (
+          {/* Launch */}
+          <div className="flex gap-3 pt-2">
             <button
               onClick={handleLaunch}
-              disabled={launching}
-              className="px-4 py-2 rounded-lg text-sm font-medium cursor-pointer flex items-center gap-2"
-              style={{ background: 'var(--color-accent)', color: '#fff', opacity: launching ? 0.7 : 1 }}
+              disabled={launching || !wizard.name.trim()}
+              className="flex-1 py-2.5 rounded-lg text-sm font-semibold"
+              style={{ background: 'var(--color-accent)', color: '#fff', opacity: launching || !wizard.name.trim() ? 0.5 : 1 }}
             >
-              {launching && <RefreshCw size={14} className="animate-spin" />}
-              Launch
+              {launching ? 'Creating...' : 'Launch Agent'}
             </button>
-          )}
+            <button onClick={onClose} className="px-4 py-2.5 rounded-lg text-sm" style={{ border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}>
+              Cancel
+            </button>
+          </div>
         </div>
       </div>
     </div>
