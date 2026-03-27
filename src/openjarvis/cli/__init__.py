@@ -93,6 +93,7 @@ cli.add_command(config, "config")
 cli.add_command(scan, "scan")
 cli.add_command(connect, "connect")
 cli.add_command(deep_research_setup, "deep-research-setup")
+cli.add_command(deep_research_setup, "research")
 
 
 def main() -> None:
