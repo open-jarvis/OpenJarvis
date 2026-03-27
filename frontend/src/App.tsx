@@ -71,6 +71,9 @@ export default function App() {
               (p) => p.provider === 'claude-opus-4.6',
             );
             const dollarSavings = claudeEntry ? claudeEntry.total_cost : 0;
+            // Cap at theoretical max ($25/1M output tokens) to prevent spoofed values
+            const maxDollars = (data.total_tokens * 25) / 1_000_000;
+            const clampedDollars = Math.min(dollarSavings, maxDollars);
             const energySaved = data.per_provider.reduce(
               (sum, p) => sum + (p.energy_wh || 0),
               0,
@@ -85,7 +88,7 @@ export default function App() {
               email: optInEmail,
               total_calls: data.total_calls,
               total_tokens: data.total_tokens,
-              dollar_savings: dollarSavings,
+              dollar_savings: clampedDollars,
               energy_wh_saved: energySaved,
               flops_saved: flopsSaved,
               token_counting_version: data.token_counting_version ?? 1,
