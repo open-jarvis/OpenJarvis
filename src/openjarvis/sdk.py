@@ -46,7 +46,8 @@ class MemoryHandle:
 
         if key == "sqlite":
             self._backend = MemoryRegistry.create(
-                key, db_path=self._config.memory.db_path,
+                key,
+                db_path=self._config.memory.db_path,
             )
         else:
             self._backend = MemoryRegistry.create(key)
@@ -70,7 +71,8 @@ class MemoryHandle:
         doc_ids: List[str] = []
         for chunk in chunks:
             doc_id = backend.store(
-                chunk.content, source=chunk.source,
+                chunk.content,
+                source=chunk.source,
                 metadata={"index": chunk.index},
             )
             doc_ids.append(doc_id)
@@ -214,6 +216,7 @@ class Jarvis:
 
         # Apply security guardrails
         from openjarvis.security import setup_security
+
         sec = setup_security(self._config, engine, self._bus)
         engine = sec.engine
         self._audit_logger = sec.audit_logger
@@ -232,7 +235,9 @@ class Jarvis:
                 logger.debug("Failed to create energy monitor: %s", exc)
         self._energy_monitor = energy_monitor
         self._engine = InstrumentedEngine(
-            engine, self._bus, energy_monitor=energy_monitor,
+            engine,
+            self._bus,
+            energy_monitor=energy_monitor,
         )
 
     def ask(
@@ -292,7 +297,9 @@ class Jarvis:
         # Agent mode
         if agent is not None:
             return self._run_agent(
-                agent, query, model_name,
+                agent,
+                query,
+                model_name,
                 tools=tools or [],
                 temperature=temperature,
                 max_tokens=max_tokens,
@@ -457,7 +464,10 @@ class Jarvis:
             from openjarvis.cli.ask import _build_tools
 
             tool_objects = _build_tools(
-                tools, self._config, self._engine, model_name,
+                tools,
+                self._config,
+                self._engine,
+                model_name,
             )
 
         agent_kwargs: Dict[str, Any] = {
@@ -492,7 +502,10 @@ class Jarvis:
                         max_context_tokens=self._config.memory.context_max_tokens,
                     )
                     context_messages = inject_context(
-                        query, [], backend, config=ctx_cfg,
+                        query,
+                        [],
+                        backend,
+                        config=ctx_cfg,
                     )
                     for msg in context_messages:
                         ctx.conversation.add(msg)
@@ -517,7 +530,9 @@ class Jarvis:
         }
 
     def _inject_context(
-        self, query: str, messages: List[Message],
+        self,
+        query: str,
+        messages: List[Message],
     ) -> List[Message]:
         """Inject memory context into messages."""
         try:

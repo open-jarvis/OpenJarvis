@@ -55,9 +55,7 @@ def classify_query(text: str) -> str:
 # ChannelAgent
 # ---------------------------------------------------------------------------
 
-_ESCALATION_TEMPLATE = (
-    "{preview}...\n\n---\nFull report ready — open in OpenJarvis:\nopenjarvis://research/{session_id}"
-)
+_ESCALATION_TEMPLATE = "{preview}...\n\n---\nFull report ready — open in OpenJarvis:\nopenjarvis://research/{session_id}"
 _LONG_RESPONSE_THRESHOLD = 500
 
 

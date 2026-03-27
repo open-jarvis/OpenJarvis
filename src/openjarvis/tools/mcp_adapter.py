@@ -39,9 +39,7 @@ class MCPToolAdapter(BaseTool):
             result = self._client.call_tool(self._spec.name, params)
             content_parts = result.get("content", [])
             text = "\n".join(
-                p.get("text", "")
-                for p in content_parts
-                if isinstance(p, dict)
+                p.get("text", "") for p in content_parts if isinstance(p, dict)
             )
             return ToolResult(
                 tool_name=self._spec.name,

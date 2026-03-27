@@ -261,7 +261,11 @@ def create_connectors_router():
         engine = SyncEngine(pipeline=pipeline)
         chunks = engine.sync(inst)
 
-        return {"connector_id": connector_id, "chunks_indexed": chunks, "status": "complete"}
+        return {
+            "connector_id": connector_id,
+            "chunks_indexed": chunks,
+            "status": "complete",
+        }
 
     @router.get("/{connector_id}/sync")
     async def sync_status(connector_id: str):

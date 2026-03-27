@@ -195,18 +195,14 @@ def test_quick_query_inline_response(tmp_path: Path) -> None:
 
     # Response sent inline (no escalation link)
     assert "openjarvis://" not in sent_content, (
-        "Quick query must NOT produce an escalation link, "
-        f"but got:\n{sent_content}"
+        f"Quick query must NOT produce an escalation link, but got:\n{sent_content}"
     )
 
     # Response contains meeting information
     assert any(
         keyword in sent_content.lower()
         for keyword in ("meeting", "monday", "10am", "team sync", "sync")
-    ), (
-        "Response should contain meeting info, "
-        f"but got:\n{sent_content}"
-    )
+    ), f"Response should contain meeting info, but got:\n{sent_content}"
 
 
 # ---------------------------------------------------------------------------
@@ -233,9 +229,7 @@ def test_deep_query_escalation_link(tmp_path: Path) -> None:
                 "type": "function",
                 "function": {
                     "name": "knowledge_search",
-                    "arguments": json.dumps(
-                        {"query": "budget API redesign"}
-                    ),
+                    "arguments": json.dumps({"query": "budget API redesign"}),
                 },
             }
         ],
@@ -286,6 +280,5 @@ def test_deep_query_escalation_link(tmp_path: Path) -> None:
 
     # Response contains the escalation link
     assert "openjarvis://" in sent_content, (
-        "Deep query must produce an escalation link, "
-        f"but got:\n{sent_content}"
+        f"Deep query must produce an escalation link, but got:\n{sent_content}"
     )

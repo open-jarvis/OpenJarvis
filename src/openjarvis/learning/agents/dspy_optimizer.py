@@ -57,8 +57,7 @@ class DSPyAgentOptimizer:
             return {
                 "status": "skipped",
                 "reason": (
-                    f"only {len(traces)} traces, "
-                    f"min_traces={self.config.min_traces}"
+                    f"only {len(traces)} traces, min_traces={self.config.min_traces}"
                 ),
             }
 
@@ -66,8 +65,7 @@ class DSPyAgentOptimizer:
             return {
                 "status": "error",
                 "reason": (
-                    "dspy not installed "
-                    "(pip install 'openjarvis[learning-dspy]')"
+                    "dspy not installed (pip install 'openjarvis[learning-dspy]')"
                 ),
             }
 
@@ -101,9 +99,7 @@ class DSPyAgentOptimizer:
             examples.append(ex)
 
         # Define a simple metric based on trace feedback
-        def metric(
-            example: Any, prediction: Any, trace: Any = None
-        ) -> float:
+        def metric(example: Any, prediction: Any, trace: Any = None) -> float:
             for tr in traces:
                 if tr.query == example.question:
                     return tr.feedback if tr.feedback is not None else 0.5
@@ -113,9 +109,7 @@ class DSPyAgentOptimizer:
         class AgentModule(dspy.Module):
             def __init__(self_inner: Any) -> None:
                 super().__init__()
-                self_inner.generate = dspy.ChainOfThought(
-                    "question -> answer"
-                )
+                self_inner.generate = dspy.ChainOfThought("question -> answer")
 
             def forward(self_inner: Any, question: str) -> Any:
                 return self_inner.generate(question=question)
@@ -146,9 +140,7 @@ class DSPyAgentOptimizer:
         # Split data for train/test
         split = max(1, int(len(examples) * 0.8))
         train_set = examples[:split]
-        optimized_program = teleprompter.compile(
-            program, trainset=train_set
-        )
+        optimized_program = teleprompter.compile(program, trainset=train_set)
 
         # Extract optimized parameters
         result: Dict[str, Any] = {}
@@ -167,22 +159,13 @@ class DSPyAgentOptimizer:
         """Convert DSPy optimization results to TOML-compatible config."""
         updates: Dict[str, Any] = {}
 
-        if (
-            self.config.optimize_system_prompt
-            and "system_prompt" in optimized
-        ):
+        if self.config.optimize_system_prompt and "system_prompt" in optimized:
             updates["system_prompt"] = optimized["system_prompt"]
 
-        if (
-            self.config.optimize_few_shot
-            and "few_shot_examples" in optimized
-        ):
+        if self.config.optimize_few_shot and "few_shot_examples" in optimized:
             updates["few_shot_examples"] = optimized["few_shot_examples"]
 
-        if (
-            self.config.optimize_tool_descriptions
-            and "tool_descriptions" in optimized
-        ):
+        if self.config.optimize_tool_descriptions and "tool_descriptions" in optimized:
             updates["tool_descriptions"] = optimized["tool_descriptions"]
 
         return updates

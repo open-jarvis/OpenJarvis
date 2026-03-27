@@ -74,19 +74,16 @@ INSERT OR REPLACE INTO trial_results (
 
 
 _MIGRATE_TRIALS = [
-    "ALTER TABLE trial_results ADD COLUMN "
-    "sample_scores TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE trial_results ADD COLUMN sample_scores TEXT NOT NULL DEFAULT '[]'",
     "ALTER TABLE trial_results ADD COLUMN "
     "structured_feedback TEXT NOT NULL DEFAULT '{}'",
-    "ALTER TABLE trial_results ADD COLUMN "
-    "per_benchmark TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE trial_results ADD COLUMN per_benchmark TEXT NOT NULL DEFAULT '[]'",
 ]
 
 _MIGRATE_RUNS = [
     "ALTER TABLE optimization_runs ADD COLUMN "
     "pareto_frontier_ids TEXT NOT NULL DEFAULT '[]'",
-    "ALTER TABLE optimization_runs ADD COLUMN "
-    "benchmarks TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE optimization_runs ADD COLUMN benchmarks TEXT NOT NULL DEFAULT '[]'",
 ]
 
 
@@ -184,40 +181,48 @@ class OptimizationStore:
         """Persist a single trial result."""
         now = time.time()
         # Serialize sample_scores
-        scores_json = json.dumps([
-            {
-                "record_id": s.record_id,
-                "is_correct": s.is_correct,
-                "score": s.score,
-                "latency_seconds": s.latency_seconds,
-                "prompt_tokens": s.prompt_tokens,
-                "completion_tokens": s.completion_tokens,
-                "cost_usd": s.cost_usd,
-                "error": s.error,
-                "ttft": s.ttft,
-                "energy_joules": s.energy_joules,
-                "power_watts": s.power_watts,
-                "gpu_utilization_pct": s.gpu_utilization_pct,
-                "throughput_tok_per_sec": s.throughput_tok_per_sec,
-                "mfu_pct": s.mfu_pct,
-                "mbu_pct": s.mbu_pct,
-                "ipw": s.ipw,
-                "ipj": s.ipj,
-                "energy_per_output_token_joules": s.energy_per_output_token_joules,
-                "throughput_per_watt": s.throughput_per_watt,
-                "mean_itl_ms": s.mean_itl_ms,
-            }
-            for s in trial.sample_scores
-        ])
+        scores_json = json.dumps(
+            [
+                {
+                    "record_id": s.record_id,
+                    "is_correct": s.is_correct,
+                    "score": s.score,
+                    "latency_seconds": s.latency_seconds,
+                    "prompt_tokens": s.prompt_tokens,
+                    "completion_tokens": s.completion_tokens,
+                    "cost_usd": s.cost_usd,
+                    "error": s.error,
+                    "ttft": s.ttft,
+                    "energy_joules": s.energy_joules,
+                    "power_watts": s.power_watts,
+                    "gpu_utilization_pct": s.gpu_utilization_pct,
+                    "throughput_tok_per_sec": s.throughput_tok_per_sec,
+                    "mfu_pct": s.mfu_pct,
+                    "mbu_pct": s.mbu_pct,
+                    "ipw": s.ipw,
+                    "ipj": s.ipj,
+                    "energy_per_output_token_joules": s.energy_per_output_token_joules,
+                    "throughput_per_watt": s.throughput_per_watt,
+                    "mean_itl_ms": s.mean_itl_ms,
+                }
+                for s in trial.sample_scores
+            ]
+        )
         # Serialize structured_feedback
         fb = trial.structured_feedback
-        fb_json = json.dumps({
-            "summary_text": fb.summary_text,
-            "failure_patterns": fb.failure_patterns,
-            "primitive_ratings": fb.primitive_ratings,
-            "suggested_changes": fb.suggested_changes,
-            "target_primitive": fb.target_primitive,
-        }) if fb else "{}"
+        fb_json = (
+            json.dumps(
+                {
+                    "summary_text": fb.summary_text,
+                    "failure_patterns": fb.failure_patterns,
+                    "primitive_ratings": fb.primitive_ratings,
+                    "suggested_changes": fb.suggested_changes,
+                    "target_primitive": fb.target_primitive,
+                }
+            )
+            if fb
+            else "{}"
+        )
 
         self._conn.execute(
             _INSERT_TRIAL,
@@ -238,20 +243,22 @@ class OptimizationStore:
             ),
         )
         # Serialize per_benchmark
-        pb_json = json.dumps([
-            {
-                "benchmark": b.benchmark,
-                "accuracy": b.accuracy,
-                "mean_latency_seconds": b.mean_latency_seconds,
-                "total_cost_usd": b.total_cost_usd,
-                "total_energy_joules": b.total_energy_joules,
-                "total_tokens": b.total_tokens,
-                "samples_evaluated": b.samples_evaluated,
-                "errors": b.errors,
-                "weight": b.weight,
-            }
-            for b in trial.per_benchmark
-        ])
+        pb_json = json.dumps(
+            [
+                {
+                    "benchmark": b.benchmark,
+                    "accuracy": b.accuracy,
+                    "mean_latency_seconds": b.mean_latency_seconds,
+                    "total_cost_usd": b.total_cost_usd,
+                    "total_energy_joules": b.total_energy_joules,
+                    "total_tokens": b.total_tokens,
+                    "samples_evaluated": b.samples_evaluated,
+                    "errors": b.errors,
+                    "weight": b.weight,
+                }
+                for b in trial.per_benchmark
+            ]
+        )
 
         # Update new columns separately
         self._conn.execute(
@@ -429,7 +436,8 @@ class OptimizationStore:
                         ipw=s.get("ipw", 0.0),
                         ipj=s.get("ipj", 0.0),
                         energy_per_output_token_joules=s.get(
-                            "energy_per_output_token_joules", 0.0,
+                            "energy_per_output_token_joules",
+                            0.0,
                         ),
                         throughput_per_watt=s.get("throughput_per_watt", 0.0),
                         mean_itl_ms=s.get("mean_itl_ms", 0.0),

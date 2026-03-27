@@ -72,7 +72,8 @@ class SlackChannel(BaseChannel):
                 return
 
             self._listener_thread = threading.Thread(
-                target=self._socket_mode_loop, daemon=True,
+                target=self._socket_mode_loop,
+                daemon=True,
             )
             self._listener_thread.start()
             self._status = ChannelStatus.CONNECTED
@@ -120,7 +121,10 @@ class SlackChannel(BaseChannel):
                 payload["thread_ts"] = conversation_id
 
             resp = httpx.post(
-                url, json=payload, headers=headers, timeout=10.0,
+                url,
+                json=payload,
+                headers=headers,
+                timeout=10.0,
             )
             if resp.status_code < 300:
                 data = resp.json()
@@ -130,7 +134,8 @@ class SlackChannel(BaseChannel):
                 logger.warning("Slack API error: %s", data.get("error"))
                 return False
             logger.warning(
-                "Slack API returned status %d", resp.status_code,
+                "Slack API returned status %d",
+                resp.status_code,
             )
             return False
         except Exception:

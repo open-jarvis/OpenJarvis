@@ -3,6 +3,7 @@
 Stores credentials in ~/.openjarvis/credentials.toml with 0o600 permissions.
 Thread-safe writes via lock. Sets os.environ on save for immediate effect.
 """
+
 from __future__ import annotations
 
 import os
@@ -33,8 +34,10 @@ TOOL_CREDENTIALS: dict[str, list[str]] = {
     "viber": ["VIBER_AUTH_TOKEN"],
     "messenger": ["MESSENGER_PAGE_ACCESS_TOKEN", "MESSENGER_VERIFY_TOKEN"],
     "reddit": [
-        "REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET",
-        "REDDIT_USERNAME", "REDDIT_PASSWORD",
+        "REDDIT_CLIENT_ID",
+        "REDDIT_CLIENT_SECRET",
+        "REDDIT_USERNAME",
+        "REDDIT_PASSWORD",
     ],
     "mastodon": ["MASTODON_ACCESS_TOKEN", "MASTODON_API_BASE_URL"],
     "twitch": ["TWITCH_TOKEN", "TWITCH_CHANNEL"],

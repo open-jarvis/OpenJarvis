@@ -106,6 +106,7 @@ class HttpRequestTool(BaseTool):
         _rust = None
         try:
             from openjarvis._rust_bridge import get_rust_module
+
             _rust = get_rust_module()
         except ImportError:
             pass

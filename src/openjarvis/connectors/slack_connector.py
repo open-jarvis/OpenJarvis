@@ -26,9 +26,7 @@ from openjarvis.tools._stubs import ToolSpec
 _SLACK_API_BASE = "https://slack.com/api"
 _SLACK_AUTH_ENDPOINT = "https://slack.com/oauth/v2/authorize"
 _SLACK_SCOPES = "channels:history,channels:read,users:read"
-_DEFAULT_CREDENTIALS_PATH = str(
-    DEFAULT_CONFIG_DIR / "connectors" / "slack.json"
-)
+_DEFAULT_CREDENTIALS_PATH = str(DEFAULT_CONFIG_DIR / "connectors" / "slack.json")
 
 # ---------------------------------------------------------------------------
 # Module-level API functions (easy to patch in tests)
@@ -263,9 +261,7 @@ class SlackConnector(BaseConnector):
 
         # Step 2: paginate through channels
         while True:
-            channels_resp = _slack_api_conversations_list(
-                token, cursor=channels_cursor
-            )
+            channels_resp = _slack_api_conversations_list(token, cursor=channels_cursor)
             channels: List[Dict[str, Any]] = channels_resp.get("channels", [])
 
             for channel in channels:
@@ -280,9 +276,7 @@ class SlackConnector(BaseConnector):
                     history_resp = _slack_api_conversations_history(
                         token, chan_id, cursor=history_cursor
                     )
-                    messages: List[Dict[str, Any]] = history_resp.get(
-                        "messages", []
-                    )
+                    messages: List[Dict[str, Any]] = history_resp.get("messages", [])
 
                     for msg in messages:
                         # Skip bot messages and non-content subtypes
@@ -327,9 +321,7 @@ class SlackConnector(BaseConnector):
                         yield doc
 
                     next_history_cursor: str = (
-                        history_resp.get("response_metadata", {}).get(
-                            "next_cursor", ""
-                        )
+                        history_resp.get("response_metadata", {}).get("next_cursor", "")
                         or ""
                     )
                     if not history_resp.get("has_more") or not next_history_cursor:
@@ -337,8 +329,7 @@ class SlackConnector(BaseConnector):
                     history_cursor = next_history_cursor
 
             next_channels_cursor: str = (
-                channels_resp.get("response_metadata", {}).get("next_cursor", "")
-                or ""
+                channels_resp.get("response_metadata", {}).get("next_cursor", "") or ""
             )
             if not next_channels_cursor:
                 self._last_cursor = None

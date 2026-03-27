@@ -31,27 +31,26 @@ def start(install: bool) -> None:
 
         if plat.system() == "Darwin":
             plist_path = (
-                Path.home()
-                / "Library/LaunchAgents/com.openjarvis.gateway.plist"
+                Path.home() / "Library/LaunchAgents/com.openjarvis.gateway.plist"
             )
             generate_launchd_plist(plist_path)
             click.echo(f"Wrote {plist_path}")
             subprocess.run(
-                ["launchctl", "load", str(plist_path)], check=False,
+                ["launchctl", "load", str(plist_path)],
+                check=False,
             )
         else:
             service_path = (
-                Path.home()
-                / ".config/systemd/user/openjarvis-gateway.service"
+                Path.home() / ".config/systemd/user/openjarvis-gateway.service"
             )
             generate_systemd_service(service_path)
             click.echo(f"Wrote {service_path}")
             subprocess.run(
-                ["systemctl", "--user", "daemon-reload"], check=False,
+                ["systemctl", "--user", "daemon-reload"],
+                check=False,
             )
             subprocess.run(
-                ["systemctl", "--user", "enable", "--now",
-                 "openjarvis-gateway"],
+                ["systemctl", "--user", "enable", "--now", "openjarvis-gateway"],
                 check=False,
             )
     else:

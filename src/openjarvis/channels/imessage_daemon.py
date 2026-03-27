@@ -20,13 +20,9 @@ from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_DB_PATH = str(
-    Path.home() / "Library" / "Messages" / "chat.db"
-)
+_DEFAULT_DB_PATH = str(Path.home() / "Library" / "Messages" / "chat.db")
 _POLL_INTERVAL = 5
-_PID_FILE = str(
-    Path.home() / ".openjarvis" / "imessage-agent.pid"
-)
+_PID_FILE = str(Path.home() / ".openjarvis" / "imessage-agent.pid")
 
 
 def poll_new_messages(
@@ -37,9 +33,7 @@ def poll_new_messages(
 ) -> List[Dict[str, Any]]:
     """Return new incoming messages since last_rowid."""
     try:
-        conn = sqlite3.connect(
-            f"file:{db_path}?mode=ro", uri=True
-        )
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
     except sqlite3.OperationalError:
         return []
@@ -68,7 +62,7 @@ def send_imessage(chat_identifier: str, message: str) -> bool:
     escaped = message.replace("\\", "\\\\").replace('"', '\\"')
     script = (
         f'tell application "Messages"\n'
-        f'  set targetChat to a reference to '
+        f"  set targetChat to a reference to "
         f'chat id "{chat_identifier}"\n'
         f'  send "{escaped}" to targetChat\n'
         f"end tell"
@@ -152,12 +146,8 @@ def run_daemon(
 def _get_max_rowid(db_path: str) -> int:
     """Get the current max ROWID from chat.db."""
     try:
-        conn = sqlite3.connect(
-            f"file:{db_path}?mode=ro", uri=True
-        )
-        row = conn.execute(
-            "SELECT MAX(ROWID) FROM message"
-        ).fetchone()
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        row = conn.execute("SELECT MAX(ROWID) FROM message").fetchone()
         conn.close()
         return row[0] or 0
     except sqlite3.OperationalError:

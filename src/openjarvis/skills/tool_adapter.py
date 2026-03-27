@@ -61,7 +61,9 @@ class SkillTool(BaseTool):
             content=result.context.get(
                 result.step_results[-1].tool_name if result.step_results else "",
                 result.step_results[-1].content if result.step_results else "",
-            ) if result.step_results else "",
+            )
+            if result.step_results
+            else "",
             success=result.success,
             metadata={"skill": self._manifest.name, "steps": len(result.step_results)},
         )

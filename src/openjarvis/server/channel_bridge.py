@@ -126,16 +126,12 @@ class ChannelBridge:
         # Command routing
         stripped = content.strip()
         if stripped.startswith("/"):
-            result = self._handle_command(
-                sender_id, stripped, channel_type
-            )
+            result = self._handle_command(sender_id, stripped, channel_type)
             if result is not None:
                 return result
 
         # Regular chat — route to JarvisSystem.ask()
-        return self._handle_chat(
-            sender_id, stripped, channel_type, max_length
-        )
+        return self._handle_chat(sender_id, stripped, channel_type, max_length)
 
     # --------------------------------------------------------------
     # Command parsing
@@ -177,17 +173,11 @@ class ChannelBridge:
         # Unknown command — fall through to chat
         return None
 
-    def _handle_more(
-        self, sender_id: str, channel_type: str
-    ) -> str:
-        session = self._session_store.get_or_create(
-            sender_id, channel_type
-        )
+    def _handle_more(self, sender_id: str, channel_type: str) -> str:
+        session = self._session_store.get_or_create(sender_id, channel_type)
         pending = session.get("pending_response")
         if pending:
-            self._session_store.clear_pending_response(
-                sender_id, channel_type
-            )
+            self._session_store.clear_pending_response(sender_id, channel_type)
             return pending
         return "No pending response."
 
@@ -204,9 +194,7 @@ class ChannelBridge:
             lines.append(f"  {name} — {status}")
         return "Running agents:\n" + "\n".join(lines)
 
-    def _handle_agent_command(
-        self, agent_id: str, action: str
-    ) -> str:
+    def _handle_agent_command(self, agent_id: str, action: str) -> str:
         if not self._agent_manager:
             return "No agent manager configured."
         action_lower = action.strip().lower()
@@ -225,11 +213,7 @@ class ChannelBridge:
             return f"Agent '{agent_id}' resumed."
         # Treat as a message to the agent
         result = self._agent_manager.send_message(agent_id, action)
-        return (
-            str(result)
-            if result
-            else f"Message sent to agent '{agent_id}'."
-        )
+        return str(result) if result else f"Message sent to agent '{agent_id}'."
 
     # --------------------------------------------------------------
     # Chat handling
@@ -237,9 +221,7 @@ class ChannelBridge:
 
     def _handle_sessions(self, sender_id: str) -> str:
         targets = self._session_store.get_notification_targets()
-        user_sessions = [
-            t for t in targets if t["sender_id"] == sender_id
-        ]
+        user_sessions = [t for t in targets if t["sender_id"] == sender_id]
         if not user_sessions:
             return "No active sessions with notification preferences."
         lines = []
@@ -257,27 +239,20 @@ class ChannelBridge:
         channel_type: str,
         max_length: int,
     ) -> str:
-        self._session_store.append_message(
-            sender_id, channel_type, "user", content
-        )
+        self._session_store.append_message(sender_id, channel_type, "user", content)
 
         # Build context from conversation history
-        session = self._session_store.get_or_create(
-            sender_id, channel_type
-        )
+        session = self._session_store.get_or_create(sender_id, channel_type)
         history = session.get("conversation_history", [])
         context_lines = []
         for msg in history[:-1]:  # exclude the message we just appended
-            context_lines.append(
-                f"{msg['role']}: {msg['content']}"
-            )
+            context_lines.append(f"{msg['role']}: {msg['content']}")
         context_str = "\n".join(context_lines)
 
         query = content
         if context_str:
             query = (
-                f"Previous conversation:\n{context_str}\n\n"
-                f"Current message: {content}"
+                f"Previous conversation:\n{context_str}\n\nCurrent message: {content}"
             )
 
         # Try DeepResearchAgent first
@@ -295,8 +270,7 @@ class ChannelBridge:
             except Exception:
                 logger.exception("Error in JarvisSystem.ask()")
                 error_msg = (
-                    "Sorry, I couldn't process that right now. "
-                    "Try again in a moment."
+                    "Sorry, I couldn't process that right now. Try again in a moment."
                 )
                 self._session_store.append_message(
                     sender_id, channel_type, "assistant", error_msg
@@ -304,8 +278,7 @@ class ChannelBridge:
                 return error_msg
         else:
             error_msg = (
-                "Sorry, I couldn't process that right now. "
-                "Try again in a moment."
+                "Sorry, I couldn't process that right now. Try again in a moment."
             )
             self._session_store.append_message(
                 sender_id, channel_type, "assistant", error_msg
@@ -331,14 +304,10 @@ class ChannelBridge:
         if len(response) <= max_length:
             return response
         # Truncate and store full response for /more retrieval
-        truncation_notice = (
-            "\n\n... (reply /more for full response)"
-        )
+        truncation_notice = "\n\n... (reply /more for full response)"
         cut_at = max_length - len(truncation_notice)
         truncated = response[:cut_at] + truncation_notice
-        self._session_store.set_pending_response(
-            sender_id, channel_type, response
-        )
+        self._session_store.set_pending_response(sender_id, channel_type, response)
         return truncated
 
     # --------------------------------------------------------------
@@ -347,9 +316,7 @@ class ChannelBridge:
 
     def _subscribe_notifications(self) -> None:
         for event_type in _NOTIFICATION_EVENTS:
-            self._bus.subscribe(
-                event_type, self._on_notification_event
-            )
+            self._bus.subscribe(event_type, self._on_notification_event)
 
     def _on_notification_event(self, event) -> None:  # noqa: ANN001
         event_key = str(event.event_type)
@@ -369,23 +336,18 @@ class ChannelBridge:
         for target in targets:
             pref_channel = target["preferred_notification_channel"]
             sender_id = target["sender_id"]
-            self._send_notification(
-                pref_channel, sender_id, message
-            )
+            self._send_notification(pref_channel, sender_id, message)
 
     def _format_notification(  # noqa: ANN201
-        self, event  # noqa: ANN001
+        self,
+        event,  # noqa: ANN001
     ) -> Optional[str]:
         data = event.data or {}
         name = data.get("agent_name", data.get("name", "unknown"))
 
         if event.event_type == EventType.AGENT_TICK_END:
             summary = data.get("summary", data.get("result", ""))
-            return (
-                f"Agent '{name}' finished: {summary}"
-                if summary
-                else None
-            )
+            return f"Agent '{name}' finished: {summary}" if summary else None
         if event.event_type == EventType.AGENT_TICK_ERROR:
             error = data.get("error", "unknown error")
             return f"Agent '{name}' error: {error}"
@@ -414,6 +376,4 @@ class ChannelBridge:
         try:
             ch.send(sender_id, message)
         except Exception:
-            logger.exception(
-                "Failed to send notification to %s", channel_type
-            )
+            logger.exception("Failed to send notification to %s", channel_type)

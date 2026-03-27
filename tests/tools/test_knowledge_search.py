@@ -145,7 +145,9 @@ def test_tool_uses_two_stage_retriever(tmp_path: Path) -> None:
     from openjarvis.connectors.retriever import TwoStageRetriever
 
     store = KnowledgeStore(db_path=str(tmp_path / "ts_test.db"))
-    store.store(content="Deep learning research paper", source="gdrive", doc_type="document")
+    store.store(
+        content="Deep learning research paper", source="gdrive", doc_type="document"
+    )
     retriever = TwoStageRetriever(store=store)
     tool = KnowledgeSearchTool(store=store, retriever=retriever)
     result = tool.execute(query="deep learning")

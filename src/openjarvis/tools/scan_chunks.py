@@ -164,9 +164,7 @@ class ScanChunksTool(BaseTool):
                 ),
             ]
 
-            result = self._engine.generate(
-                messages, model=self._model, max_tokens=1024
-            )
+            result = self._engine.generate(messages, model=self._model, max_tokens=1024)
             content = result.get("content", "").strip()
             if content and "NOTHING_RELEVANT" not in content:
                 findings.append(content)

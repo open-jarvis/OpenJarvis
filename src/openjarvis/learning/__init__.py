@@ -31,11 +31,13 @@ def ensure_registered() -> None:
     from openjarvis.learning.routing.heuristic_policy import (
         ensure_registered as _reg_heuristic,
     )
+
     _reg_heuristic()
 
     from openjarvis.learning.routing.learned_router import (
         ensure_registered as _reg_learned,
     )
+
     _reg_learned()
 
     # Intelligence training (optional deps)

@@ -72,7 +72,9 @@ class GPQADataset(DatasetProvider):
         return len(self._records)
 
     def _convert_row(
-        self, raw: MutableMapping[str, object], idx: int,
+        self,
+        raw: MutableMapping[str, object],
+        idx: int,
     ) -> Optional[EvalRecord]:
         # Field names vary across dataset versions.
         question = str(
@@ -86,9 +88,12 @@ class GPQADataset(DatasetProvider):
         # Gather distractor answers.
         distractors: List[str] = []
         for key in (
-            "Incorrect Answer 1", "incorrect_answer_1",
-            "Incorrect Answer 2", "incorrect_answer_2",
-            "Incorrect Answer 3", "incorrect_answer_3",
+            "Incorrect Answer 1",
+            "incorrect_answer_1",
+            "Incorrect Answer 2",
+            "incorrect_answer_2",
+            "Incorrect Answer 3",
+            "incorrect_answer_3",
         ):
             val = raw.get(key)
             if val is not None:
@@ -103,21 +108,19 @@ class GPQADataset(DatasetProvider):
         options = [correct_answer] + distractors[:3]
 
         subdomain = str(
-            raw.get("Subdomain")
-            or raw.get("subdomain")
-            or "",
+            raw.get("Subdomain") or raw.get("subdomain") or "",
         ).strip()
         domain = str(
-            raw.get("High-level domain")
-            or raw.get("domain")
-            or "",
+            raw.get("High-level domain") or raw.get("domain") or "",
         ).strip()
         subject = subdomain or domain or "general"
 
         prompt_parts = [
-            question, "",
+            question,
+            "",
             "Options:",
-            _format_options(options), "",
+            _format_options(options),
+            "",
             "Provide only the letter of the correct answer (A, B, C, or D).",
         ]
         problem = "\n".join(part for part in prompt_parts if part).strip()

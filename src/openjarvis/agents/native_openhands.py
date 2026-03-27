@@ -284,9 +284,7 @@ class NativeOpenHandsAgent(ToolUsingAgent):
         total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
         # Build OpenAI-format tool schemas for native function calling
-        openai_tools = (
-            self._executor.get_openai_tools() if self._tools else []
-        )
+        openai_tools = self._executor.get_openai_tools() if self._tools else []
         # Side dict for Gemini thought_signatures (ToolCall uses slots)
         _thought_sigs: dict[str, bytes] = {}
 

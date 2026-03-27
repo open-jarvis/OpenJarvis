@@ -29,12 +29,12 @@ def _make_record(**meta_overrides) -> EvalRecord:
 
 class TestGradeAutomated:
     def test_simple_pass(self, tmp_path):
-        code = '''
+        code = """
 def grade(transcript, workspace_path):
     from pathlib import Path
     f = Path(workspace_path) / "output.txt"
     return {"file_exists": 1.0 if f.exists() else 0.0}
-'''
+"""
         (tmp_path / "output.txt").write_text("hello")
         record = _make_record(automated_checks=code)
         result = _grade_automated(record, [], str(tmp_path))
@@ -42,18 +42,18 @@ def grade(transcript, workspace_path):
         assert result["breakdown"]["file_exists"] == 1.0
 
     def test_simple_fail(self, tmp_path):
-        code = '''
+        code = """
 def grade(transcript, workspace_path):
     from pathlib import Path
     f = Path(workspace_path) / "output.txt"
     return {"file_exists": 1.0 if f.exists() else 0.0}
-'''
+"""
         record = _make_record(automated_checks=code)
         result = _grade_automated(record, [], str(tmp_path))
         assert result["score"] == 0.0
 
     def test_transcript_inspection(self, tmp_path):
-        code = '''
+        code = """
 def grade(transcript, workspace_path):
     used_read = False
     for entry in transcript:
@@ -65,20 +65,22 @@ def grade(transcript, workspace_path):
                     if item.get("type") == "toolCall" and name == "read_file":
                         used_read = True
     return {"used_read_file": 1.0 if used_read else 0.0}
-'''
-        transcript = [{
-            "type": "message",
-            "message": {
-                "role": "assistant",
-                "content": [
-                    {
-                        "type": "toolCall",
-                        "name": "read_file",
-                        "params": {"path": "a.txt"},
-                    }
-                ],
-            },
-        }]
+"""
+        transcript = [
+            {
+                "type": "message",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "toolCall",
+                            "name": "read_file",
+                            "params": {"path": "a.txt"},
+                        }
+                    ],
+                },
+            }
+        ]
         record = _make_record(automated_checks=code)
         result = _grade_automated(record, transcript, str(tmp_path))
         assert result["score"] == 1.0

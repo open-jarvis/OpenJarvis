@@ -120,9 +120,7 @@ def test_sync_yields_documents(
     """
     # Set up fake credentials so is_connected() returns True
     creds_path = Path(connector._credentials_path)
-    creds_path.write_text(
-        json.dumps({"token": "fake-access-token"}), encoding="utf-8"
-    )
+    creds_path.write_text(json.dumps({"token": "fake-access-token"}), encoding="utf-8")
 
     # Configure mocks
     mock_users.return_value = _USERS_RESPONSE
@@ -176,9 +174,7 @@ def test_sync_yields_documents(
 def test_disconnect(connector, tmp_path: Path) -> None:
     """disconnect() deletes the credentials file."""
     creds_path = Path(connector._credentials_path)
-    creds_path.write_text(
-        json.dumps({"token": "fake-access-token"}), encoding="utf-8"
-    )
+    creds_path.write_text(json.dumps({"token": "fake-access-token"}), encoding="utf-8")
     assert connector.is_connected() is True
 
     connector.disconnect()

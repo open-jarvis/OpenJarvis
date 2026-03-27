@@ -13,9 +13,7 @@ from openjarvis.server.session_store import SessionStore
 @pytest.fixture
 def store():
     with tempfile.TemporaryDirectory() as tmpdir:
-        s = SessionStore(
-            db_path=str(Path(tmpdir) / "sessions.db")
-        )
+        s = SessionStore(db_path=str(Path(tmpdir) / "sessions.db"))
         yield s
         s.close()
 
@@ -38,9 +36,7 @@ class TestGetOrCreate:
     def test_separate_sessions_per_channel(self, store):
         store.get_or_create("user123", "twilio")
         store.get_or_create("user123", "slack")
-        store.append_message(
-            "user123", "twilio", "user", "hello via sms"
-        )
+        store.append_message("user123", "twilio", "user", "hello via sms")
         twilio_session = store.get_or_create("user123", "twilio")
         slack_session = store.get_or_create("user123", "slack")
         assert len(twilio_session["conversation_history"]) == 1
@@ -51,9 +47,7 @@ class TestAppendMessage:
     def test_appends_message(self, store):
         store.get_or_create("user1", "slack")
         store.append_message("user1", "slack", "user", "hi")
-        store.append_message(
-            "user1", "slack", "assistant", "hello!"
-        )
+        store.append_message("user1", "slack", "assistant", "hello!")
         session = store.get_or_create("user1", "slack")
         assert len(session["conversation_history"]) == 2
         assert session["conversation_history"][0] == {
@@ -68,46 +62,30 @@ class TestAppendMessage:
     def test_caps_history_at_max_turns(self, store):
         store.get_or_create("user1", "slack")
         for i in range(25):
-            store.append_message(
-                "user1", "slack", "user", f"msg {i}"
-            )
+            store.append_message("user1", "slack", "user", f"msg {i}")
         session = store.get_or_create("user1", "slack")
         assert len(session["conversation_history"]) == 20
-        assert (
-            session["conversation_history"][0]["content"]
-            == "msg 5"
-        )
+        assert session["conversation_history"][0]["content"] == "msg 5"
 
 
 class TestNotificationPreference:
     def test_set_and_get(self, store):
         store.get_or_create("user1", "twilio")
-        store.set_notification_preference(
-            "user1", "twilio", "slack"
-        )
+        store.set_notification_preference("user1", "twilio", "slack")
         session = store.get_or_create("user1", "twilio")
-        assert (
-            session["preferred_notification_channel"] == "slack"
-        )
+        assert session["preferred_notification_channel"] == "slack"
 
 
 class TestPendingResponse:
     def test_set_and_get(self, store):
         store.get_or_create("user1", "twilio")
-        store.set_pending_response(
-            "user1", "twilio", "full long response text here"
-        )
+        store.set_pending_response("user1", "twilio", "full long response text here")
         session = store.get_or_create("user1", "twilio")
-        assert (
-            session["pending_response"]
-            == "full long response text here"
-        )
+        assert session["pending_response"] == "full long response text here"
 
     def test_clear_pending(self, store):
         store.get_or_create("user1", "twilio")
-        store.set_pending_response(
-            "user1", "twilio", "some text"
-        )
+        store.set_pending_response("user1", "twilio", "some text")
         store.clear_pending_response("user1", "twilio")
         session = store.get_or_create("user1", "twilio")
         assert session["pending_response"] is None
@@ -116,13 +94,10 @@ class TestPendingResponse:
 class TestExpireSessions:
     def test_expire_clears_old_history(self, store):
         store.get_or_create("user1", "twilio")
-        store.append_message(
-            "user1", "twilio", "user", "old message"
-        )
+        store.append_message("user1", "twilio", "user", "old message")
         # Force the updated_at to be old
         store._db.execute(
-            "UPDATE channel_sessions "
-            "SET updated_at = datetime('now', '-25 hours')"
+            "UPDATE channel_sessions SET updated_at = datetime('now', '-25 hours')"
         )
         store._db.commit()
         store.expire_sessions(max_age_hours=24)
@@ -134,9 +109,7 @@ class TestLastActiveChannel:
     def test_returns_most_recent(self, store):
         store.get_or_create("user1", "twilio")
         store.get_or_create("user1", "slack")
-        store.append_message(
-            "user1", "slack", "user", "latest"
-        )
+        store.append_message("user1", "slack", "user", "latest")
         result = store.get_last_active_channel("user1")
         assert result == "slack"
 

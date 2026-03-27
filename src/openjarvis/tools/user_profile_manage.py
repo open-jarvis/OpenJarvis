@@ -21,9 +21,7 @@ class UserProfileManageTool(BaseTool):
     def spec(self) -> ToolSpec:
         return ToolSpec(
             name="user_profile_manage",
-            description=(
-                "Read, add, update, or remove entries in user profile."
-            ),
+            description=("Read, add, update, or remove entries in user profile."),
             parameters={
                 "type": "object",
                 "properties": {
@@ -86,9 +84,7 @@ class UserProfileManageTool(BaseTool):
                 content="Entry cannot be empty.",
             )
         self._user_path.parent.mkdir(parents=True, exist_ok=True)
-        existing = (
-            self._user_path.read_text() if self._user_path.exists() else ""
-        )
+        existing = self._user_path.read_text() if self._user_path.exists() else ""
         self._user_path.write_text(existing.rstrip() + f"\n- {entry}\n")
         return ToolResult(
             tool_name=self.spec.name,

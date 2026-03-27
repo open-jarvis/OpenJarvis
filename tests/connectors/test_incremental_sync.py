@@ -109,7 +109,7 @@ def test_first_sync_passes_no_since(engine: SyncEngine) -> None:
 
 
 def test_second_sync_passes_since(engine: SyncEngine) -> None:
-    """After the first sync a checkpoint is written; the second sync receives since != None."""
+    """After first sync, checkpoint is written; second sync gets since."""
     docs = [_make_doc("second:doc:0", content="Document for incremental sync")]
     connector = TimestampConnector(docs)
 

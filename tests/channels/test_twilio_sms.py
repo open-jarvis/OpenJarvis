@@ -18,9 +18,7 @@ def _register_twilio():
             TwilioSMSChannel,
         )
 
-        ChannelRegistry.register_value(
-            "twilio", TwilioSMSChannel
-        )
+        ChannelRegistry.register_value("twilio", TwilioSMSChannel)
 
 
 class TestRegistration:
@@ -49,9 +47,7 @@ class TestInit:
 
         monkeypatch.setenv("TWILIO_ACCOUNT_SID", "AC_env")
         monkeypatch.setenv("TWILIO_AUTH_TOKEN", "token_env")
-        monkeypatch.setenv(
-            "TWILIO_PHONE_NUMBER", "+15559876543"
-        )
+        monkeypatch.setenv("TWILIO_PHONE_NUMBER", "+15559876543")
         ch = TwilioSMSChannel()
         assert ch._account_sid == "AC_env"
 
@@ -70,9 +66,7 @@ class TestSend:
         ch.connect()
 
         mock_client = MagicMock()
-        mock_client.messages.create.return_value = MagicMock(
-            sid="SM_test"
-        )
+        mock_client.messages.create.return_value = MagicMock(sid="SM_test")
         ch._client = mock_client
 
         result = ch.send("+15559999999", "Hello via SMS!")
@@ -96,9 +90,7 @@ class TestSend:
         ch.connect()
 
         mock_client = MagicMock()
-        mock_client.messages.create.side_effect = Exception(
-            "API error"
-        )
+        mock_client.messages.create.side_effect = Exception("API error")
         ch._client = mock_client
 
         result = ch.send("+15559999999", "Hello!")
@@ -119,9 +111,7 @@ class TestSend:
         ch.connect()
 
         mock_client = MagicMock()
-        mock_client.messages.create.return_value = MagicMock(
-            sid="SM_test"
-        )
+        mock_client.messages.create.return_value = MagicMock(sid="SM_test")
         ch._client = mock_client
 
         ch.send("+15559999999", "Hello!")
@@ -140,10 +130,7 @@ class TestStatus:
             auth_token="token_test",
             phone_number="+15551234567",
         )
-        with patch(
-            "openjarvis.channels.twilio_sms"
-            "._create_twilio_client"
-        ):
+        with patch("openjarvis.channels.twilio_sms._create_twilio_client"):
             ch.connect()
         assert ch.status() == ChannelStatus.CONNECTED
 
@@ -157,10 +144,7 @@ class TestStatus:
             auth_token="token_test",
             phone_number="+15551234567",
         )
-        with patch(
-            "openjarvis.channels.twilio_sms"
-            "._create_twilio_client"
-        ):
+        with patch("openjarvis.channels.twilio_sms._create_twilio_client"):
             ch.connect()
             ch.disconnect()
         assert ch.status() == ChannelStatus.DISCONNECTED

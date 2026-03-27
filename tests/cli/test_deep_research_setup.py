@@ -5,16 +5,11 @@ from __future__ import annotations
 import gzip
 import sqlite3
 from pathlib import Path
-from typing import List
-
-import pytest
-
-from openjarvis.connectors._stubs import Document
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _create_fake_notes_db(db_path: Path) -> None:
     """Create a minimal Apple Notes SQLite database."""
@@ -36,7 +31,8 @@ def _create_fake_notes_db(db_path: Path) -> None:
     """)
     content = gzip.compress(b"Test note about meetings")
     conn.execute(
-        "INSERT INTO ZICCLOUDSYNCINGOBJECT VALUES (1, NULL, 'Test Note', 694310400.0, 'n1', 1)"
+        "INSERT INTO ZICCLOUDSYNCINGOBJECT VALUES "
+        "(1, NULL, 'Test Note', 694310400.0, 'n1', 1)"
     )
     conn.execute("INSERT INTO ZICNOTEDATA VALUES (1, ?, 1)", (content,))
     conn.commit()
@@ -48,7 +44,10 @@ def _create_fake_imessage_db(db_path: Path) -> None:
     conn = sqlite3.connect(str(db_path))
     conn.executescript("""
         CREATE TABLE handle (ROWID INTEGER PRIMARY KEY, id TEXT);
-        CREATE TABLE chat (ROWID INTEGER PRIMARY KEY, chat_identifier TEXT, display_name TEXT);
+        CREATE TABLE chat (
+            ROWID INTEGER PRIMARY KEY,
+            chat_identifier TEXT, display_name TEXT
+        );
         CREATE TABLE chat_message_join (chat_id INTEGER, message_id INTEGER);
         CREATE TABLE message (
             ROWID INTEGER PRIMARY KEY, text TEXT, handle_id INTEGER,
@@ -58,7 +57,9 @@ def _create_fake_imessage_db(db_path: Path) -> None:
     conn.execute("INSERT INTO handle VALUES (1, '+15551234567')")
     conn.execute("INSERT INTO chat VALUES (1, '+15551234567', 'Test Chat')")
     conn.execute("INSERT INTO chat_message_join VALUES (1, 1)")
-    conn.execute("INSERT INTO message VALUES (1, 'Hello from test', 1, 694310400000000000, 0)")
+    conn.execute(
+        "INSERT INTO message VALUES (1, 'Hello from test', 1, 694310400000000000, 0)"
+    )
     conn.commit()
     conn.close()
 
@@ -118,7 +119,10 @@ def test_detect_includes_obsidian_when_vault_exists(tmp_path: Path) -> None:
 
 def test_ingest_sources(tmp_path: Path) -> None:
     """ingest_sources connects and ingests documents into KnowledgeStore."""
-    from openjarvis.cli.deep_research_setup_cmd import detect_local_sources, ingest_sources
+    from openjarvis.cli.deep_research_setup_cmd import (
+        detect_local_sources,
+        ingest_sources,
+    )
     from openjarvis.connectors.store import KnowledgeStore
 
     notes_db = tmp_path / "NoteStore.sqlite"

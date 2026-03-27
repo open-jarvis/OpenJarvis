@@ -82,17 +82,19 @@ class AuditLogger:
 
     def log(self, event: SecurityEvent) -> None:
         """Insert a security event into the audit log with Merkle hash chain."""
-        findings_json = json.dumps([
-            {
-                "pattern_name": f.pattern_name,
-                "matched_text": f.matched_text,
-                "threat_level": f.threat_level.value,
-                "start": f.start,
-                "end": f.end,
-                "description": f.description,
-            }
-            for f in event.findings
-        ])
+        findings_json = json.dumps(
+            [
+                {
+                    "pattern_name": f.pattern_name,
+                    "matched_text": f.matched_text,
+                    "threat_level": f.threat_level.value,
+                    "start": f.start,
+                    "end": f.end,
+                    "description": f.description,
+                }
+                for f in event.findings
+            ]
+        )
 
         # Compute hash chain
         prev_hash = self.tail_hash()
@@ -205,10 +207,7 @@ class AuditLogger:
             if stored_prev != expected_prev:
                 return False, rid
             # Verify row_hash
-            hash_input = (
-                f"{stored_prev}|{ts}|{etype}"
-                f"|{fj}|{preview}|{action}"
-            )
+            hash_input = f"{stored_prev}|{ts}|{etype}|{fj}|{preview}|{action}"
             computed = hashlib.sha256(hash_input.encode()).hexdigest()
             if computed != stored_hash:
                 return False, rid
@@ -218,9 +217,7 @@ class AuditLogger:
 
     def count(self) -> int:
         """Return the total number of logged security events."""
-        row = self._conn.execute(
-            "SELECT COUNT(*) FROM security_events"
-        ).fetchone()
+        row = self._conn.execute("SELECT COUNT(*) FROM security_events").fetchone()
         return row[0] if row else 0
 
     def close(self) -> None:

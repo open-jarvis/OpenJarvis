@@ -103,8 +103,8 @@ class TestSend:
     def test_gmail_send_exception_returns_false(self):
         ch = GmailChannel()
         mock_service = MagicMock()
-        mock_service.users().messages().send().execute.side_effect = (
-            RuntimeError("API error")
+        mock_service.users().messages().send().execute.side_effect = RuntimeError(
+            "API error"
         )
         ch._service = mock_service
         ch._status = ChannelStatus.CONNECTED

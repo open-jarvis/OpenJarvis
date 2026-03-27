@@ -37,7 +37,9 @@ MAX_TURNS_OS = 5
 
 
 def _infer_oracle_result(
-    func_name: str, current_action: str, next_action: str,
+    func_name: str,
+    current_action: str,
+    next_action: str,
 ) -> str:
     """Infer a plausible oracle result from the gold action sequence.
 
@@ -76,13 +78,16 @@ def _infer_oracle_result(
 # DB Environment
 # ====================================================================
 
+
 def _mysql_available() -> bool:
     """Check if Docker + MySQL image is available."""
     if not shutil.which("docker"):
         return False
     try:
         result = subprocess.run(
-            ["docker", "info"], capture_output=True, timeout=10,
+            ["docker", "info"],
+            capture_output=True,
+            timeout=10,
         )
         return result.returncode == 0
     except (subprocess.TimeoutExpired, OSError):
@@ -131,7 +136,8 @@ class DBEnvironment(TaskEnvironment):
             except Exception as exc:
                 logger.warning(
                     "MySQL setup failed for %s, falling back to SQLite: %s",
-                    record.record_id, exc,
+                    record.record_id,
+                    exc,
                 )
                 self._use_mysql = False
                 self._mysql_conn = None
@@ -152,7 +158,8 @@ class DBEnvironment(TaskEnvironment):
         # Check for "Action: Answer" / "Final Answer:"
         answer_match = re.search(
             r"(?:Action:\s*Answer\s*\n\s*)?Final\s+Answer:\s*(.+)",
-            agent_response, re.DOTALL | re.IGNORECASE,
+            agent_response,
+            re.DOTALL | re.IGNORECASE,
         )
         if answer_match:
             self._agent_final_answer = answer_match.group(1).strip()
@@ -182,9 +189,7 @@ class DBEnvironment(TaskEnvironment):
                     if not rows:
                         return "Result: Empty result set", False
                     desc = cursor.description
-                    col_names = (
-                        [d[0] for d in desc] if desc else []
-                    )
+                    col_names = [d[0] for d in desc] if desc else []
                     result_lines = []
                     if col_names:
                         result_lines.append(str(col_names))
@@ -218,7 +223,8 @@ class DBEnvironment(TaskEnvironment):
             return self._evaluate_direct(meta)
 
     def _evaluate_md5(
-        self, meta: Dict[str, Any],
+        self,
+        meta: Dict[str, Any],
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         """Evaluate DML tasks by comparing table state after agent's SQL."""
         table_name = self._table_info.get("name", "data")
@@ -257,13 +263,15 @@ class DBEnvironment(TaskEnvironment):
             logger.warning(
                 "MD5 task %s: ground-truth SQL failed on SQLite (%s). "
                 "Falling back to normalized SQL comparison.",
-                table_name, exc,
+                table_name,
+                exc,
             )
             meta["ref_sql_sqlite_error"] = str(exc)
             meta["fallback"] = "normalized_sql_comparison"
             from openjarvis.evals.scorers.lifelong_agent_scorer import (
                 _normalize_sql,
             )
+
             # Compare the last DML statement the agent executed against
             # the ground-truth DML statement.
             agent_dml = ""
@@ -274,14 +282,14 @@ class DBEnvironment(TaskEnvironment):
                     break
             if not agent_dml:
                 agent_dml = (
-                    self._agent_sql_history[-1]
-                    if self._agent_sql_history else ""
+                    self._agent_sql_history[-1] if self._agent_sql_history else ""
                 )
             norm_agent = _normalize_sql(agent_dml)
             norm_expected = _normalize_sql(expected_sql)
             is_correct = norm_agent == norm_expected
             meta["comparison_detail"] = (
-                "normalized_sql_match" if is_correct
+                "normalized_sql_match"
+                if is_correct
                 else f"normalized_sql_mismatch: "
                 f"expected={norm_expected!r}, got={norm_agent!r}"
             )
@@ -295,7 +303,8 @@ class DBEnvironment(TaskEnvironment):
         return is_correct, meta
 
     def _evaluate_direct(
-        self, meta: Dict[str, Any],
+        self,
+        meta: Dict[str, Any],
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         """Evaluate SELECT tasks by comparing result tuples."""
         expected_direct = self._answer_info.get("direct")
@@ -305,9 +314,7 @@ class DBEnvironment(TaskEnvironment):
             meta["reason"] = "no_ground_truth_direct"
             return None, meta
 
-        expected_tuples = [
-            r if isinstance(r, list) else [r] for r in expected_direct
-        ]
+        expected_tuples = [r if isinstance(r, list) else [r] for r in expected_direct]
         meta["expected_tuples"] = expected_tuples
 
         # Strategy 1: Try each SELECT from agent's SQL history (newest first).
@@ -322,7 +329,8 @@ class DBEnvironment(TaskEnvironment):
                         actual_rows = [list(row) for row in cursor.fetchall()]
                         ref_conn.close()
                     is_correct, detail = compare_tuple_lists(
-                        expected_tuples, actual_rows,
+                        expected_tuples,
+                        actual_rows,
                     )
                     if is_correct:
                         meta["actual_tuples"] = actual_rows
@@ -337,6 +345,7 @@ class DBEnvironment(TaskEnvironment):
             from openjarvis.evals.scorers.lifelong_agent_scorer import (
                 _parse_text_answer,
             )
+
             answer_text = self._agent_final_answer
             if not answer_text.lower().startswith("final answer"):
                 answer_text = f"Final Answer: {answer_text}"
@@ -366,8 +375,10 @@ class DBEnvironment(TaskEnvironment):
         db_name = "lifelong_bench"
 
         conn = mysql.connector.connect(
-            host="127.0.0.1", user="root",
-            password="password", port=self._mysql_port,
+            host="127.0.0.1",
+            user="root",
+            password="password",
+            port=self._mysql_port,
         )
         cursor = conn.cursor()
         cursor.execute(f"DROP DATABASE IF EXISTS `{db_name}`")
@@ -382,9 +393,7 @@ class DBEnvironment(TaskEnvironment):
         if not col_defs:
             col_defs = ["`value` TEXT"]
 
-        cursor.execute(
-            f"CREATE TABLE `{table_name}` ({', '.join(col_defs)})"
-        )
+        cursor.execute(f"CREATE TABLE `{table_name}` ({', '.join(col_defs)})")
 
         if rows and columns:
             ncols = len(columns)
@@ -395,7 +404,8 @@ class DBEnvironment(TaskEnvironment):
                     padded.append(None)
                 try:
                     cursor.execute(
-                        f"INSERT INTO `{table_name}` VALUES ({ph})", padded,
+                        f"INSERT INTO `{table_name}` VALUES ({ph})",
+                        padded,
                     )
                 except Exception as exc:
                     logger.debug("Skipping row in MySQL table %s: %s", table_name, exc)
@@ -406,8 +416,10 @@ class DBEnvironment(TaskEnvironment):
 
         # Store a persistent connection for agent interactions
         self._mysql_conn = mysql.connector.connect(
-            host="127.0.0.1", user="root",
-            password="password", port=self._mysql_port,
+            host="127.0.0.1",
+            user="root",
+            password="password",
+            port=self._mysql_port,
             database=db_name,
         )
 
@@ -485,25 +497,37 @@ class DBEnvironment(TaskEnvironment):
         self._mysql_container = f"lifelong-db-{self._mysql_port}"
         subprocess.run(
             ["docker", "rm", "-f", self._mysql_container],
-            capture_output=True, timeout=30,
+            capture_output=True,
+            timeout=30,
         )
         subprocess.run(
             [
-                "docker", "run", "-d", "--name", self._mysql_container,
-                "-e", "MYSQL_ROOT_PASSWORD=password",
-                "-p", f"{self._mysql_port}:3306",
+                "docker",
+                "run",
+                "-d",
+                "--name",
+                self._mysql_container,
+                "-e",
+                "MYSQL_ROOT_PASSWORD=password",
+                "-p",
+                f"{self._mysql_port}:3306",
                 "mysql:8.0",
             ],
-            capture_output=True, check=True, timeout=60,
+            capture_output=True,
+            check=True,
+            timeout=60,
         )
         # Wait for MySQL to be ready (up to 30s)
         for _ in range(30):
             time.sleep(1)
             try:
                 import mysql.connector
+
                 conn = mysql.connector.connect(
-                    host="127.0.0.1", user="root",
-                    password="password", port=self._mysql_port,
+                    host="127.0.0.1",
+                    user="root",
+                    password="password",
+                    port=self._mysql_port,
                 )
                 conn.close()
                 break
@@ -529,7 +553,8 @@ class DBEnvironment(TaskEnvironment):
             try:
                 subprocess.run(
                     ["docker", "rm", "-f", self._mysql_container],
-                    capture_output=True, timeout=30,
+                    capture_output=True,
+                    timeout=30,
                 )
             except Exception:
                 pass
@@ -540,12 +565,16 @@ class DBEnvironment(TaskEnvironment):
 # KG Environment
 # ====================================================================
 
+
 class _Variable:
     """Variable in the KG variable store, matching the original's Variable class."""
 
     def __init__(
-        self, idx: int, program: str,
-        vtype: str = "entity", callable: bool = True,
+        self,
+        idx: int,
+        program: str,
+        vtype: str = "entity",
+        callable: bool = True,
     ):
         self.idx = idx
         self.program = program
@@ -638,7 +667,9 @@ class KGEnvironment(TaskEnvironment):
 
         # Check for Final Answer with raw entities — fallback format
         fa_match = re.search(
-            r"(?i)final\s+answer:\s*(.+)", agent_response, re.DOTALL,
+            r"(?i)final\s+answer:\s*(.+)",
+            agent_response,
+            re.DOTALL,
         )
         if fa_match:
             self._agent_final_answer = fa_match.group(1).strip()
@@ -653,7 +684,9 @@ class KGEnvironment(TaskEnvironment):
 
         # Parse API call: Action: func_name(args)
         action_match = re.search(
-            r"Action:\s*(\w+)\((.+?)\)", agent_response, re.DOTALL,
+            r"Action:\s*(\w+)\((.+?)\)",
+            agent_response,
+            re.DOTALL,
         )
         if not action_match:
             return (
@@ -670,8 +703,13 @@ class KGEnvironment(TaskEnvironment):
     def _execute_api(self, func_name: str, args_str: str) -> str:
         """Execute a KG API call, matching the original's API interface."""
         valid_funcs = {
-            "get_relations", "get_neighbors", "intersection",
-            "get_attributes", "argmax", "argmin", "count",
+            "get_relations",
+            "get_neighbors",
+            "intersection",
+            "get_attributes",
+            "argmax",
+            "argmin",
+            "count",
         }
         if func_name not in valid_funcs:
             return (
@@ -707,22 +745,24 @@ class KGEnvironment(TaskEnvironment):
                     if isinstance(next_action, str):
                         # Extract relation/entity hints from the next call
                         oracle_result = _infer_oracle_result(
-                            func_name, str(oracle), str(next_action),
+                            func_name,
+                            str(oracle),
+                            str(next_action),
                         )
                     else:
                         oracle_result = next_action.get(
-                            "result", next_action.get("output", ""),
+                            "result",
+                            next_action.get("output", ""),
                         )
                 else:
                     oracle_result = f"(oracle: action '{oracle}' executed)"
-            return (
-                f"Result stored as #{new_var.idx}.\n"
-                f"Output: {oracle_result}"
-            )
+            return f"Result stored as #{new_var.idx}.\nOutput: {oracle_result}"
 
         # No oracle — simulate with empty results + warning
         new_var = _Variable(
-            len(self._variables), f"{func_name}({args_str})", "entity",
+            len(self._variables),
+            f"{func_name}({args_str})",
+            "entity",
         )
         self._variables.append(new_var)
 
@@ -837,7 +877,8 @@ class OSEnvironment(TaskEnvironment):
                 try:
                     result = subprocess.run(
                         ["docker", "image", "inspect", candidate],
-                        capture_output=True, timeout=10,
+                        capture_output=True,
+                        timeout=10,
                     )
                     if result.returncode == 0:
                         image = candidate
@@ -856,14 +897,23 @@ class OSEnvironment(TaskEnvironment):
         self._container_name = f"lifelong-os-{record.record_id.replace('/', '-')}"
         subprocess.run(
             ["docker", "rm", "-f", self._container_name],
-            capture_output=True, timeout=30,
+            capture_output=True,
+            timeout=30,
         )
         subprocess.run(
             [
-                "docker", "run", "-d", "--name", self._container_name,
-                image, "sleep", "600",
+                "docker",
+                "run",
+                "-d",
+                "--name",
+                self._container_name,
+                image,
+                "sleep",
+                "600",
             ],
-            capture_output=True, check=True, timeout=60,
+            capture_output=True,
+            check=True,
+            timeout=60,
         )
 
         # Run initialization command
@@ -877,7 +927,8 @@ class OSEnvironment(TaskEnvironment):
         if init_cmd_str:
             result = subprocess.run(
                 ["docker", "exec", self._container_name, "bash", "-c", init_cmd_str],
-                capture_output=True, timeout=self._timeout,
+                capture_output=True,
+                timeout=self._timeout,
             )
             if result.returncode != 0:
                 logger.warning(
@@ -911,7 +962,8 @@ class OSEnvironment(TaskEnvironment):
             try:
                 result = subprocess.run(
                     ["docker", "exec", self._container_name, "bash", "-c", cmd],
-                    capture_output=True, timeout=self._timeout,
+                    capture_output=True,
+                    timeout=self._timeout,
                 )
                 stdout = result.stdout.decode(errors="replace")[:2000]
                 stderr = result.stderr.decode(errors="replace")[:500]
@@ -968,7 +1020,8 @@ class OSEnvironment(TaskEnvironment):
         try:
             result = subprocess.run(
                 ["docker", "exec", self._container_name, "bash", "-c", eval_cmd_str],
-                capture_output=True, timeout=self._timeout,
+                capture_output=True,
+                timeout=self._timeout,
             )
             meta["eval_exit_code"] = result.returncode
             meta["eval_stdout"] = result.stdout.decode(errors="replace")[:500]
@@ -985,7 +1038,8 @@ class OSEnvironment(TaskEnvironment):
             try:
                 subprocess.run(
                     ["docker", "rm", "-f", self._container_name],
-                    capture_output=True, timeout=30,
+                    capture_output=True,
+                    timeout=30,
                 )
             except Exception:
                 pass
@@ -995,6 +1049,7 @@ class OSEnvironment(TaskEnvironment):
 # ====================================================================
 # Helpers (shared with scorer — avoid duplication)
 # ====================================================================
+
 
 def _build_sqlite_db(table_info: Dict[str, Any]) -> sqlite3.Connection:
     """Build an in-memory SQLite DB from table_info."""
@@ -1031,7 +1086,8 @@ def _build_sqlite_db(table_info: Dict[str, Any]) -> sqlite3.Connection:
 
 
 def _get_table_rows(
-    conn: Optional[sqlite3.Connection], table_name: str,
+    conn: Optional[sqlite3.Connection],
+    table_name: str,
 ) -> List[List[Any]]:
     if conn is None:
         return []
@@ -1040,7 +1096,8 @@ def _get_table_rows(
 
 
 def _compare_table_states(
-    expected: List[List[Any]], actual: List[List[Any]],
+    expected: List[List[Any]],
+    actual: List[List[Any]],
 ) -> Tuple[bool, str]:
     if len(expected) != len(actual):
         return False, f"row_count_mismatch: expected {len(expected)}, got {len(actual)}"
@@ -1066,7 +1123,8 @@ def _extract_bash_commands_from_response(text: str) -> List[str]:
     # Original format: Act: bash\n```bash\n...\n```
     for m in re.finditer(
         r"Act:\s*bash\s*\n\s*```(?:bash)?\s*\n(.*?)\n\s*```",
-        text, re.DOTALL | re.IGNORECASE,
+        text,
+        re.DOTALL | re.IGNORECASE,
     ):
         cmd = m.group(1).strip()
         if cmd:
@@ -1077,7 +1135,8 @@ def _extract_bash_commands_from_response(text: str) -> List[str]:
     # Act: ```bash\n...\n```
     for m in re.finditer(
         r"Act:\s*```(?:bash)?\s*\n(.*?)\n\s*```",
-        text, re.DOTALL | re.IGNORECASE,
+        text,
+        re.DOTALL | re.IGNORECASE,
     ):
         cmd = m.group(1).strip()
         if cmd:
@@ -1088,7 +1147,8 @@ def _extract_bash_commands_from_response(text: str) -> List[str]:
     # ```bash\n...\n```
     for m in re.finditer(
         r"```(?:bash|sh)\s*\n(.*?)\n\s*```",
-        text, re.DOTALL | re.IGNORECASE,
+        text,
+        re.DOTALL | re.IGNORECASE,
     ):
         cmd = m.group(1).strip()
         if cmd:

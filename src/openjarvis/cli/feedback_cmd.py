@@ -18,7 +18,10 @@ def feedback_group() -> None:
 @feedback_group.command("score")
 @click.argument("trace_id")
 @click.option(
-    "-s", "--score", type=float, required=True,
+    "-s",
+    "--score",
+    type=float,
+    required=True,
     help="Feedback score (0.0-1.0).",
 )
 def feedback_score(trace_id: str, score: float) -> None:
@@ -43,13 +46,9 @@ def feedback_score(trace_id: str, score: float) -> None:
         store.close()
 
         if updated:
-            console.print(
-                f"[green]Recorded score {score} for trace {trace_id}[/green]"
-            )
+            console.print(f"[green]Recorded score {score} for trace {trace_id}[/green]")
         else:
-            console.print(
-                f"[yellow]Trace '{trace_id}' not found.[/yellow]"
-            )
+            console.print(f"[yellow]Trace '{trace_id}' not found.[/yellow]")
     except Exception as exc:
         console.print(f"[red]Error: {exc}[/red]")
         sys.exit(1)
@@ -57,16 +56,22 @@ def feedback_score(trace_id: str, score: float) -> None:
 
 @feedback_group.command("thumbs")
 @click.option(
-    "--last", is_flag=True, default=False,
+    "--last",
+    is_flag=True,
+    default=False,
     help="Rate the last interaction.",
 )
 @click.option(
-    "--up/--down", "thumbs_up", default=True,
+    "--up/--down",
+    "thumbs_up",
+    default=True,
     help="Thumbs up or down.",
 )
 @click.argument("trace_id", required=False)
 def feedback_thumbs(
-    last: bool, thumbs_up: bool, trace_id: Optional[str],
+    last: bool,
+    thumbs_up: bool,
+    trace_id: Optional[str],
 ) -> None:
     """Rate a trace with thumbs up/down."""
     console = Console()
@@ -97,13 +102,9 @@ def feedback_thumbs(
 
         label = "thumbs up" if thumbs_up else "thumbs down"
         if updated:
-            console.print(
-                f"[green]Recorded {label} for trace {trace_id}[/green]"
-            )
+            console.print(f"[green]Recorded {label} for trace {trace_id}[/green]")
         else:
-            console.print(
-                f"[yellow]Trace '{trace_id}' not found.[/yellow]"
-            )
+            console.print(f"[yellow]Trace '{trace_id}' not found.[/yellow]")
     except Exception as exc:
         console.print(f"[red]Error: {exc}[/red]")
         sys.exit(1)
@@ -111,7 +112,9 @@ def feedback_thumbs(
 
 @feedback_group.command("evaluate")
 @click.option(
-    "--since", type=str, default="7d",
+    "--since",
+    type=str,
+    default="7d",
     help="Evaluate traces since (e.g. 7d, 24h).",
 )
 def feedback_evaluate(since: str) -> None:
@@ -125,15 +128,11 @@ def feedback_evaluate(since: str) -> None:
         value = float(since[:-1])
         seconds = value * multipliers.get(unit, 86400)
     except (ValueError, IndexError):
-        console.print(
-            f"[red]Invalid duration '{since}'. Use e.g. 7d, 24h, 30m.[/red]"
-        )
+        console.print(f"[red]Invalid duration '{since}'. Use e.g. 7d, 24h, 30m.[/red]")
         sys.exit(1)
 
     since_ts = time.time() - seconds
-    console.print(
-        f"[cyan]Evaluating traces from the last {since}...[/cyan]"
-    )
+    console.print(f"[cyan]Evaluating traces from the last {since}...[/cyan]")
 
     try:
         from openjarvis.core.config import DEFAULT_CONFIG_DIR
@@ -153,8 +152,7 @@ def feedback_evaluate(since: str) -> None:
             return
 
         console.print(
-            "[yellow]LLM judge evaluation is not yet "
-            "fully implemented.[/yellow]"
+            "[yellow]LLM judge evaluation is not yet fully implemented.[/yellow]"
         )
     except Exception as exc:
         console.print(f"[red]Error: {exc}[/red]")
@@ -183,9 +181,7 @@ def feedback_stats() -> None:
         total = len(all_traces)
         scored_count = len(scored)
         mean_score = (
-            sum(t.feedback for t in scored) / scored_count
-            if scored_count > 0
-            else 0.0
+            sum(t.feedback for t in scored) / scored_count if scored_count > 0 else 0.0
         )
         positive = sum(1 for t in scored if t.feedback >= 0.5)
 

@@ -45,15 +45,9 @@ class TwilioSMSChannel(BaseChannel):
         phone_number: str = "",
         bus: Optional[EventBus] = None,
     ) -> None:
-        self._account_sid = account_sid or os.environ.get(
-            "TWILIO_ACCOUNT_SID", ""
-        )
-        self._auth_token = auth_token or os.environ.get(
-            "TWILIO_AUTH_TOKEN", ""
-        )
-        self._phone_number = phone_number or os.environ.get(
-            "TWILIO_PHONE_NUMBER", ""
-        )
+        self._account_sid = account_sid or os.environ.get("TWILIO_ACCOUNT_SID", "")
+        self._auth_token = auth_token or os.environ.get("TWILIO_AUTH_TOKEN", "")
+        self._phone_number = phone_number or os.environ.get("TWILIO_PHONE_NUMBER", "")
         self._bus = bus
         self._client: Any = None
         self._handlers: List[ChannelHandler] = []
@@ -61,9 +55,7 @@ class TwilioSMSChannel(BaseChannel):
 
     def connect(self) -> None:
         try:
-            self._client = _create_twilio_client(
-                self._account_sid, self._auth_token
-            )
+            self._client = _create_twilio_client(self._account_sid, self._auth_token)
             self._status = ChannelStatus.CONNECTED
         except Exception:
             logger.exception("Failed to create Twilio client")
@@ -93,9 +85,7 @@ class TwilioSMSChannel(BaseChannel):
             self._publish_sent(channel, content, conversation_id)
             return True
         except Exception:
-            logger.exception(
-                "Failed to send SMS to %s", channel
-            )
+            logger.exception("Failed to send SMS to %s", channel)
             return False
 
     def status(self) -> ChannelStatus:

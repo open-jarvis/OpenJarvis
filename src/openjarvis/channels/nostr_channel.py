@@ -45,9 +45,7 @@ class NostrChannel(BaseChannel):
         bus: Optional[EventBus] = None,
     ) -> None:
         self._private_key = private_key or os.environ.get("NOSTR_PRIVATE_KEY", "")
-        relays_str = relays or os.environ.get(
-            "NOSTR_RELAYS", "wss://relay.damus.io"
-        )
+        relays_str = relays or os.environ.get("NOSTR_RELAYS", "wss://relay.damus.io")
         self._relays = [r.strip() for r in relays_str.split(",") if r.strip()]
         self._bus = bus
         self._handlers: List[ChannelHandler] = []
@@ -65,8 +63,7 @@ class NostrChannel(BaseChannel):
             import pynostr  # noqa: F401
         except ImportError:
             raise ImportError(
-                "pynostr not installed. Install with: "
-                "uv sync --extra channel-nostr"
+                "pynostr not installed. Install with: uv sync --extra channel-nostr"
             )
         self._status = ChannelStatus.CONNECTED
 

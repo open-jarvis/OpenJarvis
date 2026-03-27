@@ -43,15 +43,21 @@ def memory() -> None:
 @memory.command()
 @click.argument("path")
 @click.option(
-    "--backend", "-b", default=None,
+    "--backend",
+    "-b",
+    default=None,
     help="Override the default memory backend.",
 )
 @click.option(
-    "--chunk-size", default=512, type=int,
+    "--chunk-size",
+    default=512,
+    type=int,
     help="Chunk size in tokens.",
 )
 @click.option(
-    "--chunk-overlap", default=64, type=int,
+    "--chunk-overlap",
+    default=64,
+    type=int,
     help="Overlap between chunks in tokens.",
 )
 def index(
@@ -108,11 +114,16 @@ def index(
 @memory.command()
 @click.argument("query", nargs=-1, required=True)
 @click.option(
-    "--top-k", "-k", default=5, type=int,
+    "--top-k",
+    "-k",
+    default=5,
+    type=int,
     help="Number of results to return.",
 )
 @click.option(
-    "--backend", "-b", default=None,
+    "--backend",
+    "-b",
+    default=None,
     help="Override the default memory backend.",
 )
 def search(
@@ -158,7 +169,9 @@ def search(
 
 @memory.command()
 @click.option(
-    "--backend", "-b", default=None,
+    "--backend",
+    "-b",
+    default=None,
     help="Override the default memory backend.",
 )
 def stats(backend: str | None) -> None:

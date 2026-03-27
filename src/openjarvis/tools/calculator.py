@@ -92,10 +92,12 @@ def safe_eval(expression: str) -> float:
     """Evaluate a math expression safely — Rust backend with Python fallback."""
     try:
         from openjarvis._rust_bridge import get_rust_module
+
         _rust = get_rust_module()
         return float(_rust.CalculatorTool().execute(expression))
     except ImportError:
         import ast as _ast
+
         tree = _ast.parse(expression, mode="eval")
         return float(_safe_eval_node(tree.body))
 
@@ -121,8 +123,7 @@ class CalculatorTool(BaseTool):
                     "expression": {
                         "type": "string",
                         "description": (
-                            "Math expression to evaluate"
-                            " (e.g. '2+3*4', 'sqrt(16)')"
+                            "Math expression to evaluate (e.g. '2+3*4', 'sqrt(16)')"
                         ),
                     },
                 },

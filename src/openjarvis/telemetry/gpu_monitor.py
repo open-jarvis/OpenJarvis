@@ -216,13 +216,9 @@ class GpuMonitor:
 
         for tick_snaps in all_snapshots:
             total_power = sum(s.power_watts for s in tick_snaps)
-            mean_util = (
-                sum(s.utilization_pct for s in tick_snaps) / len(tick_snaps)
-            )
+            mean_util = sum(s.utilization_pct for s in tick_snaps) / len(tick_snaps)
             total_mem = sum(s.memory_used_gb for s in tick_snaps)
-            mean_temp = (
-                sum(s.temperature_c for s in tick_snaps) / len(tick_snaps)
-            )
+            mean_temp = sum(s.temperature_c for s in tick_snaps) / len(tick_snaps)
             tick_powers.append(total_power)
             tick_utils.append(mean_util)
             tick_mems.append(total_mem)

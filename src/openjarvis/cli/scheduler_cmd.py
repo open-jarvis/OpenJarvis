@@ -17,9 +17,9 @@ def _get_store() -> "SchedulerStore":  # noqa: F821
     from openjarvis.scheduler.store import SchedulerStore
 
     config = load_config()
-    db_path = getattr(
-        getattr(config, "scheduler", None), "db_path", None
-    ) or str(DEFAULT_CONFIG_DIR / "scheduler.db")
+    db_path = getattr(getattr(config, "scheduler", None), "db_path", None) or str(
+        DEFAULT_CONFIG_DIR / "scheduler.db"
+    )
     return SchedulerStore(db_path)
 
 
@@ -38,13 +38,15 @@ def scheduler() -> None:
 @scheduler.command("create")
 @click.argument("prompt")
 @click.option(
-    "--type", "schedule_type",
+    "--type",
+    "schedule_type",
     required=True,
     type=click.Choice(["cron", "interval", "once"]),
     help="Schedule type.",
 )
 @click.option(
-    "--value", "schedule_value",
+    "--value",
+    "schedule_value",
     required=True,
     help="Schedule value (cron expr, seconds, or ISO datetime).",
 )
@@ -82,7 +84,8 @@ def scheduler_create(
 
 @scheduler.command("list")
 @click.option(
-    "--status", default=None,
+    "--status",
+    default=None,
     type=click.Choice(["active", "paused", "completed", "cancelled"]),
     help="Filter by status.",
 )
@@ -197,14 +200,10 @@ def scheduler_logs(task_id: str, limit: int) -> None:
         table.add_column("Error", max_width=30)
 
         for log in logs:
-            success_str = (
-                "[green]yes[/green]" if log["success"] else "[red]no[/red]"
-            )
+            success_str = "[green]yes[/green]" if log["success"] else "[red]no[/red]"
             result_text = log["result"]
             result_short = (
-                (result_text[:37] + "...")
-                if len(result_text) > 40
-                else result_text
+                (result_text[:37] + "...") if len(result_text) > 40 else result_text
             )
             table.add_row(
                 str(log["id"]),
@@ -221,7 +220,9 @@ def scheduler_logs(task_id: str, limit: int) -> None:
 
 @scheduler.command("start")
 @click.option(
-    "--poll-interval", default=60, type=int,
+    "--poll-interval",
+    default=60,
+    type=int,
     help="Seconds between poll cycles.",
 )
 def scheduler_start(poll_interval: int) -> None:

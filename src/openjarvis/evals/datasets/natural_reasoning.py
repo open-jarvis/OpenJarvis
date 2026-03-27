@@ -68,29 +68,30 @@ class NaturalReasoningDataset(DatasetProvider):
         return len(self._records)
 
     def _convert_row(
-        self, raw: MutableMapping[str, object], idx: int,
+        self,
+        raw: MutableMapping[str, object],
+        idx: int,
     ) -> Optional[EvalRecord]:
         # Extract question text
-        question_text = str(
-            raw.get("question") or raw.get("problem") or ""
-        ).strip()
+        question_text = str(raw.get("question") or raw.get("problem") or "").strip()
         if not question_text:
             return None
 
         # Extract reference answer
-        reference = str(
-            raw.get("answer") or raw.get("solution") or ""
-        ).strip()
+        reference = str(raw.get("answer") or raw.get("solution") or "").strip()
         if not reference:
             return None
 
         # Extract subject/category
-        subject = str(
-            raw.get("category")
-            or raw.get("field")
-            or raw.get("source")
+        subject = (
+            str(
+                raw.get("category")
+                or raw.get("field")
+                or raw.get("source")
+                or "General"
+            ).strip()
             or "General"
-        ).strip() or "General"
+        )
 
         # Build prompt
         problem = _PROMPT_TEMPLATE.format(question=question_text)

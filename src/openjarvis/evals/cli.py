@@ -45,7 +45,8 @@ BENCHMARKS = {
     "swebench": {"category": "agentic", "description": "SWE-bench code patches"},
     "swefficiency": {"category": "agentic", "description": "SWEfficiency optimization"},
     "terminalbench": {
-        "category": "agentic", "description": "TerminalBench terminal tasks",
+        "category": "agentic",
+        "description": "TerminalBench terminal tasks",
     },
     "terminalbench-native": {
         "category": "agentic",
@@ -140,13 +141,19 @@ def _setup_logging(verbose: bool) -> None:
     )
 
 
-def _build_backend(backend_name: str, engine_key: Optional[str],
-                    agent_name: str, tools: list[str],
-                    telemetry: bool = False, gpu_metrics: bool = False,
-                    model: Optional[str] = None):
+def _build_backend(
+    backend_name: str,
+    engine_key: Optional[str],
+    agent_name: str,
+    tools: list[str],
+    telemetry: bool = False,
+    gpu_metrics: bool = False,
+    model: Optional[str] = None,
+):
     """Construct the appropriate backend."""
     if backend_name == "jarvis-agent":
         from openjarvis.evals.backends.jarvis_agent import JarvisAgentBackend
+
         return JarvisAgentBackend(
             engine_key=engine_key,
             agent_name=agent_name,
@@ -157,6 +164,7 @@ def _build_backend(backend_name: str, engine_key: Optional[str],
         )
     else:
         from openjarvis.evals.backends.jarvis_direct import JarvisDirectBackend
+
         return JarvisDirectBackend(
             engine_key=engine_key,
             telemetry=telemetry,
@@ -168,104 +176,137 @@ def _build_dataset(benchmark: str, subset: str | None = None):
     """Construct the dataset provider for a benchmark."""
     if benchmark == "supergpqa":
         from openjarvis.evals.datasets.supergpqa import SuperGPQADataset
+
         return SuperGPQADataset()
     elif benchmark == "gpqa":
         from openjarvis.evals.datasets.gpqa import GPQADataset
+
         return GPQADataset()
     elif benchmark == "mmlu-pro":
         from openjarvis.evals.datasets.mmlu_pro import MMLUProDataset
+
         return MMLUProDataset()
     elif benchmark == "math500":
         from openjarvis.evals.datasets.math500 import MATH500Dataset
+
         return MATH500Dataset()
     elif benchmark == "natural-reasoning":
         from openjarvis.evals.datasets.natural_reasoning import NaturalReasoningDataset
+
         return NaturalReasoningDataset()
     elif benchmark == "hle":
         from openjarvis.evals.datasets.hle import HLEDataset
+
         return HLEDataset()
     elif benchmark == "simpleqa":
         from openjarvis.evals.datasets.simpleqa import SimpleQADataset
+
         return SimpleQADataset()
     elif benchmark == "wildchat":
         from openjarvis.evals.datasets.wildchat import WildChatDataset
+
         return WildChatDataset()
     elif benchmark == "ipw":
         from openjarvis.evals.datasets.ipw_mixed import IPWDataset
+
         return IPWDataset()
     elif benchmark == "gaia":
         from openjarvis.evals.datasets.gaia import GAIADataset
+
         return GAIADataset()
     elif benchmark == "frames":
         from openjarvis.evals.datasets.frames import FRAMESDataset
+
         return FRAMESDataset()
     elif benchmark == "swebench":
         from openjarvis.evals.datasets.swebench import SWEBenchDataset
+
         return SWEBenchDataset()
     elif benchmark == "swefficiency":
         from openjarvis.evals.datasets.swefficiency import SWEfficiencyDataset
+
         return SWEfficiencyDataset()
     elif benchmark == "terminalbench":
         from openjarvis.evals.datasets.terminalbench import TerminalBenchDataset
+
         return TerminalBenchDataset()
     elif benchmark == "terminalbench-native":
         from openjarvis.evals.datasets.terminalbench_native import (
             TerminalBenchNativeDataset,
         )
+
         return TerminalBenchNativeDataset()
     elif benchmark == "email_triage":
         from openjarvis.evals.datasets.email_triage import EmailTriageDataset
+
         return EmailTriageDataset()
     elif benchmark == "morning_brief":
         from openjarvis.evals.datasets.morning_brief import MorningBriefDataset
+
         return MorningBriefDataset()
     elif benchmark == "research_mining":
         from openjarvis.evals.datasets.research_mining import ResearchMiningDataset
+
         return ResearchMiningDataset()
     elif benchmark == "knowledge_base":
         from openjarvis.evals.datasets.knowledge_base import KnowledgeBaseDataset
+
         return KnowledgeBaseDataset()
     elif benchmark == "coding_task":
         from openjarvis.evals.datasets.coding_task import CodingTaskDataset
+
         return CodingTaskDataset()
     elif benchmark == "loghub":
         from openjarvis.evals.datasets.loghub import LogHubDataset
+
         return LogHubDataset()
     elif benchmark == "ama-bench":
         from openjarvis.evals.datasets.ama_bench import AMABenchDataset
+
         return AMABenchDataset()
     elif benchmark == "lifelong-agent":
         from openjarvis.evals.datasets.lifelong_agent import LifelongAgentDataset
+
         return LifelongAgentDataset(subset=subset or "db_bench")
     elif benchmark == "deepplanning":
         from openjarvis.evals.datasets.deepplanning import DeepPlanningDataset
+
         return DeepPlanningDataset()
     elif benchmark == "paperarena":
         from openjarvis.evals.datasets.paperarena import PaperArenaDataset
+
         return PaperArenaDataset()
     elif benchmark == "webchorearena":
         from openjarvis.evals.datasets.webchorearena import WebChoreArenaDataset
+
         return WebChoreArenaDataset()
     elif benchmark == "workarena":
         from openjarvis.evals.datasets.workarena import WorkArenaDataset
+
         return WorkArenaDataset()
     elif benchmark == "coding_assistant":
         from openjarvis.evals.datasets.coding_assistant import CodingAssistantDataset
+
         return CodingAssistantDataset()
     elif benchmark == "security_scanner":
         from openjarvis.evals.datasets.security_scanner import SecurityScannerDataset
+
         return SecurityScannerDataset()
     elif benchmark == "daily_digest":
         from openjarvis.evals.datasets.daily_digest import DailyDigestDataset
+
         return DailyDigestDataset()
     elif benchmark == "doc_qa":
         from openjarvis.evals.datasets.doc_qa import DocQADataset
+
         return DocQADataset()
     elif benchmark == "browser_assistant":
         from openjarvis.evals.datasets.browser_assistant import BrowserAssistantDataset
+
         return BrowserAssistantDataset()
     elif benchmark == "pinchbench":
         from openjarvis.evals.datasets.pinchbench import PinchBenchDataset
+
         return PinchBenchDataset(path=subset)
     else:
         raise click.ClickException(f"Unknown benchmark: {benchmark}")
@@ -275,101 +316,133 @@ def _build_scorer(benchmark: str, judge_backend, judge_model: str):
     """Construct the scorer for a benchmark."""
     if benchmark == "supergpqa":
         from openjarvis.evals.scorers.supergpqa_mcq import SuperGPQAScorer
+
         return SuperGPQAScorer(judge_backend, judge_model)
     elif benchmark == "gpqa":
         from openjarvis.evals.scorers.gpqa_mcq import GPQAScorer
+
         return GPQAScorer(judge_backend, judge_model)
     elif benchmark == "mmlu-pro":
         from openjarvis.evals.scorers.mmlu_pro_mcq import MMLUProScorer
+
         return MMLUProScorer(judge_backend, judge_model)
     elif benchmark == "math500" or benchmark == "natural-reasoning":
         from openjarvis.evals.scorers.reasoning_judge import ReasoningJudgeScorer
+
         return ReasoningJudgeScorer(judge_backend, judge_model)
     elif benchmark == "hle":
         from openjarvis.evals.scorers.hle_judge import HLEScorer
+
         return HLEScorer(judge_backend, judge_model)
     elif benchmark == "simpleqa":
         from openjarvis.evals.scorers.simpleqa_judge import SimpleQAScorer
+
         return SimpleQAScorer(judge_backend, judge_model)
     elif benchmark == "wildchat":
         from openjarvis.evals.scorers.wildchat_judge import WildChatScorer
+
         return WildChatScorer(judge_backend, judge_model)
     elif benchmark == "ipw":
         from openjarvis.evals.scorers.ipw_mixed import IPWMixedScorer
+
         return IPWMixedScorer(judge_backend, judge_model)
     elif benchmark == "gaia":
         from openjarvis.evals.scorers.gaia_exact import GAIAScorer
+
         return GAIAScorer(judge_backend, judge_model)
     elif benchmark == "frames":
         from openjarvis.evals.scorers.frames_judge import FRAMESScorer
+
         return FRAMESScorer(judge_backend, judge_model)
     elif benchmark == "swebench":
         from openjarvis.evals.scorers.swebench_structural import SWEBenchScorer
+
         return SWEBenchScorer(judge_backend, judge_model)
     elif benchmark == "swefficiency":
         from openjarvis.evals.scorers.swefficiency_structural import SWEfficiencyScorer
+
         return SWEfficiencyScorer(judge_backend, judge_model)
     elif benchmark == "terminalbench":
         from openjarvis.evals.scorers.terminalbench_judge import TerminalBenchScorer
+
         return TerminalBenchScorer(judge_backend, judge_model)
     elif benchmark == "terminalbench-native":
         from openjarvis.evals.scorers.terminalbench_native_structural import (
             TerminalBenchNativeScorer,
         )
+
         return TerminalBenchNativeScorer(judge_backend, judge_model)
     elif benchmark == "email_triage":
         from openjarvis.evals.scorers.email_triage import EmailTriageScorer
+
         return EmailTriageScorer(judge_backend, judge_model)
     elif benchmark == "morning_brief":
         from openjarvis.evals.scorers.morning_brief import MorningBriefScorer
+
         return MorningBriefScorer(judge_backend, judge_model)
     elif benchmark == "research_mining":
         from openjarvis.evals.scorers.research_mining import ResearchMiningScorer
+
         return ResearchMiningScorer(judge_backend, judge_model)
     elif benchmark == "knowledge_base":
         from openjarvis.evals.scorers.knowledge_base import KnowledgeBaseScorer
+
         return KnowledgeBaseScorer(judge_backend, judge_model)
     elif benchmark == "coding_task":
         from openjarvis.evals.scorers.coding_task import CodingTaskScorer
+
         return CodingTaskScorer(judge_backend, judge_model)
     elif benchmark == "loghub":
         from openjarvis.evals.scorers.loghub_scorer import LogHubScorer
+
         return LogHubScorer(judge_backend, judge_model)
     elif benchmark == "ama-bench":
         from openjarvis.evals.scorers.ama_bench_judge import AMABenchScorer
+
         return AMABenchScorer(judge_backend, judge_model)
     elif benchmark == "lifelong-agent":
         from openjarvis.evals.scorers.lifelong_agent_scorer import LifelongAgentScorer
+
         return LifelongAgentScorer(judge_backend, judge_model)
     elif benchmark == "deepplanning":
         from openjarvis.evals.scorers.deepplanning_scorer import DeepPlanningScorer
+
         return DeepPlanningScorer(judge_backend, judge_model)
     elif benchmark == "paperarena":
         from openjarvis.evals.scorers.paperarena_judge import PaperArenaScorer
+
         return PaperArenaScorer(judge_backend, judge_model)
     elif benchmark == "webchorearena":
         from openjarvis.evals.scorers.webchorearena_scorer import WebChoreArenaScorer
+
         return WebChoreArenaScorer(judge_backend, judge_model)
     elif benchmark == "workarena":
         from openjarvis.evals.scorers.workarena_scorer import WorkArenaScorer
+
         return WorkArenaScorer(judge_backend, judge_model)
     elif benchmark == "coding_assistant":
         from openjarvis.evals.scorers.coding_assistant import CodingAssistantScorer
+
         return CodingAssistantScorer(judge_backend, judge_model)
     elif benchmark == "security_scanner":
         from openjarvis.evals.scorers.security_scanner import SecurityScannerScorer
+
         return SecurityScannerScorer(judge_backend, judge_model)
     elif benchmark == "daily_digest":
         from openjarvis.evals.scorers.daily_digest import DailyDigestScorer
+
         return DailyDigestScorer(judge_backend, judge_model)
     elif benchmark == "doc_qa":
         from openjarvis.evals.scorers.doc_qa import DocQAScorer
+
         return DocQAScorer(judge_backend, judge_model)
     elif benchmark == "browser_assistant":
         from openjarvis.evals.scorers.browser_assistant import BrowserAssistantScorer
+
         return BrowserAssistantScorer(judge_backend, judge_model)
     elif benchmark == "pinchbench":
         from openjarvis.evals.scorers.pinchbench import PinchBenchScorer
+
         return PinchBenchScorer(judge_backend, judge_model)
     else:
         raise click.ClickException(f"Unknown benchmark: {benchmark}")
@@ -384,6 +457,7 @@ def _build_judge_backend(judge_model: str, engine_key: str = "cloud"):
     to use the backend rather than failing at startup.
     """
     from openjarvis.evals.backends.jarvis_direct import JarvisDirectBackend
+
     try:
         return JarvisDirectBackend(engine_key=engine_key)
     except RuntimeError as exc:
@@ -391,7 +465,8 @@ def _build_judge_backend(judge_model: str, engine_key: str = "cloud"):
             "Judge backend (%s) unavailable: %s — "
             "deterministic scorers will still work; "
             "LLM-judge scorers will fail when scoring.",
-            engine_key, exc,
+            engine_key,
+            exc,
         )
         return None
 
@@ -421,25 +496,30 @@ def _build_trackers(config) -> list:
     if getattr(config, "wandb_project", ""):
         try:
             from openjarvis.evals.trackers.wandb_tracker import WandbTracker
-            trackers.append(WandbTracker(
-                project=config.wandb_project,
-                entity=getattr(config, "wandb_entity", ""),
-                tags=getattr(config, "wandb_tags", ""),
-                group=getattr(config, "wandb_group", ""),
-            ))
+
+            trackers.append(
+                WandbTracker(
+                    project=config.wandb_project,
+                    entity=getattr(config, "wandb_entity", ""),
+                    tags=getattr(config, "wandb_tags", ""),
+                    group=getattr(config, "wandb_group", ""),
+                )
+            )
         except ImportError as exc:
             raise click.ClickException(
-                f"wandb not installed: {exc}\n"
-                "Install with: uv sync --extra eval-wandb"
+                f"wandb not installed: {exc}\nInstall with: uv sync --extra eval-wandb"
             ) from exc
     if getattr(config, "sheets_spreadsheet_id", ""):
         try:
             from openjarvis.evals.trackers.sheets_tracker import SheetsTracker
-            trackers.append(SheetsTracker(
-                spreadsheet_id=config.sheets_spreadsheet_id,
-                worksheet=getattr(config, "sheets_worksheet", "Results"),
-                credentials_path=getattr(config, "sheets_credentials_path", ""),
-            ))
+
+            trackers.append(
+                SheetsTracker(
+                    spreadsheet_id=config.sheets_spreadsheet_id,
+                    worksheet=getattr(config, "sheets_worksheet", "Results"),
+                    credentials_path=getattr(config, "sheets_credentials_path", ""),
+                )
+            )
         except ImportError as exc:
             raise click.ClickException(
                 f"gspread not installed: {exc}\n"
@@ -486,7 +566,8 @@ def _run_single(config, console: Optional[Console] = None) -> object:
                 task = progress.add_task("Evaluating samples...", total=num_samples)
                 summary = runner.run(
                     progress_callback=lambda done, total: progress.update(
-                        task, completed=done,
+                        task,
+                        completed=done,
                     ),
                 )
         else:
@@ -533,8 +614,7 @@ def _run_agentic(
     if config.benchmark == "pinchbench" and hasattr(dataset, "set_judge"):
         judge_engine = getattr(config, "judge_engine", "cloud") or "cloud"
         judge_model = (
-            getattr(config, "judge_model", None)
-            or "anthropic/claude-opus-4-5"
+            getattr(config, "judge_model", None) or "anthropic/claude-opus-4-5"
         )
         judge_backend = _build_judge_backend(judge_model, engine_key=judge_engine)
         dataset.set_judge(judge_backend, judge_model)
@@ -576,7 +656,8 @@ def _run_agentic(
         monitor = create_energy_monitor()
         if monitor is not None:
             telemetry_session = TelemetrySession(
-                monitor=monitor, interval_ms=100,
+                monitor=monitor,
+                interval_ms=100,
             )
     except ImportError:
         pass
@@ -650,6 +731,7 @@ def _run_agentic(
     # Try HF dataset export (optional)
     try:
         from openjarvis.evals.core.export import export_hf_dataset
+
         hf_path = run_dir / "hf_dataset"
         export_hf_dataset(traces, hf_path)
         console.print(f"  [green]HF Arrow:[/green]  {hf_path}")
@@ -664,6 +746,7 @@ def _run_agentic(
 def _nullctx():
     """Return a no-op context manager."""
     from contextlib import nullcontext
+
     return nullcontext()
 
 
@@ -681,7 +764,8 @@ def _print_agentic_summary(console: Console, traces, config) -> None:
     total_wall = sum(t.total_wall_clock_s for t in traces)
 
     gpu_energies = [
-        t.total_gpu_energy_joules for t in traces
+        t.total_gpu_energy_joules
+        for t in traces
         if t.total_gpu_energy_joules is not None
     ]
     total_gpu_energy = sum(gpu_energies) if gpu_energies else None
@@ -710,7 +794,7 @@ def _print_agentic_summary(console: Console, traces, config) -> None:
     table.add_row("Wall clock", f"{total_wall:.1f}s")
     table.add_row(
         "Avg query time",
-        f"{total_wall/len(traces):.1f}s" if traces else "0s",
+        f"{total_wall / len(traces):.1f}s" if traces else "0s",
     )
 
     if total_gpu_energy is not None:
@@ -722,7 +806,7 @@ def _print_agentic_summary(console: Console, traces, config) -> None:
     if total_out_tok > 0 and total_wall > 0:
         table.add_row(
             "Throughput",
-            f"{total_out_tok/total_wall:.1f} tok/s",
+            f"{total_out_tok / total_wall:.1f} tok/s",
         )
 
     console.print(table)
@@ -746,18 +830,14 @@ def _run_from_config(
     if model_filter:
         run_configs = [rc for rc in run_configs if model_filter in rc.model]
         if not run_configs:
-            raise click.ClickException(
-                f"No models match filter '{model_filter}'"
-            )
+            raise click.ClickException(f"No models match filter '{model_filter}'")
 
     suite_name = suite.meta.name or Path(config_path).stem
 
     # Banner + configuration
     print_banner(console)
     print_section(console, "Suite Configuration")
-    console.print(
-        f"  [cyan]Suite:[/cyan]       {suite_name}"
-    )
+    console.print(f"  [cyan]Suite:[/cyan]       {suite_name}")
     if suite.meta.description:
         console.print(f"  [cyan]Description:[/cyan] {suite.meta.description}")
     console.print(
@@ -802,86 +882,166 @@ def main():
 
 
 @main.command()
-@click.option("-c", "--config", "config_path", default=None,
-              type=click.Path(), help="TOML config file for suite runs")
-@click.option("-b", "--benchmark", default=None,
-              type=click.Choice(list(BENCHMARKS.keys())),
-              help="Benchmark to run")
-@click.option("--backend", default="jarvis-direct",
-              type=click.Choice(list(BACKENDS.keys())),
-              help="Inference backend")
-@click.option("-m", "--model", default=None, help="Model identifier")
-@click.option("-e", "--engine", "engine_key", default=None,
-              help="Engine key (ollama, vllm, cloud, ...)")
-@click.option("--agent", "agent_name", default="orchestrator",
-              help="Agent name for jarvis-agent backend")
-@click.option("--tools", default="", help="Comma-separated tool names")
-@click.option("-n", "--max-samples", type=int, default=None,
-              help="Maximum samples to evaluate")
-@click.option("-w", "--max-workers", type=int, default=4,
-              help="Parallel workers")
-@click.option("--judge-model", default="gpt-5-mini-2025-08-07",
-              help="LLM judge model")
-@click.option("-o", "--output", "output_path", default=None,
-              help="Output JSONL path")
-@click.option("--seed", type=int, default=42, help="Random seed")
-@click.option("--split", "dataset_split", default=None,
-              help="Dataset split override")
-@click.option("--temperature", type=float, default=0.0,
-              help="Generation temperature")
-@click.option("--max-tokens", type=int, default=2048,
-              help="Max output tokens")
-@click.option("--telemetry/--no-telemetry", default=False,
-              help="Enable telemetry collection during eval")
-@click.option("--gpu-metrics/--no-gpu-metrics", default=False,
-              help="Enable GPU metrics collection")
 @click.option(
-    "--compact", is_flag=True, default=False,
+    "-c",
+    "--config",
+    "config_path",
+    default=None,
+    type=click.Path(),
+    help="TOML config file for suite runs",
+)
+@click.option(
+    "-b",
+    "--benchmark",
+    default=None,
+    type=click.Choice(list(BENCHMARKS.keys())),
+    help="Benchmark to run",
+)
+@click.option(
+    "--backend",
+    default="jarvis-direct",
+    type=click.Choice(list(BACKENDS.keys())),
+    help="Inference backend",
+)
+@click.option("-m", "--model", default=None, help="Model identifier")
+@click.option(
+    "-e",
+    "--engine",
+    "engine_key",
+    default=None,
+    help="Engine key (ollama, vllm, cloud, ...)",
+)
+@click.option(
+    "--agent",
+    "agent_name",
+    default="orchestrator",
+    help="Agent name for jarvis-agent backend",
+)
+@click.option("--tools", default="", help="Comma-separated tool names")
+@click.option(
+    "-n", "--max-samples", type=int, default=None, help="Maximum samples to evaluate"
+)
+@click.option("-w", "--max-workers", type=int, default=4, help="Parallel workers")
+@click.option("--judge-model", default="gpt-5-mini-2025-08-07", help="LLM judge model")
+@click.option("-o", "--output", "output_path", default=None, help="Output JSONL path")
+@click.option("--seed", type=int, default=42, help="Random seed")
+@click.option("--split", "dataset_split", default=None, help="Dataset split override")
+@click.option("--temperature", type=float, default=0.0, help="Generation temperature")
+@click.option("--max-tokens", type=int, default=2048, help="Max output tokens")
+@click.option(
+    "--telemetry/--no-telemetry",
+    default=False,
+    help="Enable telemetry collection during eval",
+)
+@click.option(
+    "--gpu-metrics/--no-gpu-metrics",
+    default=False,
+    help="Enable GPU metrics collection",
+)
+@click.option(
+    "--compact",
+    is_flag=True,
+    default=False,
     help="Dense single-table output",
 )
 @click.option(
-    "--trace-detail", is_flag=True, default=False,
+    "--trace-detail",
+    is_flag=True,
+    default=False,
     help="Full per-step trace listing",
 )
-@click.option("--wandb-project", default="",
-              help="W&B project name (enables tracking)")
-@click.option("--wandb-entity", default="",
-              help="W&B entity (team or user)")
-@click.option("--wandb-tags", default="",
-              help="Comma-separated W&B tags")
-@click.option("--wandb-group", default="",
-              help="W&B run group")
-@click.option("--sheets-id", "sheets_spreadsheet_id", default="",
-              help="Google Sheets spreadsheet ID")
-@click.option("--sheets-worksheet", default="Results",
-              help="Google Sheets worksheet name")
-@click.option("--sheets-creds", "sheets_credentials_path",
-              default="",
-              help="Service account JSON path")
-@click.option("--model-filter", default=None,
-              help="Filter models by name substring (for multi-model configs)")
-@click.option("--judge-engine", default="cloud",
-              help="Engine key for LLM judge (default: cloud). "
-              "Use 'vllm' to judge locally.")
-@click.option("--agentic", is_flag=True, default=False,
-              help="Use AgenticRunner for multi-turn agent execution")
-@click.option("--episode-mode", is_flag=True, default=False,
-              help="Sequential episode processing with lifelong learning "
-                   "(required for lifelong-agent and similar benchmarks)")
-@click.option("--concurrency", type=int, default=1,
-              help="Parallel query execution (AgenticRunner only)")
-@click.option("--query-timeout", type=float, default=None,
-              help="Per-query wall-clock timeout in seconds (AgenticRunner only)")
+@click.option("--wandb-project", default="", help="W&B project name (enables tracking)")
+@click.option("--wandb-entity", default="", help="W&B entity (team or user)")
+@click.option("--wandb-tags", default="", help="Comma-separated W&B tags")
+@click.option("--wandb-group", default="", help="W&B run group")
+@click.option(
+    "--sheets-id",
+    "sheets_spreadsheet_id",
+    default="",
+    help="Google Sheets spreadsheet ID",
+)
+@click.option(
+    "--sheets-worksheet", default="Results", help="Google Sheets worksheet name"
+)
+@click.option(
+    "--sheets-creds",
+    "sheets_credentials_path",
+    default="",
+    help="Service account JSON path",
+)
+@click.option(
+    "--model-filter",
+    default=None,
+    help="Filter models by name substring (for multi-model configs)",
+)
+@click.option(
+    "--judge-engine",
+    default="cloud",
+    help="Engine key for LLM judge (default: cloud). Use 'vllm' to judge locally.",
+)
+@click.option(
+    "--agentic",
+    is_flag=True,
+    default=False,
+    help="Use AgenticRunner for multi-turn agent execution",
+)
+@click.option(
+    "--episode-mode",
+    is_flag=True,
+    default=False,
+    help="Sequential episode processing with lifelong learning "
+    "(required for lifelong-agent and similar benchmarks)",
+)
+@click.option(
+    "--concurrency",
+    type=int,
+    default=1,
+    help="Parallel query execution (AgenticRunner only)",
+)
+@click.option(
+    "--query-timeout",
+    type=float,
+    default=None,
+    help="Per-query wall-clock timeout in seconds (AgenticRunner only)",
+)
 @click.option("-v", "--verbose", is_flag=True, help="Verbose logging")
 @click.pass_context
-def run(ctx, config_path, benchmark, backend, model, engine_key, agent_name,
-        tools, max_samples, max_workers, judge_model, output_path, seed,
-        dataset_split, temperature, max_tokens, telemetry, gpu_metrics,
-        compact, trace_detail,
-        wandb_project, wandb_entity, wandb_tags, wandb_group,
-        sheets_spreadsheet_id, sheets_worksheet, sheets_credentials_path,
-        model_filter, judge_engine, agentic, episode_mode,
-        concurrency, query_timeout, verbose):
+def run(
+    ctx,
+    config_path,
+    benchmark,
+    backend,
+    model,
+    engine_key,
+    agent_name,
+    tools,
+    max_samples,
+    max_workers,
+    judge_model,
+    output_path,
+    seed,
+    dataset_split,
+    temperature,
+    max_tokens,
+    telemetry,
+    gpu_metrics,
+    compact,
+    trace_detail,
+    wandb_project,
+    wandb_entity,
+    wandb_tags,
+    wandb_group,
+    sheets_spreadsheet_id,
+    sheets_worksheet,
+    sheets_credentials_path,
+    model_filter,
+    judge_engine,
+    agentic,
+    episode_mode,
+    concurrency,
+    query_timeout,
+    verbose,
+):
     """Run a single benchmark evaluation, or a full suite from a TOML config."""
     _setup_logging(verbose)
 
@@ -900,8 +1060,7 @@ def run(ctx, config_path, benchmark, backend, model, engine_key, agent_name,
         )
     if model is None:
         raise click.UsageError(
-            "Missing option '-m' / '--model' "
-            "(required when --config is not provided)"
+            "Missing option '-m' / '--model' (required when --config is not provided)"
         )
 
     from openjarvis.evals.core.types import RunConfig
@@ -960,22 +1119,18 @@ def run(ctx, config_path, benchmark, backend, model, engine_key, agent_name,
     )
     if episode_mode:
         console.print(
-            "  [cyan]Mode:[/cyan]       episode "
-            "(sequential + lifelong learning)"
+            "  [cyan]Mode:[/cyan]       episode (sequential + lifelong learning)"
         )
 
     if agentic:
         # --- Agentic runner path ---
         print_section(console, "Agentic Evaluation")
-        console.print(
-            f"  [cyan]Concurrency:[/cyan] {concurrency}"
-        )
+        console.print(f"  [cyan]Concurrency:[/cyan] {concurrency}")
         if query_timeout:
-            console.print(
-                f"  [cyan]Timeout:[/cyan]     {query_timeout}s per query"
-            )
+            console.print(f"  [cyan]Timeout:[/cyan]     {query_timeout}s per query")
         _run_agentic(
-            config, console=console,
+            config,
+            console=console,
             concurrency=concurrency,
             query_timeout=query_timeout,
         )
@@ -1000,19 +1155,18 @@ def run(ctx, config_path, benchmark, backend, model, engine_key, agent_name,
 
 @main.command("run-all")
 @click.option("-m", "--model", required=True, help="Model identifier")
-@click.option("-e", "--engine", "engine_key", default=None,
-              help="Engine key")
-@click.option("-n", "--max-samples", type=int, default=None,
-              help="Max samples per benchmark")
-@click.option("-w", "--max-workers", type=int, default=4,
-              help="Parallel workers")
+@click.option("-e", "--engine", "engine_key", default=None, help="Engine key")
+@click.option(
+    "-n", "--max-samples", type=int, default=None, help="Max samples per benchmark"
+)
+@click.option("-w", "--max-workers", type=int, default=4, help="Parallel workers")
 @click.option("--judge-model", default="gpt-5-mini-2025-08-07", help="LLM judge model")
-@click.option("--output-dir", default="results/",
-              help="Output directory for results")
+@click.option("--output-dir", default="results/", help="Output directory for results")
 @click.option("--seed", type=int, default=42, help="Random seed")
 @click.option("-v", "--verbose", is_flag=True, help="Verbose logging")
-def run_all(model, engine_key, max_samples, max_workers, judge_model,
-            output_dir, seed, verbose):
+def run_all(
+    model, engine_key, max_samples, max_workers, judge_model, output_dir, seed, verbose
+):
     """Run all benchmarks."""
     _setup_logging(verbose)
 
@@ -1069,11 +1223,13 @@ def run_all(model, engine_key, max_samples, max_workers, judge_model,
                     console=console,
                 ) as progress:
                     task = progress.add_task(
-                        f"Evaluating {bench_name}...", total=max_samples,
+                        f"Evaluating {bench_name}...",
+                        total=max_samples,
                     )
                     summary = runner.run(
                         progress_callback=lambda done, total: progress.update(
-                            task, completed=done,
+                            task,
+                            completed=done,
                         ),
                     )
             else:

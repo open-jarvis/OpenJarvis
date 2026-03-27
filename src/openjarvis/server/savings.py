@@ -130,8 +130,7 @@ def compute_savings(
         params_b = pricing.get("params_b", 200.0)
         params = params_b * 1e9
         flops = (
-            2.0 * params * total_tokens_evaluated
-            if total_tokens_evaluated > 0 else 0.0
+            2.0 * params * total_tokens_evaluated if total_tokens_evaluated > 0 else 0.0
         )
         # Derive Wh-per-FLOP from the provider's per-token constants:
         #   energy_wh_per_1k_tokens / (1000 * flops_per_token) = Wh per FLOP

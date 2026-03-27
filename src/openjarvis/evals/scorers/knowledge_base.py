@@ -61,7 +61,9 @@ class KnowledgeBaseScorer(LLMJudgeScorer):
     scorer_id = "knowledge_base"
 
     def score(
-        self, record: EvalRecord, model_answer: str,
+        self,
+        record: EvalRecord,
+        model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         if not model_answer or not model_answer.strip():
             return False, {"reason": "empty_response"}
@@ -88,9 +90,7 @@ class KnowledgeBaseScorer(LLMJudgeScorer):
                 re.MULTILINE | re.IGNORECASE,
             )
             is_correct = (
-                overall_match.group(1).lower() == "yes"
-                if overall_match
-                else False
+                overall_match.group(1).lower() == "yes" if overall_match else False
             )
 
             completeness_match = re.search(
@@ -99,9 +99,7 @@ class KnowledgeBaseScorer(LLMJudgeScorer):
                 re.MULTILINE | re.IGNORECASE,
             )
             completeness = (
-                completeness_match.group(1).lower()
-                if completeness_match
-                else "unknown"
+                completeness_match.group(1).lower() if completeness_match else "unknown"
             )
 
             return is_correct, {

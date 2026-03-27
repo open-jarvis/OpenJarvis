@@ -36,12 +36,10 @@ def _compute_efficiency(
     resolved = sum(1 for t in scored if t.is_resolved is True)
     accuracy = resolved / len(scored) if scored else None
     gpu_powers = [
-        t.avg_gpu_power_watts for t in traces
-        if t.avg_gpu_power_watts is not None
+        t.avg_gpu_power_watts for t in traces if t.avg_gpu_power_watts is not None
     ]
     cpu_powers = [
-        t.avg_cpu_power_watts for t in traces
-        if t.avg_cpu_power_watts is not None
+        t.avg_cpu_power_watts for t in traces if t.avg_cpu_power_watts is not None
     ]
     avg_gpu_power = statistics.mean(gpu_powers) if gpu_powers else None
     avg_cpu_power = statistics.mean(cpu_powers) if cpu_powers else None
@@ -51,16 +49,8 @@ def _compute_efficiency(
         "total_cpu_energy_joules": total_cpu_energy,
         "avg_gpu_power_watts": avg_gpu_power,
         "avg_cpu_power_watts": avg_cpu_power,
-        "ipj": (
-            accuracy / total_gpu_energy
-            if accuracy and total_gpu_energy
-            else None
-        ),
-        "ipw": (
-            accuracy / avg_gpu_power
-            if accuracy and avg_gpu_power
-            else None
-        ),
+        "ipj": (accuracy / total_gpu_energy if accuracy and total_gpu_energy else None),
+        "ipw": (accuracy / avg_gpu_power if accuracy and avg_gpu_power else None),
     }
 
 
@@ -77,14 +67,15 @@ def _compute_normalized(
 
     trim_count = max(1, math.floor(n * 0.05))
     sorted_traces = sorted(traces, key=lambda t: t.total_wall_clock_s)
-    trimmed = sorted_traces[trim_count: n - trim_count]
+    trimmed = sorted_traces[trim_count : n - trim_count]
 
     if not trimmed:
         return None
 
     # Recompute aggregate energy on trimmed set
     gpu_energy_values = [
-        t.total_gpu_energy_joules for t in trimmed
+        t.total_gpu_energy_joules
+        for t in trimmed
         if t.total_gpu_energy_joules is not None
     ]
     total_gpu_energy = sum(gpu_energy_values) if gpu_energy_values else None
@@ -92,7 +83,8 @@ def _compute_normalized(
     cpu_energy_values: list[float] = []
     for trace in trimmed:
         cpu_vals = [
-            turn.cpu_energy_joules for turn in trace.turns
+            turn.cpu_energy_joules
+            for turn in trace.turns
             if turn.cpu_energy_joules is not None
         ]
         if cpu_vals:
@@ -188,6 +180,7 @@ def _hardware_info_dict() -> dict[str, Any]:
     """Detect hardware and return a JSON-serializable dict."""
     try:
         from openjarvis.core.config import detect_hardware
+
         hw = detect_hardware()
         info: dict[str, Any] = {
             "platform": hw.platform,
@@ -237,7 +230,8 @@ def export_summary_json(
     total_wall_clock_s = sum(t.total_wall_clock_s for t in traces)
 
     gpu_energy_values = [
-        t.total_gpu_energy_joules for t in traces
+        t.total_gpu_energy_joules
+        for t in traces
         if t.total_gpu_energy_joules is not None
     ]
     total_gpu_energy = sum(gpu_energy_values) if gpu_energy_values else None
@@ -245,7 +239,8 @@ def export_summary_json(
     cpu_energy_values: list[float] = []
     for trace in traces:
         cpu_vals = [
-            turn.cpu_energy_joules for turn in trace.turns
+            turn.cpu_energy_joules
+            for turn in trace.turns
             if turn.cpu_energy_joules is not None
         ]
         if cpu_vals:
@@ -255,10 +250,7 @@ def export_summary_json(
     resolved = sum(1 for t in traces if t.is_resolved is True)
     unresolved = sum(1 for t in traces if t.is_resolved is False)
 
-    cost_values = [
-        t.total_cost_usd for t in traces
-        if t.total_cost_usd is not None
-    ]
+    cost_values = [t.total_cost_usd for t in traces if t.total_cost_usd is not None]
     total_cost = sum(cost_values) if cost_values else None
 
     avg_turns = total_turns / total_queries if total_queries > 0 else 0
@@ -309,9 +301,7 @@ def export_summary_json(
     }
 
     accuracy = (
-        resolved / (resolved + unresolved)
-        if (resolved + unresolved) > 0
-        else None
+        resolved / (resolved + unresolved) if (resolved + unresolved) > 0 else None
     )
 
     efficiency = _compute_efficiency(traces, total_gpu_energy, total_cpu_energy)
@@ -336,7 +326,8 @@ def export_summary_json(
                 entry = action_totals[atype]
                 entry["count"] += 1
                 entry["total_duration_s"] += action.get(
-                    "duration_s", 0.0,
+                    "duration_s",
+                    0.0,
                 )
                 gpu_e = action.get("gpu_energy_joules")
                 if gpu_e is not None:

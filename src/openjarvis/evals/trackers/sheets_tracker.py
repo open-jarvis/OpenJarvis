@@ -70,8 +70,7 @@ class SheetsTracker(ResultTracker):
     ) -> None:
         if gspread is None:
             raise ImportError(
-                "gspread is not installed. "
-                "Install it with: uv sync --extra eval-sheets"
+                "gspread is not installed. Install it with: uv sync --extra eval-sheets"
             )
         self._spreadsheet_id = spreadsheet_id
         self._worksheet_name = worksheet
@@ -93,7 +92,9 @@ class SheetsTracker(ResultTracker):
                 ws = spreadsheet.worksheet(self._worksheet_name)
             except gspread.exceptions.WorksheetNotFound:
                 ws = spreadsheet.add_worksheet(
-                    title=self._worksheet_name, rows=1000, cols=len(SHEET_COLUMNS),
+                    title=self._worksheet_name,
+                    rows=1000,
+                    cols=len(SHEET_COLUMNS),
                 )
             # Ensure header row exists (idempotent)
             existing = ws.row_values(1)
@@ -115,7 +116,8 @@ class SheetsTracker(ResultTracker):
         ]
         if self._credentials_path:
             creds = Credentials.from_service_account_file(
-                self._credentials_path, scopes=scopes,
+                self._credentials_path,
+                scopes=scopes,
             )
         else:
             # Fall back to Application Default Credentials

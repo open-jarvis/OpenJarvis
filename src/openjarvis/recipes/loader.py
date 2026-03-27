@@ -242,7 +242,8 @@ def _load_operator_as_recipe(path: Path, data: Dict[str, Any]) -> Recipe:
 
     system_prompt = agent_data.get("system_prompt", op.get("system_prompt", ""))
     system_prompt_path = agent_data.get(
-        "system_prompt_path", op.get("system_prompt_path", ""),
+        "system_prompt_path",
+        op.get("system_prompt_path", ""),
     )
     if not system_prompt and system_prompt_path:
         prompt_p = Path(system_prompt_path)

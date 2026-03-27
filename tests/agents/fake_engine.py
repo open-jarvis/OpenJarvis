@@ -45,11 +45,14 @@ class FakeEngine(InferenceEngine):
 
         result: Dict[str, Any] = {
             "content": resp.get("content", ""),
-            "usage": resp.get("usage", {
-                "prompt_tokens": 10,
-                "completion_tokens": 5,
-                "total_tokens": 15,
-            }),
+            "usage": resp.get(
+                "usage",
+                {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "total_tokens": 15,
+                },
+            ),
             "model": model,
             "finish_reason": "tool_calls" if resp.get("tool_calls") else "stop",
         }
@@ -58,7 +61,11 @@ class FakeEngine(InferenceEngine):
         return result
 
     async def stream(
-        self, messages: list, *, model: str, **kw: Any,
+        self,
+        messages: list,
+        *,
+        model: str,
+        **kw: Any,
     ) -> AsyncIterator[str]:
         result = self.generate(messages, model=model, **kw)
         yield result["content"]

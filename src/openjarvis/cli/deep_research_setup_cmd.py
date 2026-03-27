@@ -57,26 +57,32 @@ def detect_local_sources(
 
     notes_path = notes_db_path or _DEFAULT_NOTES_DB
     if notes_path.exists():
-        sources.append({
-            "connector_id": "apple_notes",
-            "display_name": "Apple Notes",
-            "config": {"db_path": str(notes_path)},
-        })
+        sources.append(
+            {
+                "connector_id": "apple_notes",
+                "display_name": "Apple Notes",
+                "config": {"db_path": str(notes_path)},
+            }
+        )
 
     imessage_path = imessage_db_path or _DEFAULT_IMESSAGE_DB
     if imessage_path.exists():
-        sources.append({
-            "connector_id": "imessage",
-            "display_name": "iMessage",
-            "config": {"db_path": str(imessage_path)},
-        })
+        sources.append(
+            {
+                "connector_id": "imessage",
+                "display_name": "iMessage",
+                "config": {"db_path": str(imessage_path)},
+            }
+        )
 
     if obsidian_vault_path and obsidian_vault_path.is_dir():
-        sources.append({
-            "connector_id": "obsidian",
-            "display_name": "Obsidian / Markdown",
-            "config": {"vault_path": str(obsidian_vault_path)},
-        })
+        sources.append(
+            {
+                "connector_id": "obsidian",
+                "display_name": "Obsidian / Markdown",
+                "config": {"vault_path": str(obsidian_vault_path)},
+            }
+        )
 
     return sources
 
@@ -137,11 +143,13 @@ def detect_token_sources(
             continue
         if not data or not any(v for v in data.values() if v):
             continue
-        sources.append({
-            "connector_id": ts["connector_id"],
-            "display_name": ts["display_name"],
-            "config": {},
-        })
+        sources.append(
+            {
+                "connector_id": ts["connector_id"],
+                "display_name": ts["display_name"],
+                "config": {},
+            }
+        )
 
     return sources
 
@@ -154,8 +162,7 @@ def _prompt_connect_sources(console: Console) -> List[Dict[str, Any]]:
 
     while True:
         unconnected = [
-            ts for ts in _TOKEN_SOURCES
-            if not (cdir / ts["creds_file"]).exists()
+            ts for ts in _TOKEN_SOURCES if not (cdir / ts["creds_file"]).exists()
         ]
         if not unconnected:
             console.print("[dim]All token sources already connected.[/dim]")
@@ -165,10 +172,7 @@ def _prompt_connect_sources(console: Console) -> List[Dict[str, Any]]:
             break
 
         names = [ts["connector_id"] for ts in unconnected]
-        labels = [
-            f"{ts['display_name']} ({ts['connector_id']})"
-            for ts in unconnected
-        ]
+        labels = [f"{ts['display_name']} ({ts['connector_id']})" for ts in unconnected]
         console.print("Available:")
         for label in labels:
             console.print(f"  {label}")
@@ -185,11 +189,13 @@ def _prompt_connect_sources(console: Console) -> List[Dict[str, Any]]:
         connector.handle_callback(token.strip())
         console.print(f"  [green]{ts['display_name']}: connected![/green]")
 
-        connected.append({
-            "connector_id": choice,
-            "display_name": ts["display_name"],
-            "config": {},
-        })
+        connected.append(
+            {
+                "connector_id": choice,
+                "display_name": ts["display_name"],
+                "config": {},
+            }
+        )
 
     return connected
 
@@ -203,27 +209,35 @@ def _instantiate_connector(connector_id: str, config: Dict[str, Any]) -> Any:
     """Lazily import and instantiate a connector by ID."""
     if connector_id == "apple_notes":
         from openjarvis.connectors.apple_notes import AppleNotesConnector
+
         return AppleNotesConnector(db_path=config.get("db_path", ""))
     elif connector_id == "imessage":
         from openjarvis.connectors.imessage import IMessageConnector
+
         return IMessageConnector(db_path=config.get("db_path", ""))
     elif connector_id == "obsidian":
         from openjarvis.connectors.obsidian import ObsidianConnector
+
         return ObsidianConnector(vault_path=config.get("vault_path", ""))
     elif connector_id == "gmail_imap":
         from openjarvis.connectors.gmail_imap import GmailIMAPConnector
+
         return GmailIMAPConnector()
     elif connector_id == "outlook":
         from openjarvis.connectors.outlook import OutlookConnector
+
         return OutlookConnector()
     elif connector_id == "slack":
         from openjarvis.connectors.slack_connector import SlackConnector
+
         return SlackConnector()
     elif connector_id == "notion":
         from openjarvis.connectors.notion import NotionConnector
+
         return NotionConnector()
     elif connector_id == "granola":
         from openjarvis.connectors.granola import GranolaConnector
+
         return GranolaConnector()
     else:
         msg = f"Unknown connector: {connector_id}"
@@ -277,8 +291,7 @@ def _launch_chat(store: KnowledgeStore, console: Console) -> None:
     engine = OllamaEngine()
     if not engine.health():
         console.print(
-            "[red]Ollama is not running.[/red] Start it with: "
-            "[bold]ollama serve[/bold]"
+            "[red]Ollama is not running.[/red] Start it with: [bold]ollama serve[/bold]"
         )
         return
 
@@ -404,18 +417,15 @@ def deep_research_setup(obsidian_vault: Optional[str], skip_chat: bool) -> None:
     for src in all_sources:
         try:
             connector = _instantiate_connector(
-                src["connector_id"], src["config"],
+                src["connector_id"],
+                src["config"],
             )
             pipeline = IngestionPipeline(store)
             engine = SyncEngine(pipeline)
             chunks = engine.sync(connector)
-            console.print(
-                f"  {src['display_name']}: [green]{chunks} chunks[/green]"
-            )
+            console.print(f"  {src['display_name']}: [green]{chunks} chunks[/green]")
         except Exception as exc:  # noqa: BLE001
-            console.print(
-                f"  {src['display_name']}: [red]error: {exc}[/red]"
-            )
+            console.print(f"  {src['display_name']}: [red]error: {exc}[/red]")
 
     total = store.count()
     console.print(

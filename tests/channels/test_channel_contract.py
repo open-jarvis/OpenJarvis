@@ -19,9 +19,7 @@ from openjarvis.core.registry import ChannelRegistry
 # We store the actual class objects, not registry keys, so they survive
 # the autouse _clean_registries fixture.
 importlib.reload(openjarvis.channels)
-_ALL_CHANNELS = [
-    (key, ChannelRegistry.get(key)) for key in ChannelRegistry.keys()
-]
+_ALL_CHANNELS = [(key, ChannelRegistry.get(key)) for key in ChannelRegistry.keys()]
 
 
 @pytest.fixture(params=_ALL_CHANNELS, ids=lambda x: x[0])

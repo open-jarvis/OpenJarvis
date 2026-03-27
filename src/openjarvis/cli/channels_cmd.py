@@ -27,12 +27,14 @@ def channels_status() -> None:
 
     if is_running():
         table.add_row(
-            "iMessage", "[green]running[/green]",
+            "iMessage",
+            "[green]running[/green]",
             "Polling chat.db",
         )
     else:
         table.add_row(
-            "iMessage", "[dim]stopped[/dim]",
+            "iMessage",
+            "[dim]stopped[/dim]",
             "jarvis channels imessage-start <contact>",
         )
 
@@ -47,7 +49,8 @@ def channels_status() -> None:
     help="Run in background.",
 )
 def imessage_start(
-    chat_identifier: str, background: bool,
+    chat_identifier: str,
+    background: bool,
 ) -> None:
     """Start the iMessage daemon for CHAT_IDENTIFIER.
 
@@ -61,9 +64,7 @@ def imessage_start(
     console = Console()
 
     if is_running():
-        console.print(
-            "[yellow]iMessage daemon already running.[/yellow]"
-        )
+        console.print("[yellow]iMessage daemon already running.[/yellow]")
         return
 
     if background:
@@ -71,9 +72,11 @@ def imessage_start(
 
         proc = subprocess.Popen(
             [
-                sys.executable, "-m",
+                sys.executable,
+                "-m",
                 "openjarvis.channels.imessage_daemon",
-                "--chat", chat_identifier,
+                "--chat",
+                chat_identifier,
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -88,8 +91,7 @@ def imessage_start(
         )
     else:
         console.print(
-            f"[green]Starting iMessage daemon[/green] "
-            f"— monitoring {chat_identifier}"
+            f"[green]Starting iMessage daemon[/green] — monitoring {chat_identifier}"
         )
         console.print("Press Ctrl+C to stop.\n")
 
@@ -117,13 +119,16 @@ def imessage_start(
             KnowledgeSearchTool(retriever=retriever),
             KnowledgeSQLTool(store=store),
             ScanChunksTool(
-                store=store, engine=engine,
+                store=store,
+                engine=engine,
                 model="qwen3.5:4b",
             ),
             ThinkTool(),
         ]
         agent = DeepResearchAgent(
-            engine=engine, model="qwen3.5:4b", tools=tools,
+            engine=engine,
+            model="qwen3.5:4b",
+            tools=tools,
         )
 
         def handler(text: str) -> str:
@@ -145,6 +150,4 @@ def imessage_stop() -> None:
     if stop_daemon():
         console.print("[green]iMessage daemon stopped.[/green]")
     else:
-        console.print(
-            "[dim]iMessage daemon is not running.[/dim]"
-        )
+        console.print("[dim]iMessage daemon is not running.[/dim]")

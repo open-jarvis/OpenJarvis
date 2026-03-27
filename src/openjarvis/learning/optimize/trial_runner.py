@@ -83,12 +83,17 @@ class TrialRunner:
         )
         judge_backend = _build_judge_backend(run_config.judge_model)
         scorer = _build_scorer(
-            self.benchmark, judge_backend, run_config.judge_model,
+            self.benchmark,
+            judge_backend,
+            run_config.judge_model,
         )
 
         try:
             eval_runner = EvalRunner(
-                run_config, dataset, backend, scorer,
+                run_config,
+                dataset,
+                backend,
+                scorer,
             )
             summary: RunSummary = eval_runner.run()
             eval_results = eval_runner.results
@@ -238,7 +243,9 @@ class MultiBenchTrialRunner:
         return self._aggregate(trial, per_benchmark)
 
     def _run_terminalbench_native(
-        self, trial: TrialConfig, spec: BenchmarkSpec,
+        self,
+        trial: TrialConfig,
+        spec: BenchmarkSpec,
     ) -> BenchmarkScore:
         """Run terminal-bench natively via Harness with Docker execution."""
         import time
@@ -268,8 +275,7 @@ class MultiBenchTrialRunner:
             "dataset_version": "0.1.1",
             "model_name": litellm_model,
             "agent_import_path": (
-                "openjarvis.evals.backends.tb_agent"
-                ":OpenJarvisTerminalBenchAgent"
+                "openjarvis.evals.backends.tb_agent:OpenJarvisTerminalBenchAgent"
             ),
             "agent_kwargs": {
                 "model_name": litellm_model,
@@ -285,7 +291,8 @@ class MultiBenchTrialRunner:
 
         LOGGER.info(
             "Running terminal-bench native: model=%s, max_tasks=%s",
-            litellm_model, spec.max_samples,
+            litellm_model,
+            spec.max_samples,
         )
 
         t0 = time.monotonic()
@@ -328,7 +335,10 @@ class MultiBenchTrialRunner:
 
         LOGGER.info(
             "terminal-bench native: %d/%d resolved (%.1f%%), %.1fs total",
-            resolved, total_tasks, accuracy * 100, elapsed,
+            resolved,
+            total_tasks,
+            accuracy * 100,
+            elapsed,
         )
 
         return BenchmarkScore(
@@ -338,7 +348,8 @@ class MultiBenchTrialRunner:
             total_tokens=total_input + total_output,
             samples_evaluated=total_tasks,
             errors=sum(
-                1 for r in tb_results.results
+                1
+                for r in tb_results.results
                 if r.failure_mode.value not in ("none", "unset")
             ),
             weight=spec.weight,

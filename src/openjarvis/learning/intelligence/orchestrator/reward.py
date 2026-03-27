@@ -83,12 +83,8 @@ class MultiObjectiveReward:
         accuracy_reward = 1.0 if episode.correct else 0.0
 
         cost_penalty = episode.total_cost_usd / self.normalizers.cost_scale
-        energy_penalty = (
-            episode.total_energy_joules / self.normalizers.energy_scale
-        )
-        latency_penalty = (
-            episode.total_latency_seconds / self.normalizers.latency_scale
-        )
+        energy_penalty = episode.total_energy_joules / self.normalizers.energy_scale
+        latency_penalty = episode.total_latency_seconds / self.normalizers.latency_scale
         power_penalty = episode.max_power_watts / self.normalizers.power_scale
 
         return (
@@ -104,12 +100,8 @@ class MultiObjectiveReward:
         accuracy_reward = 1.0 if episode.correct else 0.0
 
         cost_penalty = episode.total_cost_usd / self.normalizers.cost_scale
-        energy_penalty = (
-            episode.total_energy_joules / self.normalizers.energy_scale
-        )
-        latency_penalty = (
-            episode.total_latency_seconds / self.normalizers.latency_scale
-        )
+        energy_penalty = episode.total_energy_joules / self.normalizers.energy_scale
+        latency_penalty = episode.total_latency_seconds / self.normalizers.latency_scale
         power_penalty = episode.max_power_watts / self.normalizers.power_scale
 
         accuracy_component = self.weights.alpha * accuracy_reward

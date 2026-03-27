@@ -115,9 +115,7 @@ class SFTTrainer:
         )
 
         try:
-            trainer = LoRATrainer(
-                lora_config, model_name=self.config.model_name
-            )
+            trainer = LoRATrainer(lora_config, model_name=self.config.model_name)
             return trainer.train(pairs)
         except Exception as exc:
             logger.warning("SFT LoRA training failed: %s", exc)

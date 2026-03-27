@@ -78,9 +78,7 @@ class LoRATrainingConfig:
     lora_rank: int = 16
     lora_alpha: int = 32
     lora_dropout: float = 0.05
-    target_modules: List[str] = field(
-        default_factory=lambda: ["q_proj", "v_proj"]
-    )
+    target_modules: List[str] = field(default_factory=lambda: ["q_proj", "v_proj"])
 
     # Training params
     num_epochs: int = 3
@@ -103,13 +101,9 @@ class LoRATrainingConfig:
 
     def __post_init__(self) -> None:
         if self.lora_rank < 1:
-            raise ValueError(
-                f"lora_rank must be >= 1, got {self.lora_rank}"
-            )
+            raise ValueError(f"lora_rank must be >= 1, got {self.lora_rank}")
         if self.num_epochs < 1:
-            raise ValueError(
-                f"num_epochs must be >= 1, got {self.num_epochs}"
-            )
+            raise ValueError(f"num_epochs must be >= 1, got {self.num_epochs}")
 
 
 # ---------------------------------------------------------------------------
@@ -156,9 +150,7 @@ class LoRATrainer:
 
     # -- Public API ----------------------------------------------------------
 
-    def prepare_dataset(
-        self, pairs: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+    def prepare_dataset(self, pairs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Convert SFT pairs to tokenized examples.
 
         Each returned dict contains ``input_ids``, ``attention_mask``,
@@ -182,11 +174,13 @@ class LoRATrainer:
                 padding="max_length",
                 return_tensors="pt",
             )
-            dataset.append({
-                "input_ids": encoding["input_ids"].squeeze(0),
-                "attention_mask": encoding["attention_mask"].squeeze(0),
-                "text": text,
-            })
+            dataset.append(
+                {
+                    "input_ids": encoding["input_ids"].squeeze(0),
+                    "attention_mask": encoding["attention_mask"].squeeze(0),
+                    "text": text,
+                }
+            )
 
         return dataset
 
@@ -300,8 +294,7 @@ class LoRATrainer:
                 )
             except ImportError:
                 logger.warning(
-                    "bitsandbytes not installed; falling back to bf16 "
-                    "(QLoRA disabled)"
+                    "bitsandbytes not installed; falling back to bf16 (QLoRA disabled)"
                 )
 
         if self.device == "cuda" or self.device == "auto":
@@ -324,8 +317,7 @@ class LoRATrainer:
         """Wrap the loaded model with LoRA adapters via peft."""
         if not HAS_PEFT:
             raise ImportError(
-                "peft is required for LoRA training. "
-                "Install with: pip install peft"
+                "peft is required for LoRA training. Install with: pip install peft"
             )
 
         lora_config = LoraConfig(
@@ -390,9 +382,9 @@ class LoRATrainer:
         optimizer: Any,
     ) -> float:
         """Execute a single training step on a micro-batch."""
-        input_ids = torch.stack(
-            [item["input_ids"] for item in batch_items]
-        ).to(self.device)
+        input_ids = torch.stack([item["input_ids"] for item in batch_items]).to(
+            self.device
+        )
         attention_mask = torch.stack(
             [item["attention_mask"] for item in batch_items]
         ).to(self.device)

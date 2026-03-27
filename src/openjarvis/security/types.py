@@ -71,11 +71,14 @@ class ScanResult:
         if not self.findings:
             return None
         order = [
-            ThreatLevel.LOW, ThreatLevel.MEDIUM,
-            ThreatLevel.HIGH, ThreatLevel.CRITICAL,
+            ThreatLevel.LOW,
+            ThreatLevel.MEDIUM,
+            ThreatLevel.HIGH,
+            ThreatLevel.CRITICAL,
         ]
         best = max(
-            self.findings, key=lambda f: order.index(f.threat_level),
+            self.findings,
+            key=lambda f: order.index(f.threat_level),
         )
         return best.threat_level
 

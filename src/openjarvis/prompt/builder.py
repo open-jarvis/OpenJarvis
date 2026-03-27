@@ -40,7 +40,8 @@ class SystemPromptBuilder:
         sections: list[str] = []
         sections.append(self._agent_template)
         soul = self._load_file(
-            self._mf_config.soul_path, self._sp_config.soul_max_chars,
+            self._mf_config.soul_path,
+            self._sp_config.soul_max_chars,
         )
         if soul:
             sections.append(f"## Agent Persona\n\n{soul}")
@@ -51,7 +52,8 @@ class SystemPromptBuilder:
         if memory:
             sections.append(f"## Agent Memory\n\n{memory}")
         user = self._load_file(
-            self._mf_config.user_path, self._sp_config.user_max_chars,
+            self._mf_config.user_path,
+            self._sp_config.user_max_chars,
         )
         if user:
             sections.append(f"## User Profile\n\n{user}")

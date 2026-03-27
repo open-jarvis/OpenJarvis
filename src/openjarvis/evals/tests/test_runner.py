@@ -382,15 +382,20 @@ class TestRunnerTokenStats:
         """RunSummary should include total token counts."""
         records = [
             EvalRecord(
-                record_id=f"r{i}", problem=f"q{i}",
-                reference="a", category="test",
+                record_id=f"r{i}",
+                problem=f"q{i}",
+                reference="a",
+                category="test",
             )
             for i in range(3)
         ]
         output_path = tmp_path / "results.jsonl"
         config = RunConfig(
-            benchmark="test", backend="mock", model="m",
-            max_workers=1, output_path=str(output_path),
+            benchmark="test",
+            backend="mock",
+            model="m",
+            max_workers=1,
+            output_path=str(output_path),
         )
         dataset = MockDataset(records)
         backend = MockBackend()
@@ -408,8 +413,11 @@ class TestRunnerTokenStats:
         ]
         output_path = tmp_path / "results.jsonl"
         config = RunConfig(
-            benchmark="test", backend="mock", model="m",
-            max_workers=1, output_path=str(output_path),
+            benchmark="test",
+            backend="mock",
+            model="m",
+            max_workers=1,
+            output_path=str(output_path),
         )
         dataset = MockDataset(records)
         backend = MockBackend()  # returns power_watts=250.0

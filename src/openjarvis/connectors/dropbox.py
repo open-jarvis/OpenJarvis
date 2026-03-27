@@ -26,9 +26,7 @@ _DROPBOX_API_BASE = "https://api.dropboxapi.com/2"
 _DROPBOX_CONTENT_BASE = "https://content.dropboxapi.com/2"
 _DROPBOX_AUTH_URL = "https://www.dropbox.com/oauth2/authorize"
 _DROPBOX_SCOPES = ["files.metadata.read", "files.content.read"]
-_DEFAULT_CREDENTIALS_PATH = str(
-    DEFAULT_CONFIG_DIR / "connectors" / "dropbox.json"
-)
+_DEFAULT_CREDENTIALS_PATH = str(DEFAULT_CONFIG_DIR / "connectors" / "dropbox.json")
 
 # File extensions whose content can be downloaded and stored as text
 _TEXT_EXTENSIONS = {
@@ -231,9 +229,7 @@ class DropboxConnector(BaseConnector):
         entries_seen: int = 0
 
         while True:
-            list_resp = _dropbox_api_list_folder(
-                token, path="", cursor=list_cursor
-            )
+            list_resp = _dropbox_api_list_folder(token, path="", cursor=list_cursor)
             entries: List[Dict[str, Any]] = list_resp.get("entries", [])
             entries_seen += len(entries)
 

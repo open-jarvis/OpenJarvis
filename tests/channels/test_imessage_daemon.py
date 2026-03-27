@@ -5,8 +5,6 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-import pytest
-
 
 def _create_fake_chat_db(db_path: Path) -> None:
     conn = sqlite3.connect(str(db_path))
@@ -25,13 +23,10 @@ def _create_fake_chat_db(db_path: Path) -> None:
         );
     """)
     conn.execute("INSERT INTO handle VALUES (1, '+15551234567')")
-    conn.execute(
-        "INSERT INTO chat VALUES (1, '+15551234567', 'Test Chat')"
-    )
+    conn.execute("INSERT INTO chat VALUES (1, '+15551234567', 'Test Chat')")
     conn.execute("INSERT INTO chat_message_join VALUES (1, 1)")
     conn.execute(
-        "INSERT INTO message VALUES "
-        "(1, 'Hello agent', 1, 700000000000000000, 0)"
+        "INSERT INTO message VALUES (1, 'Hello agent', 1, 700000000000000000, 0)"
     )
     conn.commit()
     conn.close()
@@ -39,10 +34,12 @@ def _create_fake_chat_db(db_path: Path) -> None:
 
 def test_poll_new_messages(tmp_path: Path) -> None:
     from openjarvis.channels.imessage_daemon import poll_new_messages
+
     db_path = tmp_path / "chat.db"
     _create_fake_chat_db(db_path)
     messages = poll_new_messages(
-        db_path=str(db_path), last_rowid=0,
+        db_path=str(db_path),
+        last_rowid=0,
         chat_identifier="+15551234567",
     )
     assert len(messages) == 1
@@ -52,10 +49,12 @@ def test_poll_new_messages(tmp_path: Path) -> None:
 
 def test_poll_skips_old_messages(tmp_path: Path) -> None:
     from openjarvis.channels.imessage_daemon import poll_new_messages
+
     db_path = tmp_path / "chat.db"
     _create_fake_chat_db(db_path)
     messages = poll_new_messages(
-        db_path=str(db_path), last_rowid=1,
+        db_path=str(db_path),
+        last_rowid=1,
         chat_identifier="+15551234567",
     )
     assert len(messages) == 0
@@ -63,10 +62,12 @@ def test_poll_skips_old_messages(tmp_path: Path) -> None:
 
 def test_poll_filters_by_chat(tmp_path: Path) -> None:
     from openjarvis.channels.imessage_daemon import poll_new_messages
+
     db_path = tmp_path / "chat.db"
     _create_fake_chat_db(db_path)
     messages = poll_new_messages(
-        db_path=str(db_path), last_rowid=0,
+        db_path=str(db_path),
+        last_rowid=0,
         chat_identifier="+15559999999",
     )
     assert len(messages) == 0
@@ -74,6 +75,7 @@ def test_poll_filters_by_chat(tmp_path: Path) -> None:
 
 def test_poll_skips_own_messages(tmp_path: Path) -> None:
     from openjarvis.channels.imessage_daemon import poll_new_messages
+
     db_path = tmp_path / "chat.db"
     conn = sqlite3.connect(str(db_path))
     conn.executescript("""
@@ -91,18 +93,16 @@ def test_poll_skips_own_messages(tmp_path: Path) -> None:
         );
     """)
     conn.execute("INSERT INTO handle VALUES (1, '+15551234567')")
-    conn.execute(
-        "INSERT INTO chat VALUES (1, '+15551234567', 'Test')"
-    )
+    conn.execute("INSERT INTO chat VALUES (1, '+15551234567', 'Test')")
     conn.execute("INSERT INTO chat_message_join VALUES (1, 1)")
     conn.execute(
-        "INSERT INTO message VALUES "
-        "(1, 'My own msg', 1, 700000000000000000, 1)"
+        "INSERT INTO message VALUES (1, 'My own msg', 1, 700000000000000000, 1)"
     )
     conn.commit()
     conn.close()
     messages = poll_new_messages(
-        db_path=str(db_path), last_rowid=0,
+        db_path=str(db_path),
+        last_rowid=0,
         chat_identifier="+15551234567",
     )
     assert len(messages) == 0

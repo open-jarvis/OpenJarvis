@@ -110,15 +110,16 @@ class DeepPlanningDataset(DatasetProvider):
             from datasets import load_dataset
         except ImportError:
             raise ImportError(
-                "datasets required for DeepPlanning. "
-                "Install with: pip install datasets"
+                "datasets required for DeepPlanning. Install with: pip install datasets"
             )
         logger.info("Downloading Qwen/DeepPlanning from HuggingFace...")
         # Loading triggers the download even though we don't use the result
         load_dataset("Qwen/DeepPlanning", split="train")
 
     def _extract_cases(
-        self, tar_path: Path, level: int,
+        self,
+        tar_path: Path,
+        level: int,
     ) -> List[EvalRecord]:
         """Extract shopping cases from a tar.gz archive."""
         records: List[EvalRecord] = []
@@ -152,7 +153,10 @@ class DeepPlanningDataset(DatasetProvider):
                             products_text = pf.read().decode("utf-8").strip()
 
                     rec = self._case_to_record(
-                        data, level, case_name, products_text,
+                        data,
+                        level,
+                        case_name,
+                        products_text,
                     )
                     if rec:
                         records.append(rec)
@@ -185,15 +189,9 @@ class DeepPlanningDataset(DatasetProvider):
         reference = "; ".join(ref_parts) if ref_parts else ""
 
         # Count constraints
-        n_constraints = sum(
-            len(m.get("features", [])) for m in meta_info
-        )
+        n_constraints = sum(len(m.get("features", [])) for m in meta_info)
 
-        difficulty = (
-            "easy" if level == 1
-            else "medium" if level == 2
-            else "hard"
-        )
+        difficulty = "easy" if level == 1 else "medium" if level == 2 else "hard"
 
         # Build product catalog section
         catalog_section = ""

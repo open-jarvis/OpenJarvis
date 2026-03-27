@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional
 @dataclass(slots=True)
 class WasmResult:
     """Result from a WASM execution."""
+
     success: bool = True
     output: str = ""
     duration_seconds: float = 0.0
@@ -42,6 +43,7 @@ class WasmRunner:
         """Check if wasmtime is available."""
         try:
             import wasmtime  # noqa: F401
+
             return True
         except ImportError:
             return False
@@ -63,8 +65,7 @@ class WasmRunner:
             return WasmResult(
                 success=False,
                 output=(
-                    "wasmtime not installed. Install with: "
-                    "uv sync --extra sandbox-wasm"
+                    "wasmtime not installed. Install with: uv sync --extra sandbox-wasm"
                 ),
             )
 
@@ -123,6 +124,7 @@ class WasmRunner:
         """Validate that bytes represent a valid WASM module."""
         try:
             import wasmtime
+
             config = wasmtime.Config()
             engine = wasmtime.Engine(config)
             wasmtime.Module.validate(engine, wasm_bytes)
@@ -145,6 +147,7 @@ def create_sandbox_runner(config: Any = None) -> Any:
     # Fall back to Docker ContainerRunner
     try:
         from openjarvis.sandbox.runner import ContainerRunner
+
         return ContainerRunner(
             image=getattr(config, "image", "openjarvis-sandbox:latest"),
             timeout=getattr(config, "timeout", 300),

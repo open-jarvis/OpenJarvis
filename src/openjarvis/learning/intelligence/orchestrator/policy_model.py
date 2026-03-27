@@ -112,9 +112,7 @@ class OrchestratorPolicyModel:
 
         model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
 
-        if gradient_checkpointing and hasattr(
-            model, "gradient_checkpointing_enable"
-        ):
+        if gradient_checkpointing and hasattr(model, "gradient_checkpointing_enable"):
             model.gradient_checkpointing_enable(
                 gradient_checkpointing_kwargs={"use_reentrant": False}
             )
@@ -176,9 +174,7 @@ class OrchestratorPolicyModel:
                 parts.append(f"Turn {i}:")
                 parts.append(f"  Thought: {action.thought}")
                 parts.append(f"  Tool: {action.tool_name}")
-                parts.append(
-                    f"  Observation: {observation.content[:100]}..."
-                )
+                parts.append(f"  Observation: {observation.content[:100]}...")
                 parts.append("")
 
         parts.append("What should you do next?")
@@ -207,11 +203,7 @@ class OrchestratorPolicyModel:
                 r"THOUGHT:\s*(.+?)(?:\n|$)", output_text, re.IGNORECASE
             )
             return PolicyOutput(
-                thought=(
-                    thought_match.group(1).strip()
-                    if thought_match
-                    else ""
-                ),
+                thought=(thought_match.group(1).strip() if thought_match else ""),
                 tool_name="",
                 tool_input=final_match.group(1).strip(),
                 is_final_answer=True,
@@ -221,9 +213,7 @@ class OrchestratorPolicyModel:
         thought_match = re.search(
             r"THOUGHT:\s*(.+?)(?:\n|$)", output_text, re.IGNORECASE
         )
-        tool_match = re.search(
-            r"TOOL:\s*(.+?)(?:\n|$)", output_text, re.IGNORECASE
-        )
+        tool_match = re.search(r"TOOL:\s*(.+?)(?:\n|$)", output_text, re.IGNORECASE)
         input_match = re.search(
             r"INPUT:\s*(.+?)(?:\nTHOUGHT:|\nTOOL:|\nFINAL|\Z)",
             output_text,
@@ -231,9 +221,7 @@ class OrchestratorPolicyModel:
         )
 
         thought = (
-            thought_match.group(1).strip()
-            if thought_match
-            else "No thought provided"
+            thought_match.group(1).strip() if thought_match else "No thought provided"
         )
         tool_name = (
             tool_match.group(1).strip()
@@ -264,9 +252,7 @@ class OrchestratorPolicyModel:
 
     def _generate(self, prompt: str) -> str:
         """Generate text from the loaded model."""
-        inputs = self.tokenizer(prompt, return_tensors="pt").to(
-            self.model.device
-        )
+        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
         outputs = self.model.generate(
             **inputs,
             max_new_tokens=self.max_tokens,
@@ -285,12 +271,9 @@ class OrchestratorPolicyModel:
             self.tokenizer.save_pretrained(path)
 
     def __repr__(self) -> str:
-        model_name = (
-            "None" if self.model is None else type(self.model).__name__
-        )
+        model_name = "None" if self.model is None else type(self.model).__name__
         return (
-            f"OrchestratorPolicyModel(model={model_name}, "
-            f"max_tokens={self.max_tokens})"
+            f"OrchestratorPolicyModel(model={model_name}, max_tokens={self.max_tokens})"
         )
 
 

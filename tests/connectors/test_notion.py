@@ -108,9 +108,7 @@ def test_sync_yields_documents(
     """sync() yields one Document per page with correct metadata."""
     # Write fake credentials so is_connected() returns True
     creds_path = Path(connector._credentials_path)
-    creds_path.write_text(
-        json.dumps({"token": "ntn_fake"}), encoding="utf-8"
-    )
+    creds_path.write_text(json.dumps({"token": "ntn_fake"}), encoding="utf-8")
 
     mock_search.return_value = _SEARCH_RESPONSE
     mock_blocks.return_value = _BLOCKS_RESPONSE
@@ -215,9 +213,7 @@ def test_render_blocks_to_markdown() -> None:
 def test_disconnect(connector, tmp_path: Path) -> None:
     """disconnect() deletes the credentials file."""
     creds_path = Path(connector._credentials_path)
-    creds_path.write_text(
-        json.dumps({"token": "ntn_fake"}), encoding="utf-8"
-    )
+    creds_path.write_text(json.dumps({"token": "ntn_fake"}), encoding="utf-8")
     assert connector.is_connected() is True
 
     connector.disconnect()

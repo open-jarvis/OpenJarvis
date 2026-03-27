@@ -54,13 +54,25 @@ _SINGLE_SHOT_WARNING = (
 )
 
 _TYPE_MAP: Dict[str, str] = {
-    "INT": "INTEGER", "INTEGER": "INTEGER", "BIGINT": "INTEGER",
-    "SMALLINT": "INTEGER", "TINYINT": "INTEGER",
-    "FLOAT": "REAL", "DOUBLE": "REAL", "DECIMAL": "REAL",
-    "NUMERIC": "REAL", "REAL": "REAL",
-    "TEXT": "TEXT", "VARCHAR": "TEXT", "CHAR": "TEXT",
-    "BLOB": "BLOB", "DATE": "TEXT", "DATETIME": "TEXT",
-    "TIMESTAMP": "TEXT", "BOOLEAN": "INTEGER", "BOOL": "INTEGER",
+    "INT": "INTEGER",
+    "INTEGER": "INTEGER",
+    "BIGINT": "INTEGER",
+    "SMALLINT": "INTEGER",
+    "TINYINT": "INTEGER",
+    "FLOAT": "REAL",
+    "DOUBLE": "REAL",
+    "DECIMAL": "REAL",
+    "NUMERIC": "REAL",
+    "REAL": "REAL",
+    "TEXT": "TEXT",
+    "VARCHAR": "TEXT",
+    "CHAR": "TEXT",
+    "BLOB": "BLOB",
+    "DATE": "TEXT",
+    "DATETIME": "TEXT",
+    "TIMESTAMP": "TEXT",
+    "BOOLEAN": "INTEGER",
+    "BOOL": "INTEGER",
 }
 
 
@@ -83,7 +95,9 @@ class LifelongAgentScorer(Scorer):
         pass
 
     def score(
-        self, record: EvalRecord, model_answer: str,
+        self,
+        record: EvalRecord,
+        model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         # If this result came from interactive evaluation, the metadata
         # already contains the score — pass it through.
@@ -117,7 +131,9 @@ class LifelongAgentScorer(Scorer):
     # ================================================================
 
     def _score_db(
-        self, record: EvalRecord, model_answer: str,
+        self,
+        record: EvalRecord,
+        model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         table_info = record.metadata.get("table_info", {})
         answer_info = record.metadata.get("answer_info", {})
@@ -136,11 +152,18 @@ class LifelongAgentScorer(Scorer):
         try:
             if answer_type == "md5":
                 return self._score_db_md5(
-                    conn, model_answer, table_info, answer_info, skills,
+                    conn,
+                    model_answer,
+                    table_info,
+                    answer_info,
+                    skills,
                 )
             else:
                 return self._score_db_direct(
-                    conn, model_answer, answer_info, skills,
+                    conn,
+                    model_answer,
+                    answer_info,
+                    skills,
                 )
         finally:
             conn.close()
@@ -205,7 +228,8 @@ class LifelongAgentScorer(Scorer):
                 "MD5 task %s: ground-truth SQL failed on SQLite (%s). "
                 "Falling back to normalized SQL comparison. Use MySQL/Docker "
                 "for faithful evaluation of DML tasks.",
-                table_name, exc,
+                table_name,
+                exc,
             )
             meta["ref_sql_sqlite_error"] = str(exc)
             # Compare: did the agent execute the same DML statement?
@@ -213,7 +237,8 @@ class LifelongAgentScorer(Scorer):
             norm_expected = _normalize_sql(expected_sql)
             is_correct = norm_agent == norm_expected
             meta["comparison_detail"] = (
-                "normalized_sql_match" if is_correct
+                "normalized_sql_match"
+                if is_correct
                 else f"normalized_sql_mismatch: expected={norm_expected!r}, got={norm_agent!r}"
             )
             meta["fallback"] = "normalized_sql_comparison"
@@ -250,9 +275,7 @@ class LifelongAgentScorer(Scorer):
             meta["reason"] = "no_ground_truth_direct"
             return None, meta
 
-        expected_tuples = [
-            r if isinstance(r, list) else [r] for r in expected_direct
-        ]
+        expected_tuples = [r if isinstance(r, list) else [r] for r in expected_direct]
         meta["expected_tuples"] = expected_tuples
 
         agent_sql = extract_sql(model_answer)
@@ -264,7 +287,8 @@ class LifelongAgentScorer(Scorer):
                 actual_rows = [list(row) for row in cursor.fetchall()]
                 meta["actual_tuples"] = actual_rows
                 is_correct, detail = compare_tuple_lists(
-                    expected_tuples, actual_rows,
+                    expected_tuples,
+                    actual_rows,
                 )
                 meta["comparison_detail"] = detail
                 meta["strategy"] = "sql_execution"
@@ -272,7 +296,8 @@ class LifelongAgentScorer(Scorer):
             except sqlite3.Error as exc:
                 meta["sql_error"] = str(exc)
                 logger.debug(
-                    "SQL execution failed, trying text parsing: %s", exc,
+                    "SQL execution failed, trying text parsing: %s",
+                    exc,
                 )
 
         parsed = _parse_text_answer(model_answer)
@@ -292,7 +317,9 @@ class LifelongAgentScorer(Scorer):
     # ================================================================
 
     def _score_kg(
-        self, record: EvalRecord, model_answer: str,
+        self,
+        record: EvalRecord,
+        model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         expected = record.metadata.get("answer_list", [])
         skills = record.metadata.get("skills", [])
@@ -330,7 +357,9 @@ class LifelongAgentScorer(Scorer):
     # ================================================================
 
     def _score_os(
-        self, record: EvalRecord, model_answer: str,
+        self,
+        record: EvalRecord,
+        model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         skills = record.metadata.get("skills", [])
         init_command = record.metadata.get("init_command", {})
@@ -369,7 +398,10 @@ class LifelongAgentScorer(Scorer):
 
         try:
             is_correct = _evaluate_os_in_docker(
-                init_command, agent_commands, eval_command, eval_info,
+                init_command,
+                agent_commands,
+                eval_command,
+                eval_info,
             )
             meta["docker_eval_completed"] = True
             return is_correct, meta
@@ -383,6 +415,7 @@ class LifelongAgentScorer(Scorer):
 # ====================================================================
 # DB helpers
 # ====================================================================
+
 
 def build_db(table_info: Dict[str, Any]) -> sqlite3.Connection:
     """Build an in-memory SQLite DB from table_info.
@@ -417,11 +450,15 @@ def build_db(table_info: Dict[str, Any]) -> sqlite3.Connection:
                 padded.append(None)
             try:
                 conn.execute(
-                    f'INSERT INTO "{table_name}" VALUES ({ph})', padded,
+                    f'INSERT INTO "{table_name}" VALUES ({ph})',
+                    padded,
                 )
             except sqlite3.Error as exc:
                 logger.debug(
-                    "Skipping row %d in table %s: %s", row_idx, table_name, exc,
+                    "Skipping row %d in table %s: %s",
+                    row_idx,
+                    table_name,
+                    exc,
                 )
 
     conn.commit()
@@ -429,7 +466,8 @@ def build_db(table_info: Dict[str, Any]) -> sqlite3.Connection:
 
 
 def _get_table_rows(
-    conn: sqlite3.Connection, table_name: str,
+    conn: sqlite3.Connection,
+    table_name: str,
 ) -> List[List[Any]]:
     cursor = conn.execute(
         f'SELECT * FROM "{table_name}" ORDER BY rowid',
@@ -440,21 +478,19 @@ def _get_table_rows(
 def _hash_table_state(rows: List[List[Any]]) -> str:
     row_hashes = []
     for row in rows:
-        concat = ",".join(
-            str(v) if v is not None else "NULL" for v in row
-        )
+        concat = ",".join(str(v) if v is not None else "NULL" for v in row)
         row_hashes.append(hashlib.md5(concat.encode()).hexdigest())
     row_hashes.sort()
     return hashlib.md5("".join(row_hashes).encode()).hexdigest()
 
 
 def _compare_table_states(
-    expected: List[List[Any]], actual: List[List[Any]],
+    expected: List[List[Any]],
+    actual: List[List[Any]],
 ) -> Tuple[bool, str]:
     if len(expected) != len(actual):
         return False, (
-            f"row_count_mismatch: expected {len(expected)}, "
-            f"got {len(actual)}"
+            f"row_count_mismatch: expected {len(expected)}, got {len(actual)}"
         )
     for i, (exp_row, act_row) in enumerate(zip(expected, actual)):
         if len(exp_row) != len(act_row):
@@ -475,20 +511,24 @@ def _compare_table_states(
 # SQL extraction (matches original's Action: Operation format)
 # ====================================================================
 
+
 def extract_sql(text: str) -> str:
     text = text.strip()
 
     # Action: Operation\n```sql\n...\n```
     m = re.search(
         r"Action:\s*Operation\s*\n\s*```(?:sql)?\s*\n?(.*?)\n?\s*```",
-        text, re.DOTALL | re.IGNORECASE,
+        text,
+        re.DOTALL | re.IGNORECASE,
     )
     if m:
         return m.group(1).strip()
 
     # ```sql ... ```
     m = re.search(
-        r"```sql\s*\n?(.*?)\n?```", text, re.DOTALL | re.IGNORECASE,
+        r"```sql\s*\n?(.*?)\n?```",
+        text,
+        re.DOTALL | re.IGNORECASE,
     )
     if m:
         return m.group(1).strip()
@@ -506,7 +546,7 @@ def extract_sql(text: str) -> str:
         candidate = m.group(1).strip()
         answer_pos = re.search(r"(?i)action:\s*answer", candidate)
         if answer_pos:
-            candidate = candidate[:answer_pos.start()].strip()
+            candidate = candidate[: answer_pos.start()].strip()
         if _looks_like_sql(candidate):
             return candidate
 
@@ -516,7 +556,7 @@ def extract_sql(text: str) -> str:
         if _looks_like_sql(stripped):
             sql_lines = [stripped]
             start_idx = text.split("\n").index(line)
-            for cont_line in text.split("\n")[start_idx + 1:]:
+            for cont_line in text.split("\n")[start_idx + 1 :]:
                 cont = cont_line.strip()
                 if not cont or cont.startswith("Action:") or cont.startswith("Act:"):
                     break
@@ -549,10 +589,12 @@ def _normalize_sql(sql: str) -> str:
 # Text answer parsing (matches DirectTypeAnswerValidator)
 # ====================================================================
 
+
 def _parse_text_answer(text: str) -> Optional[List[List[Any]]]:
     m = re.search(
         r"(?:Action:\s*Answer\s*\n\s*)?Final\s+Answer:\s*(.+)",
-        text, re.DOTALL | re.IGNORECASE,
+        text,
+        re.DOTALL | re.IGNORECASE,
     )
     if not m:
         return None
@@ -584,6 +626,7 @@ def _parse_text_answer(text: str) -> Optional[List[List[Any]]]:
 def _safe_literal_eval(s: str) -> Any:
     s = re.sub(r"Decimal\('([^']*)'\)", r"\1", s)
     import ast
+
     return ast.literal_eval(s)
 
 
@@ -603,6 +646,7 @@ def _try_numeric(s: str) -> Any:
 # KG helpers (matches original's answer extraction + F1)
 # ====================================================================
 
+
 def extract_kg_answers(text: str) -> List[str]:
     text = text.strip()
 
@@ -610,7 +654,8 @@ def extract_kg_answers(text: str) -> List[str]:
     # In single-shot mode we can't resolve variables, so extract any
     # entity IDs from the surrounding text as a best-effort fallback.
     var_ref = re.search(
-        r"Final\s+[Aa]nswer:\s*(?:[Vv]ar(?:iable)?\s*)?#(\d+)", text,
+        r"Final\s+[Aa]nswer:\s*(?:[Vv]ar(?:iable)?\s*)?#(\d+)",
+        text,
     )
     if var_ref:
         # Can't resolve variable in single-shot mode — look for entity IDs
@@ -653,13 +698,15 @@ def _normalize_entity(entity: Any) -> str:
 # OS helpers (matches original's Docker evaluation)
 # ====================================================================
 
+
 def _docker_available() -> bool:
     if not shutil.which("docker"):
         return False
     try:
         result = subprocess.run(
             ["docker", "info"],
-            capture_output=True, timeout=10,
+            capture_output=True,
+            timeout=10,
         )
         return result.returncode == 0
     except (subprocess.TimeoutExpired, OSError):
@@ -672,7 +719,8 @@ def _extract_bash_commands(text: str) -> List[str]:
     # Original format: Act: bash\n```bash\n...\n```
     for m in re.finditer(
         r"Act:\s*bash\s*\n\s*```(?:bash)?\s*\n(.*?)\n\s*```",
-        text, re.DOTALL | re.IGNORECASE,
+        text,
+        re.DOTALL | re.IGNORECASE,
     ):
         cmd = m.group(1).strip()
         if cmd:
@@ -682,7 +730,8 @@ def _extract_bash_commands(text: str) -> List[str]:
 
     for m in re.finditer(
         r"Act:\s*```(?:bash)?\s*\n(.*?)\n\s*```",
-        text, re.DOTALL | re.IGNORECASE,
+        text,
+        re.DOTALL | re.IGNORECASE,
     ):
         cmd = m.group(1).strip()
         if cmd:
@@ -692,7 +741,8 @@ def _extract_bash_commands(text: str) -> List[str]:
 
     for m in re.finditer(
         r"```(?:bash|sh)\s*\n(.*?)\n\s*```",
-        text, re.DOTALL | re.IGNORECASE,
+        text,
+        re.DOTALL | re.IGNORECASE,
     ):
         cmd = m.group(1).strip()
         if cmd:
@@ -721,7 +771,8 @@ def _evaluate_os_in_docker(
     try:
         result = subprocess.run(
             ["docker", "image", "inspect", "local-os/default"],
-            capture_output=True, timeout=10,
+            capture_output=True,
+            timeout=10,
         )
         if result.returncode == 0:
             image = "local-os/default"
@@ -737,32 +788,44 @@ def _evaluate_os_in_docker(
     try:
         subprocess.run(
             ["docker", "rm", "-f", container_name],
-            capture_output=True, timeout=30,
+            capture_output=True,
+            timeout=30,
         )
         subprocess.run(
             [
-                "docker", "run", "-d", "--name", container_name,
-                image, "sleep", "300",
+                "docker",
+                "run",
+                "-d",
+                "--name",
+                container_name,
+                image,
+                "sleep",
+                "300",
             ],
-            capture_output=True, check=True, timeout=60,
+            capture_output=True,
+            check=True,
+            timeout=60,
         )
 
         init_cmd_str = init_command.get("script", init_command.get("command", ""))
         if init_cmd_str:
             result = subprocess.run(
                 ["docker", "exec", container_name, "bash", "-c", init_cmd_str],
-                capture_output=True, timeout=120,
+                capture_output=True,
+                timeout=120,
             )
             if result.returncode != 0:
                 logger.warning(
                     "Init command failed (exit %d): %s",
-                    result.returncode, result.stderr.decode(errors="replace")[:200],
+                    result.returncode,
+                    result.stderr.decode(errors="replace")[:200],
                 )
 
         for cmd in agent_commands:
             subprocess.run(
                 ["docker", "exec", container_name, "bash", "-c", cmd],
-                capture_output=True, timeout=120,
+                capture_output=True,
+                timeout=120,
             )
 
         eval_cmd_str = eval_command.get("script", eval_command.get("command", ""))
@@ -783,7 +846,8 @@ def _evaluate_os_in_docker(
 
         result = subprocess.run(
             ["docker", "exec", container_name, "bash", "-c", eval_cmd_str],
-            capture_output=True, timeout=120,
+            capture_output=True,
+            timeout=120,
         )
         return result.returncode == 0
 
@@ -796,7 +860,8 @@ def _evaluate_os_in_docker(
     finally:
         subprocess.run(
             ["docker", "rm", "-f", container_name],
-            capture_output=True, timeout=30,
+            capture_output=True,
+            timeout=30,
         )
 
 
@@ -804,13 +869,14 @@ def _evaluate_os_in_docker(
 # Value comparison (matches original's DirectTypeAnswerValidator)
 # ====================================================================
 
+
 def compare_tuple_lists(
-    expected: List[List[Any]], actual: List[List[Any]],
+    expected: List[List[Any]],
+    actual: List[List[Any]],
 ) -> Tuple[bool, str]:
     if len(expected) != len(actual):
         return False, (
-            f"row_count_mismatch: expected {len(expected)}, "
-            f"got {len(actual)}"
+            f"row_count_mismatch: expected {len(expected)}, got {len(actual)}"
         )
     for i, (exp_row, act_row) in enumerate(zip(expected, actual)):
         if len(exp_row) != len(act_row):
@@ -837,8 +903,10 @@ def values_match(expected: Any, actual: Any) -> bool:
         if expected == 0 and actual == 0:
             return True
         return math.isclose(
-            float(expected), float(actual),
-            rel_tol=_REL_TOLERANCE, abs_tol=_ABS_TOLERANCE,
+            float(expected),
+            float(actual),
+            rel_tol=_REL_TOLERANCE,
+            abs_tol=_ABS_TOLERANCE,
         )
 
     try:
@@ -847,7 +915,10 @@ def values_match(expected: Any, actual: Any) -> bool:
         if exp_f == 0 and act_f == 0:
             return True
         return math.isclose(
-            exp_f, act_f, rel_tol=_REL_TOLERANCE, abs_tol=_ABS_TOLERANCE,
+            exp_f,
+            act_f,
+            rel_tol=_REL_TOLERANCE,
+            abs_tol=_ABS_TOLERANCE,
         )
     except (ValueError, TypeError):
         pass

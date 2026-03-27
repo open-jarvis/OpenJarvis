@@ -46,11 +46,14 @@ class BM25Memory(MemoryBackend):
         meta_json = json.dumps(metadata) if metadata else None
         doc_id = self._rust_impl.store(content, source, meta_json)
         bus = get_event_bus()
-        bus.publish(EventType.MEMORY_STORE, {
-            "backend": self.backend_id,
-            "doc_id": doc_id,
-            "source": source,
-        })
+        bus.publish(
+            EventType.MEMORY_STORE,
+            {
+                "backend": self.backend_id,
+                "doc_id": doc_id,
+                "source": source,
+            },
+        )
         return doc_id
 
     def retrieve(
@@ -64,15 +67,19 @@ class BM25Memory(MemoryBackend):
         if not query.strip():
             return []
         from openjarvis._rust_bridge import retrieval_results_from_json
+
         results = retrieval_results_from_json(
             self._rust_impl.retrieve(query, top_k),
         )
         bus = get_event_bus()
-        bus.publish(EventType.MEMORY_RETRIEVE, {
-            "backend": self.backend_id,
-            "query": query,
-            "num_results": len(results),
-        })
+        bus.publish(
+            EventType.MEMORY_RETRIEVE,
+            {
+                "backend": self.backend_id,
+                "query": query,
+                "num_results": len(results),
+            },
+        )
         return results
 
     def delete(self, doc_id: str) -> bool:

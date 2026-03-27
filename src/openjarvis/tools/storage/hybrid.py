@@ -55,12 +55,14 @@ def reciprocal_rank_fusion(
         scores.items(), key=lambda x: x[1], reverse=True
     ):
         original = best_result[content_key]
-        fused.append(RetrievalResult(
-            content=original.content,
-            score=fused_score,
-            source=original.source,
-            metadata=original.metadata,
-        ))
+        fused.append(
+            RetrievalResult(
+                content=original.content,
+                score=fused_score,
+                source=original.source,
+                metadata=original.metadata,
+            )
+        )
 
     return fused
 
@@ -101,21 +103,28 @@ class HybridMemory(MemoryBackend):
         """Store in both sub-backends with the same doc id."""
         # Store in sparse first to get the id
         sparse_id = self._sparse.store(
-            content, source=source, metadata=metadata,
+            content,
+            source=source,
+            metadata=metadata,
         )
         # Store in dense — it generates its own id
         dense_id = self._dense.store(
-            content, source=source, metadata=metadata,
+            content,
+            source=source,
+            metadata=metadata,
         )
         # Map sparse_id -> dense_id so we can delete from both
         self._id_map[sparse_id] = dense_id
 
         bus = get_event_bus()
-        bus.publish(EventType.MEMORY_STORE, {
-            "backend": self.backend_id,
-            "doc_id": sparse_id,
-            "source": source,
-        })
+        bus.publish(
+            EventType.MEMORY_STORE,
+            {
+                "backend": self.backend_id,
+                "doc_id": sparse_id,
+                "source": source,
+            },
+        )
         return sparse_id
 
     def retrieve(
@@ -130,10 +139,12 @@ class HybridMemory(MemoryBackend):
         fetch_k = top_k * 3
 
         sparse_results = self._sparse.retrieve(
-            query, top_k=fetch_k,
+            query,
+            top_k=fetch_k,
         )
         dense_results = self._dense.retrieve(
-            query, top_k=fetch_k,
+            query,
+            top_k=fetch_k,
         )
 
         fused = reciprocal_rank_fusion(
@@ -143,11 +154,14 @@ class HybridMemory(MemoryBackend):
         )
 
         bus = get_event_bus()
-        bus.publish(EventType.MEMORY_RETRIEVE, {
-            "backend": self.backend_id,
-            "query": query,
-            "num_results": min(len(fused), top_k),
-        })
+        bus.publish(
+            EventType.MEMORY_RETRIEVE,
+            {
+                "backend": self.backend_id,
+                "query": query,
+                "num_results": min(len(fused), top_k),
+            },
+        )
 
         return fused[:top_k]
 

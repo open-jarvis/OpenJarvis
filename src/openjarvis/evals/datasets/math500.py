@@ -68,26 +68,25 @@ class MATH500Dataset(DatasetProvider):
         return len(self._records)
 
     def _convert_row(
-        self, raw: MutableMapping[str, object], idx: int,
+        self,
+        raw: MutableMapping[str, object],
+        idx: int,
     ) -> Optional[EvalRecord]:
         # Extract problem text
-        problem_text = str(
-            raw.get("problem") or raw.get("question") or ""
-        ).strip()
+        problem_text = str(raw.get("problem") or raw.get("question") or "").strip()
         if not problem_text:
             return None
 
         # Extract reference answer
-        reference = str(
-            raw.get("answer") or raw.get("solution") or ""
-        ).strip()
+        reference = str(raw.get("answer") or raw.get("solution") or "").strip()
         if not reference:
             return None
 
         # Extract subject
-        subject = str(
-            raw.get("subject") or raw.get("type") or "Mathematics"
-        ).strip() or "Mathematics"
+        subject = (
+            str(raw.get("subject") or raw.get("type") or "Mathematics").strip()
+            or "Mathematics"
+        )
 
         # Build prompt
         problem = _PROMPT_TEMPLATE.format(problem=problem_text)

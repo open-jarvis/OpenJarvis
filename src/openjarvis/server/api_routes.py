@@ -14,21 +14,26 @@ logger = logging.getLogger(__name__)
 
 # ---- Request/Response models ----
 
+
 class AgentCreateRequest(BaseModel):
     agent_type: str
     tools: Optional[List[str]] = None
     agent_id: Optional[str] = None
 
+
 class AgentMessageRequest(BaseModel):
     message: str
+
 
 class MemoryStoreRequest(BaseModel):
     content: str
     metadata: Optional[Dict[str, Any]] = None
 
+
 class MemorySearchRequest(BaseModel):
     query: str
     top_k: int = 5
+
 
 class BudgetLimitsRequest(BaseModel):
     max_tokens_per_day: Optional[int] = None
@@ -52,6 +57,7 @@ class OptimizeRunRequest(BaseModel):
 
 agents_router = APIRouter(prefix="/v1/agents", tags=["agents"])
 
+
 @agents_router.get("")
 async def list_agents(request: Request):
     """List available agent types and running agents."""
@@ -59,32 +65,36 @@ async def list_agents(request: Request):
     try:
         import openjarvis.agents  # noqa: F401 — side-effect registration
         from openjarvis.core.registry import AgentRegistry
+
         for key in sorted(AgentRegistry.keys()):
             cls = AgentRegistry.get(key)
-            registered.append({
-                "key": key,
-                "class": cls.__name__,
-                "accepts_tools": getattr(cls, "accepts_tools", False),
-            })
+            registered.append(
+                {
+                    "key": key,
+                    "class": cls.__name__,
+                    "accepts_tools": getattr(cls, "accepts_tools", False),
+                }
+            )
     except Exception as exc:
         logger.warning("Failed to list registered agents: %s", exc)
 
     running = []
     try:
         from openjarvis.tools.agent_tools import _SPAWNED_AGENTS
-        running = [
-            {"id": k, **v} for k, v in _SPAWNED_AGENTS.items()
-        ]
+
+        running = [{"id": k, **v} for k, v in _SPAWNED_AGENTS.items()]
     except ImportError:
         pass
 
     return {"registered": registered, "running": running}
+
 
 @agents_router.post("")
 async def create_agent(req: AgentCreateRequest, request: Request):
     """Spawn a new agent."""
     try:
         from openjarvis.tools.agent_tools import AgentSpawnTool
+
         tool = AgentSpawnTool()
         params = {"agent_type": req.agent_type}
         if req.tools:
@@ -102,11 +112,13 @@ async def create_agent(req: AgentCreateRequest, request: Request):
     except ImportError:
         raise HTTPException(status_code=501, detail="Agent tools not available")
 
+
 @agents_router.delete("/{agent_id}")
 async def kill_agent(agent_id: str, request: Request):
     """Kill a running agent."""
     try:
         from openjarvis.tools.agent_tools import AgentKillTool
+
         tool = AgentKillTool()
         result = tool.execute(agent_id=agent_id)
         if not result.success:
@@ -115,11 +127,13 @@ async def kill_agent(agent_id: str, request: Request):
     except ImportError:
         raise HTTPException(status_code=501, detail="Agent tools not available")
 
+
 @agents_router.post("/{agent_id}/message")
 async def message_agent(agent_id: str, req: AgentMessageRequest, request: Request):
     """Send a message to a running agent."""
     try:
         from openjarvis.tools.agent_tools import AgentSendTool
+
         tool = AgentSendTool()
         result = tool.execute(agent_id=agent_id, message=req.message)
         if not result.success:
@@ -133,22 +147,26 @@ async def message_agent(agent_id: str, req: AgentMessageRequest, request: Reques
 
 memory_router = APIRouter(prefix="/v1/memory", tags=["memory"])
 
+
 @memory_router.post("/store")
 async def memory_store(req: MemoryStoreRequest, request: Request):
     """Store content in memory."""
     try:
         from openjarvis.tools.storage.sqlite import SQLiteMemory
+
         backend = SQLiteMemory()
         backend.store(req.content, metadata=req.metadata or {})
         return {"status": "stored"}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
+
 @memory_router.post("/search")
 async def memory_search(req: MemorySearchRequest, request: Request):
     """Search memory for relevant content."""
     try:
         from openjarvis.tools.storage.sqlite import SQLiteMemory
+
         backend = SQLiteMemory()
         results = backend.search(req.query, top_k=req.top_k)
         items = [
@@ -159,11 +177,13 @@ async def memory_search(req: MemorySearchRequest, request: Request):
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
+
 @memory_router.get("/stats")
 async def memory_stats(request: Request):
     """Get memory backend statistics."""
     try:
         from openjarvis.tools.storage.sqlite import SQLiteMemory
+
         backend = SQLiteMemory()
         stats = backend.stats()
         return stats
@@ -174,6 +194,7 @@ async def memory_stats(request: Request):
 # ---- Traces routes ----
 
 traces_router = APIRouter(prefix="/v1/traces", tags=["traces"])
+
 
 @traces_router.get("")
 async def list_traces(request: Request, limit: int = 20):
@@ -189,6 +210,7 @@ async def list_traces(request: Request, limit: int = 20):
         return {"traces": items}
     except Exception as exc:
         return {"traces": [], "error": str(exc)}
+
 
 @traces_router.get("/{trace_id}")
 async def get_trace(trace_id: str, request: Request):
@@ -212,6 +234,7 @@ async def get_trace(trace_id: str, request: Request):
 # ---- Telemetry routes ----
 
 telemetry_router = APIRouter(prefix="/v1/telemetry", tags=["telemetry"])
+
 
 @telemetry_router.get("/stats")
 async def telemetry_stats(request: Request):
@@ -240,11 +263,11 @@ async def telemetry_stats(request: Request):
     except Exception as exc:
         return {"error": str(exc)}
 
+
 @telemetry_router.get("/energy")
 async def telemetry_energy(request: Request):
     """Get energy monitoring data."""
     try:
-
         from openjarvis.core.config import DEFAULT_CONFIG_DIR
         from openjarvis.telemetry.aggregator import TelemetryAggregator
 
@@ -286,11 +309,13 @@ async def telemetry_energy(request: Request):
 
 skills_router = APIRouter(prefix="/v1/skills", tags=["skills"])
 
+
 @skills_router.get("")
 async def list_skills(request: Request):
     """List installed skills."""
     try:
         from openjarvis.core.registry import SkillRegistry
+
         skills = []
         for key in sorted(SkillRegistry.keys()):
             skills.append({"name": key})
@@ -299,6 +324,7 @@ async def list_skills(request: Request):
         logger.warning("Failed to list skills: %s", exc)
         return {"skills": []}
 
+
 @skills_router.post("")
 async def install_skill(request: Request):
     """Install a skill (placeholder)."""
@@ -306,6 +332,7 @@ async def install_skill(request: Request):
         "status": "not_implemented",
         "message": "Use TOML files in ~/.openjarvis/skills/",
     }
+
 
 @skills_router.delete("/{skill_name}")
 async def remove_skill(skill_name: str, request: Request):
@@ -320,31 +347,32 @@ async def remove_skill(skill_name: str, request: Request):
 
 sessions_router = APIRouter(prefix="/v1/sessions", tags=["sessions"])
 
+
 @sessions_router.get("")
 async def list_sessions(request: Request, limit: int = 20):
     """List active sessions."""
     try:
         from openjarvis.sessions.store import SessionStore
+
         store = SessionStore()
         sessions = store.recent(limit=limit)
-        items = [
-            s.to_dict() if hasattr(s, "to_dict") else str(s)
-            for s in sessions
-        ]
+        items = [s.to_dict() if hasattr(s, "to_dict") else str(s) for s in sessions]
         return {"sessions": items}
     except Exception as exc:
         return {"sessions": [], "error": str(exc)}
+
 
 @sessions_router.get("/{session_id}")
 async def get_session(session_id: str, request: Request):
     """Get a specific session."""
     try:
         from openjarvis.sessions.store import SessionStore
+
         store = SessionStore()
         session = store.get(session_id)
         if session is None:
             raise HTTPException(status_code=404, detail="Session not found")
-        return session.to_dict() if hasattr(session, 'to_dict') else {"id": session_id}
+        return session.to_dict() if hasattr(session, "to_dict") else {"id": session_id}
     except HTTPException:
         raise
     except Exception as exc:
@@ -364,10 +392,12 @@ _budget_usage: Dict[str, int] = {
     "requests_this_hour": 0,
 }
 
+
 @budget_router.get("")
 async def get_budget(request: Request):
     """Get current budget usage and limits."""
     return {"limits": _budget_limits, "usage": _budget_usage}
+
 
 @budget_router.put("/limits")
 async def set_budget_limits(req: BudgetLimitsRequest, request: Request):
@@ -383,6 +413,7 @@ async def set_budget_limits(req: BudgetLimitsRequest, request: Request):
 
 metrics_router = APIRouter(tags=["metrics"])
 
+
 @metrics_router.get("/metrics")
 async def prometheus_metrics(request: Request):
     """Prometheus-compatible metrics endpoint."""
@@ -393,6 +424,7 @@ async def prometheus_metrics(request: Request):
         db_path = DEFAULT_CONFIG_DIR / "telemetry.db"
         if not db_path.exists():
             from starlette.responses import PlainTextResponse
+
             return PlainTextResponse("# no telemetry data\n", media_type="text/plain")
 
         agg = TelemetryAggregator(db_path)
@@ -410,13 +442,13 @@ async def prometheus_metrics(request: Request):
             f"openjarvis_latency_avg_ms {stats.get('avg_latency_ms', 0)}",
         ]
         from starlette.responses import PlainTextResponse
+
         return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain")
     except Exception as exc:
         logger.warning("Failed to collect Prometheus metrics: %s", exc)
         from starlette.responses import PlainTextResponse
-        return PlainTextResponse(
-            "# No metrics available\n", media_type="text/plain"
-        )
+
+        return PlainTextResponse("# No metrics available\n", media_type="text/plain")
 
 
 # ---- WebSocket streaming routes ----
@@ -458,7 +490,9 @@ async def websocket_chat_stream(websocket: WebSocket):
                 continue
 
             model = data.get("model") or getattr(
-                websocket.app.state, "model", "default",
+                websocket.app.state,
+                "model",
+                "default",
             )
             engine = getattr(websocket.app.state, "engine", None)
             if engine is None:
@@ -473,8 +507,7 @@ async def websocket_chat_stream(websocket: WebSocket):
                 # Prefer streaming if the engine supports it
                 stream_fn = getattr(engine, "stream", None)
                 if stream_fn is not None and (
-                    inspect.isasyncgenfunction(stream_fn)
-                    or callable(stream_fn)
+                    inspect.isasyncgenfunction(stream_fn) or callable(stream_fn)
                 ):
                     full_content = ""
                     try:
@@ -498,9 +531,14 @@ async def websocket_chat_stream(websocket: WebSocket):
                         # stream() didn't return an iterable; fall back to
                         # generate()
                         result = engine.generate(messages, model=model)
-                        content = result.get("content", "") if isinstance(
-                            result, dict,
-                        ) else str(result)
+                        content = (
+                            result.get("content", "")
+                            if isinstance(
+                                result,
+                                dict,
+                            )
+                            else str(result)
+                        )
                         full_content = content
                         await websocket.send_json(
                             {"type": "chunk", "content": content},
@@ -511,9 +549,14 @@ async def websocket_chat_stream(websocket: WebSocket):
                 else:
                     # No stream method — single-shot generate
                     result = engine.generate(messages, model=model)
-                    content = result.get("content", "") if isinstance(
-                        result, dict,
-                    ) else str(result)
+                    content = (
+                        result.get("content", "")
+                        if isinstance(
+                            result,
+                            dict,
+                        )
+                        else str(result)
+                    )
                     await websocket.send_json(
                         {"type": "chunk", "content": content},
                     )
@@ -534,6 +577,7 @@ async def websocket_chat_stream(websocket: WebSocket):
 
 learning_router = APIRouter(prefix="/v1/learning", tags=["learning"])
 
+
 @learning_router.get("/stats")
 async def learning_stats(request: Request):
     """Return learning system statistics across all sub-policies."""
@@ -542,6 +586,7 @@ async def learning_stats(request: Request):
     # Skill discovery
     try:
         from openjarvis.learning.agents.skill_discovery import SkillDiscovery
+
         discovery = SkillDiscovery()
         result["skill_discovery"] = {
             "available": True,
@@ -553,6 +598,7 @@ async def learning_stats(request: Request):
 
     return result
 
+
 @learning_router.get("/policy")
 async def learning_policy(request: Request):
     """Return current routing policy configuration."""
@@ -561,6 +607,7 @@ async def learning_policy(request: Request):
     # Load config and extract learning section
     try:
         from openjarvis.core.config import load_config
+
         config = load_config()
         lc = config.learning
         result["enabled"] = lc.enabled
@@ -723,14 +770,10 @@ async def get_optimize_run(run_id: str, request: Request):
             "status": run.status,
             "benchmark": run.benchmark,
             "trials": len(run.trials),
-            "best_trial_id": (
-                run.best_trial.trial_id if run.best_trial else None
-            ),
+            "best_trial_id": (run.best_trial.trial_id if run.best_trial else None),
         }
     except Exception as exc:
-        logger.warning(
-            "Failed to get optimization run %s: %s", run_id, exc
-        )
+        logger.warning("Failed to get optimization run %s: %s", run_id, exc)
         return {"run_id": run_id, "status": "not_found"}
 
 
@@ -762,6 +805,7 @@ def include_all_routes(app) -> None:
             from openjarvis.server.agent_manager_routes import (  # noqa: PLC0415
                 create_agent_manager_router,
             )
+
             agents_r, templates_r, global_r, tools_r = create_agent_manager_router(
                 app.state.agent_manager
             )

@@ -28,6 +28,7 @@ def _load_task_yaml(task_dir: Path) -> Dict[str, Any]:
         return {}
     try:
         import yaml
+
         return yaml.safe_load(task_file.read_text()) or {}
     except ImportError:
         # Fallback: parse instruction manually
@@ -36,7 +37,7 @@ def _load_task_yaml(task_dir: Path) -> Dict[str, Any]:
         # Extract instruction block
         if "instruction:" in text:
             idx = text.index("instruction:")
-            after = text[idx + len("instruction:"):]
+            after = text[idx + len("instruction:") :]
             # Handle YAML block scalar (|-) or plain string
             after = after.lstrip()
             if after.startswith("|-"):
@@ -52,7 +53,7 @@ def _load_task_yaml(task_dir: Path) -> Dict[str, Any]:
         for field in ("category", "difficulty", "author_email"):
             if f"{field}:" in text:
                 idx = text.index(f"{field}:")
-                val = text[idx + len(field) + 1:].split("\n")[0].strip()
+                val = text[idx + len(field) + 1 :].split("\n")[0].strip()
                 result[field] = val
         return result
 
@@ -129,7 +130,9 @@ class TerminalBenchNativeDataset(DatasetProvider):
         return len(self._records)
 
     def _convert_task(
-        self, task_dir: Path, idx: int,
+        self,
+        task_dir: Path,
+        idx: int,
     ) -> Optional[EvalRecord]:
         task_data = _load_task_yaml(task_dir)
 
@@ -158,13 +161,13 @@ class TerminalBenchNativeDataset(DatasetProvider):
             metadata=metadata,
         )
 
-
     def create_task_env(self, record):
         """Return a TerminalBenchTaskEnv for the given record."""
         try:
             from openjarvis.evals.execution.terminalbench_env import (
                 TerminalBenchTaskEnv,
             )
+
             return TerminalBenchTaskEnv(record.metadata)
         except ImportError:
             return None
@@ -175,6 +178,7 @@ class TerminalBenchNativeDataset(DatasetProvider):
         if not _HAS_TERMINALBENCH:
             issues.append("terminal-bench package not installed")
         import shutil
+
         if not shutil.which("docker"):
             issues.append("docker not found in PATH")
         return issues

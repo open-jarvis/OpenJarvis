@@ -61,7 +61,7 @@ def _detect_stat_groups(metrics: dict[str, float]) -> dict[str, dict[str, float]
     for key, val in metrics.items():
         for pfx in _STATS_PREFIXES:
             if key.startswith(pfx):
-                base = key[len(pfx):]
+                base = key[len(pfx) :]
                 groups.setdefault(base, {})[pfx.rstrip("_")] = val
                 break
     return groups
@@ -152,27 +152,46 @@ def bench() -> None:
 @click.option("-m", "--model", "model_name", default=None, help="Model to benchmark.")
 @click.option("-e", "--engine", "engine_key", default=None, help="Engine backend.")
 @click.option(
-    "-n", "--samples", "num_samples", default=10, type=int,
+    "-n",
+    "--samples",
+    "num_samples",
+    default=10,
+    type=int,
     help="Number of samples per benchmark.",
 )
 @click.option(
-    "-b", "--benchmark", "benchmark_name", default=None,
+    "-b",
+    "--benchmark",
+    "benchmark_name",
+    default=None,
     help="Specific benchmark to run (default: all).",
 )
 @click.option(
-    "-o", "--output", "output_path", default=None, type=click.Path(),
+    "-o",
+    "--output",
+    "output_path",
+    default=None,
+    type=click.Path(),
     help="Write JSONL results to file.",
 )
 @click.option(
-    "--json", "output_json", is_flag=True,
+    "--json",
+    "output_json",
+    is_flag=True,
     help="Output JSON summary to stdout.",
 )
 @click.option(
-    "-w", "--warmup", "warmup", default=0, type=int,
+    "-w",
+    "--warmup",
+    "warmup",
+    default=0,
+    type=int,
     help="Number of warmup iterations before measurement.",
 )
 @click.option(
-    "--setup-energy", "setup_energy", is_flag=True,
+    "--setup-energy",
+    "setup_energy",
+    is_flag=True,
     help="Run energy monitor setup script when missing (for energy benchmark).",
 )
 def run(
@@ -250,16 +269,12 @@ def run(
         import platform
 
         setup_script = (
-            Path(__file__).resolve().parents[3]
-            / "scripts"
-            / "setup-energy-monitor.sh"
+            Path(__file__).resolve().parents[3] / "scripts" / "setup-energy-monitor.sh"
         )
-        is_darwin_arm = (
-            platform.system() == "Darwin"
-            and platform.machine() == "arm64"
-        )
+        is_darwin_arm = platform.system() == "Darwin" and platform.machine() == "arm64"
         extra_hint = (
-            "openjarvis[energy-apple]" if is_darwin_arm
+            "openjarvis[energy-apple]"
+            if is_darwin_arm
             else "openjarvis[gpu-metrics]"
             if platform.system() == "Linux"
             else "openjarvis[energy-all]"
@@ -314,8 +329,10 @@ def run(
         f"[bold cyan]Running {len(benchmarks)} benchmark(s)...[/bold cyan]",
     ):
         results = suite.run_all(
-            engine, model_name,
-            num_samples=num_samples, warmup_samples=warmup,
+            engine,
+            model_name,
+            num_samples=num_samples,
+            warmup_samples=warmup,
             energy_monitor=energy_monitor,
         )
 

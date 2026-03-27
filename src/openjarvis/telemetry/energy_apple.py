@@ -50,7 +50,9 @@ def _detect_chip() -> tuple[str, float]:
     try:
         r = subprocess.run(
             ["sysctl", "-n", "machdep.cpu.brand_string"],
-            capture_output=True, text=True, timeout=3,
+            capture_output=True,
+            text=True,
+            timeout=3,
         )
         brand = r.stdout.strip()
     except Exception as exc:
@@ -113,7 +115,8 @@ class AppleEnergyMonitor(EnergyMonitor):
             yield from self._sample_cputime(result)
 
     def _sample_zeus(
-        self, result: EnergySample,
+        self,
+        result: EnergySample,
     ) -> Generator[EnergySample, None, None]:
         assert self._monitor is not None
         window_name = f"openjarvis_{time.monotonic_ns()}"
@@ -140,7 +143,8 @@ class AppleEnergyMonitor(EnergyMonitor):
             result.mean_power_watts = result.energy_joules / wall
 
     def _sample_cputime(
-        self, result: EnergySample,
+        self,
+        result: EnergySample,
     ) -> Generator[EnergySample, None, None]:
         """Estimate energy from user+system CPU time and chip TDP.
 

@@ -191,7 +191,10 @@ class WorkflowEngine:
         return result
 
     def _get_node_input(
-        self, node: WorkflowNode, outputs: Dict[str, str], graph: WorkflowGraph,
+        self,
+        node: WorkflowNode,
+        outputs: Dict[str, str],
+        graph: WorkflowGraph,
     ) -> str:
         """Get input for a node from predecessor outputs."""
         preds = graph.predecessors(node.id)
@@ -201,8 +204,11 @@ class WorkflowEngine:
         return outputs.get("_input", "")
 
     def _run_agent_node(
-        self, node: WorkflowNode, outputs: Dict[str, str],
-        system: Any, graph: WorkflowGraph,
+        self,
+        node: WorkflowNode,
+        outputs: Dict[str, str],
+        system: Any,
+        graph: WorkflowGraph,
     ) -> WorkflowStepResult:
         """Execute an agent node."""
         input_text = self._get_node_input(node, outputs, graph)
@@ -231,13 +237,17 @@ class WorkflowEngine:
             )
 
     def _run_tool_node(
-        self, node: WorkflowNode, outputs: Dict[str, str], system: Any,
+        self,
+        node: WorkflowNode,
+        outputs: Dict[str, str],
+        system: Any,
     ) -> WorkflowStepResult:
         """Execute a tool node."""
         tool_name = node.config.get("tool_name", "")
         tool_args = node.config.get("tool_args", "{}")
         if system and system.tool_executor:
             from openjarvis.core.types import ToolCall
+
             tc = ToolCall(id=f"wf_{node.id}", name=tool_name, arguments=tool_args)
             tr = system.tool_executor.execute(tc)
             return WorkflowStepResult(
@@ -252,13 +262,17 @@ class WorkflowEngine:
         )
 
     def _run_condition_node(
-        self, node: WorkflowNode, outputs: Dict[str, str],
+        self,
+        node: WorkflowNode,
+        outputs: Dict[str, str],
     ) -> WorkflowStepResult:
         """Evaluate a condition expression against outputs."""
         expr = node.condition_expr
         if not expr:
             return WorkflowStepResult(
-                node_id=node.id, success=True, output="true",
+                node_id=node.id,
+                success=True,
+                output="true",
             )
         # Simple expression evaluation — check if key exists and is truthy
         # Supports: "node_id.success", "node_id.output contains 'text'"
@@ -273,7 +287,9 @@ class WorkflowEngine:
         )
 
     def _run_transform_node(
-        self, node: WorkflowNode, outputs: Dict[str, str],
+        self,
+        node: WorkflowNode,
+        outputs: Dict[str, str],
     ) -> WorkflowStepResult:
         """Apply a text transformation."""
         expr = node.transform_expr
@@ -289,8 +305,11 @@ class WorkflowEngine:
         return WorkflowStepResult(node_id=node.id, output=combined)
 
     def _run_loop_node(
-        self, node: WorkflowNode, outputs: Dict[str, str],
-        system: Any, graph: WorkflowGraph,
+        self,
+        node: WorkflowNode,
+        outputs: Dict[str, str],
+        system: Any,
+        graph: WorkflowGraph,
     ) -> WorkflowStepResult:
         """Execute a loop node (re-runs agent until condition or max iterations)."""
         input_text = self._get_node_input(node, outputs, graph)
@@ -303,8 +322,7 @@ class WorkflowEngine:
                 # Check if loop should terminate
                 if (
                     node.condition_expr
-                    and node.condition_expr.lower()
-                    in last_output.lower()
+                    and node.condition_expr.lower() in last_output.lower()
                 ):
                     break
             else:

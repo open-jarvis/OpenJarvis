@@ -9,9 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-pytest.importorskip(
-    "fastapi", reason="openjarvis[server] not installed"
-)
+pytest.importorskip("fastapi", reason="openjarvis[server] not installed")
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -41,12 +39,9 @@ class TestTwilioWebhook:
     def twilio_client(self, twilio_app):
         return TestClient(twilio_app)
 
-    def test_valid_twilio_webhook(
-        self, twilio_client, mock_bridge
-    ):
+    def test_valid_twilio_webhook(self, twilio_client, mock_bridge):
         with patch(
-            "openjarvis.server.webhook_routes"
-            "._validate_twilio_signature",
+            "openjarvis.server.webhook_routes._validate_twilio_signature",
             return_value=True,
         ):
             resp = twilio_client.post(
@@ -62,8 +57,7 @@ class TestTwilioWebhook:
 
     def test_invalid_signature_rejected(self, twilio_client):
         with patch(
-            "openjarvis.server.webhook_routes"
-            "._validate_twilio_signature",
+            "openjarvis.server.webhook_routes._validate_twilio_signature",
             return_value=False,
         ):
             resp = twilio_client.post(
@@ -92,17 +86,13 @@ class TestBlueBubblesWebhook:
     def bb_client(self, bb_app):
         return TestClient(bb_app)
 
-    def test_valid_bluebubbles_webhook(
-        self, bb_client, mock_bridge
-    ):
+    def test_valid_bluebubbles_webhook(self, bb_client, mock_bridge):
         resp = bb_client.post(
             "/webhooks/bluebubbles",
             json={
                 "type": "new-message",
                 "data": {
-                    "handle": {
-                        "address": "user@icloud.com"
-                    },
+                    "handle": {"address": "user@icloud.com"},
                     "text": "hello from imessage",
                     "guid": "msg-123",
                 },
@@ -191,9 +181,7 @@ class TestWhatsAppWebhook:
         )
         assert resp.status_code == 403
 
-    def test_valid_message_webhook(
-        self, wa_client, mock_bridge
-    ):
+    def test_valid_message_webhook(self, wa_client, mock_bridge):
         payload = {
             "entry": [
                 {
@@ -203,9 +191,7 @@ class TestWhatsAppWebhook:
                                 "messages": [
                                     {
                                         "from": "15551234567",
-                                        "text": {
-                                            "body": "hello wa"
-                                        },
+                                        "text": {"body": "hello wa"},
                                         "id": "wamid.abc123",
                                         "type": "text",
                                     }
@@ -217,9 +203,7 @@ class TestWhatsAppWebhook:
             ]
         }
         body_bytes = json.dumps(payload).encode()
-        sig = hmac.new(
-            b"wa_secret", body_bytes, hashlib.sha256
-        ).hexdigest()
+        sig = hmac.new(b"wa_secret", body_bytes, hashlib.sha256).hexdigest()
         resp = wa_client.post(
             "/webhooks/whatsapp",
             content=body_bytes,

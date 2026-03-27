@@ -100,6 +100,7 @@ class SkillExecutor:
     @staticmethod
     def _render_template(template: str, ctx: Dict[str, Any]) -> str:
         """Simple {key} placeholder rendering."""
+
         def _replace(match: re.Match) -> str:
             key = match.group(1)
             val = ctx.get(key, match.group(0))

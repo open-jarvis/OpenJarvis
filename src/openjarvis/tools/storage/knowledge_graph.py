@@ -16,8 +16,9 @@ from openjarvis.core.registry import MemoryRegistry
 @dataclass(slots=True)
 class Entity:
     """A node in the knowledge graph."""
+
     entity_id: str
-    entity_type: str   # "agent", "tool", "model", "user", "concept", etc.
+    entity_type: str  # "agent", "tool", "model", "user", "concept", etc.
     name: str
     properties: Dict[str, Any] = field(default_factory=dict)
     created_at: float = 0.0
@@ -26,6 +27,7 @@ class Entity:
 @dataclass(slots=True)
 class Relation:
     """An edge between two entities."""
+
     source_id: str
     target_id: str
     relation_type: str  # "used", "produced", "depends_on", "similar_to", etc.
@@ -37,6 +39,7 @@ class Relation:
 @dataclass(slots=True)
 class GraphQueryResult:
     """Result from a graph pattern query."""
+
     entities: List[Entity] = field(default_factory=list)
     relations: List[Relation] = field(default_factory=list)
 
@@ -90,17 +93,21 @@ class KnowledgeGraphMemory:
     # -- MemoryBackend ABC --
 
     def store(
-        self, key: str, content: str,
+        self,
+        key: str,
+        content: str,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Store content as an entity (MemoryBackend interface)."""
         meta = metadata or {}
-        self.add_entity(Entity(
-            entity_id=key,
-            entity_type=meta.get("entity_type", "document"),
-            name=meta.get("name", key),
-            properties={"content": content, **(meta.get("properties", {}))},
-        ))
+        self.add_entity(
+            Entity(
+                entity_id=key,
+                entity_type=meta.get("entity_type", "document"),
+                name=meta.get("name", key),
+                properties={"content": content, **(meta.get("properties", {}))},
+            )
+        )
 
     def retrieve(self, key: str) -> Optional[str]:
         """Retrieve content by entity_id (MemoryBackend interface)."""
@@ -122,19 +129,20 @@ class KnowledgeGraphMemory:
         for row in rows:
             eid, etype, name, props_json, ts = row
             props = json.loads(props_json) if props_json else {}
-            results.append({
-                "key": eid,
-                "content": props.get("content", ""),
-                "score": 1.0,
-                "metadata": {"entity_type": etype, "name": name},
-            })
+            results.append(
+                {
+                    "key": eid,
+                    "content": props.get("content", ""),
+                    "score": 1.0,
+                    "metadata": {"entity_type": etype, "name": name},
+                }
+            )
         return results
 
     def delete(self, key: str) -> bool:
         """Delete an entity and its relations."""
         self._conn.execute(
-            "DELETE FROM relations"
-            " WHERE source_id = ? OR target_id = ?",
+            "DELETE FROM relations WHERE source_id = ? OR target_id = ?",
             (key, key),
         )
         cur = self._conn.execute("DELETE FROM entities WHERE entity_id = ?", (key,))
@@ -157,8 +165,13 @@ class KnowledgeGraphMemory:
             " (entity_id, entity_type, name,"
             " properties, created_at) "
             "VALUES (?, ?, ?, ?, ?)",
-            (entity.entity_id, entity.entity_type, entity.name,
-             json.dumps(entity.properties), ts),
+            (
+                entity.entity_id,
+                entity.entity_type,
+                entity.name,
+                json.dumps(entity.properties),
+                ts,
+            ),
         )
         self._conn.commit()
 
@@ -166,12 +179,15 @@ class KnowledgeGraphMemory:
         """Get entity by ID."""
         row = self._conn.execute(
             "SELECT entity_id, entity_type, name, properties, created_at "
-            "FROM entities WHERE entity_id = ?", (entity_id,),
+            "FROM entities WHERE entity_id = ?",
+            (entity_id,),
         ).fetchone()
         if not row:
             return None
         return Entity(
-            entity_id=row[0], entity_type=row[1], name=row[2],
+            entity_id=row[0],
+            entity_type=row[1],
+            name=row[2],
             properties=json.loads(row[3]) if row[3] else {},
             created_at=row[4] or 0.0,
         )
@@ -184,8 +200,14 @@ class KnowledgeGraphMemory:
             " (source_id, target_id, relation_type,"
             " weight, properties, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?)",
-            (relation.source_id, relation.target_id, relation.relation_type,
-             relation.weight, json.dumps(relation.properties), ts),
+            (
+                relation.source_id,
+                relation.target_id,
+                relation.relation_type,
+                relation.weight,
+                json.dumps(relation.properties),
+                ts,
+            ),
         )
         self._conn.commit()
 
@@ -246,11 +268,15 @@ class KnowledgeGraphMemory:
                 (entity_type, limit),
             ).fetchall()
             for row in rows:
-                entities.append(Entity(
-                    entity_id=row[0], entity_type=row[1], name=row[2],
-                    properties=json.loads(row[3]) if row[3] else {},
-                    created_at=row[4] or 0.0,
-                ))
+                entities.append(
+                    Entity(
+                        entity_id=row[0],
+                        entity_type=row[1],
+                        name=row[2],
+                        properties=json.loads(row[3]) if row[3] else {},
+                        created_at=row[4] or 0.0,
+                    )
+                )
 
         if relation_type:
             rows = self._conn.execute(
@@ -262,11 +288,16 @@ class KnowledgeGraphMemory:
                 (relation_type, limit),
             ).fetchall()
             for row in rows:
-                relations.append(Relation(
-                    source_id=row[0], target_id=row[1], relation_type=row[2],
-                    weight=row[3], properties=json.loads(row[4]) if row[4] else {},
-                    created_at=row[5] or 0.0,
-                ))
+                relations.append(
+                    Relation(
+                        source_id=row[0],
+                        target_id=row[1],
+                        relation_type=row[2],
+                        weight=row[3],
+                        properties=json.loads(row[4]) if row[4] else {},
+                        created_at=row[5] or 0.0,
+                    )
+                )
 
         return GraphQueryResult(entities=entities, relations=relations)
 

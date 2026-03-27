@@ -100,10 +100,12 @@ class DockerCodeInterpreterTool(BaseTool):
                 result = container.wait(timeout=self._timeout)
                 exit_code = result.get("StatusCode", -1)
                 stdout = container.logs(
-                    stdout=True, stderr=False,
+                    stdout=True,
+                    stderr=False,
                 ).decode("utf-8", errors="replace")
                 stderr = container.logs(
-                    stdout=False, stderr=True,
+                    stdout=False,
+                    stderr=True,
                 ).decode("utf-8", errors="replace")
             finally:
                 container.remove(force=True)
@@ -112,9 +114,7 @@ class DockerCodeInterpreterTool(BaseTool):
             if stderr:
                 output += ("\n" if output else "") + stderr
             if len(output) > self._max_output:
-                output = (
-                    output[: self._max_output] + "\n... (output truncated)"
-                )
+                output = output[: self._max_output] + "\n... (output truncated)"
 
             return ToolResult(
                 tool_name="code_interpreter_docker",
@@ -125,16 +125,10 @@ class DockerCodeInterpreterTool(BaseTool):
 
         except Exception as exc:
             error_type = type(exc).__name__
-            if (
-                "timeout" in str(exc).lower()
-                or "read timed out" in str(exc).lower()
-            ):
+            if "timeout" in str(exc).lower() or "read timed out" in str(exc).lower():
                 return ToolResult(
                     tool_name="code_interpreter_docker",
-                    content=(
-                        f"Execution timed out after"
-                        f" {self._timeout} seconds."
-                    ),
+                    content=(f"Execution timed out after {self._timeout} seconds."),
                     success=False,
                 )
             return ToolResult(

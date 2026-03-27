@@ -148,9 +148,7 @@ def test_sync_yields_documents(
     # Write fake credentials so is_connected() returns True
     creds_path = Path(connector._credentials_path)
     creds_path.parent.mkdir(parents=True, exist_ok=True)
-    creds_path.write_text(
-        json.dumps({"token": "grl_fake_key"}), encoding="utf-8"
-    )
+    creds_path.write_text(json.dumps({"token": "grl_fake_key"}), encoding="utf-8")
 
     mock_list.return_value = _LIST_RESPONSE
     mock_get.side_effect = [_NOTE_1, _NOTE_2]
@@ -211,9 +209,7 @@ def test_disconnect(connector, tmp_path: Path) -> None:
     """disconnect() deletes the credentials file."""
     creds_path = Path(connector._credentials_path)
     creds_path.parent.mkdir(parents=True, exist_ok=True)
-    creds_path.write_text(
-        json.dumps({"token": "grl_fake_key"}), encoding="utf-8"
-    )
+    creds_path.write_text(json.dumps({"token": "grl_fake_key"}), encoding="utf-8")
     assert connector.is_connected() is True
 
     connector.disconnect()

@@ -78,6 +78,7 @@ def test_events_to_transcript_tool_name_mapping():
 def test_events_to_transcript_empty():
     """Empty events produce empty transcript."""
     from openjarvis.evals.scorers.pinchbench import events_to_transcript
+
     assert events_to_transcript([]) == []
 
 

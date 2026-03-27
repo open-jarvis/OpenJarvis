@@ -102,7 +102,9 @@ class A2AServer:
         return A2AResponse(result=task.to_dict(), request_id=req_id).to_dict()
 
     def _handle_task_cancel(
-        self, params: Dict[str, Any], req_id: str,
+        self,
+        params: Dict[str, Any],
+        req_id: str,
     ) -> Dict[str, Any]:
         """Handle tasks/cancel — cancel a running task."""
         task_id = params.get("id", "")

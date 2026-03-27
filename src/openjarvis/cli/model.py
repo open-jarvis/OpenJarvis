@@ -97,15 +97,11 @@ def info(model_name: str) -> None:
     spec = ModelRegistry.get(model_name)
     params = f"{spec.parameter_count_b}B" if spec.parameter_count_b else "unknown"
     active = (
-        f"{spec.active_parameter_count_b}B"
-        if spec.active_parameter_count_b
-        else "-"
+        f"{spec.active_parameter_count_b}B" if spec.active_parameter_count_b else "-"
     )
     ctx_len = f"{spec.context_length:,}" if spec.context_length else "unknown"
     vram = f"{spec.min_vram_gb}GB" if spec.min_vram_gb else "-"
-    engines_str = (
-        ", ".join(spec.supported_engines) if spec.supported_engines else "-"
-    )
+    engines_str = ", ".join(spec.supported_engines) if spec.supported_engines else "-"
     provider = spec.provider or "-"
     api_key = "required" if spec.requires_api_key else "not required"
     lines = [
@@ -163,6 +159,7 @@ def ollama_pull(host: str, model_name: str, console: Console) -> bool:
         ) as resp:
             resp.raise_for_status()
             import json
+
             for line in resp.iter_lines():
                 if not line.strip():
                     continue
@@ -219,9 +216,7 @@ def hf_download(repo: str, filename: str | None, console: Console) -> bool:
 
 @model.command()
 @click.argument("model_name")
-@click.option(
-    "--engine", default=None, help="Engine to download for."
-)
+@click.option("--engine", default=None, help="Engine to download for.")
 def pull(model_name: str, engine: str | None) -> None:
     """Download a model."""
     console = Console()

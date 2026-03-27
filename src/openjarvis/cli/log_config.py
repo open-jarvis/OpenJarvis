@@ -58,12 +58,12 @@ def setup_logging(
             log_dir.mkdir(parents=True, exist_ok=True)
             log_file = log_dir / "cli.log"
         file_handler = RotatingFileHandler(
-            str(log_file), maxBytes=5 * 1024 * 1024, backupCount=3,
+            str(log_file),
+            maxBytes=5 * 1024 * 1024,
+            backupCount=3,
         )
         file_handler.setLevel(logging.DEBUG)
-        file_fmt = logging.Formatter(
-            "%(asctime)s %(levelname)s %(name)s: %(message)s"
-        )
+        file_fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
         file_handler.setFormatter(file_fmt)
         logger.addHandler(file_handler)
 

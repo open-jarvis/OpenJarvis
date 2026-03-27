@@ -71,7 +71,9 @@ class MMLUProDataset(DatasetProvider):
         return len(self._records)
 
     def _convert_row(
-        self, raw: MutableMapping[str, object], idx: int,
+        self,
+        raw: MutableMapping[str, object],
+        idx: int,
     ) -> Optional[EvalRecord]:
         question = str(raw.get("question") or "").strip()
         options_raw = raw.get("options") or []
@@ -84,9 +86,11 @@ class MMLUProDataset(DatasetProvider):
             return None
 
         prompt_parts = [
-            question, "",
+            question,
+            "",
             "Options:",
-            _format_options(options), "",
+            _format_options(options),
+            "",
             "Respond with the correct letter.",
         ]
         problem = "\n".join(part for part in prompt_parts if part).strip()

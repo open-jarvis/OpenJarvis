@@ -30,6 +30,7 @@ def _tc_args(tc: dict) -> str:
         return tc["function"]["arguments"]
     return tc["arguments"]
 
+
 DEEP_RESEARCH_SYSTEM_PROMPT = """\
 /no_think
 You are a deep research agent with access to a personal knowledge base \
@@ -201,9 +202,7 @@ class DeepResearchAgent(ToolUsingAgent):
                 # If content is empty but we have prior tool results,
                 # force one more generation without tools to synthesize
                 if not content.strip() and all_tool_results:
-                    messages.append(
-                        Message(role=Role.ASSISTANT, content=content)
-                    )
+                    messages.append(Message(role=Role.ASSISTANT, content=content))
                     messages.append(
                         Message(
                             role=Role.USER,

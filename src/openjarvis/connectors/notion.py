@@ -27,9 +27,7 @@ from openjarvis.tools._stubs import ToolSpec
 
 _NOTION_API_BASE = "https://api.notion.com/v1"
 _NOTION_VERSION = "2022-06-28"
-_DEFAULT_CREDENTIALS_PATH = str(
-    DEFAULT_CONFIG_DIR / "connectors" / "notion.json"
-)
+_DEFAULT_CREDENTIALS_PATH = str(DEFAULT_CONFIG_DIR / "connectors" / "notion.json")
 
 # ---------------------------------------------------------------------------
 # Module-level API functions (easy to patch in tests)

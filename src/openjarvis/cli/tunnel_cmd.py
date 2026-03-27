@@ -12,9 +12,7 @@ from openjarvis.core.config import DEFAULT_CONFIG_PATH
 
 
 @click.group("tunnel", invoke_without_command=True)
-@click.option(
-    "--port", default=8000, help="Local port to tunnel."
-)
+@click.option("--port", default=8000, help="Local port to tunnel.")
 @click.pass_context
 def tunnel(ctx: click.Context, port: int) -> None:
     """Start a Cloudflare tunnel or manage config."""
@@ -31,10 +29,7 @@ def tunnel(ctx: click.Context, port: int) -> None:
         )
         sys.exit(1)
 
-    click.echo(
-        f"Starting Cloudflare tunnel "
-        f"to localhost:{port}..."
-    )
+    click.echo(f"Starting Cloudflare tunnel to localhost:{port}...")
     click.echo("Press Ctrl+C to stop.\n")
 
     try:
@@ -66,10 +61,7 @@ def status() -> None:
     if "public_url" in content:
         for line in content.splitlines():
             if "public_url" in line:
-                click.echo(
-                    "Configured tunnel URL: "
-                    f"{line.split('=', 1)[1].strip()}"
-                )
+                click.echo(f"Configured tunnel URL: {line.split('=', 1)[1].strip()}")
                 return
     click.echo("No tunnel URL configured.")
 

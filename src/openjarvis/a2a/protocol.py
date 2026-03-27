@@ -21,6 +21,7 @@ class TaskState(str, Enum):
 @dataclass(slots=True)
 class AgentCard:
     """Agent discovery card served at /.well-known/agent.json."""
+
     name: str
     description: str = ""
     url: str = ""
@@ -44,6 +45,7 @@ class AgentCard:
 @dataclass
 class A2ATask:
     """An A2A task with state machine."""
+
     task_id: str = field(default_factory=lambda: uuid.uuid4().hex[:16])
     state: TaskState = TaskState.SUBMITTED
     input_text: str = ""
@@ -65,6 +67,7 @@ class A2ATask:
 @dataclass(slots=True)
 class A2ARequest:
     """JSON-RPC 2.0 request for A2A."""
+
     method: str
     params: Dict[str, Any] = field(default_factory=dict)
     request_id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
@@ -84,6 +87,7 @@ class A2ARequest:
 @dataclass(slots=True)
 class A2AResponse:
     """JSON-RPC 2.0 response for A2A."""
+
     result: Any = None
     error: Optional[Dict[str, Any]] = None
     request_id: str = ""

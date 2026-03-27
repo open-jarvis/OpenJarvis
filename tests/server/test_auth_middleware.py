@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip(
-    "fastapi", reason="openjarvis[server] not installed"
-)
+pytest.importorskip("fastapi", reason="openjarvis[server] not installed")
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -55,9 +53,7 @@ class TestAuthMiddleware:
     def test_accepts_valid_key(self, client):
         resp = client.get(
             "/v1/models",
-            headers={
-                "Authorization": "Bearer oj_sk_test123"
-            },
+            headers={"Authorization": "Bearer oj_sk_test123"},
         )
         assert resp.status_code == 200
 

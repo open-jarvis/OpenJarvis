@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from unittest.mock import MagicMock
-
-import pytest
 
 from openjarvis.agents._stubs import AgentResult
 from openjarvis.agents.channel_agent import ChannelAgent, classify_query
@@ -16,7 +14,6 @@ from openjarvis.channels._stubs import (
     ChannelMessage,
     ChannelStatus,
 )
-
 
 # ---------------------------------------------------------------------------
 # FakeChannel test helper
@@ -115,7 +112,10 @@ class TestClassifyQuery:
         assert classify_query("What's Sarah's email?") == "quick"
 
     def test_compare_is_deep(self):
-        assert classify_query("Compare what Sarah and Mike said about the budget") == "deep"
+        assert (
+            classify_query("Compare what Sarah and Mike said about the budget")
+            == "deep"
+        )
 
 
 # ---------------------------------------------------------------------------

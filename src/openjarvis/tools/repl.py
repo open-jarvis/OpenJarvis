@@ -39,18 +39,50 @@ _BLOCKED_PATTERNS = [
 
 # Layer 2: Restricted builtins — remove dangerous ones
 _REMOVED_BUILTINS = {
-    "open", "exec", "eval", "compile", "__import__",
-    "breakpoint", "exit", "quit", "input",
+    "open",
+    "exec",
+    "eval",
+    "compile",
+    "__import__",
+    "breakpoint",
+    "exit",
+    "quit",
+    "input",
 }
 
 # Layer 3: Safe import allowlist
-_SAFE_IMPORT_MODULES = frozenset({
-    "math", "cmath", "decimal", "fractions", "random", "statistics",
-    "itertools", "functools", "operator", "collections", "string",
-    "re", "textwrap", "datetime", "time", "calendar",
-    "json", "csv", "copy", "dataclasses", "enum", "typing",
-    "heapq", "bisect", "array", "pprint", "abc", "numbers",
-})
+_SAFE_IMPORT_MODULES = frozenset(
+    {
+        "math",
+        "cmath",
+        "decimal",
+        "fractions",
+        "random",
+        "statistics",
+        "itertools",
+        "functools",
+        "operator",
+        "collections",
+        "string",
+        "re",
+        "textwrap",
+        "datetime",
+        "time",
+        "calendar",
+        "json",
+        "csv",
+        "copy",
+        "dataclasses",
+        "enum",
+        "typing",
+        "heapq",
+        "bisect",
+        "array",
+        "pprint",
+        "abc",
+        "numbers",
+    }
+)
 
 
 def _make_safe_import(allowed: frozenset = _SAFE_IMPORT_MODULES):

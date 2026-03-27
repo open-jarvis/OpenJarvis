@@ -35,9 +35,7 @@ _OUTPUT_END = "---OPENJARVIS_OUTPUT_END---"
 _RUNNER_SRC = Path(__file__).resolve().parent / "claude_code_runner"
 if not _RUNNER_SRC.exists():
     _RUNNER_SRC = (
-        Path(__file__).resolve().parents[2]
-        / "_node_modules"
-        / "claude_code_runner"
+        Path(__file__).resolve().parents[2] / "_node_modules" / "claude_code_runner"
     )
 
 

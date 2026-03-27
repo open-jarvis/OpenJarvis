@@ -18,7 +18,9 @@ class LogHubScorer(LLMJudgeScorer):
     scorer_id = "loghub"
 
     def score(
-        self, record: EvalRecord, model_answer: str,
+        self,
+        record: EvalRecord,
+        model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         if not model_answer or not model_answer.strip():
             return False, {"reason": "empty_response"}
@@ -50,7 +52,9 @@ class LogHubScorer(LLMJudgeScorer):
         }
 
     def _llm_fallback(
-        self, record: EvalRecord, model_answer: str,
+        self,
+        record: EvalRecord,
+        model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         """Use LLM judge when keyword extraction fails."""
         prompt = (

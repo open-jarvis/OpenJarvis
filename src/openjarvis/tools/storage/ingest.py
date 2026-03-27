@@ -9,19 +9,60 @@ from typing import List, Optional, Tuple
 from openjarvis.tools.storage.chunking import Chunk, ChunkConfig, chunk_text
 
 # Directories to skip when walking a tree
-_SKIP_DIRS = frozenset({
-    "__pycache__", ".git", ".hg", ".svn", "node_modules",
-    ".venv", "venv", ".tox", ".mypy_cache", ".ruff_cache",
-    ".pytest_cache", "__pypackages__", ".eggs", "*.egg-info",
-})
+_SKIP_DIRS = frozenset(
+    {
+        "__pycache__",
+        ".git",
+        ".hg",
+        ".svn",
+        "node_modules",
+        ".venv",
+        "venv",
+        ".tox",
+        ".mypy_cache",
+        ".ruff_cache",
+        ".pytest_cache",
+        "__pypackages__",
+        ".eggs",
+        "*.egg-info",
+    }
+)
 
 # Extension -> file-type mapping
-_CODE_EXTS = frozenset({
-    ".py", ".js", ".ts", ".tsx", ".jsx", ".rs", ".go", ".java",
-    ".c", ".cpp", ".h", ".hpp", ".rb", ".sh", ".bash", ".zsh",
-    ".lua", ".swift", ".kt", ".scala", ".cs", ".r", ".sql",
-    ".yaml", ".yml", ".toml", ".json", ".xml", ".html", ".css",
-})
+_CODE_EXTS = frozenset(
+    {
+        ".py",
+        ".js",
+        ".ts",
+        ".tsx",
+        ".jsx",
+        ".rs",
+        ".go",
+        ".java",
+        ".c",
+        ".cpp",
+        ".h",
+        ".hpp",
+        ".rb",
+        ".sh",
+        ".bash",
+        ".zsh",
+        ".lua",
+        ".swift",
+        ".kt",
+        ".scala",
+        ".cs",
+        ".r",
+        ".sql",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".json",
+        ".xml",
+        ".html",
+        ".css",
+    }
+)
 
 
 @dataclass(slots=True)
@@ -163,11 +204,31 @@ def ingest_path(
 
         # Skip binary-looking files
         if child.suffix.lower() in {
-            ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico",
-            ".mp3", ".mp4", ".wav", ".avi", ".mov",
-            ".zip", ".tar", ".gz", ".bz2", ".7z",
-            ".exe", ".dll", ".so", ".dylib", ".o",
-            ".pyc", ".pyo", ".class", ".wasm",
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".gif",
+            ".bmp",
+            ".ico",
+            ".mp3",
+            ".mp4",
+            ".wav",
+            ".avi",
+            ".mov",
+            ".zip",
+            ".tar",
+            ".gz",
+            ".bz2",
+            ".7z",
+            ".exe",
+            ".dll",
+            ".so",
+            ".dylib",
+            ".o",
+            ".pyc",
+            ".pyo",
+            ".class",
+            ".wasm",
         }:
             continue
 

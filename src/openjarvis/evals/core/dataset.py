@@ -34,7 +34,8 @@ class DatasetProvider(ABC):
         """Return the number of loaded records."""
 
     def create_task_env(
-        self, record: EvalRecord,
+        self,
+        record: EvalRecord,
     ) -> Optional[AbstractContextManager]:
         """Return a task environment context manager, or None."""
         return None

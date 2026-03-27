@@ -16,7 +16,9 @@ class Scorer(ABC):
 
     @abstractmethod
     def score(
-        self, record: EvalRecord, model_answer: str,
+        self,
+        record: EvalRecord,
+        model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         """Score a model answer against the reference.
 

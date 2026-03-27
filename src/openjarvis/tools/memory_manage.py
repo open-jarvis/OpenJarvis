@@ -86,9 +86,7 @@ class MemoryManageTool(BaseTool):
                 content="Entry cannot be empty.",
             )
         self._memory_path.parent.mkdir(parents=True, exist_ok=True)
-        existing = (
-            self._memory_path.read_text() if self._memory_path.exists() else ""
-        )
+        existing = self._memory_path.read_text() if self._memory_path.exists() else ""
         self._memory_path.write_text(existing.rstrip() + f"\n- {entry}\n")
         return ToolResult(
             tool_name=self.spec.name,

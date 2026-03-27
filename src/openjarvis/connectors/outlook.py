@@ -17,9 +17,7 @@ from openjarvis.connectors.gmail_imap import GmailIMAPConnector
 from openjarvis.core.config import DEFAULT_CONFIG_DIR
 from openjarvis.core.registry import ConnectorRegistry
 
-_DEFAULT_CREDENTIALS_PATH = str(
-    DEFAULT_CONFIG_DIR / "connectors" / "outlook.json"
-)
+_DEFAULT_CREDENTIALS_PATH = str(DEFAULT_CONFIG_DIR / "connectors" / "outlook.json")
 
 
 @ConnectorRegistry.register("outlook")

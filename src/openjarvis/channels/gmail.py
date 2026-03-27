@@ -53,10 +53,12 @@ class GmailChannel(BaseChannel):
         bus: Optional[EventBus] = None,
     ) -> None:
         self._credentials_path = credentials_path or os.environ.get(
-            "GMAIL_CREDENTIALS_PATH", "",
+            "GMAIL_CREDENTIALS_PATH",
+            "",
         )
         self._token_path = token_path or os.environ.get(
-            "GMAIL_TOKEN_PATH", "",
+            "GMAIL_TOKEN_PATH",
+            "",
         )
         self._user_id = user_id
         self._poll_interval = poll_interval
@@ -89,7 +91,8 @@ class GmailChannel(BaseChannel):
             creds: Any = None
             if self._token_path and os.path.exists(self._token_path):
                 creds = Credentials.from_authorized_user_file(
-                    self._token_path, SCOPES,
+                    self._token_path,
+                    SCOPES,
                 )
 
             if not creds or not creds.valid:
@@ -101,7 +104,8 @@ class GmailChannel(BaseChannel):
                     self._credentials_path,
                 ):
                     flow = InstalledAppFlow.from_client_secrets_file(
-                        self._credentials_path, SCOPES,
+                        self._credentials_path,
+                        SCOPES,
                     )
                     creds = flow.run_local_server(port=0)
                 else:
@@ -120,7 +124,8 @@ class GmailChannel(BaseChannel):
 
             # Start polling thread
             self._listener_thread = threading.Thread(
-                target=self._poll_loop, daemon=True,
+                target=self._poll_loop,
+                daemon=True,
             )
             self._listener_thread.start()
         except ImportError:
@@ -165,7 +170,8 @@ class GmailChannel(BaseChannel):
             msg["To"] = channel
             msg["From"] = self._user_id
             msg["Subject"] = (metadata or {}).get(
-                "subject", "Message from OpenJarvis",
+                "subject",
+                "Message from OpenJarvis",
             )
 
             raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
@@ -174,7 +180,8 @@ class GmailChannel(BaseChannel):
                 body["threadId"] = conversation_id
 
             self._service.users().messages().send(
-                userId=self._user_id, body=body,
+                userId=self._user_id,
+                body=body,
             ).execute()
 
             self._publish_sent(channel, content, conversation_id)

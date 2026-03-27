@@ -29,10 +29,7 @@ class FileWriteTool(BaseTool):
     def spec(self) -> ToolSpec:
         return ToolSpec(
             name="file_write",
-            description=(
-                "Write content to a file."
-                " Supports write and append modes."
-            ),
+            description=("Write content to a file. Supports write and append modes."),
             parameters={
                 "type": "object",
                 "properties": {
@@ -158,6 +155,7 @@ class FileWriteTool(BaseTool):
         if mode == "write":
             try:
                 from openjarvis._rust_bridge import get_rust_module
+
                 _rust = get_rust_module()
                 _rust.FileWriteTool().execute(str(path), content)
             except ImportError:

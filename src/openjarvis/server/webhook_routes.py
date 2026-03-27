@@ -41,9 +41,7 @@ def _validate_twilio_signature(
         validator = RequestValidator(auth_token)
         return validator.validate(url, params, signature)
     except ImportError:
-        logger.warning(
-            "twilio SDK not installed — skipping signature validation"
-        )
+        logger.warning("twilio SDK not installed — skipping signature validation")
         return True
 
 
@@ -63,9 +61,7 @@ def create_webhook_router(
         whatsapp_verify_token: WhatsApp verification token.
         whatsapp_app_secret: WhatsApp app secret for HMAC.
     """
-    router = APIRouter(
-        prefix="/webhooks", tags=["webhooks"]
-    )
+    router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
     # ----------------------------------------------------------
     # Twilio SMS
@@ -75,9 +71,7 @@ def create_webhook_router(
     async def twilio_incoming(request: Request) -> Response:
         form = await request.form()
         params = dict(form)
-        signature = request.headers.get(
-            "X-Twilio-Signature", ""
-        )
+        signature = request.headers.get("X-Twilio-Signature", "")
         url = str(request.url)
 
         if twilio_auth_token and not _validate_twilio_signature(
@@ -115,9 +109,7 @@ def create_webhook_router(
     ) -> Response:
         auth = request.headers.get("Authorization", "")
         if bluebubbles_password and auth != bluebubbles_password:
-            return Response(
-                "Invalid password", status_code=403
-            )
+            return Response("Invalid password", status_code=403)
 
         payload = await request.json()
         msg_type = payload.get("type", "")
@@ -148,12 +140,8 @@ def create_webhook_router(
     @router.get("/whatsapp")
     async def whatsapp_verify(request: Request) -> Response:
         mode = request.query_params.get("hub.mode", "")
-        token = request.query_params.get(
-            "hub.verify_token", ""
-        )
-        challenge = request.query_params.get(
-            "hub.challenge", ""
-        )
+        token = request.query_params.get("hub.verify_token", "")
+        challenge = request.query_params.get("hub.challenge", "")
 
         if mode == "subscribe" and token == whatsapp_verify_token:
             return PlainTextResponse(challenge)
@@ -167,9 +155,7 @@ def create_webhook_router(
 
         # Verify signature
         if whatsapp_app_secret:
-            signature = request.headers.get(
-                "X-Hub-Signature-256", ""
-            )
+            signature = request.headers.get("X-Hub-Signature-256", "")
             expected = (
                 "sha256="
                 + hmac.new(
@@ -179,9 +165,7 @@ def create_webhook_router(
                 ).hexdigest()
             )
             if not hmac.compare_digest(signature, expected):
-                return Response(
-                    "Invalid signature", status_code=403
-                )
+                return Response("Invalid signature", status_code=403)
 
         payload = json.loads(body_bytes)
         for entry in payload.get("entry", []):
@@ -191,9 +175,7 @@ def create_webhook_router(
                     if message.get("type") != "text":
                         continue
                     sender = message.get("from", "")
-                    text = message.get("text", {}).get(
-                        "body", ""
-                    )
+                    text = message.get("text", {}).get("body", "")
 
                     task = asyncio.create_task(
                         asyncio.to_thread(
@@ -203,9 +185,7 @@ def create_webhook_router(
                             "whatsapp",
                         )
                     )
-                    task.add_done_callback(
-                        _log_task_exception
-                    )
+                    task.add_done_callback(_log_task_exception)
 
         return Response("OK", status_code=200)
 

@@ -43,8 +43,11 @@ class JarvisDirectBackend(InferenceBackend):
         max_tokens: int = 2048,
     ) -> str:
         result = self.generate_full(
-            prompt, model=model, system=system,
-            temperature=temperature, max_tokens=max_tokens,
+            prompt,
+            model=model,
+            system=system,
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
         return result["content"]
 
@@ -66,8 +69,10 @@ class JarvisDirectBackend(InferenceBackend):
 
         t0 = time.monotonic()
         result = self._system.engine.generate(
-            messages, model=model,
-            temperature=temperature, max_tokens=max_tokens,
+            messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
         elapsed = time.monotonic() - t0
 

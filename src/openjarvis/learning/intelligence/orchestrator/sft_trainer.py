@@ -147,9 +147,7 @@ class OrchestratorSFTDataset:
             "labels": encoding["input_ids"].squeeze(0).clone(),
         }
 
-    def _format_conversation(
-        self, conversations: List[Dict[str, str]]
-    ) -> str:
+    def _format_conversation(self, conversations: List[Dict[str, str]]) -> str:
         """Format conversation turns into training text."""
         if hasattr(self.tokenizer, "apply_chat_template"):
             try:
@@ -164,9 +162,7 @@ class OrchestratorSFTDataset:
                         role = "assistant"
                     elif role == "tool":
                         tool_name = turn.get("name", "tool")
-                        content = (
-                            f"[Tool '{tool_name}' returned]: {content}"
-                        )
+                        content = f"[Tool '{tool_name}' returned]: {content}"
                         role = "user"
 
                     if role in ("user", "assistant", "system"):
@@ -192,16 +188,12 @@ class OrchestratorSFTDataset:
                 parts.append(f"<|system|>\n{content}")
             elif role == "tool":
                 tool_name = turn.get("name", "tool")
-                parts.append(
-                    f"<|user|>\n[Tool '{tool_name}' returned]: {content}"
-                )
+                parts.append(f"<|user|>\n[Tool '{tool_name}' returned]: {content}")
 
         eos = getattr(self.tokenizer, "eos_token", "") or ""
         return "\n".join(parts) + eos
 
-    def iter_batches(
-        self, batch_size: int
-    ) -> Iterator[List[Dict[str, Any]]]:
+    def iter_batches(self, batch_size: int) -> Iterator[List[Dict[str, Any]]]:
         batch: list[Dict[str, Any]] = []
         for i in range(len(self)):
             batch.append(self[i])
@@ -304,9 +296,7 @@ class OrchestratorSFTTrainer:
                 1.0 - (step - warmup_steps) / (total_steps - warmup_steps),
             )
 
-        self.scheduler = torch.optim.lr_scheduler.LambdaLR(
-            self.optimizer, lr_lambda
-        )
+        self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda)
 
     def train(self) -> None:
         """Run the SFT training loop."""
@@ -393,13 +383,14 @@ def _ensure_registered() -> None:
     class OrchestratorSFTPolicy(IntelligenceLearningPolicy):
         """Wrapper that registers the SFT trainer as a learning policy."""
 
-        def update(
-            self, trace_store: Any, **kwargs: object
-        ) -> Dict[str, Any]:
-            config = OrchestratorSFTConfig(**{
-                k: v for k, v in kwargs.items()
-                if k in OrchestratorSFTConfig.__dataclass_fields__
-            })
+        def update(self, trace_store: Any, **kwargs: object) -> Dict[str, Any]:
+            config = OrchestratorSFTConfig(
+                **{
+                    k: v
+                    for k, v in kwargs.items()
+                    if k in OrchestratorSFTConfig.__dataclass_fields__
+                }
+            )
             trainer = OrchestratorSFTTrainer(config)
             trainer.train()
             return {"status": "sft_training_complete"}

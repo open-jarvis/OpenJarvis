@@ -18,27 +18,43 @@ def optimize_group() -> None:
 
 @optimize_group.command("run")
 @click.option(
-    "-c", "--config", "config_path", type=str, default=None,
+    "-c",
+    "--config",
+    "config_path",
+    type=str,
+    default=None,
     help="TOML config file for the optimization run.",
 )
 @click.option(
-    "-b", "--benchmark", type=str, default=None,
+    "-b",
+    "--benchmark",
+    type=str,
+    default=None,
     help="Benchmark name (e.g. supergpqa, mmlu-pro).",
 )
 @click.option(
-    "-t", "--trials", type=int, default=20,
+    "-t",
+    "--trials",
+    type=int,
+    default=20,
     help="Maximum number of trials.",
 )
 @click.option(
-    "--optimizer-model", type=str, default="claude-sonnet-4-6",
+    "--optimizer-model",
+    type=str,
+    default="claude-sonnet-4-6",
     help="Model used by the LLM optimizer.",
 )
 @click.option(
-    "--max-samples", type=int, default=50,
+    "--max-samples",
+    type=int,
+    default=50,
     help="Maximum samples per trial evaluation.",
 )
 @click.option(
-    "--output-dir", type=str, default="results/optimize/",
+    "--output-dir",
+    type=str,
+    default="results/optimize/",
     help="Directory for trial output files.",
 )
 def optimize_run(
@@ -58,9 +74,7 @@ def optimize_run(
         try:
             from openjarvis.learning.optimize.config import load_optimize_config
         except ImportError:
-            console.print(
-                "[red]Optimization framework not available.[/red]"
-            )
+            console.print("[red]Optimization framework not available.[/red]")
             sys.exit(1)
 
         try:
@@ -167,7 +181,8 @@ def optimize_run(
         early_stop = 5
         if data is not None:
             early_stop = data.get("optimize", {}).get(
-                "early_stop_patience", early_stop,
+                "early_stop_patience",
+                early_stop,
             )
 
         engine = OptimizationEngine(
@@ -200,9 +215,7 @@ def optimize_run(
                 f"(accuracy={run.best_trial.accuracy:.4f})"
             )
     except ImportError as exc:
-        console.print(
-            f"[red]Missing dependency for optimization: {exc}[/red]"
-        )
+        console.print(f"[red]Missing dependency for optimization: {exc}[/red]")
         sys.exit(1)
     except Exception as exc:
         console.print(f"[red]Optimization failed: {exc}[/red]")
@@ -321,7 +334,10 @@ def optimize_results(run_id: str) -> None:
 @optimize_group.command("best")
 @click.argument("run_id")
 @click.option(
-    "-o", "--output", type=str, default=None,
+    "-o",
+    "--output",
+    type=str,
+    default=None,
     help="Output recipe path (TOML).",
 )
 def optimize_best(run_id: str, output: Optional[str]) -> None:
@@ -350,15 +366,11 @@ def optimize_best(run_id: str, output: Optional[str]) -> None:
             console.print("[yellow]No best trial found in this run.[/yellow]")
             return
 
-        output_path = Path(
-            output or f"results/optimize/best_{run_id}.toml"
-        )
+        output_path = Path(output or f"results/optimize/best_{run_id}.toml")
         engine = OptimizationEngine.__new__(OptimizationEngine)
         engine.export_best_recipe(run, output_path)
 
-        console.print(
-            f"[green]Best recipe exported to:[/green] {output_path}"
-        )
+        console.print(f"[green]Best recipe exported to:[/green] {output_path}")
         console.print(
             f"  Trial: {run.best_trial.trial_id} "
             f"(accuracy={run.best_trial.accuracy:.4f})"
@@ -370,11 +382,16 @@ def optimize_best(run_id: str, output: Optional[str]) -> None:
 @optimize_group.command("personal")
 @click.argument("action", type=click.Choice(["synthesize", "run"]))
 @click.option(
-    "--workflow", type=str, default="default",
+    "--workflow",
+    type=str,
+    default="default",
     help="Workflow ID for personal optimization.",
 )
 @click.option(
-    "-t", "--trials", type=int, default=10,
+    "-t",
+    "--trials",
+    type=int,
+    default=10,
     help="Maximum trials for personal optimization.",
 )
 def optimize_personal(action: str, workflow: str, trials: int) -> None:
@@ -396,8 +413,7 @@ def optimize_personal(action: str, workflow: str, trials: int) -> None:
             f"workflow '{workflow}' (max {trials} trials)...[/cyan]"
         )
         console.print(
-            "[yellow]Personal optimization is not yet "
-            "fully implemented.[/yellow]"
+            "[yellow]Personal optimization is not yet fully implemented.[/yellow]"
         )
 
 

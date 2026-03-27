@@ -13,8 +13,7 @@ class BaseCompressor(ABC):
     """Abstract base for context compression strategies."""
 
     @abstractmethod
-    def compress(self, messages: List[Message], threshold: float) -> List[Message]:
-        ...
+    def compress(self, messages: List[Message], threshold: float) -> List[Message]: ...
 
 
 @CompressionRegistry.register("session_consolidation")
@@ -50,15 +49,10 @@ class RuleBasedPrecompression(BaseCompressor):
                 try:
                     parsed = json.loads(msg.content)
                     truncated = (
-                        json.dumps(parsed, indent=None)[
-                            : self.TOOL_OUTPUT_MAX
-                        ]
-                        + suffix
+                        json.dumps(parsed, indent=None)[: self.TOOL_OUTPUT_MAX] + suffix
                     )
                 except (json.JSONDecodeError, TypeError):
-                    truncated = (
-                        msg.content[: self.TOOL_OUTPUT_MAX] + suffix
-                    )
+                    truncated = msg.content[: self.TOOL_OUTPUT_MAX] + suffix
                 result.append(replace(msg, content=truncated))
             else:
                 result.append(msg)
@@ -89,20 +83,20 @@ class TieredSummaries(BaseCompressor):
         l0_msgs = messages[l1_end:]
         result: list[Message] = []
         if l2_msgs:
-            one_liners = "; ".join(
-                f"{m.role}: {m.content[:50]}" for m in l2_msgs
+            one_liners = "; ".join(f"{m.role}: {m.content[:50]}" for m in l2_msgs)
+            result.append(
+                Message(
+                    role=Role.SYSTEM,
+                    content=f"[Oldest context] {one_liners}",
+                )
             )
-            result.append(Message(
-                role=Role.SYSTEM,
-                content=f"[Oldest context] {one_liners}",
-            ))
         if l1_msgs:
-            paragraphs = "\n".join(
-                f"- {m.role}: {m.content[:200]}" for m in l1_msgs
+            paragraphs = "\n".join(f"- {m.role}: {m.content[:200]}" for m in l1_msgs)
+            result.append(
+                Message(
+                    role=Role.SYSTEM,
+                    content=f"[Earlier context]\n{paragraphs}",
+                )
             )
-            result.append(Message(
-                role=Role.SYSTEM,
-                content=f"[Earlier context]\n{paragraphs}",
-            ))
         result.extend(l0_msgs)
         return result

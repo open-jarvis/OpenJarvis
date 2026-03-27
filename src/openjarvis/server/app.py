@@ -32,9 +32,7 @@ class _NoCacheStaticFiles(StaticFiles):
     async def __call__(self, scope, receive, send):
         async def _send_with_headers(message):
             if message["type"] == "http.response.start":
-                extra = [
-                    (k.encode(), v.encode()) for k, v in _NO_CACHE_HEADERS.items()
-                ]
+                extra = [(k.encode(), v.encode()) for k, v in _NO_CACHE_HEADERS.items()]
                 # Remove etag and last-modified
                 existing = [
                     (k, v)
@@ -88,6 +86,7 @@ def create_app(
     )
 
     from fastapi.middleware.cors import CORSMiddleware
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -159,24 +158,14 @@ def create_app(
 
             webhook_router = create_webhook_router(
                 bridge=channel_bridge,
-                twilio_auth_token=webhook_config.get(
-                    "twilio_auth_token", ""
-                ),
-                bluebubbles_password=webhook_config.get(
-                    "bluebubbles_password", ""
-                ),
-                whatsapp_verify_token=webhook_config.get(
-                    "whatsapp_verify_token", ""
-                ),
-                whatsapp_app_secret=webhook_config.get(
-                    "whatsapp_app_secret", ""
-                ),
+                twilio_auth_token=webhook_config.get("twilio_auth_token", ""),
+                bluebubbles_password=webhook_config.get("bluebubbles_password", ""),
+                whatsapp_verify_token=webhook_config.get("whatsapp_verify_token", ""),
+                whatsapp_app_secret=webhook_config.get("whatsapp_app_secret", ""),
             )
             app.include_router(webhook_router)
         except Exception as exc:
-            logger.debug(
-                "Webhook routes init skipped: %s", exc
-            )
+            logger.debug("Webhook routes init skipped: %s", exc)
 
     # Serve static frontend assets if the static/ directory exists
     static_dir = pathlib.Path(__file__).parent / "static"

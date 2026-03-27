@@ -26,8 +26,7 @@ class SessionExpiryHook:
         self._executor.run_ephemeral(
             agent_type="simple",
             system_prompt=(
-                "You are a memory management agent. "
-                "Save important information."
+                "You are a memory management agent. Save important information."
             ),
             input_text=input_text,
             tools=["memory_manage", "skill_manage"],

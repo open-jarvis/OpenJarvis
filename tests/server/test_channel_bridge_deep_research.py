@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
-
 
 def test_handle_chat_uses_deep_research_agent() -> None:
     """When a DeepResearch agent is configured, route through it."""

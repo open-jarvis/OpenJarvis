@@ -28,7 +28,8 @@ KNOWN_BENCHMARKS = {
     "swebench": {"category": "agentic", "description": "SWE-bench code patches"},
     "swefficiency": {"category": "agentic", "description": "SWEfficiency optimization"},
     "terminalbench": {
-        "category": "agentic", "description": "TerminalBench terminal tasks",
+        "category": "agentic",
+        "description": "TerminalBench terminal tasks",
     },
     "terminalbench-native": {
         "category": "agentic",
@@ -98,95 +99,155 @@ def eval_list() -> None:
 
 @eval_group.command("run")
 @click.option(
-    "-c", "--config", "config_path", default=None, type=click.Path(),
+    "-c",
+    "--config",
+    "config_path",
+    default=None,
+    type=click.Path(),
     help="TOML config file for suite runs.",
 )
 @click.option(
-    "-b", "--benchmark", "benchmark", default=None,
+    "-b",
+    "--benchmark",
+    "benchmark",
+    default=None,
     help="Benchmark to run (e.g. supergpqa, gaia, frames, wildchat).",
 )
 @click.option(
-    "-m", "--model", "model", default=None,
+    "-m",
+    "--model",
+    "model",
+    default=None,
     help="Model identifier.",
 )
 @click.option(
-    "-n", "--max-samples", "max_samples", type=int, default=None,
+    "-n",
+    "--max-samples",
+    "max_samples",
+    type=int,
+    default=None,
     help="Maximum samples to evaluate.",
 )
 @click.option(
-    "--backend", "backend", default="jarvis-direct",
+    "--backend",
+    "backend",
+    default="jarvis-direct",
     help="Inference backend (jarvis-direct or jarvis-agent).",
 )
 @click.option(
-    "--agent", "agent_name", default=None,
+    "--agent",
+    "agent_name",
+    default=None,
     help="Agent name for jarvis-agent backend.",
 )
 @click.option(
-    "-e", "--engine", "engine_key", default=None,
+    "-e",
+    "--engine",
+    "engine_key",
+    default=None,
     help="Engine key (ollama, vllm, cloud, ...).",
 )
 @click.option(
-    "--tools", "tools", default="",
+    "--tools",
+    "tools",
+    default="",
     help="Comma-separated tool names.",
 )
 @click.option(
-    "--telemetry/--no-telemetry", "telemetry", default=False,
+    "--telemetry/--no-telemetry",
+    "telemetry",
+    default=False,
     help="Enable telemetry collection during eval.",
 )
 @click.option(
-    "--gpu-metrics/--no-gpu-metrics", "gpu_metrics", default=False,
+    "--gpu-metrics/--no-gpu-metrics",
+    "gpu_metrics",
+    default=False,
     help="Enable GPU metrics collection.",
 )
 @click.option(
-    "--seed", "seed", type=int, default=42,
+    "--seed",
+    "seed",
+    type=int,
+    default=42,
     help="Random seed.",
 )
 @click.option(
-    "--temperature", "temperature", type=float, default=0.0,
+    "--temperature",
+    "temperature",
+    type=float,
+    default=0.0,
     help="Generation temperature.",
 )
 @click.option(
-    "--max-tokens", "max_tokens", type=int, default=2048,
+    "--max-tokens",
+    "max_tokens",
+    type=int,
+    default=2048,
     help="Max output tokens.",
 )
 @click.option(
-    "--model-filter", "model_filter", default=None,
+    "--model-filter",
+    "model_filter",
+    default=None,
     help="Filter models by name substring (for multi-model configs).",
 )
 @click.option(
-    "-o", "--output", "output_path", default=None, type=click.Path(),
+    "-o",
+    "--output",
+    "output_path",
+    default=None,
+    type=click.Path(),
     help="Output JSONL path.",
 )
 @click.option(
-    "--wandb-project", "wandb_project", default="",
+    "--wandb-project",
+    "wandb_project",
+    default="",
     help="W&B project name (enables W&B tracking).",
 )
 @click.option(
-    "--wandb-entity", "wandb_entity", default="",
+    "--wandb-entity",
+    "wandb_entity",
+    default="",
     help="W&B entity (team or user).",
 )
 @click.option(
-    "--wandb-tags", "wandb_tags", default="",
+    "--wandb-tags",
+    "wandb_tags",
+    default="",
     help="Comma-separated W&B tags.",
 )
 @click.option(
-    "--wandb-group", "wandb_group", default="",
+    "--wandb-group",
+    "wandb_group",
+    default="",
     help="W&B run group.",
 )
 @click.option(
-    "--sheets-id", "sheets_spreadsheet_id", default="",
+    "--sheets-id",
+    "sheets_spreadsheet_id",
+    default="",
     help="Google Sheets spreadsheet ID.",
 )
 @click.option(
-    "--sheets-worksheet", "sheets_worksheet", default="Results",
+    "--sheets-worksheet",
+    "sheets_worksheet",
+    default="Results",
     help="Google Sheets worksheet name.",
 )
 @click.option(
-    "--sheets-creds", "sheets_credentials_path", default="",
+    "--sheets-creds",
+    "sheets_credentials_path",
+    default="",
     help="Path to Google service account JSON.",
 )
 @click.option(
-    "-v", "--verbose", "verbose", is_flag=True, default=False,
+    "-v",
+    "--verbose",
+    "verbose",
+    is_flag=True,
+    default=False,
     help="Verbose logging.",
 )
 def eval_run(
@@ -237,13 +298,9 @@ def eval_run(
 
         # Filter by model name substring if requested
         if model_filter:
-            run_configs = [
-                rc for rc in run_configs if model_filter in rc.model
-            ]
+            run_configs = [rc for rc in run_configs if model_filter in rc.model]
             if not run_configs:
-                console.print(
-                    f"[red]No models match filter '{model_filter}'[/red]"
-                )
+                console.print(f"[red]No models match filter '{model_filter}'[/red]")
                 sys.exit(1)
 
         console.print(
@@ -257,9 +314,7 @@ def eval_run(
         try:
             from openjarvis.evals.cli import _run_single
         except ImportError:
-            console.print(
-                "[red]Eval CLI module not available.[/red]"
-            )
+            console.print("[red]Eval CLI module not available.[/red]")
             sys.exit(1)
 
         for i, rc in enumerate(run_configs, 1):
@@ -286,9 +341,7 @@ def eval_run(
         )
 
     if benchmark not in KNOWN_BENCHMARKS:
-        console.print(
-            f"[yellow]Warning: unknown benchmark '{benchmark}'[/yellow]"
-        )
+        console.print(f"[yellow]Warning: unknown benchmark '{benchmark}'[/yellow]")
 
     try:
         from openjarvis.evals.core.types import RunConfig
@@ -299,9 +352,7 @@ def eval_run(
         )
         sys.exit(1)
 
-    tool_list = (
-        [t.strip() for t in tools.split(",") if t.strip()] if tools else []
-    )
+    tool_list = [t.strip() for t in tools.split(",") if t.strip()] if tools else []
 
     config = RunConfig(
         benchmark=benchmark,
@@ -340,9 +391,7 @@ def eval_run(
             f"({summary.correct}/{summary.scored_samples})"
         )
     except ImportError:
-        console.print(
-            "[red]Eval CLI module not available.[/red]"
-        )
+        console.print("[red]Eval CLI module not available.[/red]")
         sys.exit(1)
     except Exception as exc:
         console.print(f"[red]Error: {exc}[/red]")
@@ -352,7 +401,9 @@ def eval_run(
 @eval_group.command("compare")
 @click.argument("result_files", nargs=-1, required=True)
 @click.option(
-    "--metric", "metric", default="accuracy",
+    "--metric",
+    "metric",
+    default="accuracy",
     help="Metric to compare across runs (default: accuracy).",
 )
 def eval_compare(result_files: tuple[str, ...], metric: str) -> None:
@@ -367,13 +418,15 @@ def eval_compare(result_files: tuple[str, ...], metric: str) -> None:
         if summary_path.exists():
             with open(summary_path) as f:
                 data = json.load(f)
-            rows.append({
-                "file": path.name,
-                "benchmark": data.get("benchmark", "?"),
-                "model": data.get("model", "?"),
-                "value": data.get(metric, "N/A"),
-                "samples": data.get("total_samples", 0),
-            })
+            rows.append(
+                {
+                    "file": path.name,
+                    "benchmark": data.get("benchmark", "?"),
+                    "model": data.get("model", "?"),
+                    "value": data.get(metric, "N/A"),
+                    "samples": data.get("total_samples", 0),
+                }
+            )
         elif path.exists() and path.suffix == ".jsonl":
             # Fall back to reading JSONL and computing metric on-the-fly
             records = []
@@ -384,29 +437,25 @@ def eval_compare(result_files: tuple[str, ...], metric: str) -> None:
                         records.append(json.loads(line))
             if records:
                 if metric == "accuracy":
-                    scored = [
-                        r for r in records
-                        if r.get("is_correct") is not None
-                    ]
+                    scored = [r for r in records if r.get("is_correct") is not None]
                     correct = [r for r in scored if r["is_correct"]]
-                    value = (
-                        len(correct) / len(scored) if scored else 0.0
-                    )
+                    value = len(correct) / len(scored) if scored else 0.0
                 else:
                     values = [
-                        r[metric] for r in records
+                        r[metric]
+                        for r in records
                         if metric in r and r[metric] is not None
                     ]
-                    value = (
-                        sum(values) / len(values) if values else "N/A"
-                    )
-                rows.append({
-                    "file": path.name,
-                    "benchmark": records[0].get("benchmark", "?"),
-                    "model": records[0].get("model", "?"),
-                    "value": value,
-                    "samples": len(records),
-                })
+                    value = sum(values) / len(values) if values else "N/A"
+                rows.append(
+                    {
+                        "file": path.name,
+                        "benchmark": records[0].get("benchmark", "?"),
+                        "model": records[0].get("model", "?"),
+                        "value": value,
+                        "samples": len(records),
+                    }
+                )
         else:
             console.print(f"[yellow]Skipping missing file: {path_str}[/yellow]")
 
@@ -429,8 +478,11 @@ def eval_compare(result_files: tuple[str, ...], metric: str) -> None:
         val = row["value"]
         val_str = f"{val:.4f}" if isinstance(val, float) else str(val)
         table.add_row(
-            row["file"], row["benchmark"], row["model"],
-            val_str, str(row["samples"]),
+            row["file"],
+            row["benchmark"],
+            row["model"],
+            val_str,
+            str(row["samples"]),
         )
 
     console.print(table)
@@ -454,8 +506,7 @@ def eval_report(result_file: str) -> None:
         console.print(f"  [cyan]Model:[/cyan]     {data.get('model', '?')}")
         console.print(f"  [cyan]Backend:[/cyan]   {data.get('backend', '?')}")
         console.print(
-            f"  [cyan]Accuracy:[/cyan]  "
-            f"[bold]{data.get('accuracy', 0.0):.4f}[/bold]"
+            f"  [cyan]Accuracy:[/cyan]  [bold]{data.get('accuracy', 0.0):.4f}[/bold]"
         )
         console.print(f"  [cyan]Samples:[/cyan]   {data.get('total_samples', 0)}")
         console.print(f"  [cyan]Scored:[/cyan]    {data.get('scored_samples', 0)}")
@@ -466,8 +517,7 @@ def eval_report(result_file: str) -> None:
             f"{data.get('mean_latency_seconds', 0.0):.4f}s (mean)"
         )
         console.print(
-            f"  [cyan]Cost:[/cyan]      "
-            f"${data.get('total_cost_usd', 0.0):.6f}"
+            f"  [cyan]Cost:[/cyan]      ${data.get('total_cost_usd', 0.0):.6f}"
         )
 
         # Per-subject breakdown
@@ -521,9 +571,7 @@ def eval_report(result_file: str) -> None:
     console.print(f"  [cyan]Total:[/cyan]     {len(records)}")
     console.print(f"  [cyan]Scored:[/cyan]    {len(scored)}")
     console.print(f"  [cyan]Correct:[/cyan]   {len(correct)}")
-    console.print(
-        f"  [cyan]Accuracy:[/cyan]  [bold]{accuracy:.4f}[/bold]"
-    )
+    console.print(f"  [cyan]Accuracy:[/cyan]  [bold]{accuracy:.4f}[/bold]")
     console.print(f"  [cyan]Errors:[/cyan]    {len(errors)}")
 
 

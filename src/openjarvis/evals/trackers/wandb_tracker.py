@@ -44,14 +44,13 @@ class WandbTracker(ResultTracker):
     ) -> None:
         if wandb is None:
             raise ImportError(
-                "wandb is not installed. "
-                "Install it with: uv sync --extra eval-wandb"
+                "wandb is not installed. Install it with: uv sync --extra eval-wandb"
             )
         self._project = project
         self._entity = entity or None
-        self._tags: List[str] = [
-            t.strip() for t in tags.split(",") if t.strip()
-        ] if tags else []
+        self._tags: List[str] = (
+            [t.strip() for t in tags.split(",") if t.strip()] if tags else []
+        )
         self._group = group or None
         self._run: Any = None
         self._step = 0
@@ -134,14 +133,18 @@ class WandbTracker(ResultTracker):
         flat.update(_flatten_metric_stats("mbu", summary.mbu_stats))
         flat.update(_flatten_metric_stats("ipw", summary.ipw_stats))
         flat.update(_flatten_metric_stats("ipj", summary.ipj_stats))
-        flat.update(_flatten_metric_stats(
-            "energy_per_output_token",
-            summary.energy_per_output_token_stats,
-        ))
-        flat.update(_flatten_metric_stats(
-            "throughput_per_watt",
-            summary.throughput_per_watt_stats,
-        ))
+        flat.update(
+            _flatten_metric_stats(
+                "energy_per_output_token",
+                summary.energy_per_output_token_stats,
+            )
+        )
+        flat.update(
+            _flatten_metric_stats(
+                "throughput_per_watt",
+                summary.throughput_per_watt_stats,
+            )
+        )
         flat.update(_flatten_metric_stats("itl", summary.itl_stats))
         wandb.run.summary.update(flat)
 

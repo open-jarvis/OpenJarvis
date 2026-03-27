@@ -55,18 +55,14 @@ class SessionStore:
     # Public API
     # ------------------------------------------------------------------
 
-    def get_or_create(
-        self, sender_id: str, channel_type: str
-    ) -> Dict[str, Any]:
+    def get_or_create(self, sender_id: str, channel_type: str) -> Dict[str, Any]:
         row = self._db.execute(
-            "SELECT * FROM channel_sessions "
-            "WHERE sender_id = ? AND channel_type = ?",
+            "SELECT * FROM channel_sessions WHERE sender_id = ? AND channel_type = ?",
             (sender_id, channel_type),
         ).fetchone()
         if row is None:
             self._db.execute(
-                "INSERT INTO channel_sessions "
-                "(sender_id, channel_type) VALUES (?, ?)",
+                "INSERT INTO channel_sessions (sender_id, channel_type) VALUES (?, ?)",
                 (sender_id, channel_type),
             )
             self._db.commit()
@@ -80,12 +76,8 @@ class SessionStore:
         return {
             "sender_id": row["sender_id"],
             "channel_type": row["channel_type"],
-            "conversation_history": json.loads(
-                row["conversation_history"]
-            ),
-            "preferred_notification_channel": row[
-                "preferred_notification_channel"
-            ],
+            "conversation_history": json.loads(row["conversation_history"]),
+            "preferred_notification_channel": row["preferred_notification_channel"],
             "pending_response": row["pending_response"],
         }
 
@@ -103,9 +95,7 @@ class SessionStore:
         ).fetchone()
         if row is None:
             return
-        history: List[Dict[str, str]] = json.loads(
-            row["conversation_history"]
-        )
+        history: List[Dict[str, str]] = json.loads(row["conversation_history"])
         history.append({"role": role, "content": content})
         if len(history) > _MAX_HISTORY_TURNS:
             history = history[-_MAX_HISTORY_TURNS:]
@@ -148,9 +138,7 @@ class SessionStore:
         )
         self._db.commit()
 
-    def clear_pending_response(
-        self, sender_id: str, channel_type: str
-    ) -> None:
+    def clear_pending_response(self, sender_id: str, channel_type: str) -> None:
         self.set_pending_response(sender_id, channel_type, None)
 
     def expire_sessions(self, max_age_hours: int = 24) -> int:
@@ -164,9 +152,7 @@ class SessionStore:
         self._db.commit()
         return cur.rowcount
 
-    def get_last_active_channel(
-        self, sender_id: str
-    ) -> Optional[str]:
+    def get_last_active_channel(self, sender_id: str) -> Optional[str]:
         row = self._db.execute(
             "SELECT channel_type FROM channel_sessions "
             "WHERE sender_id = ? "

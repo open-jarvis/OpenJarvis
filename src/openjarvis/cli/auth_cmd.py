@@ -46,16 +46,11 @@ def create_key() -> None:
         content += f'\n[server.auth]\napi_key = "{key}"\n'
 
     config_path.write_text(content)
-    os.chmod(
-        config_path, stat.S_IRUSR | stat.S_IWUSR
-    )  # 0600
+    os.chmod(config_path, stat.S_IRUSR | stat.S_IWUSR)  # 0600
 
     click.echo(f"API key generated: {key}")
     click.echo(f"Stored in: {config_path}")
-    click.echo(
-        "File permissions set to 0600 "
-        "(user-only read/write)."
-    )
+    click.echo("File permissions set to 0600 (user-only read/write).")
 
 
 @auth.command("revoke-key")
@@ -71,8 +66,6 @@ def revoke_key() -> None:
         click.echo("No API key found in config.")
         return
 
-    content = re.sub(
-        r'api_key\s*=\s*"[^"]*"', 'api_key = ""', content
-    )
+    content = re.sub(r'api_key\s*=\s*"[^"]*"', 'api_key = ""', content)
     config_path.write_text(content)
     click.echo("API key revoked.")

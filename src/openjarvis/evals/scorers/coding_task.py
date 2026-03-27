@@ -56,9 +56,7 @@ def _run_tests(code: str, test_cases: str) -> Tuple[int, int, str]:
 
     # Parse individual test assertions
     test_lines = [
-        line.strip()
-        for line in test_cases.strip().split("\n")
-        if line.strip()
+        line.strip() for line in test_cases.strip().split("\n") if line.strip()
     ]
 
     passed = 0
@@ -106,7 +104,9 @@ class CodingTaskScorer(Scorer):
         pass
 
     def score(
-        self, record: EvalRecord, model_answer: str,
+        self,
+        record: EvalRecord,
+        model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         if not model_answer or not model_answer.strip():
             return False, {"reason": "empty_response"}

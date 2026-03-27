@@ -76,9 +76,14 @@ class ToolTemplate(BaseTool):
             )
         # Safe evaluation with params available
         safe_builtins = {
-            "str": str, "int": int, "float": float,
-            "len": len, "sorted": sorted,
-            "list": list, "dict": dict, "json": json,
+            "str": str,
+            "int": int,
+            "float": float,
+            "len": len,
+            "sorted": sorted,
+            "list": list,
+            "dict": dict,
+            "json": json,
         }
         result = eval(  # noqa: S307
             expr,
@@ -104,8 +109,11 @@ class ToolTemplate(BaseTool):
         for key, val in params.items():
             cmd = cmd.replace(f"{{{key}}}", str(val))
         result = subprocess.run(  # noqa: S602, S603
-            cmd, shell=True, capture_output=True,
-            text=True, timeout=30,
+            cmd,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         output = result.stdout or result.stderr
         return ToolResult(
@@ -148,7 +156,8 @@ class ToolTemplate(BaseTool):
                 return ToolResult(
                     tool_name=self._name,
                     content=json.dumps(
-                        parsed, indent=2,
+                        parsed,
+                        indent=2,
                     ),
                     success=True,
                 )

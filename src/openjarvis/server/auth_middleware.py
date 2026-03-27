@@ -30,14 +30,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
     def __init__(self, app, api_key: str = "") -> None:  # noqa: ANN001
         super().__init__(app)
-        self._api_key = api_key or os.environ.get(
-            "OPENJARVIS_API_KEY", ""
-        )
+        self._api_key = api_key or os.environ.get("OPENJARVIS_API_KEY", "")
 
     async def dispatch(self, request: Request, call_next):  # noqa: ANN001
-        if self._api_key and not self._is_exempt(
-            request.url.path
-        ):
+        if self._api_key and not self._is_exempt(request.url.path):
             auth = request.headers.get("Authorization", "")
             if not auth:
                 return JSONResponse(
@@ -45,10 +41,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     status_code=401,
                 )
             scheme, _, token = auth.partition(" ")
-            if (
-                scheme.lower() != "bearer"
-                or token != self._api_key
-            ):
+            if scheme.lower() != "bearer" or token != self._api_key:
                 return JSONResponse(
                     {"detail": "Invalid API key"},
                     status_code=401,

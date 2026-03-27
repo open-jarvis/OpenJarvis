@@ -61,10 +61,7 @@ def test_live_obsidian_full_pipeline() -> None:
         # Search for engine/inference
         result = tool.execute(query="inference engine")
         assert result.success
-        print(
-            f"  'inference engine' query: "
-            f"{result.metadata['num_results']} results"
-        )
+        print(f"  'inference engine' query: {result.metadata['num_results']} results")
 
         # Search with source filter
         result = tool.execute(query="agent", source="obsidian")
@@ -81,7 +78,8 @@ def test_live_obsidian_full_pipeline() -> None:
         if result.metadata["num_results"] > 0:
             # Results should have source attribution
             assert "[obsidian]" in result.content
-            print(f"  'registry pattern': found with attribution")
+            print("  'registry pattern': found with attribution")
 
-        print(f"\n  SMOKE TEST PASSED — {items} chunks indexed, "
-              f"search working end-to-end")
+        print(
+            f"\n  SMOKE TEST PASSED — {items} chunks indexed, search working end-to-end"
+        )

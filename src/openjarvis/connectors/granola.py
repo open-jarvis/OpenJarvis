@@ -26,9 +26,7 @@ from openjarvis.tools._stubs import ToolSpec
 # ---------------------------------------------------------------------------
 
 _GRANOLA_API_BASE = "https://public-api.granola.ai"
-_DEFAULT_CREDENTIALS_PATH = str(
-    DEFAULT_CONFIG_DIR / "connectors" / "granola.json"
-)
+_DEFAULT_CREDENTIALS_PATH = str(DEFAULT_CONFIG_DIR / "connectors" / "granola.json")
 
 # ---------------------------------------------------------------------------
 # Module-level API functions (easy to patch in tests)
@@ -122,9 +120,7 @@ def _format_note_content(note: Dict[str, Any]) -> str:
     parts: List[str] = []
 
     # Summary section
-    summary_markdown: str = (
-        note.get("summary", {}) or {}
-    ).get("markdown", "")
+    summary_markdown: str = (note.get("summary", {}) or {}).get("markdown", "")
     parts.append("## Summary")
     parts.append(summary_markdown)
 

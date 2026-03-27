@@ -114,7 +114,9 @@ class PinchBenchTaskEnv:
             )
         except Exception as exc:
             LOGGER.error(
-                "Grading failed for %s: %s", self._record.record_id, exc,
+                "Grading failed for %s: %s",
+                self._record.record_id,
+                exc,
             )
             result = {"score": 0.0, "breakdown": {}, "notes": f"Grading error: {exc}"}
 

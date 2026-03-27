@@ -136,14 +136,9 @@ class TelemetryAggregator:
         has_itl = self._safe_col("mean_itl_ms")
 
         if has_pte:
-            extra_cols += (
-                ", SUM(prompt_tokens_evaluated)"
-                " AS prompt_tokens_evaluated"
-            )
+            extra_cols += ", SUM(prompt_tokens_evaluated) AS prompt_tokens_evaluated"
         if has_tpj:
-            extra_cols += (
-                ", AVG(tokens_per_joule) AS avg_tokens_per_joule"
-            )
+            extra_cols += ", AVG(tokens_per_joule) AS avg_tokens_per_joule"
         if has_derived:
             extra_cols += (
                 ", AVG(energy_per_output_token_joules)"
@@ -197,9 +192,7 @@ class TelemetryAggregator:
                 avg_throughput_tok_per_sec=r["avg_throughput_tok_per_sec"] or 0.0,
             )
             if has_pte:
-                ms.prompt_tokens_evaluated = (
-                    r["prompt_tokens_evaluated"] or 0
-                )
+                ms.prompt_tokens_evaluated = r["prompt_tokens_evaluated"] or 0
             if has_tpj:
                 ms.avg_tokens_per_joule = r["avg_tokens_per_joule"] or 0.0
             if has_derived:
@@ -208,12 +201,8 @@ class TelemetryAggregator:
                 )
                 ms.avg_throughput_per_watt = r["avg_throughput_per_watt"] or 0.0
             if has_phase:
-                ms.total_prefill_energy_joules = (
-                    r["total_prefill_energy_joules"] or 0.0
-                )
-                ms.total_decode_energy_joules = (
-                    r["total_decode_energy_joules"] or 0.0
-                )
+                ms.total_prefill_energy_joules = r["total_prefill_energy_joules"] or 0.0
+                ms.total_decode_energy_joules = r["total_decode_energy_joules"] or 0.0
             if has_itl:
                 ms.avg_mean_itl_ms = r["avg_mean_itl_ms"] or 0.0
                 ms.avg_median_itl_ms = r["avg_median_itl_ms"] or 0.0
@@ -236,9 +225,7 @@ class TelemetryAggregator:
         has_itl = self._safe_col("mean_itl_ms")
 
         if has_tpj:
-            extra_cols += (
-                ", AVG(tokens_per_joule) AS avg_tokens_per_joule"
-            )
+            extra_cols += ", AVG(tokens_per_joule) AS avg_tokens_per_joule"
         if has_derived:
             extra_cols += (
                 ", AVG(energy_per_output_token_joules)"
@@ -295,12 +282,8 @@ class TelemetryAggregator:
                 )
                 es.avg_throughput_per_watt = r["avg_throughput_per_watt"] or 0.0
             if has_phase:
-                es.total_prefill_energy_joules = (
-                    r["total_prefill_energy_joules"] or 0.0
-                )
-                es.total_decode_energy_joules = (
-                    r["total_decode_energy_joules"] or 0.0
-                )
+                es.total_prefill_energy_joules = r["total_prefill_energy_joules"] or 0.0
+                es.total_decode_energy_joules = r["total_decode_energy_joules"] or 0.0
             if has_itl:
                 es.avg_mean_itl_ms = r["avg_mean_itl_ms"] or 0.0
                 es.avg_median_itl_ms = r["avg_median_itl_ms"] or 0.0
@@ -330,9 +313,9 @@ class TelemetryAggregator:
         def _weighted_avg(attr: str) -> float:
             if total_calls == 0:
                 return 0.0
-            return sum(
-                getattr(m, attr) * m.call_count for m in model_stats
-            ) / total_calls
+            return (
+                sum(getattr(m, attr) * m.call_count for m in model_stats) / total_calls
+            )
 
         return AggregatedStats(
             total_calls=total_calls,

@@ -52,8 +52,7 @@ def build_context_message(
     content = (
         "The following context was retrieved from the knowledge"
         " base. Use it to inform your response, citing sources"
-        " where applicable:\n\n"
-        + context_text
+        " where applicable:\n\n" + context_text
     )
     return Message(role=Role.SYSTEM, content=content)
 
@@ -109,12 +108,15 @@ def inject_context(
 
     # Publish event
     bus = get_event_bus()
-    bus.publish(EventType.MEMORY_RETRIEVE, {
-        "context_injection": True,
-        "query": query,
-        "num_results": len(truncated),
-        "total_tokens": total_tokens,
-    })
+    bus.publish(
+        EventType.MEMORY_RETRIEVE,
+        {
+            "context_injection": True,
+            "query": query,
+            "num_results": len(truncated),
+            "total_tokens": total_tokens,
+        },
+    )
 
     # Build context message and prepend
     ctx_msg = build_context_message(truncated)

@@ -23,8 +23,7 @@ class ImageGenerateTool(BaseTool):
         return ToolSpec(
             name="image_generate",
             description=(
-                "Generate an image from a text description."
-                " Returns the image URL."
+                "Generate an image from a text description. Returns the image URL."
             ),
             parameters={
                 "type": "object",
@@ -82,8 +81,7 @@ class ImageGenerateTool(BaseTool):
             return ToolResult(
                 tool_name="image_generate",
                 content=(
-                    f"Unsupported provider '{provider}'."
-                    " Only 'openai' is supported."
+                    f"Unsupported provider '{provider}'. Only 'openai' is supported."
                 ),
                 success=False,
             )
@@ -94,8 +92,7 @@ class ImageGenerateTool(BaseTool):
             return ToolResult(
                 tool_name="image_generate",
                 content=(
-                    "openai package not installed."
-                    " Install with: pip install openai"
+                    "openai package not installed. Install with: pip install openai"
                 ),
                 success=False,
             )
@@ -137,10 +134,7 @@ class ImageGenerateTool(BaseTool):
             except Exception as exc:
                 return ToolResult(
                     tool_name="image_generate",
-                    content=(
-                        f"Image generated but failed to save: {exc}."
-                        f" URL: {url}"
-                    ),
+                    content=(f"Image generated but failed to save: {exc}. URL: {url}"),
                     success=False,
                     metadata={"url": url, "size": size, "provider": provider},
                 )
