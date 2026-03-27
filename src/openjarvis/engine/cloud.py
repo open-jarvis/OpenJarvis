@@ -194,6 +194,8 @@ class CloudEngine(InferenceEngine):
         self._google_client: Any = None
         self._openrouter_client: Any = None
         self._minimax_client: Any = None
+        # Gemini thought_signatures: tool_call_id -> signature bytes
+        self._thought_sigs: Dict[str, bytes] = {}
         self._init_clients()
 
     def _init_clients(self) -> None:
@@ -510,12 +512,17 @@ class CloudEngine(InferenceEngine):
                             args = json.loads(args)
                         except (json.JSONDecodeError, TypeError):
                             args = {"input": args}
-                    parts.append({
+                    fc_part: Dict[str, Any] = {
                         "function_call": {
                             "name": tc.name,
                             "args": args if isinstance(args, dict) else {},
                         }
-                    })
+                    }
+                    # Replay thought_signature for Gemini reasoning models
+                    sig = self._thought_sigs.get(tc.id)
+                    if sig is not None:
+                        fc_part["thought_signature"] = sig
+                    parts.append(fc_part)
                 contents.append({"role": "model", "parts": parts})
             elif m.role.value == "assistant":
                 contents.append({"role": "model", "parts": [{"text": m.content}]})
@@ -567,11 +574,17 @@ class CloudEngine(InferenceEngine):
                     fc_args = (
                         dict(fc.args) if hasattr(fc.args, "items") else {}
                     )
-                    tool_calls.append({
+                    tc_dict: Dict[str, Any] = {
                         "id": f"google_{fc.name}",
                         "name": fc.name,
                         "arguments": json.dumps(fc_args),
-                    })
+                    }
+                    # Preserve thought_signature for Gemini reasoning models
+                    sig = getattr(part, "thought_signature", None)
+                    if sig is not None:
+                        tc_dict["thought_signature"] = sig
+                        self._thought_sigs[tc_dict["id"]] = sig
+                    tool_calls.append(tc_dict)
                 elif hasattr(part, "text") and part.text:
                     text_parts.append(part.text)
 

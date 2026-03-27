@@ -287,6 +287,8 @@ class NativeOpenHandsAgent(ToolUsingAgent):
         openai_tools = (
             self._executor.get_openai_tools() if self._tools else []
         )
+        # Side dict for Gemini thought_signatures (ToolCall uses slots)
+        _thought_sigs: dict[str, bytes] = {}
 
         for _turn in range(self._max_turns):
             turns += 1
@@ -330,14 +332,18 @@ class NativeOpenHandsAgent(ToolUsingAgent):
             # --- Native function-calling path (OpenAI, Anthropic, etc.) ---
             raw_tool_calls = result.get("tool_calls", [])
             if raw_tool_calls:
-                native_calls = [
-                    ToolCall(
+                native_calls = []
+                for i, tc in enumerate(raw_tool_calls):
+                    call = ToolCall(
                         id=tc.get("id", f"call_{turns}_{i}"),
                         name=tc.get("name", ""),
                         arguments=tc.get("arguments", "{}"),
                     )
-                    for i, tc in enumerate(raw_tool_calls)
-                ]
+                    # Preserve thought_signature for Gemini reasoning
+                    sig = tc.get("thought_signature")
+                    if sig is not None:
+                        _thought_sigs[call.id] = sig
+                    native_calls.append(call)
                 messages.append(
                     Message(
                         role=Role.ASSISTANT,
