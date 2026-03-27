@@ -369,12 +369,16 @@ function LaunchWizard({
               <button
                 key={tpl.id}
                 onClick={() => selectTemplate(tpl)}
-                className="text-left p-4 rounded-lg transition-colors"
+                className="text-left p-4 rounded-lg transition-all items-start"
                 style={{ border: '1px solid var(--color-border)', background: 'var(--color-bg-secondary)' }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--color-accent)'; e.currentTarget.style.background = 'rgba(124,58,237,0.06)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--color-border)'; e.currentTarget.style.background = 'var(--color-bg-secondary)'; }}
               >
-                <div className="text-xl mb-1">{(tpl as any).icon || '🤖'}</div>
-                <div className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>{tpl.name}</div>
-                <div className="text-xs mt-1" style={{ color: 'var(--color-text-tertiary)' }}>{tpl.description}</div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-lg">{(tpl as any).icon || '🤖'}</span>
+                  <span className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>{tpl.name}</span>
+                </div>
+                <div className="text-xs mt-1" style={{ color: 'var(--color-text-tertiary)', textAlign: 'left' }}>{tpl.description}</div>
                 {(tpl as any).tools && (
                   <div className="flex flex-wrap gap-1 mt-2">
                     {((tpl as any).tools as string[]).slice(0, 4).map((t: string) => (
@@ -389,12 +393,16 @@ function LaunchWizard({
             ))}
             <button
               onClick={() => selectTemplate(null)}
-              className="text-left p-4 rounded-lg transition-colors"
+              className="text-left p-4 rounded-lg transition-all items-start"
               style={{ border: '1px solid var(--color-border)', background: 'var(--color-bg-secondary)' }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--color-accent)'; e.currentTarget.style.background = 'rgba(124,58,237,0.06)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--color-border)'; e.currentTarget.style.background = 'var(--color-bg-secondary)'; }}
             >
-              <div className="text-xl mb-1">⚙️</div>
-              <div className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>Custom Agent</div>
-              <div className="text-xs mt-1" style={{ color: 'var(--color-text-tertiary)' }}>Start from scratch. Pick your own tools, schedule, and behavior.</div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-lg">⚙️</span>
+                <span className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>Custom Agent</span>
+              </div>
+              <div className="text-xs mt-1" style={{ color: 'var(--color-text-tertiary)', textAlign: 'left' }}>Start from scratch. Pick your own tools, schedule, and behavior.</div>
             </button>
           </div>
         </div>
@@ -461,9 +469,25 @@ function LaunchWizard({
             </div>
             <div>
               <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Schedule</label>
-              <div className="px-3 py-2 rounded-lg text-sm" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
-                {formatScheduleLabel(wizard.scheduleType, wizard.scheduleValue)}
-              </div>
+              <select
+                value={wizard.scheduleType}
+                onChange={(e) => setWizard((w) => ({ ...w, scheduleType: e.target.value, scheduleValue: e.target.value === 'manual' ? '' : w.scheduleValue }))}
+                className="w-full px-3 py-2 rounded-lg text-sm"
+                style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+              >
+                <option value="manual">Manual (run on demand)</option>
+                <option value="interval">Interval</option>
+                <option value="cron">Cron</option>
+              </select>
+              {wizard.scheduleType !== 'manual' && (
+                <input
+                  value={wizard.scheduleValue}
+                  onChange={(e) => setWizard((w) => ({ ...w, scheduleValue: e.target.value }))}
+                  placeholder={wizard.scheduleType === 'cron' ? '0 9 * * *' : 'Seconds (e.g. 3600)'}
+                  className="w-full px-3 py-1.5 rounded-lg text-xs bg-transparent mt-1.5"
+                  style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                />
+              )}
             </div>
           </div>
 
@@ -776,16 +800,17 @@ function AgentCard({
 
 function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAgentUpdated: () => void }) {
   const [editingModel, setEditingModel] = useState(false);
+  const [editingInstruction, setEditingInstruction] = useState(false);
+  const [instructionDraft, setInstructionDraft] = useState('');
   const [models, setModels] = useState<string[]>([]);
   const currentModel = (agent.config?.model as string) || '(default)';
+  const currentInstruction = (agent.config?.instruction as string) || '';
 
-  async function startEditing() {
+  async function startEditingModel() {
     try {
       const fetched = await fetchModels();
       setModels(fetched.map((m) => m.id));
-    } catch {
-      // ignore
-    }
+    } catch { /* ignore */ }
     setEditingModel(true);
   }
 
@@ -794,10 +819,17 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
       const newConfig = { ...(agent.config || {}), model: newModel };
       await updateManagedAgent(agent.id, { config: newConfig });
       onAgentUpdated();
-    } catch {
-      // ignore
-    }
+    } catch { /* ignore */ }
     setEditingModel(false);
+  }
+
+  async function saveInstruction() {
+    try {
+      const newConfig = { ...(agent.config || {}), instruction: instructionDraft.trim() };
+      await updateManagedAgent(agent.id, { config: newConfig });
+      onAgentUpdated();
+    } catch { /* ignore */ }
+    setEditingInstruction(false);
   }
 
   const rows: [string, React.ReactNode][] = [
@@ -814,7 +846,7 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
       </select>
     ) : (
       <span
-        onClick={startEditing}
+        onClick={startEditingModel}
         className="cursor-pointer underline decoration-dotted"
         style={{ color: 'var(--color-accent)' }}
         title="Click to change model"
@@ -832,13 +864,52 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
-      {rows.map(([label, value]) => (
-        <div key={label as string} className="flex gap-2 items-center text-sm">
-          <span className="font-medium" style={{ color: 'var(--color-text-secondary)', minWidth: 110 }}>{label}</span>
-          <span style={{ color: 'var(--color-text)' }}>{value}</span>
+    <div className="space-y-3">
+      {/* Instruction — editable */}
+      <div>
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>Instruction</span>
+          {!editingInstruction && (
+            <button
+              onClick={() => { setInstructionDraft(currentInstruction); setEditingInstruction(true); }}
+              className="text-xs px-2 py-0.5 rounded"
+              style={{ color: 'var(--color-accent)', border: '1px solid var(--color-border)' }}
+            >
+              Edit
+            </button>
+          )}
         </div>
-      ))}
+        {editingInstruction ? (
+          <div className="space-y-1.5">
+            <textarea
+              autoFocus
+              value={instructionDraft}
+              onChange={(e) => setInstructionDraft(e.target.value)}
+              rows={3}
+              className="w-full px-2 py-1.5 rounded text-sm bg-transparent resize-none"
+              style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+            />
+            <div className="flex gap-2">
+              <button onClick={saveInstruction} className="text-xs px-2 py-1 rounded font-medium" style={{ background: 'var(--color-accent)', color: '#fff' }}>Save</button>
+              <button onClick={() => setEditingInstruction(false)} className="text-xs px-2 py-1 rounded" style={{ color: 'var(--color-text-tertiary)' }}>Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm" style={{ color: currentInstruction ? 'var(--color-text)' : 'var(--color-text-tertiary)' }}>
+            {currentInstruction || '(No instruction set)'}
+          </p>
+        )}
+      </div>
+
+      {/* Config grid */}
+      <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
+        {rows.map(([label, value]) => (
+          <div key={label as string} className="flex gap-2 items-center text-sm">
+            <span className="font-medium" style={{ color: 'var(--color-text-secondary)', minWidth: 110 }}>{label}</span>
+            <span style={{ color: 'var(--color-text)' }}>{value}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
