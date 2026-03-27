@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 try:
-    from fastapi.testclient import TestClient
+    import fastapi  # noqa: F401
 
     HAS_FASTAPI = True
 except ImportError:
