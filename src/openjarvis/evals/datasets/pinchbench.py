@@ -74,6 +74,8 @@ def _parse_task_markdown(content: str, filename: str = "") -> Dict[str, Any]:
         "timeout_seconds": frontmatter.get("timeout_seconds", 180),
         "workspace_files": frontmatter.get("workspace_files", []),
         "grading_weights": frontmatter.get("grading_weights"),
+        "multi_session": frontmatter.get("multi_session", False),
+        "sessions": frontmatter.get("sessions", []),
         "prompt": sections.get("Prompt", ""),
         "expected_behavior": sections.get("Expected Behavior", ""),
         "grading_criteria": sections.get("Grading Criteria", ""),
@@ -160,7 +162,11 @@ class PinchBenchDataset(DatasetProvider):
         self._records = [
             EvalRecord(
                 record_id=t["id"],
-                problem=t["prompt"],
+                problem=(
+                    t["sessions"][0]["prompt"]
+                    if t.get("multi_session") and t.get("sessions")
+                    else t["prompt"]
+                ),
                 reference=t["expected_behavior"],
                 category=t["category"],
                 subject=t["name"],
@@ -172,6 +178,8 @@ class PinchBenchDataset(DatasetProvider):
                     "timeout_seconds": t["timeout_seconds"],
                     "workspace_files": t["workspace_files"],
                     "pinchbench_repo_dir": str(repo_dir),
+                    "multi_session": t.get("multi_session", False),
+                    "sessions": t.get("sessions", []),
                 },
             )
             for t in tasks

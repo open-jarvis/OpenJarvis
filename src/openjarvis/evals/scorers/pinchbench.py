@@ -121,7 +121,7 @@ def _tool_results_to_transcript(
             "type": "message",
             "message": {
                 "role": "assistant",
-                "content": [{"type": "toolCall", "name": mapped, "params": {}}],
+                "content": [{"type": "toolCall", "name": mapped, "params": tr.get("arguments", {})}],
             },
         })
         transcript.append({

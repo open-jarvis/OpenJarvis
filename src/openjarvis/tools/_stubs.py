@@ -241,6 +241,7 @@ class ToolExecutor:
             )
         latency = time.time() - t0
         result.latency_seconds = latency
+        result.metadata["arguments"] = params
 
         # Auto-detect taints in results
         if result.success:
