@@ -1566,49 +1566,44 @@ export function AgentsPage() {
               const energyKj = energyWh * 3.6;
               const fmtFlops = flops >= 1e15 ? `${(flops / 1e15).toFixed(1)} PFLOPs` : `${(flops / 1e12).toFixed(1)} TFLOPs`;
               const hasSavings = inTok + outTok > 0;
-              return (<>
-                <div className="flex gap-2 flex-wrap">
-                  <div className="px-3 py-1.5 rounded-lg" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}>
-                    <p className="text-sm font-bold" style={{ color: 'var(--color-text)' }}>{selectedAgent.total_runs ?? 0}</p>
-                    <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Total Queries</p>
-                  </div>
-                  <div className="px-3 py-1.5 rounded-lg" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}>
-                    <p className="text-sm font-bold" style={{ color: 'var(--color-text)' }}>{inTok}</p>
-                    <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Input Tokens</p>
-                  </div>
-                  <div className="px-3 py-1.5 rounded-lg" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}>
-                    <p className="text-sm font-bold" style={{ color: 'var(--color-text)' }}>{outTok}</p>
-                    <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Output Tokens</p>
-                  </div>
-                </div>
-                {hasSavings && (
-                  <div>
-                    <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--color-text)' }}>Cloud Savings for Agent</h3>
-                    <div className="flex gap-2 flex-wrap">
-                      <div className="px-3 py-1.5 rounded-lg" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}>
-                        <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Compute</p>
-                        <p className="text-sm font-semibold" style={{ color: '#22c55e' }}>{fmtFlops}</p>
-                      </div>
-                      <div className="px-3 py-1.5 rounded-lg" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}>
-                        <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Energy</p>
-                        <p className="text-sm font-semibold" style={{ color: '#22c55e' }}>{energyKj.toFixed(2)} kJ</p>
-                      </div>
-                      <div className="px-3 py-1.5 rounded-lg" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}>
-                        <p className="text-xs mb-0.5" style={{ color: 'var(--color-text-tertiary)' }}>Dollar Savings</p>
-                        {providers.map((p) => {
-                          const cost = (inTok / 1e6) * p.inPer1M + (outTok / 1e6) * p.outPer1M;
-                          return (
-                            <div key={p.label} className="flex gap-3 text-xs leading-snug">
-                              <span style={{ color: 'var(--color-text-tertiary)' }}>{p.label}</span>
-                              <span className="font-semibold" style={{ color: '#22c55e' }}>${cost.toFixed(4)}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
+              const boxStyle = { background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' };
+              return (
+                <div>
+                  <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--color-text)' }}>Cloud Savings for Agent</h3>
+                  <div className="flex gap-2 flex-wrap">
+                    <div className="px-3 py-1.5 rounded-lg" style={boxStyle}>
+                      <p className="text-sm font-bold" style={{ color: 'var(--color-text)' }}>{selectedAgent.total_runs ?? 0}</p>
+                      <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Total Queries</p>
                     </div>
+                    <div className="px-3 py-1.5 rounded-lg" style={boxStyle}>
+                      <p className="text-sm font-bold" style={{ color: 'var(--color-text)' }}>{inTok}</p>
+                      <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Input Tokens</p>
+                    </div>
+                    <div className="px-3 py-1.5 rounded-lg" style={boxStyle}>
+                      <p className="text-sm font-bold" style={{ color: 'var(--color-text)' }}>{outTok}</p>
+                      <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Output Tokens</p>
+                    </div>
+                    {hasSavings && (<>
+                      <div className="px-3 py-1.5 rounded-lg" style={boxStyle}>
+                        <p className="text-sm font-bold" style={{ color: '#22c55e' }}>{fmtFlops}</p>
+                        <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Compute</p>
+                      </div>
+                      <div className="px-3 py-1.5 rounded-lg" style={boxStyle}>
+                        <p className="text-sm font-bold" style={{ color: '#22c55e' }}>{energyKj.toFixed(2)} kJ</p>
+                        <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Energy</p>
+                      </div>
+                      {providers.map((p) => {
+                        const cost = (inTok / 1e6) * p.inPer1M + (outTok / 1e6) * p.outPer1M;
+                        return (
+                          <div key={p.label} className="px-3 py-1.5 rounded-lg" style={boxStyle}>
+                            <p className="text-sm font-bold" style={{ color: '#22c55e' }}>${cost.toFixed(4)}</p>
+                            <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{p.label}</p>
+                          </div>
+                        );
+                      })}
+                    </>)}
                   </div>
-                )}
-              </>);
+                </div>);
             })()}
 
             {/* Channels summary */}
