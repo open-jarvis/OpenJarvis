@@ -61,6 +61,8 @@ def create_app(
     speech_backend=None,
     agent_manager=None,
     agent_scheduler=None,
+    api_key: str = "",
+    webhook_config: dict | None = None,
 ) -> FastAPI:
     """Create and configure the FastAPI application.
 
@@ -138,6 +140,43 @@ def create_app(
             app.add_middleware(middleware_cls)
     except Exception as exc:
         logger.debug("Security middleware init skipped: %s", exc)
+
+    # API key authentication middleware
+    if api_key:
+        try:
+            from openjarvis.server.auth_middleware import AuthMiddleware
+
+            app.add_middleware(AuthMiddleware, api_key=api_key)
+        except Exception as exc:
+            logger.debug("Auth middleware init skipped: %s", exc)
+
+    # Mount webhook routes if bridge and config provided
+    if channel_bridge and webhook_config:
+        try:
+            from openjarvis.server.webhook_routes import (
+                create_webhook_router,
+            )
+
+            webhook_router = create_webhook_router(
+                bridge=channel_bridge,
+                twilio_auth_token=webhook_config.get(
+                    "twilio_auth_token", ""
+                ),
+                bluebubbles_password=webhook_config.get(
+                    "bluebubbles_password", ""
+                ),
+                whatsapp_verify_token=webhook_config.get(
+                    "whatsapp_verify_token", ""
+                ),
+                whatsapp_app_secret=webhook_config.get(
+                    "whatsapp_app_secret", ""
+                ),
+            )
+            app.include_router(webhook_router)
+        except Exception as exc:
+            logger.debug(
+                "Webhook routes init skipped: %s", exc
+            )
 
     # Serve static frontend assets if the static/ directory exists
     static_dir = pathlib.Path(__file__).parent / "static"

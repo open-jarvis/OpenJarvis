@@ -95,6 +95,21 @@ cli.add_command(connect, "connect")
 cli.add_command(deep_research_setup, "deep-research-setup")
 cli.add_command(deep_research_setup, "research")
 
+# Gateway CLI commands (lazy import to avoid pulling starlette)
+try:
+    from openjarvis.cli.auth_cmd import auth
+
+    cli.add_command(auth, "auth")
+except ImportError:
+    pass
+
+try:
+    from openjarvis.cli.tunnel_cmd import tunnel
+
+    cli.add_command(tunnel, "tunnel")
+except ImportError:
+    pass
+
 
 def main() -> None:
     """Entry point registered as ``jarvis`` console script."""

@@ -316,6 +316,68 @@ def serve(
         except Exception as exc:
             logger.debug("Memory backend init failed: %s", exc)
 
+    # --- Channel Gateway: API key, sessions, ChannelBridge ---
+    import os as _os
+
+    api_key = _os.environ.get("OPENJARVIS_API_KEY", "")
+    if not api_key:
+        try:
+            import tomllib
+            _cfg_path = str(
+                __import__("pathlib").Path.home()
+                / ".openjarvis" / "config.toml"
+            )
+            with open(_cfg_path, "rb") as _f:
+                _raw = tomllib.load(_f)
+            api_key = (
+                _raw.get("server", {})
+                .get("auth", {})
+                .get("api_key", "")
+            )
+        except (FileNotFoundError, ImportError):
+            pass
+
+    webhook_config = {
+        "twilio_auth_token": _os.environ.get(
+            "TWILIO_AUTH_TOKEN", ""
+        ),
+        "bluebubbles_password": _os.environ.get(
+            "BLUEBUBBLES_PASSWORD", ""
+        ),
+        "whatsapp_verify_token": _os.environ.get(
+            "WHATSAPP_VERIFY_TOKEN", ""
+        ),
+        "whatsapp_app_secret": _os.environ.get(
+            "WHATSAPP_APP_SECRET", ""
+        ),
+    }
+
+    # Wrap existing channel in ChannelBridge orchestrator
+    if channel_bridge is not None:
+        try:
+            from openjarvis.server.channel_bridge import (
+                ChannelBridge,
+            )
+            from openjarvis.server.session_store import (
+                SessionStore,
+            )
+
+            session_store = SessionStore()
+            channels = {
+                channel_bridge.channel_id: channel_bridge
+            }
+            channel_bridge = ChannelBridge(
+                channels=channels,
+                session_store=session_store,
+                bus=bus,
+                system=None,
+                agent_manager=agent_manager,
+            )
+        except Exception as exc:
+            logger.debug(
+                "ChannelBridge init skipped: %s", exc
+            )
+
     app = create_app(
         engine, model_name, agent=agent, bus=bus,
         engine_name=engine_name, agent_name=agent_key or "",
@@ -324,6 +386,8 @@ def serve(
         speech_backend=speech_backend,
         agent_manager=agent_manager,
         agent_scheduler=agent_scheduler,
+        api_key=api_key,
+        webhook_config=webhook_config,
     )
 
     console.print(
