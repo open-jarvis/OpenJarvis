@@ -954,18 +954,78 @@ def create_agent_manager_router(
         return {"bindings": manager.list_channel_bindings(agent_id)}
 
     @agents_router.post("/{agent_id}/channels")
-    async def bind_channel(agent_id: str, req: BindChannelRequest):
+    async def bind_channel(
+        agent_id: str, req: BindChannelRequest, request: Request,
+    ):
         if not manager.get_agent(agent_id):
             raise HTTPException(status_code=404, detail="Agent not found")
-        return manager.bind_channel(
+        binding = manager.bind_channel(
             agent_id,
             channel_type=req.channel_type,
             config=req.config,
             routing_mode=req.routing_mode,
         )
 
+        # Start iMessage daemon if binding iMessage
+        if req.channel_type == "imessage":
+            identifier = (req.config or {}).get("identifier", "")
+            if identifier:
+                try:
+                    from openjarvis.channels.imessage_daemon import (
+                        is_running,
+                        run_daemon,
+                    )
+
+                    if not is_running():
+                        import threading
+
+                        engine = getattr(request.app.state, "engine", None)
+                        if engine:
+                            from openjarvis.server.agent_manager_routes import (
+                                _build_deep_research_tools,
+                            )
+
+                            tools = _build_deep_research_tools(engine=engine, model="")
+                            if tools:
+                                from openjarvis.agents.deep_research import (
+                                    DeepResearchAgent,
+                                )
+
+                                agent_inst = DeepResearchAgent(
+                                    engine=engine,
+                                    model=getattr(engine, "_model", ""),
+                                    tools=tools,
+                                )
+
+                                def handler(text: str) -> str:
+                                    result = agent_inst.run(text)
+                                    return result.content or "No results."
+
+                                t = threading.Thread(
+                                    target=run_daemon,
+                                    kwargs={
+                                        "chat_identifier": identifier,
+                                        "handler": handler,
+                                    },
+                                    daemon=True,
+                                )
+                                t.start()
+                except Exception as exc:
+                    logger.warning("Failed to start iMessage daemon: %s", exc)
+
+        return binding
+
     @agents_router.delete("/{agent_id}/channels/{binding_id}")
     async def unbind_channel(agent_id: str, binding_id: str):
+        # Stop iMessage daemon if applicable
+        try:
+            binding = manager._get_binding(binding_id)
+            if binding and binding.get("channel_type") == "imessage":
+                from openjarvis.channels.imessage_daemon import stop_daemon
+
+                stop_daemon()
+        except Exception:
+            pass
         manager.unbind_channel(binding_id)
         return {"status": "unbound"}
 
