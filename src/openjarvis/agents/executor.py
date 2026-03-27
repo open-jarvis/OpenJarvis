@@ -411,10 +411,18 @@ class AgentExecutor:
                     or result.metadata.get("tokens_used")
                     or 0
                 )
+                in_tokens = result.metadata.get("prompt_tokens", 0)
+                out_tokens = result.metadata.get(
+                    "completion_tokens", 0,
+                )
                 cost = result.metadata.get("cost", 0.0)
                 budget_kwargs: dict[str, Any] = {"stall_retries": 0}
                 if tokens > 0:
                     budget_kwargs["total_tokens_increment"] = tokens
+                if in_tokens > 0:
+                    budget_kwargs["input_tokens_increment"] = in_tokens
+                if out_tokens > 0:
+                    budget_kwargs["output_tokens_increment"] = out_tokens
                 if cost > 0:
                     budget_kwargs["total_cost_increment"] = cost
                 self._manager.update_agent(agent_id, **budget_kwargs)

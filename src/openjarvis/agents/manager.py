@@ -112,6 +112,8 @@ class AgentManager:
             "ALTER TABLE managed_agents ADD COLUMN last_activity_at REAL",
             "ALTER TABLE managed_agents ADD COLUMN stall_retries INTEGER DEFAULT 0",
             "ALTER TABLE managed_agents ADD COLUMN current_activity TEXT DEFAULT ''",
+            "ALTER TABLE managed_agents ADD COLUMN input_tokens INTEGER DEFAULT 0",
+            "ALTER TABLE managed_agents ADD COLUMN output_tokens INTEGER DEFAULT 0",
         ]
         for migration in _MIGRATIONS:
             try:
@@ -182,6 +184,14 @@ class AgentManager:
         if total_tokens_increment:
             sets.append("total_tokens = total_tokens + ?")
             vals.append(total_tokens_increment)
+        input_tokens_increment = kwargs.get("input_tokens_increment", 0)
+        if input_tokens_increment:
+            sets.append("input_tokens = input_tokens + ?")
+            vals.append(input_tokens_increment)
+        output_tokens_increment = kwargs.get("output_tokens_increment", 0)
+        if output_tokens_increment:
+            sets.append("output_tokens = output_tokens + ?")
+            vals.append(output_tokens_increment)
         if "last_activity_at" in kwargs:
             sets.append("last_activity_at = ?")
             vals.append(kwargs["last_activity_at"])
@@ -645,6 +655,8 @@ class AgentManager:
             "last_activity_at": row["last_activity_at"],
             "stall_retries": row["stall_retries"] or 0,
             "current_activity": row["current_activity"] or "",
+            "input_tokens": row["input_tokens"] or 0,
+            "output_tokens": row["output_tokens"] or 0,
         }
 
     @staticmethod

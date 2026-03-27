@@ -20,6 +20,8 @@ import {
   fetchManagedAgent,
   fetchAvailableTools,
   saveToolCredentials,
+  fetchModels,
+  updateManagedAgent,
 } from '../lib/api';
 import type { AgentTask, ChannelBinding, AgentTemplate, AgentMessage, ManagedAgent, LearningLogEntry, AgentTrace, ToolInfo } from '../lib/api';
 import {
@@ -1163,6 +1165,79 @@ function AgentCard({
 }
 
 // ---------------------------------------------------------------------------
+// Detail view — Configuration grid with editable model
+// ---------------------------------------------------------------------------
+
+function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAgentUpdated: () => void }) {
+  const [editingModel, setEditingModel] = useState(false);
+  const [models, setModels] = useState<string[]>([]);
+  const currentModel = (agent.config?.model as string) || '(default)';
+
+  async function startEditing() {
+    try {
+      const fetched = await fetchModels();
+      setModels(fetched.map((m) => m.id));
+    } catch {
+      // ignore
+    }
+    setEditingModel(true);
+  }
+
+  async function changeModel(newModel: string) {
+    try {
+      const newConfig = { ...(agent.config || {}), model: newModel };
+      await updateManagedAgent(agent.id, { config: newConfig });
+      onAgentUpdated();
+    } catch {
+      // ignore
+    }
+    setEditingModel(false);
+  }
+
+  const rows: [string, React.ReactNode][] = [
+    ['Intelligence', editingModel ? (
+      <select
+        autoFocus
+        defaultValue={currentModel}
+        onChange={(e) => changeModel(e.target.value)}
+        onBlur={() => setEditingModel(false)}
+        className="text-sm rounded px-1 py-0.5"
+        style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+      >
+        {models.map((m) => <option key={m} value={m}>{m}</option>)}
+      </select>
+    ) : (
+      <span
+        onClick={startEditing}
+        className="cursor-pointer underline decoration-dotted"
+        style={{ color: 'var(--color-accent)' }}
+        title="Click to change model"
+      >
+        {currentModel}
+      </span>
+    )],
+    ['Agent Type', <span key="at">{agent.agent_type}</span>],
+    ['Schedule', <span key="sc">{formatSchedule(agent.schedule_type, agent.schedule_value)}</span>],
+    ['Last Run', <span key="lr">{formatRelativeTime(agent.last_run_at)}</span>],
+    ['Budget', <span key="bg">{agent.budget ? formatCost(agent.budget) : 'Unlimited'}</span>],
+    ['Learning', <span key="le">{agent.learning_enabled ? 'Enabled' : 'Disabled'}</span>],
+    ['Input Tokens', <span key="it">{String(agent.input_tokens ?? 0)}</span>],
+    ['Output Tokens', <span key="ot">{String(agent.output_tokens ?? 0)}</span>],
+  ];
+
+  return (
+    <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+      {rows.map(([label, value]) => (
+        <div key={label as string} className="flex gap-2 items-center">
+          <span style={{ color: 'var(--color-text-tertiary)', minWidth: 100 }}>{label}</span>
+          <span style={{ color: 'var(--color-text)' }}>{value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Detail view — Interact tab
 // ---------------------------------------------------------------------------
 
@@ -1776,21 +1851,7 @@ export function AgentsPage() {
               <h3 className="text-sm font-medium mb-3" style={{ color: 'var(--color-text-secondary)' }}>
                 Configuration
               </h3>
-              <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-                {[
-                  ['Agent Type', selectedAgent.agent_type],
-                  ['Schedule', formatSchedule(selectedAgent.schedule_type, selectedAgent.schedule_value)],
-                  ['Last Run', formatRelativeTime(selectedAgent.last_run_at)],
-                  ['Budget', selectedAgent.budget ? formatCost(selectedAgent.budget) : 'Unlimited'],
-                  ['Learning', selectedAgent.learning_enabled ? 'Enabled' : 'Disabled'],
-                  ['Total Tokens', String(selectedAgent.total_tokens ?? 0)],
-                ].map(([k, v]) => (
-                  <div key={k} className="flex gap-2">
-                    <span style={{ color: 'var(--color-text-tertiary)', minWidth: 90 }}>{k}</span>
-                    <span style={{ color: 'var(--color-text)' }}>{v}</span>
-                  </div>
-                ))}
-              </div>
+              <AgentConfigGrid agent={selectedAgent} onAgentUpdated={refresh} />
               <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--color-border)' }}>
                 <span className="text-xs font-mono" style={{ color: 'var(--color-text-tertiary)' }}>
                   ID: {selectedAgent.id}

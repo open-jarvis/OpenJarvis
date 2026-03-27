@@ -296,6 +296,8 @@ export interface ManagedAgent {
   total_runs?: number;
   total_cost?: number;
   total_tokens?: number;
+  input_tokens?: number;
+  output_tokens?: number;
   last_run_at?: number | null;
   // Schedule
   schedule_type?: string;
