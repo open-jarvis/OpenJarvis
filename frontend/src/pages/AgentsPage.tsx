@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { toast } from 'sonner';
 import { useAppStore } from '../lib/store';
 import {
@@ -798,13 +799,65 @@ function AgentCard({
 // Detail view — Configuration grid with editable model
 // ---------------------------------------------------------------------------
 
+function AgentInstructionSection({ agent, onAgentUpdated }: { agent: ManagedAgent; onAgentUpdated: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const currentInstruction = (agent.config?.instruction as string) || '';
+
+  async function save() {
+    try {
+      const newConfig = { ...(agent.config || {}), instruction: draft.trim() };
+      await updateManagedAgent(agent.id, { config: newConfig });
+      onAgentUpdated();
+    } catch { /* ignore */ }
+    setEditing(false);
+  }
+
+  return (
+    <div
+      className="p-3 rounded-lg"
+      style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
+    >
+      <div className="flex items-center gap-2 mb-2">
+        <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>Instruction</h3>
+        {!editing && (
+          <button
+            onClick={() => { setDraft(currentInstruction); setEditing(true); }}
+            className="text-xs px-2 py-0.5 rounded cursor-pointer"
+            style={{ color: 'var(--color-accent)', border: '1px solid var(--color-accent)', opacity: 0.8 }}
+          >
+            Edit
+          </button>
+        )}
+      </div>
+      {editing ? (
+        <div className="space-y-2">
+          <textarea
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={3}
+            className="w-full px-3 py-2 rounded-lg text-sm bg-transparent resize-none"
+            style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+          />
+          <div className="flex gap-2">
+            <button onClick={save} className="text-xs px-3 py-1 rounded font-medium cursor-pointer" style={{ background: 'var(--color-accent)', color: '#fff' }}>Save</button>
+            <button onClick={() => setEditing(false)} className="text-xs px-3 py-1 rounded cursor-pointer" style={{ color: 'var(--color-text-tertiary)', border: '1px solid var(--color-border)' }}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <p className="text-sm" style={{ color: currentInstruction ? 'var(--color-text)' : 'var(--color-text-tertiary)' }}>
+          {currentInstruction || '(No instruction set — click Edit to add one)'}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAgentUpdated: () => void }) {
   const [editingModel, setEditingModel] = useState(false);
-  const [editingInstruction, setEditingInstruction] = useState(false);
-  const [instructionDraft, setInstructionDraft] = useState('');
   const [models, setModels] = useState<string[]>([]);
   const currentModel = (agent.config?.model as string) || '(default)';
-  const currentInstruction = (agent.config?.instruction as string) || '';
 
   async function startEditingModel() {
     try {
@@ -821,15 +874,6 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
       onAgentUpdated();
     } catch { /* ignore */ }
     setEditingModel(false);
-  }
-
-  async function saveInstruction() {
-    try {
-      const newConfig = { ...(agent.config || {}), instruction: instructionDraft.trim() };
-      await updateManagedAgent(agent.id, { config: newConfig });
-      onAgentUpdated();
-    } catch { /* ignore */ }
-    setEditingInstruction(false);
   }
 
   const rows: [string, React.ReactNode][] = [
@@ -864,52 +908,13 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
   ];
 
   return (
-    <div className="space-y-3">
-      {/* Instruction — editable */}
-      <div>
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>Instruction</span>
-          {!editingInstruction && (
-            <button
-              onClick={() => { setInstructionDraft(currentInstruction); setEditingInstruction(true); }}
-              className="text-xs px-2 py-0.5 rounded"
-              style={{ color: 'var(--color-accent)', border: '1px solid var(--color-border)' }}
-            >
-              Edit
-            </button>
-          )}
+    <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
+      {rows.map(([label, value]) => (
+        <div key={label as string} className="flex gap-2 items-center text-sm">
+          <span className="font-medium" style={{ color: 'var(--color-text-secondary)', minWidth: 110 }}>{label}</span>
+          <span style={{ color: 'var(--color-text)' }}>{value}</span>
         </div>
-        {editingInstruction ? (
-          <div className="space-y-1.5">
-            <textarea
-              autoFocus
-              value={instructionDraft}
-              onChange={(e) => setInstructionDraft(e.target.value)}
-              rows={3}
-              className="w-full px-2 py-1.5 rounded text-sm bg-transparent resize-none"
-              style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
-            />
-            <div className="flex gap-2">
-              <button onClick={saveInstruction} className="text-xs px-2 py-1 rounded font-medium" style={{ background: 'var(--color-accent)', color: '#fff' }}>Save</button>
-              <button onClick={() => setEditingInstruction(false)} className="text-xs px-2 py-1 rounded" style={{ color: 'var(--color-text-tertiary)' }}>Cancel</button>
-            </div>
-          </div>
-        ) : (
-          <p className="text-sm" style={{ color: currentInstruction ? 'var(--color-text)' : 'var(--color-text-tertiary)' }}>
-            {currentInstruction || '(No instruction set)'}
-          </p>
-        )}
-      </div>
-
-      {/* Config grid */}
-      <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
-        {rows.map(([label, value]) => (
-          <div key={label as string} className="flex gap-2 items-center text-sm">
-            <span className="font-medium" style={{ color: 'var(--color-text-secondary)', minWidth: 110 }}>{label}</span>
-            <span style={{ color: 'var(--color-text)' }}>{value}</span>
-          </div>
-        ))}
-      </div>
+      ))}
     </div>
   );
 }
@@ -1001,7 +1006,11 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
                 border: msg.direction === 'agent_to_user' ? '1px solid var(--color-border)' : 'none',
               }}
             >
-              <p>{msg.content}</p>
+              {msg.direction === 'agent_to_user' ? (
+                <div className="prose prose-sm prose-invert max-w-none"><ReactMarkdown>{msg.content}</ReactMarkdown></div>
+              ) : (
+                <p>{msg.content}</p>
+              )}
               <p className="text-xs mt-1 opacity-70">
                 {msg.status === 'pending' ? 'sending...' : new Date(msg.created_at * 1000).toLocaleTimeString()}
               </p>
@@ -1500,6 +1509,9 @@ export function AgentsPage() {
                 </div>
               ))}
             </div>
+
+            {/* Instruction — separate section */}
+            <AgentInstructionSection agent={selectedAgent} onAgentUpdated={refresh} />
 
             {/* Config display — tighter spacing */}
             <div
