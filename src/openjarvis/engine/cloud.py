@@ -6,7 +6,7 @@ import json
 import os
 import time
 from collections.abc import AsyncIterator, Sequence
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import httpx
 
@@ -17,6 +17,7 @@ from openjarvis.engine._base import (
     InferenceEngine,
     messages_to_dicts,
 )
+from openjarvis.engine._stubs import StreamChunk
 
 # Pricing per million tokens (input, output)
 PRICING: Dict[str, tuple[float, float]] = {
@@ -287,6 +288,61 @@ class CloudEngine(InferenceEngine):
                 "url": codex_url,
             }
 
+    def _prepare_anthropic_messages(
+        self,
+        messages: Sequence[Message],
+    ) -> Tuple[str, List[Dict[str, Any]]]:
+        """Extract system text and convert messages to Anthropic format."""
+        system_text = ""
+        chat_msgs: List[Dict[str, Any]] = []
+        for m in messages:
+            if m.role.value == "system":
+                system_text = m.content
+            elif m.role.value == "tool":
+                tool_result_block = {
+                    "type": "tool_result",
+                    "tool_use_id": m.tool_call_id or "",
+                    "content": m.content,
+                }
+                if (
+                    chat_msgs
+                    and chat_msgs[-1]["role"] == "user"
+                    and isinstance(chat_msgs[-1]["content"], list)
+                    and chat_msgs[-1]["content"]
+                    and chat_msgs[-1]["content"][-1].get("type") == "tool_result"
+                ):
+                    chat_msgs[-1]["content"].append(tool_result_block)
+                else:
+                    chat_msgs.append(
+                        {
+                            "role": "user",
+                            "content": [tool_result_block],
+                        }
+                    )
+            elif m.role.value == "assistant" and m.tool_calls:
+                content_blocks: List[Dict[str, Any]] = []
+                if m.content:
+                    content_blocks.append({"type": "text", "text": m.content})
+                for tc in m.tool_calls:
+                    args = tc.arguments
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args)
+                        except (json.JSONDecodeError, TypeError):
+                            args = {"input": args}
+                    content_blocks.append(
+                        {
+                            "type": "tool_use",
+                            "id": tc.id,
+                            "name": tc.name,
+                            "input": args if isinstance(args, dict) else {},
+                        }
+                    )
+                chat_msgs.append({"role": "assistant", "content": content_blocks})
+            else:
+                chat_msgs.append({"role": m.role.value, "content": m.content})
+        return system_text, chat_msgs
+
     @staticmethod
     def _codex_build_input(
         messages: Sequence[Message],
@@ -477,60 +533,7 @@ class CloudEngine(InferenceEngine):
                 "ANTHROPIC_API_KEY and install "
                 "openjarvis[inference-cloud]"
             )
-        # Separate system message and convert to Anthropic message format
-        system_text = ""
-        chat_msgs: List[Dict[str, Any]] = []
-        for m in messages:
-            if m.role.value == "system":
-                system_text = m.content
-            elif m.role.value == "tool":
-                # Anthropic expects tool results as role="user" with
-                # tool_result content blocks
-                tool_result_block = {
-                    "type": "tool_result",
-                    "tool_use_id": m.tool_call_id or "",
-                    "content": m.content,
-                }
-                # Merge consecutive tool results into a single user message
-                if (
-                    chat_msgs
-                    and chat_msgs[-1]["role"] == "user"
-                    and isinstance(chat_msgs[-1]["content"], list)
-                    and chat_msgs[-1]["content"]
-                    and chat_msgs[-1]["content"][-1].get("type") == "tool_result"
-                ):
-                    chat_msgs[-1]["content"].append(tool_result_block)
-                else:
-                    chat_msgs.append(
-                        {
-                            "role": "user",
-                            "content": [tool_result_block],
-                        }
-                    )
-            elif m.role.value == "assistant" and m.tool_calls:
-                # Convert assistant messages with tool_calls to Anthropic
-                # content blocks (text + tool_use)
-                content_blocks: List[Dict[str, Any]] = []
-                if m.content:
-                    content_blocks.append({"type": "text", "text": m.content})
-                for tc in m.tool_calls:
-                    args = tc.arguments
-                    if isinstance(args, str):
-                        try:
-                            args = json.loads(args)
-                        except (json.JSONDecodeError, TypeError):
-                            args = {"input": args}
-                    content_blocks.append(
-                        {
-                            "type": "tool_use",
-                            "id": tc.id,
-                            "name": tc.name,
-                            "input": args if isinstance(args, dict) else {},
-                        }
-                    )
-                chat_msgs.append({"role": "assistant", "content": content_blocks})
-            else:
-                chat_msgs.append({"role": m.role.value, "content": m.content})
+        system_text, chat_msgs = self._prepare_anthropic_messages(messages)
         create_kwargs: Dict[str, Any] = {
             "model": model,
             "messages": chat_msgs,
@@ -1120,6 +1123,188 @@ class CloudEngine(InferenceEngine):
             delta = chunk.choices[0].delta if chunk.choices else None
             if delta and delta.content:
                 yield delta.content
+
+    # -- stream_full: rich streaming with tool_calls support ----------------
+
+    async def _stream_full_openai(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        **kwargs: Any,
+    ) -> AsyncIterator[StreamChunk]:
+        """Yield StreamChunks from an OpenAI-compatible streaming response.
+
+        Works for OpenAI, OpenRouter, MiniMax, and Codex.
+        """
+        if _is_codex_model(model):
+            # Codex uses Responses API — fall back to base stream_full wrapper
+            async for chunk in super().stream_full(
+                messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                **kwargs,
+            ):
+                yield chunk
+            return
+        if _is_openrouter_model(model):
+            client = self._openrouter_client
+            if client is None:
+                raise EngineConnectionError("OpenRouter client not available")
+            actual_model = model.removeprefix("openrouter/")
+            create_kwargs: Dict[str, Any] = {
+                "model": actual_model,
+                "messages": messages_to_dicts(messages),
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "stream": True,
+                **kwargs,
+            }
+        elif _is_minimax_model(model):
+            client = self._minimax_client
+            if client is None:
+                raise EngineConnectionError("MiniMax client not available")
+            temperature = max(temperature, 0.01)
+            temperature = min(temperature, 1.0)
+            create_kwargs = {
+                "model": model,
+                "messages": messages_to_dicts(messages),
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "stream": True,
+                **kwargs,
+            }
+        else:
+            client = self._openai_client
+            if client is None:
+                raise EngineConnectionError("OpenAI client not available")
+            create_kwargs = {
+                "model": model,
+                "messages": messages_to_dicts(messages),
+                "max_completion_tokens": max_tokens,
+                "stream": True,
+                **kwargs,
+            }
+            if not _is_openai_reasoning_model(model):
+                create_kwargs["temperature"] = temperature
+        resp = client.chat.completions.create(**create_kwargs)
+        for chunk in resp:
+            choice = chunk.choices[0] if chunk.choices else None
+            if not choice:
+                continue
+            delta = choice.delta
+            content = delta.content if delta else None
+            tool_calls = None
+            if delta and delta.tool_calls:
+                tool_calls = [
+                    {
+                        "index": tc.index,
+                        "id": tc.id or "",
+                        "function": {
+                            "name": (tc.function.name or "") if tc.function else "",
+                            "arguments": (
+                                (tc.function.arguments or "") if tc.function else ""
+                            ),
+                        },
+                    }
+                    for tc in delta.tool_calls
+                ]
+            finish = choice.finish_reason
+            if content or tool_calls or finish:
+                yield StreamChunk(
+                    content=content,
+                    tool_calls=tool_calls,
+                    finish_reason=finish,
+                )
+
+    async def _stream_full_anthropic(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        **kwargs: Any,
+    ) -> AsyncIterator[StreamChunk]:
+        """Yield StreamChunks from an Anthropic streaming response."""
+        if self._anthropic_client is None:
+            raise EngineConnectionError("Anthropic client not available")
+        system_text, chat_msgs = self._prepare_anthropic_messages(messages)
+        create_kwargs: Dict[str, Any] = {
+            "model": model,
+            "messages": chat_msgs,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if system_text:
+            create_kwargs["system"] = system_text
+        raw_tools = kwargs.pop("tools", None)
+        if raw_tools:
+            create_kwargs["tools"] = _convert_tools_to_anthropic(raw_tools)
+        kwargs.pop("tool_choice", None)
+
+        with self._anthropic_client.messages.stream(**create_kwargs) as stream:
+            tool_index = -1
+            for event in stream:
+                if event.type == "content_block_start":
+                    block = event.content_block
+                    if block.type == "tool_use":
+                        tool_index += 1
+                        yield StreamChunk(
+                            tool_calls=[
+                                {
+                                    "index": tool_index,
+                                    "id": block.id,
+                                    "function": {"name": block.name, "arguments": ""},
+                                }
+                            ]
+                        )
+                elif event.type == "content_block_delta":
+                    delta = event.delta
+                    if delta.type == "text_delta":
+                        yield StreamChunk(content=delta.text)
+                    elif delta.type == "input_json_delta":
+                        yield StreamChunk(
+                            tool_calls=[
+                                {
+                                    "index": tool_index,
+                                    "function": {"arguments": delta.partial_json},
+                                }
+                            ]
+                        )
+                elif event.type == "message_delta":
+                    stop_reason = event.delta.stop_reason
+                    finish = "tool_calls" if stop_reason == "tool_use" else "stop"
+                    yield StreamChunk(finish_reason=finish)
+
+    async def stream_full(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+        **kwargs: Any,
+    ) -> AsyncIterator[StreamChunk]:
+        """Yield StreamChunks with content, tool_calls, and finish_reason."""
+        kw = dict(
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs,
+        )
+        if _is_anthropic_model(model):
+            async for chunk in self._stream_full_anthropic(messages, **kw):
+                yield chunk
+        elif _is_google_model(model):
+            async for chunk in super().stream_full(messages, **kw):
+                yield chunk
+        else:
+            async for chunk in self._stream_full_openai(messages, **kw):
+                yield chunk
 
     def list_models(self) -> List[str]:
         models: List[str] = []

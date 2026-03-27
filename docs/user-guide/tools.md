@@ -204,7 +204,7 @@ All built-in tools are registered via `@ToolRegistry.register()` and are availab
 | **Scheduler** | `pause_scheduled_task` | Pause an active scheduled task |
 | **Scheduler** | `resume_scheduled_task` | Resume a paused scheduled task |
 | **Scheduler** | `cancel_scheduled_task` | Cancel a scheduled task permanently |
-| **Integration** | `mcp_adapter` | Bridge to external MCP tool servers |
+| **Integration** | `mcp_adapter` | Bridge to external MCP tool servers (see [External MCP Servers](mcp-external-servers.md)) |
 
 ---
 

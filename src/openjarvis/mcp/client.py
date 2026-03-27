@@ -47,12 +47,35 @@ class MCPClient:
     def initialize(self) -> Dict[str, Any]:
         """Perform the MCP initialize handshake.
 
+        Sends the required client info and protocol version, then
+        confirms with a ``notifications/initialized`` notification
+        as required by the MCP specification.
+
         Returns the server capabilities.
         """
-        response = self._send("initialize")
+        params = {
+            "protocolVersion": "2025-03-26",
+            "capabilities": {},
+            "clientInfo": {"name": "openjarvis", "version": "0.1.0"},
+        }
+        response = self._send("initialize", params)
         self._initialized = True
         self._capabilities = response.result.get("capabilities", {})
+        # Send the required initialized notification per MCP spec
+        self.notify("notifications/initialized")
         return response.result
+
+    def notify(self, method: str, params: Dict[str, Any] | None = None) -> None:
+        """Send a JSON-RPC notification (no response expected).
+
+        Per JSON-RPC 2.0 spec, notifications omit the ``id`` field entirely.
+        """
+        request = MCPRequest(
+            method=method,
+            params=params or {},
+            id=None,  # None → no id field in JSON (notification)
+        )
+        self._transport.send_notification(request)
 
     def list_tools(self) -> List[ToolSpec]:
         """Discover available tools from the server.
@@ -71,7 +94,9 @@ class MCPClient:
         ]
 
     def call_tool(
-        self, name: str, arguments: Dict[str, Any] | None = None,
+        self,
+        name: str,
+        arguments: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         """Call a tool on the server.
 
@@ -86,6 +111,12 @@ class MCPClient:
     def close(self) -> None:
         """Close the transport connection."""
         self._transport.close()
+
+    def __enter__(self) -> MCPClient:
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        self.close()
 
 
 __all__ = ["MCPClient"]

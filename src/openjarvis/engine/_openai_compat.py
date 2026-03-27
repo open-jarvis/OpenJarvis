@@ -16,6 +16,7 @@ from openjarvis.engine._base import (
     estimate_prompt_tokens,
     messages_to_dicts,
 )
+from openjarvis.engine._stubs import StreamChunk
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,9 @@ class _OpenAICompatibleEngine(InferenceEngine):
             "stream": False,
             **kwargs,
         }
+        # Default to tool_choice=auto when tools are provided
+        if "tools" in payload and "tool_choice" not in payload:
+            payload["tool_choice"] = "auto"
         try:
             url = f"{self._api_prefix}/chat/completions"
             resp = self._client.post(url, json=payload)
@@ -122,6 +126,9 @@ class _OpenAICompatibleEngine(InferenceEngine):
             "stream": True,
             **kwargs,
         }
+        # Default to tool_choice=auto when tools are provided
+        if "tools" in payload and "tool_choice" not in payload:
+            payload["tool_choice"] = "auto"
         try:
             url = f"{self._api_prefix}/chat/completions"
             with self._client.stream("POST", url, json=payload) as resp:
@@ -129,7 +136,7 @@ class _OpenAICompatibleEngine(InferenceEngine):
                 for line in resp.iter_lines():
                     if not line.startswith("data:"):
                         continue
-                    data_str = line[len("data:"):].strip()
+                    data_str = line[len("data:") :].strip()
                     if data_str == "[DONE]":
                         break
                     try:
@@ -145,16 +152,74 @@ class _OpenAICompatibleEngine(InferenceEngine):
                 f"{self.engine_id} engine not reachable at {self._host}"
             ) from exc
 
+    async def stream_full(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+        **kwargs: Any,
+    ) -> AsyncIterator["StreamChunk"]:
+        """Yield StreamChunks with content, tool_calls, and finish_reason."""
+        msg_dicts = messages_to_dicts(messages)
+        payload: Dict[str, Any] = {
+            "model": model,
+            "messages": msg_dicts,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+            **kwargs,
+        }
+        if "tools" in payload and "tool_choice" not in payload:
+            payload["tool_choice"] = "auto"
+        try:
+            url = f"{self._api_prefix}/chat/completions"
+            with self._client.stream("POST", url, json=payload) as resp:
+                resp.raise_for_status()
+                for line in resp.iter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    data_str = line[len("data:") :].strip()
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+                    choice = chunk.get("choices", [{}])[0]
+                    delta = choice.get("delta", {})
+                    finish = choice.get("finish_reason")
+                    content = delta.get("content")
+                    tool_calls = delta.get("tool_calls")
+                    usage = chunk.get("usage")
+
+                    if content or tool_calls or finish or usage:
+                        yield StreamChunk(
+                            content=content,
+                            tool_calls=tool_calls,
+                            finish_reason=finish,
+                            usage=usage,
+                        )
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            raise EngineConnectionError(
+                f"{self.engine_id} engine not reachable at {self._host}"
+            ) from exc
+
     def list_models(self) -> List[str]:
         try:
             resp = self._client.get(f"{self._api_prefix}/models")
             resp.raise_for_status()
         except (
-            httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError,
+            httpx.ConnectError,
+            httpx.TimeoutException,
+            httpx.HTTPStatusError,
         ) as exc:
             logger.warning(
                 "Failed to list models from %s at %s: %s",
-                self.engine_id, self._host, exc,
+                self.engine_id,
+                self._host,
+                exc,
             )
             return []
         data = resp.json()
@@ -167,7 +232,9 @@ class _OpenAICompatibleEngine(InferenceEngine):
         except Exception as exc:
             logger.debug(
                 "%s health check failed at %s: %s",
-                self.engine_id, self._host, exc,
+                self.engine_id,
+                self._host,
+                exc,
             )
             return False
 

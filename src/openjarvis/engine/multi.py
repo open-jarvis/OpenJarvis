@@ -6,7 +6,9 @@ import logging
 from collections.abc import AsyncIterator, Sequence
 from typing import Any, Dict, List
 
+from openjarvis.core.types import Message
 from openjarvis.engine._base import InferenceEngine
+from openjarvis.engine._stubs import StreamChunk
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +67,7 @@ class MultiEngine(InferenceEngine):
 
     def generate(
         self,
-        messages: Sequence[Any],
+        messages: Sequence[Message],
         *,
         model: str,
         temperature: float = 0.7,
@@ -73,13 +75,16 @@ class MultiEngine(InferenceEngine):
         **kwargs: Any,
     ) -> Dict[str, Any]:
         return self._engine_for(model).generate(
-            messages, model=model, temperature=temperature,
-            max_tokens=max_tokens, **kwargs,
+            messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs,
         )
 
     async def stream(
         self,
-        messages: Sequence[Any],
+        messages: Sequence[Message],
         *,
         model: str,
         temperature: float = 0.7,
@@ -87,10 +92,25 @@ class MultiEngine(InferenceEngine):
         **kwargs: Any,
     ) -> AsyncIterator[str]:
         async for token in self._engine_for(model).stream(
-            messages, model=model, temperature=temperature,
-            max_tokens=max_tokens, **kwargs,
+            messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs,
         ):
             yield token
+
+    async def stream_full(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        **kwargs: Any,
+    ) -> AsyncIterator["StreamChunk"]:
+        """Delegate stream_full() to the engine that owns the model."""
+        engine = self._engine_for(model)
+        async for chunk in engine.stream_full(messages, model=model, **kwargs):
+            yield chunk
 
     def list_models(self) -> List[str]:
         self._refresh_map()
