@@ -12,6 +12,15 @@ from openjarvis.connectors.retriever import ColBERTReranker, Reranker, TwoStageR
 from openjarvis.connectors.store import KnowledgeStore
 from openjarvis.tools.storage._stubs import RetrievalResult
 
+
+def _has_torch() -> bool:
+    try:
+        import torch  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -215,6 +224,9 @@ def test_retrieve_recall_k_larger_than_top_k(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(
+    not _has_torch(), reason="torch required for embedding tests",
+)
 def test_reranker_uses_cached_embeddings() -> None:
     """ColBERTReranker checks EmbeddingStore.get() before calling docFromText().
 
@@ -265,6 +277,9 @@ def test_reranker_uses_cached_embeddings() -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(
+    not _has_torch(), reason="torch required for embedding tests",
+)
 def test_reranker_caches_new_embeddings() -> None:
     """When EmbeddingStore.get() returns None, docFromText() is called and
     the result is stored back via EmbeddingStore.store()."""
