@@ -55,15 +55,18 @@ class TwitterChannel(BaseChannel):
         bus: Optional[EventBus] = None,
     ) -> None:
         self._bearer_token = bearer_token or os.environ.get(
-            "TWITTER_BEARER_TOKEN", "",
+            "TWITTER_BEARER_TOKEN",
+            "",
         )
         self._api_key = api_key or os.environ.get("TWITTER_API_KEY", "")
         self._api_secret = api_secret or os.environ.get("TWITTER_API_SECRET", "")
         self._access_token = access_token or os.environ.get(
-            "TWITTER_ACCESS_TOKEN", "",
+            "TWITTER_ACCESS_TOKEN",
+            "",
         )
         self._access_secret = access_secret or os.environ.get(
-            "TWITTER_ACCESS_SECRET", "",
+            "TWITTER_ACCESS_SECRET",
+            "",
         )
         self._poll_interval = poll_interval
         self._bus = bus
@@ -99,7 +102,8 @@ class TwitterChannel(BaseChannel):
 
             if self._access_token:
                 self._poll_thread = threading.Thread(
-                    target=self._poll_loop, daemon=True,
+                    target=self._poll_loop,
+                    daemon=True,
                 )
                 self._poll_thread.start()
         except ImportError:
@@ -189,7 +193,8 @@ class TwitterChannel(BaseChannel):
                     continue
 
                 response = self._client.get_users_mentions(
-                    id=user_id, **kwargs,
+                    id=user_id,
+                    **kwargs,
                 )
 
                 if response and response.data:
@@ -225,7 +230,10 @@ class TwitterChannel(BaseChannel):
             self._stop_event.wait(self._poll_interval)
 
     def _publish_sent(
-        self, channel: str, content: str, conversation_id: str,
+        self,
+        channel: str,
+        content: str,
+        conversation_id: str,
     ) -> None:
         """Publish a CHANNEL_MESSAGE_SENT event on the bus."""
         if self._bus is not None:

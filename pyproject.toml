@@ -83,6 +83,7 @@ channel-rocketchat = ["rocketchat-API>=1.30"]
 channel-zulip = ["zulip>=0.9"]
 channel-twitch = ["twitchio>=2.6"]
 channel-nostr = ["pynostr>=0.6"]
+channel-twilio = ["twilio>=9.0"]
 channel-gmail = [
     "google-api-python-client>=2.0",
     "google-auth-oauthlib>=1.0",

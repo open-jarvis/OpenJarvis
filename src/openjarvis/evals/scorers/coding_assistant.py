@@ -56,7 +56,11 @@ def _extract_test_functions(test_code: str) -> Dict[str, str]:
             current_name = match.group(1) if match else None
             current_lines = [line]
         elif current_name is not None:
-            if line.strip() and not line.startswith((" ", "\t")) and not stripped.startswith("#"):
+            if (
+                line.strip()
+                and not line.startswith((" ", "\t"))
+                and not stripped.startswith("#")
+            ):
                 # New top-level definition — end of current test
                 tests[current_name] = "\n".join(preamble + current_lines)
                 current_name = None
@@ -83,6 +87,7 @@ def _run_single_test(code: str, test_code: str) -> bool:
     """Run a single test function against the given code. Returns True if passes."""
     # Make the code importable as 'solution'
     import types
+
     mod = types.ModuleType("solution")
     try:
         exec(code, mod.__dict__)  # noqa: S102
@@ -90,6 +95,7 @@ def _run_single_test(code: str, test_code: str) -> bool:
         return False
 
     import sys
+
     sys.modules["solution"] = mod
     try:
         exec(test_code, {"__name__": "__main__"})  # noqa: S102
@@ -109,7 +115,9 @@ class CodingAssistantScorer(Scorer):
         pass
 
     def score(
-        self, record: EvalRecord, model_answer: str,
+        self,
+        record: EvalRecord,
+        model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         if not model_answer or not model_answer.strip():
             return False, {"reason": "empty_response"}

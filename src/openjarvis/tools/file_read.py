@@ -29,10 +29,7 @@ class FileReadTool(BaseTool):
     def spec(self) -> ToolSpec:
         return ToolSpec(
             name="file_read",
-            description=(
-                "Read the contents of a file."
-                " Returns the text content."
-            ),
+            description=("Read the contents of a file. Returns the text content."),
             parameters={
                 "type": "object",
                 "properties": {
@@ -42,10 +39,7 @@ class FileReadTool(BaseTool):
                     },
                     "max_lines": {
                         "type": "integer",
-                        "description": (
-                            "Max lines to return"
-                            " (default: all)."
-                        ),
+                        "description": ("Max lines to return (default: all)."),
                     },
                 },
                 "required": ["path"],
@@ -116,6 +110,7 @@ class FileReadTool(BaseTool):
             )
         try:
             from openjarvis._rust_bridge import get_rust_module
+
             _rust = get_rust_module()
             text = _rust.FileReadTool().execute(str(path))
         except ImportError:

@@ -137,8 +137,7 @@ class DatabaseQueryTool(BaseTool):
                     "max_rows": {
                         "type": "integer",
                         "description": (
-                            "Maximum number of result rows to return."
-                            " Default: 100."
+                            "Maximum number of result rows to return. Default: 100."
                         ),
                     },
                 },
@@ -178,7 +177,10 @@ class DatabaseQueryTool(BaseTool):
         # Route to the appropriate backend
         if db_url:
             return self._execute_postgresql(
-                query, db_url, read_only, max_rows,
+                query,
+                db_url,
+                read_only,
+                max_rows,
             )
         return self._execute_sqlite(query, db_path, read_only, max_rows)
 
@@ -249,8 +251,7 @@ class DatabaseQueryTool(BaseTool):
                 content = _format_table(column_names, rows)
             else:
                 content = (
-                    f"Query executed successfully."
-                    f" Rows affected: {cursor.rowcount}"
+                    f"Query executed successfully. Rows affected: {cursor.rowcount}"
                 )
 
             return ToolResult(
@@ -330,8 +331,7 @@ class DatabaseQueryTool(BaseTool):
                 content = _format_table(column_names, rows)
             else:
                 content = (
-                    f"Query executed successfully."
-                    f" Rows affected: {cursor.rowcount}"
+                    f"Query executed successfully. Rows affected: {cursor.rowcount}"
                 )
 
             return ToolResult(

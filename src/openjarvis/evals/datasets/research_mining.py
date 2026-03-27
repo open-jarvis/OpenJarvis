@@ -245,14 +245,16 @@ class ResearchMiningDataset(DatasetProvider):
                 domain=q["domain"],
                 scope=q["scope"],
             )
-            self._records.append(EvalRecord(
-                record_id=f"research-mining-{idx}",
-                problem=prompt,
-                reference=q["key_facts"],
-                category="use-case",
-                subject="research_mining",
-                metadata={"domain": q["domain"], "scope": q["scope"]},
-            ))
+            self._records.append(
+                EvalRecord(
+                    record_id=f"research-mining-{idx}",
+                    problem=prompt,
+                    reference=q["key_facts"],
+                    category="use-case",
+                    subject="research_mining",
+                    metadata={"domain": q["domain"], "scope": q["scope"]},
+                )
+            )
 
     def iter_records(self) -> Iterable[EvalRecord]:
         return iter(self._records)

@@ -69,12 +69,12 @@ class SteadyStateDetector:
             return True
 
         # Not enough post-warmup samples for a full window yet
-        post_warmup = self._throughputs[cfg.warmup_samples:]
+        post_warmup = self._throughputs[cfg.warmup_samples :]
         if len(post_warmup) < cfg.window_size:
             return False
 
         # Compute CV over the last window_size values
-        window = post_warmup[-cfg.window_size:]
+        window = post_warmup[-cfg.window_size :]
         mean = statistics.mean(window)
         if mean == 0:
             self._consecutive_stable = 0

@@ -18,7 +18,9 @@ class PersonalBenchmarkScorer(LLMJudgeScorer):
         super().__init__(judge_backend, judge_model)
 
     def score(
-        self, record: EvalRecord, model_answer: str,
+        self,
+        record: EvalRecord,
+        model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         """Compare *model_answer* against *record.reference* using the judge LLM.
 
@@ -37,7 +39,8 @@ class PersonalBenchmarkScorer(LLMJudgeScorer):
             "then explain your reasoning."
         )
         response = self._ask_judge(
-            prompt, system="You are an impartial quality judge.",
+            prompt,
+            system="You are an impartial quality judge.",
         )
         first_line = response.strip().split("\n")[0].strip().upper()
         is_correct = first_line.startswith("YES")

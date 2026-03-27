@@ -47,9 +47,7 @@ class ShellExecTool(BaseTool):
                     },
                     "timeout": {
                         "type": "integer",
-                        "description": (
-                            "Timeout in seconds (default 30, max 300)."
-                        ),
+                        "description": ("Timeout in seconds (default 30, max 300)."),
                     },
                     "working_dir": {
                         "type": "string",
@@ -127,6 +125,7 @@ class ShellExecTool(BaseTool):
 
         try:
             from openjarvis._rust_bridge import get_rust_module
+
             _rust = get_rust_module()
             output = _rust.ShellExecTool().execute(command, working_dir)
             return ToolResult(

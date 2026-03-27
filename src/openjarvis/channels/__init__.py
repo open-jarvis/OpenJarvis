@@ -38,6 +38,7 @@ _CHANNEL_MODULES = [
     "zulip_channel",
     "twitch_channel",
     "nostr_channel",
+    "twilio_sms",
     "twitter",
     "gmail",
 ]

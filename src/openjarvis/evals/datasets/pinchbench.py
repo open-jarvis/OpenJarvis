@@ -102,7 +102,9 @@ class PinchBenchDataset(DatasetProvider):
     def verify_requirements(self) -> List[str]:
         issues: List[str] = []
         if self._local_path is None and shutil.which("git") is None:
-            issues.append("git binary not found. Install git to clone PinchBench tasks.")
+            issues.append(
+                "git binary not found. Install git to clone PinchBench tasks."
+            )
         if self._repo_dir.exists() and not (self._repo_dir / "tasks").is_dir():
             issues.append(
                 f"PinchBench cache at {self._repo_dir} is corrupted (missing tasks/). "
@@ -114,7 +116,9 @@ class PinchBenchDataset(DatasetProvider):
         """Clone the repo if not already cached. Returns repo dir."""
         if self._local_path is not None:
             if not self._local_path.exists():
-                raise FileNotFoundError(f"PinchBench path not found: {self._local_path}")
+                raise FileNotFoundError(
+                    f"PinchBench path not found: {self._local_path}"
+                )
             return self._local_path
 
         if not self._repo_dir.exists():
@@ -200,6 +204,7 @@ class PinchBenchDataset(DatasetProvider):
 
     def create_task_env(self, record: EvalRecord):
         from openjarvis.evals.execution.pinchbench_env import PinchBenchTaskEnv
+
         return PinchBenchTaskEnv(
             record,
             judge_backend=getattr(self, "_judge_backend", None),

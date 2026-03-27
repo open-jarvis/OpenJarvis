@@ -41,8 +41,7 @@ class PaperArenaDataset(DatasetProvider):
         cache_dir: Optional[str] = None,
     ) -> None:
         self._cache_dir = (
-            Path(cache_dir) if cache_dir
-            else Path.home() / ".cache" / "paperarena"
+            Path(cache_dir) if cache_dir else Path.home() / ".cache" / "paperarena"
         )
         self._records: List[EvalRecord] = []
 
@@ -143,10 +142,10 @@ class PaperArenaDataset(DatasetProvider):
         prompt += f"## Question\n{question}"
 
         if options and question_type == "MC":
-            options_text = "\n".join(
-                f"  {k}) {v}" for k, v in options.items()
-            ) if isinstance(options, dict) else "\n".join(
-                f"  {chr(65 + i)}) {o}" for i, o in enumerate(options)
+            options_text = (
+                "\n".join(f"  {k}) {v}" for k, v in options.items())
+                if isinstance(options, dict)
+                else "\n".join(f"  {chr(65 + i)}) {o}" for i, o in enumerate(options))
             )
             prompt += f"\n\nOptions:\n{options_text}"
 

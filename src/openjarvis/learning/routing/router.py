@@ -126,9 +126,8 @@ class HeuristicRouter(RouterPolicy):
 
         # Rule 1: Code detected → prefer model with code/coder in name
         if context.has_code:
-            code_model = (
-                _find_model_by_tag(available, "code")
-                or _find_model_by_tag(available, "coder")
+            code_model = _find_model_by_tag(available, "code") or _find_model_by_tag(
+                available, "coder"
             )
             if code_model:
                 return code_model

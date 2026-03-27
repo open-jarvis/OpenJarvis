@@ -64,8 +64,7 @@ class ViberChannel(BaseChannel):
             import viberbot  # noqa: F401
         except ImportError:
             raise ImportError(
-                "viberbot not installed. Install with: "
-                "uv sync --extra channel-viber"
+                "viberbot not installed. Install with: uv sync --extra channel-viber"
             )
         self._status = ChannelStatus.CONNECTED
 

@@ -156,9 +156,9 @@ class AgentConfigEvolver:
             return None
 
         # Pick best agent by composite score
-        best_agent = max(
-            agent_scores.items(), key=lambda kv: kv[1].composite_score()
-        )[0]
+        best_agent = max(agent_scores.items(), key=lambda kv: kv[1].composite_score())[
+            0
+        ]
 
         # Rank tools by composite score (frequency-weighted quality)
         ranked_tools = sorted(
@@ -240,20 +240,24 @@ class AgentConfigEvolver:
         pattern = f"{agent_name}.v*.toml"
         archived = sorted(self._history_dir.glob(pattern))
         for idx, archived_path in enumerate(archived, start=1):
-            versions.append({
-                "version": idx,
-                "path": str(archived_path),
-                "modified": archived_path.stat().st_mtime,
-            })
+            versions.append(
+                {
+                    "version": idx,
+                    "path": str(archived_path),
+                    "modified": archived_path.stat().st_mtime,
+                }
+            )
 
         # Current version
         current = self._config_dir / f"{agent_name}.toml"
         if current.exists():
-            versions.append({
-                "version": len(versions) + 1,
-                "path": str(current),
-                "modified": current.stat().st_mtime,
-            })
+            versions.append(
+                {
+                    "version": len(versions) + 1,
+                    "path": str(current),
+                    "modified": current.stat().st_mtime,
+                }
+            )
 
         return versions
 

@@ -13,6 +13,7 @@ from typing import Dict, FrozenSet, Optional, Set
 
 class TaintLabel(str, Enum):
     """Labels for tainted data."""
+
     PII = "pii"
     SECRET = "secret"
     USER_PRIVATE = "user_private"
@@ -22,6 +23,7 @@ class TaintLabel(str, Enum):
 @dataclass(frozen=True)
 class TaintSet:
     """Immutable set of taint labels attached to data."""
+
     labels: FrozenSet[TaintLabel] = field(default_factory=frozenset)
 
     def union(self, other: TaintSet) -> TaintSet:
@@ -52,14 +54,14 @@ SINK_POLICY: Dict[str, Set[TaintLabel]] = {
 
 # Patterns for auto-detecting taint in text
 _PII_PATTERNS = [
-    re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),                    # SSN
+    re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),  # SSN
     re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"),  # email
     re.compile(r"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b"),  # credit card
     re.compile(r"\b\+?1?\s*\(?[2-9]\d{2}\)?\s*[-.\s]?\d{3}\s*[-.\s]?\d{4}\b"),  # phone
 ]
 
 _SECRET_PATTERNS = [
-    re.compile(r"(?:sk|pk|api)[_-][a-zA-Z0-9]{20,}"),        # API keys
+    re.compile(r"(?:sk|pk|api)[_-][a-zA-Z0-9]{20,}"),  # API keys
     re.compile(r"(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{36,}"),  # GitHub tokens
     re.compile(r"-----BEGIN (?:RSA |EC |DSA )?PRIVATE KEY-----"),  # Private keys
     re.compile(
@@ -80,13 +82,9 @@ def check_taint(tool_name: str, taint: TaintSet) -> Optional[str]:
     violations = taint.labels & forbidden
     if violations:
         labels_str = ", ".join(
-            v.value
-            for v in sorted(violations, key=lambda x: x.value)
+            v.value for v in sorted(violations, key=lambda x: x.value)
         )
-        return (
-            f"Data with labels [{labels_str}] "
-            f"cannot be sent to '{tool_name}'."
-        )
+        return f"Data with labels [{labels_str}] cannot be sent to '{tool_name}'."
     return None
 
 

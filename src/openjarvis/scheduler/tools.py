@@ -93,11 +93,13 @@ class ScheduleTaskTool(BaseTool):
             )
             return ToolResult(
                 tool_name="schedule_task",
-                content=json.dumps({
-                    "task_id": task.id,
-                    "next_run": task.next_run,
-                    "status": task.status,
-                }),
+                content=json.dumps(
+                    {
+                        "task_id": task.id,
+                        "next_run": task.next_run,
+                        "status": task.status,
+                    }
+                ),
                 success=True,
             )
         except Exception as exc:

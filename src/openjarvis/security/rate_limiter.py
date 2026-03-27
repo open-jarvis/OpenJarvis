@@ -13,6 +13,7 @@ __all__ = ["RateLimitConfig", "RateLimiter", "TokenBucket"]
 @dataclass(slots=True)
 class RateLimitConfig:
     """Configuration for rate limiting."""
+
     requests_per_minute: int = 60
     burst_size: int = 10  # max tokens in bucket
     enabled: bool = True
@@ -67,6 +68,7 @@ class RateLimiter:
         self._lock = threading.Lock()
 
         from openjarvis._rust_bridge import get_rust_module
+
         _rust = get_rust_module()
         self._rust_impl = _rust.RateLimiter(
             requests_per_minute=self._config.requests_per_minute,

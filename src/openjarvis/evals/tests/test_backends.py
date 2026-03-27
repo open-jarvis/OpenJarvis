@@ -99,7 +99,8 @@ class TestJarvisAgentBackend:
         from openjarvis.evals.backends.jarvis_agent import JarvisAgentBackend
 
         backend = JarvisAgentBackend(
-            engine_key="cloud", agent_name="orchestrator",
+            engine_key="cloud",
+            agent_name="orchestrator",
             tools=["calculator", "think"],
         )
         assert backend.backend_id == "jarvis-agent"

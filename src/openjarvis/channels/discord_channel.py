@@ -62,7 +62,8 @@ class DiscordChannel(BaseChannel):
             import discord  # noqa: F401
 
             self._listener_thread = threading.Thread(
-                target=self._gateway_loop, daemon=True,
+                target=self._gateway_loop,
+                daemon=True,
             )
             self._listener_thread.start()
             self._status = ChannelStatus.CONNECTED
@@ -107,7 +108,10 @@ class DiscordChannel(BaseChannel):
                 payload["message_reference"] = {"message_id": conversation_id}
 
             resp = httpx.post(
-                url, json=payload, headers=headers, timeout=10.0,
+                url,
+                json=payload,
+                headers=headers,
+                timeout=10.0,
             )
             if resp.status_code < 300:
                 self._publish_sent(channel, content, conversation_id)

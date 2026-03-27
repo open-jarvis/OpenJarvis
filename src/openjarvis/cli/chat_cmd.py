@@ -162,8 +162,7 @@ def chat(
             continue
         elif cmd == "/model":
             console.print(
-                f"Model: [cyan]{model}[/cyan]  "
-                f"Engine: [cyan]{engine_name}[/cyan]"
+                f"Model: [cyan]{model}[/cyan]  Engine: [cyan]{engine_name}[/cyan]"
             )
             continue
         elif cmd == "/help":
@@ -183,9 +182,7 @@ def chat(
                 for msg in history:
                     role_str = msg.role if isinstance(msg.role, str) else msg.role.value
                     role = role_str.upper()
-                    console.print(
-                        f"[bold]{role}:[/bold] {msg.content[:200]}"
-                    )
+                    console.print(f"[bold]{role}:[/bold] {msg.content[:200]}")
             continue
 
         # Add user message
@@ -196,9 +193,7 @@ def chat(
             if agent is not None:
                 response = agent.run(user_input)
                 content = (
-                    response.content
-                    if hasattr(response, "content")
-                    else str(response)
+                    response.content if hasattr(response, "content") else str(response)
                 )
             else:
                 result = engine.generate(history, model=model)

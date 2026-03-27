@@ -116,9 +116,7 @@ class SchedulerStore:
 
     def delete_task(self, task_id: str) -> None:
         """Delete a task by ID."""
-        self._conn.execute(
-            "DELETE FROM scheduled_tasks WHERE id = ?", (task_id,)
-        )
+        self._conn.execute("DELETE FROM scheduled_tasks WHERE id = ?", (task_id,))
         self._conn.commit()
 
     # -- Run logs ------------------------------------------------------------
@@ -139,13 +137,10 @@ class SchedulerStore:
         )
         self._conn.commit()
 
-    def get_run_logs(
-        self, task_id: str, limit: int = 10
-    ) -> List[Dict[str, Any]]:
+    def get_run_logs(self, task_id: str, limit: int = 10) -> List[Dict[str, Any]]:
         """Return the most recent run logs for *task_id*."""
         rows = self._conn.execute(
-            "SELECT * FROM task_run_logs WHERE task_id = ? "
-            "ORDER BY id DESC LIMIT ?",
+            "SELECT * FROM task_run_logs WHERE task_id = ? ORDER BY id DESC LIMIT ?",
             (task_id, limit),
         ).fetchall()
         return [dict(r) for r in rows]

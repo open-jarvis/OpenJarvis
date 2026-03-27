@@ -172,7 +172,8 @@ class WebChoreArenaTaskEnv:
 
         responses: List[str] = []
         intent = self._task_config.get(
-            "intent", self._task_config.get("intent_template", ""),
+            "intent",
+            self._task_config.get("intent_template", ""),
         )
 
         for step_idx in range(max_steps):
@@ -249,7 +250,9 @@ class WebChoreArenaTaskEnv:
 
         LOGGER.info(
             "WebChoreArena eval: task=%s score=%.2f resolved=%s",
-            self._metadata.get("task_id", "?"), score, is_resolved,
+            self._metadata.get("task_id", "?"),
+            score,
+            is_resolved,
         )
 
     # -- StringEvaluator (exact_match, must_include, fuzzy_match) ------
@@ -270,7 +273,8 @@ class WebChoreArenaTaskEnv:
                 must_score = 0.0
                 for must_value in value:
                     must_score += _must_include(
-                        ref=str(must_value), pred=pred,
+                        ref=str(must_value),
+                        pred=pred,
                         tokenize=(len(value) == 1),
                     )
                 must_score /= len(value)
@@ -293,7 +297,9 @@ class WebChoreArenaTaskEnv:
                     else:
                         fuzzy_value = str(value)
                     score *= self._llm_fuzzy_match(
-                        pred=pred, reference=fuzzy_value, intent=intent,
+                        pred=pred,
+                        reference=fuzzy_value,
+                        intent=intent,
                     )
 
         return score
@@ -336,16 +342,13 @@ class WebChoreArenaTaskEnv:
 
             pred_base_path, pred_query = _parse_url(current_url)
 
-            base_score = float(any(
-                rbp in pred_base_path for rbp in ref_base_paths
-            ))
+            base_score = float(any(rbp in pred_base_path for rbp in ref_base_paths))
 
             query_score = 1.0
             for k, possible_values in ref_queries.items():
-                query_score *= float(any(
-                    pv in pred_query.get(k, [])
-                    for pv in possible_values
-                ))
+                query_score *= float(
+                    any(pv in pred_query.get(k, []) for pv in possible_values)
+                )
 
             or_scores.append(base_score * query_score)
 
@@ -450,10 +453,12 @@ class WebChoreArenaTaskEnv:
             scores: List[float] = []
             for content in contents:
                 content_or = str(content).split(" |OR| ")
-                s = float(any(
-                    _must_include(ref=c, pred=selected_element, tokenize=False)
-                    for c in content_or
-                ))
+                s = float(
+                    any(
+                        _must_include(ref=c, pred=selected_element, tokenize=False)
+                        for c in content_or
+                    )
+                )
                 scores.append(s)
             return sum(scores) / len(scores) if scores else 0.0
         else:
@@ -528,6 +533,7 @@ class WebChoreArenaTaskEnv:
         """Call an LLM judge for fuzzy/ua matching."""
         try:
             from openjarvis.evals.core.backend import InferenceBackend
+
             backend = InferenceBackend.create_default()
             return backend.generate(
                 prompt,
@@ -557,21 +563,20 @@ class WebChoreArenaTaskEnv:
             if action_lower.startswith("click"):
                 elem_id = _extract_bracket_arg(action_text)
                 if elem_id:
-                    self._page.locator(f"[data-webarena-id='{elem_id}']").click(timeout=5000)
+                    self._page.locator(f"[data-webarena-id='{elem_id}']").click(
+                        timeout=5000
+                    )
             elif action_lower.startswith("type"):
                 parts = action_text.split("]", 1)
                 elem_id = (
-                    _extract_bracket_arg(parts[0] + "]")
-                    if "]" in action_text else None
+                    _extract_bracket_arg(parts[0] + "]") if "]" in action_text else None
                 )
-                text = (
-                    parts[1].strip().strip("[]")
-                    if len(parts) > 1 else ""
-                )
+                text = parts[1].strip().strip("[]") if len(parts) > 1 else ""
                 if elem_id:
                     loc = f"[data-webarena-id='{elem_id}']"
                     self._page.locator(loc).fill(
-                        text, timeout=5000,
+                        text,
+                        timeout=5000,
                     )
             elif action_lower.startswith("scroll"):
                 if "down" in action_lower:
@@ -580,8 +585,7 @@ class WebChoreArenaTaskEnv:
                     self._page.mouse.wheel(0, -300)
             elif action_lower.startswith("goto"):
                 url = (
-                    action_text.split(None, 1)[1].strip()
-                    if " " in action_text else ""
+                    action_text.split(None, 1)[1].strip() if " " in action_text else ""
                 )
                 if url:
                     self._page.goto(
@@ -593,17 +597,21 @@ class WebChoreArenaTaskEnv:
             elif action_lower.startswith("hover"):
                 elem_id = _extract_bracket_arg(action_text)
                 if elem_id:
-                    self._page.locator(f"[data-webarena-id='{elem_id}']").hover(timeout=5000)
+                    self._page.locator(f"[data-webarena-id='{elem_id}']").hover(
+                        timeout=5000
+                    )
             elif action_lower.startswith("press"):
                 key = (
                     action_text.split(None, 1)[1].strip().strip("[]")
-                    if " " in action_text else "Enter"
+                    if " " in action_text
+                    else "Enter"
                 )
                 self._page.keyboard.press(key)
         except Exception as exc:
             LOGGER.debug(
                 "Action execution error: %s (action: %s)",
-                exc, action_text[:100],
+                exc,
+                action_text[:100],
             )
 
         self._page.wait_for_timeout(1000)
@@ -613,7 +621,10 @@ class WebChoreArenaTaskEnv:
     # ------------------------------------------------------------------
 
     def _build_step_prompt(
-        self, intent: str, step_idx: int, max_steps: int,
+        self,
+        intent: str,
+        step_idx: int,
+        max_steps: int,
     ) -> str:
         parts: List[str] = [_SYSTEM_MSG]
         parts.append(f"## Task\n{intent}")
@@ -643,7 +654,9 @@ class WebChoreArenaTaskEnv:
         """Replace WebArena placeholder hostnames with actual env var values."""
         replacements = {
             "__SHOPPING__": os.environ.get("SHOPPING", "http://localhost:7770"),
-            "__SHOPPING_ADMIN__": os.environ.get("SHOPPING_ADMIN", "http://localhost:7780/admin"),
+            "__SHOPPING_ADMIN__": os.environ.get(
+                "SHOPPING_ADMIN", "http://localhost:7780/admin"
+            ),
             "__REDDIT__": os.environ.get("REDDIT", "http://localhost:9999"),
             "__GITLAB__": os.environ.get("GITLAB", "http://localhost:8023"),
             "__MAP__": os.environ.get("MAP", "http://localhost:3000"),
@@ -691,6 +704,7 @@ def _must_include(ref: str, pred: str, tokenize: bool = False) -> float:
             if tokenize and len(r) == 1:
                 try:
                     from nltk.tokenize import word_tokenize
+
                     tok_pred = word_tokenize(clean_pred)
                     if r in tok_pred:
                         return 1.0
@@ -705,6 +719,7 @@ def _must_include(ref: str, pred: str, tokenize: bool = False) -> float:
     if tokenize and len(clean_ref) == 1:
         try:
             from nltk.tokenize import word_tokenize
+
             tok_pred = word_tokenize(clean_pred)
             return float(clean_ref in tok_pred)
         except ImportError:

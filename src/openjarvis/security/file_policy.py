@@ -5,24 +5,26 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable, List, Union
 
-DEFAULT_SENSITIVE_PATTERNS: frozenset[str] = frozenset({
-    ".env",
-    ".env.*",
-    "*.env",
-    ".secret",
-    "*.secrets",
-    "credentials.*",
-    "*.pem",
-    "*.key",
-    "*.p12",
-    "*.pfx",
-    "*.jks",
-    "id_rsa",
-    "id_ed25519",
-    ".htpasswd",
-    ".pgpass",
-    ".netrc",
-})
+DEFAULT_SENSITIVE_PATTERNS: frozenset[str] = frozenset(
+    {
+        ".env",
+        ".env.*",
+        "*.env",
+        ".secret",
+        "*.secrets",
+        "credentials.*",
+        "*.pem",
+        "*.key",
+        "*.p12",
+        "*.pfx",
+        "*.jks",
+        "id_rsa",
+        "id_ed25519",
+        ".htpasswd",
+        ".pgpass",
+        ".netrc",
+    }
+)
 
 
 def is_sensitive_file(path: Union[str, Path]) -> bool:

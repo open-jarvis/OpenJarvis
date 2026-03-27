@@ -115,8 +115,7 @@ class QueryTrace:
     @property
     def total_gpu_energy_joules(self) -> Optional[float]:
         values = [
-            t.gpu_energy_joules for t in self.turns
-            if t.gpu_energy_joules is not None
+            t.gpu_energy_joules for t in self.turns if t.gpu_energy_joules is not None
         ]
         if values:
             return sum(values)
@@ -125,8 +124,7 @@ class QueryTrace:
     @property
     def total_cpu_energy_joules(self) -> Optional[float]:
         values = [
-            t.cpu_energy_joules for t in self.turns
-            if t.cpu_energy_joules is not None
+            t.cpu_energy_joules for t in self.turns if t.cpu_energy_joules is not None
         ]
         if values:
             return sum(values)
@@ -146,7 +144,8 @@ class QueryTrace:
     def avg_gpu_power_watts(self) -> Optional[float]:
         """Mean GPU power across turns; falls back to query-level power."""
         values = [
-            t.gpu_power_avg_watts for t in self.turns
+            t.gpu_power_avg_watts
+            for t in self.turns
             if t.gpu_power_avg_watts is not None
         ]
         if values:
@@ -157,7 +156,8 @@ class QueryTrace:
     def avg_cpu_power_watts(self) -> Optional[float]:
         """Mean CPU power across turns; falls back to query-level power."""
         values = [
-            t.cpu_power_avg_watts for t in self.turns
+            t.cpu_power_avg_watts
+            for t in self.turns
             if t.cpu_power_avg_watts is not None
         ]
         if values:
@@ -246,31 +246,33 @@ class QueryTrace:
 
         rows = []
         for trace in traces:
-            rows.append({
-                "query_id": trace.query_id,
-                "workload_type": trace.workload_type,
-                "query_text": trace.query_text,
-                "response_text": trace.response_text,
-                "num_turns": trace.num_turns,
-                "total_input_tokens": trace.total_input_tokens,
-                "total_output_tokens": trace.total_output_tokens,
-                "total_tool_calls": trace.total_tool_calls,
-                "total_wall_clock_s": trace.total_wall_clock_s,
-                "total_gpu_energy_joules": trace.total_gpu_energy_joules,
-                "total_cpu_energy_joules": trace.total_cpu_energy_joules,
-                "total_tokens": trace.total_tokens,
-                "total_cost_usd": trace.total_cost_usd,
-                "avg_gpu_power_watts": trace.avg_gpu_power_watts,
-                "avg_cpu_power_watts": trace.avg_cpu_power_watts,
-                "throughput_tokens_per_sec": trace.throughput_tokens_per_sec,
-                "energy_per_token_joules": trace.energy_per_token_joules,
-                "completed": trace.completed,
-                "timed_out": trace.timed_out,
-                "is_resolved": trace.is_resolved,
-                "query_mbu_avg_pct": trace.query_mbu_avg_pct,
-                "query_mbu_max_pct": trace.query_mbu_max_pct,
-                "trace_json": json.dumps(trace.to_dict()),
-            })
+            rows.append(
+                {
+                    "query_id": trace.query_id,
+                    "workload_type": trace.workload_type,
+                    "query_text": trace.query_text,
+                    "response_text": trace.response_text,
+                    "num_turns": trace.num_turns,
+                    "total_input_tokens": trace.total_input_tokens,
+                    "total_output_tokens": trace.total_output_tokens,
+                    "total_tool_calls": trace.total_tool_calls,
+                    "total_wall_clock_s": trace.total_wall_clock_s,
+                    "total_gpu_energy_joules": trace.total_gpu_energy_joules,
+                    "total_cpu_energy_joules": trace.total_cpu_energy_joules,
+                    "total_tokens": trace.total_tokens,
+                    "total_cost_usd": trace.total_cost_usd,
+                    "avg_gpu_power_watts": trace.avg_gpu_power_watts,
+                    "avg_cpu_power_watts": trace.avg_cpu_power_watts,
+                    "throughput_tokens_per_sec": trace.throughput_tokens_per_sec,
+                    "energy_per_token_joules": trace.energy_per_token_joules,
+                    "completed": trace.completed,
+                    "timed_out": trace.timed_out,
+                    "is_resolved": trace.is_resolved,
+                    "query_mbu_avg_pct": trace.query_mbu_avg_pct,
+                    "query_mbu_max_pct": trace.query_mbu_max_pct,
+                    "trace_json": json.dumps(trace.to_dict()),
+                }
+            )
         return Dataset.from_list(rows)
 
 

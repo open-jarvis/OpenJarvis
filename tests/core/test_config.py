@@ -464,9 +464,12 @@ class TestApplyTomlSectionListNormalization:
         from openjarvis.core.config import _apply_toml_section
 
         target = LearningConfig()
-        _apply_toml_section(target, {
-            "reward_weights": ["accuracy=0.8", "latency=0.2"],
-        })
+        _apply_toml_section(
+            target,
+            {
+                "reward_weights": ["accuracy=0.8", "latency=0.2"],
+            },
+        )
         assert target.metrics.accuracy_weight == 0.8
         assert target.metrics.latency_weight == 0.2
 
@@ -475,9 +478,12 @@ class TestApplyTomlSectionListNormalization:
         from openjarvis.core.config import _apply_toml_section
 
         target = AgentConfig()
-        _apply_toml_section(target, {
-            "tools": ["web_search", "http_request", "file_read"],
-        })
+        _apply_toml_section(
+            target,
+            {
+                "tools": ["web_search", "http_request", "file_read"],
+            },
+        )
         assert isinstance(target.tools, str)
         assert target.tools == "web_search,http_request,file_read"
 

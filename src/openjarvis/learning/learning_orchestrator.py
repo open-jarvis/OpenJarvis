@@ -66,9 +66,7 @@ class LearningOrchestrator:
         self._model_name = model_name
 
         self._miner = TrainingDataMiner(trace_store, min_quality=min_quality)
-        self._evolver = AgentConfigEvolver(
-            trace_store, config_dir=self._config_dir
-        )
+        self._evolver = AgentConfigEvolver(trace_store, config_dir=self._config_dir)
 
     # ------------------------------------------------------------------
     # public API
@@ -132,16 +130,11 @@ class LearningOrchestrator:
             agent_name = rec.get("recommended_agent", "default")
             tools = rec.get("recommended_tools", [])
             max_turns = rec.get("recommended_max_turns", 10)
-            self._evolver.write_config(
-                agent_name, tools=tools, max_turns=max_turns
-            )
+            self._evolver.write_config(agent_name, tools=tools, max_turns=max_turns)
 
         # 6. LoRA training (optional)
         result["lora_training"] = None
-        if (
-            self._lora_config is not None
-            and len(sft_pairs) >= self._min_sft_pairs
-        ):
+        if self._lora_config is not None and len(sft_pairs) >= self._min_sft_pairs:
             lora_result = self._try_lora_training(sft_pairs)
             result["lora_training"] = lora_result
 
@@ -195,9 +188,7 @@ class LearningOrchestrator:
 
         try:
             model_name = self._model_name or "Qwen/Qwen3-0.6B"
-            trainer = LoRATrainer(
-                self._lora_config, model_name=model_name
-            )
+            trainer = LoRATrainer(self._lora_config, model_name=model_name)
             return trainer.train(sft_pairs)
         except Exception as exc:
             logger.warning("LoRA training failed: %s", exc)

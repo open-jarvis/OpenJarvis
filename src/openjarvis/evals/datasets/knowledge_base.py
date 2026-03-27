@@ -206,14 +206,16 @@ class KnowledgeBaseDataset(DatasetProvider):
                 documents=rec["documents"],
                 question=rec["question"],
             )
-            self._records.append(EvalRecord(
-                record_id=f"knowledge-base-{idx}",
-                problem=prompt,
-                reference=rec["answer"],
-                category="use-case",
-                subject="knowledge_base",
-                metadata={},
-            ))
+            self._records.append(
+                EvalRecord(
+                    record_id=f"knowledge-base-{idx}",
+                    problem=prompt,
+                    reference=rec["answer"],
+                    category="use-case",
+                    subject="knowledge_base",
+                    metadata={},
+                )
+            )
 
     def iter_records(self) -> Iterable[EvalRecord]:
         return iter(self._records)

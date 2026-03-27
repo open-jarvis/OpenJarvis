@@ -7,12 +7,14 @@ import socket
 from typing import Optional
 
 # Cloud metadata endpoints to block
-_BLOCKED_HOSTS = frozenset({
-    "169.254.169.254",      # AWS/GCP/Azure metadata
-    "metadata.google.internal",
-    "metadata.google.com",
-    "100.100.100.200",      # Alibaba Cloud metadata
-})
+_BLOCKED_HOSTS = frozenset(
+    {
+        "169.254.169.254",  # AWS/GCP/Azure metadata
+        "metadata.google.internal",
+        "metadata.google.com",
+        "100.100.100.200",  # Alibaba Cloud metadata
+    }
+)
 
 _BLOCKED_CIDR = [
     ipaddress.ip_network("10.0.0.0/8"),
@@ -21,8 +23,8 @@ _BLOCKED_CIDR = [
     ipaddress.ip_network("127.0.0.0/8"),
     ipaddress.ip_network("169.254.0.0/16"),  # link-local
     ipaddress.ip_network("::1/128"),
-    ipaddress.ip_network("fc00::/7"),         # unique local
-    ipaddress.ip_network("fe80::/10"),        # link-local v6
+    ipaddress.ip_network("fc00::/7"),  # unique local
+    ipaddress.ip_network("fe80::/10"),  # link-local v6
 ]
 
 
@@ -59,7 +61,10 @@ def _check_ssrf_python(url: str) -> Optional[str]:
     # DNS resolution check
     try:
         resolved = socket.getaddrinfo(
-            hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM,
+            hostname,
+            None,
+            socket.AF_UNSPEC,
+            socket.SOCK_STREAM,
         )
         for family, stype, proto, canonname, sockaddr in resolved:
             ip = sockaddr[0]

@@ -34,8 +34,7 @@ class KGAddEntityTool(BaseTool):
                     "entity_type": {
                         "type": "string",
                         "description": (
-                            "Entity type (e.g., 'concept',"
-                            " 'tool', 'user')."
+                            "Entity type (e.g., 'concept', 'tool', 'user')."
                         ),
                     },
                     "name": {
@@ -44,9 +43,7 @@ class KGAddEntityTool(BaseTool):
                     },
                     "properties": {
                         "type": "object",
-                        "description": (
-                            "Additional properties."
-                        ),
+                        "description": ("Additional properties."),
                     },
                 },
                 "required": ["entity_id", "entity_type", "name"],
@@ -57,15 +54,16 @@ class KGAddEntityTool(BaseTool):
 
     def execute(self, **params: Any) -> ToolResult:
         if not self._backend or not hasattr(
-            self._backend, "add_entity",
+            self._backend,
+            "add_entity",
         ):
             return ToolResult(
                 tool_name="kg_add_entity",
-                content="No knowledge graph backend"
-                " available.",
+                content="No knowledge graph backend available.",
                 success=False,
             )
         from openjarvis.tools.storage.knowledge_graph import Entity
+
         entity = Entity(
             entity_id=params["entity_id"],
             entity_type=params["entity_type"],
@@ -73,7 +71,7 @@ class KGAddEntityTool(BaseTool):
             properties=params.get("properties", {}),
         )
         self._backend.add_entity(entity)
-        name = params['name']
+        name = params["name"]
         return ToolResult(
             tool_name="kg_add_entity",
             content=f"Entity '{name}' added.",
@@ -108,17 +106,11 @@ class KGAddRelationTool(BaseTool):
                     },
                     "relation_type": {
                         "type": "string",
-                        "description": (
-                            "Relation type (e.g.,"
-                            " 'used', 'depends_on')."
-                        ),
+                        "description": ("Relation type (e.g., 'used', 'depends_on')."),
                     },
                     "weight": {
                         "type": "number",
-                        "description": (
-                            "Relation weight"
-                            " (default 1.0)."
-                        ),
+                        "description": ("Relation weight (default 1.0)."),
                     },
                 },
                 "required": ["source_id", "target_id", "relation_type"],
@@ -129,15 +121,16 @@ class KGAddRelationTool(BaseTool):
 
     def execute(self, **params: Any) -> ToolResult:
         if not self._backend or not hasattr(
-            self._backend, "add_relation",
+            self._backend,
+            "add_relation",
         ):
             return ToolResult(
                 tool_name="kg_add_relation",
-                content="No knowledge graph backend"
-                " available.",
+                content="No knowledge graph backend available.",
                 success=False,
             )
         from openjarvis.tools.storage.knowledge_graph import Relation
+
         relation = Relation(
             source_id=params["source_id"],
             target_id=params["target_id"],
@@ -145,7 +138,7 @@ class KGAddRelationTool(BaseTool):
             weight=params.get("weight", 1.0),
         )
         self._backend.add_relation(relation)
-        rtype = params['relation_type']
+        rtype = params["relation_type"]
         return ToolResult(
             tool_name="kg_add_relation",
             content=f"Relation '{rtype}' added.",
@@ -172,21 +165,15 @@ class KGQueryTool(BaseTool):
                 "properties": {
                     "entity_type": {
                         "type": "string",
-                        "description": (
-                            "Filter by entity type."
-                        ),
+                        "description": ("Filter by entity type."),
                     },
                     "relation_type": {
                         "type": "string",
-                        "description": (
-                            "Filter by relation type."
-                        ),
+                        "description": ("Filter by relation type."),
                     },
                     "limit": {
                         "type": "integer",
-                        "description": (
-                            "Max results (default 50)."
-                        ),
+                        "description": ("Max results (default 50)."),
                     },
                 },
             },
@@ -196,12 +183,12 @@ class KGQueryTool(BaseTool):
 
     def execute(self, **params: Any) -> ToolResult:
         if not self._backend or not hasattr(
-            self._backend, "query_pattern",
+            self._backend,
+            "query_pattern",
         ):
             return ToolResult(
                 tool_name="kg_query",
-                content="No knowledge graph backend"
-                " available.",
+                content="No knowledge graph backend available.",
                 success=False,
             )
         result = self._backend.query_pattern(
@@ -250,31 +237,21 @@ class KGNeighborsTool(BaseTool):
                 "properties": {
                     "entity_id": {
                         "type": "string",
-                        "description": (
-                            "Entity ID to find"
-                            " neighbors for."
-                        ),
+                        "description": ("Entity ID to find neighbors for."),
                     },
                     "relation_type": {
                         "type": "string",
-                        "description": (
-                            "Filter by relation type."
-                        ),
+                        "description": ("Filter by relation type."),
                     },
                     "direction": {
                         "type": "string",
                         "description": (
-                            "Direction: 'in', 'out',"
-                            " or 'both'"
-                            " (default 'both')."
+                            "Direction: 'in', 'out', or 'both' (default 'both')."
                         ),
                     },
                     "limit": {
                         "type": "integer",
-                        "description": (
-                            "Max results"
-                            " (default 50)."
-                        ),
+                        "description": ("Max results (default 50)."),
                     },
                 },
                 "required": ["entity_id"],
@@ -285,12 +262,12 @@ class KGNeighborsTool(BaseTool):
 
     def execute(self, **params: Any) -> ToolResult:
         if not self._backend or not hasattr(
-            self._backend, "neighbors",
+            self._backend,
+            "neighbors",
         ):
             return ToolResult(
                 tool_name="kg_neighbors",
-                content="No knowledge graph backend"
-                " available.",
+                content="No knowledge graph backend available.",
                 success=False,
             )
         neighbors = self._backend.neighbors(

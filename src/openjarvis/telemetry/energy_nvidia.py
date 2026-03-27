@@ -144,13 +144,9 @@ class NvidiaEnergyMonitor(EnergyMonitor):
                 now = time.monotonic()
                 with lock:
                     power_ticks.append(powers)
-                    util_ticks.append(
-                        sum(utils) / len(utils) if utils else 0.0
-                    )
+                    util_ticks.append(sum(utils) / len(utils) if utils else 0.0)
                     mem_ticks.append(sum(mems))
-                    temp_ticks.append(
-                        sum(temps) / len(temps) if temps else 0.0
-                    )
+                    temp_ticks.append(sum(temps) / len(temps) if temps else 0.0)
                     timestamps.append(now)
             stop_event.wait(self._poll_interval_s)
 
@@ -185,8 +181,15 @@ class NvidiaEnergyMonitor(EnergyMonitor):
 
         thread = threading.Thread(
             target=self._polling_loop,
-            args=(power_ticks, util_ticks, mem_ticks, temp_ticks,
-                  timestamps, lock, stop_event),
+            args=(
+                power_ticks,
+                util_ticks,
+                mem_ticks,
+                temp_ticks,
+                timestamps,
+                lock,
+                stop_event,
+            ),
             daemon=True,
         )
 
@@ -203,8 +206,7 @@ class NvidiaEnergyMonitor(EnergyMonitor):
             if self._hw_counter_available and energy_start is not None:
                 energy_end = self._read_energy_counters()
                 total_mj = sum(
-                    end - start
-                    for start, end in zip(energy_start, energy_end)
+                    end - start for start, end in zip(energy_start, energy_end)
                 )
                 result.energy_joules = total_mj / 1000.0
                 result.gpu_energy_joules = result.energy_joules

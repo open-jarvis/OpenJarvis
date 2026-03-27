@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Tuple
 @dataclass(slots=True)
 class DiscoveredSkill:
     """A skill discovered from trace analysis."""
+
     name: str
     description: str
     tool_sequence: List[str]  # ordered tool names
@@ -72,7 +73,7 @@ class SkillDiscovery:
             upper = min(self._max_len + 1, len(tool_calls) + 1)
             for length in range(self._min_len, upper):
                 for start in range(len(tool_calls) - length + 1):
-                    seq = tuple(tool_calls[start:start + length])
+                    seq = tuple(tool_calls[start : start + length])
                     sequence_data[seq].append(outcome)
                     if query and len(sequence_inputs[seq]) < 3:
                         sequence_inputs[seq].append(query)
@@ -86,14 +87,16 @@ class SkillDiscovery:
             if freq >= self._min_freq and avg_outcome >= self._min_outcome:
                 name = "_".join(seq)
                 desc = f"Auto-discovered skill: {' -> '.join(seq)} (seen {freq} times)"
-                discovered.append(DiscoveredSkill(
-                    name=name,
-                    description=desc,
-                    tool_sequence=list(seq),
-                    frequency=freq,
-                    avg_outcome=avg_outcome,
-                    example_inputs=sequence_inputs.get(seq, []),
-                ))
+                discovered.append(
+                    DiscoveredSkill(
+                        name=name,
+                        description=desc,
+                        tool_sequence=list(seq),
+                        frequency=freq,
+                        avg_outcome=avg_outcome,
+                        example_inputs=sequence_inputs.get(seq, []),
+                    )
+                )
 
         # Sort by frequency * outcome (quality score)
         discovered.sort(key=lambda s: s.frequency * s.avg_outcome, reverse=True)
@@ -123,7 +126,9 @@ class SkillDiscovery:
                 )
                 if is_tool:
                     name = getattr(
-                        step, "tool_name", getattr(step, "name", ""),
+                        step,
+                        "tool_name",
+                        getattr(step, "name", ""),
                     )
                     if name:
                         tools.append(name)
@@ -150,18 +155,20 @@ class SkillDiscovery:
         """Convert discovered skills to TOML-compatible manifest dicts."""
         manifests = []
         for skill in self._discovered:
-            manifests.append({
-                "name": skill.name,
-                "description": skill.description,
-                "steps": [
-                    {"tool": tool, "params": {}} for tool in skill.tool_sequence
-                ],
-                "metadata": {
-                    "auto_discovered": True,
-                    "frequency": skill.frequency,
-                    "avg_outcome": skill.avg_outcome,
-                },
-            })
+            manifests.append(
+                {
+                    "name": skill.name,
+                    "description": skill.description,
+                    "steps": [
+                        {"tool": tool, "params": {}} for tool in skill.tool_sequence
+                    ],
+                    "metadata": {
+                        "auto_discovered": True,
+                        "frequency": skill.frequency,
+                        "avg_outcome": skill.avg_outcome,
+                    },
+                }
+            )
         return manifests
 
 

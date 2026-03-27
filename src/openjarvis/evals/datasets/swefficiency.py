@@ -108,7 +108,9 @@ class SWEfficiencyDataset(DatasetProvider):
         return len(self._records)
 
     def _convert_row(
-        self, raw: MutableMapping[str, object], idx: int,
+        self,
+        raw: MutableMapping[str, object],
+        idx: int,
     ) -> Optional[EvalRecord]:
         instance_id = str(raw.get("instance_id") or "")
         repo = str(raw.get("repo") or "")

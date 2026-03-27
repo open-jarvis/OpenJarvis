@@ -117,8 +117,7 @@ class AudioTranscribeTool(BaseTool):
             return ToolResult(
                 tool_name="audio_transcribe",
                 content=(
-                    f"Unsupported provider '{provider}'."
-                    " Supported: 'openai', 'local'."
+                    f"Unsupported provider '{provider}'. Supported: 'openai', 'local'."
                 ),
                 success=False,
             )
@@ -130,8 +129,7 @@ class AudioTranscribeTool(BaseTool):
             return ToolResult(
                 tool_name="audio_transcribe",
                 content=(
-                    "openai package not installed."
-                    " Install with: pip install openai"
+                    "openai package not installed. Install with: pip install openai"
                 ),
                 success=False,
             )

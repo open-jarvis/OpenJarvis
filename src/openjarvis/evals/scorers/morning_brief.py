@@ -51,13 +51,19 @@ class MorningBriefScorer(LLMJudgeScorer):
     scorer_id = "morning_brief"
 
     def score(
-        self, record: EvalRecord, model_answer: str,
+        self,
+        record: EvalRecord,
+        model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         if not model_answer or not model_answer.strip():
             return False, {"reason": "empty_response"}
 
         # Truncate problem for the judge prompt to save tokens
-        problem_excerpt = record.problem[:500] + "..." if len(record.problem) > 500 else record.problem
+        problem_excerpt = (
+            record.problem[:500] + "..."
+            if len(record.problem) > 500
+            else record.problem
+        )
 
         try:
             prompt = _JUDGE_PROMPT.format(
@@ -69,7 +75,12 @@ class MorningBriefScorer(LLMJudgeScorer):
 
             # Extract scores
             scores = {}
-            for dim in ("completeness", "prioritization", "conciseness", "actionability"):
+            for dim in (
+                "completeness",
+                "prioritization",
+                "conciseness",
+                "actionability",
+            ):
                 match = re.search(
                     rf"^{dim}:\s*(\d)",
                     raw,

@@ -20,7 +20,8 @@ def _create_test_repo(tmp_path: Path) -> Path:
     assets_dir.mkdir()
 
     # Write a simple automated task
-    (tasks_dir / "task_00_sanity.md").write_text(textwrap.dedent("""\
+    (tasks_dir / "task_00_sanity.md").write_text(
+        textwrap.dedent("""\
     ---
     id: task_00_sanity
     name: Sanity Check
@@ -56,7 +57,8 @@ def _create_test_repo(tmp_path: Path) -> Path:
             "has_hello": 1.0 if has_hello else 0.0,
         }
     ```
-    """))
+    """)
+    )
 
     return repo
 

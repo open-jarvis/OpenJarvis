@@ -36,7 +36,8 @@ def load_operator(path: str | Path) -> OperatorManifest:
     temperature = agent_data.get("temperature", op_data.get("temperature", 0.3))
     system_prompt = agent_data.get("system_prompt", op_data.get("system_prompt", ""))
     system_prompt_path = agent_data.get(
-        "system_prompt_path", op_data.get("system_prompt_path", ""),
+        "system_prompt_path",
+        op_data.get("system_prompt_path", ""),
     )
 
     # Load external system prompt if specified and inline is empty

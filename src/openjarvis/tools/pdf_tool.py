@@ -58,8 +58,7 @@ class PDFExtractTool(BaseTool):
         return ToolSpec(
             name="pdf_extract",
             description=(
-                "Extract text from a PDF file."
-                " Returns the extracted text content."
+                "Extract text from a PDF file. Returns the extracted text content."
             ),
             parameters={
                 "type": "object",
@@ -77,10 +76,7 @@ class PDFExtractTool(BaseTool):
                     },
                     "max_chars": {
                         "type": "integer",
-                        "description": (
-                            "Maximum characters to return."
-                            " Default 50000."
-                        ),
+                        "description": ("Maximum characters to return. Default 50000."),
                     },
                 },
                 "required": ["file_path"],

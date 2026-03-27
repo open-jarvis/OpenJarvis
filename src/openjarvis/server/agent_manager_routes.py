@@ -138,10 +138,7 @@ def _pick_recommended_model(
     model_ids: list[str],
 ) -> dict[str, str]:
     """Pick the second-largest local model from a list."""
-    local = [
-        m for m in model_ids
-        if not any(m.startswith(p) for p in _CLOUD_PREFIXES)
-    ]
+    local = [m for m in model_ids if not any(m.startswith(p) for p in _CLOUD_PREFIXES)]
     if not local:
         return {
             "model": model_ids[0] if model_ids else "",
@@ -308,6 +305,42 @@ def build_tools_list() -> List[Dict[str, Any]]:
         pass
 
     return items
+
+
+def _build_deep_research_tools(
+    engine: Any,
+    model: str,
+    knowledge_db_path: str = "",
+) -> list:
+    """Build the 4 DeepResearch tools from a KnowledgeStore.
+
+    Returns an empty list if the knowledge DB does not exist.
+    """
+    from pathlib import Path
+
+    if not knowledge_db_path:
+        from openjarvis.core.config import DEFAULT_CONFIG_DIR
+
+        knowledge_db_path = str(DEFAULT_CONFIG_DIR / "knowledge.db")
+
+    if not Path(knowledge_db_path).exists():
+        return []
+
+    from openjarvis.connectors.retriever import TwoStageRetriever
+    from openjarvis.connectors.store import KnowledgeStore
+    from openjarvis.tools.knowledge_search import KnowledgeSearchTool
+    from openjarvis.tools.knowledge_sql import KnowledgeSQLTool
+    from openjarvis.tools.scan_chunks import ScanChunksTool
+    from openjarvis.tools.think import ThinkTool
+
+    store = KnowledgeStore(knowledge_db_path)
+    retriever = TwoStageRetriever(store)
+    return [
+        KnowledgeSearchTool(retriever=retriever),
+        KnowledgeSQLTool(store=store),
+        ScanChunksTool(store=store, engine=engine, model=model),
+        ThinkTool(),
+    ]
 
 
 def _merge_tool_call_fragments(
@@ -479,6 +512,16 @@ async def _stream_managed_agent(
     llm_messages: List[Message] = []
     if system_prompt:
         llm_messages.append(Message(role=Role.SYSTEM, content=system_prompt))
+
+    # Resolve agent type and class for DeepResearch tool wiring
+    agent_type = agent_record.get("agent_type", "")
+    if agent_type == "deep_research":
+        dr_tools = _build_deep_research_tools(
+            engine=engine, model=model,
+        )
+        # Store on app_state so streaming loop can access them
+        if app_state is not None and dr_tools:
+            app_state._dr_tools = dr_tools
 
     # Load prior conversation context (DESC order, reverse for chronological)
     history = manager.list_messages(agent_id, limit=50)

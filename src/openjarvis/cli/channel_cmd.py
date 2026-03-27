@@ -148,7 +148,9 @@ def channel() -> None:
 
 @channel.command("list")
 @click.option(
-    "--channel-type", default=None, help=_CHANNEL_TYPE_HELP,
+    "--channel-type",
+    default=None,
+    help=_CHANNEL_TYPE_HELP,
 )
 def channel_list(
     channel_type: Optional[str],
@@ -186,7 +188,9 @@ def channel_list(
 @click.argument("target")
 @click.argument("message")
 @click.option(
-    "--channel-type", default=None, help=_CHANNEL_TYPE_HELP,
+    "--channel-type",
+    default=None,
+    help=_CHANNEL_TYPE_HELP,
 )
 def channel_send(
     target: str,
@@ -216,7 +220,9 @@ def channel_send(
 
 @channel.command("status")
 @click.option(
-    "--channel-type", default=None, help=_CHANNEL_TYPE_HELP,
+    "--channel-type",
+    default=None,
+    help=_CHANNEL_TYPE_HELP,
 )
 def channel_status(
     channel_type: Optional[str],

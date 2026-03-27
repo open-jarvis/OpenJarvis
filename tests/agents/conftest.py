@@ -33,7 +33,9 @@ def scenario_harness(tmp_path):
     executor.set_system(system)
 
     scheduler = AgentScheduler(
-        manager=manager, executor=executor, event_bus=bus,
+        manager=manager,
+        executor=executor,
+        event_bus=bus,
     )
 
     return ScenarioHarness(

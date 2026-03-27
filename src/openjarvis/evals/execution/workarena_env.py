@@ -50,10 +50,27 @@ Respond with your reasoning, then the action on its own line.
 """
 
 _ACTION_NAMES = (
-    "click", "dblclick", "fill", "select_option", "check", "uncheck",
-    "clear", "hover", "press", "focus", "scroll", "goto", "go_back",
-    "go_forward", "tab_focus", "tab_close", "new_tab",
-    "send_msg_to_user", "report_infeasible", "noop", "drag_and_drop",
+    "click",
+    "dblclick",
+    "fill",
+    "select_option",
+    "check",
+    "uncheck",
+    "clear",
+    "hover",
+    "press",
+    "focus",
+    "scroll",
+    "goto",
+    "go_back",
+    "go_forward",
+    "tab_focus",
+    "tab_close",
+    "new_tab",
+    "send_msg_to_user",
+    "report_infeasible",
+    "noop",
+    "drag_and_drop",
 )
 _ACTION_PREFIX_RE = re.compile(
     r"(" + "|".join(_ACTION_NAMES) + r")\s*\(",
@@ -117,7 +134,9 @@ class WorkArenaTaskEnv:
 
         LOGGER.info(
             "Setting up WorkArena task: %s (seed=%d, headless=%s)",
-            task_class.get_task_id(), task_seed, headless,
+            task_class.get_task_id(),
+            task_seed,
+            headless,
         )
 
         self._env = BrowserEnv(
@@ -253,7 +272,8 @@ class WorkArenaTaskEnv:
                 chat_msgs = self._env.chat.messages
 
             reward, done, message, info = self._env.task.validate(
-                self._env.page, chat_msgs,
+                self._env.page,
+                chat_msgs,
             )
 
             is_resolved = reward == 1.0
@@ -269,7 +289,9 @@ class WorkArenaTaskEnv:
 
             LOGGER.info(
                 "WorkArena validate: reward=%.1f resolved=%s msg=%s",
-                reward, is_resolved, message,
+                reward,
+                is_resolved,
+                message,
             )
             return is_resolved, results
 
@@ -330,10 +352,11 @@ class WorkArenaTaskEnv:
                 parse_error = (
                     "Could not parse a valid action from your previous "
                     "response. Please respond with exactly one action "
-                    "call, e.g. click(\"bid_42\")."
+                    'call, e.g. click("bid_42").'
                 )
                 LOGGER.warning(
-                    "Step %d: unparseable action, issuing noop", step_idx,
+                    "Step %d: unparseable action, issuing noop",
+                    step_idx,
                 )
                 action = "noop()"
             else:
@@ -440,7 +463,7 @@ class WorkArenaTaskEnv:
 
         tag = role
         if bid:
-            tag += f' [bid={bid}]'
+            tag += f" [bid={bid}]"
         if name:
             tag += f' "{name}"'
         if value:

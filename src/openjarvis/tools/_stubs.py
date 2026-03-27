@@ -133,7 +133,9 @@ class ToolExecutor:
         if self._capability_policy and tool.spec.required_capabilities:
             for cap in tool.spec.required_capabilities:
                 if not self._capability_policy.check(
-                    self._agent_id, cap, tool_call.name,
+                    self._agent_id,
+                    cap,
+                    tool_call.name,
                 ):
                     if self._bus:
                         self._bus.publish(
@@ -194,10 +196,7 @@ class ToolExecutor:
                     ),
                     success=False,
                 )
-            prompt = (
-                f"Allow execution of tool"
-                f" '{tool_call.name}' with args {params}?"
-            )
+            prompt = f"Allow execution of tool '{tool_call.name}' with args {params}?"
             if not self._confirm_callback(prompt):
                 return ToolResult(
                     tool_name=tool_call.name,
@@ -227,10 +226,7 @@ class ToolExecutor:
                 )
             result = ToolResult(
                 tool_name=tool_call.name,
-                content=(
-                    f"Tool '{tool_call.name}' timed out"
-                    f" after {timeout:.0f}s."
-                ),
+                content=(f"Tool '{tool_call.name}' timed out after {timeout:.0f}s."),
                 success=False,
             )
         except Exception as exc:

@@ -64,9 +64,7 @@ class EnergyBenchmark(BaseBenchmark):
             from openjarvis.telemetry.steady_state import SteadyStateDetector
 
             detector = SteadyStateDetector()
-            energy_method = getattr(
-                energy_monitor, "energy_method", lambda: ""
-            )()
+            energy_method = getattr(energy_monitor, "energy_method", lambda: "")()
 
             for _ in range(num_samples):
                 t0 = time.time()
@@ -78,9 +76,7 @@ class EnergyBenchmark(BaseBenchmark):
                     usage = result.get("usage", {})
                     tokens = usage.get("completion_tokens", 0)
                     energy_j = sample.energy_joules
-                    power_w = (
-                        energy_j / elapsed if elapsed > 0 else 0.0
-                    )
+                    power_w = energy_j / elapsed if elapsed > 0 else 0.0
                     tps = tokens / elapsed if elapsed > 0 else 0.0
                     ept = energy_j / tokens if tokens > 0 else 0.0
 
@@ -145,9 +141,7 @@ class EnergyBenchmark(BaseBenchmark):
             samples=num_samples,
             errors=errors,
             warmup_samples=warmup_samples,
-            steady_state_samples=(
-                ss_result.steady_state_samples if ss_result else 0
-            ),
+            steady_state_samples=(ss_result.steady_state_samples if ss_result else 0),
             steady_state_reached=(
                 ss_result.steady_state_reached if ss_result else False
             ),

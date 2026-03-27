@@ -102,6 +102,7 @@ class EvalRunner:
         # default iter_episodes() that wraps each record in its own episode,
         # so hasattr() is always True — we must check for a real override.
         from openjarvis.evals.core.dataset import DatasetProvider as _DP
+
         try:
             _overrides_episodes = (
                 type(self._dataset).iter_episodes is not _DP.iter_episodes
@@ -120,18 +121,20 @@ class EvalRunner:
         # Detect if dataset provides task environments (e.g. PinchBench)
         try:
             self._has_task_env = (
-                type(self._dataset).create_task_env
-                is not _DP.create_task_env
+                type(self._dataset).create_task_env is not _DP.create_task_env
             )
         except AttributeError:
             self._has_task_env = False
 
         records = list(self._dataset.iter_records())
         LOGGER.info(
-            "Running %s: %d samples, backend=%s, model=%s, workers=%d, "
-            "episode_mode=%s",
-            cfg.benchmark, len(records), cfg.backend, cfg.model,
-            cfg.max_workers, cfg.episode_mode,
+            "Running %s: %d samples, backend=%s, model=%s, workers=%d, episode_mode=%s",
+            cfg.benchmark,
+            len(records),
+            cfg.backend,
+            cfg.model,
+            cfg.max_workers,
+            cfg.episode_mode,
         )
 
         # --- Warmup phase (discard results) ---
@@ -155,7 +158,8 @@ class EvalRunner:
             except Exception as exc:
                 LOGGER.warning(
                     "Tracker %s.on_run_start failed: %s",
-                    type(tracker).__name__, exc,
+                    type(tracker).__name__,
+                    exc,
                 )
 
         total = len(records)
@@ -173,9 +177,7 @@ class EvalRunner:
                         progress_callback(len(self._results), total)
             else:
                 with ThreadPoolExecutor(max_workers=cfg.max_workers) as pool:
-                    futures = {
-                        pool.submit(self._process_one, r): r for r in records
-                    }
+                    futures = {pool.submit(self._process_one, r): r for r in records}
                     for future in as_completed(futures):
                         result = future.result()
                         self._results.append(result)
@@ -197,14 +199,16 @@ class EvalRunner:
             except Exception as exc:
                 LOGGER.warning(
                     "Tracker %s.on_summary failed: %s",
-                    type(tracker).__name__, exc,
+                    type(tracker).__name__,
+                    exc,
                 )
             try:
                 tracker.on_run_end()
             except Exception as exc:
                 LOGGER.warning(
                     "Tracker %s.on_run_end failed: %s",
-                    type(tracker).__name__, exc,
+                    type(tracker).__name__,
+                    exc,
                 )
 
         # Write summary JSON alongside JSONL
@@ -253,6 +257,7 @@ class EvalRunner:
 
             if getattr(self, "_has_task_env", False):
                 from contextlib import nullcontext
+
                 task_env = self._dataset.create_task_env(record)
                 ctx = task_env if task_env is not None else nullcontext()
                 with ctx:
@@ -261,22 +266,23 @@ class EvalRunner:
                         **gen_kwargs,
                     )
                     full = full or {}
-                    all_tool_results = list(full.get(
-                        "tool_results", [],
-                    ))
+                    all_tool_results = list(
+                        full.get(
+                            "tool_results",
+                            [],
+                        )
+                    )
 
                     # Multi-session: execute remaining sessions
                     sessions = record.metadata.get("sessions", [])
-                    if (
-                        record.metadata.get("multi_session")
-                        and len(sessions) > 1
-                    ):
+                    if record.metadata.get("multi_session") and len(sessions) > 1:
                         for session in sessions[1:]:
                             prompt = session.get("prompt", "")
                             if not prompt:
                                 continue
                             sfull = self._backend.generate_full(
-                                prompt, **gen_kwargs,
+                                prompt,
+                                **gen_kwargs,
                             )
                             sfull = sfull or {}
                             all_tool_results.extend(
@@ -287,7 +293,8 @@ class EvalRunner:
                     # Score INSIDE context so workspace files still exist
                     content = full.get("content", "")
                     is_correct, scoring_meta = self._scorer.score(
-                        record, content,
+                        record,
+                        content,
                     )
             else:
                 full = self._backend.generate_full(
@@ -297,7 +304,8 @@ class EvalRunner:
                 full = full or {}
                 content = full.get("content", "")
                 is_correct, scoring_meta = self._scorer.score(
-                    record, content,
+                    record,
+                    content,
                 )
 
             usage = full.get("usage", {})
@@ -340,9 +348,7 @@ class EvalRunner:
 
             # Extract derived and ITL metrics from _telemetry dict
             _telem = full.get("_telemetry", {})
-            energy_per_out_tok = _telem.get(
-                "energy_per_output_token_joules", 0.0
-            )
+            energy_per_out_tok = _telem.get("energy_per_output_token_joules", 0.0)
             throughput_per_w = _telem.get("throughput_per_watt", 0.0)
             mean_itl = _telem.get("mean_itl_ms", 0.0)
 
@@ -406,9 +412,9 @@ class EvalRunner:
         # default implementation that returns None, so hasattr() is always True —
         # we must check for a real override to avoid calling env.reset() on None.
         from openjarvis.evals.core.dataset import DatasetProvider
+
         has_task_env = (
-            type(self._dataset).create_task_env
-            is not DatasetProvider.create_task_env
+            type(self._dataset).create_task_env is not DatasetProvider.create_task_env
         )
 
         for episode in self._dataset.iter_episodes():
@@ -417,12 +423,14 @@ class EvalRunner:
             for record in episode:
                 if has_task_env:
                     result = self._process_interactive(
-                        record, successful_examples,
+                        record,
+                        successful_examples,
                     )
                 else:
                     # Inject prior examples into prompt, then single-shot
                     augmented = self._inject_examples(
-                        record, successful_examples,
+                        record,
+                        successful_examples,
                     )
                     result = self._process_one(augmented)
 
@@ -437,9 +445,13 @@ class EvalRunner:
                         "answer": result.model_answer,
                     }
                     # Attach full interaction history if recorded
-                    interaction = result.scoring_metadata.get(
-                        "_interaction_history",
-                    ) if result.scoring_metadata else None
+                    interaction = (
+                        result.scoring_metadata.get(
+                            "_interaction_history",
+                        )
+                        if result.scoring_metadata
+                        else None
+                    )
                     if interaction:
                         example["interaction_history"] = interaction
                     successful_examples.append(example)
@@ -482,8 +494,7 @@ class EvalRunner:
             else:
                 # Fallback: problem + answer summary
                 example_text += (
-                    f"Task: {ex['problem'][:800]}\n"
-                    f"Solution: {ex['answer'][:800]}\n\n"
+                    f"Task: {ex['problem'][:800]}\nSolution: {ex['answer'][:800]}\n\n"
                 )
         example_text += "## Current Task\n\n"
 
@@ -549,9 +560,7 @@ class EvalRunner:
             # PreviousSampleUtilizationCallback which replays the complete
             # chat history from prior successful sessions.
             if prior_examples:
-                examples_text = (
-                    "Here are examples of previously completed tasks:\n\n"
-                )
+                examples_text = "Here are examples of previously completed tasks:\n\n"
                 for i, ex in enumerate(prior_examples, 1):
                     history = ex.get("interaction_history")
                     if history and isinstance(history, list):
@@ -573,10 +582,12 @@ class EvalRunner:
                             f"Solution: {ex['answer'][:800]}\n\n"
                         )
                 messages.append({"role": "user", "content": examples_text})
-                messages.append({
-                    "role": "assistant",
-                    "content": "I've reviewed the examples. Ready.",
-                })
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": "I've reviewed the examples. Ready.",
+                    }
+                )
 
             # Initial task message — always use the full problem text which
             # contains the system prompt, schema, AND task instruction.
@@ -648,7 +659,8 @@ class EvalRunner:
         except Exception as exc:
             LOGGER.error(
                 "Interactive processing failed for %s: %s",
-                record.record_id, exc,
+                record.record_id,
+                exc,
             )
             return EvalResult(
                 record_id=record.record_id,
@@ -720,15 +732,18 @@ class EvalRunner:
         except Exception as exc:
             LOGGER.error(
                 "Failed to serialize result %s to JSON: %s — writing error record",
-                result.record_id, exc,
+                result.record_id,
+                exc,
             )
-            line = json.dumps({
-                "record_id": result.record_id,
-                "benchmark": self._config.benchmark,
-                "model": self._config.model,
-                "is_correct": result.is_correct,
-                "error": f"serialization_error: {exc}",
-            })
+            line = json.dumps(
+                {
+                    "record_id": result.record_id,
+                    "benchmark": self._config.benchmark,
+                    "model": self._config.model,
+                    "is_correct": result.is_correct,
+                    "error": f"serialization_error: {exc}",
+                }
+            )
         self._output_file.write(line + "\n")
         self._output_file.flush()
 
@@ -739,7 +754,8 @@ class EvalRunner:
             except Exception as exc:
                 LOGGER.warning(
                     "Tracker %s.on_result failed: %s",
-                    type(tracker).__name__, exc,
+                    type(tracker).__name__,
+                    exc,
                 )
 
     def _resolve_output_path(self) -> Optional[Path]:
@@ -802,12 +818,10 @@ class EvalRunner:
         energy_vals = [r.energy_joules for r in results if r.energy_joules > 0]
         power_vals = [r.power_watts for r in results if r.power_watts > 0]
         gpu_util_vals = [
-            r.gpu_utilization_pct for r in results
-            if r.gpu_utilization_pct > 0
+            r.gpu_utilization_pct for r in results if r.gpu_utilization_pct > 0
         ]
         throughput_vals = [
-            r.throughput_tok_per_sec for r in results
-            if r.throughput_tok_per_sec > 0
+            r.throughput_tok_per_sec for r in results if r.throughput_tok_per_sec > 0
         ]
         mfu_vals = [r.mfu_pct for r in results if r.mfu_pct > 0]
         mbu_vals = [r.mbu_pct for r in results if r.mbu_pct > 0]
@@ -818,15 +832,11 @@ class EvalRunner:
             for r in results
             if r.energy_per_output_token_joules > 0
         ]
-        tpw_vals = [
-            r.throughput_per_watt
-            for r in results if r.throughput_per_watt > 0
-        ]
+        tpw_vals = [r.throughput_per_watt for r in results if r.throughput_per_watt > 0]
         itl_vals = [r.mean_itl_ms for r in results if r.mean_itl_ms > 0]
         input_tok_vals = [r.prompt_tokens for r in results if r.prompt_tokens > 0]
         output_tok_vals = [
-            r.completion_tokens for r in results
-            if r.completion_tokens > 0
+            r.completion_tokens for r in results if r.completion_tokens > 0
         ]
 
         total_energy = sum(r.energy_joules for r in results)
@@ -839,19 +849,14 @@ class EvalRunner:
             "accuracy": round(accuracy, 4),
             "total_energy_joules": round(total_energy, 6),
             "avg_power_watts": round(avg_power, 4),
-            "ipj": (
-                round(accuracy / total_energy, 6)
-                if total_energy > 0 else None
-            ),
-            "ipw": (
-                round(accuracy / avg_power, 6)
-                if avg_power > 0 else None
-            ),
+            "ipj": (round(accuracy / total_energy, 6) if total_energy > 0 else None),
+            "ipw": (round(accuracy / avg_power, 6) if avg_power > 0 else None),
         }
 
         # Compute normalized statistics (trim 5% outliers by latency)
         normalized_stats, normalized_eff = _compute_normalized_stats(
-            results, accuracy,
+            results,
+            accuracy,
         )
 
         return RunSummary(
@@ -911,7 +916,7 @@ def _compute_normalized_stats(
 
     trim_count = max(1, math.floor(n * 0.05))
     sorted_results = sorted(results, key=lambda r: r.latency_seconds)
-    trimmed = sorted_results[trim_count: n - trim_count]
+    trimmed = sorted_results[trim_count : n - trim_count]
 
     if not trimmed:
         return None, None
@@ -924,8 +929,7 @@ def _compute_normalized_stats(
     t_energy_vals = [r.energy_joules for r in trimmed if r.energy_joules > 0]
     t_power_vals = [r.power_watts for r in trimmed if r.power_watts > 0]
     t_throughput_vals = [
-        r.throughput_tok_per_sec for r in trimmed
-        if r.throughput_tok_per_sec > 0
+        r.throughput_tok_per_sec for r in trimmed if r.throughput_tok_per_sec > 0
     ]
     t_mbu_vals = [r.mbu_pct for r in trimmed if r.mbu_pct > 0]
 
@@ -951,14 +955,8 @@ def _compute_normalized_stats(
         "accuracy": round(t_accuracy, 4),
         "total_energy_joules": round(t_total_energy, 6),
         "avg_power_watts": round(t_avg_power, 4),
-        "ipj": (
-            round(t_accuracy / t_total_energy, 6)
-            if t_total_energy > 0 else None
-        ),
-        "ipw": (
-            round(t_accuracy / t_avg_power, 6)
-            if t_avg_power > 0 else None
-        ),
+        "ipj": (round(t_accuracy / t_total_energy, 6) if t_total_energy > 0 else None),
+        "ipw": (round(t_accuracy / t_avg_power, 6) if t_avg_power > 0 else None),
     }
 
     return norm_stats, norm_eff

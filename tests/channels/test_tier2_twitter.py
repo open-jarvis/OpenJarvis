@@ -76,7 +76,9 @@ def test_twitter_send_reply():
     ch._status = ChannelStatus.CONNECTED
 
     result = ch.send(
-        "timeline", "This is a reply", conversation_id="999888777",
+        "timeline",
+        "This is a reply",
+        conversation_id="999888777",
     )
     assert result is True
     mock_client.create_tweet.assert_called_once_with(
@@ -105,8 +107,7 @@ def test_twitter_event_bus_integration():
     assert EventType.CHANNEL_MESSAGE_SENT in event_types
 
     sent_event = next(
-        e for e in bus.history
-        if e.event_type == EventType.CHANNEL_MESSAGE_SENT
+        e for e in bus.history if e.event_type == EventType.CHANNEL_MESSAGE_SENT
     )
     assert sent_event.data["content"] == "Event test!"
     assert sent_event.data["channel"] == "timeline"

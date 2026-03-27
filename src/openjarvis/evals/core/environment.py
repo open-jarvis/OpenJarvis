@@ -34,7 +34,8 @@ class EnvironmentProvider(ABC):
 
     @abstractmethod
     def validate(
-        self, record: EvalRecord,
+        self,
+        record: EvalRecord,
     ) -> Tuple[bool, Dict[str, Any]]:
         """Check environment state against expected outcome.
 

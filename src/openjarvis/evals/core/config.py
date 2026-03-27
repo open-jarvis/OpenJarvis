@@ -35,14 +35,31 @@ VALID_BACKENDS = {"jarvis-direct", "jarvis-agent"}
 
 # Known benchmark names (used for warnings, not hard validation)
 KNOWN_BENCHMARKS = {
-    "supergpqa", "gpqa", "mmlu-pro", "math500", "natural-reasoning", "hle",
-    "simpleqa", "wildchat", "ipw",
-    "gaia", "frames", "swebench", "swefficiency",
-    "terminalbench", "terminalbench-native",
-    "email_triage", "morning_brief", "research_mining",
-    "knowledge_base", "coding_task",
-    "coding_assistant", "security_scanner", "daily_digest",
-    "doc_qa", "browser_assistant",
+    "supergpqa",
+    "gpqa",
+    "mmlu-pro",
+    "math500",
+    "natural-reasoning",
+    "hle",
+    "simpleqa",
+    "wildchat",
+    "ipw",
+    "gaia",
+    "frames",
+    "swebench",
+    "swefficiency",
+    "terminalbench",
+    "terminalbench-native",
+    "email_triage",
+    "morning_brief",
+    "research_mining",
+    "knowledge_base",
+    "coding_task",
+    "coding_assistant",
+    "security_scanner",
+    "daily_digest",
+    "doc_qa",
+    "browser_assistant",
     "pinchbench",
 }
 
@@ -123,36 +140,32 @@ def load_eval_config(path: str | Path) -> EvalSuiteConfig:
     for m in models_raw:
         if not m.get("name"):
             raise EvalConfigError("Each [[models]] entry must have a 'name' field")
-        models.append(ModelConfig(
-            name=m["name"],
-            engine=m.get("engine"),
-            provider=m.get("provider"),
-            temperature=float(m["temperature"]) if "temperature" in m else None,
-            max_tokens=int(m["max_tokens"]) if "max_tokens" in m else None,
-            param_count_b=float(m.get("param_count_b", 0.0)),
-            active_params_b=(
-                float(m["active_params_b"])
-                if "active_params_b" in m
-                else None
-            ),
-            gpu_peak_tflops=float(m.get("gpu_peak_tflops", 0.0)),
-            gpu_peak_bandwidth_gb_s=float(m.get("gpu_peak_bandwidth_gb_s", 0.0)),
-            num_gpus=int(m.get("num_gpus", 1)),
-        ))
+        models.append(
+            ModelConfig(
+                name=m["name"],
+                engine=m.get("engine"),
+                provider=m.get("provider"),
+                temperature=float(m["temperature"]) if "temperature" in m else None,
+                max_tokens=int(m["max_tokens"]) if "max_tokens" in m else None,
+                param_count_b=float(m.get("param_count_b", 0.0)),
+                active_params_b=(
+                    float(m["active_params_b"]) if "active_params_b" in m else None
+                ),
+                gpu_peak_tflops=float(m.get("gpu_peak_tflops", 0.0)),
+                gpu_peak_bandwidth_gb_s=float(m.get("gpu_peak_bandwidth_gb_s", 0.0)),
+                num_gpus=int(m.get("num_gpus", 1)),
+            )
+        )
 
     # Parse [[benchmarks]]
     benchmarks_raw = raw.get("benchmarks", [])
     if not benchmarks_raw:
-        raise EvalConfigError(
-            "Config must define at least one [[benchmarks]] entry"
-        )
+        raise EvalConfigError("Config must define at least one [[benchmarks]] entry")
 
     benchmarks: List[BenchmarkConfig] = []
     for b in benchmarks_raw:
         if not b.get("name"):
-            raise EvalConfigError(
-                "Each [[benchmarks]] entry must have a 'name' field"
-            )
+            raise EvalConfigError("Each [[benchmarks]] entry must have a 'name' field")
 
         backend = b.get("backend", "jarvis-direct")
         if backend not in VALID_BACKENDS:
@@ -166,18 +179,20 @@ def load_eval_config(path: str | Path) -> EvalSuiteConfig:
             logger.warning("Unknown benchmark name: '%s'", bench_name)
 
         tools_raw = b.get("tools", [])
-        benchmarks.append(BenchmarkConfig(
-            name=bench_name,
-            backend=backend,
-            max_samples=int(b["max_samples"]) if "max_samples" in b else None,
-            split=b.get("split"),
-            agent=b.get("agent"),
-            tools=list(tools_raw),
-            judge_model=b.get("judge_model"),
-            temperature=float(b["temperature"]) if "temperature" in b else None,
-            max_tokens=int(b["max_tokens"]) if "max_tokens" in b else None,
-            subset=b.get("subset"),
-        ))
+        benchmarks.append(
+            BenchmarkConfig(
+                name=bench_name,
+                backend=backend,
+                max_samples=int(b["max_samples"]) if "max_samples" in b else None,
+                split=b.get("split"),
+                agent=b.get("agent"),
+                tools=list(tools_raw),
+                judge_model=b.get("judge_model"),
+                temperature=float(b["temperature"]) if "temperature" in b else None,
+                max_tokens=int(b["max_tokens"]) if "max_tokens" in b else None,
+                subset=b.get("subset"),
+            )
+        )
 
     return EvalSuiteConfig(
         meta=meta,
@@ -245,35 +260,37 @@ def expand_suite(suite: EvalSuiteConfig) -> List[RunConfig]:
             # Judge engine: suite.judge.engine > "cloud"
             judge_engine = suite.judge.engine or "cloud"
 
-            configs.append(RunConfig(
-                benchmark=bench.name,
-                backend=bench.backend,
-                model=model.name,
-                max_samples=bench.max_samples,
-                max_workers=suite.run.max_workers,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                judge_model=judge_model,
-                judge_engine=judge_engine,
-                engine_key=model.engine,
-                agent_name=bench.agent,
-                tools=list(bench.tools),
-                output_path=output_path,
-                seed=suite.run.seed,
-                dataset_split=bench.split,
-                dataset_subset=bench.subset,
-                telemetry=suite.run.telemetry,
-                gpu_metrics=suite.run.gpu_metrics,
-                metadata=model_meta,
-                warmup_samples=suite.run.warmup_samples,
-                wandb_project=suite.run.wandb_project,
-                wandb_entity=suite.run.wandb_entity,
-                wandb_tags=suite.run.wandb_tags,
-                wandb_group=suite.run.wandb_group,
-                sheets_spreadsheet_id=suite.run.sheets_spreadsheet_id,
-                sheets_worksheet=suite.run.sheets_worksheet,
-                sheets_credentials_path=suite.run.sheets_credentials_path,
-            ))
+            configs.append(
+                RunConfig(
+                    benchmark=bench.name,
+                    backend=bench.backend,
+                    model=model.name,
+                    max_samples=bench.max_samples,
+                    max_workers=suite.run.max_workers,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    judge_model=judge_model,
+                    judge_engine=judge_engine,
+                    engine_key=model.engine,
+                    agent_name=bench.agent,
+                    tools=list(bench.tools),
+                    output_path=output_path,
+                    seed=suite.run.seed,
+                    dataset_split=bench.split,
+                    dataset_subset=bench.subset,
+                    telemetry=suite.run.telemetry,
+                    gpu_metrics=suite.run.gpu_metrics,
+                    metadata=model_meta,
+                    warmup_samples=suite.run.warmup_samples,
+                    wandb_project=suite.run.wandb_project,
+                    wandb_entity=suite.run.wandb_entity,
+                    wandb_tags=suite.run.wandb_tags,
+                    wandb_group=suite.run.wandb_group,
+                    sheets_spreadsheet_id=suite.run.sheets_spreadsheet_id,
+                    sheets_worksheet=suite.run.sheets_worksheet,
+                    sheets_credentials_path=suite.run.sheets_credentials_path,
+                )
+            )
 
     return configs
 

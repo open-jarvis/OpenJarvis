@@ -48,8 +48,11 @@ class MockBackend(InferenceBackend):
         max_tokens: int = 2048,
     ) -> Dict[str, Any]:
         content = self.generate(
-            prompt, model=model, system=system,
-            temperature=temperature, max_tokens=max_tokens,
+            prompt,
+            model=model,
+            system=system,
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
         return {
             "content": content,
@@ -78,7 +81,9 @@ class MockScorer(Scorer):
         self._result = result
 
     def score(
-        self, record: EvalRecord, model_answer: str,
+        self,
+        record: EvalRecord,
+        model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         return self._result, {"mock": True}
 

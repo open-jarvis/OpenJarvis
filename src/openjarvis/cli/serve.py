@@ -26,13 +26,18 @@ logger = logging.getLogger(__name__)
 @click.command()
 @click.option("--host", default=None, help="Bind address (default: config).")
 @click.option(
-    "--port", default=None, type=int,
+    "--port",
+    default=None,
+    type=int,
     help="Port number (default: config).",
 )
 @click.option("-e", "--engine", "engine_key", default=None, help="Engine backend.")
 @click.option("-m", "--model", "model_name", default=None, help="Default model.")
 @click.option(
-    "-a", "--agent", "agent_name", default=None,
+    "-a",
+    "--agent",
+    "agent_name",
+    default=None,
     help="Agent for non-streaming requests (simple, orchestrator, react, openhands).",
 )
 def serve(
@@ -94,12 +99,14 @@ def serve(
 
     # Apply security guardrails
     from openjarvis.security import setup_security
+
     sec = setup_security(config, engine, bus)
     engine = sec.engine
 
     # If cloud API keys are set, wrap with MultiEngine so both local
     # and cloud models appear in the model list and can be used.
     import os
+
     _has_cloud = (
         os.environ.get("OPENAI_API_KEY")
         or os.environ.get("ANTHROPIC_API_KEY")
@@ -183,13 +190,13 @@ def serve(
                     if configured:
                         if isinstance(configured, list):
                             allowed = {
-                                t.strip() for t in configured
+                                t.strip()
+                                for t in configured
                                 if isinstance(t, str) and t.strip()
                             }
                         else:
                             allowed = {
-                                t.strip() for t in configured.split(",")
-                                if t.strip()
+                                t.strip() for t in configured.split(",") if t.strip()
                             }
                     else:
                         allowed = _DEFAULT_TOOLS
@@ -214,6 +221,7 @@ def serve(
                 agent = agent_cls(engine, model_name, **agent_kwargs)
         except Exception as exc:
             import traceback
+
             console.print(f"[yellow]Agent '{agent_key}' failed to load: {exc}[/yellow]")
             traceback.print_exc()
 
@@ -254,6 +262,7 @@ def serve(
     speech_backend = None
     try:
         from openjarvis.speech._discovery import get_speech_backend
+
         speech_backend = get_speech_backend(config)
         if speech_backend:
             console.print(f"  Speech: [cyan]{speech_backend.backend_id}[/cyan]")
@@ -287,6 +296,7 @@ def serve(
 
             executor = AgentExecutor(manager=agent_manager, event_bus=bus)
             from openjarvis.system import SystemBuilder
+
             system = SystemBuilder(config).build()
             executor.set_system(system)
 
@@ -298,7 +308,8 @@ def serve(
             for ag in agent_manager.list_agents():
                 sched_type = ag.get("config", {}).get("schedule_type", "manual")
                 if sched_type in ("cron", "interval") and ag["status"] not in (
-                    "archived", "error",
+                    "archived",
+                    "error",
                 ):
                     agent_scheduler.register_agent(ag["id"])
             agent_scheduler.start()
@@ -316,20 +327,74 @@ def serve(
             mem_key = config.memory.default_backend
             if MemoryRegistry.contains(mem_key):
                 memory_backend = MemoryRegistry.create(
-                    mem_key, db_path=config.memory.db_path,
+                    mem_key,
+                    db_path=config.memory.db_path,
                 )
                 console.print("  Memory:    [cyan]active[/cyan]")
         except Exception as exc:
             logger.debug("Memory backend init failed: %s", exc)
 
+    # --- Channel Gateway: API key, sessions, ChannelBridge ---
+    import os as _os
+
+    api_key = _os.environ.get("OPENJARVIS_API_KEY", "")
+    if not api_key:
+        try:
+            import tomllib
+
+            _cfg_path = str(
+                __import__("pathlib").Path.home() / ".openjarvis" / "config.toml"
+            )
+            with open(_cfg_path, "rb") as _f:
+                _raw = tomllib.load(_f)
+            api_key = _raw.get("server", {}).get("auth", {}).get("api_key", "")
+        except (FileNotFoundError, ImportError):
+            pass
+
+    webhook_config = {
+        "twilio_auth_token": _os.environ.get("TWILIO_AUTH_TOKEN", ""),
+        "bluebubbles_password": _os.environ.get("BLUEBUBBLES_PASSWORD", ""),
+        "whatsapp_verify_token": _os.environ.get("WHATSAPP_VERIFY_TOKEN", ""),
+        "whatsapp_app_secret": _os.environ.get("WHATSAPP_APP_SECRET", ""),
+    }
+
+    # Wrap existing channel in ChannelBridge orchestrator
+    if channel_bridge is not None:
+        try:
+            from openjarvis.server.channel_bridge import (
+                ChannelBridge,
+            )
+            from openjarvis.server.session_store import (
+                SessionStore,
+            )
+
+            session_store = SessionStore()
+            channels = {channel_bridge.channel_id: channel_bridge}
+            channel_bridge = ChannelBridge(
+                channels=channels,
+                session_store=session_store,
+                bus=bus,
+                system=None,
+                agent_manager=agent_manager,
+            )
+        except Exception as exc:
+            logger.debug("ChannelBridge init skipped: %s", exc)
+
     app = create_app(
-        engine, model_name, agent=agent, bus=bus,
-        engine_name=engine_name, agent_name=agent_key or "",
-        channel_bridge=channel_bridge, config=config,
+        engine,
+        model_name,
+        agent=agent,
+        bus=bus,
+        engine_name=engine_name,
+        agent_name=agent_key or "",
+        channel_bridge=channel_bridge,
+        config=config,
         memory_backend=memory_backend,
         speech_backend=speech_backend,
         agent_manager=agent_manager,
         agent_scheduler=agent_scheduler,
+        api_key=api_key,
+        webhook_config=webhook_config,
     )
 
     console.print(
@@ -341,4 +406,5 @@ def serve(
     )
 
     import uvicorn
+
     uvicorn.run(app, host=bind_host, port=bind_port, log_level="info")

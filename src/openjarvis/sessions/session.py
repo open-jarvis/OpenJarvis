@@ -19,6 +19,7 @@ from openjarvis.core.config import DEFAULT_CONFIG_DIR
 @dataclass(slots=True)
 class SessionIdentity:
     """Canonical user identity across channels."""
+
     user_id: str
     display_name: str = ""
     # channel_type -> channel_user_id
@@ -30,7 +31,8 @@ class SessionIdentity:
 @dataclass(slots=True)
 class SessionMessage:
     """A single message within a session."""
-    role: str           # "user" | "assistant" | "system"
+
+    role: str  # "user" | "assistant" | "system"
     content: str
     channel: str = ""
     timestamp: float = 0.0
@@ -40,6 +42,7 @@ class SessionMessage:
 @dataclass
 class Session:
     """A conversation session with cross-channel message history."""
+
     session_id: str = ""
     identity: Optional[SessionIdentity] = None
     messages: List[SessionMessage] = field(default_factory=list)
@@ -48,9 +51,14 @@ class Session:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def add_message(self, role: str, content: str, *, channel: str = "") -> None:
-        self.messages.append(SessionMessage(
-            role=role, content=content, channel=channel, timestamp=time.time(),
-        ))
+        self.messages.append(
+            SessionMessage(
+                role=role,
+                content=content,
+                channel=channel,
+                timestamp=time.time(),
+            )
+        )
         self.last_activity = time.time()
 
 
@@ -124,8 +132,10 @@ class SessionStore:
             if age_hours > self._max_age_hours:
                 # Session expired, create new
                 return self._create_session(
-                    user_id, channel,
-                    channel_user_id, display_name,
+                    user_id,
+                    channel,
+                    channel_user_id,
+                    display_name,
                 )
 
             channel_ids = json.loads(row[3]) if row[3] else {}
@@ -145,7 +155,8 @@ class SessionStore:
             return Session(
                 session_id=session_id,
                 identity=SessionIdentity(
-                    user_id=row[1], display_name=row[2] or display_name,
+                    user_id=row[1],
+                    display_name=row[2] or display_name,
                     channel_ids=channel_ids,
                 ),
                 messages=messages,
@@ -157,7 +168,11 @@ class SessionStore:
         return self._create_session(user_id, channel, channel_user_id, display_name)
 
     def _create_session(
-        self, user_id: str, channel: str, channel_user_id: str, display_name: str,
+        self,
+        user_id: str,
+        channel: str,
+        channel_user_id: str,
+        display_name: str,
     ) -> Session:
         session_id = uuid.uuid4().hex[:16]
         now = time.time()
@@ -173,7 +188,8 @@ class SessionStore:
         return Session(
             session_id=session_id,
             identity=SessionIdentity(
-                user_id=user_id, display_name=display_name,
+                user_id=user_id,
+                display_name=display_name,
                 channel_ids=channel_ids,
             ),
             created_at=now,
@@ -181,8 +197,13 @@ class SessionStore:
         )
 
     def save_message(
-        self, session_id: str, role: str, content: str,
-        *, channel: str = "", metadata: Optional[Dict[str, Any]] = None,
+        self,
+        session_id: str,
+        role: str,
+        content: str,
+        *,
+        channel: str = "",
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Persist a message to a session."""
         self._conn.execute(
@@ -190,8 +211,14 @@ class SessionStore:
             " (session_id, role, content,"
             " channel, timestamp, metadata) "
             "VALUES (?, ?, ?, ?, ?, ?)",
-            (session_id, role, content, channel, time.time(),
-             json.dumps(metadata or {})),
+            (
+                session_id,
+                role,
+                content,
+                channel,
+                time.time(),
+                json.dumps(metadata or {}),
+            ),
         )
         self._conn.execute(
             "UPDATE sessions SET last_activity = ? WHERE session_id = ?",
@@ -243,17 +270,18 @@ class SessionStore:
         age = max_age_hours or self._max_age_hours
         cutoff = time.time() - (age * 3600)
         cur = self._conn.execute(
-            "SELECT session_id FROM sessions WHERE last_activity < ?", (cutoff,),
+            "SELECT session_id FROM sessions WHERE last_activity < ?",
+            (cutoff,),
         )
         session_ids = [row[0] for row in cur.fetchall()]
         for sid in session_ids:
             self._conn.execute(
-                "DELETE FROM session_messages"
-                " WHERE session_id = ?", (sid,),
+                "DELETE FROM session_messages WHERE session_id = ?",
+                (sid,),
             )
             self._conn.execute(
-                "DELETE FROM sessions"
-                " WHERE session_id = ?", (sid,),
+                "DELETE FROM sessions WHERE session_id = ?",
+                (sid,),
             )
         self._conn.commit()
         return len(session_ids)
@@ -261,7 +289,8 @@ class SessionStore:
     def link_channel(self, session_id: str, channel: str, channel_user_id: str) -> None:
         """Link a channel identity to an existing session."""
         row = self._conn.execute(
-            "SELECT channel_ids FROM sessions WHERE session_id = ?", (session_id,),
+            "SELECT channel_ids FROM sessions WHERE session_id = ?",
+            (session_id,),
         ).fetchone()
         if row:
             channel_ids = json.loads(row[0]) if row[0] else {}
@@ -273,7 +302,10 @@ class SessionStore:
             self._conn.commit()
 
     def list_sessions(
-        self, *, active_only: bool = True, limit: int = 50,
+        self,
+        *,
+        active_only: bool = True,
+        limit: int = 50,
     ) -> List[Session]:
         """List sessions, optionally filtering to active only."""
         sql = (
@@ -292,16 +324,19 @@ class SessionStore:
         rows = self._conn.execute(sql, params).fetchall()
         sessions = []
         for row in rows:
-            sessions.append(Session(
-                session_id=row[0],
-                identity=SessionIdentity(
-                    user_id=row[1], display_name=row[2] or "",
-                    channel_ids=json.loads(row[3]) if row[3] else {},
-                ),
-                created_at=row[4] or 0.0,
-                last_activity=row[5] or 0.0,
-                metadata=json.loads(row[6]) if row[6] else {},
-            ))
+            sessions.append(
+                Session(
+                    session_id=row[0],
+                    identity=SessionIdentity(
+                        user_id=row[1],
+                        display_name=row[2] or "",
+                        channel_ids=json.loads(row[3]) if row[3] else {},
+                    ),
+                    created_at=row[4] or 0.0,
+                    last_activity=row[5] or 0.0,
+                    metadata=json.loads(row[6]) if row[6] else {},
+                )
+            )
         return sessions
 
     def _load_messages(self, session_id: str) -> List[SessionMessage]:
@@ -312,7 +347,9 @@ class SessionStore:
         ).fetchall()
         return [
             SessionMessage(
-                role=row[0], content=row[1], channel=row[2] or "",
+                role=row[0],
+                content=row[1],
+                channel=row[2] or "",
                 timestamp=row[3] or 0.0,
                 metadata=json.loads(row[4]) if row[4] else {},
             )

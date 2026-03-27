@@ -70,8 +70,7 @@ class XMPPChannel(BaseChannel):
             import slixmpp  # noqa: F401
         except ImportError:
             raise ImportError(
-                "slixmpp not installed. Install with: "
-                "uv sync --extra channel-xmpp"
+                "slixmpp not installed. Install with: uv sync --extra channel-xmpp"
             )
         self._status = ChannelStatus.CONNECTED
 

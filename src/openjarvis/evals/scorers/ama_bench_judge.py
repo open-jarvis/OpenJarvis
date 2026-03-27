@@ -76,7 +76,9 @@ class AMABenchScorer(LLMJudgeScorer):
     scorer_id = "ama-bench"
 
     def score(
-        self, record: EvalRecord, model_answer: str,
+        self,
+        record: EvalRecord,
+        model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         if not model_answer or not model_answer.strip():
             return False, {"reason": "empty_response", "f1": 0.0}
@@ -97,14 +99,18 @@ class AMABenchScorer(LLMJudgeScorer):
         )
 
         raw = self._ask_judge(
-            prompt, system=_JUDGE_SYSTEM, temperature=0.0, max_tokens=128,
+            prompt,
+            system=_JUDGE_SYSTEM,
+            temperature=0.0,
+            max_tokens=128,
         )
         label = _parse_judge_label(raw)
         if label is None:
             LOGGER.warning(
                 "AMA-Bench judge returned unparseable output for %s, "
                 "falling back to F1 threshold: %r",
-                record.record_id, raw[:200],
+                record.record_id,
+                raw[:200],
             )
             is_correct = f1 >= 0.5
             return is_correct, {

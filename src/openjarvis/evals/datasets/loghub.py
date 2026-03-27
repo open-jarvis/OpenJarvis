@@ -65,8 +65,7 @@ class LogHubDataset(DatasetProvider):
             )
         self._subset = subset
         self._cache_dir = (
-            Path(cache_dir) if cache_dir
-            else Path.home() / ".cache" / "loghub"
+            Path(cache_dir) if cache_dir else Path.home() / ".cache" / "loghub"
         )
         self._records: List[EvalRecord] = []
 
@@ -118,7 +117,9 @@ class LogHubDataset(DatasetProvider):
         )
 
     def _load_session_mode(
-        self, data_dir: Path, meta: Dict[str, Any],
+        self,
+        data_dir: Path,
+        meta: Dict[str, Any],
     ) -> List[EvalRecord]:
         """Load HDFS-style session-based records (group by block_id)."""
         log_path = data_dir / meta["log_file"]
@@ -157,24 +158,28 @@ class LogHubDataset(DatasetProvider):
                 f"({len(lines)} lines):\n```\n{log_text}\n```"
             )
 
-            records.append(EvalRecord(
-                record_id=f"loghub-{self._subset}-{bid}",
-                problem=problem,
-                reference=reference,
-                category="agentic",
-                subject=self._subset,
-                metadata={
-                    "block_id": bid,
-                    "num_lines": len(lines),
-                    "dataset": self._subset,
-                    "label": label,
-                },
-            ))
+            records.append(
+                EvalRecord(
+                    record_id=f"loghub-{self._subset}-{bid}",
+                    problem=problem,
+                    reference=reference,
+                    category="agentic",
+                    subject=self._subset,
+                    metadata={
+                        "block_id": bid,
+                        "num_lines": len(lines),
+                        "dataset": self._subset,
+                        "label": label,
+                    },
+                )
+            )
 
         return records
 
     def _load_window_mode(
-        self, data_dir: Path, meta: Dict[str, Any],
+        self,
+        data_dir: Path,
+        meta: Dict[str, Any],
     ) -> List[EvalRecord]:
         """Load BGL/Thunderbird-style windowed records."""
         log_path = data_dir / meta["log_file"]
@@ -204,19 +209,21 @@ class LogHubDataset(DatasetProvider):
                         f"({len(window)} lines):\n```\n{log_text}\n```"
                     )
 
-                    records.append(EvalRecord(
-                        record_id=f"loghub-{self._subset}-w{window_idx}",
-                        problem=problem,
-                        reference=reference,
-                        category="agentic",
-                        subject=self._subset,
-                        metadata={
-                            "window_idx": window_idx,
-                            "num_lines": len(window),
-                            "dataset": self._subset,
-                            "has_anomaly": has_anomaly,
-                        },
-                    ))
+                    records.append(
+                        EvalRecord(
+                            record_id=f"loghub-{self._subset}-w{window_idx}",
+                            problem=problem,
+                            reference=reference,
+                            category="agentic",
+                            subject=self._subset,
+                            metadata={
+                                "window_idx": window_idx,
+                                "num_lines": len(window),
+                                "dataset": self._subset,
+                                "has_anomaly": has_anomaly,
+                            },
+                        )
+                    )
 
                     window = []
                     has_anomaly = False
@@ -231,19 +238,21 @@ class LogHubDataset(DatasetProvider):
                 f"Log window {window_idx} "
                 f"({len(window)} lines):\n```\n{log_text}\n```"
             )
-            records.append(EvalRecord(
-                record_id=f"loghub-{self._subset}-w{window_idx}",
-                problem=problem,
-                reference=reference,
-                category="agentic",
-                subject=self._subset,
-                metadata={
-                    "window_idx": window_idx,
-                    "num_lines": len(window),
-                    "dataset": self._subset,
-                    "has_anomaly": has_anomaly,
-                },
-            ))
+            records.append(
+                EvalRecord(
+                    record_id=f"loghub-{self._subset}-w{window_idx}",
+                    problem=problem,
+                    reference=reference,
+                    category="agentic",
+                    subject=self._subset,
+                    metadata={
+                        "window_idx": window_idx,
+                        "num_lines": len(window),
+                        "dataset": self._subset,
+                        "has_anomaly": has_anomaly,
+                    },
+                )
+            )
 
         return records
 

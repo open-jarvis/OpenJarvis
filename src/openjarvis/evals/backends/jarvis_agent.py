@@ -57,8 +57,11 @@ class JarvisAgentBackend(InferenceBackend):
         max_tokens: int = 2048,
     ) -> str:
         result = self.generate_full(
-            prompt, model=model, system=system,
-            temperature=temperature, max_tokens=max_tokens,
+            prompt,
+            model=model,
+            system=system,
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
         return result["content"]
 

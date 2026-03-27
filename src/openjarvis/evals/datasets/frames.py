@@ -76,7 +76,9 @@ class FRAMESDataset(DatasetProvider):
         return len(self._records)
 
     def _convert_row(
-        self, raw: MutableMapping[str, object], idx: int,
+        self,
+        raw: MutableMapping[str, object],
+        idx: int,
     ) -> Optional[EvalRecord]:
         question = str(
             raw.get("Prompt") or raw.get("prompt") or raw.get("question") or ""
@@ -97,7 +99,9 @@ class FRAMESDataset(DatasetProvider):
         # Extract wiki links
         wiki_links_raw = raw.get("wiki_links", raw.get("wikipedia_links", []))
         if isinstance(wiki_links_raw, str):
-            wiki_links = [link.strip() for link in wiki_links_raw.split(",") if link.strip()]
+            wiki_links = [
+                link.strip() for link in wiki_links_raw.split(",") if link.strip()
+            ]
         elif isinstance(wiki_links_raw, list):
             wiki_links = [str(link) for link in wiki_links_raw]
         else:
@@ -112,7 +116,8 @@ class FRAMESDataset(DatasetProvider):
             )
 
         problem = _DEFAULT_INPUT_PROMPT.format(
-            question=question, wiki_context=wiki_context,
+            question=question,
+            wiki_context=wiki_context,
         )
 
         subject = reasoning if reasoning else "general"

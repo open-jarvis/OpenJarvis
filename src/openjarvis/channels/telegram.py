@@ -70,7 +70,8 @@ class TelegramChannel(BaseChannel):
             from telegram.ext import ApplicationBuilder  # noqa: F401
 
             self._listener_thread = threading.Thread(
-                target=self._poll_loop, daemon=True,
+                target=self._poll_loop,
+                daemon=True,
             )
             self._listener_thread.start()
             self._status = ChannelStatus.CONNECTED

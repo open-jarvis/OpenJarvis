@@ -139,26 +139,36 @@ class OllamaEngine(InferenceEngine):
         }
         # Extract timing from Ollama response (nanoseconds → seconds)
         result["ttft"] = data.get("prompt_eval_duration", 0) / 1e9
-        result["engine_timing"] = {k: data[k] for k in
-            ("total_duration", "load_duration", "prompt_eval_duration", "eval_duration")
-            if k in data}
+        result["engine_timing"] = {
+            k: data[k]
+            for k in (
+                "total_duration",
+                "load_duration",
+                "prompt_eval_duration",
+                "eval_duration",
+            )
+            if k in data
+        }
         # Extract tool calls if present
         raw_tool_calls = data.get("message", {}).get("tool_calls", [])
         if raw_tool_calls:
             tool_calls = []
             for i, tc in enumerate(raw_tool_calls):
                 raw_args = tc.get("function", {}).get(
-                    "arguments", "{}",
+                    "arguments",
+                    "{}",
                 )
-                tool_calls.append({
-                    "id": tc.get("id", f"call_{i}"),
-                    "name": tc.get("function", {}).get("name", ""),
-                    "arguments": (
-                        json.dumps(raw_args)
-                        if isinstance(raw_args, dict)
-                        else raw_args
-                    ),
-                })
+                tool_calls.append(
+                    {
+                        "id": tc.get("id", f"call_{i}"),
+                        "name": tc.get("function", {}).get("name", ""),
+                        "arguments": (
+                            json.dumps(raw_args)
+                            if isinstance(raw_args, dict)
+                            else raw_args
+                        ),
+                    }
+                )
             result["tool_calls"] = tool_calls
         return result
 
@@ -199,8 +209,7 @@ class OllamaEngine(InferenceEngine):
                         est_prompt = estimate_prompt_tokens(messages)
                         full_prompt = max(reported_prompt, est_prompt)
                         evaluated = (
-                            reported_prompt if reported_prompt > 0
-                            else full_prompt
+                            reported_prompt if reported_prompt > 0 else full_prompt
                         )
                         comp = chunk.get("eval_count", 0)
                         self._last_stream_usage = {
@@ -220,11 +229,14 @@ class OllamaEngine(InferenceEngine):
             resp = self._client.get("/api/tags")
             resp.raise_for_status()
         except (
-            httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError,
+            httpx.ConnectError,
+            httpx.TimeoutException,
+            httpx.HTTPStatusError,
         ) as exc:
             logger.warning(
                 "Failed to list models from Ollama at %s: %s",
-                self._host, exc,
+                self._host,
+                exc,
             )
             return []
         data = resp.json()

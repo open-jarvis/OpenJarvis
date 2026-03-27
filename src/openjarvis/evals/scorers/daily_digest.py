@@ -78,13 +78,17 @@ class DailyDigestScorer(Scorer):
     scorer_id = "daily_digest"
 
     def __init__(
-        self, judge_backend=None, judge_model: str = "",
+        self,
+        judge_backend=None,
+        judge_model: str = "",
     ) -> None:
         self._judge_backend = judge_backend
         self._judge_model = judge_model
 
     def score(
-        self, record: EvalRecord, model_answer: str,
+        self,
+        record: EvalRecord,
+        model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         if not model_answer or not model_answer.strip():
             return False, {"reason": "empty_response"}
@@ -97,12 +101,14 @@ class DailyDigestScorer(Scorer):
 
         # --- Tier 1: Phrase match ---
         phrase_score, phrase_details = _phrase_match_score(
-            model_answer, must_mention,
+            model_answer,
+            must_mention,
         )
 
         # --- Tier 1: Ordering ---
         order_score, order_details = _ordering_score(
-            model_answer, priority_order,
+            model_answer,
+            priority_order,
         )
 
         # --- Tier 2: Checklist ---
@@ -118,12 +124,13 @@ class DailyDigestScorer(Scorer):
                 "The tone is professional and concise",
             ]
             scorer = ChecklistScorer(
-                self._judge_backend, self._judge_model,
+                self._judge_backend,
+                self._judge_model,
             )
-            checklist_score, checklist_details = (
-                scorer.score_checklist(
-                    model_answer, items, context=record.problem,
-                )
+            checklist_score, checklist_details = scorer.score_checklist(
+                model_answer,
+                items,
+                context=record.problem,
             )
         else:
             # Heuristic fallback
@@ -133,29 +140,17 @@ class DailyDigestScorer(Scorer):
                 for marker in ["##", "**", "---", "priority", "action"]
             )
             has_actions = any(
-                kw in ans_lower
-                for kw in ["action", "todo", "next step", "follow up"]
+                kw in ans_lower for kw in ["action", "todo", "next step", "follow up"]
             )
-            checklist_score = (
-                (0.5 if has_sections else 0.0)
-                + (0.5 if has_actions else 0.0)
+            checklist_score = (0.5 if has_sections else 0.0) + (
+                0.5 if has_actions else 0.0
             )
 
         # --- Composite score ---
-        final_score = (
-            phrase_score * 0.5
-            + order_score * 0.3
-            + checklist_score * 0.2
-        )
+        final_score = phrase_score * 0.5 + order_score * 0.3 + checklist_score * 0.2
 
-        items_mentioned = sum(
-            1 for d in phrase_details if d["found"]
-        )
-        is_correct = (
-            phrase_score >= 0.8
-            and order_score >= 0.5
-            and final_score >= 0.7
-        )
+        items_mentioned = sum(1 for d in phrase_details if d["found"])
+        is_correct = phrase_score >= 0.8 and order_score >= 0.5 and final_score >= 0.7
 
         return is_correct, {
             "match_type": "daily_digest",

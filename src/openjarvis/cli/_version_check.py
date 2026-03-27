@@ -74,11 +74,15 @@ def _get_latest_version(current: str) -> str | None:
 
     try:
         _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _CACHE_PATH.write_text(json.dumps({
-            "last_check": time.time(),
-            "latest_version": latest,
-            "current_version": current,
-        }))
+        _CACHE_PATH.write_text(
+            json.dumps(
+                {
+                    "last_check": time.time(),
+                    "latest_version": latest,
+                    "current_version": current,
+                }
+            )
+        )
     except Exception:
         pass
 

@@ -62,7 +62,8 @@ class MemoryStoreTool(BaseTool):
             )
         try:
             doc_id = self._backend.store(
-                content, source=params.get("source", ""),
+                content,
+                source=params.get("source", ""),
             )
             return ToolResult(
                 tool_name="memory_store",
@@ -131,9 +132,7 @@ class MemoryRetrieveTool(BaseTool):
                     content="No results found.",
                     success=True,
                 )
-            formatted = "\n---\n".join(
-                f"[{r.score:.2f}] {r.content}" for r in results
-            )
+            formatted = "\n---\n".join(f"[{r.score:.2f}] {r.content}" for r in results)
             return ToolResult(
                 tool_name="memory_retrieve",
                 content=formatted,

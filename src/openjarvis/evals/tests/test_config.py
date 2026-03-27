@@ -100,13 +100,16 @@ class TestDataclassDefaults:
 
 class TestLoadEvalConfig:
     def test_minimal_config(self, tmp_path):
-        p = _write_toml(tmp_path, """\
+        p = _write_toml(
+            tmp_path,
+            """\
             [[models]]
             name = "qwen3:8b"
 
             [[benchmarks]]
             name = "supergpqa"
-        """)
+        """,
+        )
         suite = load_eval_config(p)
         assert len(suite.models) == 1
         assert suite.models[0].name == "qwen3:8b"
@@ -117,7 +120,9 @@ class TestLoadEvalConfig:
         assert suite.judge.model == "gpt-5-mini-2025-08-07"
 
     def test_full_config(self, tmp_path):
-        p = _write_toml(tmp_path, """\
+        p = _write_toml(
+            tmp_path,
+            """\
             [meta]
             name = "test-suite"
             description = "A test suite"
@@ -157,7 +162,8 @@ class TestLoadEvalConfig:
             agent = "orchestrator"
             tools = ["calc", "think"]
             judge_model = "gpt-4o"
-        """)
+        """,
+        )
         suite = load_eval_config(p)
         assert suite.meta.name == "test-suite"
         assert suite.meta.description == "A test suite"
@@ -184,18 +190,24 @@ class TestLoadEvalConfig:
         assert suite.benchmarks[1].judge_model == "gpt-4o"
 
     def test_missing_models_raises(self, tmp_path):
-        p = _write_toml(tmp_path, """\
+        p = _write_toml(
+            tmp_path,
+            """\
             [[benchmarks]]
             name = "supergpqa"
-        """)
+        """,
+        )
         with pytest.raises(EvalConfigError, match="at least one \\[\\[models\\]\\]"):
             load_eval_config(p)
 
     def test_missing_benchmarks_raises(self, tmp_path):
-        p = _write_toml(tmp_path, """\
+        p = _write_toml(
+            tmp_path,
+            """\
             [[models]]
             name = "qwen3:8b"
-        """)
+        """,
+        )
         with pytest.raises(
             EvalConfigError,
             match="at least one \\[\\[benchmarks\\]\\]",
@@ -203,48 +215,61 @@ class TestLoadEvalConfig:
             load_eval_config(p)
 
     def test_model_without_name_raises(self, tmp_path):
-        p = _write_toml(tmp_path, """\
+        p = _write_toml(
+            tmp_path,
+            """\
             [[models]]
             engine = "ollama"
 
             [[benchmarks]]
             name = "supergpqa"
-        """)
+        """,
+        )
         with pytest.raises(EvalConfigError, match="'name' field"):
             load_eval_config(p)
 
     def test_benchmark_without_name_raises(self, tmp_path):
-        p = _write_toml(tmp_path, """\
+        p = _write_toml(
+            tmp_path,
+            """\
             [[models]]
             name = "qwen3:8b"
 
             [[benchmarks]]
             backend = "jarvis-direct"
-        """)
+        """,
+        )
         with pytest.raises(EvalConfigError, match="'name' field"):
             load_eval_config(p)
 
     def test_invalid_backend_raises(self, tmp_path):
-        p = _write_toml(tmp_path, """\
+        p = _write_toml(
+            tmp_path,
+            """\
             [[models]]
             name = "qwen3:8b"
 
             [[benchmarks]]
             name = "supergpqa"
             backend = "invalid-backend"
-        """)
+        """,
+        )
         with pytest.raises(EvalConfigError, match="Invalid backend"):
             load_eval_config(p)
 
     def test_unknown_benchmark_warns(self, tmp_path, caplog):
-        p = _write_toml(tmp_path, """\
+        p = _write_toml(
+            tmp_path,
+            """\
             [[models]]
             name = "qwen3:8b"
 
             [[benchmarks]]
             name = "custom-bench"
-        """)
+        """,
+        )
         import logging
+
         with caplog.at_level(logging.WARNING):
             suite = load_eval_config(p)
         assert suite.benchmarks[0].name == "custom-bench"
@@ -261,22 +286,28 @@ class TestLoadEvalConfig:
             load_eval_config(p)
 
     def test_empty_models_list(self, tmp_path):
-        p = _write_toml(tmp_path, """\
+        p = _write_toml(
+            tmp_path,
+            """\
             models = []
 
             [[benchmarks]]
             name = "supergpqa"
-        """)
+        """,
+        )
         with pytest.raises(EvalConfigError, match="at least one \\[\\[models\\]\\]"):
             load_eval_config(p)
 
     def test_empty_benchmarks_list(self, tmp_path):
-        p = _write_toml(tmp_path, """\
+        p = _write_toml(
+            tmp_path,
+            """\
             [[models]]
             name = "qwen3:8b"
 
             benchmarks = []
-        """)
+        """,
+        )
         with pytest.raises(
             EvalConfigError,
             match="at least one \\[\\[benchmarks\\]\\]",
@@ -284,7 +315,9 @@ class TestLoadEvalConfig:
             load_eval_config(p)
 
     def test_model_hardware_params(self, tmp_path):
-        p = _write_toml(tmp_path, """\
+        p = _write_toml(
+            tmp_path,
+            """\
             [[models]]
             name = "GLM-4.7-Flash"
             engine = "vllm"
@@ -296,7 +329,8 @@ class TestLoadEvalConfig:
 
             [[benchmarks]]
             name = "supergpqa"
-        """)
+        """,
+        )
         suite = load_eval_config(p)
         m = suite.models[0]
         assert m.param_count_b == 30.0
@@ -306,13 +340,16 @@ class TestLoadEvalConfig:
         assert m.num_gpus == 4
 
     def test_model_hardware_params_defaults(self, tmp_path):
-        p = _write_toml(tmp_path, """\
+        p = _write_toml(
+            tmp_path,
+            """\
             [[models]]
             name = "qwen3:8b"
 
             [[benchmarks]]
             name = "supergpqa"
-        """)
+        """,
+        )
         suite = load_eval_config(p)
         m = suite.models[0]
         assert m.param_count_b == 0.0
@@ -322,7 +359,9 @@ class TestLoadEvalConfig:
         assert m.num_gpus == 1
 
     def test_telemetry_config(self, tmp_path):
-        p = _write_toml(tmp_path, """\
+        p = _write_toml(
+            tmp_path,
+            """\
             [run]
             telemetry = true
             gpu_metrics = true
@@ -332,7 +371,8 @@ class TestLoadEvalConfig:
 
             [[benchmarks]]
             name = "supergpqa"
-        """)
+        """,
+        )
         suite = load_eval_config(p)
         assert suite.run.telemetry is True
         assert suite.run.gpu_metrics is True
@@ -344,13 +384,15 @@ class TestLoadEvalConfig:
 
 
 class TestExampleConfigs:
-    @pytest.fixture(params=[
-        "minimal.toml",
-        "single-run.toml",
-        "full-suite.toml",
-        "glm-4.7-flash-openhands.toml",
-        "glm-4.7-flash-openhands-remaining.toml",
-    ])
+    @pytest.fixture(
+        params=[
+            "minimal.toml",
+            "single-run.toml",
+            "full-suite.toml",
+            "glm-4.7-flash-openhands.toml",
+            "glm-4.7-flash-openhands-remaining.toml",
+        ]
+    )
     def example_config(self, request):
         configs_dir = Path(__file__).resolve().parent.parent / "configs"
         return configs_dir / request.param
@@ -549,12 +591,17 @@ class TestExpandSuite:
 
     def test_metadata_from_model_hardware_params(self):
         suite = EvalSuiteConfig(
-            models=[ModelConfig(
-                name="GLM-4.7-Flash", engine="vllm",
-                param_count_b=30.0, active_params_b=3.0,
-                gpu_peak_tflops=312.0, gpu_peak_bandwidth_gb_s=2039.0,
-                num_gpus=4,
-            )],
+            models=[
+                ModelConfig(
+                    name="GLM-4.7-Flash",
+                    engine="vllm",
+                    param_count_b=30.0,
+                    active_params_b=3.0,
+                    gpu_peak_tflops=312.0,
+                    gpu_peak_bandwidth_gb_s=2039.0,
+                    num_gpus=4,
+                )
+            ],
             benchmarks=[BenchmarkConfig(name="supergpqa")],
         )
         configs = expand_suite(suite)
@@ -575,11 +622,13 @@ class TestExpandSuite:
 
     def test_metadata_partial_hardware_params(self):
         suite = EvalSuiteConfig(
-            models=[ModelConfig(
-                name="m1",
-                param_count_b=7.0,
-                gpu_peak_tflops=100.0,
-            )],
+            models=[
+                ModelConfig(
+                    name="m1",
+                    param_count_b=7.0,
+                    gpu_peak_tflops=100.0,
+                )
+            ],
             benchmarks=[BenchmarkConfig(name="supergpqa")],
         )
         configs = expand_suite(suite)
@@ -647,7 +696,9 @@ class TestCLIConfig:
 
         from openjarvis.evals.cli import main
 
-        p = _write_toml(tmp_path, """\
+        p = _write_toml(
+            tmp_path,
+            """\
             [meta]
             name = "test-suite"
 
@@ -656,7 +707,8 @@ class TestCLIConfig:
 
             [[benchmarks]]
             name = "supergpqa"
-        """)
+        """,
+        )
 
         runner = CliRunner()
         with patch("openjarvis.evals.cli._run_single", side_effect=Exception("mock")):

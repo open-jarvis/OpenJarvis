@@ -47,8 +47,10 @@ def _get_objective_value(trial: TrialResult, obj: ObjectiveSpec) -> float:
     """Read the metric value from a TrialResult for a given objective."""
     # Direct attributes on TrialResult
     direct = {
-        "accuracy", "mean_latency_seconds",
-        "total_cost_usd", "total_energy_joules",
+        "accuracy",
+        "mean_latency_seconds",
+        "total_cost_usd",
+        "total_energy_joules",
     }
     if obj.metric in direct:
         return getattr(trial, obj.metric, 0.0)
@@ -99,12 +101,10 @@ def compute_pareto_frontier(
                 continue
             # Check if other dominates trial
             all_ge = all(
-                trial_vals[j][k] >= trial_vals[i][k]
-                for k in range(len(objectives))
+                trial_vals[j][k] >= trial_vals[i][k] for k in range(len(objectives))
             )
             any_gt = any(
-                trial_vals[j][k] > trial_vals[i][k]
-                for k in range(len(objectives))
+                trial_vals[j][k] > trial_vals[i][k] for k in range(len(objectives))
             )
             if all_ge and any_gt:
                 dominated = True
@@ -170,9 +170,7 @@ class OptimizationEngine:
         benchmark_name = getattr(self.trial_runner, "benchmark", "")
         benchmark_names: List[str] = []
         if isinstance(self.trial_runner, MultiBenchTrialRunner):
-            benchmark_names = [
-                s.benchmark for s in self.trial_runner.benchmark_specs
-            ]
+            benchmark_names = [s.benchmark for s in self.trial_runner.benchmark_specs]
             benchmark_name = "+".join(benchmark_names)
 
         optimization_run = OptimizationRun(
@@ -228,9 +226,7 @@ class OptimizationEngine:
                     total_energy_joules=result.total_energy_joules,
                     total_samples=result.samples_evaluated,
                     scored_samples=result.samples_evaluated,
-                    correct=int(
-                        result.accuracy * result.samples_evaluated
-                    ),
+                    correct=int(result.accuracy * result.samples_evaluated),
                     errors=0,
                     total_input_tokens=0,
                     total_output_tokens=result.total_tokens,
@@ -251,7 +247,8 @@ class OptimizationEngine:
 
             # Recompute Pareto frontier
             optimization_run.pareto_frontier = compute_pareto_frontier(
-                history, optimization_run.objectives,
+                history,
+                optimization_run.objectives,
             )
             frontier_ids = {t.trial_id for t in optimization_run.pareto_frontier}
 
@@ -286,14 +283,13 @@ class OptimizationEngine:
                 if result.structured_feedback:
                     target_primitive = result.structured_feedback.target_primitive
 
-                if (
-                    trial_num % 5 == 0
-                    and len(optimization_run.pareto_frontier) >= 2
-                ):
+                if trial_num % 5 == 0 and len(optimization_run.pareto_frontier) >= 2:
                     # Merge frontier members periodically
                     candidates = optimization_run.pareto_frontier[:3]
                     config = self.llm_optimizer.propose_merge(
-                        candidates, history, frontier_ids=frontier_ids,
+                        candidates,
+                        history,
+                        frontier_ids=frontier_ids,
                     )
                 elif target_primitive and trial_num > 2:
                     # Targeted mutation on the suggested primitive
@@ -305,7 +301,8 @@ class OptimizationEngine:
                     )
                 else:
                     config = self.llm_optimizer.propose_next(
-                        history, frontier_ids=frontier_ids,
+                        history,
+                        frontier_ids=frontier_ids,
                     )
 
         optimization_run.status = "completed"
@@ -315,9 +312,7 @@ class OptimizationEngine:
 
         return optimization_run
 
-    def export_best_recipe(
-        self, run: OptimizationRun, path: Path
-    ) -> Path:
+    def export_best_recipe(self, run: OptimizationRun, path: Path) -> Path:
         """Export the best trial's config as a TOML recipe file.
 
         Args:
@@ -414,9 +409,7 @@ class OptimizationEngine:
         return recipe
 
     @staticmethod
-    def _write_toml_fallback(
-        data: Dict[str, Any], path: Path
-    ) -> None:
+    def _write_toml_fallback(data: Dict[str, Any], path: Path) -> None:
         """Write a simple nested dict as TOML without tomli_w."""
         lines: List[str] = []
         for section, values in data.items():
@@ -432,8 +425,7 @@ class OptimizationEngine:
                     lines.append(f"{key} = {val}")
                 elif isinstance(val, list):
                     items = ", ".join(
-                        f'"{v}"' if isinstance(v, str) else str(v)
-                        for v in val
+                        f'"{v}"' if isinstance(v, str) else str(v) for v in val
                     )
                     lines.append(f"{key} = [{items}]")
                 else:

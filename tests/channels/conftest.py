@@ -34,8 +34,13 @@ def scenario_harness(tmp_path):
     scheduler = AgentScheduler(manager=manager, executor=executor, event_bus=bus)
 
     return ScenarioHarness(
-        manager=manager, executor=executor, scheduler=scheduler,
-        bus=bus, engine=engine, system=system, db_path=db_path,
+        manager=manager,
+        executor=executor,
+        scheduler=scheduler,
+        bus=bus,
+        engine=engine,
+        system=system,
+        db_path=db_path,
     )
 
 

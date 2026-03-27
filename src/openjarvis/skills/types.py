@@ -9,14 +9,16 @@ from typing import Any, Dict, List
 @dataclass(slots=True)
 class SkillStep:
     """A single step in a skill pipeline."""
+
     tool_name: str
     arguments_template: str = "{}"  # Jinja2-style template
-    output_key: str = ""             # Key to store result in context
+    output_key: str = ""  # Key to store result in context
 
 
 @dataclass(slots=True)
 class SkillManifest:
     """Manifest describing a reusable skill."""
+
     name: str
     version: str = "0.1.0"
     description: str = ""
@@ -29,6 +31,7 @@ class SkillManifest:
     def manifest_bytes(self) -> bytes:
         """Serialize the manifest (excluding signature) for signing/verification."""
         import json
+
         data = {
             "name": self.name,
             "version": self.version,

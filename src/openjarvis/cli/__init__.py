@@ -10,10 +10,13 @@ from openjarvis.cli.agent_cmd import agent
 from openjarvis.cli.ask import ask
 from openjarvis.cli.bench_cmd import bench
 from openjarvis.cli.channel_cmd import channel
+from openjarvis.cli.channels_cmd import channels
 from openjarvis.cli.chat_cmd import chat
 from openjarvis.cli.compose_cmd import compose
 from openjarvis.cli.config_cmd import config
+from openjarvis.cli.connect_cmd import connect
 from openjarvis.cli.daemon_cmd import restart, start, status, stop
+from openjarvis.cli.deep_research_setup_cmd import deep_research_setup
 from openjarvis.cli.doctor_cmd import doctor
 from openjarvis.cli.eval_cmd import eval_group
 from openjarvis.cli.feedback_cmd import feedback_group
@@ -66,6 +69,7 @@ cli.add_command(memory, "memory")
 cli.add_command(telemetry, "telemetry")
 cli.add_command(bench, "bench")
 cli.add_command(channel, "channel")
+cli.add_command(channels, "channels")
 cli.add_command(scheduler, "scheduler")
 cli.add_command(doctor, "doctor")
 cli.add_command(agent, "agents")
@@ -89,6 +93,24 @@ cli.add_command(tool, "tool")
 cli.add_command(registry, "registry")
 cli.add_command(config, "config")
 cli.add_command(scan, "scan")
+cli.add_command(connect, "connect")
+cli.add_command(deep_research_setup, "deep-research-setup")
+cli.add_command(deep_research_setup, "research")
+
+# Gateway CLI commands (lazy import to avoid pulling starlette)
+try:
+    from openjarvis.cli.auth_cmd import auth
+
+    cli.add_command(auth, "auth")
+except ImportError:
+    pass
+
+try:
+    from openjarvis.cli.tunnel_cmd import tunnel
+
+    cli.add_command(tunnel, "tunnel")
+except ImportError:
+    pass
 
 
 def main() -> None:

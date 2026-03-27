@@ -78,8 +78,7 @@ class RedditChannel(BaseChannel):
             import praw  # noqa: F401
         except ImportError:
             raise ImportError(
-                "praw not installed. Install with: "
-                "uv sync --extra channel-reddit"
+                "praw not installed. Install with: uv sync --extra channel-reddit"
             )
         self._status = ChannelStatus.CONNECTED
 

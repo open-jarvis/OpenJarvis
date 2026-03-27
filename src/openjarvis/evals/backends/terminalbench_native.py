@@ -79,6 +79,7 @@ class TerminalBenchNativeBackend(InferenceBackend):
 
         # Use built-in agent (naive uses LiteLLM)
         from terminal_bench.agents.agent_name import AgentName
+
         harness_kwargs["agent_name"] = AgentName(self._agent_name)
         harness_kwargs["agent_kwargs"] = {
             "llm": LiteLLM(
@@ -95,13 +96,25 @@ class TerminalBenchNativeBackend(InferenceBackend):
         self._results = harness.run()
         return self._results
 
-    def generate(self, prompt: str, *, model: str, system: str = "",
-                 temperature: float = 0.0, max_tokens: int = 2048) -> str:
+    def generate(
+        self,
+        prompt: str,
+        *,
+        model: str,
+        system: str = "",
+        temperature: float = 0.0,
+        max_tokens: int = 2048,
+    ) -> str:
         return ""
 
     def generate_full(
-        self, prompt: str, *, model: str, system: str = "",
-        temperature: float = 0.0, max_tokens: int = 2048,
+        self,
+        prompt: str,
+        *,
+        model: str,
+        system: str = "",
+        temperature: float = 0.0,
+        max_tokens: int = 2048,
     ) -> Dict[str, Any]:
         return {"content": "", "usage": {}, "model": model, "latency_seconds": 0.0}
 

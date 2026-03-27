@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from openjarvis.server.api_routes import include_all_routes
 from openjarvis.server.comparison import comparison_router
+from openjarvis.server.connectors_router import create_connectors_router
 from openjarvis.server.dashboard import dashboard_router
 from openjarvis.server.routes import router
 
@@ -31,9 +32,7 @@ class _NoCacheStaticFiles(StaticFiles):
     async def __call__(self, scope, receive, send):
         async def _send_with_headers(message):
             if message["type"] == "http.response.start":
-                extra = [
-                    (k.encode(), v.encode()) for k, v in _NO_CACHE_HEADERS.items()
-                ]
+                extra = [(k.encode(), v.encode()) for k, v in _NO_CACHE_HEADERS.items()]
                 # Remove etag and last-modified
                 existing = [
                     (k, v)
@@ -60,6 +59,8 @@ def create_app(
     speech_backend=None,
     agent_manager=None,
     agent_scheduler=None,
+    api_key: str = "",
+    webhook_config: dict | None = None,
 ) -> FastAPI:
     """Create and configure the FastAPI application.
 
@@ -85,6 +86,7 @@ def create_app(
     )
 
     from fastapi.middleware.cors import CORSMiddleware
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -125,6 +127,7 @@ def create_app(
     app.include_router(router)
     app.include_router(dashboard_router)
     app.include_router(comparison_router)
+    app.include_router(create_connectors_router())
     include_all_routes(app)
 
     # Add security headers middleware
@@ -136,6 +139,33 @@ def create_app(
             app.add_middleware(middleware_cls)
     except Exception as exc:
         logger.debug("Security middleware init skipped: %s", exc)
+
+    # API key authentication middleware
+    if api_key:
+        try:
+            from openjarvis.server.auth_middleware import AuthMiddleware
+
+            app.add_middleware(AuthMiddleware, api_key=api_key)
+        except Exception as exc:
+            logger.debug("Auth middleware init skipped: %s", exc)
+
+    # Mount webhook routes if bridge and config provided
+    if channel_bridge and webhook_config:
+        try:
+            from openjarvis.server.webhook_routes import (
+                create_webhook_router,
+            )
+
+            webhook_router = create_webhook_router(
+                bridge=channel_bridge,
+                twilio_auth_token=webhook_config.get("twilio_auth_token", ""),
+                bluebubbles_password=webhook_config.get("bluebubbles_password", ""),
+                whatsapp_verify_token=webhook_config.get("whatsapp_verify_token", ""),
+                whatsapp_app_secret=webhook_config.get("whatsapp_app_secret", ""),
+            )
+            app.include_router(webhook_router)
+        except Exception as exc:
+            logger.debug("Webhook routes init skipped: %s", exc)
 
     # Serve static frontend assets if the static/ directory exists
     static_dir = pathlib.Path(__file__).parent / "static"

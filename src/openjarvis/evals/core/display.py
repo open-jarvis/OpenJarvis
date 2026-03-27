@@ -125,8 +125,10 @@ def print_metrics_table(console: Console, summary: RunSummary) -> None:
     _add_metric_row(table, "Power (W)", summary.power_stats)
     _add_metric_row(table, "GPU Util (%)", summary.gpu_utilization_stats, decimals=1)
     _add_metric_row(
-        table, "Energy/OutTok (J)",
-        summary.energy_per_output_token_stats, decimals=6,
+        table,
+        "Energy/OutTok (J)",
+        summary.energy_per_output_token_stats,
+        decimals=6,
     )
     _add_metric_row(table, "Throughput/Watt", summary.throughput_per_watt_stats)
     _add_metric_row(table, "MFU (%)", summary.mfu_stats, decimals=2)
@@ -203,35 +205,43 @@ def print_accuracy_panel(console: Console, summary: RunSummary) -> None:
         lines.append(f"  {subj:<20s} {acc:.1%}  ({correct}/{scored})")
     body = "\n".join(lines)
     panel = Panel(
-        body, title="[bold]Accuracy[/bold]",
-        border_style="green", expand=False,
+        body,
+        title="[bold]Accuracy[/bold]",
+        border_style="green",
+        expand=False,
     )
     console.print(panel)
 
 
 def print_latency_table(console: Console, summary: RunSummary) -> None:
     """Print latency, throughput, and token stats table."""
-    table = _stats_table("Latency & Throughput", [
-        ("Latency (s)", summary.latency_stats, 2),
-        ("TTFT (s)", summary.ttft_stats, 3),
-        ("Throughput (tok/s)", summary.throughput_stats, 1),
-        ("Avg Input Tokens", summary.input_token_stats, 1),
-        ("Avg Output Tokens", summary.output_token_stats, 1),
-    ])
+    table = _stats_table(
+        "Latency & Throughput",
+        [
+            ("Latency (s)", summary.latency_stats, 2),
+            ("TTFT (s)", summary.ttft_stats, 3),
+            ("Throughput (tok/s)", summary.throughput_stats, 1),
+            ("Avg Input Tokens", summary.input_token_stats, 1),
+            ("Avg Output Tokens", summary.output_token_stats, 1),
+        ],
+    )
     if table.row_count > 0:
         console.print(table)
 
 
 def print_energy_table(console: Console, summary: RunSummary) -> None:
     """Print energy, efficiency, and IPJ/IPW table."""
-    table = _stats_table("Energy & Efficiency", [
-        ("Energy (J)", summary.energy_stats, 1),
-        ("Power (W)", summary.power_stats, 1),
-        ("GPU Util (%)", summary.gpu_utilization_stats, 1),
-        ("Energy/OutTok (J)", summary.energy_per_output_token_stats, 6),
-        ("MFU (%)", summary.mfu_stats, 3),
-        ("MBU (%)", summary.mbu_stats, 3),
-    ])
+    table = _stats_table(
+        "Energy & Efficiency",
+        [
+            ("Energy (J)", summary.energy_stats, 1),
+            ("Power (W)", summary.power_stats, 1),
+            ("GPU Util (%)", summary.gpu_utilization_stats, 1),
+            ("Energy/OutTok (J)", summary.energy_per_output_token_stats, 6),
+            ("MFU (%)", summary.mfu_stats, 3),
+            ("MBU (%)", summary.mbu_stats, 3),
+        ],
+    )
     if table.row_count > 0:
         console.print(table)
     # Headline: IPW, IPJ, Total Energy
@@ -258,9 +268,7 @@ def print_trace_summary(console: Console, summary: RunSummary) -> None:
         return
     total_steps = sum(s.get("count", 0) for s in sts.values())
     avg_per_sample = (
-        total_steps / summary.scored_samples
-        if summary.scored_samples > 0
-        else 0
+        total_steps / summary.scored_samples if summary.scored_samples > 0 else 0
     )
 
     table = Table(
@@ -270,8 +278,7 @@ def print_trace_summary(console: Console, summary: RunSummary) -> None:
         border_style="bright_blue",
         title_style="bold cyan",
         caption=(
-            f"Total Steps: {total_steps}"
-            f"  |  Avg Steps/Sample: {avg_per_sample:.1f}"
+            f"Total Steps: {total_steps}  |  Avg Steps/Sample: {avg_per_sample:.1f}"
         ),
     )
     table.add_column("Step Type", style="cyan", no_wrap=True)

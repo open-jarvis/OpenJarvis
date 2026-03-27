@@ -36,6 +36,7 @@ _TOOL_NAME_MAP: Dict[str, str] = {
 # Transcript translation
 # ---------------------------------------------------------------------------
 
+
 def events_to_transcript(events: List[Any]) -> List[Dict[str, Any]]:
     """Build PinchBench-format transcript from raw EventRecorder events.
 
@@ -49,26 +50,35 @@ def events_to_transcript(events: List[Any]) -> List[Dict[str, Any]]:
         if isinstance(etype, str):
             # Normalize string event types to enum comparison
             pass
-        if etype == EventType.TOOL_CALL_START or etype == EventType.TOOL_CALL_START.value:
+        if (
+            etype == EventType.TOOL_CALL_START
+            or etype == EventType.TOOL_CALL_START.value
+        ):
             tool_name = event.metadata.get("tool", "unknown")
             mapped = _TOOL_NAME_MAP.get(tool_name, tool_name)
             arguments = event.metadata.get("arguments") or {}
-            transcript.append({
-                "type": "message",
-                "message": {
-                    "role": "assistant",
-                    "content": [{"type": "toolCall", "name": mapped, "params": arguments}],
-                },
-            })
+            transcript.append(
+                {
+                    "type": "message",
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "toolCall", "name": mapped, "params": arguments}
+                        ],
+                    },
+                }
+            )
         elif etype == EventType.TOOL_CALL_END or etype == EventType.TOOL_CALL_END.value:
             result_text = str(event.metadata.get("result", ""))
-            transcript.append({
-                "type": "message",
-                "message": {
-                    "role": "toolResult",
-                    "content": [{"text": result_text}],
-                },
-            })
+            transcript.append(
+                {
+                    "type": "message",
+                    "message": {
+                        "role": "toolResult",
+                        "content": [{"text": result_text}],
+                    },
+                }
+            )
 
     return transcript
 
@@ -81,31 +91,43 @@ def _trace_to_transcript(trace: Any) -> List[Dict[str, Any]]:
             if tc is None:
                 continue
             mapped = _TOOL_NAME_MAP.get(tc["name"], tc["name"])
-            transcript.append({
-                "type": "message",
-                "message": {
-                    "role": "assistant",
-                    "content": [{"type": "toolCall", "name": mapped, "params": tc.get("arguments") or {}}],
-                },
-            })
-            transcript.append({
-                "type": "message",
-                "message": {
-                    "role": "toolResult",
-                    "content": [{"text": tc.get("result", "")}],
-                },
-            })
+            transcript.append(
+                {
+                    "type": "message",
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "toolCall",
+                                "name": mapped,
+                                "params": tc.get("arguments") or {},
+                            }
+                        ],
+                    },
+                }
+            )
+            transcript.append(
+                {
+                    "type": "message",
+                    "message": {
+                        "role": "toolResult",
+                        "content": [{"text": tc.get("result", "")}],
+                    },
+                }
+            )
 
     # Capture final assistant text response (for tasks graded on text output)
     response_text = getattr(trace, "response_text", "")
     if response_text:
-        transcript.append({
-            "type": "message",
-            "message": {
-                "role": "assistant",
-                "content": [{"type": "text", "text": response_text}],
-            },
-        })
+        transcript.append(
+            {
+                "type": "message",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": response_text}],
+                },
+            }
+        )
     return transcript
 
 
@@ -117,26 +139,37 @@ def _tool_results_to_transcript(
     for tr in tool_results:
         tool_name = tr.get("tool_name", "unknown")
         mapped = _TOOL_NAME_MAP.get(tool_name, tool_name)
-        transcript.append({
-            "type": "message",
-            "message": {
-                "role": "assistant",
-                "content": [{"type": "toolCall", "name": mapped, "params": tr.get("arguments", {})}],
-            },
-        })
-        transcript.append({
-            "type": "message",
-            "message": {
-                "role": "toolResult",
-                "content": [{"text": tr.get("content", "")}],
-            },
-        })
+        transcript.append(
+            {
+                "type": "message",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "toolCall",
+                            "name": mapped,
+                            "params": tr.get("arguments", {}),
+                        }
+                    ],
+                },
+            }
+        )
+        transcript.append(
+            {
+                "type": "message",
+                "message": {
+                    "role": "toolResult",
+                    "content": [{"text": tr.get("content", "")}],
+                },
+            }
+        )
     return transcript
 
 
 # ---------------------------------------------------------------------------
 # Transcript summarization (replicates PinchBench _summarize_transcript)
 # ---------------------------------------------------------------------------
+
 
 def _summarize_transcript(transcript: List[Dict[str, Any]]) -> str:
     """Summarize transcript for LLM judge prompt.
@@ -175,6 +208,7 @@ def _summarize_transcript(transcript: List[Dict[str, Any]]) -> str:
 # ---------------------------------------------------------------------------
 # Judge prompt and response parsing (replicates PinchBench exactly)
 # ---------------------------------------------------------------------------
+
 
 def _build_judge_prompt(
     *,
@@ -274,8 +308,14 @@ def _parse_judge_response(raw: str) -> Dict[str, Any]:
         try:
             total = float(score_match.group(1))
             if 0.0 <= total <= 1.0:
-                LOGGER.warning("Fell back to regex score extraction (total=%.2f)", total)
-                return {"scores": {}, "total": total, "notes": "Score extracted from prose"}
+                LOGGER.warning(
+                    "Fell back to regex score extraction (total=%.2f)", total
+                )
+                return {
+                    "scores": {},
+                    "total": total,
+                    "notes": "Score extracted from prose",
+                }
         except ValueError:
             pass
 
@@ -306,7 +346,9 @@ def _normalize_judge_response(parsed: Dict[str, Any]) -> Dict[str, Any]:
             break
     else:
         if result["scores"]:
-            values = [v for v in result["scores"].values() if isinstance(v, (int, float))]
+            values = [
+                v for v in result["scores"].values() if isinstance(v, (int, float))
+            ]
             if values:
                 result["total"] = sum(values) / len(values)
 
@@ -333,6 +375,7 @@ def _normalize_judge_response(parsed: Dict[str, Any]) -> Dict[str, Any]:
 # Grading functions
 # ---------------------------------------------------------------------------
 
+
 def _grade_automated(
     record: EvalRecord,
     transcript: List[Dict[str, Any]],
@@ -352,7 +395,11 @@ def _grade_automated(
 
     grade_fn = namespace.get("grade")
     if not callable(grade_fn):
-        return {"score": 0.0, "breakdown": {}, "notes": "No grade() function found in automated checks"}
+        return {
+            "score": 0.0,
+            "breakdown": {},
+            "notes": "No grade() function found in automated checks",
+        }
 
     try:
         scores = grade_fn(transcript, workspace_path)
@@ -361,7 +408,11 @@ def _grade_automated(
         return {"score": 0.0, "breakdown": {}, "notes": f"grade() error: {exc}"}
 
     if not isinstance(scores, dict) or not scores:
-        return {"score": 0.0, "breakdown": {}, "notes": "grade() returned empty or non-dict"}
+        return {
+            "score": 0.0,
+            "breakdown": {},
+            "notes": "grade() returned empty or non-dict",
+        }
 
     mean_score = sum(scores.values()) / len(scores)
     return {"score": mean_score, "breakdown": scores, "notes": ""}
@@ -391,7 +442,9 @@ def _grade_llm_judge(
     )
 
     try:
-        raw = judge_backend.generate(prompt, model=judge_model, temperature=0.0, max_tokens=2048)
+        raw = judge_backend.generate(
+            prompt, model=judge_model, temperature=0.0, max_tokens=2048
+        )
     except Exception as exc:
         LOGGER.error("LLM judge call failed for %s: %s", record.record_id, exc)
         return {"score": 0.0, "breakdown": {}, "notes": f"Judge error: {exc}"}
@@ -412,15 +465,24 @@ def _grade_hybrid(
     judge_model: str,
 ) -> Dict[str, Any]:
     """Run both automated and LLM judge grading, combine with weights."""
-    weights = record.metadata.get("grading_weights") or {"automated": 0.5, "llm_judge": 0.5}
+    weights = record.metadata.get("grading_weights") or {
+        "automated": 0.5,
+        "llm_judge": 0.5,
+    }
     auto = _grade_automated(record, transcript, workspace_path)
-    llm = _grade_llm_judge(record, transcript, workspace_path, judge_backend, judge_model)
+    llm = _grade_llm_judge(
+        record, transcript, workspace_path, judge_backend, judge_model
+    )
 
     auto_w = float(weights.get("automated", 0.5))
     llm_w = float(weights.get("llm_judge", 0.5))
     total_w = auto_w + llm_w
 
-    combined = (auto["score"] * auto_w + llm["score"] * llm_w) / total_w if total_w > 0 else 0.0
+    combined = (
+        (auto["score"] * auto_w + llm["score"] * llm_w) / total_w
+        if total_w > 0
+        else 0.0
+    )
     breakdown = {
         **{f"automated.{k}": v for k, v in auto["breakdown"].items()},
         **{f"llm_judge.{k}": v for k, v in llm["breakdown"].items()},
@@ -446,16 +508,25 @@ def grade_pinchbench_task(
     if grading_type == "automated":
         return _grade_automated(record, transcript, workspace_path)
     elif grading_type == "llm_judge":
-        return _grade_llm_judge(record, transcript, workspace_path, judge_backend, judge_model)
+        return _grade_llm_judge(
+            record, transcript, workspace_path, judge_backend, judge_model
+        )
     elif grading_type == "hybrid":
-        return _grade_hybrid(record, transcript, workspace_path, judge_backend, judge_model)
+        return _grade_hybrid(
+            record, transcript, workspace_path, judge_backend, judge_model
+        )
     else:
-        return {"score": 0.0, "breakdown": {}, "notes": f"Unknown grading type: {grading_type}"}
+        return {
+            "score": 0.0,
+            "breakdown": {},
+            "notes": f"Unknown grading type: {grading_type}",
+        }
 
 
 # ---------------------------------------------------------------------------
 # Standalone scorer (for EvalRunner non-agentic path)
 # ---------------------------------------------------------------------------
+
 
 class PinchBenchScorer(LLMJudgeScorer):
     """PinchBench scorer for the non-agentic EvalRunner path."""
@@ -463,7 +534,9 @@ class PinchBenchScorer(LLMJudgeScorer):
     scorer_id = "pinchbench"
 
     def score(
-        self, record: EvalRecord, model_answer: str,
+        self,
+        record: EvalRecord,
+        model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         trace = record.metadata.get("query_trace")
         if trace:
@@ -476,13 +549,15 @@ class PinchBenchScorer(LLMJudgeScorer):
         # Always append final model answer as assistant text message
         # so grading functions that check for text responses can find it
         if model_answer:
-            transcript.append({
-                "type": "message",
-                "message": {
-                    "role": "assistant",
-                    "content": [{"type": "text", "text": model_answer}],
-                },
-            })
+            transcript.append(
+                {
+                    "type": "message",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": model_answer}],
+                    },
+                }
+            )
 
         result = grade_pinchbench_task(
             record=record,

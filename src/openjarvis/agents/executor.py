@@ -87,7 +87,7 @@ class AgentExecutor:
 
         agent_cls = AgentRegistry.get(agent_type)
         agent = agent_cls(
-            engine=getattr(self._manager, '_engine', None),
+            engine=getattr(self._manager, "_engine", None),
             system_prompt=system_prompt,
             bus=self._bus,
         )
@@ -113,10 +113,13 @@ class AgentExecutor:
             logger.error("Agent %s not found", agent_id)
             return
 
-        self._bus.publish(EventType.AGENT_TICK_START, {
-            "agent_id": agent_id,
-            "agent_name": agent["name"],
-        })
+        self._bus.publish(
+            EventType.AGENT_TICK_START,
+            {
+                "agent_id": agent_id,
+                "agent_name": agent["name"],
+            },
+        )
 
         # Activity tracking: subscribe to tool/inference events
         def _on_activity(event: Any) -> None:
@@ -131,14 +134,16 @@ class AgentExecutor:
 
         def _on_tool_start(event: Any) -> None:
             if event.data.get("agent") == agent_id:
-                trace_steps.append({
-                    "type": "tool_call",
-                    "input": {
-                        "tool": event.data.get("tool"),
-                        "args": event.data.get("args"),
-                    },
-                    "start_time": event.timestamp,
-                })
+                trace_steps.append(
+                    {
+                        "type": "tool_call",
+                        "input": {
+                            "tool": event.data.get("tool"),
+                            "args": event.data.get("args"),
+                        },
+                        "start_time": event.timestamp,
+                    }
+                )
 
         def _on_tool_end(event: Any) -> None:
             if event.data.get("agent") == agent_id and trace_steps:
@@ -175,8 +180,13 @@ class AgentExecutor:
 
             if self._trace_store:
                 self._save_trace(
-                    agent_id, agent, result, error_info,
-                    tick_start, tick_duration, trace_steps,
+                    agent_id,
+                    agent,
+                    result,
+                    error_info,
+                    tick_start,
+                    tick_duration,
+                    trace_steps,
                 )
 
     def _run_with_retries(self, agent: dict) -> AgentResult:
@@ -193,7 +203,11 @@ class AgentExecutor:
                 delay = retry_delay(attempt)
                 logger.info(
                     "Agent %s tick retry %d/%d in %ds: %s",
-                    agent["id"], attempt + 1, _MAX_RETRIES, delay, e,
+                    agent["id"],
+                    attempt + 1,
+                    _MAX_RETRIES,
+                    delay,
+                    e,
                 )
                 time.sleep(delay)
             except Exception as e:
@@ -203,7 +217,11 @@ class AgentExecutor:
                 delay = retry_delay(attempt)
                 logger.info(
                     "Agent %s tick retry %d/%d in %ds: %s",
-                    agent["id"], attempt + 1, _MAX_RETRIES, delay, e,
+                    agent["id"],
+                    attempt + 1,
+                    _MAX_RETRIES,
+                    delay,
+                    e,
                 )
                 time.sleep(delay)
 
@@ -225,17 +243,16 @@ class AgentExecutor:
         engine = self._system.engine if self._system else None
         if engine is None:
             raise FatalError("No engine available in JarvisSystem")
-        model = config.get("model") or (
-            self._system.model
-            if self._system else ""
-        )
+        model = config.get("model") or (self._system.model if self._system else "")
         if not model:
             raise FatalError("No model configured for agent")
 
         logger.info(
             "Agent %s [%s]: using model=%s, engine=%s",
-            agent["name"], agent["id"],
-            model, type(engine).__name__,
+            agent["name"],
+            agent["id"],
+            model,
+            type(engine).__name__,
         )
         self._set_activity(agent["id"], f"Loading model {model}...")
 
@@ -289,7 +306,9 @@ class AgentExecutor:
             if tool_instances:
                 logger.info(
                     "Agent %s: resolved %d/%d tools",
-                    agent["name"], len(tool_instances), len(tool_names),
+                    agent["name"],
+                    len(tool_instances),
+                    len(tool_names),
                 )
 
         # Construct agent instance
@@ -324,7 +343,8 @@ class AgentExecutor:
                 self._manager.mark_message_delivered(m["id"])
             logger.info(
                 "Agent %s: delivering %d pending message(s)",
-                agent["name"], len(pending),
+                agent["name"],
+                len(pending),
             )
             self._set_activity(
                 agent["id"],
@@ -332,8 +352,7 @@ class AgentExecutor:
             )
         else:
             logger.info(
-                "Agent %s: no pending messages, running with "
-                "instruction only",
+                "Agent %s: no pending messages, running with instruction only",
                 agent["name"],
             )
 
@@ -370,7 +389,8 @@ class AgentExecutor:
 
                 if query:
                     results = self._system.memory_backend.retrieve(
-                        query, top_k=ctx_cfg.top_k,
+                        query,
+                        top_k=ctx_cfg.top_k,
                     )
                     memory_results = [
                         r for r in results if r.score >= ctx_cfg.min_score
@@ -390,7 +410,8 @@ class AgentExecutor:
         self._set_activity(agent["id"], "Generating response...")
         logger.info(
             "Agent %s: calling agent.run() with %d chars input",
-            agent["name"], len(input_text),
+            agent["name"],
+            len(input_text),
         )
         _t0 = time.time()
         result = agent_instance.run(input_text, context=agent_ctx)
@@ -399,7 +420,8 @@ class AgentExecutor:
         # Qwen3.5 thinking mode consuming all tokens).
         if not (result.content or "").strip():
             self._set_activity(
-                agent["id"], "Retrying (empty response)...",
+                agent["id"],
+                "Retrying (empty response)...",
             )
             logger.warning(
                 "Agent %s: empty content, retrying once",
@@ -411,7 +433,8 @@ class AgentExecutor:
         logger.info(
             "Agent %s: agent.run() completed in %.1fs, "
             "content_len=%d, turns=%d, tokens=%s",
-            agent["name"], _elapsed,
+            agent["name"],
+            _elapsed,
             len(result.content or ""),
             result.turns,
             result.metadata.get("total_tokens", "?"),
@@ -441,7 +464,9 @@ class AgentExecutor:
             "suggested_action": suggest_action(error),
             "stack_trace_summary": "".join(
                 traceback.format_exception(type(error), error, error.__traceback__)[-3:]
-            )[:1000] if error.__traceback__ else "",
+            )[:1000]
+            if error.__traceback__
+            else "",
         }
 
     def _finalize_tick(
@@ -456,9 +481,9 @@ class AgentExecutor:
         if error is None:
             # Success
             logger.info(
-                "Tick succeeded for agent %s in %.1fs, "
-                "response_len=%d",
-                agent_id, duration,
+                "Tick succeeded for agent %s in %.1fs, response_len=%d",
+                agent_id,
+                duration,
                 len(result.content or "") if result else 0,
             )
             self._manager.end_tick(agent_id)
@@ -473,7 +498,8 @@ class AgentExecutor:
                 )
                 in_tokens = result.metadata.get("prompt_tokens", 0)
                 out_tokens = result.metadata.get(
-                    "completion_tokens", 0,
+                    "completion_tokens",
+                    0,
                 )
                 cost = result.metadata.get("cost", 0.0)
                 budget_kwargs: dict[str, Any] = {"stall_retries": 0}
@@ -488,7 +514,8 @@ class AgentExecutor:
                 self._manager.update_agent(agent_id, **budget_kwargs)
 
                 self._manager.update_summary_memory(
-                    agent_id, result.content[:2000],
+                    agent_id,
+                    result.content[:2000],
                 )
                 self._manager.store_agent_response(agent_id, result.content[:2000])
 
@@ -505,49 +532,68 @@ class AgentExecutor:
                     exceeded = True
                 if exceeded:
                     self._manager.update_agent(agent_id, status="budget_exceeded")
-                    self._bus.publish(EventType.AGENT_BUDGET_EXCEEDED, {
-                        "agent_id": agent_id,
-                        "total_cost": agent_data["total_cost"],
-                        "total_tokens": agent_data["total_tokens"],
-                        "max_cost": max_cost,
-                        "max_tokens": max_tokens,
-                    })
-            self._bus.publish(EventType.AGENT_TICK_END, {
-                "agent_id": agent_id,
-                "duration": duration,
-                "status": "ok",
-            })
+                    self._bus.publish(
+                        EventType.AGENT_BUDGET_EXCEEDED,
+                        {
+                            "agent_id": agent_id,
+                            "total_cost": agent_data["total_cost"],
+                            "total_tokens": agent_data["total_tokens"],
+                            "max_cost": max_cost,
+                            "max_tokens": max_tokens,
+                        },
+                    )
+            self._bus.publish(
+                EventType.AGENT_TICK_END,
+                {
+                    "agent_id": agent_id,
+                    "duration": duration,
+                    "status": "ok",
+                },
+            )
         elif isinstance(error, EscalateError):
             logger.warning(
                 "Tick escalated for agent %s after %.1fs: %s",
-                agent_id, duration, error,
+                agent_id,
+                duration,
+                error,
             )
             self._manager.end_tick(agent_id)
             self._manager.update_agent(agent_id, status="needs_attention")
-            self._bus.publish(EventType.AGENT_TICK_ERROR, {
-                "agent_id": agent_id,
-                "error": str(error),
-                "error_type": "escalate",
-                "duration": duration,
-            })
+            self._bus.publish(
+                EventType.AGENT_TICK_ERROR,
+                {
+                    "agent_id": agent_id,
+                    "error": str(error),
+                    "error_type": "escalate",
+                    "duration": duration,
+                },
+            )
         else:
             logger.error(
                 "Tick failed for agent %s after %.1fs: %s",
-                agent_id, duration, error, exc_info=error,
+                agent_id,
+                duration,
+                error,
+                exc_info=error,
             )
             self._manager.end_tick(agent_id)
             self._manager.update_agent(agent_id, status="error")
             # Write error detail to summary_memory so frontend can display it
             error_msg = str(error)[:2000]
             self._manager.update_summary_memory(agent_id, f"ERROR: {error_msg}")
-            self._bus.publish(EventType.AGENT_TICK_ERROR, {
-                "agent_id": agent_id,
-                "error": str(error),
-                "error_type": (
-                    "fatal" if isinstance(error, FatalError) else "retryable_exhausted"
-                ),
-                "duration": duration,
-            })
+            self._bus.publish(
+                EventType.AGENT_TICK_ERROR,
+                {
+                    "agent_id": agent_id,
+                    "error": str(error),
+                    "error_type": (
+                        "fatal"
+                        if isinstance(error, FatalError)
+                        else "retryable_exhausted"
+                    ),
+                    "duration": duration,
+                },
+            )
 
     def _save_trace(
         self,
@@ -564,17 +610,19 @@ class AgentExecutor:
 
         steps = []
         for s in trace_steps:
-            steps.append(TraceStep(
-                step_type=(
-                    StepType.TOOL_CALL
-                    if s["type"] == "tool_call"
-                    else StepType.GENERATE
-                ),
-                input=s.get("input", {}),
-                output=s.get("output", {}),
-                duration_seconds=s.get("duration", 0),
-                timestamp=s.get("start_time", tick_start),
-            ))
+            steps.append(
+                TraceStep(
+                    step_type=(
+                        StepType.TOOL_CALL
+                        if s["type"] == "tool_call"
+                        else StepType.GENERATE
+                    ),
+                    input=s.get("input", {}),
+                    output=s.get("output", {}),
+                    duration_seconds=s.get("duration", 0),
+                    timestamp=s.get("start_time", tick_start),
+                )
+            )
 
         metadata: dict[str, Any] = {}
         if error is not None:
@@ -597,5 +645,7 @@ class AgentExecutor:
             self._trace_store.save(trace)
         except Exception:
             logger.warning(
-                "Failed to save trace for agent %s", agent_id, exc_info=True,
+                "Failed to save trace for agent %s",
+                agent_id,
+                exc_info=True,
             )

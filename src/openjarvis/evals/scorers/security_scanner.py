@@ -24,14 +24,55 @@ LOGGER = logging.getLogger(__name__)
 # Common aliases for vulnerability types
 _VULN_TYPE_ALIASES: Dict[str, List[str]] = {
     "sql_injection": ["sql injection", "sqli", "sql inject"],
-    "hardcoded_secret": ["hardcoded secret", "hardcoded credential", "hardcoded password", "hardcoded api key", "hard coded", "embedded secret", "embedded credential"],
-    "command_injection": ["command injection", "os command injection", "shell injection", "subprocess injection"],
-    "xss": ["xss", "cross site scripting", "cross-site scripting", "reflected xss", "stored xss"],
-    "path_traversal": ["path traversal", "directory traversal", "lfi", "local file inclusion"],
+    "hardcoded_secret": [
+        "hardcoded secret",
+        "hardcoded credential",
+        "hardcoded password",
+        "hardcoded api key",
+        "hard coded",
+        "embedded secret",
+        "embedded credential",
+    ],
+    "command_injection": [
+        "command injection",
+        "os command injection",
+        "shell injection",
+        "subprocess injection",
+    ],
+    "xss": [
+        "xss",
+        "cross site scripting",
+        "cross-site scripting",
+        "reflected xss",
+        "stored xss",
+    ],
+    "path_traversal": [
+        "path traversal",
+        "directory traversal",
+        "lfi",
+        "local file inclusion",
+    ],
     "ssrf": ["ssrf", "server side request forgery", "server-side request forgery"],
-    "insecure_deserialization": ["insecure deserialization", "pickle", "yaml load", "unsafe deserialization"],
-    "weak_crypto": ["weak crypto", "weak cryptography", "md5", "sha1", "ecb mode", "weak hash"],
-    "timing_attack": ["timing attack", "timing side channel", "constant time", "timing vulnerability"],
+    "insecure_deserialization": [
+        "insecure deserialization",
+        "pickle",
+        "yaml load",
+        "unsafe deserialization",
+    ],
+    "weak_crypto": [
+        "weak crypto",
+        "weak cryptography",
+        "md5",
+        "sha1",
+        "ecb mode",
+        "weak hash",
+    ],
+    "timing_attack": [
+        "timing attack",
+        "timing side channel",
+        "constant time",
+        "timing vulnerability",
+    ],
     "redos": ["redos", "regex denial", "catastrophic backtracking", "regex dos"],
     "race_condition": ["race condition", "toctou", "time of check"],
     "xxe": ["xxe", "xml external entity"],
@@ -88,7 +129,9 @@ def _count_false_positives(
                 # Look for the pattern and keyword near each other
                 pat_idx = model_norm.find(pattern_norm)
                 if pat_idx >= 0:
-                    surrounding = model_norm[max(0, pat_idx - 200):pat_idx + len(pattern_norm) + 200]
+                    surrounding = model_norm[
+                        max(0, pat_idx - 200) : pat_idx + len(pattern_norm) + 200
+                    ]
                     if keyword in surrounding:
                         fp_count += 1
                         break
@@ -106,7 +149,9 @@ class SecurityScannerScorer(Scorer):
         self._judge_model = judge_model
 
     def score(
-        self, record: EvalRecord, model_answer: str,
+        self,
+        record: EvalRecord,
+        model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         if not model_answer or not model_answer.strip():
             return False, {"reason": "empty_response"}
@@ -139,15 +184,17 @@ class SecurityScannerScorer(Scorer):
             if sev_match:
                 severity_correct += 1
 
-            vuln_details.append({
-                "file": vuln["file"],
-                "type": vuln["type"],
-                "severity": vuln.get("severity", ""),
-                "found": found,
-                "file_mentioned": file_match,
-                "type_mentioned": type_match,
-                "severity_correct": sev_match,
-            })
+            vuln_details.append(
+                {
+                    "file": vuln["file"],
+                    "type": vuln["type"],
+                    "severity": vuln.get("severity", ""),
+                    "found": found,
+                    "file_mentioned": file_match,
+                    "type_mentioned": type_match,
+                    "severity_correct": sev_match,
+                }
+            )
 
         total_vulns = len(vulnerabilities)
         detection_rate = vulns_found / total_vulns if total_vulns > 0 else 0.0
@@ -171,7 +218,9 @@ class SecurityScannerScorer(Scorer):
             ]
             scorer = ChecklistScorer(self._judge_backend, self._judge_model)
             checklist_score, checklist_details = scorer.score_checklist(
-                model_answer, checklist_items, context=record.problem,
+                model_answer,
+                checklist_items,
+                context=record.problem,
             )
         else:
             # Without judge, give partial credit based on structural heuristics
@@ -181,7 +230,9 @@ class SecurityScannerScorer(Scorer):
             has_severity = any(
                 kw in model_norm for kw in ["critical", "high", "medium", "low"]
             )
-            checklist_score = (0.5 if has_recommendations else 0.0) + (0.5 if has_severity else 0.0)
+            checklist_score = (0.5 if has_recommendations else 0.0) + (
+                0.5 if has_severity else 0.0
+            )
 
         # --- Composite score ---
         final_score = (

@@ -30,6 +30,7 @@ class DashboardApp:
         """Check if textual is available."""
         try:
             import textual  # noqa: F401
+
             return True
         except ImportError:
             return False
@@ -86,21 +87,16 @@ class DashboardApp:
                     classes="panel",
                 )
                 yield Log(
-                    id="events-panel", classes="panel",
+                    id="events-panel",
+                    classes="panel",
                 )
                 yield Static(
-                    "Telemetry\n"
-                    "─────────\n"
-                    "Throughput: --\n"
-                    "Latency: --\n"
-                    "Energy: --",
+                    "Telemetry\n─────────\nThroughput: --\nLatency: --\nEnergy: --",
                     id="telemetry-panel",
                     classes="panel",
                 )
                 yield Static(
-                    "Agent Activity\n"
-                    "──────────────\n"
-                    "No active agents.",
+                    "Agent Activity\n──────────────\nNo active agents.",
                     id="agent-panel",
                     classes="panel",
                 )
@@ -113,6 +109,7 @@ class DashboardApp:
                 # Try to connect to event bus
                 try:
                     from openjarvis.core.events import get_event_bus
+
                     bus = get_event_bus()
 
                     def _on_event(event: Any) -> None:
@@ -124,6 +121,7 @@ class DashboardApp:
                             logger.debug("Event serialization failed: %s", exc)
 
                     from openjarvis.core.events import EventType
+
                     for et in EventType:
                         bus.subscribe(et, _on_event)
                 except Exception:
@@ -137,30 +135,16 @@ class DashboardApp:
                 lines = ["System Status", "─────────────"]
                 try:
                     from openjarvis.core.config import load_config
+
                     config = load_config()
-                    lines.append(
-                        f"Engine: {config.engine.default}"
-                    )
-                    model = (
-                        config.intelligence.default_model
-                        or 'auto'
-                    )
+                    lines.append(f"Engine: {config.engine.default}")
+                    model = config.intelligence.default_model or "auto"
                     lines.append(f"Model: {model}")
-                    backend = (
-                        config.tools.storage.default_backend
-                    )
+                    backend = config.tools.storage.default_backend
                     lines.append(f"Memory: {backend}")
-                    sec = (
-                        'enabled'
-                        if config.security.enabled
-                        else 'disabled'
-                    )
+                    sec = "enabled" if config.security.enabled else "disabled"
                     lines.append(f"Security: {sec}")
-                    tel = (
-                        'enabled'
-                        if config.telemetry.enabled
-                        else 'disabled'
-                    )
+                    tel = "enabled" if config.telemetry.enabled else "disabled"
                     lines.append(f"Telemetry: {tel}")
                 except Exception:
                     lines.append("Config: not loaded")
@@ -175,8 +159,7 @@ def launch_dashboard(config: Optional[Any] = None) -> None:
     app = DashboardApp(config=config)
     if not app.available():
         raise ImportError(
-            "TUI dashboard requires 'textual'. "
-            "Install with: uv sync --extra dashboard"
+            "TUI dashboard requires 'textual'. Install with: uv sync --extra dashboard"
         )
     app.run()
 

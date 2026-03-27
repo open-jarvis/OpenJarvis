@@ -46,12 +46,18 @@ _EASY_TASKS: List[Dict[str, Any]] = [
                 "    uid = request.args.get('id')\n"
                 "    conn = sqlite3.connect('app.db')\n"
                 "    cursor = conn.cursor()\n"
-                "    cursor.execute(f\"SELECT * FROM users WHERE id = {uid}\")\n"
+                '    cursor.execute(f"SELECT * FROM users WHERE id = {uid}")\n'
                 "    return str(cursor.fetchone())\n"
             ),
         },
         "vulnerabilities": [
-            {"file": "app.py", "line": 11, "type": "sql_injection", "severity": "CRITICAL", "description": "f-string SQL query with unsanitized user input"},
+            {
+                "file": "app.py",
+                "line": 11,
+                "type": "sql_injection",
+                "severity": "CRITICAL",
+                "description": "f-string SQL query with unsanitized user input",
+            },
         ],
         "safe_patterns": ["Flask app instantiation", "sqlite3.connect usage"],
     },
@@ -65,10 +71,34 @@ _EASY_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "config.py", "line": 1, "type": "hardcoded_secret", "severity": "CRITICAL", "description": "Database password hardcoded in source"},
-            {"file": "config.py", "line": 2, "type": "hardcoded_secret", "severity": "HIGH", "description": "Secret key hardcoded in source"},
-            {"file": "config.py", "line": 4, "type": "hardcoded_secret", "severity": "CRITICAL", "description": "API key hardcoded in source"},
-            {"file": "config.py", "line": 3, "type": "debug_enabled", "severity": "MEDIUM", "description": "Debug mode enabled in production config"},
+            {
+                "file": "config.py",
+                "line": 1,
+                "type": "hardcoded_secret",
+                "severity": "CRITICAL",
+                "description": "Database password hardcoded in source",
+            },
+            {
+                "file": "config.py",
+                "line": 2,
+                "type": "hardcoded_secret",
+                "severity": "HIGH",
+                "description": "Secret key hardcoded in source",
+            },
+            {
+                "file": "config.py",
+                "line": 4,
+                "type": "hardcoded_secret",
+                "severity": "CRITICAL",
+                "description": "API key hardcoded in source",
+            },
+            {
+                "file": "config.py",
+                "line": 3,
+                "type": "debug_enabled",
+                "severity": "MEDIUM",
+                "description": "Debug mode enabled in production config",
+            },
         ],
         "safe_patterns": [],
     },
@@ -82,7 +112,13 @@ _EASY_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "utils.py", "line": 4, "type": "command_injection", "severity": "CRITICAL", "description": "subprocess.call with shell=True and unsanitized input"},
+            {
+                "file": "utils.py",
+                "line": 4,
+                "type": "command_injection",
+                "severity": "CRITICAL",
+                "description": "subprocess.call with shell=True and unsanitized input",
+            },
         ],
         "safe_patterns": [],
     },
@@ -97,7 +133,13 @@ _EASY_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "auth.py", "line": 4, "type": "weak_crypto", "severity": "HIGH", "description": "MD5 used for password hashing — use bcrypt or argon2"},
+            {
+                "file": "auth.py",
+                "line": 4,
+                "type": "weak_crypto",
+                "severity": "HIGH",
+                "description": "MD5 used for password hashing — use bcrypt or argon2",
+            },
         ],
         "safe_patterns": ["verify_password comparison logic"],
     },
@@ -113,7 +155,13 @@ _EASY_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "api.py", "line": 8, "type": "insecure_deserialization", "severity": "CRITICAL", "description": "pickle.loads on untrusted request data allows arbitrary code execution"},
+            {
+                "file": "api.py",
+                "line": 8,
+                "type": "insecure_deserialization",
+                "severity": "CRITICAL",
+                "description": "pickle.loads on untrusted request data allows arbitrary code execution",
+            },
         ],
         "safe_patterns": ["Flask route decorator"],
     },
@@ -129,7 +177,13 @@ _EASY_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "server.py", "line": 8, "type": "xss", "severity": "HIGH", "description": "render_template_string with unescaped user input enables XSS/SSTI"},
+            {
+                "file": "server.py",
+                "line": 8,
+                "type": "xss",
+                "severity": "HIGH",
+                "description": "render_template_string with unescaped user input enables XSS/SSTI",
+            },
         ],
         "safe_patterns": ["Default parameter value"],
     },
@@ -145,7 +199,13 @@ _EASY_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "download.py", "line": 9, "type": "path_traversal", "severity": "HIGH", "description": "No validation on filename allows path traversal (../../etc/passwd)"},
+            {
+                "file": "download.py",
+                "line": 9,
+                "type": "path_traversal",
+                "severity": "HIGH",
+                "description": "No validation on filename allows path traversal (../../etc/passwd)",
+            },
         ],
         "safe_patterns": ["os.path.join usage"],
     },
@@ -161,7 +221,13 @@ _EASY_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "cors_app.py", "line": 5, "type": "misconfiguration", "severity": "MEDIUM", "description": "CORS allows all origins — exposes API to any domain"},
+            {
+                "file": "cors_app.py",
+                "line": 5,
+                "type": "misconfiguration",
+                "severity": "MEDIUM",
+                "description": "CORS allows all origins — exposes API to any domain",
+            },
         ],
         "safe_patterns": ["Flask-CORS import pattern"],
     },
@@ -177,7 +243,13 @@ _EASY_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "logging_app.py", "line": 6, "type": "sensitive_data_exposure", "severity": "HIGH", "description": "Credit card number logged in plaintext"},
+            {
+                "file": "logging_app.py",
+                "line": 6,
+                "type": "sensitive_data_exposure",
+                "severity": "HIGH",
+                "description": "Credit card number logged in plaintext",
+            },
         ],
         "safe_patterns": ["logging.getLogger pattern"],
     },
@@ -192,8 +264,20 @@ _EASY_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "jwt_app.py", "line": 4, "type": "weak_crypto", "severity": "CRITICAL", "description": "JWT using algorithm='none' disables signature verification"},
-            {"file": "jwt_app.py", "line": 7, "type": "weak_crypto", "severity": "CRITICAL", "description": "JWT decode allows 'none' algorithm — attacker can forge tokens"},
+            {
+                "file": "jwt_app.py",
+                "line": 4,
+                "type": "weak_crypto",
+                "severity": "CRITICAL",
+                "description": "JWT using algorithm='none' disables signature verification",
+            },
+            {
+                "file": "jwt_app.py",
+                "line": 7,
+                "type": "weak_crypto",
+                "severity": "CRITICAL",
+                "description": "JWT decode allows 'none' algorithm — attacker can forge tokens",
+            },
         ],
         "safe_patterns": [],
     },
@@ -224,9 +308,27 @@ _MEDIUM_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "app.py", "line": 14, "type": "sql_injection", "severity": "CRITICAL", "description": "f-string SQL with user-supplied username and password"},
-            {"file": "app.py", "line": 17, "type": "open_redirect", "severity": "MEDIUM", "description": "Unvalidated redirect URL from request.args"},
-            {"file": "app.py", "line": 6, "type": "hardcoded_secret", "severity": "LOW", "description": "Default secret key in fallback (acceptable for dev)"},
+            {
+                "file": "app.py",
+                "line": 14,
+                "type": "sql_injection",
+                "severity": "CRITICAL",
+                "description": "f-string SQL with user-supplied username and password",
+            },
+            {
+                "file": "app.py",
+                "line": 17,
+                "type": "open_redirect",
+                "severity": "MEDIUM",
+                "description": "Unvalidated redirect URL from request.args",
+            },
+            {
+                "file": "app.py",
+                "line": 6,
+                "type": "hardcoded_secret",
+                "severity": "LOW",
+                "description": "Default secret key in fallback (acceptable for dev)",
+            },
         ],
         "safe_patterns": ["os.environ.get for secret key (with fallback)"],
     },
@@ -246,8 +348,20 @@ _MEDIUM_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "api.py", "line": 9, "type": "insecure_deserialization", "severity": "CRITICAL", "description": "yaml.load without Loader allows arbitrary code execution"},
-            {"file": "api.py", "line": 14, "type": "xxe", "severity": "HIGH", "description": "XML parsing without disabling external entities"},
+            {
+                "file": "api.py",
+                "line": 9,
+                "type": "insecure_deserialization",
+                "severity": "CRITICAL",
+                "description": "yaml.load without Loader allows arbitrary code execution",
+            },
+            {
+                "file": "api.py",
+                "line": 14,
+                "type": "xxe",
+                "severity": "HIGH",
+                "description": "XML parsing without disabling external entities",
+            },
         ],
         "safe_patterns": ["jsonify usage", "Flask route decorators"],
     },
@@ -266,8 +380,20 @@ _MEDIUM_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "models.py", "line": 5, "type": "path_traversal", "severity": "HIGH", "description": "No sanitization of filename allows path traversal"},
-            {"file": "models.py", "line": 10, "type": "resource_leak", "severity": "MEDIUM", "description": "File descriptor from mkstemp never closed"},
+            {
+                "file": "models.py",
+                "line": 5,
+                "type": "path_traversal",
+                "severity": "HIGH",
+                "description": "No sanitization of filename allows path traversal",
+            },
+            {
+                "file": "models.py",
+                "line": 10,
+                "type": "resource_leak",
+                "severity": "MEDIUM",
+                "description": "File descriptor from mkstemp never closed",
+            },
         ],
         "safe_patterns": ["tempfile.mkstemp usage pattern"],
     },
@@ -285,9 +411,27 @@ _MEDIUM_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "crypto_utils.py", "line": 4, "type": "hardcoded_secret", "severity": "CRITICAL", "description": "Encryption key hardcoded in source"},
-            {"file": "crypto_utils.py", "line": 8, "type": "weak_crypto", "severity": "HIGH", "description": "AES-ECB mode is insecure — use CBC or GCM"},
-            {"file": "crypto_utils.py", "line": 5, "type": "weak_crypto", "severity": "HIGH", "description": "Static IV of all zeros is insecure"},
+            {
+                "file": "crypto_utils.py",
+                "line": 4,
+                "type": "hardcoded_secret",
+                "severity": "CRITICAL",
+                "description": "Encryption key hardcoded in source",
+            },
+            {
+                "file": "crypto_utils.py",
+                "line": 8,
+                "type": "weak_crypto",
+                "severity": "HIGH",
+                "description": "AES-ECB mode is insecure — use CBC or GCM",
+            },
+            {
+                "file": "crypto_utils.py",
+                "line": 5,
+                "type": "weak_crypto",
+                "severity": "HIGH",
+                "description": "Static IV of all zeros is insecure",
+            },
         ],
         "safe_patterns": ["base64 encoding of ciphertext"],
     },
@@ -311,8 +455,20 @@ _MEDIUM_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "session.py", "line": 12, "type": "misconfiguration", "severity": "MEDIUM", "description": "Cookie set without secure, httponly, or samesite flags"},
-            {"file": "session.py", "line": 18, "type": "insecure_deserialization", "severity": "MEDIUM", "description": "Base64-encoded cookie is not signed — client can tamper with preferences"},
+            {
+                "file": "session.py",
+                "line": 12,
+                "type": "misconfiguration",
+                "severity": "MEDIUM",
+                "description": "Cookie set without secure, httponly, or samesite flags",
+            },
+            {
+                "file": "session.py",
+                "line": 18,
+                "type": "insecure_deserialization",
+                "severity": "MEDIUM",
+                "description": "Base64-encoded cookie is not signed — client can tamper with preferences",
+            },
         ],
         "safe_patterns": ["json.dumps/loads for serialization (not pickle)"],
     },
@@ -330,8 +486,20 @@ _MEDIUM_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "admin.py", "line": 6, "type": "broken_access_control", "severity": "CRITICAL", "description": "Admin endpoint has no authentication or authorization check"},
-            {"file": "admin.py", "line": 10, "type": "xss", "severity": "MEDIUM", "description": "User ID reflected in response without escaping"},
+            {
+                "file": "admin.py",
+                "line": 6,
+                "type": "broken_access_control",
+                "severity": "CRITICAL",
+                "description": "Admin endpoint has no authentication or authorization check",
+            },
+            {
+                "file": "admin.py",
+                "line": 10,
+                "type": "xss",
+                "severity": "MEDIUM",
+                "description": "User ID reflected in response without escaping",
+            },
         ],
         "safe_patterns": ["POST method for destructive action"],
     },
@@ -353,10 +521,25 @@ _MEDIUM_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "email_sender.py", "line": 6, "type": "hardcoded_secret", "severity": "CRITICAL", "description": "SMTP password hardcoded in source"},
-            {"file": "email_sender.py", "line": 13, "type": "misconfiguration", "severity": "HIGH", "description": "SMTP connection without TLS (use SMTP_SSL or starttls)"},
+            {
+                "file": "email_sender.py",
+                "line": 6,
+                "type": "hardcoded_secret",
+                "severity": "CRITICAL",
+                "description": "SMTP password hardcoded in source",
+            },
+            {
+                "file": "email_sender.py",
+                "line": 13,
+                "type": "misconfiguration",
+                "severity": "HIGH",
+                "description": "SMTP connection without TLS (use SMTP_SSL or starttls)",
+            },
         ],
-        "safe_patterns": ["MIMEText for email construction", "context manager for SMTP"],
+        "safe_patterns": [
+            "MIMEText for email construction",
+            "context manager for SMTP",
+        ],
     },
     {
         "project_files": {
@@ -373,8 +556,20 @@ _MEDIUM_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "cache.py", "line": 4, "type": "misconfiguration", "severity": "HIGH", "description": "Redis connection without authentication or TLS"},
-            {"file": "cache.py", "line": 14, "type": "broken_access_control", "severity": "MEDIUM", "description": "flushall exposed without access control — could wipe entire cache"},
+            {
+                "file": "cache.py",
+                "line": 4,
+                "type": "misconfiguration",
+                "severity": "HIGH",
+                "description": "Redis connection without authentication or TLS",
+            },
+            {
+                "file": "cache.py",
+                "line": 14,
+                "type": "broken_access_control",
+                "severity": "MEDIUM",
+                "description": "flushall exposed without access control — could wipe entire cache",
+            },
         ],
         "safe_patterns": ["json serialization for cache values", "TTL on cached items"],
     },
@@ -393,8 +588,20 @@ _MEDIUM_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "file_processor.py", "line": 7, "type": "command_injection", "severity": "CRITICAL", "description": "shell=True with f-string filepath allows command injection"},
-            {"file": "file_processor.py", "line": 5, "type": "insufficient_validation", "severity": "MEDIUM", "description": "Extension check is bypassable (e.g., file.txt; rm -rf /)"},
+            {
+                "file": "file_processor.py",
+                "line": 7,
+                "type": "command_injection",
+                "severity": "CRITICAL",
+                "description": "shell=True with f-string filepath allows command injection",
+            },
+            {
+                "file": "file_processor.py",
+                "line": 5,
+                "type": "insufficient_validation",
+                "severity": "MEDIUM",
+                "description": "Extension check is bypassable (e.g., file.txt; rm -rf /)",
+            },
         ],
         "safe_patterns": ["subprocess with list args (count_lines) is safe pattern"],
     },
@@ -418,8 +625,20 @@ _MEDIUM_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "rate_limiter.py", "line": 9, "type": "ip_spoofing", "severity": "HIGH", "description": "X-Forwarded-For header is client-controlled — rate limit can be bypassed"},
-            {"file": "rate_limiter.py", "line": 5, "type": "resource_leak", "severity": "MEDIUM", "description": "In-memory dict grows unbounded — no cleanup of old entries"},
+            {
+                "file": "rate_limiter.py",
+                "line": 9,
+                "type": "ip_spoofing",
+                "severity": "HIGH",
+                "description": "X-Forwarded-For header is client-controlled — rate limit can be bypassed",
+            },
+            {
+                "file": "rate_limiter.py",
+                "line": 5,
+                "type": "resource_leak",
+                "severity": "MEDIUM",
+                "description": "In-memory dict grows unbounded — no cleanup of old entries",
+            },
         ],
         "safe_patterns": ["Rate limiting concept", "before_request pattern"],
     },
@@ -449,10 +668,25 @@ _HARD_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "auth.py", "line": 18, "type": "timing_attack", "severity": "MEDIUM", "description": "String comparison (==) instead of hmac.compare_digest for signature — vulnerable to timing attack"},
-            {"file": "auth.py", "line": 7, "type": "insufficient_validation", "severity": "LOW", "description": "No token expiration check — tokens valid forever"},
+            {
+                "file": "auth.py",
+                "line": 18,
+                "type": "timing_attack",
+                "severity": "MEDIUM",
+                "description": "String comparison (==) instead of hmac.compare_digest for signature — vulnerable to timing attack",
+            },
+            {
+                "file": "auth.py",
+                "line": 7,
+                "type": "insufficient_validation",
+                "severity": "LOW",
+                "description": "No token expiration check — tokens valid forever",
+            },
         ],
-        "safe_patterns": ["hmac.new with SHA-256 is correct HMAC construction", "Token format is reasonable"],
+        "safe_patterns": [
+            "hmac.new with SHA-256 is correct HMAC construction",
+            "Token format is reasonable",
+        ],
     },
     {
         "project_files": {
@@ -468,10 +702,25 @@ _HARD_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "sanitizer.py", "line": 8, "type": "xss", "severity": "HIGH", "description": "Regex-based HTML sanitization is bypassable (e.g., <img src=x onerror=alert(1)>, <svg/onload=...>)"},
-            {"file": "sanitizer.py", "line": 10, "type": "xss", "severity": "HIGH", "description": "Event handler regex can be bypassed with newlines or encoding"},
+            {
+                "file": "sanitizer.py",
+                "line": 8,
+                "type": "xss",
+                "severity": "HIGH",
+                "description": "Regex-based HTML sanitization is bypassable (e.g., <img src=x onerror=alert(1)>, <svg/onload=...>)",
+            },
+            {
+                "file": "sanitizer.py",
+                "line": 10,
+                "type": "xss",
+                "severity": "HIGH",
+                "description": "Event handler regex can be bypassed with newlines or encoding",
+            },
         ],
-        "safe_patterns": ["html module import (though not used)", "ALLOWED_TAGS list (good intent)"],
+        "safe_patterns": [
+            "html module import (though not used)",
+            "ALLOWED_TAGS list (good intent)",
+        ],
     },
     {
         "project_files": {
@@ -497,9 +746,19 @@ _HARD_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "db.py", "line": 21, "type": "sql_injection", "severity": "CRITICAL", "description": "search_users uses f-string SQL with unsanitized query parameter"},
+            {
+                "file": "db.py",
+                "line": 21,
+                "type": "sql_injection",
+                "severity": "CRITICAL",
+                "description": "search_users uses f-string SQL with unsanitized query parameter",
+            },
         ],
-        "safe_patterns": ["get_user uses parameterized query (?)", "Context manager for connection", "conn.close in finally"],
+        "safe_patterns": [
+            "get_user uses parameterized query (?)",
+            "Context manager for connection",
+            "conn.close in finally",
+        ],
     },
     {
         "project_files": {
@@ -513,7 +772,13 @@ _HARD_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "password_reset.py", "line": 6, "type": "weak_crypto", "severity": "HIGH", "description": "Reset token is predictable — based on email + timestamp, not cryptographic random"},
+            {
+                "file": "password_reset.py",
+                "line": 6,
+                "type": "weak_crypto",
+                "severity": "HIGH",
+                "description": "Reset token is predictable — based on email + timestamp, not cryptographic random",
+            },
         ],
         "safe_patterns": ["secrets.token_urlsafe for API key generation is correct"],
     },
@@ -536,8 +801,20 @@ _HARD_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "middleware.py", "line": 14, "type": "ssrf", "severity": "HIGH", "description": "SSRF check is bypassable — doesn't handle 0.0.0.0, IPv6 ::1, or DNS rebinding"},
-            {"file": "middleware.py", "line": 14, "type": "ssrf", "severity": "MEDIUM", "description": "URL parsing via split is fragile — use urllib.parse"},
+            {
+                "file": "middleware.py",
+                "line": 14,
+                "type": "ssrf",
+                "severity": "HIGH",
+                "description": "SSRF check is bypassable — doesn't handle 0.0.0.0, IPv6 ::1, or DNS rebinding",
+            },
+            {
+                "file": "middleware.py",
+                "line": 14,
+                "type": "ssrf",
+                "severity": "MEDIUM",
+                "description": "URL parsing via split is fragile — use urllib.parse",
+            },
         ],
         "safe_patterns": ["IP blocklist concept", "SSRF protection attempt"],
     },
@@ -559,10 +836,25 @@ _HARD_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "session_store.py", "line": 15, "type": "path_traversal", "severity": "HIGH", "description": "session_id not validated — ../../etc/passwd traversal possible"},
-            {"file": "session_store.py", "line": 5, "type": "misconfiguration", "severity": "MEDIUM", "description": "/tmp is world-readable — session files accessible to other users"},
+            {
+                "file": "session_store.py",
+                "line": 15,
+                "type": "path_traversal",
+                "severity": "HIGH",
+                "description": "session_id not validated — ../../etc/passwd traversal possible",
+            },
+            {
+                "file": "session_store.py",
+                "line": 5,
+                "type": "misconfiguration",
+                "severity": "MEDIUM",
+                "description": "/tmp is world-readable — session files accessible to other users",
+            },
         ],
-        "safe_patterns": ["os.urandom(32) for session ID generation is cryptographically strong", "json serialization (not pickle)"],
+        "safe_patterns": [
+            "os.urandom(32) for session ID generation is cryptographically strong",
+            "json serialization (not pickle)",
+        ],
     },
     {
         "project_files": {
@@ -582,10 +874,25 @@ _HARD_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "webhook.py", "line": 13, "type": "timing_attack", "severity": "MEDIUM", "description": "String != for HMAC comparison is vulnerable to timing attack — use hmac.compare_digest"},
-            {"file": "webhook.py", "line": 6, "type": "misconfiguration", "severity": "LOW", "description": "Empty string default for WEBHOOK_SECRET — webhook verification disabled if env var missing"},
+            {
+                "file": "webhook.py",
+                "line": 13,
+                "type": "timing_attack",
+                "severity": "MEDIUM",
+                "description": "String != for HMAC comparison is vulnerable to timing attack — use hmac.compare_digest",
+            },
+            {
+                "file": "webhook.py",
+                "line": 6,
+                "type": "misconfiguration",
+                "severity": "LOW",
+                "description": "Empty string default for WEBHOOK_SECRET — webhook verification disabled if env var missing",
+            },
         ],
-        "safe_patterns": ["HMAC-SHA256 for webhook verification", "os.environ.get for secrets"],
+        "safe_patterns": [
+            "HMAC-SHA256 for webhook verification",
+            "os.environ.get for secrets",
+        ],
     },
     {
         "project_files": {
@@ -606,9 +913,18 @@ _HARD_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "upload.py", "line": 15, "type": "path_traversal", "severity": "HIGH", "description": "f.filename not sanitized — path traversal via ../../../etc/cron.d/evil"},
+            {
+                "file": "upload.py",
+                "line": 15,
+                "type": "path_traversal",
+                "severity": "HIGH",
+                "description": "f.filename not sanitized — path traversal via ../../../etc/cron.d/evil",
+            },
         ],
-        "safe_patterns": ["MIME type validation via python-magic", "Allowlist approach for file types"],
+        "safe_patterns": [
+            "MIME type validation via python-magic",
+            "Allowlist approach for file types",
+        ],
     },
     {
         "project_files": {
@@ -633,10 +949,25 @@ _HARD_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "export.py", "line": 9, "type": "broken_access_control", "severity": "HIGH", "description": "No authorization check — any user can export any other user's data via user_id parameter"},
-            {"file": "export.py", "line": 18, "type": "header_injection", "severity": "MEDIUM", "description": "Unsanitized filename in Content-Disposition header allows response header injection"},
+            {
+                "file": "export.py",
+                "line": 9,
+                "type": "broken_access_control",
+                "severity": "HIGH",
+                "description": "No authorization check — any user can export any other user's data via user_id parameter",
+            },
+            {
+                "file": "export.py",
+                "line": 18,
+                "type": "header_injection",
+                "severity": "MEDIUM",
+                "description": "Unsanitized filename in Content-Disposition header allows response header injection",
+            },
         ],
-        "safe_patterns": ["csv.writer for CSV generation", "Content-Disposition header for download"],
+        "safe_patterns": [
+            "csv.writer for CSV generation",
+            "Content-Disposition header for download",
+        ],
     },
     {
         "project_files": {
@@ -657,9 +988,18 @@ _HARD_TASKS: List[Dict[str, Any]] = [
             ),
         },
         "vulnerabilities": [
-            {"file": "search.py", "line": 10, "type": "redos", "severity": "HIGH", "description": "User-supplied regex compiled without timeout — ReDoS vulnerability (e.g., (a+)+$ on long input)"},
+            {
+                "file": "search.py",
+                "line": 10,
+                "type": "redos",
+                "severity": "HIGH",
+                "description": "User-supplied regex compiled without timeout — ReDoS vulnerability (e.g., (a+)+$ on long input)",
+            },
         ],
-        "safe_patterns": ["re.error handling for invalid patterns", "List comprehension for filtering"],
+        "safe_patterns": [
+            "re.error handling for invalid patterns",
+            "List comprehension for filtering",
+        ],
     },
 ]
 

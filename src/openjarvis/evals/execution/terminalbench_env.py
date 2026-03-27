@@ -133,8 +133,7 @@ class TerminalBenchTaskEnv:
 
             test_timeout = task.max_test_timeout_sec
             test_script_path = (
-                DockerComposeManager.CONTAINER_TEST_DIR
-                / task_paths.run_tests_path.name
+                DockerComposeManager.CONTAINER_TEST_DIR / task_paths.run_tests_path.name
             )
 
             try:
@@ -144,9 +143,7 @@ class TerminalBenchTaskEnv:
                     max_timeout_sec=test_timeout,
                 )
             except TimeoutError:
-                LOGGER.warning(
-                    "Test command timed out after %.0fs", test_timeout
-                )
+                LOGGER.warning("Test command timed out after %.0fs", test_timeout)
                 results["error"] = "test_timeout"
                 self._metadata["is_resolved"] = False
                 self._metadata["test_results"] = results
@@ -159,8 +156,7 @@ class TerminalBenchTaskEnv:
             try:
                 parser_results = parser.parse(post_test_pane)
                 results["parser_results"] = {
-                    name: status.value
-                    for name, status in parser_results.items()
+                    name: status.value for name, status in parser_results.items()
                 }
                 is_resolved = all(
                     status == UnitTestStatus.PASSED
