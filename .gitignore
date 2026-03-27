@@ -53,6 +53,7 @@ get-pip.py
 *.docx
 MagicMock/
 start-jarvis.sh
+jarvis-chat.sh
 
 # MkDocs build output
 site/
