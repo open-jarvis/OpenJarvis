@@ -1593,6 +1593,8 @@ export function AgentsPage() {
                         <p className="text-xs mt-1" style={{ color: 'var(--color-text-tertiary)' }}>Energy</p>
                       </div>
                       <div style={{ width: 1, background: 'var(--color-border)', alignSelf: 'stretch', minHeight: 32 }} />
+                      <div className="flex gap-5 flex-wrap items-start">
+                        <p className="text-xs self-center" style={{ color: 'var(--color-text-tertiary)', writingMode: 'vertical-rl', transform: 'rotate(180deg)', letterSpacing: 1 }}>SAVED vs.</p>
                       {providers.map((p) => {
                         const cost = (inTok / 1e6) * p.inPer1M + (outTok / 1e6) * p.outPer1M;
                         return (
@@ -1602,6 +1604,7 @@ export function AgentsPage() {
                           </div>
                         );
                       })}
+                      </div>
                     </>)}
                   </div>
                 </div>);
