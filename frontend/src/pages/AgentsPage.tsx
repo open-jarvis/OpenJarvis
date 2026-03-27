@@ -101,8 +101,7 @@ function StatusDot({ status }: { status: string }) {
 
 function formatCost(cost?: number): string {
   if (cost === undefined || cost === null) return '—';
-  if (cost < 0.01) return `$${(cost * 100).toFixed(2)}¢`;
-  return `$${cost.toFixed(3)}`;
+  return `$${cost.toFixed(4)}`;
 }
 
 function formatRelativeTime(ts?: number | null): string {
@@ -1226,10 +1225,10 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+    <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
       {rows.map(([label, value]) => (
-        <div key={label as string} className="flex gap-2 items-center">
-          <span style={{ color: 'var(--color-text-tertiary)', minWidth: 100 }}>{label}</span>
+        <div key={label as string} className="flex gap-2 items-center text-sm">
+          <span className="font-medium" style={{ color: 'var(--color-text-secondary)', minWidth: 110 }}>{label}</span>
           <span style={{ color: 'var(--color-text)' }}>{value}</span>
         </div>
       ))}
@@ -1802,57 +1801,38 @@ export function AgentsPage() {
 
         {/* Tab: Overview */}
         {detailTab === 'overview' && (
-          <div className="space-y-4">
-            {/* Stat cards */}
-            <div className="grid grid-cols-3 gap-3">
+          <div className="space-y-3">
+            {/* Stat cards — compact row */}
+            <div className="grid grid-cols-3 gap-2">
               {[
-                {
-                  label: 'Total Runs',
-                  value: String(selectedAgent.total_runs ?? 0),
-                  icon: Activity,
-                  color: '#3b82f6',
-                },
-                {
-                  label: 'Success Rate',
-                  value: successRate !== null ? `${successRate}%` : '—',
-                  icon: Zap,
-                  color: '#22c55e',
-                },
-                {
-                  label: 'Total Cost',
-                  value: formatCost(selectedAgent.total_cost),
-                  icon: DollarSign,
-                  color: '#f59e0b',
-                },
+                { label: 'Total Runs', value: String(selectedAgent.total_runs ?? 0), icon: Activity, color: '#3b82f6' },
+                { label: 'Success Rate', value: successRate !== null ? `${successRate}%` : '—', icon: Zap, color: '#22c55e' },
+                { label: 'Total Cost', value: formatCost(selectedAgent.total_cost), icon: DollarSign, color: '#f59e0b' },
               ].map(({ label, value, icon: Icon, color }) => (
                 <div
                   key={label}
-                  className="p-4 rounded-lg"
+                  className="p-3 rounded-lg flex items-center gap-3"
                   style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
                 >
-                  <div className="flex items-center gap-2 mb-1">
-                    <Icon size={14} style={{ color }} />
-                    <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-                      {label}
-                    </span>
+                  <Icon size={16} style={{ color, flexShrink: 0 }} />
+                  <div>
+                    <p className="text-base font-semibold leading-tight" style={{ color: 'var(--color-text)' }}>{value}</p>
+                    <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{label}</p>
                   </div>
-                  <p className="text-xl font-semibold" style={{ color: 'var(--color-text)' }}>
-                    {value}
-                  </p>
                 </div>
               ))}
             </div>
 
-            {/* Config display */}
+            {/* Config display — tighter spacing */}
             <div
-              className="p-4 rounded-lg"
+              className="p-3 rounded-lg"
               style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
             >
-              <h3 className="text-sm font-medium mb-3" style={{ color: 'var(--color-text-secondary)' }}>
+              <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--color-text)' }}>
                 Configuration
               </h3>
               <AgentConfigGrid agent={selectedAgent} onAgentUpdated={refresh} />
-              <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--color-border)' }}>
+              <div className="mt-2 pt-2" style={{ borderTop: '1px solid var(--color-border)' }}>
                 <span className="text-xs font-mono" style={{ color: 'var(--color-text-tertiary)' }}>
                   ID: {selectedAgent.id}
                 </span>
