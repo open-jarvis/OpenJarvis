@@ -434,6 +434,38 @@ export async function fetchAgentChannels(agentId: string): Promise<ChannelBindin
   return data.bindings || [];
 }
 
+export async function bindAgentChannel(
+  agentId: string,
+  channelType: string,
+  config?: Record<string, unknown>,
+): Promise<ChannelBinding> {
+  const res = await fetch(
+    `${getBase()}/v1/managed-agents/${agentId}/channels`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        channel_type: channelType,
+        config: config || {},
+        routing_mode: 'dedicated',
+      }),
+    },
+  );
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return res.json();
+}
+
+export async function unbindAgentChannel(
+  agentId: string,
+  bindingId: string,
+): Promise<void> {
+  const res = await fetch(
+    `${getBase()}/v1/managed-agents/${agentId}/channels/${bindingId}`,
+    { method: 'DELETE' },
+  );
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+}
+
 export async function fetchTemplates(): Promise<AgentTemplate[]> {
   const res = await fetch(`${getBase()}/v1/templates`);
   if (!res.ok) throw new Error(`Failed: ${res.status}`);

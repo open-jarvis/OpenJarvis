@@ -5,6 +5,8 @@ import {
   fetchManagedAgents,
   fetchAgentTasks,
   fetchAgentChannels,
+  bindAgentChannel,
+  unbindAgentChannel,
   fetchAgentMessages,
   fetchTemplates,
   createManagedAgent,
@@ -46,6 +48,7 @@ import {
   ChevronRight,
   Send,
   RefreshCw,
+  Wifi,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -991,6 +994,241 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
 }
 
 // ---------------------------------------------------------------------------
+// Channels tab component
+// ---------------------------------------------------------------------------
+
+const AVAILABLE_CHANNELS = [
+  {
+    type: 'imessage',
+    name: 'iMessage',
+    icon: '💬',
+    description: 'Text from your iPhone, iPad, or Mac',
+    connectLabel: 'Phone number or contact to monitor',
+    placeholder: '+15551234567',
+  },
+  {
+    type: 'slack',
+    name: 'Slack',
+    icon: '#',
+    description: 'Message from any Slack workspace',
+    connectLabel: 'Slack bot token (xoxb-...)',
+    placeholder: 'xoxb-...',
+  },
+  {
+    type: 'whatsapp',
+    name: 'WhatsApp',
+    icon: '📱',
+    description: 'Message via WhatsApp',
+    connectLabel: 'WhatsApp access token',
+    placeholder: 'Access token',
+  },
+  {
+    type: 'twilio',
+    name: 'SMS (Twilio)',
+    icon: '📨',
+    description: 'Text from any phone via Twilio',
+    connectLabel: 'Twilio phone number',
+    placeholder: '+15551234567',
+  },
+];
+
+function ChannelsTab({ agentId }: { agentId: string }) {
+  const [bindings, setBindings] = useState<ChannelBinding[]>([]);
+  const [connectingType, setConnectingType] = useState<string | null>(null);
+  const [inputValue, setInputValue] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const loadBindings = useCallback(() => {
+    fetchAgentChannels(agentId).then(setBindings).catch(() => setBindings([]));
+  }, [agentId]);
+
+  useEffect(() => { loadBindings(); }, [loadBindings]);
+
+  const handleConnect = async (channelType: string) => {
+    if (!inputValue.trim()) return;
+    setLoading(true);
+    try {
+      await bindAgentChannel(agentId, channelType, {
+        identifier: inputValue.trim(),
+      });
+      setConnectingType(null);
+      setInputValue('');
+      loadBindings();
+    } catch {
+      // Could show error toast
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDisconnect = async (bindingId: string) => {
+    try {
+      await unbindAgentChannel(agentId, bindingId);
+      loadBindings();
+    } catch {
+      // Could show error toast
+    }
+  };
+
+  return (
+    <div style={{ padding: 16 }}>
+      <div style={{
+        display: 'flex', alignItems: 'center',
+        justifyContent: 'space-between', marginBottom: 16,
+      }}>
+        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>
+          Talk to this agent from
+        </h3>
+      </div>
+
+      {AVAILABLE_CHANNELS.map((ch) => {
+        const binding = bindings.find((b) => b.channel_type === ch.type);
+        const isConnecting = connectingType === ch.type;
+
+        return (
+          <div
+            key={ch.type}
+            style={{
+              background: 'var(--color-bg-secondary)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 8,
+              marginBottom: 10,
+              opacity: binding ? 1 : 0.7,
+              overflow: 'hidden',
+            }}
+          >
+            <div style={{
+              display: 'flex', alignItems: 'center',
+              padding: '14px 16px',
+            }}>
+              <div style={{
+                width: 36, height: 36, borderRadius: 8,
+                display: 'flex', alignItems: 'center',
+                justifyContent: 'center', marginRight: 12,
+                fontSize: 18, background: 'var(--color-bg)',
+              }}>
+                {ch.icon}
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{ch.name}</div>
+                <div style={{
+                  color: 'var(--color-text-secondary)',
+                  fontSize: 12,
+                }}>
+                  {ch.description}
+                </div>
+              </div>
+              {binding ? (
+                <span style={{
+                  background: '#2a5a3a', color: '#4ade80',
+                  padding: '3px 10px', borderRadius: 12,
+                  fontSize: 11, fontWeight: 500,
+                }}>
+                  Active
+                </span>
+              ) : (
+                <button
+                  onClick={() => {
+                    setConnectingType(isConnecting ? null : ch.type);
+                    setInputValue('');
+                  }}
+                  style={{
+                    fontSize: 11, padding: '4px 14px',
+                    background: '#7c3aed', color: 'white',
+                    border: 'none', borderRadius: 6,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {isConnecting ? 'Cancel' : 'Connect'}
+                </button>
+              )}
+            </div>
+
+            {/* Expanded: connected details */}
+            {binding && (
+              <div style={{
+                borderTop: '1px solid var(--color-border)',
+                padding: '12px 16px',
+                background: 'var(--color-bg)',
+              }}>
+                <div style={{
+                  fontSize: 12,
+                  color: 'var(--color-text-secondary)',
+                  marginBottom: 8,
+                }}>
+                  {binding.config?.identifier
+                    ? `Monitoring: ${binding.config.identifier}`
+                    : `Session: ${binding.session_id}`}
+                </div>
+                <button
+                  onClick={() => handleDisconnect(binding.id)}
+                  style={{
+                    fontSize: 11, padding: '4px 12px',
+                    background: 'var(--color-bg-secondary)',
+                    color: 'var(--color-text-secondary)',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 4, cursor: 'pointer',
+                  }}
+                >
+                  Disconnect
+                </button>
+              </div>
+            )}
+
+            {/* Expanded: connect form */}
+            {isConnecting && (
+              <div style={{
+                borderTop: '1px solid var(--color-border)',
+                padding: '12px 16px',
+                background: 'var(--color-bg)',
+              }}>
+                <div style={{
+                  fontSize: 12,
+                  color: 'var(--color-text-secondary)',
+                  marginBottom: 8,
+                }}>
+                  {ch.connectLabel}
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    placeholder={ch.placeholder}
+                    style={{
+                      flex: 1, padding: '6px 10px',
+                      background: 'var(--color-bg-secondary)',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: 4, color: 'var(--color-text)',
+                      fontSize: 12,
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleConnect(ch.type);
+                    }}
+                  />
+                  <button
+                    onClick={() => handleConnect(ch.type)}
+                    disabled={loading || !inputValue.trim()}
+                    style={{
+                      fontSize: 11, padding: '6px 14px',
+                      background: '#7c3aed', color: 'white',
+                      border: 'none', borderRadius: 4,
+                      cursor: 'pointer',
+                      opacity: loading || !inputValue.trim() ? 0.5 : 1,
+                    }}
+                  >
+                    {loading ? 'Connecting...' : 'Connect'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Learning tab component
 // ---------------------------------------------------------------------------
 
@@ -1185,7 +1423,7 @@ export function AgentsPage() {
   const [channels, setChannels] = useState<ChannelBinding[]>([]);
   const [templates, setTemplates] = useState<AgentTemplate[]>([]);
   const [showWizard, setShowWizard] = useState(false);
-  const [detailTab, setDetailTab] = useState<'overview' | 'interact' | 'tasks' | 'memory' | 'learning' | 'logs'>('overview');
+  const [detailTab, setDetailTab] = useState<'overview' | 'interact' | 'channels' | 'tasks' | 'memory' | 'learning' | 'logs'>('overview');
 
   const refresh = useCallback(async () => {
     try {
@@ -1315,6 +1553,7 @@ export function AgentsPage() {
     const DETAIL_TABS = [
       { id: 'overview', label: 'Overview', icon: Activity },
       { id: 'interact', label: 'Interact', icon: MessageSquare },
+      { id: 'channels', label: 'Channels', icon: Wifi },
       { id: 'tasks', label: 'Tasks', icon: ListTodo },
       { id: 'memory', label: 'Memory', icon: Brain },
       { id: 'learning', label: 'Learning', icon: Settings },
@@ -1467,6 +1706,11 @@ export function AgentsPage() {
 
         {/* Tab: Interact */}
         {detailTab === 'interact' && <InteractTab agentId={selectedAgent.id} agentStatus={selectedAgent.status} />}
+
+        {/* Tab: Channels */}
+        {detailTab === 'channels' && (
+          <ChannelsTab agentId={selectedAgent.id} />
+        )}
 
         {/* Tab: Tasks */}
         {detailTab === 'tasks' && (
