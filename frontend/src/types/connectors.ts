@@ -54,13 +54,13 @@ export type SourceCard = ConnectorMeta;
 
 export const SOURCE_CATALOG: ConnectorMeta[] = [
   {
-    connector_id: 'gmail_imap',
-    display_name: 'Gmail (IMAP)',
+    connector_id: 'gmail',
+    display_name: 'Gmail',
     auth_type: 'oauth',
     category: 'communication',
     icon: 'Mail',
     color: 'text-red-400',
-    description: 'Email via app password',
+    description: 'Email messages and threads',
     unitLabel: 'emails',
     steps: [
       {
@@ -138,32 +138,6 @@ export const SOURCE_CATALOG: ConnectorMeta[] = [
     ],
     inputFields: [
       { name: 'token', placeholder: 'grn_...', type: 'password' },
-    ],
-  },
-  {
-    connector_id: 'gmail',
-    display_name: 'Gmail',
-    auth_type: 'oauth',
-    category: 'communication',
-    icon: 'Mail',
-    color: 'text-red-400',
-    description: 'Email messages and threads (OAuth)',
-    unitLabel: 'emails',
-    steps: [
-      {
-        label: 'We recommend using Gmail (IMAP) instead — it\'s simpler. Select "Gmail (IMAP)" from the channels list.',
-      },
-      {
-        label: 'If you need OAuth: Go to Google Cloud Console → Enable Gmail API → Create OAuth Client ID',
-        url: 'https://console.cloud.google.com/apis/library/gmail.googleapis.com',
-        urlLabel: 'Enable Gmail API',
-      },
-      {
-        label: 'Copy the Client ID and Client Secret, then paste below',
-      },
-    ],
-    inputFields: [
-      { name: 'token', placeholder: 'Client ID:Client Secret', type: 'password' },
     ],
   },
   {
