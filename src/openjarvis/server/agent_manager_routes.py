@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re as _re
 from typing import Any, Dict, List, Optional, Tuple
 
 from openjarvis.agents.manager import AgentManager
@@ -106,6 +107,42 @@ def _make_lightweight_system(
     except Exception:
         pass
     return _LightweightSystem(engine, model, config)
+
+
+def _parse_param_count(model_name: str) -> float:
+    """Extract parameter count in billions from model name.
+
+    Examples: 'qwen3.5:9b' -> 9.0, 'qwen3.5:0.8b' -> 0.8
+    """
+    m = _re.search(r":(\d+(?:\.\d+)?)b", model_name.lower())
+    return float(m.group(1)) if m else 0.0
+
+
+_CLOUD_PREFIXES = ("gpt-", "claude-", "gemini-", "o1-", "o3-", "o4-")
+
+
+def _pick_recommended_model(
+    model_ids: list[str],
+) -> dict[str, str]:
+    """Pick the second-largest local model from a list."""
+    local = [
+        m for m in model_ids
+        if not any(m.startswith(p) for p in _CLOUD_PREFIXES)
+    ]
+    if not local:
+        return {
+            "model": model_ids[0] if model_ids else "",
+            "reason": "Only model available",
+        }
+    sized = sorted(local, key=_parse_param_count, reverse=True)
+    if len(sized) == 1:
+        return {"model": sized[0], "reason": "Only local model available"}
+    pick = sized[1]  # second-largest
+    params = _parse_param_count(pick)
+    return {
+        "model": pick,
+        "reason": f"Second-largest local model ({params}B parameters)",
+    }
 
 
 def _ensure_registries_populated() -> None:
@@ -1129,6 +1166,17 @@ def create_agent_manager_router(
             "total": len(all_agents),
             "by_status": dict(counts),
         }
+
+    @global_router.get("/v1/recommended-model")
+    def recommended_model(request: Request):
+        engine = getattr(request.app.state, "engine", None)
+        if engine is None:
+            return {"model": "", "reason": "No engine available"}
+        try:
+            models = engine.list_models()
+        except Exception:
+            models = []
+        return _pick_recommended_model(models)
 
     # ── Tools & credentials ──────────────────────────────────
 

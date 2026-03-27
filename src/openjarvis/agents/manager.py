@@ -488,6 +488,15 @@ class AgentManager:
         if overrides:
             config.update(overrides)
         agent_type = config.pop("agent_type", "monitor_operative")
+
+        # Expand system_prompt_template with instruction
+        prompt_tpl = config.pop("system_prompt_template", "")
+        if prompt_tpl:
+            instruction = config.get("instruction", "")
+            config["system_prompt"] = prompt_tpl.format(
+                instruction=instruction or "(No specific instruction provided)",
+            )
+
         return self.create_agent(name=name, agent_type=agent_type, config=config)
 
     # ── Message queue ─────────────────────────────────────────────

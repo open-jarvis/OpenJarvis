@@ -54,6 +54,27 @@ class AgentExecutor:
         except Exception:
             pass  # Non-critical
 
+    def _inject_tool_deps(self, tool: Any) -> None:
+        """Inject runtime dependencies into a tool instance.
+
+        Mirrors SystemBuilder._inject_tool_deps (system.py:920-945)
+        but uses the lightweight system's references.
+        """
+        if self._system is None:
+            return
+        name = getattr(getattr(tool, "spec", None), "name", "")
+        if name == "llm":
+            if hasattr(tool, "_engine"):
+                tool._engine = self._system.engine
+            if hasattr(tool, "_model"):
+                tool._model = self._system.model
+        elif name == "retrieval" or name.startswith("memory_"):
+            if hasattr(tool, "_backend"):
+                tool._backend = getattr(self._system, "memory_backend", None)
+        elif name.startswith("channel_"):
+            if hasattr(tool, "_channel"):
+                tool._channel = getattr(self._system, "channel_backend", None)
+
     def run_ephemeral(
         self,
         agent_type: str,
@@ -239,12 +260,44 @@ class AgentExecutor:
             except Exception:
                 pass  # Fall back to configured model
 
-        # Construct agent instance (BaseAgent requires engine, model as positional args)
+        # Resolve tools from config via ToolRegistry
+        tool_names = config.get("tools", [])
+        if isinstance(tool_names, str):
+            tool_names = [t.strip() for t in tool_names.split(",") if t.strip()]
+
+        tool_instances: list[Any] = []
+        if tool_names:
+            try:
+                from openjarvis.server.agent_manager_routes import (
+                    _ensure_registries_populated,
+                )
+
+                _ensure_registries_populated()
+            except ImportError:
+                pass
+            from openjarvis.core.registry import ToolRegistry
+
+            for tname in tool_names:
+                if ToolRegistry.contains(tname):
+                    try:
+                        tool_cls = ToolRegistry.get(tname)
+                        tool = tool_cls()
+                        self._inject_tool_deps(tool)
+                        tool_instances.append(tool)
+                    except Exception:
+                        logger.warning("Failed to instantiate tool %s", tname)
+            if tool_instances:
+                logger.info(
+                    "Agent %s: resolved %d/%d tools",
+                    agent["name"], len(tool_instances), len(tool_names),
+                )
+
+        # Construct agent instance
         agent_instance = agent_cls(
             engine,
             model,
             system_prompt=config.get("system_prompt"),
-            tools=[],
+            tools=tool_instances,
         )
 
         # Build input from instruction + summary_memory + pending messages
