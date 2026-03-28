@@ -595,8 +595,11 @@ async def _stream_managed_agent(
                         f"Query: {user_content[:100]}",
                         {"full_query": user_content},
                     )
-                except Exception:
-                    pass
+                except Exception as _log_exc:
+                    logger.warning(
+                        "Failed to log query_start: %s",
+                        _log_exc,
+                    )
 
                 # Patch the agent's tool executor to emit progress
                 dr_agent = DeepResearchAgent(
