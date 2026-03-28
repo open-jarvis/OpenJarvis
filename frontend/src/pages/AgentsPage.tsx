@@ -1760,21 +1760,47 @@ interface MessagingChannelConfig {
 
 const MESSAGING_CHANNELS: MessagingChannelConfig[] = [
   {
-    type: 'imessage',
-    name: 'iMessage',
+    type: 'sendblue',
+    name: 'iMessage / SMS',
     icon: '\uD83D\uDCAC',
-    description: 'Talk to your agent via iMessage from your iPhone or another Apple device',
+    description: 'Your agent gets its own phone number \u2014 text it via iMessage (blue bubbles!) or SMS',
+    setupSteps: [
+      '1. Sign up at sendblue.co and get your API credentials',
+      '2. In the SendBlue dashboard, copy your API Key ID and API Secret Key',
+      '3. Your account comes with a dedicated phone number \u2014 find it under Lines in the dashboard',
+      '4. Enter all three values below',
+      'After setup, text the phone number from any phone. Your agent responds via iMessage when possible, SMS otherwise.',
+    ],
+    fields: [
+      { key: 'api_key_id', label: 'API Key ID', placeholder: 'Your SendBlue API key ID', required: true },
+      { key: 'api_secret_key', label: 'API Secret Key', placeholder: 'Your SendBlue API secret key', type: 'password', required: true },
+      { key: 'from_number', label: 'SendBlue Phone Number (your agent\u2019s number)', placeholder: '+15551234567', required: true },
+    ],
+    activeLabel: (cfg) => {
+      const num = (cfg.from_number as string) || '';
+      return num ? `iMessage/SMS active on ${num}` : 'SendBlue connected';
+    },
+    howToUse: (cfg) => {
+      const num = (cfg.from_number as string) || 'your SendBlue number';
+      return `Text ${num} from any phone to talk to your agent. Responses arrive as iMessage (blue bubbles) when possible.`;
+    },
+  },
+  {
+    type: 'imessage',
+    name: 'iMessage (local)',
+    icon: '\uD83D\uDCBB',
+    description: 'Free alternative \u2014 monitors Messages on this Mac (same Apple ID limitation)',
     setupSteps: [
       'Your agent monitors iMessage on this Mac using the Messages app.',
-      'Enter your phone number or Apple ID below — your agent will watch for texts from that contact.',
-      'Then open iMessage on your iPhone and text this Mac. Your agent reads the message, researches your data, and responds in the same conversation.',
+      'Enter the phone number or Apple ID to watch for incoming messages.',
+      'Note: This only works when someone with a DIFFERENT Apple ID texts you. It cannot detect self-messages between your own devices.',
       'Requires macOS Full Disk Access + Accessibility permissions (System Settings \u2192 Privacy & Security).',
     ],
     fields: [
-      { key: 'identifier', label: 'Your phone number or Apple ID', placeholder: '+15551234567 or you@icloud.com', required: true },
+      { key: 'identifier', label: 'Phone number or Apple ID to monitor', placeholder: '+15551234567 or friend@icloud.com', required: true },
     ],
     activeLabel: (cfg) => `Monitoring messages from ${(cfg.identifier as string) || '?'}`,
-    howToUse: (cfg) => `Open iMessage on your phone and text this Mac from ${(cfg.identifier as string) || 'your phone'}. Your agent will respond automatically.`,
+    howToUse: (cfg) => `Have someone text ${(cfg.identifier as string) || 'the monitored contact'} on this Mac. Your agent will respond automatically.`,
   },
   {
     type: 'slack',

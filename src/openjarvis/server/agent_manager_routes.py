@@ -1293,17 +1293,128 @@ def create_agent_manager_router(
                 except Exception as exc:
                     logger.warning("Failed to start iMessage daemon: %s", exc)
 
+        # Initialize SendBlue channel if binding sendblue
+        if req.channel_type == "sendblue":
+            config = req.config or {}
+            api_key_id = config.get("api_key_id", "")
+            api_secret_key = config.get("api_secret_key", "")
+            from_number = config.get("from_number", "")
+            if api_key_id and api_secret_key:
+                try:
+                    from openjarvis.channels.sendblue import (
+                        SendBlueChannel,
+                    )
+
+                    sb_channel = SendBlueChannel(
+                        api_key_id=api_key_id,
+                        api_secret_key=api_secret_key,
+                        from_number=from_number,
+                    )
+                    sb_channel.connect()
+                    # Store on app state so webhook route can use it
+                    request.app.state.sendblue_channel = sb_channel
+                    # Also register with the channel bridge if available
+                    bridge = getattr(request.app.state, "channel_bridge", None)
+                    if bridge and hasattr(bridge, "_channels"):
+                        bridge._channels["sendblue"] = sb_channel
+                    logger.info(
+                        "SendBlue channel connected: %s",
+                        from_number,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to init SendBlue channel: %s", exc
+                    )
+
+        # Start Slack Socket Mode listener if binding slack
+        if req.channel_type == "slack":
+            config = req.config or {}
+            bot_token = config.get("bot_token", "")
+            app_token = config.get("app_token", "")
+            if bot_token:
+                try:
+                    from openjarvis.channels.slack import SlackChannel
+
+                    slack_ch = SlackChannel(
+                        bot_token=bot_token,
+                        app_token=app_token,
+                    )
+
+                    # Build agent for handling messages
+                    engine = getattr(request.app.state, "engine", None)
+                    if engine:
+                        tools = _build_deep_research_tools(
+                            engine=engine, model="",
+                        )
+                        if tools:
+                            from openjarvis.agents.deep_research import (
+                                DeepResearchAgent,
+                            )
+
+                            agent_inst = DeepResearchAgent(
+                                engine=engine,
+                                model=getattr(engine, "_model", ""),
+                                tools=tools,
+                            )
+
+                            def _slack_handler(msg):
+                                """Handle incoming Slack DM."""
+                                try:
+                                    result = agent_inst.run(msg.content)
+                                    reply = result.content or "No results."
+                                    slack_ch.send(
+                                        msg.conversation_id,
+                                        reply,
+                                    )
+                                except Exception as _exc:
+                                    logger.warning(
+                                        "Slack handler error: %s", _exc,
+                                    )
+                                    slack_ch.send(
+                                        msg.conversation_id,
+                                        f"Error: {_exc}",
+                                    )
+
+                            slack_ch.on_message(_slack_handler)
+
+                    slack_ch.connect()
+
+                    # Store on app_state for cleanup
+                    if not hasattr(request.app.state, "_slack_channels"):
+                        request.app.state._slack_channels = {}
+                    request.app.state._slack_channels[
+                        binding["id"]
+                    ] = slack_ch
+
+                    logger.info("Slack channel connected via Socket Mode")
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to start Slack channel: %s", exc,
+                    )
+
         return binding
 
     @agents_router.delete("/{agent_id}/channels/{binding_id}")
-    async def unbind_channel(agent_id: str, binding_id: str):
-        # Stop iMessage daemon if applicable
+    async def unbind_channel(
+        agent_id: str, binding_id: str, request: Request,
+    ):
         try:
             binding = manager._get_binding(binding_id)
-            if binding and binding.get("channel_type") == "imessage":
-                from openjarvis.channels.imessage_daemon import stop_daemon
+            if binding:
+                ch_type = binding.get("channel_type")
+                if ch_type == "imessage":
+                    from openjarvis.channels.imessage_daemon import (
+                        stop_daemon,
+                    )
 
-                stop_daemon()
+                    stop_daemon()
+                elif ch_type == "slack":
+                    slack_channels = getattr(
+                        request.app.state, "_slack_channels", {},
+                    )
+                    slack_ch = slack_channels.pop(binding_id, None)
+                    if slack_ch:
+                        slack_ch.disconnect()
         except Exception:
             pass
         manager.unbind_channel(binding_id)

@@ -51,6 +51,7 @@ def create_webhook_router(
     bluebubbles_password: str = "",
     whatsapp_verify_token: str = "",
     whatsapp_app_secret: str = "",
+    sendblue_channel: Any = None,
 ) -> APIRouter:
     """Create a FastAPI router with webhook endpoints.
 
@@ -60,6 +61,7 @@ def create_webhook_router(
         bluebubbles_password: BlueBubbles server password.
         whatsapp_verify_token: WhatsApp verification token.
         whatsapp_app_secret: WhatsApp app secret for HMAC.
+        sendblue_channel: SendBlueChannel instance for reply-back.
     """
     router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
@@ -186,6 +188,59 @@ def create_webhook_router(
                         )
                     )
                     task.add_done_callback(_log_task_exception)
+
+        return Response("OK", status_code=200)
+
+    # ----------------------------------------------------------
+    # SendBlue (iMessage / SMS)
+    # ----------------------------------------------------------
+
+    @router.post("/sendblue")
+    async def sendblue_incoming(request: Request) -> Response:
+        payload = await request.json()
+
+        # Get the SendBlue channel — may be passed at init or set later
+        sb = sendblue_channel or getattr(
+            request.app.state, "sendblue_channel", None
+        )
+
+        # Verify webhook secret if configured
+        if sb and sb.webhook_secret:
+            header_secret = request.headers.get("x-sendblue-secret", "")
+            if header_secret != sb.webhook_secret:
+                return Response("Invalid secret", status_code=403)
+
+        # Ignore outbound status callbacks
+        if payload.get("is_outbound", False):
+            return Response("OK", status_code=200)
+
+        from_number = payload.get("from_number", "")
+        content = payload.get("content", "")
+
+        if not from_number or not content:
+            return Response("OK", status_code=200)
+
+        # Capture sb for the closure
+        reply_channel = sb
+        # Also check for a dynamically-created bridge on app.state
+        active_bridge = bridge or getattr(
+            request.app.state, "channel_bridge", None
+        )
+
+        if not active_bridge:
+            logger.warning("No channel bridge — cannot process SendBlue msg")
+            return Response("OK", status_code=200)
+
+        def _handle_and_reply() -> None:
+            response = active_bridge.handle_incoming(
+                from_number, content, "sendblue"
+            )
+            # Send the agent's response back via SendBlue
+            if response and reply_channel:
+                reply_channel.send(from_number, response)
+
+        task = asyncio.create_task(asyncio.to_thread(_handle_and_reply))
+        task.add_done_callback(_log_task_exception)
 
         return Response("OK", status_code=200)
 

@@ -149,8 +149,8 @@ def create_app(
         except Exception as exc:
             logger.debug("Auth middleware init skipped: %s", exc)
 
-    # Mount webhook routes if bridge and config provided
-    if channel_bridge and webhook_config:
+    # Mount webhook routes (always — SendBlue may be configured dynamically)
+    if webhook_config:
         try:
             from openjarvis.server.webhook_routes import (
                 create_webhook_router,
