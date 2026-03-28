@@ -1313,10 +1313,69 @@ def create_agent_manager_router(
                     sb_channel.connect()
                     # Store on app state so webhook route can use it
                     request.app.state.sendblue_channel = sb_channel
-                    # Also register with the channel bridge if available
-                    bridge = getattr(request.app.state, "channel_bridge", None)
+
+                    # Create or update the channel bridge
+                    bridge = getattr(
+                        request.app.state, "channel_bridge", None
+                    )
                     if bridge and hasattr(bridge, "_channels"):
                         bridge._channels["sendblue"] = sb_channel
+                    else:
+                        # Create a new ChannelBridge with DeepResearch
+                        from openjarvis.server.channel_bridge import (
+                            ChannelBridge,
+                        )
+                        from openjarvis.server.session_store import (
+                            SessionStore,
+                        )
+
+                        session_store = SessionStore()
+                        engine = getattr(
+                            request.app.state, "engine", None
+                        )
+                        dr_agent = None
+                        if engine:
+                            from openjarvis.server.agent_manager_routes import (
+                                _build_deep_research_tools as _bdr,
+                            )
+
+                            tools = _bdr(
+                                engine=engine, model=""
+                            )
+                            if tools:
+                                from openjarvis.agents.deep_research import (
+                                    DeepResearchAgent,
+                                )
+
+                                model_name = (
+                                    getattr(engine, "_model", "")
+                                    or getattr(
+                                        request.app.state,
+                                        "model",
+                                        "",
+                                    )
+                                )
+                                dr_agent = DeepResearchAgent(
+                                    engine=engine,
+                                    model=model_name,
+                                    tools=tools,
+                                )
+                        bus = getattr(
+                            request.app.state, "bus", None
+                        )
+                        if bus is None:
+                            from openjarvis.core.events import EventBus
+
+                            bus = EventBus()
+                        bridge = ChannelBridge(
+                            channels={"sendblue": sb_channel},
+                            session_store=session_store,
+                            bus=bus,
+                            agent_manager=manager,
+                            deep_research_agent=dr_agent,
+                        )
+                        request.app.state.channel_bridge = bridge
+
                     logger.info(
                         "SendBlue channel connected: %s",
                         from_number,
