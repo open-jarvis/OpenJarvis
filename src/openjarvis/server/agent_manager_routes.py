@@ -1392,182 +1392,29 @@ def create_agent_manager_router(
             app_token = config.get("app_token", "")
             if bot_token and app_token:
                 try:
-                    from slack_bolt import App as SlackBoltApp
-                    from slack_bolt.adapter.socket_mode import (
-                        SocketModeHandler,
+                    from openjarvis.channels.slack_daemon import (
+                        start_slack_daemon,
+                        stop_daemon as stop_slack,
                     )
 
-                    bolt_app = SlackBoltApp(token=bot_token)
+                    # Stop any existing daemon first
+                    stop_slack()
 
-                    # Build agent for handling messages
-                    srv_engine = getattr(
-                        request.app.state, "engine", None,
+                    # Spawn as subprocess (reliable)
+                    srv_model = getattr(
+                        getattr(
+                            request.app.state, "engine", None,
+                        ),
+                        "_model",
+                        "qwen3.5:9b",
+                    ) or "qwen3.5:9b"
+                    pid = start_slack_daemon(
+                        bot_token=bot_token,
+                        app_token=app_token,
+                        model=srv_model,
                     )
-                    dr_agent = None
-                    if srv_engine:
-                        dr_tools = _build_deep_research_tools(
-                            engine=srv_engine, model="",
-                        )
-                        if dr_tools:
-                            from openjarvis.agents.deep_research import (
-                                DeepResearchAgent,
-                            )
-
-                            dr_agent = DeepResearchAgent(
-                                engine=srv_engine,
-                                model=getattr(
-                                    srv_engine, "_model", "",
-                                ),
-                                tools=dr_tools,
-                            )
-
-                    import queue as _q
-                    import re as _re
-                    import threading as _thr
-
-                    _msg_queue: _q.Queue = _q.Queue()
-                    _processing = _thr.Event()
-
-                    def _to_slack_fmt(text: str) -> str:
-                        """Convert markdown to Slack formatting."""
-                        # Headers → bold
-                        text = _re.sub(
-                            r"^#{1,6}\s+(.+)$",
-                            r"*\1*",
-                            text,
-                            flags=_re.MULTILINE,
-                        )
-                        # Bold: **text** → *text*
-                        text = _re.sub(
-                            r"\*\*(.+?)\*\*", r"*\1*", text,
-                        )
-                        # Italic: _text_ stays, *text* → _text_
-                        # (only single * not already bold)
-                        text = _re.sub(
-                            r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)",
-                            r"_\1_",
-                            text,
-                        )
-                        # Strikethrough: ~~text~~ → ~text~
-                        text = _re.sub(
-                            r"~~(.+?)~~", r"~\1~", text,
-                        )
-                        # Links: [text](url) → <url|text>
-                        text = _re.sub(
-                            r"\[(.+?)\]\((.+?)\)",
-                            r"<\2|\1>",
-                            text,
-                        )
-                        # Remove LaTeX
-                        text = _re.sub(r"\$\$.+?\$\$", "", text)
-                        text = _re.sub(r"\$(.+?)\$", r"\1", text)
-                        # Remove HTML tags
-                        text = _re.sub(r"<[^>|]+>", "", text)
-                        # Clean up whitespace
-                        text = _re.sub(r"\n{3,}", "\n\n", text)
-                        return text.strip()
-
-                    def _process_queue(say_fn, thread_ts):
-                        """Process queued messages sequentially."""
-                        while not _msg_queue.empty():
-                            _text, _ts = _msg_queue.get()
-                            _processing.set()
-                            if dr_agent:
-                                try:
-                                    result = dr_agent.run(_text)
-                                    reply = (
-                                        result.content
-                                        or "No results found."
-                                    )
-                                except Exception as _exc:
-                                    reply = f"Error: {_exc}"
-                            else:
-                                reply = (
-                                    "Agent not available."
-                                )
-                            say_fn(
-                                text=_to_slack_fmt(reply),
-                                thread_ts=_ts,
-                            )
-                            _processing.clear()
-
-                    @bolt_app.event("message")
-                    def _handle_slack_dm(event, say):
-                        text = event.get("text", "")
-                        if not text:
-                            return
-
-                        # Use message ts as thread parent
-                        msg_ts = event.get("ts", "")
-
-                        if _processing.is_set():
-                            _msg_queue.put((text, msg_ts))
-                            qsize = _msg_queue.qsize()
-                            say(
-                                text=(
-                                    "Message received! "
-                                    f"Message {qsize + 1} in "
-                                    f"queue of {qsize + 1}, "
-                                    "will respond ASAP"
-                                ),
-                                thread_ts=msg_ts,
-                            )
-                            return
-
-                        say(
-                            text=(
-                                "Message received! "
-                                "Working on it now..."
-                            ),
-                            thread_ts=msg_ts,
-                        )
-                        _msg_queue.put((text, msg_ts))
-
-                        # Start progress updater
-                        _stop_progress = _thr.Event()
-
-                        def _progress_updates():
-                            mins = 0
-                            while not _stop_progress.is_set():
-                                _stop_progress.wait(60)
-                                if _stop_progress.is_set():
-                                    break
-                                mins += 1
-                                if _processing.is_set():
-                                    say(
-                                        text=(
-                                            "Still working! "
-                                            "Will reply ASAP"
-                                        ),
-                                        thread_ts=msg_ts,
-                                    )
-
-                        pt = _thr.Thread(
-                            target=_progress_updates,
-                            daemon=True,
-                        )
-                        pt.start()
-
-                        # Process in current thread
-                        _process_queue(say, msg_ts)
-                        _stop_progress.set()
-
-                    sm_handler = SocketModeHandler(
-                        bolt_app, app_token,
-                    )
-                    sm_handler.connect()
-
-                    # Store for cleanup
-                    if not hasattr(
-                        request.app.state, "_slack_handlers",
-                    ):
-                        request.app.state._slack_handlers = {}
-                    request.app.state._slack_handlers[
-                        binding["id"]
-                    ] = sm_handler
-
                     logger.info(
-                        "Slack connected via Bolt Socket Mode",
+                        "Slack daemon started (PID %d)", pid,
                     )
                 except Exception as exc:
                     logger.warning(
@@ -1591,12 +1438,11 @@ def create_agent_manager_router(
 
                     stop_daemon()
                 elif ch_type == "slack":
-                    slack_handlers = getattr(
-                        request.app.state, "_slack_handlers", {},
+                    from openjarvis.channels.slack_daemon import (
+                        stop_daemon as stop_slack_daemon,
                     )
-                    sm = slack_handlers.pop(binding_id, None)
-                    if sm:
-                        sm.close()
+
+                    stop_slack_daemon()
         except Exception:
             pass
         manager.unbind_channel(binding_id)
