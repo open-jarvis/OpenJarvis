@@ -580,10 +580,23 @@ async def _stream_managed_agent(
                 import asyncio
                 import queue
                 import threading
+                import time as _dr_time
 
                 from openjarvis.agents.deep_research import DeepResearchAgent
 
                 progress_q: queue.Queue = queue.Queue()
+
+                # Log query start
+                _dr_start = _dr_time.time()
+                try:
+                    manager.add_learning_log(
+                        agent_id,
+                        "query_start",
+                        f"Query: {user_content[:100]}",
+                        {"full_query": user_content},
+                    )
+                except Exception:
+                    pass
 
                 # Patch the agent's tool executor to emit progress
                 dr_agent = DeepResearchAgent(
@@ -602,12 +615,41 @@ async def _stream_managed_agent(
                     args_str = (
                         tc.arguments[:80] if tc.arguments else ""
                     )
+                    # Log tool call start
+                    try:
+                        manager.add_learning_log(
+                            agent_id,
+                            "tool_call",
+                            f"Calling {tool_name}: {args_str}",
+                            {"tool": tool_name, "arguments": tc.arguments or ""},
+                        )
+                    except Exception:
+                        pass
+
                     progress_q.put({
                         "type": "tool_start",
                         "tool": tool_name,
                         "args": args_str,
                     })
                     result = original_execute(tc)
+
+                    # Log tool result
+                    try:
+                        _ok = "succeeded" if result.success else "failed"
+                        _olen = len(result.output) if result.output else 0
+                        manager.add_learning_log(
+                            agent_id,
+                            "tool_result",
+                            f"{tool_name} {_ok}",
+                            {
+                                "tool": tool_name,
+                                "success": result.success,
+                                "output_length": _olen,
+                            },
+                        )
+                    except Exception:
+                        pass
+
                     progress_q.put({
                         "type": "tool_end",
                         "tool": tool_name,
@@ -623,11 +665,39 @@ async def _stream_managed_agent(
                         content = (
                             result.content or "No results found."
                         )
+                        # Log query completion
+                        try:
+                            elapsed = _dr_time.time() - _dr_start
+                            manager.add_learning_log(
+                                agent_id,
+                                "query_complete",
+                                f"Response: {len(content)} chars in {elapsed:.1f}s",
+                                {
+                                    "response_length": len(content),
+                                    "elapsed_seconds": round(elapsed, 2),
+                                },
+                            )
+                        except Exception:
+                            pass
                         progress_q.put({
                             "type": "done",
                             "content": content,
                         })
                     except Exception as exc:
+                        # Log query error
+                        try:
+                            elapsed = _dr_time.time() - _dr_start
+                            manager.add_learning_log(
+                                agent_id,
+                                "query_error",
+                                f"Error after {elapsed:.1f}s: {exc}",
+                                {
+                                    "error": str(exc),
+                                    "elapsed_seconds": round(elapsed, 2),
+                                },
+                            )
+                        except Exception:
+                            pass
                         progress_q.put({
                             "type": "error",
                             "content": f"Error: {exc}",

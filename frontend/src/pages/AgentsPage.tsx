@@ -1762,29 +1762,110 @@ function LearningTab({ agentId, learningEnabled }: { agentId: string; learningEn
 
 function LogsTab({ agentId }: { agentId: string }) {
   const [traces, setTraces] = useState<AgentTrace[]>([]);
+  const [learningEntries, setLearningEntries] = useState<LearningLogEntry[]>([]);
   const [expandedTrace, setExpandedTrace] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchAgentTraces(agentId).then(setTraces).catch(() => {});
+  const loadData = useCallback(async () => {
+    try {
+      const [t, l] = await Promise.all([
+        fetchAgentTraces(agentId),
+        fetchLearningLog(agentId),
+      ]);
+      setTraces(t);
+      setLearningEntries(l);
+    } catch {
+      // ignore
+    }
   }, [agentId]);
+
+  useEffect(() => {
+    loadData();
+    const interval = setInterval(loadData, 5000);
+    return () => clearInterval(interval);
+  }, [loadData]);
+
+  // Merge traces and learning entries into a unified timeline
+  type TimelineEntry =
+    | { kind: 'trace'; data: AgentTrace; ts: number }
+    | { kind: 'learning'; data: LearningLogEntry; ts: number };
+
+  const timeline: TimelineEntry[] = [
+    ...traces.map((t): TimelineEntry => ({ kind: 'trace', data: t, ts: t.started_at })),
+    ...learningEntries.map((e): TimelineEntry => ({ kind: 'learning', data: e, ts: e.created_at })),
+  ].sort((a, b) => b.ts - a.ts);
+
+  const learningEventColor = (eventType: string) => {
+    if (eventType === 'query_start') return '#3b82f6';
+    if (eventType === 'query_complete') return '#22c55e';
+    if (eventType === 'tool_call') return '#f59e0b';
+    if (eventType === 'tool_result') return '#8b5cf6';
+    if (eventType === 'query_error') return '#ef4444';
+    return 'var(--color-text-secondary)';
+  };
+
+  const learningEventLabel = (eventType: string) => {
+    if (eventType === 'query_start') return 'Query';
+    if (eventType === 'query_complete') return 'Complete';
+    if (eventType === 'tool_call') return 'Tool Call';
+    if (eventType === 'tool_result') return 'Tool Result';
+    if (eventType === 'query_error') return 'Error';
+    return eventType;
+  };
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-          Execution Traces
+          Activity Log
         </span>
         <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
-          {traces.length} trace{traces.length !== 1 ? 's' : ''}
+          {timeline.length} entr{timeline.length !== 1 ? 'ies' : 'y'} (auto-refreshing)
         </span>
       </div>
-      {traces.length === 0 ? (
+      {timeline.length === 0 ? (
         <div className="text-sm text-center py-8" style={{ color: 'var(--color-text-tertiary)' }}>
-          No execution traces yet. Run the agent to generate traces.
+          No activity yet. Send a message or run the agent to generate logs.
         </div>
       ) : (
         <div className="space-y-2">
-          {traces.map((t) => {
+          {timeline.map((entry) => {
+            if (entry.kind === 'learning') {
+              const e = entry.data;
+              return (
+                <div
+                  key={`learn-${e.id}`}
+                  className="rounded-lg p-3 text-sm"
+                  style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="w-2 h-2 rounded-full inline-block"
+                        style={{ background: learningEventColor(e.event_type) }}
+                      />
+                      <span
+                        className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                        style={{
+                          background: `${learningEventColor(e.event_type)}20`,
+                          color: learningEventColor(e.event_type),
+                        }}
+                      >
+                        {learningEventLabel(e.event_type)}
+                      </span>
+                    </div>
+                    <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+                      {formatRelativeTime(e.created_at)}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                    {e.description}
+                  </div>
+                </div>
+              );
+            }
+
+            // Trace entry
+            const t = entry.data;
             const errorDetail = t.metadata?.error_detail as
               | { error_type: string; error_message: string; suggested_action: string }
               | undefined;
@@ -1793,7 +1874,7 @@ function LogsTab({ agentId }: { agentId: string }) {
 
             return (
               <div
-                key={t.id}
+                key={`trace-${t.id}`}
                 className="rounded-lg p-3 text-sm cursor-pointer"
                 style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
                 onClick={() => isError && errorDetail && setExpandedTrace(isExpanded ? null : t.id)}
@@ -1805,6 +1886,12 @@ function LogsTab({ agentId }: { agentId: string }) {
                       style={{ background: t.outcome === 'success' ? '#22c55e' : '#ef4444' }}
                     />
                     <span style={{ color: 'var(--color-text)' }}>{t.outcome}</span>
+                    <span
+                      className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                      style={{ background: 'var(--color-bg)', color: 'var(--color-text-secondary)' }}
+                    >
+                      Trace
+                    </span>
                     {errorDetail && (
                       <span
                         className="text-[10px] px-1.5 py-0.5 rounded font-medium"
@@ -2030,13 +2117,22 @@ export function AgentsPage() {
           </div>
           {/* Header actions */}
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => handleRun(selectedAgent.id)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm cursor-pointer font-medium"
-              style={{ background: 'var(--color-accent)', color: '#fff' }}
-            >
-              <Zap size={13} /> Run Now
-            </button>
+            {detailTab === 'interact' ? (
+              <span
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs"
+                style={{ background: '#22c55e20', color: '#22c55e', border: '1px solid #22c55e40' }}
+              >
+                <MessageSquare size={13} /> Chat ready — just type below
+              </span>
+            ) : (
+              <button
+                onClick={() => handleRun(selectedAgent.id)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm cursor-pointer font-medium"
+                style={{ background: 'var(--color-accent)', color: '#fff' }}
+              >
+                <Zap size={13} /> Run Now
+              </button>
+            )}
             {(selectedAgent.status === 'running' || selectedAgent.status === 'idle') && (
               <button
                 onClick={() => handlePause(selectedAgent.id)}
