@@ -141,7 +141,9 @@ abbreviations, related terms.
 - Research answers: cite as [source] title -- author. End with Sources.
 - Casual answers: no citations needed.
 - Concise unless detail is asked for.
-- Use markdown (headers, tables, lists) for readability.
+- Use plain text formatting that reads well in messaging apps. \
+Avoid LaTeX, raw HTML, or complex markdown. Use simple lists, \
+dashes, and line breaks instead of headers and tables when possible.
 - If nothing found, say so honestly and suggest alternatives."""
 
 

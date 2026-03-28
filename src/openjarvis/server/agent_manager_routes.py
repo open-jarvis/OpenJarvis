@@ -1421,27 +1421,97 @@ def create_agent_manager_router(
                                 tools=dr_tools,
                             )
 
+                    import queue as _q
+                    import re as _re
+                    import threading as _thr
+
+                    _msg_queue: _q.Queue = _q.Queue()
+                    _processing = _thr.Event()
+
+                    def _strip_markdown(text: str) -> str:
+                        """Strip markdown for clean Slack messages."""
+                        # Remove headers
+                        text = _re.sub(r"^#{1,6}\s+", "", text, flags=_re.MULTILINE)
+                        # Remove bold/italic markers
+                        text = _re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+                        text = _re.sub(r"\*(.+?)\*", r"\1", text)
+                        # Remove code blocks
+                        text = _re.sub(r"```[\s\S]*?```", "", text)
+                        text = _re.sub(r"`(.+?)`", r"\1", text)
+                        # Clean up extra whitespace
+                        text = _re.sub(r"\n{3,}", "\n\n", text)
+                        return text.strip()
+
+                    def _process_queue(say_fn):
+                        """Process queued messages sequentially."""
+                        while not _msg_queue.empty():
+                            text = _msg_queue.get()
+                            _processing.set()
+                            if dr_agent:
+                                try:
+                                    result = dr_agent.run(text)
+                                    reply = (
+                                        result.content
+                                        or "No results found."
+                                    )
+                                except Exception as _exc:
+                                    reply = f"Error: {_exc}"
+                            else:
+                                reply = (
+                                    "Agent not available."
+                                )
+                            say_fn(_strip_markdown(reply))
+                            _processing.clear()
+
                     @bolt_app.event("message")
                     def _handle_slack_dm(event, say):
                         text = event.get("text", "")
                         if not text:
                             return
-                        say("Message received! Researching now...")
-                        if dr_agent:
-                            try:
-                                result = dr_agent.run(text)
-                                reply = (
-                                    result.content
-                                    or "No results found."
-                                )
-                            except Exception as _exc:
-                                reply = f"Error: {_exc}"
-                        else:
-                            reply = (
-                                "Agent not available. "
-                                "Please check server config."
+
+                        if _processing.is_set():
+                            # Already working on something
+                            _msg_queue.put(text)
+                            qsize = _msg_queue.qsize()
+                            say(
+                                "Message received! "
+                                f"Message {qsize + 1} in queue"
+                                f" of {qsize + 1}, "
+                                "will respond ASAP"
                             )
-                        say(reply)
+                            return
+
+                        say(
+                            "Message received! "
+                            "Working on it now..."
+                        )
+                        _msg_queue.put(text)
+
+                        # Start progress updater
+                        _stop_progress = _thr.Event()
+
+                        def _progress_updates():
+                            mins = 0
+                            while not _stop_progress.is_set():
+                                _stop_progress.wait(60)
+                                if _stop_progress.is_set():
+                                    break
+                                mins += 1
+                                if _processing.is_set():
+                                    say(
+                                        "Still working! "
+                                        "Will reply ASAP"
+                                    )
+
+                        pt = _thr.Thread(
+                            target=_progress_updates,
+                            daemon=True,
+                        )
+                        pt.start()
+
+                        # Process in current thread
+                        _process_queue(say)
+                        _stop_progress.set()
 
                     sm_handler = SocketModeHandler(
                         bolt_app, app_token,

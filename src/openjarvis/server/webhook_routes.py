@@ -45,6 +45,33 @@ def _validate_twilio_signature(
         return True
 
 
+def _format_for_sms(text: str) -> str:
+    """Strip markdown/LaTeX formatting for clean iMessage/SMS display."""
+    import re
+
+    # Remove markdown headers (## Header -> Header)
+    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
+    # Remove bold/italic markers
+    text = re.sub(r"\*{1,3}([^*]+)\*{1,3}", r"\1", text)
+    text = re.sub(r"_{1,3}([^_]+)_{1,3}", r"\1", text)
+    # Remove inline code backticks
+    text = re.sub(r"`([^`]+)`", r"\1", text)
+    # Remove code blocks
+    text = re.sub(r"```[\s\S]*?```", "", text)
+    # Remove LaTeX
+    text = re.sub(r"\$\$[\s\S]*?\$\$", "", text)
+    text = re.sub(r"\$[^$]+\$", "", text)
+    # Remove markdown links [text](url) -> text
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    # Remove image syntax ![alt](url)
+    text = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", text)
+    # Convert markdown bullet lists to plain bullets
+    text = re.sub(r"^[\s]*[-*]\s+", "- ", text, flags=re.MULTILINE)
+    # Collapse excessive blank lines
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
 def create_webhook_router(
     bridge: Any,
     twilio_auth_token: str = "",
@@ -231,34 +258,58 @@ def create_webhook_router(
             logger.warning("No channel bridge — cannot process SendBlue msg")
             return Response("OK", status_code=200)
 
+        # Message queue tracking (per-sender)
+        _sendblue_queues = getattr(
+            request.app.state, "_sendblue_queues", None
+        )
+        if _sendblue_queues is None:
+            import threading as _th
+
+            _sendblue_queues = {}
+            _sendblue_queues["_lock"] = _th.Lock()
+            request.app.state._sendblue_queues = _sendblue_queues
+
         def _handle_and_reply() -> None:
+            import threading
             import time as _time
+
+            lock = _sendblue_queues["_lock"]
+
+            # Track queue depth for this sender
+            with lock:
+                q = _sendblue_queues.setdefault(
+                    from_number, {"pending": 0}
+                )
+                q["pending"] += 1
+                position = q["pending"]
 
             # Immediate acknowledgment
             if reply_channel:
-                reply_channel.send(
-                    from_number,
-                    "Message received! Researching your data now...",
-                )
+                if position > 1:
+                    reply_channel.send(
+                        from_number,
+                        f"Message received! Message {position} in"
+                        f" queue, will respond ASAP",
+                    )
+                else:
+                    reply_channel.send(
+                        from_number,
+                        "Message received! Working on it now...",
+                    )
 
-            start = _time.monotonic()
-
-            # Start a "still working" reminder in a separate thread
-            import threading
-
+            # Periodic "still working" reminders every 60s
             done_event = threading.Event()
 
-            def _send_delay_notice() -> None:
-                if not done_event.wait(45):
-                    # 45s elapsed — send a heads-up
+            def _send_reminders() -> None:
+                while not done_event.wait(60):
                     if reply_channel:
                         reply_channel.send(
                             from_number,
-                            "Still working — complex query, hang tight...",
+                            "Still working! Will reply ASAP",
                         )
 
             reminder = threading.Thread(
-                target=_send_delay_notice, daemon=True
+                target=_send_reminders, daemon=True
             )
             reminder.start()
 
@@ -268,10 +319,14 @@ def create_webhook_router(
                 )
             finally:
                 done_event.set()
+                with lock:
+                    q["pending"] = max(0, q["pending"] - 1)
 
-            # Send the agent's response back via SendBlue
+            # Format response for clean text message display
             if response and reply_channel:
-                reply_channel.send(from_number, response)
+                reply_channel.send(
+                    from_number, _format_for_sms(response)
+                )
 
         task = asyncio.create_task(asyncio.to_thread(_handle_and_reply))
         task.add_done_callback(_log_task_exception)
