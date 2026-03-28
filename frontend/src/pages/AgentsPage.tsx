@@ -858,6 +858,7 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [waitingForResponse, setWaitingForResponse] = useState(false);
   const [currentActivity, setCurrentActivity] = useState('');
   const [liveStatus, setLiveStatus] = useState(agentStatus);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -910,6 +911,8 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
       created_at: Date.now() / 1000,
     };
     setMessages((prev) => [localMsg, ...prev]);
+    setSending(false);
+    setWaitingForResponse(true);
 
     try {
       const response = await sendAgentMessage(agentId, text, mode);
@@ -929,7 +932,7 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
     } catch {
       // ignore
     } finally {
-      setSending(false);
+      setWaitingForResponse(false);
     }
   }
 
@@ -970,8 +973,8 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
             </div>
           </div>
         ))}
-        {/* Progress indicator with live activity from the executor */}
-        {(isAgentWorking || hasPending) && (
+        {/* Progress indicator */}
+        {(isAgentWorking || hasPending || waitingForResponse || sending) && (
           <div className="flex justify-start">
             <div
               className="px-3 py-2 rounded-lg text-sm"
@@ -983,7 +986,11 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
             >
               <div className="flex items-center gap-2">
                 <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--color-accent)' }} />
-                {sending ? 'Sending message...' : currentActivity || 'Agent is thinking...'}
+                {sending
+                  ? 'Sending message...'
+                  : waitingForResponse
+                    ? 'Researching your data — searching, analyzing, writing report...'
+                    : currentActivity || 'Agent is thinking...'}
               </div>
             </div>
           </div>
@@ -1011,7 +1018,7 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
         <div className="flex gap-2 mt-2">
           <button
             onClick={() => handleSend('immediate')}
-            disabled={sending || !input.trim()}
+            disabled={sending || waitingForResponse || !input.trim()}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm cursor-pointer font-medium"
             style={{ background: 'var(--color-accent)', color: '#fff', opacity: sending || !input.trim() ? 0.5 : 1 }}
           >
