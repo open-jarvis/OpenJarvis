@@ -4,9 +4,6 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from unittest.mock import MagicMock
-
-import pytest
 
 
 def test_system_prompt_contains_current_date() -> None:

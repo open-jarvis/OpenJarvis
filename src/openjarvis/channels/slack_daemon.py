@@ -44,7 +44,6 @@ def run_slack_daemon(
 ) -> None:
     """Run the Slack daemon (blocking). Handles DMs with DeepResearch."""
     import threading
-    import time
 
     from slack_bolt import App
     from slack_bolt.adapter.socket_mode import SocketModeHandler

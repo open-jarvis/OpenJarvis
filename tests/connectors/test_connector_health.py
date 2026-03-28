@@ -6,11 +6,7 @@ status correctly, and has the required interface methods.
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
-
 import pytest
-
 
 # All connectors that should be testable without credentials
 _LOCAL_CONNECTORS = [

@@ -1394,6 +1394,8 @@ def create_agent_manager_router(
                 try:
                     from openjarvis.channels.slack_daemon import (
                         start_slack_daemon,
+                    )
+                    from openjarvis.channels.slack_daemon import (
                         stop_daemon as stop_slack,
                     )
 
