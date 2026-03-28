@@ -6,14 +6,12 @@ full flow from incoming webhook -> bridge -> agent -> send response.
 
 from __future__ import annotations
 
-import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
-from openjarvis.channels._stubs import ChannelStatus
 from openjarvis.core.registry import ChannelRegistry
 
 

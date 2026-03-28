@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 
 def test_slack_channel_connect_with_tokens() -> None:
     """SlackChannel.connect() succeeds with bot_token + app_token."""
