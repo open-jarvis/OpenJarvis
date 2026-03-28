@@ -31,11 +31,22 @@ def _tc_args(tc: dict) -> str:
     return tc["arguments"]
 
 
-DEEP_RESEARCH_SYSTEM_PROMPT = """\
+def _build_system_prompt() -> str:
+    """Build the system prompt with the current date injected."""
+    from datetime import datetime
+
+    now = datetime.now()
+    date_str = now.strftime("%A, %B %d, %Y")
+    time_str = now.strftime("%I:%M %p")
+
+    return f"""\
 /no_think
 You are Jarvis, a personal AI assistant with access to the user's private \
 knowledge base — emails, text messages, meeting notes, documents, and notes. \
 You are helpful, conversational, and smart about when to use your tools.
+
+**Today is {date_str}. The current time is {time_str}.** \
+Use this for any time-related queries ("today", "this week", "recently", etc.).
 
 ## How to Respond
 
@@ -134,6 +145,10 @@ abbreviations, related terms.
 - If nothing found, say so honestly and suggest alternatives."""
 
 
+# Backward-compatible constant (static snapshot, prefer _build_system_prompt())
+DEEP_RESEARCH_SYSTEM_PROMPT = _build_system_prompt()
+
+
 @AgentRegistry.register("deep_research")
 class DeepResearchAgent(ToolUsingAgent):
     """Multi-hop research agent with native function calling and citations."""
@@ -199,9 +214,9 @@ class DeepResearchAgent(ToolUsingAgent):
     ) -> AgentResult:
         self._emit_turn_start(input)
 
-        # Build system prompt and initial messages
+        # Build system prompt with current date/time injected
         messages = self._build_messages(
-            input, context, system_prompt=DEEP_RESEARCH_SYSTEM_PROMPT
+            input, context, system_prompt=_build_system_prompt()
         )
 
         # Prepare OpenAI-format tool definitions for native function calling
