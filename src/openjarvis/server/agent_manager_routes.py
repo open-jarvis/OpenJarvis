@@ -1428,17 +1428,42 @@ def create_agent_manager_router(
                     _msg_queue: _q.Queue = _q.Queue()
                     _processing = _thr.Event()
 
-                    def _strip_markdown(text: str) -> str:
-                        """Strip markdown for clean Slack messages."""
-                        # Remove headers
-                        text = _re.sub(r"^#{1,6}\s+", "", text, flags=_re.MULTILINE)
-                        # Remove bold/italic markers
-                        text = _re.sub(r"\*\*(.+?)\*\*", r"\1", text)
-                        text = _re.sub(r"\*(.+?)\*", r"\1", text)
-                        # Remove code blocks
-                        text = _re.sub(r"```[\s\S]*?```", "", text)
-                        text = _re.sub(r"`(.+?)`", r"\1", text)
-                        # Clean up extra whitespace
+                    def _to_slack_fmt(text: str) -> str:
+                        """Convert markdown to Slack formatting."""
+                        # Headers → bold
+                        text = _re.sub(
+                            r"^#{1,6}\s+(.+)$",
+                            r"*\1*",
+                            text,
+                            flags=_re.MULTILINE,
+                        )
+                        # Bold: **text** → *text*
+                        text = _re.sub(
+                            r"\*\*(.+?)\*\*", r"*\1*", text,
+                        )
+                        # Italic: _text_ stays, *text* → _text_
+                        # (only single * not already bold)
+                        text = _re.sub(
+                            r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)",
+                            r"_\1_",
+                            text,
+                        )
+                        # Strikethrough: ~~text~~ → ~text~
+                        text = _re.sub(
+                            r"~~(.+?)~~", r"~\1~", text,
+                        )
+                        # Links: [text](url) → <url|text>
+                        text = _re.sub(
+                            r"\[(.+?)\]\((.+?)\)",
+                            r"<\2|\1>",
+                            text,
+                        )
+                        # Remove LaTeX
+                        text = _re.sub(r"\$\$.+?\$\$", "", text)
+                        text = _re.sub(r"\$(.+?)\$", r"\1", text)
+                        # Remove HTML tags
+                        text = _re.sub(r"<[^>|]+>", "", text)
+                        # Clean up whitespace
                         text = _re.sub(r"\n{3,}", "\n\n", text)
                         return text.strip()
 
@@ -1460,7 +1485,7 @@ def create_agent_manager_router(
                                 reply = (
                                     "Agent not available."
                                 )
-                            say_fn(_strip_markdown(reply))
+                            say_fn(_to_slack_fmt(reply))
                             _processing.clear()
 
                     @bolt_app.event("message")
