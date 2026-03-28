@@ -528,6 +528,77 @@ async def _stream_managed_agent(
 
     chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
 
+    # For deep_research agents: run the full agent loop, not raw streaming
+    if agent_type == "deep_research" and app_state is not None:
+        dr_tools = getattr(app_state, "_dr_tools", None)
+        if dr_tools:
+
+            async def generate_deep_research():
+                """Run DeepResearchAgent in a thread, stream result as SSE."""
+                import asyncio
+
+                from openjarvis.agents.deep_research import DeepResearchAgent
+
+                dr_agent = DeepResearchAgent(
+                    engine=engine,
+                    model=model,
+                    tools=dr_tools,
+                    max_turns=int(config.get("max_turns", 8)),
+                    temperature=float(config.get("temperature", 0.3)),
+                )
+
+                # Run agent in background thread
+                result = await asyncio.to_thread(dr_agent.run, user_content)
+                content = result.content or "No results found."
+
+                # Stream the result word-by-word for SSE
+                words = content.split(" ")
+                for i, word in enumerate(words):
+                    token = word if i == 0 else " " + word
+                    chunk_data = {
+                        "id": chunk_id,
+                        "object": "chat.completion.chunk",
+                        "model": model,
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {"content": token},
+                                "finish_reason": None,
+                            }
+                        ],
+                    }
+                    yield f"data: {json.dumps(chunk_data)}\n\n"
+
+                # Final chunk
+                finish_data = {
+                    "id": chunk_id,
+                    "object": "chat.completion.chunk",
+                    "model": model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                }
+                yield f"data: {json.dumps(finish_data)}\n\n"
+                yield "data: [DONE]\n\n"
+
+                # Persist the response
+                manager.store_agent_response(
+                    agent_id, message_id, content,
+                )
+
+            return StreamingResponse(
+                generate_deep_research(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                },
+            )
+
     # Build extra kwargs for stream_full (e.g. tools from config)
     stream_kwargs: Dict[str, Any] = {}
     if config.get("tools"):
