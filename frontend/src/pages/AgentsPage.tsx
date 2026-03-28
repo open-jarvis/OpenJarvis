@@ -2062,7 +2062,7 @@ function SendBlueWizard({
             <span style={{ fontSize: 12, fontWeight: 600 }}>Create a SendBlue account</span>
           </div>
           <button
-            onClick={() => window.open('https://sendblue.co/getblue', '_blank')}
+            onClick={() => window.open('https://dashboard.sendblue.com/company-signup', '_blank')}
             style={{ ...btnPrimary, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6 }}
           >
             Open SendBlue signup {'\u2192'}
