@@ -1906,8 +1906,11 @@ function SendBlueWizard({
         setSelectedNumber(result.numbers[0]);
         setStep('verified');
       } else if (result.valid) {
-        setError('Credentials valid but no phone numbers found. Check your SendBlue dashboard.');
-        setStep('creds');
+        // Free tier / shared line — no dedicated number returned
+        // Move to verified step so user can enter the number manually
+        setNumbers([]);
+        setSelectedNumber('');
+        setStep('verified');
       } else {
         setError('Invalid credentials. Check your API key and secret.');
         setStep('creds');
@@ -2127,7 +2130,7 @@ function SendBlueWizard({
                 {numbers.map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
             </div>
-          ) : (
+          ) : numbers.length === 1 ? (
             <div style={{
               background: 'var(--color-bg-secondary)', border: '1px solid #2a5a3a',
               borderRadius: 6, padding: '10px 12px', marginBottom: 12,
@@ -2139,14 +2142,35 @@ function SendBlueWizard({
                 <div style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>This will be your agent's phone number</div>
               </div>
             </div>
+          ) : (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{
+                fontSize: 11, color: 'var(--color-text-secondary)',
+                marginBottom: 8, lineHeight: 1.5,
+                padding: '8px 10px', background: 'var(--color-bg-secondary)',
+                borderRadius: 6, borderLeft: '3px solid #7c3aed',
+              }}>
+                Copy the phone number shown under <strong>"Send from"</strong> in your SendBlue dashboard
+                and paste it below. On the free tier this is a shared number.
+              </div>
+              <label style={{ display: 'block', fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 3, fontWeight: 500 }}>
+                SendBlue phone number *
+              </label>
+              <input
+                value={selectedNumber}
+                onChange={(e) => setSelectedNumber(e.target.value)}
+                placeholder="+16452468235"
+                style={inputStyle}
+              />
+            </div>
           )}
 
           {error && <div style={{ color: '#f87171', fontSize: 11, marginBottom: 8 }}>{error}</div>}
 
           <button
             onClick={handleConnect}
-            disabled={step === 'connecting'}
-            style={btnPrimary}
+            disabled={step === 'connecting' || !selectedNumber.trim()}
+            style={{ ...btnPrimary, opacity: !selectedNumber.trim() ? 0.5 : 1 }}
           >
             {step === 'connecting' ? 'Connecting...' : 'Activate Phone Number'}
           </button>
