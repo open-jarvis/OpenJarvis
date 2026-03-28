@@ -626,8 +626,8 @@ async def _stream_managed_agent(
                             f"Calling {tool_name}: {args_str}",
                             {"tool": tool_name, "arguments": tc.arguments or ""},
                         )
-                    except Exception:
-                        pass
+                    except Exception as _tc_exc:
+                        logger.warning("Log tool_call failed: %s", _tc_exc)
 
                     progress_q.put({
                         "type": "tool_start",
@@ -639,19 +639,19 @@ async def _stream_managed_agent(
                     # Log tool result
                     try:
                         _ok = "succeeded" if result.success else "failed"
-                        _olen = len(result.output) if result.output else 0
+                        _clen = len(result.content) if result.content else 0
                         manager.add_learning_log(
                             agent_id,
                             "tool_result",
-                            f"{tool_name} {_ok}",
+                            f"{tool_name} {_ok} ({_clen} chars)",
                             {
                                 "tool": tool_name,
                                 "success": result.success,
-                                "output_length": _olen,
+                                "output_length": _clen,
                             },
                         )
-                    except Exception:
-                        pass
+                    except Exception as _tr_exc:
+                        logger.warning("Log tool_result failed: %s", _tr_exc)
 
                     progress_q.put({
                         "type": "tool_end",
@@ -680,8 +680,8 @@ async def _stream_managed_agent(
                                     "elapsed_seconds": round(elapsed, 2),
                                 },
                             )
-                        except Exception:
-                            pass
+                        except Exception as _qc_exc:
+                            logger.warning("Log query_complete failed: %s", _qc_exc)
                         progress_q.put({
                             "type": "done",
                             "content": content,
@@ -766,7 +766,7 @@ async def _stream_managed_agent(
 
                         # Persist
                         manager.store_agent_response(
-                            agent_id, message_id, content,
+                            agent_id, content,
                         )
                         break
 
