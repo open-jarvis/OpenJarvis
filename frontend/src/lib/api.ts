@@ -506,9 +506,44 @@ export async function sendAgentMessage(agentId: string, content: string, mode: '
   const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content, mode }),
+    body: JSON.stringify({ content, mode, stream: true }),
   });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
+
+  // If streaming, consume the SSE response so the agent runs
+  const contentType = res.headers.get('content-type') || '';
+  if (contentType.includes('text/event-stream') && res.body) {
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let fullContent = '';
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const text = decoder.decode(value, { stream: true });
+        for (const line of text.split('\n')) {
+          if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
+          try {
+            const chunk = JSON.parse(line.slice(6));
+            const delta = chunk.choices?.[0]?.delta?.content || '';
+            fullContent += delta;
+          } catch { /* skip malformed chunks */ }
+        }
+      }
+    } catch { /* stream ended */ }
+
+    // Return a synthetic message with the full content
+    return {
+      id: '',
+      agent_id: agentId,
+      direction: 'agent_to_user',
+      content: fullContent,
+      mode,
+      status: 'delivered',
+      created_at: Date.now() / 1000,
+    };
+  }
+
   return res.json();
 }
 
