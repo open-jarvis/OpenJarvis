@@ -165,6 +165,7 @@ nav:
       - Design Principles: architecture/design-principles.md
   - API Reference: api-reference/
   - User Guide:
+      - Channels & Connectors: user-guide/channels-and-connectors.md
       - Tools: user-guide/tools.md
       - External MCP Servers: user-guide/mcp-external-servers.md
   - Leaderboard: leaderboard.md
