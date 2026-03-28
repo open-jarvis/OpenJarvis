@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { SOURCE_CATALOG } from '../../types/connectors';
 import { connectSource } from '../../lib/connectors-api';
-import type { ConnectRequest } from '../../types/connectors';
+import type { ConnectRequest, ConnectorMeta } from '../../types/connectors';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -286,6 +286,178 @@ function LocalPanel({
 }
 
 // ---------------------------------------------------------------------------
+// StepByStepPanel — per-connector numbered setup instructions
+// ---------------------------------------------------------------------------
+
+function StepByStepPanel({
+  connector,
+  onConnect,
+  onSkip,
+  isConnecting,
+}: {
+  connector: ConnectorMeta;
+  onConnect: (req: ConnectRequest) => void;
+  onSkip: () => void;
+  isConnecting: boolean;
+}) {
+  const [inputs, setInputs] = useState<Record<string, string>>({});
+  const steps = connector.steps || [];
+  const fields = connector.inputFields || [];
+
+  const updateInput = (name: string, value: string) => {
+    setInputs((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleSubmit = () => {
+    const req: ConnectRequest = {};
+    for (const field of fields) {
+      if (field.name === 'email') req.email = inputs.email;
+      else if (field.name === 'password') req.password = inputs.password;
+      else if (field.name === 'token') req.token = inputs.token;
+      else if (field.name === 'path') req.path = inputs.path;
+    }
+    // For email+password connectors, also set token as email:password
+    if (req.email && req.password) {
+      req.token = `${req.email}:${req.password}`;
+      req.code = req.token;
+    }
+    if (req.token && !req.code) {
+      req.code = req.token;
+    }
+    onConnect(req);
+  };
+
+  const allFilled = fields.every((f) => inputs[f.name]?.trim());
+
+  return (
+    <div style={{ padding: '0 4px' }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        marginBottom: 16,
+      }}>
+        <span style={{ fontSize: 20 }}>
+          {connector.icon === 'Mail' ? '\u2709\uFE0F' :
+           connector.icon === 'Hash' ? '#\uFE0F\u20E3' :
+           connector.icon === 'FileText' ? '\uD83D\uDCC4' :
+           connector.icon === 'Mic' ? '\uD83C\uDF99\uFE0F' :
+           connector.icon === 'FolderOpen' ? '\uD83D\uDCC1' : '\uD83D\uDD17'}
+        </span>
+        <span style={{ fontWeight: 600, fontSize: 15 }}>
+          {connector.display_name}
+        </span>
+      </div>
+
+      {steps.map((step, i) => (
+        <div
+          key={i}
+          style={{
+            background: 'var(--color-bg)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 6,
+            padding: 12,
+            marginBottom: 10,
+          }}
+        >
+          <div style={{
+            color: '#7c3aed', fontSize: 11,
+            fontWeight: 600, marginBottom: 4,
+          }}>
+            STEP {i + 1}
+          </div>
+          <div style={{
+            color: 'var(--color-text)',
+            fontSize: 13, marginBottom: step.url ? 6 : 0,
+          }}>
+            {step.label}
+          </div>
+          {step.url && (
+            <a
+              href={step.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                color: '#60a5fa', fontSize: 12,
+                textDecoration: 'underline',
+              }}
+            >
+              {step.urlLabel || 'Open'} &rarr;
+            </a>
+          )}
+        </div>
+      ))}
+
+      {fields.length > 0 && (
+        <div style={{
+          background: 'var(--color-bg)',
+          border: '1px solid var(--color-border)',
+          borderRadius: 6,
+          padding: 12,
+          marginBottom: 10,
+        }}>
+          {fields.map((field) => (
+            <input
+              key={field.name}
+              value={inputs[field.name] || ''}
+              onChange={(e) => updateInput(field.name, e.target.value)}
+              placeholder={field.placeholder}
+              type={field.type || 'text'}
+              style={{
+                width: '100%',
+                padding: '8px 10px',
+                background: 'var(--color-bg-secondary)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 4,
+                color: 'var(--color-text)',
+                fontSize: 13,
+                marginBottom: 8,
+                boxSizing: 'border-box',
+              }}
+            />
+          ))}
+        </div>
+      )}
+
+      <div style={{
+        fontSize: 11, color: 'var(--color-text-secondary)',
+        marginBottom: 12, textAlign: 'center',
+      }}>
+        Read-only access &middot; No data leaves your device
+      </div>
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button
+          onClick={handleSubmit}
+          disabled={isConnecting || (fields.length > 0 && !allFilled)}
+          style={{
+            flex: 1, padding: 10,
+            background: isConnecting || (fields.length > 0 && !allFilled)
+              ? '#444' : '#7c3aed',
+            color: 'white', border: 'none',
+            borderRadius: 6, fontSize: 13,
+            cursor: 'pointer',
+          }}
+        >
+          {isConnecting ? 'Connecting...' : `Connect ${connector.display_name}`}
+        </button>
+        <button
+          onClick={onSkip}
+          style={{
+            padding: '10px 16px',
+            background: 'transparent',
+            color: 'var(--color-text-secondary)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 6, fontSize: 13,
+            cursor: 'pointer',
+          }}
+        >
+          Skip
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // SourceConnectFlow
 // ---------------------------------------------------------------------------
 
@@ -392,6 +564,13 @@ export function SourceConnectFlow({
                 <CheckCircle2 size={18} />
                 Connected
               </div>
+            ) : activeCard.steps ? (
+              <StepByStepPanel
+                connector={activeCard}
+                onConnect={(req) => handleConnect(activeEntry.id, req)}
+                onSkip={() => handleSkip(activeEntry.id)}
+                isConnecting={activeEntry.state === 'connecting'}
+              />
             ) : activeCard.auth_type === 'filesystem' ? (
               <FilesystemPanel
                 displayName={activeCard.display_name}

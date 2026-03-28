@@ -479,6 +479,48 @@ def _get_mcp_tools(app_state: Any) -> Tuple[List[Dict[str, Any]], Dict[str, Any]
     return openai_tools, adapters_by_name
 
 
+def _sse_chunk(chunk_id: str, model: str, content: str) -> str:
+    """Build a single SSE content chunk."""
+    import json as _json
+
+    data = {
+        "id": chunk_id,
+        "object": "chat.completion.chunk",
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "delta": {"content": content},
+                "finish_reason": None,
+            }
+        ],
+    }
+    return f"data: {_json.dumps(data)}\n\n"
+
+
+def _tool_progress_label(tool_name: str, args: str) -> str:
+    """Human-readable label for a tool call in progress."""
+    labels = {
+        "knowledge_search": "Searching your knowledge base",
+        "knowledge_sql": "Querying data with SQL",
+        "scan_chunks": "Scanning documents for semantic matches",
+        "think": "Planning next step",
+    }
+    label = labels.get(tool_name, f"Using {tool_name}")
+    if args and tool_name != "think":
+        # Try to extract the query/question from args JSON
+        try:
+            import json as _json
+
+            parsed = _json.loads(args)
+            q = parsed.get("query") or parsed.get("question") or ""
+            if q:
+                label += f' — "{q[:50]}"'
+        except Exception:
+            pass
+    return label
+
+
 async def _stream_managed_agent(
     *,
     manager: AgentManager,
@@ -540,6 +582,215 @@ async def _stream_managed_agent(
     manager.mark_message_delivered(message_id)
 
     chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+
+    # For deep_research agents: run the full agent loop, not raw streaming
+    if agent_type == "deep_research" and app_state is not None:
+        dr_tools = getattr(app_state, "_dr_tools", None)
+        if dr_tools:
+
+            async def generate_deep_research():
+                """Run DeepResearchAgent in thread, stream progress + result."""
+                import asyncio
+                import queue
+                import threading
+                import time as _dr_time
+
+                from openjarvis.agents.deep_research import DeepResearchAgent
+
+                progress_q: queue.Queue = queue.Queue()
+
+                # Log query start
+                _dr_start = _dr_time.time()
+                try:
+                    manager.add_learning_log(
+                        agent_id,
+                        "query_start",
+                        f"Query: {user_content[:100]}",
+                        {"full_query": user_content},
+                    )
+                except Exception as _log_exc:
+                    logger.warning(
+                        "Failed to log query_start: %s",
+                        _log_exc,
+                    )
+
+                # Patch the agent's tool executor to emit progress
+                dr_agent = DeepResearchAgent(
+                    engine=engine,
+                    model=model,
+                    tools=dr_tools,
+                    max_turns=int(config.get("max_turns", 8)),
+                    temperature=float(config.get("temperature", 0.3)),
+                )
+
+                # Wrap the executor to capture tool calls
+                original_execute = dr_agent._executor.execute
+
+                def _tracked_execute(tc):
+                    tool_name = tc.name
+                    args_str = (
+                        tc.arguments[:80] if tc.arguments else ""
+                    )
+                    # Log tool call start
+                    try:
+                        manager.add_learning_log(
+                            agent_id,
+                            "tool_call",
+                            f"Calling {tool_name}: {args_str}",
+                            {"tool": tool_name, "arguments": tc.arguments or ""},
+                        )
+                    except Exception as _tc_exc:
+                        logger.warning("Log tool_call failed: %s", _tc_exc)
+
+                    progress_q.put({
+                        "type": "tool_start",
+                        "tool": tool_name,
+                        "args": args_str,
+                    })
+                    result = original_execute(tc)
+
+                    # Log tool result
+                    try:
+                        _ok = "succeeded" if result.success else "failed"
+                        _clen = len(result.content) if result.content else 0
+                        manager.add_learning_log(
+                            agent_id,
+                            "tool_result",
+                            f"{tool_name} {_ok} ({_clen} chars)",
+                            {
+                                "tool": tool_name,
+                                "success": result.success,
+                                "output_length": _clen,
+                            },
+                        )
+                    except Exception as _tr_exc:
+                        logger.warning("Log tool_result failed: %s", _tr_exc)
+
+                    progress_q.put({
+                        "type": "tool_end",
+                        "tool": tool_name,
+                        "success": result.success,
+                    })
+                    return result
+
+                dr_agent._executor.execute = _tracked_execute
+
+                def _run_agent():
+                    try:
+                        result = dr_agent.run(user_content)
+                        content = (
+                            result.content or "No results found."
+                        )
+                        # Log query completion
+                        try:
+                            elapsed = _dr_time.time() - _dr_start
+                            manager.add_learning_log(
+                                agent_id,
+                                "query_complete",
+                                f"Response: {len(content)} chars in {elapsed:.1f}s",
+                                {
+                                    "response_length": len(content),
+                                    "elapsed_seconds": round(elapsed, 2),
+                                },
+                            )
+                        except Exception as _qc_exc:
+                            logger.warning("Log query_complete failed: %s", _qc_exc)
+                        progress_q.put({
+                            "type": "done",
+                            "content": content,
+                        })
+                    except Exception as exc:
+                        # Log query error
+                        try:
+                            elapsed = _dr_time.time() - _dr_start
+                            manager.add_learning_log(
+                                agent_id,
+                                "query_error",
+                                f"Error after {elapsed:.1f}s: {exc}",
+                                {
+                                    "error": str(exc),
+                                    "elapsed_seconds": round(elapsed, 2),
+                                },
+                            )
+                        except Exception:
+                            pass
+                        progress_q.put({
+                            "type": "error",
+                            "content": f"Error: {exc}",
+                        })
+
+                thread = threading.Thread(target=_run_agent, daemon=True)
+                thread.start()
+
+                # Stream progress events and final content
+                while True:
+                    try:
+                        event = await asyncio.to_thread(progress_q.get, timeout=120)
+                    except Exception:
+                        # Timeout
+                        yield _sse_chunk(chunk_id, model, "Agent timed out.")
+                        break
+
+                    if event["type"] == "tool_start":
+                        tool = event["tool"]
+                        args = event.get("args", "")
+                        label = _tool_progress_label(tool, args)
+                        progress_data = {
+                            "id": chunk_id,
+                            "object": "chat.completion.chunk",
+                            "model": model,
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {},
+                                    "finish_reason": None,
+                                    "tool_progress": label,
+                                }
+                            ],
+                        }
+                        yield f"data: {json.dumps(progress_data)}\n\n"
+
+                    elif event["type"] == "tool_end":
+                        pass  # Could emit completion signal
+
+                    elif event["type"] in ("done", "error"):
+                        content = event["content"]
+                        # Stream content word-by-word
+                        words = content.split(" ")
+                        for i, word in enumerate(words):
+                            token = word if i == 0 else " " + word
+                            yield _sse_chunk(chunk_id, model, token)
+
+                        # Final chunk
+                        finish_data = {
+                            "id": chunk_id,
+                            "object": "chat.completion.chunk",
+                            "model": model,
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {},
+                                    "finish_reason": "stop",
+                                }
+                            ],
+                        }
+                        yield f"data: {json.dumps(finish_data)}\n\n"
+                        yield "data: [DONE]\n\n"
+
+                        # Persist
+                        manager.store_agent_response(
+                            agent_id, content,
+                        )
+                        break
+
+            return StreamingResponse(
+                generate_deep_research(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                },
+            )
 
     # Build extra kwargs for stream_full (e.g. tools from config)
     stream_kwargs: Dict[str, Any] = {}
@@ -967,18 +1218,78 @@ def create_agent_manager_router(
         return {"bindings": manager.list_channel_bindings(agent_id)}
 
     @agents_router.post("/{agent_id}/channels")
-    async def bind_channel(agent_id: str, req: BindChannelRequest):
+    async def bind_channel(
+        agent_id: str, req: BindChannelRequest, request: Request,
+    ):
         if not manager.get_agent(agent_id):
             raise HTTPException(status_code=404, detail="Agent not found")
-        return manager.bind_channel(
+        binding = manager.bind_channel(
             agent_id,
             channel_type=req.channel_type,
             config=req.config,
             routing_mode=req.routing_mode,
         )
 
+        # Start iMessage daemon if binding iMessage
+        if req.channel_type == "imessage":
+            identifier = (req.config or {}).get("identifier", "")
+            if identifier:
+                try:
+                    from openjarvis.channels.imessage_daemon import (
+                        is_running,
+                        run_daemon,
+                    )
+
+                    if not is_running():
+                        import threading
+
+                        engine = getattr(request.app.state, "engine", None)
+                        if engine:
+                            from openjarvis.server.agent_manager_routes import (
+                                _build_deep_research_tools,
+                            )
+
+                            tools = _build_deep_research_tools(engine=engine, model="")
+                            if tools:
+                                from openjarvis.agents.deep_research import (
+                                    DeepResearchAgent,
+                                )
+
+                                agent_inst = DeepResearchAgent(
+                                    engine=engine,
+                                    model=getattr(engine, "_model", ""),
+                                    tools=tools,
+                                )
+
+                                def handler(text: str) -> str:
+                                    result = agent_inst.run(text)
+                                    return result.content or "No results."
+
+                                t = threading.Thread(
+                                    target=run_daemon,
+                                    kwargs={
+                                        "chat_identifier": identifier,
+                                        "handler": handler,
+                                    },
+                                    daemon=True,
+                                )
+                                t.start()
+                except Exception as exc:
+                    logger.warning("Failed to start iMessage daemon: %s", exc)
+
+        return binding
+
     @agents_router.delete("/{agent_id}/channels/{binding_id}")
     async def unbind_channel(agent_id: str, binding_id: str):
+        # Stop iMessage daemon if applicable
+        try:
+            binding = manager._get_binding(binding_id)
+            if binding and binding.get("channel_type") == "imessage":
+                from openjarvis.channels.imessage_daemon import stop_daemon
+
+                stop_daemon()
+        except Exception:
+            pass
         manager.unbind_channel(binding_id)
         return {"status": "unbound"}
 

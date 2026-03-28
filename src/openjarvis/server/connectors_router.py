@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 # Module-level cache of connector instances (keyed by connector_id).
 _instances: Dict[str, Any] = {}
@@ -86,7 +89,7 @@ def create_connectors_router():
 
     from openjarvis.core.registry import ConnectorRegistry
 
-    router = APIRouter(prefix="/connectors", tags=["connectors"])
+    router = APIRouter(prefix="/v1/connectors", tags=["connectors"])
 
     # ------------------------------------------------------------------
     # Helpers
@@ -101,11 +104,25 @@ def create_connectors_router():
 
     def _connector_summary(connector_id: str, instance: Any) -> Dict[str, Any]:
         """Build the dict returned by GET /connectors."""
+        chunks = 0
+        try:
+            from openjarvis.connectors.store import KnowledgeStore
+
+            store = KnowledgeStore()
+            rows = store._conn.execute(
+                "SELECT COUNT(*) FROM knowledge_chunks WHERE source = ?",
+                (connector_id,),
+            ).fetchone()
+            chunks = rows[0] if rows else 0
+        except Exception:
+            pass
+
         return {
             "connector_id": connector_id,
             "display_name": getattr(instance, "display_name", connector_id),
             "auth_type": getattr(instance, "auth_type", "unknown"),
             "connected": instance.is_connected(),
+            "chunks": chunks,
         }
 
     # ------------------------------------------------------------------
@@ -209,6 +226,35 @@ def create_connectors_router():
 
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+
+        # Auto-ingest after successful connection
+        if instance.is_connected():
+            import threading
+
+            def _ingest() -> None:
+                try:
+                    from openjarvis.connectors.pipeline import (
+                        IngestionPipeline,
+                    )
+                    from openjarvis.connectors.store import KnowledgeStore
+                    from openjarvis.connectors.sync_engine import SyncEngine
+
+                    store = KnowledgeStore()
+                    pipeline = IngestionPipeline(store)
+                    engine = SyncEngine(pipeline)
+                    engine.sync(instance)
+                    logger.info(
+                        "Auto-ingested %s after connect",
+                        connector_id,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Auto-ingest failed for %s: %s",
+                        connector_id,
+                        exc,
+                    )
+
+            threading.Thread(target=_ingest, daemon=True).start()
 
         return {
             "connector_id": connector_id,

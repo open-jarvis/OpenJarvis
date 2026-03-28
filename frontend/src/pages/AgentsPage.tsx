@@ -6,6 +6,8 @@ import {
   fetchManagedAgents,
   fetchAgentTasks,
   fetchAgentChannels,
+  bindAgentChannel,
+  unbindAgentChannel,
   fetchAgentMessages,
   fetchTemplates,
   createManagedAgent,
@@ -47,7 +49,14 @@ import {
   ChevronRight,
   Send,
   RefreshCw,
+  Wifi,
+  Database,
+  Copy,
+  Check,
 } from 'lucide-react';
+import { SOURCE_CATALOG } from '../types/connectors';
+import type { ConnectRequest } from '../types/connectors';
+import { listConnectors, connectSource } from '../lib/connectors-api';
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -963,13 +972,22 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
 // Detail view — Interact tab
 // ---------------------------------------------------------------------------
 
+/** AgentMessage extended with optional response metadata for the footer. */
+type InteractMessage = AgentMessage & { _elapsed?: string; _toolCalls?: number };
+
 function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: string }) {
-  const [messages, setMessages] = useState<AgentMessage[]>([]);
+  const [messages, setMessages] = useState<InteractMessage[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [waitingForResponse, setWaitingForResponse] = useState(false);
+  const [progressLabel, setProgressLabel] = useState('');
+  const [streamingContent, setStreamingContent] = useState('');
   const [currentActivity, setCurrentActivity] = useState('');
   const [liveStatus, setLiveStatus] = useState(agentStatus);
+  const [streamElapsedMs, setStreamElapsedMs] = useState(0);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -993,6 +1011,16 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
 
   useEffect(() => { setLiveStatus(agentStatus); }, [agentStatus]);
 
+  // Clean up elapsed-time timer on unmount
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, []);
+
   // Scroll to bottom only on initial load, not on every poll update.
   const hasScrolled = useRef(false);
   useEffect(() => {
@@ -1002,17 +1030,82 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
     }
   }, [messages]);
 
+  // Scroll to bottom when streaming content updates
+  useEffect(() => {
+    if (streamingContent) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [streamingContent]);
+
   async function handleSend(mode: 'immediate' | 'queued') {
     if (!input.trim()) return;
+    const text = input.trim();
+    setInput('');
     setSending(true);
+
+    // Show user message immediately as a local bubble
+    const localMsg: AgentMessage = {
+      id: `local-${Date.now()}`,
+      agent_id: agentId,
+      direction: 'user_to_agent',
+      content: text,
+      mode,
+      status: 'delivered',
+      created_at: Date.now() / 1000,
+    };
+    setMessages((prev) => [localMsg, ...prev]);
+    setSending(false);
+    setWaitingForResponse(true);
+    setProgressLabel('Initializing agent...');
+    setStreamingContent('');
+
+    // Start elapsed-time timer
+    const startTime = Date.now();
+    setStreamElapsedMs(0);
+    timerRef.current = setInterval(() => {
+      setStreamElapsedMs(Date.now() - startTime);
+    }, 100);
+
+    let toolCount = 0;
     try {
-      await sendAgentMessage(agentId, input.trim(), mode);
-      setInput('');
+      const response = await sendAgentMessage(agentId, text, mode, {
+        onProgress: (label) => {
+          setProgressLabel(label);
+          toolCount++;
+        },
+        onContentDelta: (_delta, full) => setStreamingContent(full),
+        onDone: () => {
+          // Clear streaming state — final content comes from the response object
+          setStreamingContent('');
+        },
+      });
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      // Add the agent's response as a local bubble immediately
+      if (response && response.content) {
+        setMessages((prev) => [
+          {
+            ...response,
+            id: response.id || `response-${Date.now()}`,
+            direction: 'agent_to_user' as const,
+            _elapsed: elapsed,
+            _toolCalls: toolCount,
+          },
+          ...prev,
+        ]);
+      }
+      // Also refresh from server to sync any persisted messages
       await loadData();
     } catch {
       // ignore
     } finally {
-      setSending(false);
+      setWaitingForResponse(false);
+      setStreamingContent('');
+      setProgressLabel('');
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      setStreamElapsedMs(0);
     }
   }
 
@@ -1022,13 +1115,10 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
     .filter((m) => m.direction === 'user_to_agent' || m.content.trim())
     .reverse();
 
-  const isAgentWorking = liveStatus === 'running';
-  const hasPending = messages.some((m) => m.status === 'pending');
-
   return (
     <div className="flex flex-col h-full" style={{ minHeight: 320 }}>
       <div className="flex-1 overflow-y-auto space-y-3 pb-4" style={{ maxHeight: 400 }}>
-        {displayMessages.length === 0 && !isAgentWorking && (
+        {displayMessages.length === 0 && !waitingForResponse && (
           <div className="text-sm text-center py-8" style={{ color: 'var(--color-text-tertiary)' }}>
             No messages yet. Send a message to interact with this agent.
           </div>
@@ -1054,11 +1144,50 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
               <p className="text-xs mt-1 opacity-70">
                 {msg.status === 'pending' ? 'sending...' : new Date(msg.created_at * 1000).toLocaleTimeString()}
               </p>
+              {msg.direction === 'agent_to_user' && (msg._elapsed || (msg._toolCalls && msg._toolCalls > 0)) && (
+                <div
+                  style={{
+                    borderTop: '1px solid var(--color-border-subtle)',
+                    marginTop: 6,
+                    paddingTop: 4,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    fontSize: 11,
+                    color: 'var(--color-text-tertiary)',
+                  }}
+                >
+                  {msg._elapsed && <span>{msg._elapsed}s</span>}
+                  {msg._toolCalls != null && msg._toolCalls > 0 && (
+                    <span>{msg._toolCalls} tool {msg._toolCalls === 1 ? 'call' : 'calls'}</span>
+                  )}
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(msg.content);
+                      setCopiedId(msg.id);
+                      setTimeout(() => setCopiedId(null), 2000);
+                    }}
+                    style={{
+                      marginLeft: 'auto',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      color: 'var(--color-text-tertiary)',
+                      padding: 2,
+                      display: 'flex',
+                      alignItems: 'center',
+                    }}
+                    title="Copy response"
+                  >
+                    {copiedId === msg.id ? <Check size={12} /> : <Copy size={12} />}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         ))}
-        {/* Progress indicator with live activity from the executor */}
-        {(isAgentWorking || hasPending) && (
+        {/* Progress indicator — shown when waiting but no streamed content yet */}
+        {(waitingForResponse || sending) && !streamingContent && (
           <div className="flex justify-start">
             <div
               className="px-3 py-2 rounded-lg text-sm"
@@ -1070,8 +1199,34 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
             >
               <div className="flex items-center gap-2">
                 <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--color-accent)' }} />
-                {sending ? 'Sending message...' : currentActivity || 'Agent is thinking...'}
+                {sending
+                  ? 'Sending message...'
+                  : progressLabel || 'Agent is thinking...'}
               </div>
+            </div>
+          </div>
+        )}
+        {/* Streaming content bubble — real-time response as it arrives */}
+        {waitingForResponse && streamingContent && (
+          <div className="flex justify-start">
+            <div
+              className="max-w-[75%] px-3 py-2 rounded-lg text-sm"
+              style={{
+                background: 'var(--color-bg-secondary)',
+                border: '1px solid var(--color-border)',
+                color: 'var(--color-text)',
+              }}
+            >
+              {progressLabel && (
+                <div className="flex items-center gap-2 mb-2 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                  <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--color-accent)' }} />
+                  {progressLabel}
+                </div>
+              )}
+              <p className="whitespace-pre-wrap">{streamingContent}</p>
+              <p className="text-xs mt-1 opacity-70">
+                {streamElapsedMs > 0 && `${(streamElapsedMs / 1000).toFixed(1)}s elapsed`}
+              </p>
             </div>
           </div>
         )}
@@ -1098,7 +1253,7 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
         <div className="flex gap-2 mt-2">
           <button
             onClick={() => handleSend('immediate')}
-            disabled={sending || !input.trim()}
+            disabled={sending || waitingForResponse || !input.trim()}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm cursor-pointer font-medium"
             style={{ background: 'var(--color-accent)', color: '#fff', opacity: sending || !input.trim() ? 0.5 : 1 }}
           >
@@ -1106,6 +1261,706 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Channels tab component (data sources)
+// ---------------------------------------------------------------------------
+
+function ChannelsTab({ agentId }: { agentId: string }) {
+  const [connectors, setConnectors] = useState<
+    Array<{ connector_id: string; display_name: string; connected: boolean; chunks: number }>
+  >([]);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  // suppress unused var – agentId reserved for future per-agent source binding
+  void agentId;
+
+  const loadConnectors = useCallback(() => {
+    listConnectors()
+      .then((list) =>
+        setConnectors(
+          list.map((c) => ({
+            connector_id: c.connector_id,
+            display_name: c.display_name,
+            connected: c.connected,
+            chunks: (c as any).chunks || 0,
+          })),
+        ),
+      )
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    loadConnectors();
+    // Poll every 10s to catch background OAuth completions
+    const interval = setInterval(loadConnectors, 10000);
+    return () => clearInterval(interval);
+  }, [loadConnectors]);
+
+  const handleConnect = async (id: string, req: ConnectRequest) => {
+    setLoading(true);
+    try {
+      await connectSource(id, req);
+      setExpandedId(null);
+      // Poll for connection status (OAuth flow runs in background thread)
+      for (let i = 0; i < 30; i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        await loadConnectors();
+        // Check if this connector is now connected
+        const updated = await listConnectors();
+        const target = updated.find((c) => c.connector_id === id);
+        if (target?.connected) break;
+      }
+    } catch {
+      // error handling
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const connected = connectors.filter((c) => c.connected);
+  const notConnected = connectors.filter((c) => !c.connected);
+
+  // Merge with SOURCE_CATALOG for icons/descriptions
+  const getMeta = (id: string) =>
+    SOURCE_CATALOG.find((s) => s.connector_id === id);
+
+  const iconMap: Record<string, string> = {
+    gmail: '\u2709\uFE0F', gmail_imap: '\u2709\uFE0F', slack: '#',
+    imessage: '\uD83D\uDCAC', gdrive: '\uD83D\uDCC1', notion: '\uD83D\uDCC4',
+    obsidian: '\uD83D\uDCC1', granola: '\uD83C\uDF99\uFE0F', gcalendar: '\uD83D\uDCC5',
+    gcontacts: '\uD83D\uDCC7', outlook: '\u2709\uFE0F', apple_notes: '\uD83C\uDF4E',
+    dropbox: '\uD83D\uDCE6', whatsapp: '\uD83D\uDCF1',
+  };
+
+  return (
+    <div style={{ padding: 16 }}>
+      <div style={{
+        color: 'var(--color-text-secondary)',
+        fontSize: 12, marginBottom: 12,
+      }}>
+        Data sources your agent can search
+      </div>
+
+      {/* Connected sources grid */}
+      {connected.length > 0 && (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: 6, marginBottom: 12,
+        }}>
+          {connected.map((c) => {
+            const meta = SOURCE_CATALOG.find(s => s.connector_id === c.connector_id);
+            const unit = meta?.unitLabel || 'items';
+            const isReconnecting = expandedId === c.connector_id;
+            return (
+            <div
+              key={c.connector_id}
+              style={{
+                background: 'var(--color-bg-secondary)',
+                border: '1px solid #2a5a3a',
+                borderRadius: 6,
+                overflow: 'hidden',
+                gridColumn: isReconnecting ? '1 / -1' : undefined,
+              }}
+            >
+              <div style={{
+                padding: '12px 14px',
+                display: 'flex', alignItems: 'center', gap: 8,
+              }}>
+                <span style={{ fontSize: 20 }}>{iconMap[c.connector_id] || '\uD83D\uDD17'}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>
+                    {c.display_name}
+                  </div>
+                  <div style={{ fontSize: 12, color: c.chunks > 0 ? '#4ade80' : '#f59e0b' }}>
+                    {c.chunks > 0
+                      ? `${c.chunks.toLocaleString()} ${unit}`
+                      : 'Connected — no data synced yet'}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setExpandedId(isReconnecting ? null : c.connector_id)}
+                  style={{
+                    fontSize: 10, padding: '3px 10px',
+                    background: 'transparent',
+                    color: 'var(--color-text-secondary)',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 4, cursor: 'pointer',
+                  }}
+                >
+                  {isReconnecting ? 'Cancel' : 'Reconnect'}
+                </button>
+              </div>
+              {isReconnecting && meta?.steps && (
+                <div style={{
+                  borderTop: '1px solid var(--color-border)',
+                  padding: 12,
+                }}>
+                  <div style={{
+                    fontSize: 12, color: '#f59e0b',
+                    marginBottom: 8,
+                  }}>
+                    Re-enter credentials to reconnect this source.
+                  </div>
+                  {meta.steps.map((step, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        background: 'var(--color-bg)',
+                        border: '1px solid var(--color-border)',
+                        borderRadius: 6, padding: 10,
+                        marginBottom: 8,
+                      }}
+                    >
+                      <div style={{
+                        color: '#7c3aed', fontSize: 10,
+                        fontWeight: 600, marginBottom: 3,
+                      }}>
+                        STEP {i + 1}
+                      </div>
+                      <div style={{ fontSize: 12, marginBottom: step.url ? 4 : 0 }}>
+                        {step.label}
+                      </div>
+                      {step.url && (
+                        <a
+                          href={step.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            color: '#60a5fa', fontSize: 11,
+                            textDecoration: 'underline',
+                          }}
+                        >
+                          {step.urlLabel || 'Open'} →
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                  {meta.inputFields && (
+                    <InlineConnectForm
+                      fields={meta.inputFields}
+                      loading={loading}
+                      onSubmit={(req) => handleConnect(c.connector_id, req)}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Not connected grid */}
+      {notConnected.length > 0 && (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: 6,
+        }}>
+          {notConnected.map((c) => {
+            const meta = getMeta(c.connector_id);
+            const isExpanded = expandedId === c.connector_id;
+
+            return (
+              <div
+                key={c.connector_id}
+                style={{
+                  background: 'var(--color-bg-secondary)',
+                  border: '1px dashed var(--color-border)',
+                  borderRadius: 6, overflow: 'hidden',
+                  opacity: isExpanded ? 1 : 0.6,
+                  gridColumn: isExpanded ? '1 / -1' : undefined,
+                }}
+              >
+                <div
+                  style={{
+                    padding: '12px 14px', display: 'flex',
+                    alignItems: 'center', gap: 8,
+                    cursor: 'pointer',
+                  }}
+                  onClick={() =>
+                    setExpandedId(isExpanded ? null : c.connector_id)
+                  }
+                >
+                  <span style={{ fontSize: 20 }}>{iconMap[c.connector_id] || '\uD83D\uDD17'}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600,
+                      color: 'var(--color-text-secondary)' }}>
+                      {c.display_name}
+                    </div>
+                    <div style={{ fontSize: 12,
+                      color: 'var(--color-text-secondary)' }}>
+                      Not connected
+                    </div>
+                  </div>
+                  <span style={{
+                    color: '#7c3aed', fontSize: 11, fontWeight: 500,
+                  }}>
+                    {isExpanded ? '\u2715 Close' : '+ Add'}
+                  </span>
+                </div>
+
+                {/* Inline setup panel */}
+                {isExpanded && meta?.steps && (
+                  <div style={{
+                    borderTop: '1px solid var(--color-border)',
+                    padding: 12,
+                  }}>
+                    {meta.steps.map((step, i) => (
+                      <div
+                        key={i}
+                        style={{
+                          background: 'var(--color-bg)',
+                          border: '1px solid var(--color-border)',
+                          borderRadius: 6, padding: 10,
+                          marginBottom: 8,
+                        }}
+                      >
+                        <div style={{
+                          color: '#7c3aed', fontSize: 10,
+                          fontWeight: 600, marginBottom: 3,
+                        }}>
+                          STEP {i + 1}
+                        </div>
+                        <div style={{
+                          fontSize: 12, marginBottom: step.url ? 4 : 0,
+                        }}>
+                          {step.label}
+                        </div>
+                        {step.url && (
+                          <a
+                            href={step.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              color: '#60a5fa', fontSize: 11,
+                              textDecoration: 'underline',
+                            }}
+                          >
+                            {step.urlLabel || 'Open'} {'\u2192'}
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                    {meta.inputFields && (
+                      <InlineConnectForm
+                        fields={meta.inputFields}
+                        loading={loading}
+                        onSubmit={(req) =>
+                          handleConnect(c.connector_id, req)
+                        }
+                      />
+                    )}
+                    <div style={{
+                      fontSize: 10, color: 'var(--color-text-secondary)',
+                      textAlign: 'center', marginTop: 8,
+                    }}>
+                      {'\uD83D\uDD12'} Read-only access {'\u00B7'} No data leaves your device
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InlineConnectForm({
+  fields,
+  loading,
+  onSubmit,
+}: {
+  fields: Array<{ name: string; placeholder: string; type?: string }>;
+  loading: boolean;
+  onSubmit: (req: ConnectRequest) => void;
+}) {
+  const [inputs, setInputs] = useState<Record<string, string>>({});
+
+  const update = (name: string, value: string) =>
+    setInputs((p) => ({ ...p, [name]: value }));
+
+  const allFilled = fields.every((f) => inputs[f.name]?.trim());
+
+  const submit = () => {
+    const req: ConnectRequest = {};
+    for (const f of fields) {
+      if (f.name === 'email') req.email = inputs.email;
+      else if (f.name === 'password') req.password = inputs.password;
+      else if (f.name === 'token') req.token = inputs.token;
+      else if (f.name === 'path') req.path = inputs.path;
+    }
+    if (req.email && req.password) {
+      req.token = `${req.email}:${req.password}`;
+      req.code = req.token;
+    }
+    if (req.token && !req.code) req.code = req.token;
+    onSubmit(req);
+  };
+
+  return (
+    <div>
+      {fields.map((f) => (
+        <input
+          key={f.name}
+          value={inputs[f.name] || ''}
+          onChange={(e) => update(f.name, e.target.value)}
+          placeholder={f.placeholder}
+          type={f.type || 'text'}
+          style={{
+            width: '100%', padding: '7px 10px',
+            background: 'var(--color-bg)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 4, color: 'var(--color-text)',
+            fontSize: 12, marginBottom: 6,
+            boxSizing: 'border-box',
+          }}
+        />
+      ))}
+      <button
+        onClick={submit}
+        disabled={loading || !allFilled}
+        style={{
+          width: '100%', padding: 8,
+          background: loading || !allFilled ? '#444' : '#7c3aed',
+          color: 'white', border: 'none',
+          borderRadius: 6, fontSize: 12, cursor: 'pointer',
+        }}
+      >
+        {loading ? 'Connecting...' : 'Connect'}
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Messaging tab component
+// ---------------------------------------------------------------------------
+
+interface ChannelField {
+  key: string;
+  label: string;
+  placeholder: string;
+  type?: 'text' | 'password';
+  required?: boolean;
+}
+
+interface MessagingChannelConfig {
+  type: string;
+  name: string;
+  icon: string;
+  description: string;
+  setupSteps: string[];
+  fields: ChannelField[];
+  activeLabel: (cfg: Record<string, unknown>) => string;
+  howToUse: (cfg: Record<string, unknown>) => string;
+}
+
+const MESSAGING_CHANNELS: MessagingChannelConfig[] = [
+  {
+    type: 'imessage',
+    name: 'iMessage',
+    icon: '\uD83D\uDCAC',
+    description: 'Talk to your agent via iMessage from your iPhone or another Apple device',
+    setupSteps: [
+      'Your agent monitors iMessage on this Mac using the Messages app.',
+      'Enter your phone number or Apple ID below — your agent will watch for texts from that contact.',
+      'Then open iMessage on your iPhone and text this Mac. Your agent reads the message, researches your data, and responds in the same conversation.',
+      'Requires macOS Full Disk Access + Accessibility permissions (System Settings \u2192 Privacy & Security).',
+    ],
+    fields: [
+      { key: 'identifier', label: 'Your phone number or Apple ID', placeholder: '+15551234567 or you@icloud.com', required: true },
+    ],
+    activeLabel: (cfg) => `Monitoring messages from ${(cfg.identifier as string) || '?'}`,
+    howToUse: (cfg) => `Open iMessage on your phone and text this Mac from ${(cfg.identifier as string) || 'your phone'}. Your agent will respond automatically.`,
+  },
+  {
+    type: 'slack',
+    name: 'Slack',
+    icon: '#',
+    description: 'DM your agent in any Slack workspace',
+    setupSteps: [
+      '1. Go to api.slack.com/apps \u2192 Create New App \u2192 From Scratch',
+      '2. Under OAuth & Permissions, add bot scopes: chat:write, channels:history, im:history, im:read',
+      '3. Install the app to your workspace and authorize it',
+      '4. Copy the Bot User OAuth Token (starts with xoxb-) from the OAuth page',
+      '5. For real-time DMs: enable Socket Mode, create an App-Level Token (starts with xapp-)',
+    ],
+    fields: [
+      { key: 'bot_token', label: 'Bot Token', placeholder: 'xoxb-...', type: 'password', required: true },
+      { key: 'app_token', label: 'App Token (optional \u2014 enables receiving DMs)', placeholder: 'xapp-...', type: 'password' },
+    ],
+    activeLabel: () => 'Connected to Slack',
+    howToUse: () => 'Open Slack and DM @Jarvis to talk to your agent.',
+  },
+  {
+    type: 'whatsapp',
+    name: 'WhatsApp',
+    icon: '\uD83D\uDCF1',
+    description: 'Message your agent on WhatsApp \u2014 runs locally, no cloud API needed',
+    setupSteps: [
+      'OpenJarvis connects to WhatsApp using the Baileys protocol (local, on-device).',
+      'Click Connect below. A QR code will appear in the server terminal.',
+      'On your phone: open WhatsApp \u2192 Settings \u2192 Linked Devices \u2192 Link a Device, then scan the QR code.',
+      'Once linked, send a WhatsApp message to the connected number to talk to your agent.',
+    ],
+    fields: [
+      { key: 'assistant_name', label: 'Agent display name (optional)', placeholder: 'Jarvis' },
+    ],
+    activeLabel: () => 'WhatsApp linked',
+    howToUse: () => 'Send a WhatsApp message to the linked number. Your agent will respond in the chat.',
+  },
+  {
+    type: 'twilio',
+    name: 'SMS',
+    icon: '\uD83D\uDCE8',
+    description: 'Text your agent from any phone via Twilio',
+    setupSteps: [
+      '1. Create a free Twilio account at twilio.com/try-twilio',
+      '2. In the Twilio Console, buy a phone number (or use the trial number)',
+      '3. Copy your Account SID and Auth Token from the Console Dashboard',
+      '4. Enter all three values below',
+      'After setup, text the Twilio number from any phone to talk to your agent.',
+    ],
+    fields: [
+      { key: 'account_sid', label: 'Account SID', placeholder: 'ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', required: true },
+      { key: 'auth_token', label: 'Auth Token', placeholder: 'Your Twilio auth token', type: 'password', required: true },
+      { key: 'phone_number', label: 'Twilio Phone Number', placeholder: '+15551234567', required: true },
+    ],
+    activeLabel: (cfg) => {
+      const num = (cfg.phone_number as string) || '';
+      return num ? `SMS active on ${num}` : 'SMS connected via Twilio';
+    },
+    howToUse: (cfg) => {
+      const num = (cfg.phone_number as string) || 'your Twilio number';
+      return `Text ${num} from any phone to talk to your agent.`;
+    },
+  },
+];
+
+function MessagingTab({ agentId }: { agentId: string }) {
+  const [bindings, setBindings] = useState<ChannelBinding[]>([]);
+  const [setupType, setSetupType] = useState<string | null>(null);
+  const [formValues, setFormValues] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(false);
+
+  const loadBindings = useCallback(() => {
+    fetchAgentChannels(agentId).then(setBindings).catch(() => setBindings([]));
+  }, [agentId]);
+
+  useEffect(() => { loadBindings(); }, [loadBindings]);
+
+  const setField = (key: string, value: string) => {
+    setFormValues((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleSetup = async (ch: MessagingChannelConfig) => {
+    // Check required fields
+    const missing = ch.fields.filter(
+      (f) => f.required && !formValues[f.key]?.trim(),
+    );
+    if (missing.length > 0) return;
+
+    setLoading(true);
+    try {
+      const config: Record<string, string> = {};
+      for (const f of ch.fields) {
+        const v = formValues[f.key]?.trim();
+        if (v) config[f.key] = v;
+      }
+      await bindAgentChannel(agentId, ch.type, config);
+      setSetupType(null);
+      setFormValues({});
+      loadBindings();
+    } catch { /* */ } finally { setLoading(false); }
+  };
+
+  const handleRemove = async (bindingId: string) => {
+    try {
+      await unbindAgentChannel(agentId, bindingId);
+      loadBindings();
+    } catch { /* */ }
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '6px 10px',
+    background: 'var(--color-bg-secondary)',
+    border: '1px solid var(--color-border)',
+    borderRadius: 4, color: 'var(--color-text)',
+    fontSize: 12, boxSizing: 'border-box',
+  };
+
+  return (
+    <div style={{ padding: 16 }}>
+      <div style={{
+        color: 'var(--color-text-secondary)',
+        fontSize: 12, marginBottom: 14,
+      }}>
+        Connect a messaging platform so you can talk to your agent from your phone or other devices.
+      </div>
+
+      {MESSAGING_CHANNELS.map((ch) => {
+        const binding = bindings.find((b) => b.channel_type === ch.type);
+        const cfg = (binding?.config || {}) as Record<string, unknown>;
+        const isSetup = setupType === ch.type;
+
+        // Check if required fields are filled
+        const canConnect = ch.fields.every(
+          (f) => !f.required || formValues[f.key]?.trim(),
+        );
+
+        return (
+          <div
+            key={ch.type}
+            style={{
+              background: 'var(--color-bg-secondary)',
+              border: binding
+                ? '1px solid #2a5a3a'
+                : '1px dashed var(--color-border)',
+              borderRadius: 8, marginBottom: 10,
+              overflow: 'hidden',
+            }}
+          >
+            {/* Header row */}
+            <div style={{
+              display: 'flex', alignItems: 'center',
+              padding: '12px 14px',
+            }}>
+              <span style={{ fontSize: 18, marginRight: 10 }}>{ch.icon}</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: 13 }}>{ch.name}</div>
+                <div style={{
+                  fontSize: 11,
+                  color: binding ? '#4ade80' : 'var(--color-text-secondary)',
+                }}>
+                  {binding ? ch.activeLabel(cfg) : ch.description}
+                </div>
+              </div>
+              {binding ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{
+                    background: '#2a5a3a', color: '#4ade80',
+                    padding: '2px 8px', borderRadius: 10,
+                    fontSize: 10, fontWeight: 600,
+                  }}>Active</span>
+                  <button
+                    onClick={() => handleRemove(binding.id)}
+                    style={{
+                      fontSize: 10, padding: '2px 8px',
+                      background: 'transparent',
+                      color: 'var(--color-text-secondary)',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: 4, cursor: 'pointer',
+                    }}
+                  >Remove</button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => {
+                    setSetupType(isSetup ? null : ch.type);
+                    setFormValues({});
+                  }}
+                  style={{
+                    fontSize: 10, padding: '3px 12px',
+                    background: '#7c3aed', color: 'white',
+                    border: 'none', borderRadius: 5,
+                    cursor: 'pointer', fontWeight: 600,
+                  }}
+                >
+                  {isSetup ? 'Cancel' : 'Set Up'}
+                </button>
+              )}
+            </div>
+
+            {/* Active state: how to use */}
+            {binding && (
+              <div style={{
+                borderTop: '1px solid var(--color-border)',
+                padding: '10px 14px',
+                background: 'var(--color-bg)',
+              }}>
+                <div style={{
+                  fontSize: 11, color: 'var(--color-text-secondary)',
+                  display: 'flex', alignItems: 'flex-start', gap: 6,
+                }}>
+                  <span style={{ flexShrink: 0 }}>{'\u2192'}</span>
+                  <span>{ch.howToUse(cfg)}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Setup form */}
+            {isSetup && (
+              <div style={{
+                borderTop: '1px solid var(--color-border)',
+                padding: '14px',
+                background: 'var(--color-bg)',
+              }}>
+                {/* Setup instructions */}
+                <div style={{
+                  fontSize: 11, lineHeight: 1.5,
+                  color: 'var(--color-text-secondary)',
+                  marginBottom: 12,
+                  padding: '8px 10px',
+                  background: 'var(--color-bg-secondary)',
+                  borderRadius: 6,
+                  borderLeft: '3px solid var(--color-accent, #7c3aed)',
+                }}>
+                  {ch.setupSteps.map((step, i) => (
+                    <div key={i} style={{ marginBottom: i < ch.setupSteps.length - 1 ? 4 : 0 }}>
+                      {step}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Form fields */}
+                {ch.fields.map((field) => (
+                  <div key={field.key} style={{ marginBottom: 8 }}>
+                    <label style={{
+                      display: 'block', fontSize: 11,
+                      color: 'var(--color-text-secondary)',
+                      marginBottom: 3, fontWeight: 500,
+                    }}>
+                      {field.label}{field.required ? ' *' : ''}
+                    </label>
+                    <input
+                      type={field.type || 'text'}
+                      value={formValues[field.key] || ''}
+                      onChange={(e) => setField(field.key, e.target.value)}
+                      placeholder={field.placeholder}
+                      style={inputStyle}
+                    />
+                  </div>
+                ))}
+
+                {/* Connect button */}
+                <button
+                  onClick={() => handleSetup(ch)}
+                  disabled={loading || !canConnect}
+                  style={{
+                    fontSize: 12, padding: '7px 20px',
+                    background: '#7c3aed', color: 'white',
+                    border: 'none', borderRadius: 5,
+                    cursor: 'pointer', fontWeight: 600,
+                    opacity: loading || !canConnect ? 0.5 : 1,
+                    marginTop: 4,
+                  }}
+                >
+                  {loading ? 'Connecting...' : 'Connect'}
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1204,29 +2059,110 @@ function LearningTab({ agentId, learningEnabled }: { agentId: string; learningEn
 
 function LogsTab({ agentId }: { agentId: string }) {
   const [traces, setTraces] = useState<AgentTrace[]>([]);
+  const [learningEntries, setLearningEntries] = useState<LearningLogEntry[]>([]);
   const [expandedTrace, setExpandedTrace] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchAgentTraces(agentId).then(setTraces).catch(() => {});
+  const loadData = useCallback(async () => {
+    try {
+      const [t, l] = await Promise.all([
+        fetchAgentTraces(agentId),
+        fetchLearningLog(agentId),
+      ]);
+      setTraces(t);
+      setLearningEntries(l);
+    } catch {
+      // ignore
+    }
   }, [agentId]);
+
+  useEffect(() => {
+    loadData();
+    const interval = setInterval(loadData, 5000);
+    return () => clearInterval(interval);
+  }, [loadData]);
+
+  // Merge traces and learning entries into a unified timeline
+  type TimelineEntry =
+    | { kind: 'trace'; data: AgentTrace; ts: number }
+    | { kind: 'learning'; data: LearningLogEntry; ts: number };
+
+  const timeline: TimelineEntry[] = [
+    ...traces.map((t): TimelineEntry => ({ kind: 'trace', data: t, ts: t.started_at })),
+    ...learningEntries.map((e): TimelineEntry => ({ kind: 'learning', data: e, ts: e.created_at })),
+  ].sort((a, b) => b.ts - a.ts);
+
+  const learningEventColor = (eventType: string) => {
+    if (eventType === 'query_start') return '#3b82f6';
+    if (eventType === 'query_complete') return '#22c55e';
+    if (eventType === 'tool_call') return '#f59e0b';
+    if (eventType === 'tool_result') return '#8b5cf6';
+    if (eventType === 'query_error') return '#ef4444';
+    return 'var(--color-text-secondary)';
+  };
+
+  const learningEventLabel = (eventType: string) => {
+    if (eventType === 'query_start') return 'Query';
+    if (eventType === 'query_complete') return 'Complete';
+    if (eventType === 'tool_call') return 'Tool Call';
+    if (eventType === 'tool_result') return 'Tool Result';
+    if (eventType === 'query_error') return 'Error';
+    return eventType;
+  };
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-          Execution Traces
+          Activity Log
         </span>
         <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
-          {traces.length} trace{traces.length !== 1 ? 's' : ''}
+          {timeline.length} entr{timeline.length !== 1 ? 'ies' : 'y'} (auto-refreshing)
         </span>
       </div>
-      {traces.length === 0 ? (
+      {timeline.length === 0 ? (
         <div className="text-sm text-center py-8" style={{ color: 'var(--color-text-tertiary)' }}>
-          No execution traces yet. Run the agent to generate traces.
+          No activity yet. Send a message or run the agent to generate logs.
         </div>
       ) : (
         <div className="space-y-2">
-          {traces.map((t) => {
+          {timeline.map((entry) => {
+            if (entry.kind === 'learning') {
+              const e = entry.data;
+              return (
+                <div
+                  key={`learn-${e.id}`}
+                  className="rounded-lg p-3 text-sm"
+                  style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="w-2 h-2 rounded-full inline-block"
+                        style={{ background: learningEventColor(e.event_type) }}
+                      />
+                      <span
+                        className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                        style={{
+                          background: `${learningEventColor(e.event_type)}20`,
+                          color: learningEventColor(e.event_type),
+                        }}
+                      >
+                        {learningEventLabel(e.event_type)}
+                      </span>
+                    </div>
+                    <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+                      {formatRelativeTime(e.created_at)}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                    {e.description}
+                  </div>
+                </div>
+              );
+            }
+
+            // Trace entry
+            const t = entry.data;
             const errorDetail = t.metadata?.error_detail as
               | { error_type: string; error_message: string; suggested_action: string }
               | undefined;
@@ -1235,7 +2171,7 @@ function LogsTab({ agentId }: { agentId: string }) {
 
             return (
               <div
-                key={t.id}
+                key={`trace-${t.id}`}
                 className="rounded-lg p-3 text-sm cursor-pointer"
                 style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
                 onClick={() => isError && errorDetail && setExpandedTrace(isExpanded ? null : t.id)}
@@ -1247,6 +2183,12 @@ function LogsTab({ agentId }: { agentId: string }) {
                       style={{ background: t.outcome === 'success' ? '#22c55e' : '#ef4444' }}
                     />
                     <span style={{ color: 'var(--color-text)' }}>{t.outcome}</span>
+                    <span
+                      className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                      style={{ background: 'var(--color-bg)', color: 'var(--color-text-secondary)' }}
+                    >
+                      Trace
+                    </span>
                     {errorDetail && (
                       <span
                         className="text-[10px] px-1.5 py-0.5 rounded font-medium"
@@ -1306,7 +2248,7 @@ export function AgentsPage() {
   const [channels, setChannels] = useState<ChannelBinding[]>([]);
   const [templates, setTemplates] = useState<AgentTemplate[]>([]);
   const [showWizard, setShowWizard] = useState(false);
-  const [detailTab, setDetailTab] = useState<'overview' | 'interact' | 'tasks' | 'memory' | 'learning' | 'logs'>('overview');
+  const [detailTab, setDetailTab] = useState<'overview' | 'interact' | 'channels' | 'messaging' | 'tasks' | 'memory' | 'learning' | 'logs'>('overview');
 
   const refresh = useCallback(async () => {
     try {
@@ -1436,6 +2378,8 @@ export function AgentsPage() {
     const DETAIL_TABS = [
       { id: 'overview', label: 'Overview', icon: Activity },
       { id: 'interact', label: 'Interact', icon: MessageSquare },
+      { id: 'channels', label: 'Channels', icon: Database },
+      { id: 'messaging', label: 'Messaging', icon: Wifi },
       { id: 'tasks', label: 'Tasks', icon: ListTodo },
       { id: 'memory', label: 'Memory', icon: Brain },
       { id: 'learning', label: 'Learning', icon: Settings },
@@ -1471,13 +2415,22 @@ export function AgentsPage() {
           </div>
           {/* Header actions */}
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => handleRun(selectedAgent.id)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm cursor-pointer font-medium"
-              style={{ background: 'var(--color-accent)', color: '#fff' }}
-            >
-              <Zap size={13} /> Run Now
-            </button>
+            {detailTab === 'interact' ? (
+              <span
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs"
+                style={{ background: '#22c55e20', color: '#22c55e', border: '1px solid #22c55e40' }}
+              >
+                <MessageSquare size={13} /> Chat ready — just type below
+              </span>
+            ) : (
+              <button
+                onClick={() => handleRun(selectedAgent.id)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm cursor-pointer font-medium"
+                style={{ background: 'var(--color-accent)', color: '#fff' }}
+              >
+                <Zap size={13} /> Run Now
+              </button>
+            )}
             {(selectedAgent.status === 'running' || selectedAgent.status === 'idle') && (
               <button
                 onClick={() => handlePause(selectedAgent.id)}
@@ -1646,6 +2599,16 @@ export function AgentsPage() {
 
         {/* Tab: Interact */}
         {detailTab === 'interact' && <InteractTab agentId={selectedAgent.id} agentStatus={selectedAgent.status} />}
+
+        {/* Tab: Channels */}
+        {detailTab === 'channels' && (
+          <ChannelsTab agentId={selectedAgent.id} />
+        )}
+
+        {/* Tab: Messaging */}
+        {detailTab === 'messaging' && (
+          <MessagingTab agentId={selectedAgent.id} />
+        )}
 
         {/* Tab: Tasks */}
         {detailTab === 'tasks' && (

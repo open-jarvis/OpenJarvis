@@ -17,6 +17,7 @@ from openjarvis.connectors.oauth import (
     build_google_auth_url,
     delete_tokens,
     load_tokens,
+    run_oauth_flow,
     save_tokens,
 )
 from openjarvis.core.config import DEFAULT_CONFIG_DIR
@@ -161,13 +162,12 @@ class GContactsConnector(BaseConnector):
     # ------------------------------------------------------------------
 
     def is_connected(self) -> bool:
-        """Return ``True`` if a credentials file with a valid token exists."""
+        """Return ``True`` if a credentials file with a valid access token exists."""
         tokens = load_tokens(self._credentials_path)
         if tokens is None:
             return False
-        # Accept any non-empty dict that contains at least one key
-        # (simplified: real impl would also check expiry / refresh token)
-        return bool(tokens)
+        # Must have an actual access_token, not just a client_id
+        return bool(tokens.get("access_token") or tokens.get("token"))
 
     def disconnect(self) -> None:
         """Delete the stored credentials file."""
@@ -175,18 +175,53 @@ class GContactsConnector(BaseConnector):
 
     def auth_url(self) -> str:
         """Return a Google OAuth consent URL requesting ``contacts.readonly`` scope."""
+        tokens = load_tokens(self._credentials_path)
+        client_id = ""
+        if tokens:
+            client_id = tokens.get("client_id", "")
+        if not client_id:
+            return "https://console.cloud.google.com/apis/credentials"
         return build_google_auth_url(
-            client_id="",  # placeholder — real client_id from config
+            client_id=client_id,
             scopes=[_GCONTACTS_SCOPE],
         )
 
     def handle_callback(self, code: str) -> None:
-        """Handle the OAuth callback by persisting the authorization code.
+        """Handle the OAuth callback.
 
-        In a full implementation this would exchange the code for tokens.
-        For now the code is saved directly as the token value.
+        If *code* looks like a ``client_id:client_secret`` pair (containing
+        ``.apps.googleusercontent.com``), store the credentials and trigger
+        the full browser-based OAuth flow.  Otherwise treat it as a raw
+        token / auth code.
         """
-        save_tokens(self._credentials_path, {"token": code})
+        code = code.strip()
+        # If user pastes client_id:client_secret, store and run OAuth flow
+        if ":" in code and ".apps.googleusercontent.com" in code:
+            client_id, client_secret = code.split(":", 1)
+            save_tokens(
+                self._credentials_path,
+                {
+                    "client_id": client_id.strip(),
+                    "client_secret": client_secret.strip(),
+                },
+            )
+            import threading
+
+            def _run() -> None:
+                try:
+                    run_oauth_flow(
+                        client_id=client_id.strip(),
+                        client_secret=client_secret.strip(),
+                        scopes=[_GCONTACTS_SCOPE],
+                        credentials_path=self._credentials_path,
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+
+            threading.Thread(target=_run, daemon=True).start()
+        else:
+            # Raw token or auth code
+            save_tokens(self._credentials_path, {"token": code})
 
     def sync(
         self,
@@ -211,7 +246,7 @@ class GContactsConnector(BaseConnector):
         if not tokens:
             return
 
-        token: str = tokens.get("token", tokens.get("access_token", ""))
+        token: str = tokens.get("access_token", tokens.get("token", ""))
         if not token:
             return
 

@@ -122,6 +122,8 @@ class DeepResearchAgent(ToolUsingAgent):
         max_tokens: Optional[int] = None,
         interactive: bool = False,
         confirm_callback=None,
+        system_prompt: Optional[str] = None,
+        **kwargs: Any,
     ) -> None:
         super().__init__(
             engine,

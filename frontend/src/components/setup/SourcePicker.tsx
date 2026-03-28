@@ -11,7 +11,7 @@ import {
   Users,
   CheckCircle2,
 } from 'lucide-react';
-import { SOURCE_CATALOG, type SourceCard } from '../../types/connectors';
+import { SOURCE_CATALOG, type ConnectorMeta, type SourceCard } from '../../types/connectors';
 
 // ---------------------------------------------------------------------------
 // Icon map
@@ -42,7 +42,7 @@ function CategorySection({
 }: {
   category: string;
   label: string;
-  cards: SourceCard[];
+  cards: ConnectorMeta[];
   selected: Set<string>;
   onToggle: (id: string) => void;
 }) {

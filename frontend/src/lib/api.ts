@@ -434,6 +434,38 @@ export async function fetchAgentChannels(agentId: string): Promise<ChannelBindin
   return data.bindings || [];
 }
 
+export async function bindAgentChannel(
+  agentId: string,
+  channelType: string,
+  config?: Record<string, unknown>,
+): Promise<ChannelBinding> {
+  const res = await fetch(
+    `${getBase()}/v1/managed-agents/${agentId}/channels`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        channel_type: channelType,
+        config: config || {},
+        routing_mode: 'dedicated',
+      }),
+    },
+  );
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return res.json();
+}
+
+export async function unbindAgentChannel(
+  agentId: string,
+  bindingId: string,
+): Promise<void> {
+  const res = await fetch(
+    `${getBase()}/v1/managed-agents/${agentId}/channels/${bindingId}`,
+    { method: 'DELETE' },
+  );
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+}
+
 export async function fetchTemplates(): Promise<AgentTemplate[]> {
   const res = await fetch(`${getBase()}/v1/templates`);
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
@@ -470,13 +502,69 @@ export async function fetchAgentState(agentId: string): Promise<{
   return res.json();
 }
 
-export async function sendAgentMessage(agentId: string, content: string, mode: 'immediate' | 'queued' = 'queued'): Promise<AgentMessage> {
+export async function sendAgentMessage(
+  agentId: string,
+  content: string,
+  mode: 'immediate' | 'queued' = 'queued',
+  callbacks?: {
+    onProgress?: (label: string) => void;
+    onContentDelta?: (delta: string, fullContent: string) => void;
+    onDone?: (fullContent: string) => void;
+  },
+): Promise<AgentMessage> {
   const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content, mode }),
+    body: JSON.stringify({ content, mode, stream: true }),
   });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
+
+  // If streaming, consume the SSE response so the agent runs
+  const contentType = res.headers.get('content-type') || '';
+  if (contentType.includes('text/event-stream') && res.body) {
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let fullContent = '';
+    let buffer = '';
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
+          try {
+            const chunk = JSON.parse(line.slice(6));
+            // Check for tool progress events
+            const toolProgress = chunk.choices?.[0]?.tool_progress;
+            if (toolProgress) {
+              callbacks?.onProgress?.(toolProgress);
+            }
+            const delta = chunk.choices?.[0]?.delta?.content || '';
+            if (delta) {
+              fullContent += delta;
+              callbacks?.onContentDelta?.(delta, fullContent);
+            }
+          } catch { /* skip malformed chunks */ }
+        }
+      }
+    } catch { /* stream ended */ }
+
+    callbacks?.onDone?.(fullContent);
+
+    return {
+      id: '',
+      agent_id: agentId,
+      direction: 'agent_to_user',
+      content: fullContent,
+      mode,
+      status: 'delivered',
+      created_at: Date.now() / 1000,
+    };
+  }
+
   return res.json();
 }
 
