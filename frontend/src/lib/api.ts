@@ -509,7 +509,7 @@ export async function sendAgentMessage(
   callbacks?: {
     onProgress?: (label: string) => void;
     onContentDelta?: (delta: string, fullContent: string) => void;
-    onDone?: (fullContent: string) => void;
+    onDone?: (fullContent: string, usage?: Record<string, number>, telemetry?: Record<string, unknown>) => void;
   },
 ): Promise<AgentMessage> {
   const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/messages`, {
@@ -526,6 +526,8 @@ export async function sendAgentMessage(
     const decoder = new TextDecoder();
     let fullContent = '';
     let buffer = '';
+    let lastUsage: Record<string, number> | undefined;
+    let lastTelemetry: Record<string, unknown> | undefined;
     try {
       while (true) {
         const { done, value } = await reader.read();
@@ -547,12 +549,15 @@ export async function sendAgentMessage(
               fullContent += delta;
               callbacks?.onContentDelta?.(delta, fullContent);
             }
+            // Capture usage + telemetry from final chunk
+            if (chunk.usage) lastUsage = chunk.usage;
+            if (chunk.telemetry) lastTelemetry = chunk.telemetry;
           } catch { /* skip malformed chunks */ }
         }
       }
     } catch { /* stream ended */ }
 
-    callbacks?.onDone?.(fullContent);
+    callbacks?.onDone?.(fullContent, lastUsage, lastTelemetry);
 
     return {
       id: '',

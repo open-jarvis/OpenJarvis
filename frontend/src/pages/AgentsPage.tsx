@@ -973,7 +973,110 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
 // ---------------------------------------------------------------------------
 
 /** AgentMessage extended with optional response metadata for the footer. */
-type InteractMessage = AgentMessage & { _elapsed?: string; _toolCalls?: number };
+type InteractMessage = AgentMessage & {
+  _elapsed?: string;
+  _toolCalls?: number;
+  _usage?: Record<string, number>;
+  _telemetry?: Record<string, unknown>;
+};
+
+function AgentResponseFooter({
+  msg, copiedId, onCopy,
+}: {
+  msg: InteractMessage;
+  copiedId: string | null;
+  onCopy: (id: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const u = msg._usage;
+  const t = msg._telemetry as Record<string, unknown> | undefined;
+  const elapsed = msg._elapsed;
+  const toolCalls = msg._toolCalls || 0;
+
+  // Build summary line like Chat: "ollama - qwen3.5:9b - 18.3s - 50 tokens"
+  const parts: string[] = [];
+  if (t?.engine) parts.push(String(t.engine));
+  if (t?.model_id) parts.push(String(t.model_id));
+  if (elapsed) parts.push(`${elapsed}s`);
+  if (u?.prompt_tokens) parts.push(`${u.prompt_tokens} input tokens`);
+  if (u?.completion_tokens) parts.push(`${u.completion_tokens} output tokens`);
+  if (toolCalls > 0) parts.push(`${toolCalls} tool ${toolCalls === 1 ? 'call' : 'calls'}`);
+
+  const summary = parts.length > 0 ? parts.join(' - ') : elapsed ? `${elapsed}s` : '';
+
+  // Build expanded rows
+  const rows: Array<{ label: string; value: string }> = [];
+  if (t?.engine) rows.push({ label: 'Engine', value: `${t.engine}${t.model_id ? ` (${t.model_id})` : ''}` });
+  if (u) {
+    const tokenParts = [];
+    if (u.completion_tokens) tokenParts.push(`${u.completion_tokens} generated`);
+    if (u.prompt_tokens) tokenParts.push(`${u.prompt_tokens} prompt`);
+    if (tokenParts.length) rows.push({ label: 'Tokens', value: tokenParts.join(' · ') });
+  }
+  if (toolCalls > 0) rows.push({ label: 'Tool calls', value: `${toolCalls}` });
+  if (t?.tokens_per_sec) rows.push({ label: 'Speed', value: `${Math.round(Number(t.tokens_per_sec))} tok/s` });
+  if (t?.total_ms) rows.push({ label: 'Latency', value: `${(Number(t.total_ms) / 1000).toFixed(1)}s total` });
+
+  if (!summary) return null;
+
+  return (
+    <div style={{ borderTop: '1px solid var(--color-border-subtle)', marginTop: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', paddingTop: 4 }}>
+        <button
+          onClick={() => rows.length > 0 && setExpanded(!expanded)}
+          style={{
+            flex: 1, display: 'flex', alignItems: 'center', gap: 6,
+            background: 'none', border: 'none', cursor: rows.length > 0 ? 'pointer' : 'default',
+            padding: 0, textAlign: 'left',
+          }}
+        >
+          <span style={{ width: 4, height: 4, borderRadius: '50%', background: 'var(--color-accent)', flexShrink: 0 }} />
+          <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', fontFamily: 'system-ui' }}>
+            {summary}
+          </span>
+          {rows.length > 0 && (
+            <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>
+              {expanded ? '▲' : '▼'}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => onCopy(msg.id)}
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            color: 'var(--color-text-tertiary)', padding: 2,
+            display: 'flex', alignItems: 'center',
+          }}
+          title="Copy response"
+        >
+          {copiedId === msg.id ? <Check size={12} /> : <Copy size={12} />}
+        </button>
+      </div>
+      {expanded && rows.length > 0 && (
+        <div style={{
+          borderRadius: 6, marginTop: 4, padding: '6px 10px',
+          background: 'rgba(0, 0, 0, 0.15)',
+        }}>
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'auto 1fr',
+            columnGap: 12, rowGap: 2,
+          }}>
+            {rows.map((row) => (
+              <div key={row.label} style={{ display: 'contents' }}>
+                <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', fontFamily: 'monospace' }}>
+                  {row.label}
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>
+                  {row.value}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: string }) {
   const [messages, setMessages] = useState<InteractMessage[]>([]);
@@ -1067,6 +1170,8 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
     }, 100);
 
     let toolCount = 0;
+    let responseUsage: Record<string, number> | undefined;
+    let responseTelemetry: Record<string, unknown> | undefined;
     try {
       const response = await sendAgentMessage(agentId, text, mode, {
         onProgress: (label) => {
@@ -1074,9 +1179,10 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
           toolCount++;
         },
         onContentDelta: (_delta, full) => setStreamingContent(full),
-        onDone: () => {
-          // Clear streaming state — final content comes from the response object
+        onDone: (_content, usage, telemetry) => {
           setStreamingContent('');
+          responseUsage = usage;
+          responseTelemetry = telemetry;
         },
       });
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -1089,6 +1195,8 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
             direction: 'agent_to_user' as const,
             _elapsed: elapsed,
             _toolCalls: toolCount,
+            _usage: responseUsage,
+            _telemetry: responseTelemetry,
           },
           ...prev,
         ]);
@@ -1144,44 +1252,12 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
               <p className="text-xs mt-1 opacity-70">
                 {msg.status === 'pending' ? 'sending...' : new Date(msg.created_at * 1000).toLocaleTimeString()}
               </p>
-              {msg.direction === 'agent_to_user' && (msg._elapsed || (msg._toolCalls && msg._toolCalls > 0)) && (
-                <div
-                  style={{
-                    borderTop: '1px solid var(--color-border-subtle)',
-                    marginTop: 6,
-                    paddingTop: 4,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    fontSize: 11,
-                    color: 'var(--color-text-tertiary)',
-                  }}
-                >
-                  {msg._elapsed && <span>{msg._elapsed}s</span>}
-                  {msg._toolCalls != null && msg._toolCalls > 0 && (
-                    <span>{msg._toolCalls} tool {msg._toolCalls === 1 ? 'call' : 'calls'}</span>
-                  )}
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(msg.content);
-                      setCopiedId(msg.id);
-                      setTimeout(() => setCopiedId(null), 2000);
-                    }}
-                    style={{
-                      marginLeft: 'auto',
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      color: 'var(--color-text-tertiary)',
-                      padding: 2,
-                      display: 'flex',
-                      alignItems: 'center',
-                    }}
-                    title="Copy response"
-                  >
-                    {copiedId === msg.id ? <Check size={12} /> : <Copy size={12} />}
-                  </button>
-                </div>
+              {msg.direction === 'agent_to_user' && (
+                <AgentResponseFooter msg={msg} copiedId={copiedId} onCopy={(id) => {
+                  navigator.clipboard.writeText(msg.content);
+                  setCopiedId(id);
+                  setTimeout(() => setCopiedId(null), 2000);
+                }} />
               )}
             </div>
           </div>

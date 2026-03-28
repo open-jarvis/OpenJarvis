@@ -676,48 +676,42 @@ async def _stream_managed_agent(
                 dr_agent._executor.execute = _tracked_execute
 
                 def _run_agent():
+                    agent_metadata = {}
                     try:
                         result = dr_agent.run(user_content)
                         content = (
                             result.content or "No results found."
                         )
-                        # Log query completion
-                        try:
-                            elapsed = _dr_time.time() - _dr_start
-                            manager.add_learning_log(
-                                agent_id,
-                                "query_complete",
-                                f"Response: {len(content)} chars in {elapsed:.1f}s",
-                                {
-                                    "response_length": len(content),
-                                    "elapsed_seconds": round(elapsed, 2),
-                                },
-                            )
-                        except Exception as _qc_exc:
-                            logger.warning("Log query_complete failed: %s", _qc_exc)
-                        progress_q.put({
-                            "type": "done",
-                            "content": content,
-                        })
+                        agent_metadata = result.metadata or {}
                     except Exception as exc:
-                        # Log query error
-                        try:
-                            elapsed = _dr_time.time() - _dr_start
-                            manager.add_learning_log(
-                                agent_id,
-                                "query_error",
-                                f"Error after {elapsed:.1f}s: {exc}",
-                                {
-                                    "error": str(exc),
-                                    "elapsed_seconds": round(elapsed, 2),
-                                },
-                            )
-                        except Exception:
-                            pass
-                        progress_q.put({
-                            "type": "error",
-                            "content": f"Error: {exc}",
-                        })
+                        content = f"Error: {exc}"
+
+                    elapsed = _dr_time.time() - _dr_start
+
+                    # Log BEFORE queue put (put triggers SSE end)
+                    try:
+                        is_err = content.startswith("Error:")
+                        manager.add_learning_log(
+                            agent_id,
+                            "query_error" if is_err else "query_complete",
+                            f"{'Error' if is_err else 'Response'}: "
+                            f"{len(content)} chars in {elapsed:.1f}s",
+                            {
+                                "response_length": len(content),
+                                "elapsed_seconds": round(elapsed, 2),
+                            },
+                        )
+                    except Exception as _qc_exc:
+                        logger.warning(
+                            "Log failed: %s", _qc_exc,
+                        )
+
+                    progress_q.put({
+                        "type": "error" if content.startswith("Error:") else "done",
+                        "content": content,
+                        "metadata": agent_metadata,
+                        "elapsed": elapsed,
+                    })
 
                 thread = threading.Thread(target=_run_agent, daemon=True)
                 thread.start()
@@ -755,13 +749,23 @@ async def _stream_managed_agent(
 
                     elif event["type"] in ("done", "error"):
                         content = event["content"]
+                        meta = event.get("metadata", {})
+                        elapsed_s = event.get("elapsed", 0)
+
                         # Stream content word-by-word
                         words = content.split(" ")
                         for i, word in enumerate(words):
                             token = word if i == 0 else " " + word
                             yield _sse_chunk(chunk_id, model, token)
 
-                        # Final chunk
+                        # Build usage + telemetry
+                        prompt_tok = meta.get("prompt_tokens", 0)
+                        comp_tok = meta.get("completion_tokens", 0)
+                        total_tok = meta.get("total_tokens", 0)
+                        word_count = len(words)
+                        speed = round(word_count / elapsed_s) if elapsed_s > 0 else 0
+
+                        # Final chunk with usage + telemetry
                         finish_data = {
                             "id": chunk_id,
                             "object": "chat.completion.chunk",
@@ -773,6 +777,18 @@ async def _stream_managed_agent(
                                     "finish_reason": "stop",
                                 }
                             ],
+                            "usage": {
+                                "prompt_tokens": prompt_tok,
+                                "completion_tokens": comp_tok,
+                                "total_tokens": total_tok or (prompt_tok + comp_tok),
+                            },
+                            "telemetry": {
+                                "engine": "ollama",
+                                "model_id": model,
+                                "total_ms": round(elapsed_s * 1000),
+                                "tokens_per_sec": speed,
+                                "tool_calls": len(meta.get("sources", [])),
+                            },
                         }
                         yield f"data: {json.dumps(finish_data)}\n\n"
                         yield "data: [DONE]\n\n"
