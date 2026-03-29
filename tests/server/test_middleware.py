@@ -19,6 +19,7 @@ class TestSecurityHeaders:
             "Strict-Transport-Security",
             "Referrer-Policy",
             "Permissions-Policy",
+            "Content-Security-Policy",
         }
         assert set(SECURITY_HEADERS.keys()) == expected_keys
 

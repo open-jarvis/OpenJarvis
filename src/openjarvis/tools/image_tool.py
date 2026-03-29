@@ -17,6 +17,7 @@ class ImageGenerateTool(BaseTool):
     """Generate images from text descriptions via OpenAI DALL-E."""
 
     tool_id = "image_generate"
+    is_local = False
 
     @property
     def spec(self) -> ToolSpec:

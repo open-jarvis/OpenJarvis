@@ -19,6 +19,7 @@ class WebSearchTool(BaseTool):
     """Search the web via Tavily API."""
 
     tool_id = "web_search"
+    is_local = False
 
     def __init__(self, api_key: str | None = None, max_results: int = 5):
         self._api_key = api_key or os.environ.get("TAVILY_API_KEY")

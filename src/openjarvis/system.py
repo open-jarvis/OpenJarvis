@@ -43,6 +43,7 @@ class JarvisSystem:
     session_store: Optional[Any] = None  # SessionStore
     capability_policy: Optional[Any] = None  # CapabilityPolicy
     audit_logger: Optional[Any] = None  # AuditLogger
+    boundary_guard: Optional[Any] = None  # BoundaryGuard
     operator_manager: Optional[Any] = None  # OperatorManager
     agent_manager: Optional[Any] = None  # AgentManager
     agent_scheduler: Optional[Any] = None  # AgentScheduler

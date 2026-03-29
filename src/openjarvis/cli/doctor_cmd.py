@@ -217,6 +217,32 @@ def _check_optional_deps() -> List[CheckResult]:
     return results
 
 
+def _check_security_profile() -> CheckResult:
+    """Check if a security profile is configured."""
+    try:
+        from openjarvis.core.config import load_config
+
+        config = load_config()
+        if config.security.profile:
+            return CheckResult(
+                name="Security profile",
+                status="ok",
+                message=f"Profile '{config.security.profile}' active",
+            )
+        return CheckResult(
+            name="Security profile",
+            status="warn",
+            message="No security profile set",
+            details="Recommended: add security.profile = 'personal' to config.toml",
+        )
+    except Exception as exc:
+        return CheckResult(
+            name="Security profile",
+            status="fail",
+            message=f"Could not check: {exc}",
+        )
+
+
 def _check_nodejs() -> CheckResult:
     """Check Node.js version for Node-backed integrations."""
     node_path = shutil.which("node")
@@ -275,6 +301,7 @@ def _run_all_checks() -> List[CheckResult]:
     checks.append(_check_default_model())
     checks.extend(_check_optional_deps())
     checks.append(_check_nodejs())
+    checks.append(_check_security_profile())
     return checks
 
 

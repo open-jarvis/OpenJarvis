@@ -19,6 +19,7 @@ class AudioTranscribeTool(BaseTool):
     """Transcribe audio files using OpenAI Whisper or a local provider."""
 
     tool_id = "audio_transcribe"
+    is_local = False
 
     @property
     def spec(self) -> ToolSpec:

@@ -56,3 +56,26 @@ class AuthMiddleware(BaseHTTPMiddleware):
 def generate_api_key() -> str:
     """Generate a new API key with ``oj_sk_`` prefix."""
     return f"oj_sk_{secrets.token_urlsafe(32)}"
+
+
+def check_bind_safety(host: str, *, api_key: str) -> None:
+    """Refuse to bind non-loopback without an API key.
+
+    Raises ``SystemExit`` if *host* is not a loopback address and
+    *api_key* is empty.
+    """
+    import ipaddress
+    import sys
+
+    try:
+        is_loop = ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        is_loop = host in ("localhost", "")
+
+    if not is_loop and not api_key:
+        logger.error(
+            "Binding to %s requires OPENJARVIS_API_KEY to be set. "
+            "Run: jarvis auth generate-key",
+            host,
+        )
+        sys.exit(1)

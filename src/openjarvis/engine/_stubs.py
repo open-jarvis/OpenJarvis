@@ -53,6 +53,7 @@ class InferenceEngine(ABC):
     """
 
     engine_id: str
+    is_cloud: bool = False
 
     @abstractmethod
     def generate(

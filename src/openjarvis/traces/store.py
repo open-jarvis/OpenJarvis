@@ -81,6 +81,10 @@ class TraceStore:
 
     def __init__(self, db_path: str | Path) -> None:
         self._db_path = str(db_path)
+        if self._db_path != ":memory:":
+            from openjarvis.security.file_utils import secure_create
+
+            secure_create(Path(self._db_path))
         # check_same_thread=False is safe with WAL mode.  The
         # AgenticRunner dispatches agent work to a ThreadPoolExecutor
         # (for Playwright compat), so trace writes may originate from

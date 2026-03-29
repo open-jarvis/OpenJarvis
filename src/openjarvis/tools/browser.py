@@ -57,6 +57,7 @@ class BrowserNavigateTool(BaseTool):
     """Navigate to a URL in the browser."""
 
     tool_id = "browser_navigate"
+    is_local = False
 
     @property
     def spec(self) -> ToolSpec:
@@ -155,6 +156,7 @@ class BrowserClickTool(BaseTool):
     """Click an element on the page."""
 
     tool_id = "browser_click"
+    is_local = False
 
     @property
     def spec(self) -> ToolSpec:
@@ -234,6 +236,7 @@ class BrowserTypeTool(BaseTool):
     """Type text into a form field."""
 
     tool_id = "browser_type"
+    is_local = False
 
     @property
     def spec(self) -> ToolSpec:
@@ -324,6 +327,7 @@ class BrowserScreenshotTool(BaseTool):
     """Take a screenshot of the current page."""
 
     tool_id = "browser_screenshot"
+    is_local = False
 
     @property
     def spec(self) -> ToolSpec:
@@ -403,6 +407,7 @@ class BrowserExtractTool(BaseTool):
     """Extract content from the current page."""
 
     tool_id = "browser_extract"
+    is_local = False
 
     @property
     def spec(self) -> ToolSpec:

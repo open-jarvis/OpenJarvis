@@ -153,6 +153,7 @@ def create_app(
     agent_scheduler=None,
     api_key: str = "",
     webhook_config: dict | None = None,
+    cors_origins: list[str] | None = None,
 ) -> FastAPI:
     """Create and configure the FastAPI application.
 
@@ -179,9 +180,10 @@ def create_app(
 
     from fastapi.middleware.cors import CORSMiddleware
 
+    _origins = cors_origins if cors_origins is not None else ["*"]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

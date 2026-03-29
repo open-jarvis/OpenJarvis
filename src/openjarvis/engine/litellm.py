@@ -27,6 +27,7 @@ class LiteLLMEngine(InferenceEngine):
     """
 
     engine_id = "litellm"
+    is_cloud = True
 
     def __init__(
         self,

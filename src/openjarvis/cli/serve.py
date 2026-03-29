@@ -351,6 +351,23 @@ def serve(
         except (FileNotFoundError, ImportError):
             pass
 
+    from openjarvis.server.auth_middleware import check_bind_safety
+
+    check_bind_safety(bind_host, api_key=api_key)
+
+    # Log credential status at startup
+    from openjarvis.core.credentials import TOOL_CREDENTIALS, get_credential_status
+
+    _cred_parts = []
+    for _tool_name in sorted(TOOL_CREDENTIALS):
+        _status = get_credential_status(_tool_name)
+        _set = sum(1 for v in _status.values() if v)
+        _total = len(_status)
+        if _set > 0:
+            _cred_parts.append(f"{_tool_name}: {_set}/{_total} keys")
+    if _cred_parts:
+        logger.info("Credentials loaded — %s", ", ".join(_cred_parts))
+
     webhook_config = {
         "twilio_auth_token": _os.environ.get("TWILIO_AUTH_TOKEN", ""),
         "bluebubbles_password": _os.environ.get("BLUEBUBBLES_PASSWORD", ""),
@@ -395,6 +412,7 @@ def serve(
         agent_scheduler=agent_scheduler,
         api_key=api_key,
         webhook_config=webhook_config,
+        cors_origins=config.server.cors_origins,
     )
 
     console.print(
@@ -404,6 +422,21 @@ def serve(
         f"  Agent:  [cyan]{agent_key or 'none'}[/cyan]\n"
         f"  URL:    [cyan]http://{bind_host}:{bind_port}[/cyan]"
     )
+
+    # Warn about wildcard CORS on non-loopback
+    import ipaddress as _ipa
+
+    try:
+        _is_loop = _ipa.ip_address(bind_host).is_loopback
+    except ValueError:
+        _is_loop = bind_host in ("localhost", "")
+
+    if not _is_loop and "*" in config.server.cors_origins:
+        console.print(
+            "[yellow bold]WARNING:[/yellow bold] Wildcard CORS with credentials "
+            "enabled on non-loopback interface. This allows any website to make "
+            "authenticated requests to your instance."
+        )
 
     import uvicorn
 

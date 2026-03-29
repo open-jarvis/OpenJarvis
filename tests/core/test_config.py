@@ -115,7 +115,7 @@ class TestSecurityConfig:
         assert sc.enabled is True
         assert sc.scan_input is True
         assert sc.scan_output is True
-        assert sc.mode == "warn"
+        assert sc.mode == "redact"
         assert sc.secret_scanner is True
         assert sc.pii_scanner is True
         assert sc.enforce_tool_confirmation is True

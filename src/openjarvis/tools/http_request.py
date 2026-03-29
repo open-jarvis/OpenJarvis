@@ -26,6 +26,7 @@ class HttpRequestTool(BaseTool):
     """Make HTTP requests to external APIs with SSRF protection."""
 
     tool_id = "http_request"
+    is_local = False
 
     @property
     def spec(self) -> ToolSpec:
