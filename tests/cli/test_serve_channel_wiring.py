@@ -226,7 +226,8 @@ class TestChannelToolLoading:
         assert system.tools[0].spec.name == "fake"
 
     def test_non_tool_agent_receives_empty_tools(self, tmp_path):
-        """JarvisSystem with no tools list results in empty tools — simple agent unaffected."""
+        """JarvisSystem with no tools list results in empty tools — simple agent
+        unaffected."""
         config = JarvisConfig()
         config.sessions.db_path = str(tmp_path / "sessions.db")
 
