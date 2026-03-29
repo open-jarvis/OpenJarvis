@@ -51,6 +51,7 @@ class BaseTool(ABC):
     """
 
     tool_id: str
+    is_local: bool = True
 
     @property
     @abstractmethod

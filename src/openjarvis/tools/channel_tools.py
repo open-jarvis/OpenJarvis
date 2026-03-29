@@ -19,6 +19,7 @@ class ChannelSendTool(BaseTool):
     """MCP-exposed tool: send a message via a channel backend."""
 
     tool_id = "channel_send"
+    is_local = False
 
     def __init__(self, channel: BaseChannel | None = None) -> None:
         self._channel = channel

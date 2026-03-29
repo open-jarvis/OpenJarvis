@@ -28,6 +28,7 @@ class BrowserAXTreeTool(BaseTool):
     """Extract the accessibility tree from the current browser page."""
 
     tool_id = "browser_axtree"
+    is_local = False
 
     @property
     def spec(self) -> ToolSpec:

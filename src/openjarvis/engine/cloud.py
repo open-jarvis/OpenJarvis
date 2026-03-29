@@ -213,6 +213,7 @@ class CloudEngine(InferenceEngine):
     """Cloud inference via OpenAI, Anthropic, Google, and MiniMax SDKs."""
 
     engine_id = "cloud"
+    is_cloud = True
 
     def __init__(self) -> None:
         self._openai_client: Any = None

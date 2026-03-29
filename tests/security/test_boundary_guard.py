@@ -102,3 +102,61 @@ class TestBoundaryGuardDisabled:
         text = "sk-proj-abc123def456ghi789jkl012mno345pqr678stu"
         result = guard.scan_outbound(text, destination="openai")
         assert result == text
+
+
+class TestEngineTagging:
+    """Cloud engines must have is_cloud=True, local engines is_cloud=False."""
+
+    def test_inference_engine_default_is_local(self) -> None:
+        from openjarvis.engine._stubs import InferenceEngine
+
+        assert InferenceEngine.is_cloud is False
+
+    def test_cloud_engine_is_cloud(self) -> None:
+        from openjarvis.engine.cloud import CloudEngine
+
+        assert CloudEngine.is_cloud is True
+
+    def test_litellm_engine_is_cloud(self) -> None:
+        from openjarvis.engine.litellm import LiteLLMEngine
+
+        assert LiteLLMEngine.is_cloud is True
+
+    def test_ollama_engine_is_local(self) -> None:
+        from openjarvis.engine.ollama import OllamaEngine
+
+        assert OllamaEngine.is_cloud is False
+
+
+class TestToolTagging:
+    """External tools must have is_local=False, local tools is_local=True."""
+
+    def test_base_tool_default_is_local(self) -> None:
+        from openjarvis.tools._stubs import BaseTool
+
+        assert BaseTool.is_local is True
+
+    def test_web_search_is_external(self) -> None:
+        from openjarvis.tools.web_search import WebSearchTool
+
+        assert WebSearchTool.is_local is False
+
+    def test_http_request_is_external(self) -> None:
+        from openjarvis.tools.http_request import HttpRequestTool
+
+        assert HttpRequestTool.is_local is False
+
+    def test_channel_send_is_external(self) -> None:
+        from openjarvis.tools.channel_tools import ChannelSendTool
+
+        assert ChannelSendTool.is_local is False
+
+    def test_think_tool_is_local(self) -> None:
+        from openjarvis.tools.think import ThinkTool
+
+        assert ThinkTool.is_local is True
+
+    def test_calculator_is_local(self) -> None:
+        from openjarvis.tools.calculator import CalculatorTool
+
+        assert CalculatorTool.is_local is True
