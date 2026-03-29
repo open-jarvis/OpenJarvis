@@ -36,7 +36,9 @@ class AuditLogger:
         bus: Optional[EventBus] = None,
     ) -> None:
         self._db_path = Path(db_path)
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        from openjarvis.security.file_utils import secure_create
+
+        secure_create(self._db_path)
         self._conn = sqlite3.connect(str(self._db_path))
         self._conn.execute(
             """

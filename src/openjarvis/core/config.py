@@ -29,6 +29,13 @@ DEFAULT_CONFIG_DIR = Path.home() / ".openjarvis"
 DEFAULT_CONFIG_PATH = DEFAULT_CONFIG_DIR / "config.toml"
 
 
+def _ensure_config_dir() -> Path:
+    """Ensure the config directory exists with restrictive permissions."""
+    from openjarvis.security.file_utils import secure_mkdir
+
+    return secure_mkdir(DEFAULT_CONFIG_DIR)
+
+
 @dataclass(slots=True)
 class GpuInfo:
     """Detected GPU metadata."""
@@ -1327,6 +1334,7 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
         Explicit config file. If not set, uses ``OPENJARVIS_CONFIG`` when set,
         otherwise ``~/.openjarvis/config.toml``.
     """
+    _ensure_config_dir()
     hw = detect_hardware()
     cfg = JarvisConfig(hardware=hw)
     cfg.engine.default = recommend_engine(hw)

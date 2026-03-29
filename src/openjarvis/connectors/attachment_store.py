@@ -54,7 +54,9 @@ class AttachmentStore:
             base_dir = str(DEFAULT_CONFIG_DIR / "blobs")
 
         self._base_dir = Path(base_dir)
-        self._base_dir.mkdir(parents=True, exist_ok=True)
+        from openjarvis.security.file_utils import secure_mkdir
+
+        secure_mkdir(self._base_dir)
 
         db_path = self._base_dir / "attachments.db"
         self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
@@ -95,6 +97,9 @@ class AttachmentStore:
         blob_path = blob_dir / sha
         if not blob_path.exists():
             blob_path.write_bytes(content)
+            import os
+
+            os.chmod(blob_path, 0o600)
 
         # Upsert metadata row
         existing = self._conn.execute(

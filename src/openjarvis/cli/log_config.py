@@ -54,8 +54,10 @@ def setup_logging(
     # File handler (verbose or explicit path)
     if verbose or log_file is not None:
         if log_file is None:
+            from openjarvis.security.file_utils import secure_mkdir
+
             log_dir = Path.home() / ".openjarvis"
-            log_dir.mkdir(parents=True, exist_ok=True)
+            secure_mkdir(log_dir)
             log_file = log_dir / "cli.log"
         file_handler = RotatingFileHandler(
             str(log_file),

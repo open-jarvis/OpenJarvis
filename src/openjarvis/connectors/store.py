@@ -124,7 +124,9 @@ class KnowledgeStore(MemoryBackend):
         self._db_path = str(db_path)
         # Ensure the parent directory exists (skip for :memory:)
         if self._db_path != ":memory:":
-            Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
+            from openjarvis.security.file_utils import secure_create
+
+            secure_create(Path(self._db_path))
 
         self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
