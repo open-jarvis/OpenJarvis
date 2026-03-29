@@ -253,13 +253,58 @@ def serve(
     if channel_bridge is not None:
         from openjarvis.system import JarvisSystem
 
+        channel_agent = config.channel.default_agent or agent_key or "simple"
+
+        _channel_tools: list = []
+        if channel_agent:
+            try:
+                import openjarvis.agents
+                from openjarvis.core.registry import AgentRegistry
+
+                if AgentRegistry.contains(channel_agent):
+                    _ch_cls = AgentRegistry.get(channel_agent)
+                    if getattr(_ch_cls, "accepts_tools", False):
+                        import openjarvis.tools
+                        from openjarvis.core.registry import ToolRegistry
+                        from openjarvis.tools._stubs import BaseTool
+
+                        _DEFAULT_TOOLS = {"think", "calculator", "web_search"}
+                        configured = config.agent.tools
+                        if configured:
+                            if isinstance(configured, list):
+                                _allowed = {
+                                    t.strip()
+                                    for t in configured
+                                    if isinstance(t, str) and t.strip()
+                                }
+                            else:
+                                _allowed = {
+                                    t.strip()
+                                    for t in configured.split(",")
+                                    if t.strip()
+                                }
+                        else:
+                            _allowed = _DEFAULT_TOOLS
+
+                        for _tname in ToolRegistry.keys():
+                            if _tname not in _allowed:
+                                continue
+                            _tcls = ToolRegistry.get(_tname)
+                            if isinstance(_tcls, type) and issubclass(_tcls, BaseTool):
+                                _channel_tools.append(_tcls())
+                            elif isinstance(_tcls, BaseTool):
+                                _channel_tools.append(_tcls)
+            except Exception as exc:
+                logger.warning("Channel tools failed to load: %s", exc)
+
         _wire_system = JarvisSystem(
             config=config,
             bus=bus,
             engine=engine,
             engine_key=engine_name,
             model=model_name,
-            agent_name=agent_key or "",
+            agent_name=channel_agent,
+            tools=_channel_tools,
         )
         _wire_system.wire_channel(channel_bridge)
 
