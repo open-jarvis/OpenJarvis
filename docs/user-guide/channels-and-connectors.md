@@ -1,8 +1,127 @@
 # Channels & Connectors
 
-OpenJarvis connects to your personal data sources to power Deep Research. This guide walks you through setting up each connector and troubleshooting common issues.
+OpenJarvis has two types of integrations:
+
+- **Data connectors** — read-only access to your personal data (Gmail, iMessage, Google Drive, etc.) so your agent can search and research across them
+- **Messaging channels** — ways to talk TO your agent from your phone or other platforms (iMessage/SMS, Slack)
 
 ---
+
+# Messaging Channels
+
+## iMessage & SMS (via SendBlue)
+
+**What it does:** Gives your agent a phone number. Text it from any phone (iPhone via iMessage, Android via SMS) and the agent responds.
+
+### Setup
+
+1. **Create a SendBlue account:** [sendblue.com](https://www.sendblue.com/) — free tier available
+2. **Get your API credentials:** Dashboard → API Keys → copy **API Key ID** and **API Secret Key**
+3. **Note your SendBlue phone number** — this is the number people text to reach your agent
+4. **Connect in OpenJarvis:**
+   - Desktop/Browser: Agents → your agent → **Messaging** tab → iMessage/SMS → enter API Key ID, API Secret Key, and phone number
+   - The agent will send an "ack" message and a test to verify it works
+5. **Set up the webhook** so incoming texts reach your agent:
+   - You need a public URL — use [ngrok](https://ngrok.com/) to tunnel to your local server: `ngrok http 9001`
+   - Register the webhook URL with SendBlue:
+   ```bash
+   curl -X PUT https://api.sendblue.co/api/account/webhooks \
+     -H "sb-api-key-id: YOUR_KEY" \
+     -H "sb-api-secret-key: YOUR_SECRET" \
+     -H "Content-Type: application/json" \
+     -d '{"webhooks": {"receive": ["https://YOUR-NGROK-URL.ngrok-free.dev/webhooks/sendblue"]}}'
+   ```
+
+### How it works
+
+- Someone texts your SendBlue number → SendBlue sends a webhook to your server
+- Agent replies "Message received! Working on it now..." instantly
+- Agent researches your data (15-60s) → sends the response as iMessage or SMS
+- iMessage (blue bubbles) for Apple devices, SMS (green) for Android — automatic
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| No response after texting | Check ngrok is running and webhook URL is registered |
+| "Disconnected" in Messaging tab | Click Reconnect — server may have restarted |
+| ngrok URL changed | Re-register the webhook URL with SendBlue (see step 5) |
+| Messages only work one-way | Free tier requires contacts to text the number first |
+
+---
+
+## Slack
+
+**What it does:** DM your agent in Slack and get research responses in the thread.
+
+### Setup
+
+The fastest way is to use the App Manifest — paste this JSON to configure everything at once:
+
+1. Go to [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From an app manifest**
+2. Select your workspace, then paste this manifest:
+
+```json
+{
+    "display_information": { "name": "OpenJarvis" },
+    "features": {
+        "app_home": {
+            "home_tab_enabled": true,
+            "messages_tab_enabled": true,
+            "messages_tab_read_only_enabled": false
+        },
+        "bot_user": { "display_name": "OpenJarvis", "always_online": true }
+    },
+    "oauth_config": {
+        "scopes": {
+            "bot": [
+                "chat:write", "im:write", "im:read", "im:history",
+                "users:read", "channels:read", "channels:history",
+                "app_mentions:read"
+            ]
+        }
+    },
+    "settings": {
+        "event_subscriptions": { "bot_events": ["message.im"] },
+        "socket_mode_enabled": true
+    }
+}
+```
+
+3. Click **Create** → **Install to Workspace** → **Allow**
+4. Copy the **Bot User OAuth Token** (`xoxb-...`) from **OAuth & Permissions**
+5. Go to **Basic Information** → **App-Level Tokens** → **Generate Token** → add `connections:write` scope → copy the token (`xapp-...`)
+6. **Connect in OpenJarvis:**
+   - Desktop/Browser: Agents → your agent → **Messaging** tab → Slack → paste both tokens
+   - CLI: tokens are stored when you bind the channel
+
+### How it works
+
+- You DM @OpenJarvis in Slack → Socket Mode receives the event in real-time
+- Agent replies "Message received! Working on it now..." in a **thread** under your message
+- Agent researches (15-60s) → response appears in the same thread
+- If processing takes >60s: "Still working! Will reply ASAP" in the thread
+- All responses use Slack formatting (*bold*, _italic_, `code`, lists)
+
+### Important Notes
+
+- **Reinstall after changes:** Every time you add scopes or events, reinstall the app
+- **App Token vs Bot Token:** Bot Token (`xoxb-`) for API calls, App Token (`xapp-`) for Socket Mode. You need both.
+- **Don't use Event Subscriptions UI for Request URL:** With Socket Mode, you don't need one. Use the App Manifest method above.
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| "Sending messages to this app has been turned off" | App Home → enable Messages Tab → "Allow users to send messages" |
+| Bot doesn't respond | Check Socket Mode is enabled + `message.im` event is subscribed + app was reinstalled |
+| "missing_scope" error | Add the scope → reinstall the app |
+| Bot not visible in Slack | Click "+" next to Direct Messages → search "OpenJarvis" |
+| Event Subscriptions won't save | Use the App Manifest method (avoids Request URL requirement) |
+
+---
+
+# Data Connectors
 
 ## Gmail
 
