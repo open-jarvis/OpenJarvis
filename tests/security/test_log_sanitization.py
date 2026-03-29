@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
+from pathlib import Path
 
 
 class TestSanitizingFormatter:
@@ -72,11 +75,6 @@ class TestSanitizingFormatter:
         )
         result = fmt.format(record)
         assert "xoxb-" not in result
-
-
-import os
-import tempfile
-from pathlib import Path
 
 
 class TestScopedCredentialAccess:
