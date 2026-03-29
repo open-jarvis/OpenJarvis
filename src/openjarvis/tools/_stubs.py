@@ -101,6 +101,7 @@ class ToolExecutor:
         default_timeout: float = 30.0,
         capability_policy: Optional[Any] = None,
         agent_id: str = "",
+        boundary_guard: Optional[Any] = None,
     ) -> None:
         self._tools: Dict[str, BaseTool] = {t.spec.name: t for t in tools}
         self._bus = bus
@@ -109,6 +110,7 @@ class ToolExecutor:
         self._default_timeout = default_timeout
         self._capability_policy = capability_policy
         self._agent_id = agent_id
+        self._boundary_guard = boundary_guard
 
     def execute(self, tool_call: ToolCall) -> ToolResult:
         """Parse arguments, dispatch to tool, measure latency, emit events."""
@@ -129,6 +131,22 @@ class ToolExecutor:
                 content=f"Invalid arguments JSON: {exc}",
                 success=False,
             )
+
+        # Boundary guard: scan external tool arguments
+        if (
+            self._boundary_guard is not None
+            and not getattr(tool, "is_local", True)
+        ):
+            try:
+                tool_call = self._boundary_guard.check_outbound(tool_call)
+                # Re-parse arguments after potential redaction
+                params = json.loads(tool_call.arguments) if tool_call.arguments else {}
+            except Exception as exc:
+                return ToolResult(
+                    tool_name=tool_call.name,
+                    content=f"Security block: {exc}",
+                    success=False,
+                )
 
         # RBAC capability check
         if self._capability_policy and tool.spec.required_capabilities:
