@@ -34,15 +34,25 @@ def _validate_twilio_signature(
     params: dict,
     signature: str,
 ) -> bool:
-    """Validate Twilio webhook signature using the SDK."""
+    """Validate Twilio webhook signature using the SDK.
+
+    Fails closed: returns ``False`` if the SDK is not installed or
+    if no auth_token is configured.
+    """
+    if not auth_token:
+        logger.error("Twilio auth token not configured — rejecting webhook")
+        return False
     try:
         from twilio.request_validator import RequestValidator
 
         validator = RequestValidator(auth_token)
         return validator.validate(url, params, signature)
     except ImportError:
-        logger.warning("twilio SDK not installed — skipping signature validation")
-        return True
+        logger.error(
+            "twilio SDK not installed — rejecting webhook. "
+            "Install it: pip install twilio"
+        )
+        return False
 
 
 def _format_for_sms(text: str) -> str:
@@ -236,6 +246,11 @@ def create_webhook_router(
             header_secret = request.headers.get("x-sendblue-secret", "")
             if header_secret != sb.webhook_secret:
                 return Response("Invalid secret", status_code=403)
+        elif sb:
+            logger.warning(
+                "SendBlue webhook received without secret verification. "
+                "Set webhook_secret for HMAC validation."
+            )
 
         # Ignore outbound status callbacks
         if payload.get("is_outbound", False):
