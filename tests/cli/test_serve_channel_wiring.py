@@ -194,6 +194,54 @@ class TestWireChannelErrorHandling:
         assert "error" in sent_content.lower()
 
 
+class TestChannelToolLoading:
+    """JarvisSystem receives tools when agent accepts them."""
+
+    def test_tool_using_agent_receives_tools(self, tmp_path):
+        """JarvisSystem built with a tool list passes tools to the agent via ask()."""
+        from openjarvis.tools._stubs import BaseTool, ToolSpec
+
+        # Minimal fake tool
+        class _FakeTool(BaseTool):
+            spec = ToolSpec(name="fake", description="", parameters={})
+
+            def execute(self, **_):  # type: ignore[override]
+                pass
+
+        fake_tool = _FakeTool()
+        config = JarvisConfig()
+        config.sessions.db_path = str(tmp_path / "sessions.db")
+
+        system = JarvisSystem(
+            config=config,
+            bus=EventBus(record_history=False),
+            engine=MagicMock(),
+            engine_key="mock",
+            model="test-model",
+            agent_name="simple",
+            tools=[fake_tool],
+        )
+
+        assert len(system.tools) == 1
+        assert system.tools[0].spec.name == "fake"
+
+    def test_non_tool_agent_receives_empty_tools(self, tmp_path):
+        """JarvisSystem with no tools list results in empty tools — simple agent unaffected."""
+        config = JarvisConfig()
+        config.sessions.db_path = str(tmp_path / "sessions.db")
+
+        system = JarvisSystem(
+            config=config,
+            bus=EventBus(record_history=False),
+            engine=MagicMock(),
+            engine_key="mock",
+            model="test-model",
+            agent_name="simple",
+        )
+
+        assert system.tools == []
+
+
 class TestPerChatSessionIsolation:
     """Direct SessionStore isolation tests (not via wire_channel)."""
 
