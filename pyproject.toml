@@ -100,6 +100,23 @@ sandbox-docker = ["docker>=7.0"]
 dashboard = ["textual>=0.80"]
 speech = ["faster-whisper>=1.0"]
 speech-deepgram = ["deepgram-sdk>=3.0"]
+voice = [
+    "sounddevice>=0.4",
+    "numpy>=1.24",
+    "faster-whisper>=1.0",
+]
+voice-wake = [
+    "sounddevice>=0.4",
+    "numpy>=1.24",
+    "faster-whisper>=1.0",
+    "openwakeword>=0.6",
+]
+voice-piper = [
+    "sounddevice>=0.4",
+    "numpy>=1.24",
+    "faster-whisper>=1.0",
+    "piper-tts>=1.2",
+]
 eval-wandb = ["wandb>=0.17"]
 eval-sheets = ["gspread>=6.0", "google-auth>=2.0"]
 docs = [
