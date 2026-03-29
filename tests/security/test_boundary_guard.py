@@ -160,3 +160,68 @@ class TestToolTagging:
         from openjarvis.tools.calculator import CalculatorTool
 
         assert CalculatorTool.is_local is True
+
+
+class TestToolExecutorBoundaryIntegration:
+    """ToolExecutor should use BoundaryGuard for external tool calls."""
+
+    def _make_executor(self, boundary_guard=None):
+        from openjarvis.tools._stubs import BaseTool, ToolExecutor, ToolSpec
+
+        class FakeExternalTool(BaseTool):
+            tool_id = "fake_external"
+            is_local = False
+
+            @property
+            def spec(self):
+                return ToolSpec(
+                    name="fake_external",
+                    description="test",
+                    parameters={
+                        "type": "object",
+                        "properties": {"q": {"type": "string"}},
+                    },
+                )
+
+            def execute(self, **params):
+                from openjarvis.core.types import ToolResult
+
+                return ToolResult(
+                    tool_name="fake_external",
+                    content=f"result for {params.get('q', '')}",
+                    success=True,
+                )
+
+        return ToolExecutor(
+            tools=[FakeExternalTool()],
+            boundary_guard=boundary_guard,
+        )
+
+    def test_external_tool_args_scanned(self) -> None:
+        from openjarvis.core.types import ToolCall
+        from openjarvis.security.boundary import BoundaryGuard
+
+        guard = BoundaryGuard(mode="redact")
+        executor = self._make_executor(boundary_guard=guard)
+
+        tc = ToolCall(
+            id="t1",
+            name="fake_external",
+            arguments=(
+                '{"q": "my key is sk-proj-abc123def456ghi789jkl012mno345pqr678stu"}'
+            ),
+        )
+        result = executor.execute(tc)
+        assert "sk-proj-" not in result.content
+
+    def test_no_guard_passes_through(self) -> None:
+        from openjarvis.core.types import ToolCall
+
+        executor = self._make_executor(boundary_guard=None)
+        tc = ToolCall(
+            id="t2",
+            name="fake_external",
+            arguments='{"q": "sk-proj-abc123def456ghi789jkl012mno345pqr678stu"}',
+        )
+        result = executor.execute(tc)
+        assert "sk-proj-" in result.content
