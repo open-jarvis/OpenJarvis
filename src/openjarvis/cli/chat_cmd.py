@@ -324,7 +324,7 @@ def chat(
                         Message(
                             role=Role.USER,
                             content=(
-                               "Summarize this conversation so far "
+                                "Summarize this conversation so far "
                                 "in a concise paragraph, "
                                 "preserving all key facts and decisions."
                             ),
