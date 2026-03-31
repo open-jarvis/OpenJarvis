@@ -45,7 +45,7 @@ class JarvisAgentBackend(InferenceBackend):
         # creates a GpuMonitor when building the InstrumentedEngine.
         if gpu_metrics:
             builder._config.telemetry.gpu_metrics = True
-        self._system = builder.telemetry(telemetry).traces(telemetry).build()
+        self._system = builder.telemetry(telemetry).traces(True).build()
 
     def generate(
         self,
