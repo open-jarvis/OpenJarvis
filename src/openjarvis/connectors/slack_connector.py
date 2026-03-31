@@ -25,7 +25,10 @@ from openjarvis.tools._stubs import ToolSpec
 
 _SLACK_API_BASE = "https://slack.com/api"
 _SLACK_AUTH_ENDPOINT = "https://slack.com/oauth/v2/authorize"
-_SLACK_SCOPES = "channels:read,channels:history,groups:read,groups:history,im:read,im:history,mpim:read,mpim:history,users:read"
+_SLACK_SCOPES = (
+    "channels:read,channels:history,groups:read,groups:history,"
+    "im:read,im:history,mpim:read,mpim:history,users:read"
+)
 _DEFAULT_CREDENTIALS_PATH = str(DEFAULT_CONFIG_DIR / "connectors" / "slack.json")
 
 # ---------------------------------------------------------------------------
