@@ -312,12 +312,16 @@ class AgentExecutor:
                 )
 
         # Construct agent instance
-        agent_instance = agent_cls(
-            engine,
-            model,
-            system_prompt=config.get("system_prompt"),
-            tools=tool_instances,
-        )
+        agent_kwargs: dict[str, Any] = {}
+        sys_prompt = config.get("system_prompt")
+        if sys_prompt is not None:
+            agent_kwargs["system_prompt"] = sys_prompt
+        if getattr(agent_cls, "accepts_tools", False) and tool_instances:
+            agent_kwargs["tools"] = tool_instances
+        try:
+            agent_instance = agent_cls(engine, model, **agent_kwargs)
+        except TypeError:
+            agent_instance = agent_cls(engine, model)
 
         # Build input from instruction + summary_memory + pending messages
         import datetime
