@@ -12,7 +12,7 @@ import logging
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Iterable, List, Optional
+from typing import Iterable, List, Optional
 
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.types import EvalRecord

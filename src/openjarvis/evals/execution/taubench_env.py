@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 from types import TracebackType
-from typing import Any, List, Optional, Type
+from typing import Any, Optional, Type
 
 from openjarvis.evals.core.types import EvalRecord
 
@@ -26,7 +26,8 @@ def _tau2_to_oj_messages(
     tau2_messages: list,
 ) -> list:
     """Convert tau2 Message objects to OpenJarvis Message objects."""
-    from openjarvis.core.types import Message, Role, ToolCall as OJToolCall
+    from openjarvis.core.types import Message, Role
+    from openjarvis.core.types import ToolCall as OJToolCall
 
     oj_msgs: list = []
     for m in tau2_messages:
@@ -250,10 +251,10 @@ class TauBenchTaskEnv:
 
     def _run_simulation(self) -> None:
         from tau2.evaluator.evaluator import EvaluationType
+        from tau2.orchestrator.orchestrator import Orchestrator
         from tau2.runner.build import build_environment, build_user
         from tau2.runner.helpers import get_tasks
         from tau2.runner.simulation import run_simulation
-        from tau2.orchestrator.orchestrator import Orchestrator
 
         domain = self._record.metadata["domain"]
         task_id = self._record.metadata["task_id"]
