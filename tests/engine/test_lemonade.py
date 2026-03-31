@@ -1,6 +1,6 @@
 """Tests for the Lemonade engine backend.
 
-Validates that the ``/api/v0`` prefix is used correctly for models listing
+Validates that the ``/v1`` prefix is used correctly for models listing
 and chat completions.
 """
 
@@ -30,7 +30,7 @@ class TestLemonadeEngineBasics:
         assert LemonadeEngine._default_host == "http://localhost:8000"
 
     def test_api_prefix(self) -> None:
-        assert LemonadeEngine._api_prefix == "/api/v0"
+        assert LemonadeEngine._api_prefix == "/v1"
 
     def test_registry_registration(self) -> None:
         EngineRegistry.register_value("lemonade", LemonadeEngine)
@@ -40,7 +40,7 @@ class TestLemonadeEngineBasics:
 class TestLemonadeGenerate:
     def test_generate_uses_api_v0_prefix(self, engine: LemonadeEngine) -> None:
         with respx.mock:
-            respx.post("http://testhost:8000/api/v0/chat/completions").mock(
+            respx.post("http://testhost:8000/v1/chat/completions").mock(
                 return_value=httpx.Response(
                     200,
                     json={
@@ -67,7 +67,7 @@ class TestLemonadeGenerate:
 
     def test_generate_connection_error(self, engine: LemonadeEngine) -> None:
         with respx.mock:
-            respx.post("http://testhost:8000/api/v0/chat/completions").mock(
+            respx.post("http://testhost:8000/v1/chat/completions").mock(
                 side_effect=httpx.ConnectError("refused")
             )
             with pytest.raises(EngineConnectionError):
@@ -80,14 +80,14 @@ class TestLemonadeGenerate:
 class TestLemonadeHealth:
     def test_health_true(self, engine: LemonadeEngine) -> None:
         with respx.mock:
-            respx.get("http://testhost:8000/api/v0/models").mock(
+            respx.get("http://testhost:8000/v1/models").mock(
                 return_value=httpx.Response(200, json={"data": []})
             )
             assert engine.health() is True
 
     def test_health_false(self, engine: LemonadeEngine) -> None:
         with respx.mock:
-            respx.get("http://testhost:8000/api/v0/models").mock(
+            respx.get("http://testhost:8000/v1/models").mock(
                 side_effect=httpx.ConnectError("refused")
             )
             assert engine.health() is False
@@ -96,7 +96,7 @@ class TestLemonadeHealth:
 class TestLemonadeListModels:
     def test_list_models_uses_api_v0_prefix(self, engine: LemonadeEngine) -> None:
         with respx.mock:
-            respx.get("http://testhost:8000/api/v0/models").mock(
+            respx.get("http://testhost:8000/v1/models").mock(
                 return_value=httpx.Response(
                     200,
                     json={

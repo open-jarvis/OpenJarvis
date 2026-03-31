@@ -13,7 +13,7 @@ _ENGINES = {
     "nexa": ("NexaEngine", "http://localhost:18181", "/v1"),
     "uzu": ("UzuEngine", "http://localhost:8000", ""),
     "apple_fm": ("AppleFmEngine", "http://localhost:8079", "/v1"),
-    "lemonade": ("LemonadeEngine", "http://localhost:8000", "/api/v0"),
+    "lemonade": ("LemonadeEngine", "http://localhost:8000", "/v1"),
 }
 
 for _key, (_cls_name, _default_host, _api_prefix) in _ENGINES.items():
