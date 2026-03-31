@@ -503,10 +503,15 @@ class SystemBuilder:
         # Resolve model
         model = self._resolve_model(config, engine)
 
-        # Compute telemetry_enabled once
+        # Compute telemetry_enabled and traces_enabled once
         telemetry_enabled = (
             self._telemetry if self._telemetry is not None else config.telemetry.enabled
         )
+        traces_enabled = (
+            self._traces if self._traces is not None else config.traces.enabled
+        )
+        # Apply traces flag to config so downstream code respects it
+        config.traces.enabled = traces_enabled
         gpu_monitor = None
         energy_monitor = None
         if telemetry_enabled and config.telemetry.gpu_metrics:

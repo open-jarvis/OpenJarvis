@@ -177,6 +177,7 @@ class JarvisHalfDuplexAgent:
             "temperature": self._temperature,
             "max_tokens": self._max_tokens,
             "tools": openai_tools,
+            "tool_choice": "auto",
         }
         # Disable thinking mode for local models (Qwen3.5 etc.)
         # to avoid <think> tags interfering with tool call parsing
