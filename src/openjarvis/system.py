@@ -63,6 +63,7 @@ class JarvisSystem:
         tools: Optional[List[str]] = None,
         system_prompt: Optional[str] = None,
         operator_id: Optional[str] = None,
+        prior_messages: Optional[List[Message]] = None,
     ) -> Dict[str, Any]:
         """Execute a query through the system and return a result dict."""
         if temperature is None:
@@ -106,6 +107,7 @@ class JarvisSystem:
                 max_tokens,
                 system_prompt=system_prompt,
                 operator_id=operator_id,
+                prior_messages=prior_messages,
             )
 
         # Direct engine mode
@@ -133,6 +135,7 @@ class JarvisSystem:
         *,
         system_prompt=None,
         operator_id=None,
+        prior_messages=None,
     ) -> Dict[str, Any]:
         """Run through an agent."""
         from openjarvis.agents._stubs import AgentContext
@@ -152,6 +155,11 @@ class JarvisSystem:
 
         # Build context
         ctx = AgentContext()
+
+        # Seed prior conversation turns (channel session history)
+        if prior_messages:
+            for msg in prior_messages:
+                ctx.conversation.add(msg)
 
         # Inject memory context messages into the agent conversation
         if messages and len(messages) > 1:
@@ -297,7 +305,6 @@ class JarvisSystem:
             A connected :class:`~openjarvis.channels._stubs.BaseChannel`
             instance whose ``on_message`` method accepts a callable.
         """
-        from openjarvis.agents._stubs import AgentContext
         from openjarvis.core.types import Message, Role
         from openjarvis.sessions.session import SessionStore
 
@@ -320,14 +327,13 @@ class JarvisSystem:
                 channel_user_id=cm.sender,
             )
 
-            # Rebuild prior conversation turns into AgentContext
-            ctx = AgentContext()
+            prior_msgs: List[Message] = []
             for sm in session.messages:
                 try:
                     role = Role(sm.role)
                 except ValueError:
                     role = Role.USER
-                ctx.conversation.add(Message(role=role, content=sm.content))
+                prior_msgs.append(Message(role=role, content=sm.content))
 
             reply = ""
             try:
@@ -336,10 +342,15 @@ class JarvisSystem:
                         cm.content,
                         context=False,
                         agent=_system.agent_name,
+                        prior_messages=prior_msgs,
                     )
                     reply = result.get("content", "")
                 else:
-                    result = _system.ask(cm.content, context=False)
+                    result = _system.ask(
+                        cm.content,
+                        context=False,
+                        prior_messages=prior_msgs,
+                    )
                     reply = result.get("content", "")
             except Exception:
                 logger.exception("Channel message handler error")
