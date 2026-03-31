@@ -61,6 +61,7 @@ KNOWN_BENCHMARKS = {
     "doc_qa",
     "browser_assistant",
     "pinchbench",
+    "taubench",
 }
 
 

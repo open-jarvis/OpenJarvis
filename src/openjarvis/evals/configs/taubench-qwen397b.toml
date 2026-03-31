@@ -1,0 +1,30 @@
+# TauBench V2 eval: Qwen3.5-397B-A17B-FP8 (vLLM, TP=8)
+# Multi-turn customer service benchmark across airline, retail
+
+[meta]
+name = "taubench-qwen397b"
+description = "TauBench V2 on Qwen/Qwen3.5-397B-A17B-FP8 (airline + retail)"
+
+[defaults]
+temperature = 0.7
+max_tokens = 4096
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/taubench-qwen397b/"
+seed = 42
+
+[[models]]
+name = "Qwen/Qwen3.5-397B-A17B-FP8"
+engine = "vllm"
+num_gpus = 8
+
+[[benchmarks]]
+name = "taubench"
+backend = "jarvis-direct"
+split = "airline,retail"
