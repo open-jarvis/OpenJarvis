@@ -41,7 +41,7 @@ def _api_prefix(engine_key: str) -> str:
     if engine_key == "uzu":
         return ""
     if engine_key == "lemonade":
-        return "/api/v0"
+        return "/v1"
     return "/v1"
 
 

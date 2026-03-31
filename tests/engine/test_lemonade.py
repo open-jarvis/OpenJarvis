@@ -38,7 +38,7 @@ class TestLemonadeEngineBasics:
 
 
 class TestLemonadeGenerate:
-    def test_generate_uses_api_v0_prefix(self, engine: LemonadeEngine) -> None:
+    def test_generate_uses_v1_prefix(self, engine: LemonadeEngine) -> None:
         with respx.mock:
             respx.post("http://testhost:8000/v1/chat/completions").mock(
                 return_value=httpx.Response(
@@ -94,7 +94,7 @@ class TestLemonadeHealth:
 
 
 class TestLemonadeListModels:
-    def test_list_models_uses_api_v0_prefix(self, engine: LemonadeEngine) -> None:
+    def test_list_models_uses_v1_prefix(self, engine: LemonadeEngine) -> None:
         with respx.mock:
             respx.get("http://testhost:8000/v1/models").mock(
                 return_value=httpx.Response(
