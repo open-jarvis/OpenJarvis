@@ -124,6 +124,10 @@ BENCHMARKS = {
         "category": "agentic",
         "description": "PinchBench real-world agent tasks",
     },
+    "taubench": {
+        "category": "agentic",
+        "description": "TauBench multi-turn customer service",
+    },
 }
 
 BACKENDS = {
@@ -308,6 +312,10 @@ def _build_dataset(benchmark: str, subset: str | None = None):
         from openjarvis.evals.datasets.pinchbench import PinchBenchDataset
 
         return PinchBenchDataset(path=subset)
+    elif benchmark == "taubench":
+        from openjarvis.evals.datasets.taubench import TauBenchDataset
+        domains = subset.split(",") if subset else None
+        return TauBenchDataset(domains=domains)
     else:
         raise click.ClickException(f"Unknown benchmark: {benchmark}")
 
@@ -444,6 +452,9 @@ def _build_scorer(benchmark: str, judge_backend, judge_model: str):
         from openjarvis.evals.scorers.pinchbench import PinchBenchScorer
 
         return PinchBenchScorer(judge_backend, judge_model)
+    elif benchmark == "taubench":
+        from openjarvis.evals.scorers.taubench import TauBenchScorer
+        return TauBenchScorer(judge_backend, judge_model)
     else:
         raise click.ClickException(f"Unknown benchmark: {benchmark}")
 
@@ -545,6 +556,14 @@ def _run_single(config, console: Optional[Console] = None) -> object:
         model=config.model,
     )
     dataset = _build_dataset(config.benchmark)
+    # Inject engine config for benchmarks that run their own simulation
+    if hasattr(dataset, "set_engine_config"):
+        dataset.set_engine_config(
+            engine_key=config.engine_key,
+            model=config.model,
+            temperature=config.temperature,
+            max_tokens=config.max_tokens,
+        )
     judge_engine = getattr(config, "judge_engine", "cloud") or "cloud"
     judge_backend = _build_judge_backend(config.judge_model, engine_key=judge_engine)
     scorer = _build_scorer(config.benchmark, judge_backend, config.judge_model)
