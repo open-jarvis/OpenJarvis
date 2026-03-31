@@ -330,10 +330,7 @@ class AgentExecutor:
         instruction = config.get("instruction", "")
         memory = agent.get("summary_memory", "")
         if instruction:
-            input_text = (
-                f"Current date: {today}\n\n"
-                f"Standing instruction: {instruction}"
-            )
+            input_text = f"Current date: {today}\n\nStanding instruction: {instruction}"
             if memory:
                 input_text += f"\n\nPrevious context: {memory}"
         else:

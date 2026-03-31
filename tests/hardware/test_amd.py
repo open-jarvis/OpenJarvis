@@ -155,8 +155,10 @@ class TestAMDEngineRecommendation:
             cpu_count=96,
             ram_gb=768.0,
             gpu=GpuInfo(
-                vendor="amd", name="AMD Instinct MI350X",
-                vram_gb=288.0, count=1,
+                vendor="amd",
+                name="AMD Instinct MI350X",
+                vram_gb=288.0,
+                count=1,
             ),
         )
         assert recommend_engine(hw) == "vllm"
@@ -167,7 +169,12 @@ class TestAMDEngineRecommendation:
             cpu_brand="AMD Ryzen 9 7950X",
             cpu_count=32,
             ram_gb=64.0,
-            gpu=GpuInfo(vendor="amd", name="AMD Radeon RX 7900 XTX", vram_gb=24.0, count=1),
+            gpu=GpuInfo(
+                vendor="amd",
+                name="AMD Radeon RX 7900 XTX",
+                vram_gb=24.0,
+                count=1,
+            ),
         )
         assert recommend_engine(hw) == "lemonade"
 

@@ -204,6 +204,7 @@ def compose_run(name: str, query: tuple[str, ...], output_json: bool) -> None:
 
             if output_json:
                 import json as json_mod
+
                 if isinstance(result, dict):
                     click.echo(json_mod.dumps(result, indent=2, default=str))
                 elif isinstance(result, str):

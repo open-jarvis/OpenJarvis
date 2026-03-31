@@ -162,10 +162,10 @@ def _next_steps_text(engine: str, model: str = "") -> str:
         ),
         "lemonade": (
             "Next steps:\n\n"
-            "  1. Install and start Lemonade:\n"
-            "     pip install lemonade-server\n"
-            "     lemonade-server\n\n"
-            "  2. Try it out:\n"
+            "  1. Install Lemonade for your platform:\n"
+            "     https://lemonade-server.ai/\n\n"
+            "  2. Start the Lemonade server\n\n"
+            "  3. Try it out:\n"
             '     jarvis ask "Hello"\n\n'
             "  Run `jarvis doctor` to verify your setup."
         ),
