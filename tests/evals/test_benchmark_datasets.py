@@ -313,7 +313,7 @@ class TestConfigBenchmarks:
     def test_benchmarks_count(self) -> None:
         from openjarvis.evals.core.config import KNOWN_BENCHMARKS
 
-        assert len(KNOWN_BENCHMARKS) == 26
+        assert len(KNOWN_BENCHMARKS) == 27
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,29 @@
+# TauBench V2 eval: Claude Opus 4.6 (cloud)
+# Multi-turn customer service benchmark — test split, 3 trials
+
+[meta]
+name = "taubench-claude-opus"
+description = "TauBench V2 on claude-opus-4-6 (test split, pass^3)"
+
+[defaults]
+temperature = 0.7
+max_tokens = 4096
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/taubench-claude-opus/"
+seed = 42
+
+[[models]]
+name = "claude-opus-4-6"
+engine = "cloud"
+
+[[benchmarks]]
+name = "taubench"
+backend = "jarvis-direct"
+split = "airline,retail"

@@ -1,0 +1,29 @@
+# GAIA rerun with max_turns=30: claude-opus-4-6
+[meta]
+name = "gaia-rerun-claude-opus"
+description = "GAIA rerun with 30 max turns on claude-opus-4-6"
+
+[defaults]
+temperature = 0.6
+max_tokens = 8192
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+max_tokens = 4096
+
+[run]
+max_workers = 1
+output_dir = "results/gaia-rerun-claude-opus/"
+seed = 42
+
+[[models]]
+name = "claude-opus-4-6"
+engine = "cloud"
+
+[[benchmarks]]
+name = "gaia"
+backend = "jarvis-agent"
+agent = "monitor_operative"
+max_samples = 50
+tools = ["think", "calculator", "code_interpreter", "web_search", "file_read"]
