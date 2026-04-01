@@ -30,13 +30,26 @@ OpenJarvis is that stack. It is an opinionated framework for local-first persona
 
 ## Installation
 
+### Prerequisites
+
+| Tool | Install |
+|------|---------|
+| **Python 3.10+** | [python.org](https://www.python.org/downloads/) |
+| **uv** (Python package manager) | `curl -LsSf https://astral.sh/uv/install.sh \| sh` — or `brew install uv` on macOS |
+| **Rust** | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
+| **Git** | [git-scm.com](https://git-scm.com/) — or `brew install git` on macOS |
+
+> **macOS users:** see the full [macOS Installation Guide](https://open-jarvis.github.io/OpenJarvis/getting-started/macos/) for a step-by-step walkthrough including Homebrew setup.
+
+### Setup
+
 ```bash
 git clone https://github.com/open-jarvis/OpenJarvis.git
 cd OpenJarvis
 uv sync                           # core framework
 uv sync --extra server             # + FastAPI server
 
-# Build the Rust extension (requires Rust: https://rustup.rs/)
+# Build the Rust extension
 uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml
 ```
 
