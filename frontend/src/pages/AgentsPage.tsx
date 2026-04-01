@@ -273,6 +273,10 @@ const TEMPLATE_INSTRUCTIONS: Record<string, string> = {
   'meeting-prep': 'Before my next meeting, pull context from my emails, messages, and past meetings with the attendees. Summarize key topics and suggest talking points.',
 };
 
+function Tooltip({ text }: { text: string }) {
+  return <span className="inline-block ml-1 cursor-help" style={{ color: 'var(--color-text-tertiary)', fontSize: 10 }} title={text}>(?)</span>;
+}
+
 function LaunchWizard({
   templates,
   onClose,
@@ -649,12 +653,12 @@ function LaunchWizard({
           {/* Advanced Settings */}
           <details className="rounded-lg" style={{ border: '1px solid var(--color-border)' }}>
             <summary className="px-3 py-2 cursor-pointer text-sm font-medium" style={{ color: 'var(--color-text-tertiary)' }}>
-              Advanced Settings
+              Advanced Settings <span className="text-xs font-normal">(optional)</span>
             </summary>
             <div className="px-3 pb-3 pt-1 space-y-3" style={{ borderTop: '1px solid var(--color-border)' }}>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
-                  <label className="block text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>Memory Extraction</label>
+                  <label className="block text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>Memory Extraction<Tooltip text="How the agent remembers context between runs" /></label>
                   <select value={wizard.memoryExtraction} onChange={(e) => setWizard((w) => ({ ...w, memoryExtraction: e.target.value }))}
                     className="w-full px-2 py-1 rounded text-xs" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
                     <option value="structured_json">Structured JSON</option>
@@ -664,7 +668,7 @@ function LaunchWizard({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>Observation Compression</label>
+                  <label className="block text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>Observation Compression<Tooltip text="How the agent summarizes long tool outputs" /></label>
                   <select value={wizard.observationCompression} onChange={(e) => setWizard((w) => ({ ...w, observationCompression: e.target.value }))}
                     className="w-full px-2 py-1 rounded text-xs" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
                     <option value="summarize">Summarize</option>
@@ -673,7 +677,7 @@ function LaunchWizard({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>Retrieval Strategy</label>
+                  <label className="block text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>Retrieval Strategy<Tooltip text="How the agent searches your knowledge base" /></label>
                   <select value={wizard.retrievalStrategy} onChange={(e) => setWizard((w) => ({ ...w, retrievalStrategy: e.target.value }))}
                     className="w-full px-2 py-1 rounded text-xs" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
                     <option value="sqlite">BM25 (SQLite FTS5)</option>
@@ -683,7 +687,7 @@ function LaunchWizard({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>Task Decomposition</label>
+                  <label className="block text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>Task Decomposition<Tooltip text="How the agent breaks complex tasks into steps" /></label>
                   <select value={wizard.taskDecomposition} onChange={(e) => setWizard((w) => ({ ...w, taskDecomposition: e.target.value }))}
                     className="w-full px-2 py-1 rounded text-xs" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
                     <option value="hierarchical">Hierarchical</option>
@@ -3015,7 +3019,7 @@ export function AgentsPage() {
   const [channels, setChannels] = useState<ChannelBinding[]>([]);
   const [templates, setTemplates] = useState<AgentTemplate[]>([]);
   const [showWizard, setShowWizard] = useState(false);
-  const [detailTab, setDetailTab] = useState<'overview' | 'interact' | 'channels' | 'messaging' | 'tasks' | 'memory' | 'learning' | 'logs'>('overview');
+  const [detailTab, setDetailTab] = useState<'overview' | 'interact' | 'channels' | 'messaging' | 'tasks' | 'memory' | 'learning' | 'logs'>('interact');
 
   const refresh = useCallback(async () => {
     try {
@@ -3143,8 +3147,8 @@ export function AgentsPage() {
         : null;
 
     const DETAIL_TABS = [
-      { id: 'overview', label: 'Overview', icon: Activity },
       { id: 'interact', label: 'Interact', icon: MessageSquare },
+      { id: 'overview', label: 'Overview', icon: Activity },
       { id: 'channels', label: 'Data Sources', icon: Database },
       { id: 'messaging', label: 'Messaging Channels', icon: Wifi },
       { id: 'tasks', label: 'Tasks', icon: ListTodo },
