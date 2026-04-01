@@ -57,6 +57,7 @@ import {
   Database,
   Copy,
   Check,
+  Pencil,
 } from 'lucide-react';
 import { SOURCE_CATALOG } from '../types/connectors';
 import type { ConnectRequest } from '../types/connectors';
@@ -715,6 +716,8 @@ function AgentCard({
   onRun,
   onRecover,
   onDelete,
+  onChat,
+  onEdit,
 }: {
   agent: ManagedAgent;
   onClick: () => void;
@@ -723,6 +726,8 @@ function AgentCard({
   onRun: (id: string) => void;
   onRecover: (id: string) => void;
   onDelete: (id: string) => void;
+  onChat: (id: string) => void;
+  onEdit: (id: string) => void;
 }) {
   const canPause = agent.status === 'running' || agent.status === 'idle';
   const canResume = agent.status === 'paused';
@@ -794,6 +799,22 @@ function AgentCard({
 
       {/* Row 4: Actions */}
       <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+        <button
+          onClick={(e) => { e.stopPropagation(); onChat(agent.id); }}
+          className="p-1.5 rounded cursor-pointer transition-colors"
+          style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }}
+          title="Chat with agent"
+        >
+          <MessageSquare size={13} />
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onEdit(agent.id); }}
+          className="p-1.5 rounded cursor-pointer transition-colors"
+          style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }}
+          title="Edit agent"
+        >
+          <Pencil size={13} />
+        </button>
         <button
           onClick={() => onRun(agent.id)}
           className="flex items-center gap-1 px-2 py-1 rounded text-xs cursor-pointer transition-colors"
@@ -905,12 +926,57 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
   const [models, setModels] = useState<string[]>([]);
   const currentModel = (agent.config?.model as string) || '(default)';
 
+  // Model availability status: 'available' | 'unavailable' | 'unknown'
+  const [modelAvailable, setModelAvailable] = useState<'available' | 'unavailable' | 'unknown'>('unknown');
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function checkModel() {
+      try {
+        const res = await fetch('http://localhost:11434/api/tags');
+        if (!res.ok) { setModelAvailable('unknown'); return; }
+        const data = await res.json();
+        const loadedNames: string[] = (data.models || []).map((m: { name: string }) => m.name);
+        if (!cancelled) {
+          setOllamaModels(loadedNames);
+          if (currentModel === '(default)') {
+            setModelAvailable(loadedNames.length > 0 ? 'available' : 'unknown');
+          } else {
+            const isLoaded = loadedNames.some(
+              (n) => n === currentModel || n.startsWith(currentModel + ':') || currentModel.startsWith(n.split(':')[0])
+            );
+            setModelAvailable(isLoaded ? 'available' : 'unavailable');
+          }
+        }
+      } catch {
+        if (!cancelled) setModelAvailable('unknown');
+      }
+    }
+    checkModel();
+    return () => { cancelled = true; };
+  }, [currentModel]);
+
   async function startEditingModel() {
     try {
       const fetched = await fetchModels();
       setModels(fetched.map((m) => m.id));
     } catch { /* ignore */ }
+    // Also refresh Ollama models for availability indication
+    try {
+      const res = await fetch('http://localhost:11434/api/tags');
+      if (res.ok) {
+        const data = await res.json();
+        setOllamaModels((data.models || []).map((m: { name: string }) => m.name));
+      }
+    } catch { /* ignore */ }
     setEditingModel(true);
+  }
+
+  function isModelLoaded(modelId: string): boolean {
+    return ollamaModels.some(
+      (n) => n === modelId || n.startsWith(modelId + ':') || modelId.startsWith(n.split(':')[0])
+    );
   }
 
   async function changeModel(newModel: string) {
@@ -925,6 +991,12 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
     setChangingModel(false);
   }
 
+  const modelStatusDot = modelAvailable === 'available'
+    ? '#22c55e'
+    : modelAvailable === 'unavailable'
+      ? '#ef4444'
+      : '#888';
+
   const rows: [string, React.ReactNode][] = [
     ['Intelligence', editingModel ? (
       changingModel ? (
@@ -938,16 +1010,45 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
           className="text-sm rounded px-1 py-0.5"
           style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
         >
-          {models.map((m) => <option key={m} value={m}>{m}</option>)}
+          {models.map((m) => {
+            const loaded = isModelLoaded(m);
+            return (
+              <option key={m} value={m} style={!loaded ? { color: '#888' } : undefined}>
+                {m}{!loaded ? ' (not loaded)' : ''}
+              </option>
+            );
+          })}
         </select>
       )
     ) : (
       <span className="flex items-center gap-2">
+        <span
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: modelStatusDot,
+            display: 'inline-block',
+            flexShrink: 0,
+          }}
+          title={
+            modelAvailable === 'available' ? 'Model running'
+              : modelAvailable === 'unavailable' ? 'Model not available'
+                : 'Could not check model status'
+          }
+        />
         <span style={{ color: 'var(--color-text)' }}>{currentModel}</span>
+        {modelAvailable === 'unavailable' && (
+          <span className="text-xs" style={{ color: '#ef4444' }}>Not available</span>
+        )}
         <button
           onClick={startEditingModel}
           className="text-xs px-2 py-0.5 rounded cursor-pointer"
-          style={{ color: 'var(--color-accent)', border: '1px solid var(--color-accent)', opacity: 0.8 }}
+          style={{
+            color: modelAvailable === 'unavailable' ? '#ef4444' : 'var(--color-accent)',
+            border: `1px solid ${modelAvailable === 'unavailable' ? '#ef4444' : 'var(--color-accent)'}`,
+            opacity: 0.8,
+          }}
         >
           Change
         </button>
@@ -3028,6 +3129,20 @@ export function AgentsPage() {
                 <AlertTriangle size={13} /> Recover
               </button>
             )}
+            <button
+              onClick={async () => {
+                if (window.confirm(`Delete ${selectedAgent.name}? This cannot be undone.`)) {
+                  await deleteManagedAgent(selectedAgent.id);
+                  setSelectedAgentId(null);
+                  await refresh();
+                }
+              }}
+              className="p-1.5 rounded-lg cursor-pointer transition-colors"
+              style={{ color: '#ef4444', background: '#ef444415' }}
+              title="Delete agent"
+            >
+              <Trash2 size={15} />
+            </button>
           </div>
         </div>
 
@@ -3331,6 +3446,14 @@ export function AgentsPage() {
             onRun={handleRun}
             onRecover={handleRecover}
             onDelete={handleDelete}
+            onChat={(id) => {
+              setSelectedAgentId(id);
+              setDetailTab('interact');
+            }}
+            onEdit={(id) => {
+              setSelectedAgentId(id);
+              setDetailTab('overview');
+            }}
           />
         ))}
       </div>
