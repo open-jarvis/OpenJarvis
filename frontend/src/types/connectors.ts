@@ -14,6 +14,7 @@ export interface ConnectorMeta {
   description: string;
   unitLabel?: string;  // "emails", "messages", "meeting notes", "pages", "notes", etc.
   steps?: SetupStep[];
+  troubleshooting?: string[];
   inputFields?: Array<{
     name: string;
     placeholder: string;
@@ -65,16 +66,23 @@ export const SOURCE_CATALOG: ConnectorMeta[] = [
     unitLabel: 'emails',
     steps: [
       {
-        label: 'Go to your Google account security settings and make sure 2-Step Verification is turned ON (required for app passwords)',
+        label: 'Go to your Google Account \u2192 Security \u2192 2-Step Verification. Make sure it\'s turned ON. App Passwords only work if 2-Step Verification is enabled.',
         url: 'https://myaccount.google.com/signinoptions/two-step-verification',
-        urlLabel: 'Open Google Security',
+        urlLabel: 'Open Google Security \u2192',
       },
       {
-        label: 'Go to App Passwords (myaccount.google.com/apppasswords). Select app: "Mail", select device: "Other" and type "OpenJarvis". Click Generate. Google will show a 16-character password — copy it now (you won\'t see it again)',
+        label: 'Go to App Passwords. Select app: "Mail", device: "Other" and type "OpenJarvis". Click Generate. This does NOT open a login popup \u2014 you\'ll get a 16-character password to copy (you won\'t see it again).',
         url: 'https://myaccount.google.com/apppasswords',
-        urlLabel: 'Open App Passwords',
+        urlLabel: 'Open App Passwords \u2192',
       },
-      { label: 'Enter your Gmail address and the 16-character app password below (spaces are fine)' },
+      {
+        label: 'Paste your Gmail address and the 16-character app password below (spaces are fine). Use the app password, NOT your regular Gmail password.',
+      },
+    ],
+    troubleshooting: [
+      "Don't see App Passwords? Make sure 2-Step Verification is enabled first.",
+      "Google Workspace user? Your admin may need to enable App Passwords for your organization.",
+      "Want OAuth instead? Use the Google Drive connector \u2014 it covers Gmail content too.",
     ],
     inputFields: [
       { name: 'email', placeholder: 'you@gmail.com', type: 'text' },
