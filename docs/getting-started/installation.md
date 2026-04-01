@@ -236,11 +236,18 @@ See the [Python SDK guide](../user-guide/python-sdk.md) for the full API referen
 
 ## Requirements
 
-| Requirement | Version | Notes |
-|-------------|---------|-------|
-| Python | 3.10+ | Required |
-| Inference backend | Any | At least one of Ollama, vLLM, llama.cpp, SGLang, or a cloud API |
-| Node.js | 18+ | Required for the browser UI; 22+ for the WhatsApp Baileys channel bridge |
+| Requirement | Version | Install | Notes |
+|-------------|---------|---------|-------|
+| Python | 3.10+ | [python.org](https://www.python.org/downloads/) | Required |
+| uv | latest | `curl -LsSf https://astral.sh/uv/install.sh \| sh` or `brew install uv` (macOS) | Python package & project manager |
+| Git | any | [git-scm.com](https://git-scm.com/) or `brew install git` (macOS) | Required |
+| Rust | stable | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` | Required for the Rust extension |
+| Inference backend | any | See [below](#setting-up-an-inference-backend) | At least one of Ollama, vLLM, llama.cpp, SGLang, or a cloud API |
+| Node.js | 18+ | [nodejs.org](https://nodejs.org/) or `brew install node` (macOS) | Required for the browser UI; 22+ for the WhatsApp Baileys channel bridge |
+
+!!! tip "macOS users"
+    See the [macOS Installation Guide](macos.md) for a complete step-by-step walkthrough
+    covering Homebrew, uv, Rust, llama.cpp, and common pitfalls.
 
 ## Optional Extras
 
