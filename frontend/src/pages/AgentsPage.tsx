@@ -133,7 +133,32 @@ function formatRelativeTime(ts?: number | null): string {
 
 function formatSchedule(type?: string, value?: string): string {
   if (!type || type === 'manual') return 'Manual';
-  if (type === 'cron') return value ? `Cron: ${value}` : 'Cron';
+  if (type === 'cron' && value) {
+    // Try to display human-readable for common cron patterns
+    const parts = value.trim().split(/\s+/);
+    if (parts.length === 5) {
+      const [min, hour, , , dow] = parts;
+      const hourNum = parseInt(hour, 10);
+      const formatHour = (h: number) => {
+        if (h === 0) return '12:00 AM';
+        if (h < 12) return `${h}:00 AM`;
+        if (h === 12) return '12:00 PM';
+        return `${h - 12}:00 PM`;
+      };
+      // Daily pattern: 0 H * * *
+      if (min === '0' && !isNaN(hourNum) && parts[2] === '*' && parts[3] === '*' && dow === '*') {
+        return `Daily at ${formatHour(hourNum)}`;
+      }
+      // Weekly pattern: 0 H * * days
+      if (min === '0' && !isNaN(hourNum) && parts[2] === '*' && parts[3] === '*' && dow !== '*') {
+        const DAY_NAMES: Record<string, string> = { '1': 'Mon', '2': 'Tue', '3': 'Wed', '4': 'Thu', '5': 'Fri', '6': 'Sat', '7': 'Sun' };
+        const dayList = dow.split(',').map(d => DAY_NAMES[d] || d).join(', ');
+        return `Weekly on ${dayList} at ${formatHour(hourNum)}`;
+      }
+    }
+    return `Cron: ${value}`;
+  }
+  if (type === 'cron') return 'Cron';
   if (type === 'interval' && value) {
     const total = parseInt(value);
     if (!isNaN(total) && total > 0) {
@@ -327,9 +352,20 @@ function LaunchWizard({
     if (!wizard.name.trim()) { toast.error('Name is required'); return; }
     setLaunching(true);
     try {
+      // Map friendly schedule presets to API schedule_type/schedule_value
+      let apiScheduleType = wizard.scheduleType;
+      let apiScheduleValue = wizard.scheduleValue;
+      if (wizard.scheduleType === 'daily' || wizard.scheduleType === 'weekly') {
+        apiScheduleType = 'cron';
+        // scheduleValue already holds the cron expression
+      } else if (wizard.scheduleType === 'hourly') {
+        apiScheduleType = 'interval';
+        // scheduleValue already holds seconds as string
+      }
+
       const config: Record<string, unknown> = {
-        schedule_type: wizard.scheduleType,
-        schedule_value: wizard.scheduleValue || undefined,
+        schedule_type: apiScheduleType,
+        schedule_value: apiScheduleValue || undefined,
         tools: wizard.selectedTools,
         learning_enabled: !!wizard.routerPolicy,
         memory_extraction: wizard.memoryExtraction,
@@ -491,9 +527,87 @@ function LaunchWizard({
                 style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
               >
                 <option value="manual">Manual (run on demand)</option>
-                <option value="interval">Interval</option>
-                <option value="cron">Cron</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="hourly">Every N hours</option>
+                <option value="cron">Custom (cron expression)</option>
               </select>
+              {wizard.scheduleType === 'daily' && (
+                <select
+                  value={(() => { const m = wizard.scheduleValue.match(/^0\s+(\d+)\s/); return m ? m[1] : '9'; })()}
+                  onChange={(e) => setWizard((w) => ({ ...w, scheduleValue: `0 ${e.target.value} * * *` }))}
+                  className="w-full px-3 py-1.5 rounded-lg text-xs mt-1.5"
+                  style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                >
+                  {Array.from({ length: 24 }, (_, i) => {
+                    const label = i === 0 ? '12 AM' : i < 12 ? `${i} AM` : i === 12 ? '12 PM' : `${i - 12} PM`;
+                    return <option key={i} value={String(i)}>{label}</option>;
+                  })}
+                </select>
+              )}
+              {wizard.scheduleType === 'weekly' && (
+                <div className="mt-1.5 space-y-1.5">
+                  <div className="flex gap-1">
+                    {(['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] as const).map((day, idx) => {
+                      const dayNum = String(idx + 1);
+                      const cronParts = wizard.scheduleValue.match(/\*\s+\*\s+(.+)$/);
+                      const selectedDays = cronParts ? cronParts[1].split(',') : [];
+                      const isSelected = selectedDays.includes(dayNum);
+                      return (
+                        <button
+                          key={day}
+                          type="button"
+                          onClick={() => {
+                            const newDays = isSelected ? selectedDays.filter(d => d !== dayNum) : [...selectedDays, dayNum].sort();
+                            const hourMatch = wizard.scheduleValue.match(/^0\s+(\d+)\s/);
+                            const hour = hourMatch ? hourMatch[1] : '9';
+                            setWizard((w) => ({ ...w, scheduleValue: newDays.length > 0 ? `0 ${hour} * * ${newDays.join(',')}` : '' }));
+                          }}
+                          className="px-1.5 py-1 rounded text-xs font-medium"
+                          style={{
+                            background: isSelected ? 'var(--color-accent)' : 'var(--color-bg)',
+                            color: isSelected ? '#fff' : 'var(--color-text-tertiary)',
+                            border: `1px solid ${isSelected ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                          }}
+                        >
+                          {day}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <select
+                    value={(() => { const m = wizard.scheduleValue.match(/^0\s+(\d+)\s/); return m ? m[1] : '9'; })()}
+                    onChange={(e) => {
+                      const cronParts = wizard.scheduleValue.match(/\*\s+\*\s+(.+)$/);
+                      const days = cronParts ? cronParts[1] : '1';
+                      setWizard((w) => ({ ...w, scheduleValue: `0 ${e.target.value} * * ${days}` }));
+                    }}
+                    className="w-full px-3 py-1.5 rounded-lg text-xs"
+                    style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                  >
+                    {Array.from({ length: 24 }, (_, i) => {
+                      const label = i === 0 ? '12 AM' : i < 12 ? `${i} AM` : i === 12 ? '12 PM' : `${i - 12} PM`;
+                      return <option key={i} value={String(i)}>{label}</option>;
+                    })}
+                  </select>
+                </div>
+              )}
+              {wizard.scheduleType === 'hourly' && (
+                <div className="flex items-center gap-2 mt-1.5">
+                  <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Every</span>
+                  <input
+                    type="number" min="1" max="24"
+                    value={(() => { const secs = parseInt(wizard.scheduleValue || '0', 10); return secs > 0 ? Math.round(secs / 3600) : 1; })()}
+                    onChange={(e) => {
+                      const hrs = Math.min(24, Math.max(1, parseInt(e.target.value, 10) || 1));
+                      setWizard((w) => ({ ...w, scheduleValue: String(hrs * 3600) }));
+                    }}
+                    className="w-14 px-2 py-1 rounded text-xs text-center"
+                    style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                  />
+                  <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>hours</span>
+                </div>
+              )}
               {wizard.scheduleType === 'cron' && (
                 <input
                   value={wizard.scheduleValue}
@@ -502,38 +616,6 @@ function LaunchWizard({
                   className="w-full px-3 py-1.5 rounded-lg text-xs bg-transparent mt-1.5"
                   style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
                 />
-              )}
-              {wizard.scheduleType === 'interval' && (
-                <div className="flex gap-2 mt-1.5">
-                  <div className="flex items-center gap-1">
-                    <input
-                      type="number" min="0" max="24"
-                      value={Math.floor(parseInt(wizard.scheduleValue || '0', 10) / 3600)}
-                      onChange={(e) => {
-                        const hrs = Math.min(24, Math.max(0, parseInt(e.target.value, 10) || 0));
-                        const mins = Math.floor((parseInt(wizard.scheduleValue || '0', 10) % 3600) / 60);
-                        setWizard((w) => ({ ...w, scheduleValue: String(hrs * 3600 + mins * 60) }));
-                      }}
-                      className="w-14 px-2 py-1 rounded text-xs text-center"
-                      style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
-                    />
-                    <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>hrs</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <input
-                      type="number" min="0" max="59"
-                      value={Math.floor((parseInt(wizard.scheduleValue || '0', 10) % 3600) / 60)}
-                      onChange={(e) => {
-                        const hrs = Math.floor(parseInt(wizard.scheduleValue || '0', 10) / 3600);
-                        const mins = Math.min(59, Math.max(0, parseInt(e.target.value, 10) || 0));
-                        setWizard((w) => ({ ...w, scheduleValue: String(hrs * 3600 + mins * 60) }));
-                      }}
-                      className="w-14 px-2 py-1 rounded text-xs text-center"
-                      style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
-                    />
-                    <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>min</span>
-                  </div>
-                </div>
               )}
             </div>
           </div>
@@ -616,11 +698,13 @@ function LaunchWizard({
                 </div>
                 <div>
                   <label className="block text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>Schedule Type</label>
-                  <select value={wizard.scheduleType} onChange={(e) => setWizard((w) => ({ ...w, scheduleType: e.target.value }))}
+                  <select value={wizard.scheduleType} onChange={(e) => setWizard((w) => ({ ...w, scheduleType: e.target.value, scheduleValue: e.target.value === 'manual' ? '' : w.scheduleValue }))}
                     className="w-full px-2 py-1 rounded text-xs" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
                     <option value="manual">Manual</option>
-                    <option value="cron">Cron</option>
-                    <option value="interval">Interval</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="hourly">Every N hours</option>
+                    <option value="cron">Custom (cron)</option>
                   </select>
                 </div>
               </div>
