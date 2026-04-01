@@ -10,6 +10,7 @@ import {
   sendblueHealth,
 } from '../lib/api';
 import type { ChannelBinding, ManagedAgent } from '../lib/api';
+import { getBase } from '../lib/api';
 import { Database, MessageSquare, Loader2 } from 'lucide-react';
 import { SOURCE_CATALOG } from '../types/connectors';
 import type { ConnectRequest } from '../types/connectors';
@@ -88,6 +89,191 @@ function InlineConnectForm({
 }
 
 // ---------------------------------------------------------------------------
+// Upload / Paste form
+// ---------------------------------------------------------------------------
+
+const ACCEPTED_EXTENSIONS = '.txt,.md,.pdf,.docx,.csv';
+
+function UploadForm({ onDone }: { onDone?: () => void }) {
+  const [tab, setTab] = useState<'paste' | 'upload'>('paste');
+  const [title, setTitle] = useState('');
+  const [content, setContent] = useState('');
+  const [files, setFiles] = useState<File[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState('');
+  const [error, setError] = useState('');
+
+  const handlePaste = async () => {
+    if (!content.trim()) return;
+    setBusy(true);
+    setError('');
+    setResult('');
+    try {
+      const res = await fetch(`${getBase()}/v1/connectors/upload/ingest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: title.trim(), content }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(err.detail || `Upload failed: ${res.status}`);
+      }
+      const data = await res.json();
+      setResult(`Added ${data.chunks_added} chunk${data.chunks_added !== 1 ? 's' : ''} to knowledge base`);
+      setTitle('');
+      setContent('');
+      onDone?.();
+    } catch (err: any) {
+      setError(err.message || 'Upload failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleUpload = async () => {
+    if (files.length === 0) return;
+    setBusy(true);
+    setError('');
+    setResult('');
+    try {
+      const formData = new FormData();
+      for (const f of files) formData.append('files', f);
+      if (title.trim()) formData.append('title', title.trim());
+
+      const res = await fetch(`${getBase()}/v1/connectors/upload/ingest/files`, {
+        method: 'POST',
+        body: formData,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(err.detail || `Upload failed: ${res.status}`);
+      }
+      const data = await res.json();
+      setResult(`Added ${data.chunks_added} chunk${data.chunks_added !== 1 ? 's' : ''} from ${files.length} file${files.length !== 1 ? 's' : ''}`);
+      setFiles([]);
+      setTitle('');
+      onDone?.();
+    } catch (err: any) {
+      setError(err.message || 'Upload failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const tabStyle = (active: boolean): React.CSSProperties => ({
+    flex: 1, padding: '6px 0', textAlign: 'center',
+    fontSize: 12, fontWeight: 600, cursor: 'pointer',
+    background: active ? '#7c3aed' : 'transparent',
+    color: active ? 'white' : 'var(--color-text-secondary)',
+    border: 'none', borderRadius: 4,
+  });
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '7px 10px',
+    background: 'var(--color-bg)',
+    border: '1px solid var(--color-border)',
+    borderRadius: 4, color: 'var(--color-text)',
+    fontSize: 12, marginBottom: 6,
+    boxSizing: 'border-box' as const,
+  };
+
+  return (
+    <div>
+      {/* Tab bar */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 10,
+        background: 'var(--color-bg)', borderRadius: 6, padding: 2 }}>
+        <button style={tabStyle(tab === 'paste')} onClick={() => setTab('paste')}>
+          Paste Text
+        </button>
+        <button style={tabStyle(tab === 'upload')} onClick={() => setTab('upload')}>
+          Upload Files
+        </button>
+      </div>
+
+      {/* Title input (shared) */}
+      <input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="Title (optional)"
+        style={inputStyle}
+      />
+
+      {tab === 'paste' && (
+        <>
+          <textarea
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            placeholder="Paste your text here..."
+            rows={6}
+            style={{
+              ...inputStyle,
+              resize: 'vertical',
+              fontFamily: 'inherit',
+              minHeight: 100,
+            }}
+          />
+          <button
+            onClick={handlePaste}
+            disabled={busy || !content.trim()}
+            style={{
+              width: '100%', padding: 8,
+              background: busy || !content.trim() ? '#444' : '#7c3aed',
+              color: 'white', border: 'none',
+              borderRadius: 6, fontSize: 12, cursor: 'pointer',
+            }}
+          >
+            {busy ? 'Adding...' : 'Add to Knowledge Base'}
+          </button>
+        </>
+      )}
+
+      {tab === 'upload' && (
+        <>
+          <input
+            type="file"
+            multiple
+            accept={ACCEPTED_EXTENSIONS}
+            onChange={(e) => {
+              const selected = Array.from(e.target.files || []);
+              setFiles(selected);
+            }}
+            style={{ ...inputStyle, padding: 6 }}
+          />
+          {files.length > 0 && (
+            <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 6 }}>
+              {files.map((f) => f.name).join(', ')}
+            </div>
+          )}
+          <button
+            onClick={handleUpload}
+            disabled={busy || files.length === 0}
+            style={{
+              width: '100%', padding: 8,
+              background: busy || files.length === 0 ? '#444' : '#7c3aed',
+              color: 'white', border: 'none',
+              borderRadius: 6, fontSize: 12, cursor: 'pointer',
+            }}
+          >
+            {busy ? 'Uploading...' : 'Upload & Index'}
+          </button>
+        </>
+      )}
+
+      {result && (
+        <div style={{ fontSize: 12, color: '#4ade80', marginTop: 8 }}>
+          {result}
+        </div>
+      )}
+      {error && (
+        <div style={{ fontSize: 12, color: '#ef4444', marginTop: 8 }}>
+          {error}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Icon map
 // ---------------------------------------------------------------------------
 
@@ -96,7 +282,7 @@ const iconMap: Record<string, string> = {
   imessage: '\uD83D\uDCAC', gdrive: '\uD83D\uDCC1', notion: '\uD83D\uDCC4',
   obsidian: '\uD83D\uDCC1', granola: '\uD83C\uDF99\uFE0F', gcalendar: '\uD83D\uDCC5',
   gcontacts: '\uD83D\uDCC7', outlook: '\u2709\uFE0F', apple_notes: '\uD83C\uDF4E',
-  dropbox: '\uD83D\uDCE6', whatsapp: '\uD83D\uDCF1',
+  dropbox: '\uD83D\uDCE6', whatsapp: '\uD83D\uDCF1', upload: '\uD83D\uDCC2',
 };
 
 // ---------------------------------------------------------------------------
@@ -369,7 +555,11 @@ function DataSourcesSection() {
       loadConnectors();
       loadSyncStatuses();
     } catch (err: any) {
-      setConnectError(err.message || 'Connection failed');
+      let errorMsg = err.message || 'Connection failed';
+      if (id === 'gmail_imap' && (errorMsg.includes('auth') || errorMsg.includes('credentials') || errorMsg.includes('LOGIN'))) {
+        errorMsg = 'Invalid credentials — make sure you\'re using an App Password (16 characters), not your regular Gmail password.';
+      }
+      setConnectError(errorMsg);
       setConnectStage('');
     } finally {
       setLoading(false);
@@ -379,7 +569,12 @@ function DataSourcesSection() {
   };
 
   const connected = connectors.filter((c) => c.connected);
-  const notConnected = connectors.filter((c) => !c.connected);
+  const notConnectedBase = connectors.filter((c) => !c.connected);
+  // Always show the upload card in the not-connected list (it has no backend connector)
+  const uploadEntry = { connector_id: 'upload', display_name: 'Upload / Paste', connected: false, chunks: 0 };
+  const notConnected = notConnectedBase.some((c) => c.connector_id === 'upload')
+    ? notConnectedBase
+    : [...notConnectedBase, uploadEntry];
 
   return (
     <div>
@@ -527,7 +722,16 @@ function DataSourcesSection() {
                   </span>
                 </div>
 
-                {isExpanded && meta?.steps && (
+                {isExpanded && c.connector_id === 'upload' && (
+                  <div style={{ borderTop: '1px solid var(--color-border)', padding: 12 }}>
+                    <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 10 }}>
+                      Paste text or upload files (.txt, .md, .pdf, .docx, .csv) to add them to your knowledge base.
+                    </div>
+                    <UploadForm onDone={loadConnectors} />
+                  </div>
+                )}
+
+                {isExpanded && c.connector_id !== 'upload' && meta?.steps && (
                   <div style={{ borderTop: '1px solid var(--color-border)', padding: 12 }}>
                     {meta.steps.map((step, i) => (
                       <div
@@ -561,6 +765,20 @@ function DataSourcesSection() {
                         loading={loading && connectingId === c.connector_id}
                         onSubmit={(req) => handleConnect(c.connector_id, req)}
                       />
+                    )}
+                    {meta?.troubleshooting && (
+                      <details className="mt-2">
+                        <summary className="text-[11px] cursor-pointer" style={{ color: 'var(--color-text-tertiary)' }}>
+                          Having trouble?
+                        </summary>
+                        <ul className="mt-1 space-y-1">
+                          {meta.troubleshooting.map((tip: string, i: number) => (
+                            <li key={i} className="text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>
+                              {tip}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
                     )}
                     {/* Connection progress */}
                     {connectingId === c.connector_id && connectStage && (

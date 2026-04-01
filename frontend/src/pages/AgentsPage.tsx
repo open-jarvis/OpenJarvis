@@ -57,6 +57,7 @@ import {
   Database,
   Copy,
   Check,
+  Pencil,
 } from 'lucide-react';
 import { SOURCE_CATALOG } from '../types/connectors';
 import type { ConnectRequest } from '../types/connectors';
@@ -132,7 +133,32 @@ function formatRelativeTime(ts?: number | null): string {
 
 function formatSchedule(type?: string, value?: string): string {
   if (!type || type === 'manual') return 'Manual';
-  if (type === 'cron') return value ? `Cron: ${value}` : 'Cron';
+  if (type === 'cron' && value) {
+    // Try to display human-readable for common cron patterns
+    const parts = value.trim().split(/\s+/);
+    if (parts.length === 5) {
+      const [min, hour, , , dow] = parts;
+      const hourNum = parseInt(hour, 10);
+      const formatHour = (h: number) => {
+        if (h === 0) return '12:00 AM';
+        if (h < 12) return `${h}:00 AM`;
+        if (h === 12) return '12:00 PM';
+        return `${h - 12}:00 PM`;
+      };
+      // Daily pattern: 0 H * * *
+      if (min === '0' && !isNaN(hourNum) && parts[2] === '*' && parts[3] === '*' && dow === '*') {
+        return `Daily at ${formatHour(hourNum)}`;
+      }
+      // Weekly pattern: 0 H * * days
+      if (min === '0' && !isNaN(hourNum) && parts[2] === '*' && parts[3] === '*' && dow !== '*') {
+        const DAY_NAMES: Record<string, string> = { '1': 'Mon', '2': 'Tue', '3': 'Wed', '4': 'Thu', '5': 'Fri', '6': 'Sat', '7': 'Sun' };
+        const dayList = dow.split(',').map(d => DAY_NAMES[d] || d).join(', ');
+        return `Weekly on ${dayList} at ${formatHour(hourNum)}`;
+      }
+    }
+    return `Cron: ${value}`;
+  }
+  if (type === 'cron') return 'Cron';
   if (type === 'interval' && value) {
     const total = parseInt(value);
     if (!isNaN(total) && total > 0) {
@@ -240,6 +266,23 @@ interface WizardState {
 }
 
 
+const TEMPLATE_INSTRUCTIONS: Record<string, string> = {
+  'daily-briefing': 'Every morning, give me a fun quote of the day, summarize my top important emails, list any meetings today from my calendar, and tell me the weather for [my city].',
+  'daily_briefing': 'Every morning, give me a fun quote of the day, summarize my top important emails, list any meetings today from my calendar, and tell me the weather for [my city].',
+  'research-monitor': 'Search for the latest news and papers on [your topic]. Summarize the top 3 most relevant findings and explain why they matter.',
+  'research_monitor': 'Search for the latest news and papers on [your topic]. Summarize the top 3 most relevant findings and explain why they matter.',
+  'code-reviewer': 'Review the latest commits in [repo]. Check for bugs, security issues, and style violations. Summarize findings with file paths and line numbers.',
+  'code_reviewer': 'Review the latest commits in [repo]. Check for bugs, security issues, and style violations. Summarize findings with file paths and line numbers.',
+  'meeting-prep': 'Before my next meeting, pull context from my emails, messages, and past meetings with the attendees. Summarize key topics and suggest talking points.',
+  'meeting_prep': 'Before my next meeting, pull context from my emails, messages, and past meetings with the attendees. Summarize key topics and suggest talking points.',
+  'personal_deep_research': 'Search across all my personal data — messages, emails, meetings, documents, and notes — to answer [my question]. Cite your sources.',
+  'inbox_triager': 'Check my recent emails and messages. Categorize them by priority (urgent, important, FYI, spam). Summarize the top items I should act on.',
+};
+
+function Tooltip({ text }: { text: string }) {
+  return <span className="inline-block ml-1 cursor-help" style={{ color: 'var(--color-text-tertiary)', fontSize: 10 }} title={text}>(?)</span>;
+}
+
 function LaunchWizard({
   templates,
   onClose,
@@ -293,7 +336,7 @@ function LaunchWizard({
         templateId: tpl.id,
         templateData: tpl,
         name: '',
-        instruction: '',
+        instruction: (tpl as any).instruction || TEMPLATE_INSTRUCTIONS[tpl.id] || '',
         model: recommendedModel || w.model,
         scheduleType: (tpl as any).schedule_type || 'manual',
         scheduleValue: (tpl as any).schedule_value || '',
@@ -326,9 +369,20 @@ function LaunchWizard({
     if (!wizard.name.trim()) { toast.error('Name is required'); return; }
     setLaunching(true);
     try {
+      // Map friendly schedule presets to API schedule_type/schedule_value
+      let apiScheduleType = wizard.scheduleType;
+      let apiScheduleValue = wizard.scheduleValue;
+      if (wizard.scheduleType === 'daily' || wizard.scheduleType === 'weekly') {
+        apiScheduleType = 'cron';
+        // scheduleValue already holds the cron expression
+      } else if (wizard.scheduleType === 'hourly') {
+        apiScheduleType = 'interval';
+        // scheduleValue already holds seconds as string
+      }
+
       const config: Record<string, unknown> = {
-        schedule_type: wizard.scheduleType,
-        schedule_value: wizard.scheduleValue || undefined,
+        schedule_type: apiScheduleType,
+        schedule_value: apiScheduleValue || undefined,
         tools: wizard.selectedTools,
         learning_enabled: !!wizard.routerPolicy,
         memory_extraction: wizard.memoryExtraction,
@@ -462,6 +516,11 @@ function LaunchWizard({
               className="w-full px-3 py-2 rounded-lg text-sm bg-transparent resize-none"
               style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
             />
+            {wizard.instruction.includes('[') && (
+              <p className="text-[10px] mt-1" style={{ color: '#f59e0b' }}>
+                Replace the [bracketed text] with your own values
+              </p>
+            )}
           </div>
 
           {/* Model + Schedule row */}
@@ -490,9 +549,87 @@ function LaunchWizard({
                 style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
               >
                 <option value="manual">Manual (run on demand)</option>
-                <option value="interval">Interval</option>
-                <option value="cron">Cron</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="hourly">Every N hours</option>
+                <option value="cron">Custom (cron expression)</option>
               </select>
+              {wizard.scheduleType === 'daily' && (
+                <select
+                  value={(() => { const m = wizard.scheduleValue.match(/^0\s+(\d+)\s/); return m ? m[1] : '9'; })()}
+                  onChange={(e) => setWizard((w) => ({ ...w, scheduleValue: `0 ${e.target.value} * * *` }))}
+                  className="w-full px-3 py-1.5 rounded-lg text-xs mt-1.5"
+                  style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                >
+                  {Array.from({ length: 24 }, (_, i) => {
+                    const label = i === 0 ? '12 AM' : i < 12 ? `${i} AM` : i === 12 ? '12 PM' : `${i - 12} PM`;
+                    return <option key={i} value={String(i)}>{label}</option>;
+                  })}
+                </select>
+              )}
+              {wizard.scheduleType === 'weekly' && (
+                <div className="mt-1.5 space-y-1.5">
+                  <div className="flex gap-1">
+                    {(['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] as const).map((day, idx) => {
+                      const dayNum = String(idx + 1);
+                      const cronParts = wizard.scheduleValue.match(/\*\s+\*\s+(.+)$/);
+                      const selectedDays = cronParts ? cronParts[1].split(',') : [];
+                      const isSelected = selectedDays.includes(dayNum);
+                      return (
+                        <button
+                          key={day}
+                          type="button"
+                          onClick={() => {
+                            const newDays = isSelected ? selectedDays.filter(d => d !== dayNum) : [...selectedDays, dayNum].sort();
+                            const hourMatch = wizard.scheduleValue.match(/^0\s+(\d+)\s/);
+                            const hour = hourMatch ? hourMatch[1] : '9';
+                            setWizard((w) => ({ ...w, scheduleValue: newDays.length > 0 ? `0 ${hour} * * ${newDays.join(',')}` : '' }));
+                          }}
+                          className="px-1.5 py-1 rounded text-xs font-medium"
+                          style={{
+                            background: isSelected ? 'var(--color-accent)' : 'var(--color-bg)',
+                            color: isSelected ? '#fff' : 'var(--color-text-tertiary)',
+                            border: `1px solid ${isSelected ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                          }}
+                        >
+                          {day}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <select
+                    value={(() => { const m = wizard.scheduleValue.match(/^0\s+(\d+)\s/); return m ? m[1] : '9'; })()}
+                    onChange={(e) => {
+                      const cronParts = wizard.scheduleValue.match(/\*\s+\*\s+(.+)$/);
+                      const days = cronParts ? cronParts[1] : '1';
+                      setWizard((w) => ({ ...w, scheduleValue: `0 ${e.target.value} * * ${days}` }));
+                    }}
+                    className="w-full px-3 py-1.5 rounded-lg text-xs"
+                    style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                  >
+                    {Array.from({ length: 24 }, (_, i) => {
+                      const label = i === 0 ? '12 AM' : i < 12 ? `${i} AM` : i === 12 ? '12 PM' : `${i - 12} PM`;
+                      return <option key={i} value={String(i)}>{label}</option>;
+                    })}
+                  </select>
+                </div>
+              )}
+              {wizard.scheduleType === 'hourly' && (
+                <div className="flex items-center gap-2 mt-1.5">
+                  <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Every</span>
+                  <input
+                    type="number" min="1" max="24"
+                    value={(() => { const secs = parseInt(wizard.scheduleValue || '0', 10); return secs > 0 ? Math.round(secs / 3600) : 1; })()}
+                    onChange={(e) => {
+                      const hrs = Math.min(24, Math.max(1, parseInt(e.target.value, 10) || 1));
+                      setWizard((w) => ({ ...w, scheduleValue: String(hrs * 3600) }));
+                    }}
+                    className="w-14 px-2 py-1 rounded text-xs text-center"
+                    style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                  />
+                  <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>hours</span>
+                </div>
+              )}
               {wizard.scheduleType === 'cron' && (
                 <input
                   value={wizard.scheduleValue}
@@ -501,38 +638,6 @@ function LaunchWizard({
                   className="w-full px-3 py-1.5 rounded-lg text-xs bg-transparent mt-1.5"
                   style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
                 />
-              )}
-              {wizard.scheduleType === 'interval' && (
-                <div className="flex gap-2 mt-1.5">
-                  <div className="flex items-center gap-1">
-                    <input
-                      type="number" min="0" max="24"
-                      value={Math.floor(parseInt(wizard.scheduleValue || '0', 10) / 3600)}
-                      onChange={(e) => {
-                        const hrs = Math.min(24, Math.max(0, parseInt(e.target.value, 10) || 0));
-                        const mins = Math.floor((parseInt(wizard.scheduleValue || '0', 10) % 3600) / 60);
-                        setWizard((w) => ({ ...w, scheduleValue: String(hrs * 3600 + mins * 60) }));
-                      }}
-                      className="w-14 px-2 py-1 rounded text-xs text-center"
-                      style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
-                    />
-                    <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>hrs</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <input
-                      type="number" min="0" max="59"
-                      value={Math.floor((parseInt(wizard.scheduleValue || '0', 10) % 3600) / 60)}
-                      onChange={(e) => {
-                        const hrs = Math.floor(parseInt(wizard.scheduleValue || '0', 10) / 3600);
-                        const mins = Math.min(59, Math.max(0, parseInt(e.target.value, 10) || 0));
-                        setWizard((w) => ({ ...w, scheduleValue: String(hrs * 3600 + mins * 60) }));
-                      }}
-                      className="w-14 px-2 py-1 rounded text-xs text-center"
-                      style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
-                    />
-                    <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>min</span>
-                  </div>
-                </div>
               )}
             </div>
           </div>
@@ -554,12 +659,12 @@ function LaunchWizard({
           {/* Advanced Settings */}
           <details className="rounded-lg" style={{ border: '1px solid var(--color-border)' }}>
             <summary className="px-3 py-2 cursor-pointer text-sm font-medium" style={{ color: 'var(--color-text-tertiary)' }}>
-              Advanced Settings
+              Advanced Settings <span className="text-xs font-normal">(optional)</span>
             </summary>
             <div className="px-3 pb-3 pt-1 space-y-3" style={{ borderTop: '1px solid var(--color-border)' }}>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
-                  <label className="block text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>Memory Extraction</label>
+                  <label className="block text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>Memory Extraction<Tooltip text="How the agent remembers context between runs" /></label>
                   <select value={wizard.memoryExtraction} onChange={(e) => setWizard((w) => ({ ...w, memoryExtraction: e.target.value }))}
                     className="w-full px-2 py-1 rounded text-xs" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
                     <option value="structured_json">Structured JSON</option>
@@ -569,7 +674,7 @@ function LaunchWizard({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>Observation Compression</label>
+                  <label className="block text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>Observation Compression<Tooltip text="How the agent summarizes long tool outputs" /></label>
                   <select value={wizard.observationCompression} onChange={(e) => setWizard((w) => ({ ...w, observationCompression: e.target.value }))}
                     className="w-full px-2 py-1 rounded text-xs" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
                     <option value="summarize">Summarize</option>
@@ -578,7 +683,7 @@ function LaunchWizard({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>Retrieval Strategy</label>
+                  <label className="block text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>Retrieval Strategy<Tooltip text="How the agent searches your knowledge base" /></label>
                   <select value={wizard.retrievalStrategy} onChange={(e) => setWizard((w) => ({ ...w, retrievalStrategy: e.target.value }))}
                     className="w-full px-2 py-1 rounded text-xs" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
                     <option value="sqlite">BM25 (SQLite FTS5)</option>
@@ -588,7 +693,7 @@ function LaunchWizard({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>Task Decomposition</label>
+                  <label className="block text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>Task Decomposition<Tooltip text="How the agent breaks complex tasks into steps" /></label>
                   <select value={wizard.taskDecomposition} onChange={(e) => setWizard((w) => ({ ...w, taskDecomposition: e.target.value }))}
                     className="w-full px-2 py-1 rounded text-xs" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
                     <option value="hierarchical">Hierarchical</option>
@@ -615,11 +720,13 @@ function LaunchWizard({
                 </div>
                 <div>
                   <label className="block text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>Schedule Type</label>
-                  <select value={wizard.scheduleType} onChange={(e) => setWizard((w) => ({ ...w, scheduleType: e.target.value }))}
+                  <select value={wizard.scheduleType} onChange={(e) => setWizard((w) => ({ ...w, scheduleType: e.target.value, scheduleValue: e.target.value === 'manual' ? '' : w.scheduleValue }))}
                     className="w-full px-2 py-1 rounded text-xs" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
                     <option value="manual">Manual</option>
-                    <option value="cron">Cron</option>
-                    <option value="interval">Interval</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="hourly">Every N hours</option>
+                    <option value="cron">Custom (cron)</option>
                   </select>
                 </div>
               </div>
@@ -715,6 +822,8 @@ function AgentCard({
   onRun,
   onRecover,
   onDelete,
+  onChat,
+  onEdit,
 }: {
   agent: ManagedAgent;
   onClick: () => void;
@@ -723,6 +832,8 @@ function AgentCard({
   onRun: (id: string) => void;
   onRecover: (id: string) => void;
   onDelete: (id: string) => void;
+  onChat: (id: string) => void;
+  onEdit: (id: string) => void;
 }) {
   const canPause = agent.status === 'running' || agent.status === 'idle';
   const canResume = agent.status === 'paused';
@@ -794,6 +905,22 @@ function AgentCard({
 
       {/* Row 4: Actions */}
       <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+        <button
+          onClick={(e) => { e.stopPropagation(); onChat(agent.id); }}
+          className="p-1.5 rounded cursor-pointer transition-colors"
+          style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }}
+          title="Chat with agent"
+        >
+          <MessageSquare size={13} />
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onEdit(agent.id); }}
+          className="p-1.5 rounded cursor-pointer transition-colors"
+          style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }}
+          title="Edit agent"
+        >
+          <Pencil size={13} />
+        </button>
         <button
           onClick={() => onRun(agent.id)}
           className="flex items-center gap-1 px-2 py-1 rounded text-xs cursor-pointer transition-colors"
@@ -905,12 +1032,57 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
   const [models, setModels] = useState<string[]>([]);
   const currentModel = (agent.config?.model as string) || '(default)';
 
+  // Model availability status: 'available' | 'unavailable' | 'unknown'
+  const [modelAvailable, setModelAvailable] = useState<'available' | 'unavailable' | 'unknown'>('unknown');
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function checkModel() {
+      try {
+        const res = await fetch('http://localhost:11434/api/tags');
+        if (!res.ok) { setModelAvailable('unknown'); return; }
+        const data = await res.json();
+        const loadedNames: string[] = (data.models || []).map((m: { name: string }) => m.name);
+        if (!cancelled) {
+          setOllamaModels(loadedNames);
+          if (currentModel === '(default)') {
+            setModelAvailable(loadedNames.length > 0 ? 'available' : 'unknown');
+          } else {
+            const isLoaded = loadedNames.some(
+              (n) => n === currentModel || n.startsWith(currentModel + ':') || currentModel.startsWith(n.split(':')[0])
+            );
+            setModelAvailable(isLoaded ? 'available' : 'unavailable');
+          }
+        }
+      } catch {
+        if (!cancelled) setModelAvailable('unknown');
+      }
+    }
+    checkModel();
+    return () => { cancelled = true; };
+  }, [currentModel]);
+
   async function startEditingModel() {
     try {
       const fetched = await fetchModels();
       setModels(fetched.map((m) => m.id));
     } catch { /* ignore */ }
+    // Also refresh Ollama models for availability indication
+    try {
+      const res = await fetch('http://localhost:11434/api/tags');
+      if (res.ok) {
+        const data = await res.json();
+        setOllamaModels((data.models || []).map((m: { name: string }) => m.name));
+      }
+    } catch { /* ignore */ }
     setEditingModel(true);
+  }
+
+  function isModelLoaded(modelId: string): boolean {
+    return ollamaModels.some(
+      (n) => n === modelId || n.startsWith(modelId + ':') || modelId.startsWith(n.split(':')[0])
+    );
   }
 
   async function changeModel(newModel: string) {
@@ -925,6 +1097,12 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
     setChangingModel(false);
   }
 
+  const modelStatusDot = modelAvailable === 'available'
+    ? '#22c55e'
+    : modelAvailable === 'unavailable'
+      ? '#ef4444'
+      : '#888';
+
   const rows: [string, React.ReactNode][] = [
     ['Intelligence', editingModel ? (
       changingModel ? (
@@ -938,16 +1116,45 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
           className="text-sm rounded px-1 py-0.5"
           style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
         >
-          {models.map((m) => <option key={m} value={m}>{m}</option>)}
+          {models.map((m) => {
+            const loaded = isModelLoaded(m);
+            return (
+              <option key={m} value={m} style={!loaded ? { color: '#888' } : undefined}>
+                {m}{!loaded ? ' (not loaded)' : ''}
+              </option>
+            );
+          })}
         </select>
       )
     ) : (
       <span className="flex items-center gap-2">
+        <span
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: modelStatusDot,
+            display: 'inline-block',
+            flexShrink: 0,
+          }}
+          title={
+            modelAvailable === 'available' ? 'Model running'
+              : modelAvailable === 'unavailable' ? 'Model not available'
+                : 'Could not check model status'
+          }
+        />
         <span style={{ color: 'var(--color-text)' }}>{currentModel}</span>
+        {modelAvailable === 'unavailable' && (
+          <span className="text-xs" style={{ color: '#ef4444' }}>Not available</span>
+        )}
         <button
           onClick={startEditingModel}
           className="text-xs px-2 py-0.5 rounded cursor-pointer"
-          style={{ color: 'var(--color-accent)', border: '1px solid var(--color-accent)', opacity: 0.8 }}
+          style={{
+            color: modelAvailable === 'unavailable' ? '#ef4444' : 'var(--color-accent)',
+            border: `1px solid ${modelAvailable === 'unavailable' ? '#ef4444' : 'var(--color-accent)'}`,
+            opacity: 0.8,
+          }}
         >
           Change
         </button>
@@ -2818,7 +3025,7 @@ export function AgentsPage() {
   const [channels, setChannels] = useState<ChannelBinding[]>([]);
   const [templates, setTemplates] = useState<AgentTemplate[]>([]);
   const [showWizard, setShowWizard] = useState(false);
-  const [detailTab, setDetailTab] = useState<'overview' | 'interact' | 'channels' | 'messaging' | 'tasks' | 'memory' | 'learning' | 'logs'>('overview');
+  const [detailTab, setDetailTab] = useState<'overview' | 'interact' | 'channels' | 'messaging' | 'tasks' | 'memory' | 'learning' | 'logs'>('interact');
 
   const refresh = useCallback(async () => {
     try {
@@ -2946,8 +3153,8 @@ export function AgentsPage() {
         : null;
 
     const DETAIL_TABS = [
-      { id: 'overview', label: 'Overview', icon: Activity },
       { id: 'interact', label: 'Interact', icon: MessageSquare },
+      { id: 'overview', label: 'Overview', icon: Activity },
       { id: 'channels', label: 'Data Sources', icon: Database },
       { id: 'messaging', label: 'Messaging Channels', icon: Wifi },
       { id: 'tasks', label: 'Tasks', icon: ListTodo },
@@ -3028,6 +3235,20 @@ export function AgentsPage() {
                 <AlertTriangle size={13} /> Recover
               </button>
             )}
+            <button
+              onClick={async () => {
+                if (window.confirm(`Delete ${selectedAgent.name}? This cannot be undone.`)) {
+                  await deleteManagedAgent(selectedAgent.id);
+                  setSelectedAgentId(null);
+                  await refresh();
+                }
+              }}
+              className="p-1.5 rounded-lg cursor-pointer transition-colors"
+              style={{ color: '#ef4444', background: '#ef444415' }}
+              title="Delete agent"
+            >
+              <Trash2 size={15} />
+            </button>
           </div>
         </div>
 
@@ -3331,6 +3552,14 @@ export function AgentsPage() {
             onRun={handleRun}
             onRecover={handleRecover}
             onDelete={handleDelete}
+            onChat={(id) => {
+              setSelectedAgentId(id);
+              setDetailTab('interact');
+            }}
+            onEdit={(id) => {
+              setSelectedAgentId(id);
+              setDetailTab('overview');
+            }}
           />
         ))}
       </div>
