@@ -266,6 +266,13 @@ interface WizardState {
 }
 
 
+const TEMPLATE_INSTRUCTIONS: Record<string, string> = {
+  'daily-briefing': 'Every morning, give me a fun quote of the day, summarize my top important emails, list any meetings today from my calendar, and tell me the weather for [my city].',
+  'research-monitor': 'Search for the latest news and papers on [your topic]. Summarize the top 3 most relevant findings and explain why they matter.',
+  'code-reviewer': 'Review the latest commits in [repo]. Check for bugs, security issues, and style violations. Summarize findings with file paths and line numbers.',
+  'meeting-prep': 'Before my next meeting, pull context from my emails, messages, and past meetings with the attendees. Summarize key topics and suggest talking points.',
+};
+
 function LaunchWizard({
   templates,
   onClose,
@@ -319,7 +326,7 @@ function LaunchWizard({
         templateId: tpl.id,
         templateData: tpl,
         name: '',
-        instruction: '',
+        instruction: (tpl as any).instruction || TEMPLATE_INSTRUCTIONS[tpl.id] || '',
         model: recommendedModel || w.model,
         scheduleType: (tpl as any).schedule_type || 'manual',
         scheduleValue: (tpl as any).schedule_value || '',
@@ -499,6 +506,11 @@ function LaunchWizard({
               className="w-full px-3 py-2 rounded-lg text-sm bg-transparent resize-none"
               style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
             />
+            {wizard.instruction.includes('[') && (
+              <p className="text-[10px] mt-1" style={{ color: '#f59e0b' }}>
+                Replace the [bracketed text] with your own values
+              </p>
+            )}
           </div>
 
           {/* Model + Schedule row */}
