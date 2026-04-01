@@ -14,9 +14,70 @@ import {
   Upload,
   Trash2,
   Mic,
+  Key,
+  Search,
 } from 'lucide-react';
 import { useAppStore, type ThemeMode } from '../lib/store';
 import { checkHealth, fetchSpeechHealth } from '../lib/api';
+
+function OllamaModelList() {
+  const [models, setModels] = useState<Array<{ name: string; size: number }>>([]);
+  useEffect(() => {
+    fetch('http://localhost:11434/api/tags')
+      .then(r => r.json())
+      .then(data => setModels((data.models || []).map((m: any) => ({ name: m.name, size: m.size }))))
+      .catch(() => setModels([]));
+  }, []);
+  if (models.length === 0) return <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>No models loaded</span>;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {models.map(m => (
+        <span key={m.name} className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px]"
+          style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text)' }}>
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />
+          {m.name} ({(m.size / 1e9).toFixed(1)} GB)
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function ApiKeyInput({ storageKey, placeholder }: { storageKey: string; placeholder: string }) {
+  const [value, setValue] = useState(() => {
+    try { return localStorage.getItem(storageKey) || ''; } catch { return ''; }
+  });
+  const [saved, setSaved] = useState(false);
+  const save = (v: string) => {
+    setValue(v);
+    try { if (v) localStorage.setItem(storageKey, v); else localStorage.removeItem(storageKey); } catch {}
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+  return (
+    <div className="flex items-center gap-2">
+      <input type="password" value={value} onChange={e => save(e.target.value)} placeholder={placeholder}
+        className="w-48 px-2 py-1 rounded text-xs"
+        style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }} />
+      {saved && <span className="text-[10px]" style={{ color: '#22c55e' }}>Saved</span>}
+    </div>
+  );
+}
+
+function CloudProviderStatus({ label, storageKey }: { label: string; storageKey: string }) {
+  const [hasKey, setHasKey] = useState(false);
+  useEffect(() => {
+    try { setHasKey(!!localStorage.getItem(storageKey)); } catch { setHasKey(false); }
+  }, [storageKey]);
+  return (
+    <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+      <span style={{
+        width: 6, height: 6, borderRadius: '50%', display: 'inline-block',
+        background: hasKey ? '#22c55e' : 'var(--color-text-tertiary)',
+      }} />
+      {label}
+    </span>
+  );
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -207,6 +268,47 @@ export function SettingsPage() {
                   border: '1px solid var(--color-border)',
                 }}
               />
+            </SettingRow>
+          </Section>
+
+          {/* Models */}
+          <Section title="Models">
+            <SettingRow label="Local models (Ollama)" description="Models available for local inference">
+              <OllamaModelList />
+            </SettingRow>
+            <div className="text-xs mt-2 px-1" style={{ color: 'var(--color-text-tertiary)' }}>
+              Run <code className="px-1 py-0.5 rounded text-[11px]" style={{ background: 'var(--color-bg-tertiary)' }}>ollama pull &lt;model-name&gt;</code> in your terminal to add more models
+            </div>
+            <SettingRow label="Cloud providers" description="Green dot means API key is configured">
+              <div className="flex flex-wrap gap-3">
+                <CloudProviderStatus label="OpenAI" storageKey="openjarvis-openai-key" />
+                <CloudProviderStatus label="Anthropic" storageKey="openjarvis-anthropic-key" />
+                <CloudProviderStatus label="Google" storageKey="openjarvis-gemini-key" />
+                <CloudProviderStatus label="OpenRouter" storageKey="openjarvis-openrouter-key" />
+              </div>
+            </SettingRow>
+          </Section>
+
+          {/* API Keys */}
+          <Section title="API Keys">
+            <SettingRow label="OpenAI" description="GPT-4, GPT-3.5, etc.">
+              <ApiKeyInput storageKey="openjarvis-openai-key" placeholder="sk-..." />
+            </SettingRow>
+            <SettingRow label="Anthropic" description="Claude models">
+              <ApiKeyInput storageKey="openjarvis-anthropic-key" placeholder="sk-ant-..." />
+            </SettingRow>
+            <SettingRow label="Google" description="Gemini models">
+              <ApiKeyInput storageKey="openjarvis-gemini-key" placeholder="AI..." />
+            </SettingRow>
+            <SettingRow label="OpenRouter" description="Multi-provider routing">
+              <ApiKeyInput storageKey="openjarvis-openrouter-key" placeholder="sk-or-..." />
+            </SettingRow>
+          </Section>
+
+          {/* Tools */}
+          <Section title="Tools">
+            <SettingRow label="Web Search" description="SerpAPI or Tavily key for web search tool">
+              <ApiKeyInput storageKey="openjarvis-search-key" placeholder="API key..." />
             </SettingRow>
           </Section>
 
