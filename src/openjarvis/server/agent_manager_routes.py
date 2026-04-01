@@ -719,7 +719,7 @@ async def _stream_managed_agent(
                 # Stream progress events and final content
                 while True:
                     try:
-                        event = await asyncio.to_thread(progress_q.get, timeout=120)
+                        event = await asyncio.to_thread(progress_q.get, timeout=600)
                     except Exception:
                         # Timeout
                         yield _sse_chunk(chunk_id, model, "Agent timed out.")

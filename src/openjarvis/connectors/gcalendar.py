@@ -316,9 +316,12 @@ class GCalendarConnector(BaseConnector):
             page_token: Optional[str] = cursor
 
             while True:
-                events_resp = _gcal_api_events_list(
-                    token, calendar_id, page_token=page_token
-                )
+                try:
+                    events_resp = _gcal_api_events_list(
+                        token, calendar_id, page_token=page_token
+                    )
+                except httpx.HTTPStatusError:
+                    break
                 events: List[Dict[str, Any]] = events_resp.get("items", [])
 
                 for event in events:
