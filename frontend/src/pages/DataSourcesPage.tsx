@@ -81,7 +81,7 @@ function InlineConnectForm({
           borderRadius: 6, fontSize: 12, cursor: 'pointer',
         }}
       >
-        {loading ? 'Connecting...' : 'Connect'}
+        Connect
       </button>
     </div>
   );
@@ -327,20 +327,54 @@ function DataSourcesSection() {
     }
   }, [connectors, loadSyncStatuses]);
 
+  const [connectingId, setConnectingId] = useState<string | null>(null);
+  const [connectStage, setConnectStage] = useState<string>('');
+  const [connectError, setConnectError] = useState<string>('');
+
   const handleConnect = async (id: string, req: ConnectRequest) => {
     setLoading(true);
+    setConnectingId(id);
+    setConnectStage('Connecting...');
+    setConnectError('');
     try {
       await connectSource(id, req);
-      setExpandedId(null);
-      for (let i = 0; i < 30; i++) {
-        await new Promise((r) => setTimeout(r, 3000));
-        await loadConnectors();
+      setConnectStage('Connected! Starting sync...');
+
+      // Wait for connector to show as connected
+      for (let i = 0; i < 20; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
         const updated = await listConnectors();
         const target = updated.find((c) => c.connector_id === id);
-        if (target?.connected) break;
+        if (target?.connected) {
+          setConnectors(updated.map((c) => ({
+            connector_id: c.connector_id,
+            display_name: c.display_name,
+            connected: c.connected,
+            chunks: (c as any).chunks || 0,
+          })));
+          break;
+        }
+        setConnectStage(i < 5 ? 'Authenticating...' : 'Waiting for connection...');
       }
-    } catch { /* */ } finally {
+
+      // Trigger sync
+      setConnectStage('Syncing data...');
+      try {
+        await triggerSync(id);
+      } catch { /* sync may already be running */ }
+
+      // Close form after a brief moment
+      await new Promise((r) => setTimeout(r, 1500));
+      setExpandedId(null);
+      loadConnectors();
+      loadSyncStatuses();
+    } catch (err: any) {
+      setConnectError(err.message || 'Connection failed');
+      setConnectStage('');
+    } finally {
       setLoading(false);
+      setConnectingId(null);
+      setConnectStage('');
     }
   };
 
@@ -524,9 +558,42 @@ function DataSourcesSection() {
                     {meta?.inputFields && (
                       <InlineConnectForm
                         fields={meta.inputFields}
-                        loading={loading}
+                        loading={loading && connectingId === c.connector_id}
                         onSubmit={(req) => handleConnect(c.connector_id, req)}
                       />
+                    )}
+                    {/* Connection progress */}
+                    {connectingId === c.connector_id && connectStage && (
+                      <div style={{ marginTop: 8 }}>
+                        <div style={{
+                          display: 'flex', alignItems: 'center', gap: 6,
+                          fontSize: 12, color: '#f59e0b',
+                        }}>
+                          <div className="animate-spin" style={{
+                            width: 12, height: 12, borderRadius: '50%',
+                            border: '2px solid #f59e0b',
+                            borderTopColor: 'transparent',
+                          }} />
+                          {connectStage}
+                        </div>
+                        <div style={{
+                          height: 3, borderRadius: 2, marginTop: 6,
+                          background: 'var(--color-bg-tertiary)',
+                          overflow: 'hidden',
+                        }}>
+                          <div style={{
+                            height: '100%', borderRadius: 2, background: '#f59e0b',
+                            width: connectStage.includes('Sync') ? '75%' : connectStage.includes('Connected') ? '50%' : '25%',
+                            transition: 'width 0.5s ease',
+                          }} />
+                        </div>
+                      </div>
+                    )}
+                    {/* Connection error */}
+                    {connectError && connectingId === null && expandedId === c.connector_id && (
+                      <div style={{ fontSize: 11, color: '#ef4444', marginTop: 6 }}>
+                        {connectError}
+                      </div>
                     )}
                   </div>
                 )}

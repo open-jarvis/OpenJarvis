@@ -8,7 +8,7 @@ can be ingested by the knowledge pipeline.
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 from urllib.parse import quote
@@ -161,7 +161,7 @@ class ObsidianConnector(BaseConnector):
 
         for fpath in collected_paths:
             # Apply since filter based on mtime
-            mtime = datetime.fromtimestamp(fpath.stat().st_mtime)
+            mtime = datetime.fromtimestamp(fpath.stat().st_mtime, tz=timezone.utc)
             if since is not None and mtime < since:
                 continue
 
