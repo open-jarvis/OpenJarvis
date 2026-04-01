@@ -369,7 +369,11 @@ function DataSourcesSection() {
       loadConnectors();
       loadSyncStatuses();
     } catch (err: any) {
-      setConnectError(err.message || 'Connection failed');
+      let errorMsg = err.message || 'Connection failed';
+      if (id === 'gmail_imap' && (errorMsg.includes('auth') || errorMsg.includes('credentials') || errorMsg.includes('LOGIN'))) {
+        errorMsg = 'Invalid credentials — make sure you\'re using an App Password (16 characters), not your regular Gmail password.';
+      }
+      setConnectError(errorMsg);
       setConnectStage('');
     } finally {
       setLoading(false);
@@ -561,6 +565,20 @@ function DataSourcesSection() {
                         loading={loading && connectingId === c.connector_id}
                         onSubmit={(req) => handleConnect(c.connector_id, req)}
                       />
+                    )}
+                    {meta?.troubleshooting && (
+                      <details className="mt-2">
+                        <summary className="text-[11px] cursor-pointer" style={{ color: 'var(--color-text-tertiary)' }}>
+                          Having trouble?
+                        </summary>
+                        <ul className="mt-1 space-y-1">
+                          {meta.troubleshooting.map((tip: string, i: number) => (
+                            <li key={i} className="text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>
+                              {tip}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
                     )}
                     {/* Connection progress */}
                     {connectingId === c.connector_id && connectStage && (
