@@ -2,10 +2,26 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 from openjarvis.agents.digest_store import DigestStore
+from openjarvis.cli.digest_cmd import (
+    _cancel_scheduler_tasks,
+    _create_scheduler_task,
+    _save_digest_schedule,
+)
+from openjarvis.core.config import load_config
+
+
+class ScheduleUpdate(BaseModel):
+    """Request body for updating the digest schedule."""
+
+    enabled: bool
+    cron: Optional[str] = None
 
 
 def create_digest_router(*, db_path: str = "") -> APIRouter:
@@ -70,5 +86,39 @@ def create_digest_router(*, db_path: str = "") -> APIRouter:
             }
             for a in history
         ]
+
+    @router.get("/schedule")
+    async def get_schedule():
+        """Return the current digest schedule configuration."""
+        cfg = load_config()
+        return {
+            "enabled": cfg.digest.enabled,
+            "cron": cfg.digest.schedule,
+        }
+
+    @router.post("/schedule")
+    async def update_schedule(body: ScheduleUpdate):
+        """Update the digest schedule configuration."""
+        cfg = load_config()
+        cron = body.cron if body.cron is not None else cfg.digest.schedule
+
+        try:
+            _save_digest_schedule(enabled=body.enabled, cron=cron)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to save config: {exc}",
+            )
+
+        # Sync with the TaskScheduler
+        if body.enabled:
+            _create_scheduler_task(cron)
+        else:
+            _cancel_scheduler_tasks()
+
+        return {
+            "enabled": body.enabled,
+            "cron": cron,
+        }
 
     return router

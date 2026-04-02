@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import subprocess
 import threading
+from typing import Optional
 
 import click
 from rich.console import Console
 from rich.markdown import Markdown
 
 from openjarvis.agents.digest_store import DigestStore
+from openjarvis.core.config import DEFAULT_CONFIG_PATH, load_config
 
 
 def _play_audio(audio_path: str) -> None:
@@ -29,21 +31,135 @@ def _play_audio(audio_path: str) -> None:
             continue
 
 
+def _save_digest_schedule(enabled: bool, cron: str) -> None:
+    """Persist digest schedule to config.toml."""
+    config_path = DEFAULT_CONFIG_PATH
+
+    # Read existing TOML content (or start fresh)
+    content = ""
+    if config_path.exists():
+        content = config_path.read_text()
+
+    # Check if [digest] section already exists
+    lines = content.split("\n")
+    new_lines: list[str] = []
+    in_digest = False
+    digest_written = False
+
+    for line in lines:
+        stripped = line.strip()
+        # Detect start of [digest] section
+        if stripped == "[digest]":
+            in_digest = True
+            digest_written = True
+            new_lines.append("[digest]")
+            new_lines.append(f"enabled = {str(enabled).lower()}")
+            new_lines.append(f'schedule = "{cron}"')
+            continue
+        # If inside [digest], skip old enabled/schedule keys
+        if in_digest:
+            if stripped.startswith("[") and stripped != "[digest]":
+                in_digest = False
+                new_lines.append(line)
+            elif stripped.startswith("enabled") or stripped.startswith("schedule"):
+                continue
+            else:
+                new_lines.append(line)
+        else:
+            new_lines.append(line)
+
+    if not digest_written:
+        # Append [digest] section at the end
+        if new_lines and new_lines[-1].strip():
+            new_lines.append("")
+        new_lines.append("[digest]")
+        new_lines.append(f"enabled = {str(enabled).lower()}")
+        new_lines.append(f'schedule = "{cron}"')
+        new_lines.append("")
+
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("\n".join(new_lines))
+
+
+def _create_scheduler_task(cron: str) -> Optional[str]:
+    """Create a digest task in the TaskScheduler. Returns task ID or None."""
+    try:
+        from openjarvis.scheduler.scheduler import TaskScheduler
+        from openjarvis.scheduler.store import SchedulerStore
+
+        db_path = DEFAULT_CONFIG_PATH.parent / "scheduler.db"
+        store = SchedulerStore(db_path)
+        scheduler = TaskScheduler(store)
+
+        # Cancel any existing digest tasks first
+        for task in scheduler.list_tasks(status="active"):
+            if task.agent == "morning_digest":
+                scheduler.cancel_task(task.id)
+
+        task = scheduler.create_task(
+            prompt="Generate my morning digest",
+            schedule_type="cron",
+            schedule_value=cron,
+            agent="morning_digest",
+        )
+        store.close()
+        return task.id
+    except Exception:
+        return None
+
+
+def _cancel_scheduler_tasks() -> int:
+    """Cancel all active digest tasks. Returns count cancelled."""
+    try:
+        from openjarvis.scheduler.scheduler import TaskScheduler
+        from openjarvis.scheduler.store import SchedulerStore
+
+        db_path = DEFAULT_CONFIG_PATH.parent / "scheduler.db"
+        store = SchedulerStore(db_path)
+        scheduler = TaskScheduler(store)
+        count = 0
+        for task in scheduler.list_tasks(status="active"):
+            if task.agent == "morning_digest":
+                scheduler.cancel_task(task.id)
+                count += 1
+        store.close()
+        return count
+    except Exception:
+        return 0
+
+
 @click.command("digest", help="Display and play the morning digest.")
 @click.option("--text-only", is_flag=True, help="Print text without audio playback.")
 @click.option("--fresh", is_flag=True, help="Re-generate the digest (skip cache).")
 @click.option("--history", is_flag=True, help="Show past digests.")
 @click.option("--section", type=str, default="", help="Show only a specific section.")
 @click.option("--db-path", type=str, default="", help="Path to digest database.")
+@click.option(
+    "--schedule",
+    type=str,
+    default=None,
+    is_eager=True,
+    help=(
+        'Set cron schedule (e.g. "0 6 * * *"), '
+        '"off" to disable, or empty to show status.'
+    ),
+)
 def digest(
     text_only: bool,
     fresh: bool,
     history: bool,
     section: str,
     db_path: str,
+    schedule: Optional[str],
 ) -> None:
     """Display and optionally play the morning digest."""
     console = Console()
+
+    # Handle --schedule flag
+    if schedule is not None:
+        _handle_schedule(console, schedule)
+        return
+
     store = DigestStore(db_path=db_path) if db_path else DigestStore()
 
     if history:
@@ -111,3 +227,38 @@ def digest(
 
     console.print(Markdown(text))
     store.close()
+
+
+def _handle_schedule(console: Console, schedule: str) -> None:
+    """Handle the --schedule option logic."""
+    cfg = load_config()
+    digest_cfg = cfg.digest
+
+    if schedule == "":
+        # Show current schedule status
+        status = "enabled" if digest_cfg.enabled else "disabled"
+        console.print(f"[bold]Digest schedule:[/bold] {status}")
+        console.print(f"  Cron: {digest_cfg.schedule}")
+        console.print(f"  Timezone: {digest_cfg.timezone}")
+        return
+
+    if schedule.lower() == "off":
+        # Disable the schedule
+        _save_digest_schedule(enabled=False, cron=digest_cfg.schedule)
+        cancelled = _cancel_scheduler_tasks()
+        console.print("[yellow]Digest schedule disabled.[/yellow]")
+        if cancelled:
+            console.print(f"  Cancelled {cancelled} scheduler task(s).")
+        return
+
+    # Set a new cron schedule
+    _save_digest_schedule(enabled=True, cron=schedule)
+    task_id = _create_scheduler_task(schedule)
+    console.print(f"[green]Digest schedule set:[/green] {schedule}")
+    if task_id:
+        console.print(f"  Scheduler task created: {task_id}")
+    else:
+        console.print(
+            "  [dim]Note: scheduler task not created "
+            "(start the scheduler separately).[/dim]"
+        )

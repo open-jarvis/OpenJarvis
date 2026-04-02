@@ -97,6 +97,11 @@ class JarvisSystem:
 
         # Agent mode
         use_agent = agent or self.agent_name
+        # Auto-detect agent intent if no explicit agent was requested
+        if not agent and use_agent != "none":
+            detected = self._detect_agent_intent(query)
+            if detected:
+                use_agent = detected
         if use_agent and use_agent != "none":
             return self._run_agent(
                 query,
@@ -123,6 +128,27 @@ class JarvisSystem:
             "model": self.model,
             "engine": self.engine_key,
         }
+
+    def _detect_agent_intent(self, query: str) -> Optional[str]:
+        """Detect if a query should be routed to a specific agent.
+
+        Uses lightweight pattern matching for known intent triggers.
+        Returns the agent name or None to use the default.
+        """
+        import re
+
+        from openjarvis.core.registry import AgentRegistry
+
+        # Morning digest triggers
+        if re.search(
+            r"\b(good\s+morning|morning\s+digest|daily\s+briefing|morning\s+briefing)\b",
+            query,
+            re.IGNORECASE,
+        ):
+            if AgentRegistry.contains("morning_digest"):
+                return "morning_digest"
+
+        return None
 
     def _run_agent(
         self,
