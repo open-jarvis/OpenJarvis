@@ -644,9 +644,6 @@ class ToolCall15Dataset(DatasetProvider):
             # Build a self-contained prompt that includes the system
             # instructions, available tools, and user message so the
             # model can respond with tool calls via any backend.
-            tool_names = [
-                t["function"]["name"] for t in TOOLS
-            ]
             tool_descriptions = "\n".join(
                 f"- {t['function']['name']}: "
                 f"{t['function']['description']}"
