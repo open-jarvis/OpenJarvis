@@ -1,0 +1,30 @@
+# LiveCodeBench eval: Gemma-4-26B-A4B-it (vLLM, TP=4)
+# Competitive programming from LeetCode, AtCoder, CodeForces
+
+[meta]
+name = "livecodebench-gemma4-26b"
+description = "LiveCodeBench on google/gemma-4-26B-A4B-it (vLLM, TP=4)"
+
+[defaults]
+temperature = 0.0
+max_tokens = 4096
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/baselines/gemma4-26b/livecodebench/"
+seed = 42
+
+[[models]]
+name = "google/gemma-4-26B-A4B-it"
+engine = "vllm"
+num_gpus = 4
+
+[[benchmarks]]
+name = "livecodebench"
+backend = "jarvis-direct"
+max_samples = 20
