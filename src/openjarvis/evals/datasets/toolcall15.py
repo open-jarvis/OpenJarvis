@@ -639,24 +639,45 @@ class ToolCall15Dataset(DatasetProvider):
         if max_samples is not None:
             scenarios = scenarios[:max_samples]
 
-        self._records = [
-            EvalRecord(
-                record_id=s["id"],
-                problem=s["user_message"],
-                reference="",  # scoring uses metadata, not reference text
-                category=s["category"],
-                subject=s["name"],
-                metadata={
-                    "system_prompt": SYSTEM_PROMPT,
-                    "tools": TOOLS,
-                    "mock_tool_outputs": s["mock_tool_outputs"],
-                    "reference_date": s.get("reference_date"),
-                    "scenario_id": s["id"],
-                    "scenario_name": s["name"],
-                },
+        self._records = []
+        for s in scenarios:
+            # Build a self-contained prompt that includes the system
+            # instructions, available tools, and user message so the
+            # model can respond with tool calls via any backend.
+            tool_descriptions = "\n".join(
+                f"- {t['function']['name']}: "
+                f"{t['function']['description']}"
+                for t in TOOLS
             )
-            for s in scenarios
-        ]
+            prompt = (
+                f"{SYSTEM_PROMPT}\n\n"
+                f"## Available Tools\n"
+                f"{tool_descriptions}\n\n"
+                f"When you need to use a tool, respond with ONLY "
+                f"a JSON object in this format:\n"
+                f'{{"tool": "<tool_name>", "arguments": {{...}}}}\n\n'
+                f"If the task requires multiple tools, call them "
+                f"one at a time. If no tool is needed, respond "
+                f"directly with your answer.\n\n"
+                f"## User Request\n{s['user_message']}"
+            )
+            self._records.append(
+                EvalRecord(
+                    record_id=s["id"],
+                    problem=prompt,
+                    reference="",
+                    category=s["category"],
+                    subject=s["name"],
+                    metadata={
+                        "system_prompt": SYSTEM_PROMPT,
+                        "tools": TOOLS,
+                        "mock_tool_outputs": s["mock_tool_outputs"],
+                        "reference_date": s.get("reference_date"),
+                        "scenario_id": s["id"],
+                        "scenario_name": s["name"],
+                    },
+                )
+            )
 
         LOGGER.info("ToolCall-15: loaded %d scenarios", len(self._records))
 

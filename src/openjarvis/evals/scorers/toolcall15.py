@@ -21,11 +21,17 @@ from openjarvis.evals.core.types import EvalRecord
 LOGGER = logging.getLogger(__name__)
 
 
-def _extract_tool_calls(record: EvalRecord) -> List[Dict[str, Any]]:
-    """Extract tool calls from the record's query trace or metadata.
+def _extract_tool_calls(
+    record: EvalRecord,
+    model_answer: str = "",
+) -> List[Dict[str, Any]]:
+    """Extract tool calls from traces, metadata, or model text output.
 
     Returns a list of dicts with keys: name, arguments.
     """
+    import json
+    import re
+
     tool_calls: List[Dict[str, Any]] = []
 
     # Try query trace first (from EvalRunner)
@@ -39,7 +45,8 @@ def _extract_tool_calls(record: EvalRecord) -> List[Dict[str, Any]]:
                     "name": tc.get("name", ""),
                     "arguments": tc.get("arguments") or {},
                 })
-        return tool_calls
+        if tool_calls:
+            return tool_calls
 
     # Try tool_results list (from JarvisAgentBackend)
     tool_results = record.metadata.get("tool_results", [])
@@ -48,6 +55,48 @@ def _extract_tool_calls(record: EvalRecord) -> List[Dict[str, Any]]:
             "name": tr.get("tool_name", ""),
             "arguments": tr.get("arguments") or {},
         })
+    if tool_calls:
+        return tool_calls
+
+    # Parse tool calls from model text output (JSON format)
+    if model_answer:
+        # Extract balanced JSON objects from text
+        json_blocks: list[str] = []
+        # Try ```json blocks first
+        for m in re.finditer(
+            r"```(?:json)?\s*(\{.+?\})\s*```", model_answer, re.DOTALL
+        ):
+            json_blocks.append(m.group(1))
+        # Also extract bare balanced-brace JSON objects
+        depth = 0
+        start = -1
+        for i, ch in enumerate(model_answer):
+            if ch == "{":
+                if depth == 0:
+                    start = i
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0 and start >= 0:
+                    candidate = model_answer[start : i + 1]
+                    if '"tool"' in candidate or '"name"' in candidate:
+                        json_blocks.append(candidate)
+                    start = -1
+
+        for block in json_blocks:
+            try:
+                parsed = json.loads(block)
+                name = parsed.get("tool") or parsed.get("name", "")
+                args = parsed.get("arguments") or parsed.get("params") or {}
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except (json.JSONDecodeError, TypeError):
+                        args = {}
+                if name:
+                    tool_calls.append({"name": name, "arguments": args})
+            except json.JSONDecodeError:
+                continue
 
     return tool_calls
 
@@ -500,7 +549,7 @@ class ToolCall15Scorer(LLMJudgeScorer):
                 "scenario_id": scenario_id,
             }
 
-        tool_calls = _extract_tool_calls(record)
+        tool_calls = _extract_tool_calls(record, model_answer)
 
         points, reason = scorer_fn(tool_calls, model_answer)
 
