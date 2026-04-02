@@ -131,4 +131,14 @@ try:
 except ImportError:
     pass
 
+try:
+    import openjarvis.tools.text_to_speech  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.digest_collect  # noqa: F401
+except ImportError:
+    pass
+
 __all__ = ["BaseTool", "ToolExecutor", "ToolSpec"]

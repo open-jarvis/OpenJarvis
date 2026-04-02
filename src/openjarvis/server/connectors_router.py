@@ -78,7 +78,7 @@ def create_connectors_router():
     this package.
     """
     try:
-        from fastapi import APIRouter, HTTPException
+        from fastapi import APIRouter, HTTPException, Request
     except ImportError as exc:
         raise ImportError(
             "fastapi and pydantic are required for the connectors router"
@@ -175,6 +175,26 @@ def create_connectors_router():
         except Exception:
             pass
 
+        # Include OAuth provider setup info if applicable
+        oauth_setup = None
+        try:
+            from openjarvis.connectors.oauth import (
+                get_client_credentials,
+                get_provider_for_connector,
+            )
+
+            provider = get_provider_for_connector(connector_id)
+            if provider:
+                has_creds = get_client_credentials(provider) is not None
+                oauth_setup = {
+                    "provider": provider.name,
+                    "setup_url": provider.setup_url,
+                    "setup_hint": provider.setup_hint,
+                    "has_credentials": has_creds,
+                }
+        except Exception:
+            pass
+
         return {
             "connector_id": connector_id,
             "display_name": getattr(instance, "display_name", connector_id),
@@ -182,6 +202,7 @@ def create_connectors_router():
             "connected": instance.is_connected(),
             "auth_url": auth_url,
             "mcp_tools": mcp_tools,
+            "oauth_setup": oauth_setup,
         }
 
     @router.post("/{connector_id}/connect")
@@ -281,6 +302,143 @@ def create_connectors_router():
             "connected": False,
             "status": "disconnected",
         }
+
+    @router.get("/{connector_id}/oauth/start")
+    async def oauth_start(connector_id: str, request: Request):
+        """Redirect to the OAuth provider's consent page.
+
+        The callback will come back to /v1/connectors/{id}/oauth/callback.
+        """
+        from urllib.parse import urlencode
+
+        from openjarvis.connectors.oauth import (
+            get_client_credentials,
+            get_provider_for_connector,
+        )
+
+        _ensure_connectors_registered()
+        if not ConnectorRegistry.contains(connector_id):
+            raise HTTPException(404, f"Connector '{connector_id}' not found")
+
+        provider = get_provider_for_connector(connector_id)
+        if not provider:
+            raise HTTPException(400, f"No OAuth provider for '{connector_id}'")
+
+        creds = get_client_credentials(provider)
+        if not creds:
+            raise HTTPException(
+                400,
+                f"No client credentials configured for {provider.display_name}. "
+                f"Set up at: {provider.setup_url}",
+            )
+
+        client_id, _ = creds
+        # Build callback URL pointing to our own server
+        base_url = str(request.base_url).rstrip("/")
+        callback_url = f"{base_url}/v1/connectors/{connector_id}/oauth/callback"
+
+        params = {
+            "client_id": client_id,
+            "redirect_uri": callback_url,
+            "response_type": "code",
+            "scope": " ".join(provider.scopes),
+            **provider.extra_auth_params,
+        }
+        auth_url = f"{provider.auth_endpoint}?{urlencode(params)}"
+
+        from fastapi.responses import RedirectResponse
+
+        return RedirectResponse(url=auth_url)
+
+    @router.get("/{connector_id}/oauth/callback")
+    async def oauth_callback(
+        connector_id: str,
+        code: str = "",
+        error: str = "",
+        request: Request = None,
+    ):
+        """Handle OAuth callback from the provider."""
+        from fastapi.responses import HTMLResponse
+
+        from openjarvis.connectors.oauth import (
+            _CONNECTORS_DIR,
+            _exchange_token,
+            get_client_credentials,
+            get_provider_for_connector,
+            save_tokens,
+        )
+
+        _ensure_connectors_registered()
+
+        if error:
+            _style = "font-family:system-ui;text-align:center;padding:60px"
+            return HTMLResponse(
+                content=(
+                    f"<html><body style='{_style}'>"
+                    f"<h2 style='color:#ef4444'>Authorization Failed</h2>"
+                    f"<p>{error}</p>"
+                    "<script>setTimeout(()=>window.close(),3000)</script>"
+                    "</body></html>"
+                ),
+                status_code=400,
+            )
+
+        if not code:
+            raise HTTPException(400, "Missing authorization code")
+
+        provider = get_provider_for_connector(connector_id)
+        if not provider:
+            raise HTTPException(400, f"No OAuth provider for '{connector_id}'")
+
+        creds = get_client_credentials(provider)
+        if not creds:
+            raise HTTPException(400, "No client credentials configured")
+
+        client_id, client_secret = creds
+        base_url = str(request.base_url).rstrip("/")
+        redirect_uri = f"{base_url}/v1/connectors/{connector_id}/oauth/callback"
+
+        try:
+            tokens = _exchange_token(
+                provider, code, client_id, client_secret, redirect_uri
+            )
+        except Exception as exc:
+            _style = "font-family:system-ui;text-align:center;padding:60px"
+            return HTMLResponse(
+                content=(
+                    f"<html><body style='{_style}'>"
+                    f"<h2 style='color:#ef4444'>Token Exchange Failed</h2>"
+                    f"<p>{exc}</p>"
+                    "</body></html>"
+                ),
+                status_code=500,
+            )
+
+        payload = {
+            "access_token": tokens.get("access_token", ""),
+            "refresh_token": tokens.get("refresh_token", ""),
+            "token_type": tokens.get("token_type", "Bearer"),
+            "expires_in": tokens.get("expires_in", 3600),
+            "client_id": client_id,
+            "client_secret": client_secret,
+        }
+
+        for filename in provider.credential_files:
+            save_tokens(str(_CONNECTORS_DIR / filename), payload)
+
+        # Clear cached instance so it picks up new credentials
+        _instances.pop(connector_id, None)
+
+        _style = "font-family:system-ui;text-align:center;padding:60px"
+        return HTMLResponse(
+            content=(
+                f"<html><body style='{_style}'>"
+                "<h2 style='color:#22c55e'>Connected!</h2>"
+                "<p>You can close this tab and return to OpenJarvis.</p>"
+                "<script>setTimeout(()=>window.close(),2000)</script>"
+                "</body></html>"
+            )
+        )
 
     # Track background sync state per connector
     _sync_threads: Dict[str, Any] = {}

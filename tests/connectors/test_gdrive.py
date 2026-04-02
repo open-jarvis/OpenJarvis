@@ -55,7 +55,12 @@ def connector(tmp_path: Path):
     from openjarvis.connectors.gdrive import GDriveConnector  # noqa: PLC0415
 
     creds_path = str(tmp_path / "gdrive.json")
-    return GDriveConnector(credentials_path=creds_path)
+    # Prevent fallback to shared google.json on machines with real credentials
+    with patch(
+        "openjarvis.connectors.oauth._SHARED_GOOGLE_CREDENTIALS_PATH",
+        str(tmp_path / "google_shared.json"),
+    ):
+        yield GDriveConnector(credentials_path=creds_path)
 
 
 # ---------------------------------------------------------------------------

@@ -16,9 +16,11 @@ import httpx
 
 from openjarvis.connectors._stubs import BaseConnector, Document, SyncStatus
 from openjarvis.connectors.oauth import (
+    GOOGLE_ALL_SCOPES,
     build_google_auth_url,
     delete_tokens,
     load_tokens,
+    resolve_google_credentials,
     save_tokens,
 )
 from openjarvis.core.config import DEFAULT_CONFIG_DIR
@@ -184,7 +186,9 @@ class GmailConnector(BaseConnector):
     auth_type = "oauth"
 
     def __init__(self, credentials_path: str = "") -> None:
-        self._credentials_path = credentials_path or _DEFAULT_CREDENTIALS_PATH
+        self._credentials_path = resolve_google_credentials(
+            credentials_path or _DEFAULT_CREDENTIALS_PATH
+        )
         self._items_synced: int = 0
         self._items_total: int = 0
         self._last_sync: Optional[datetime] = None
@@ -211,7 +215,7 @@ class GmailConnector(BaseConnector):
         """Return a Google OAuth consent URL requesting ``gmail.readonly`` scope."""
         return build_google_auth_url(
             client_id="",  # placeholder — real client_id from config
-            scopes=[_GMAIL_SCOPE],
+            scopes=GOOGLE_ALL_SCOPES,
         )
 
     def handle_callback(self, code: str) -> None:

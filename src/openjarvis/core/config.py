@@ -1236,6 +1236,47 @@ class SkillsConfig:
 
 
 @dataclass
+class DigestSectionConfig:
+    """Configuration for a single digest section."""
+
+    sources: list = field(default_factory=list)
+    max_items: int = 10
+    priority_contacts: list = field(default_factory=list)
+
+
+@dataclass
+class DigestConfig:
+    """Configuration for the morning digest feature."""
+
+    enabled: bool = False
+    schedule: str = "0 6 * * *"
+    timezone: str = "America/Los_Angeles"
+    persona: str = "jarvis"
+    sections: list = field(
+        default_factory=lambda: ["messages", "calendar", "health", "world"]
+    )
+    optional_sections: list = field(
+        default_factory=lambda: ["github", "financial", "music", "fitness"]
+    )
+    voice_id: str = ""
+    tts_backend: str = "cartesia"
+    messages: DigestSectionConfig = field(
+        default_factory=lambda: DigestSectionConfig(
+            sources=["gmail", "slack", "google_tasks"]
+        )
+    )
+    calendar: DigestSectionConfig = field(
+        default_factory=lambda: DigestSectionConfig(sources=["gcalendar"])
+    )
+    health: DigestSectionConfig = field(
+        default_factory=lambda: DigestSectionConfig(sources=["oura"])
+    )
+    world: DigestSectionConfig = field(
+        default_factory=lambda: DigestSectionConfig(sources=[])
+    )
+
+
+@dataclass
 class JarvisConfig:
     """Top-level configuration for OpenJarvis."""
 
@@ -1263,6 +1304,7 @@ class JarvisConfig:
     system_prompt: SystemPromptConfig = field(default_factory=SystemPromptConfig)
     compression: CompressionConfig = field(default_factory=CompressionConfig)
     skills: SkillsConfig = field(default_factory=SkillsConfig)
+    digest: DigestConfig = field(default_factory=DigestConfig)
 
     @property
     def memory(self) -> StorageConfig:

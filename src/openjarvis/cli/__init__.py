@@ -36,6 +36,7 @@ from openjarvis.cli.skill_cmd import skill
 from openjarvis.cli.telemetry_cmd import telemetry
 from openjarvis.cli.tool_cmd import tool
 from openjarvis.cli.vault_cmd import vault
+from openjarvis.cli.digest_cmd import digest
 from openjarvis.cli.workflow_cmd import workflow
 
 
@@ -94,6 +95,7 @@ cli.add_command(registry, "registry")
 cli.add_command(config, "config")
 cli.add_command(scan, "scan")
 cli.add_command(connect, "connect")
+cli.add_command(digest, "digest")
 cli.add_command(deep_research_setup, "deep-research-setup")
 cli.add_command(deep_research_setup, "research")
 

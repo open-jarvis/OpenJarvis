@@ -51,6 +51,11 @@ except ImportError:
     pass
 
 try:
+    import openjarvis.connectors.apple_music  # noqa: F401
+except ImportError:
+    pass
+
+try:
     import openjarvis.connectors.slack_connector  # noqa: F401
 except ImportError:
     pass
@@ -72,5 +77,30 @@ except ImportError:
 
 try:
     import openjarvis.connectors.whatsapp  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.connectors.oura  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.connectors.apple_health  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.connectors.strava  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.connectors.spotify  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.connectors.google_tasks  # noqa: F401
 except ImportError:
     pass

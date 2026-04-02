@@ -95,17 +95,73 @@ def _connect_source(registry: object, source: str, path: str = "") -> None:
             )
 
     elif auth_type == "oauth":
-        # OAuth connectors need browser-based auth
+        # OAuth connectors — auto-open browser + catch callback
+        from openjarvis.connectors.oauth import (
+            get_client_credentials,
+            get_provider_for_connector,
+            run_connector_oauth,
+            save_client_credentials,
+        )
+
         try:
             instance = connector_cls()
-            url = instance.auth_url()
-            console.print(f"[cyan]Open this URL to authorise {source}:[/cyan]")
-            console.print(url)
-            code = click.prompt("Enter the authorisation code")
-            instance.handle_callback(code)
+            if instance.is_connected():
+                console.print(
+                    f"[green]{source} is already connected.[/green]"
+                )
+                return
+
+            provider = get_provider_for_connector(source)
+            if provider is None:
+                console.print(
+                    f"[red]No OAuth provider configured for {source}.[/red]"
+                )
+                return
+
+            client_id, client_secret = get_client_credentials(provider)
+
+            if not client_id or not client_secret:
+                console.print(
+                    f"[cyan]First-time setup for {source}.[/cyan]"
+                )
+                console.print(
+                    f"[yellow]Create an OAuth app at: {provider.setup_url}[/yellow]"
+                )
+                console.print(f"[dim]{provider.setup_hint}[/dim]")
+                client_id = click.prompt("Client ID")
+                client_secret = click.prompt("Client Secret")
+                save_client_credentials(provider, client_id, client_secret)
+
+            run_connector_oauth(source, client_id, client_secret)
             console.print(f"[green]{source} authorised successfully.[/green]")
         except Exception as exc:  # noqa: BLE001
             console.print(f"[red]OAuth flow failed for {source}: {exc}[/red]")
+
+    elif auth_type == "token":
+        # Token-based connectors (e.g. Oura) — prompt for personal access token
+        import json
+        from pathlib import Path
+
+        from openjarvis.connectors.oauth import save_tokens
+        from openjarvis.core.config import DEFAULT_CONFIG_DIR
+
+        try:
+            instance = connector_cls()
+            if instance.is_connected():
+                console.print(
+                    f"[green]{source} is already connected.[/green]"
+                )
+                return
+
+            token = click.prompt(f"Enter your {source} personal access token")
+            token_dir = Path(DEFAULT_CONFIG_DIR) / "connectors"
+            token_dir.mkdir(parents=True, exist_ok=True)
+            token_file = token_dir / f"{source}.json"
+            token_file.write_text(json.dumps({"token": token}))
+            save_tokens(source, {"token": token})
+            console.print(f"[green]{source} connected successfully.[/green]")
+        except Exception as exc:  # noqa: BLE001
+            console.print(f"[red]Token setup failed for {source}: {exc}[/red]")
 
     else:
         # Generic / bridge connectors
@@ -154,8 +210,7 @@ def connect(
 ) -> None:
     """Manage data source connections (Gmail, Obsidian, etc.)."""
     # Lazy imports to avoid top-level side effects
-    import openjarvis.connectors.gmail  # noqa: F401
-    import openjarvis.connectors.obsidian  # noqa: F401
+    import openjarvis.connectors  # noqa: F401 — registers all connectors
     from openjarvis.core.registry import ConnectorRegistry
 
     if list_sources:
