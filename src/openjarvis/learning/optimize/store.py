@@ -92,7 +92,7 @@ class OptimizationStore:
 
     def __init__(self, db_path: Union[str, Path]) -> None:
         self._db_path = str(db_path)
-        self._conn = sqlite3.connect(self._db_path)
+        self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute(_CREATE_RUNS)
         self._conn.execute(_CREATE_TRIALS)

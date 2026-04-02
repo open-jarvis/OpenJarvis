@@ -39,7 +39,7 @@ class AuditLogger:
         from openjarvis.security.file_utils import secure_create
 
         secure_create(self._db_path)
-        self._conn = sqlite3.connect(str(self._db_path))
+        self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
         self._conn.execute(
             """
             CREATE TABLE IF NOT EXISTS security_events (
