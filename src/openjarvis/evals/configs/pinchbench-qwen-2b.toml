@@ -1,0 +1,35 @@
+# PinchBench eval: Qwen3.5-2B (vLLM, 1 GPU)
+# Agent: native_openhands — all PinchBench-required tools enabled
+
+[meta]
+name = "pinchbench-qwen-2b"
+description = "PinchBench on Qwen/Qwen3.5-2B (vLLM, 1 GPU)"
+
+[defaults]
+temperature = 0.6
+max_tokens = 8192
+
+[judge]
+model = "claude-opus-4-5"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/baselines/qwen-2b/pinchbench/"
+seed = 42
+
+[[models]]
+name = "Qwen/Qwen3.5-2B"
+engine = "vllm"
+num_gpus = 1
+
+[[benchmarks]]
+name = "pinchbench"
+backend = "jarvis-agent"
+agent = "native_openhands"
+tools = [
+    "think", "file_read", "file_write", "web_search", "shell_exec",
+    "code_interpreter", "browser_navigate", "image_generate",
+    "calculator", "http_request", "pdf_extract",
+]
