@@ -597,7 +597,6 @@ def _run_terminalbench_native(config, console: Console) -> object:
     )
 
     import re
-    import time
     # Docker compose project names must be lowercase alphanumeric + hyphens/underscores
     model_slug = re.sub(r"[^a-z0-9_-]", "-", model.lower().replace("/", "-"))
     run_id = f"tb2-{model_slug}"

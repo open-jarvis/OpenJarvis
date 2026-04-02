@@ -15,7 +15,6 @@ LOGGER = logging.getLogger(__name__)
 
 try:
     from terminal_bench import BenchmarkResults, Harness
-    from terminal_bench.llms.lite_llm import LiteLLM
 
     _HAS_TB = True
 except ImportError:
