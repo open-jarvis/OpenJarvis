@@ -575,12 +575,70 @@ def _build_trackers(config) -> list:
     return trackers
 
 
+def _run_terminalbench_native(config, console: Console) -> object:
+    """Run TerminalBench V2 natively via terminal-bench Harness."""
+    from openjarvis.evals.backends.terminalbench_native import (
+        TerminalBenchNativeBackend,
+    )
+    from openjarvis.evals.core.types import RunSummary
+
+    model = config.model
+    # LiteLLM expects "openai/<model>" for OpenAI-compatible servers
+    litellm_model = f"openai/{model}"
+    output_dir = getattr(config, "output_path", None) or "results/terminalbench-native/"
+
+    backend = TerminalBenchNativeBackend(
+        model=litellm_model,
+        api_base="http://localhost:8000/v1",
+        temperature=config.temperature,
+        max_samples=config.max_samples,
+        output_dir=output_dir,
+        n_concurrent=config.max_workers or 4,
+    )
+
+    import re
+    # Docker compose project names must be lowercase alphanumeric + hyphens/underscores
+    model_slug = re.sub(r"[^a-z0-9_-]", "-", model.lower().replace("/", "-"))
+    run_id = f"tb2-{model_slug}"
+    console.print(f"  Running TerminalBench V2 natively: {model}")
+    console.print(f"  Harness run_id: {run_id}")
+
+    results = backend.run_harness(run_id)
+
+    # Convert BenchmarkResults to RunSummary
+    total = len(results.trial_results) if hasattr(results, "trial_results") else 0
+    correct = 0
+    if hasattr(results, "trial_results"):
+        for tr in results.trial_results:
+            if getattr(tr, "is_resolved", False):
+                correct += 1
+
+    accuracy = correct / total if total > 0 else 0.0
+    return RunSummary(
+        benchmark="terminalbench-native",
+        category="agentic",
+        backend="terminalbench-native",
+        model=model,
+        total_samples=total,
+        scored_samples=total,
+        correct=correct,
+        accuracy=accuracy,
+        errors=0,
+        mean_latency_seconds=0.0,
+        total_cost_usd=0.0,
+    )
+
+
 def _run_single(config, console: Optional[Console] = None) -> object:
     """Run a single eval from a RunConfig and return the summary."""
     from openjarvis.evals.core.runner import EvalRunner
 
     if console is None:
         console = Console()
+
+    # TerminalBench V2 native: use terminal-bench Harness directly
+    if config.benchmark == "terminalbench-native":
+        return _run_terminalbench_native(config, console)
 
     eval_backend = _build_backend(
         config.backend,

@@ -31,7 +31,7 @@ else:
 
 logger = logging.getLogger(__name__)
 
-VALID_BACKENDS = {"jarvis-direct", "jarvis-agent"}
+VALID_BACKENDS = {"jarvis-direct", "jarvis-agent", "terminalbench-native"}
 
 # Known benchmark names (used for warnings, not hard validation)
 KNOWN_BENCHMARKS = {

@@ -15,7 +15,6 @@ LOGGER = logging.getLogger(__name__)
 
 try:
     from terminal_bench import BenchmarkResults, Harness
-    from terminal_bench.llms.lite_llm import LiteLLM
 
     _HAS_TB = True
 except ImportError:
@@ -77,16 +76,16 @@ class TerminalBenchNativeBackend(InferenceBackend):
             "cleanup": True,
         }
 
-        # Use built-in agent (naive uses LiteLLM)
+        # Use terminus-2 agent which accepts model_name + api_base as
+        # serializable strings (avoids Pydantic serialization issues with
+        # LLM objects in the harness lock file).
         from terminal_bench.agents.agent_name import AgentName
 
-        harness_kwargs["agent_name"] = AgentName(self._agent_name)
+        harness_kwargs["agent_name"] = AgentName("terminus-2")
         harness_kwargs["agent_kwargs"] = {
-            "llm": LiteLLM(
-                model_name=self._model,
-                temperature=self._temperature,
-                api_base=self._api_base,
-            ),
+            "model_name": self._model,
+            "api_base": self._api_base,
+            "temperature": self._temperature,
         }
 
         if self._max_samples is not None:
