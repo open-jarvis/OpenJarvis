@@ -266,6 +266,64 @@ async def _stream_google(
 
 
 # ---------------------------------------------------------------------------
+# Local (Ollama) direct streaming — bypasses engine routing entirely
+# ---------------------------------------------------------------------------
+
+def _ollama_host() -> str:
+    return os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+
+
+async def stream_local(
+    model: str,
+    messages: Sequence[Message],
+    temperature: float = 0.7,
+    max_tokens: int = 1024,
+) -> AsyncIterator[str]:
+    """Stream tokens directly from Ollama, bypassing the engine system."""
+    payload = {
+        "model": model,
+        "messages": _to_openai_msgs(messages),
+        "stream": True,
+        # Disable extended thinking (Qwen3.5 etc.) — when enabled all tokens
+        # go into the 'thinking' field and 'content' stays empty.
+        "think": False,
+        "options": {
+            "temperature": temperature,
+            "num_predict": max_tokens,
+        },
+    }
+    host = _ollama_host()
+    async with httpx.AsyncClient(timeout=300) as client:
+        async with client.stream("POST", f"{host}/api/chat", json=payload) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+                    token = data.get("message", {}).get("content", "")
+                    if token:
+                        yield token
+                    if data.get("done"):
+                        break
+                except Exception:
+                    pass
+
+
+async def list_local_models() -> list[str]:
+    """Return Ollama model names directly from the Ollama API."""
+    host = _ollama_host()
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(f"{host}/api/tags")
+            resp.raise_for_status()
+            data = resp.json()
+            return [m["name"] for m in data.get("models", [])]
+    except Exception:
+        return []
+
+
+# ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 

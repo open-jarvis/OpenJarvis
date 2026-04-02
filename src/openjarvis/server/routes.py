@@ -290,13 +290,13 @@ async def _handle_stream(
     complexity_info=None,
 ):
     """Stream response using SSE format."""
-    from openjarvis.server.cloud_router import is_cloud_model, stream_cloud
+    from openjarvis.server.cloud_router import is_cloud_model, stream_cloud, stream_local
 
     messages = _to_messages(req.messages)
     chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
 
-    # Choose token source: cloud router bypasses the engine system entirely
-    # so cloud models work regardless of how the server was started.
+    # Route directly to the right backend — bypasses engine routing entirely
+    # so broken MultiEngine state can never misdirect requests.
     use_cloud = is_cloud_model(model)
 
     async def generate():
@@ -313,17 +313,12 @@ async def _handle_stream(
         yield f"data: {first_chunk.model_dump_json()}\n\n"
 
         try:
-            # Stream content
-            token_iter = (
-                stream_cloud(model, messages, req.temperature, req.max_tokens)
-                if use_cloud
-                else engine.stream(
-                    messages,
-                    model=model,
-                    temperature=req.temperature,
-                    max_tokens=req.max_tokens,
-                )
-            )
+            # Cloud models → direct cloud API; local models → direct Ollama.
+            # Both paths bypass the engine/MultiEngine routing system.
+            if use_cloud:
+                token_iter = stream_cloud(model, messages, req.temperature, req.max_tokens)
+            else:
+                token_iter = stream_local(model, messages, req.temperature, req.max_tokens)
             async for token in token_iter:
                 chunk = ChatCompletionChunk(
                     id=chunk_id,
@@ -376,17 +371,11 @@ async def _handle_stream(
         )
         finish_dict = _json.loads(finish_data.model_dump_json())
 
-        # Pull usage from the engine if it tracked it during streaming
-        raw_engine = engine
-        # Unwrap InstrumentedEngine if present
-        if hasattr(raw_engine, "_inner"):
-            raw_engine = raw_engine._inner
-        # Unwrap MultiEngine if present
-        if hasattr(raw_engine, "_engine_for"):
-            raw_engine = raw_engine._engine_for(model)
-        stream_usage = getattr(raw_engine, "_last_stream_usage", None)
-        if isinstance(stream_usage, dict) and stream_usage.get("total_tokens", 0) > 0:
-            finish_dict["usage"] = stream_usage
+        # Tag the finish chunk with the correct engine label.
+        # We use the routing decision (use_cloud) directly rather than
+        # unwrapping the engine chain, which can be in a broken state.
+        finish_dict.setdefault("telemetry", {})
+        finish_dict["telemetry"]["engine"] = "cloud" if use_cloud else "ollama"
 
         if complexity_info is not None:
             finish_dict["complexity"] = complexity_info.model_dump()
@@ -403,31 +392,21 @@ async def _handle_stream(
 
 @router.get("/v1/models")
 async def list_models(request: Request) -> ModelListResponse:
-    """List available models from the engine plus any configured cloud models."""
-    from openjarvis.server.cloud_router import _load_keys
-    from openjarvis.engine.cloud import (
-        _OPENAI_MODELS,
-        _ANTHROPIC_MODELS,
-        _GOOGLE_MODELS,
-        _OPENROUTER_POPULAR,
-        _MINIMAX_MODELS,
-    )
+    """List locally installed models (Ollama).
 
-    engine = request.app.state.engine
-    model_ids: list[str] = list(engine.list_models())
+    Cloud models are not included here — they live in the Cloud Models tab
+    of the UI and are selected there, not from this endpoint.
+    """
+    from openjarvis.server.cloud_router import list_local_models
 
-    # Append cloud models for any provider whose key is present on disk.
-    keys = _load_keys()
-    if keys.get("OPENAI_API_KEY"):
-        model_ids.extend(m for m in _OPENAI_MODELS if m not in model_ids)
-    if keys.get("ANTHROPIC_API_KEY"):
-        model_ids.extend(m for m in _ANTHROPIC_MODELS if m not in model_ids)
-    if keys.get("GEMINI_API_KEY") or keys.get("GOOGLE_API_KEY"):
-        model_ids.extend(m for m in _GOOGLE_MODELS if m not in model_ids)
-    if keys.get("OPENROUTER_API_KEY"):
-        model_ids.extend(m for m in _OPENROUTER_POPULAR if m not in model_ids)
-    if keys.get("MINIMAX_API_KEY"):
-        model_ids.extend(m for m in _MINIMAX_MODELS if m not in model_ids)
+    model_ids = await list_local_models()
+
+    # Fall back to engine.list_models() if Ollama direct call fails
+    if not model_ids:
+        engine = request.app.state.engine
+        all_ids = engine.list_models()
+        from openjarvis.server.cloud_router import is_cloud_model
+        model_ids = [m for m in all_ids if not is_cloud_model(m)]
 
     return ModelListResponse(
         data=[ModelObject(id=mid) for mid in model_ids],
