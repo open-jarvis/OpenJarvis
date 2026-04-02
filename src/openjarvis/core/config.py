@@ -14,7 +14,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 try:
     import tomllib  # Python 3.11+
@@ -1239,9 +1239,9 @@ class SkillsConfig:
 class DigestSectionConfig:
     """Configuration for a single digest section."""
 
-    sources: list = field(default_factory=list)
+    sources: List[str] = field(default_factory=list)
     max_items: int = 10
-    priority_contacts: list = field(default_factory=list)
+    priority_contacts: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -1252,10 +1252,10 @@ class DigestConfig:
     schedule: str = "0 6 * * *"
     timezone: str = "America/Los_Angeles"
     persona: str = "jarvis"
-    sections: list = field(
+    sections: List[str] = field(
         default_factory=lambda: ["messages", "calendar", "health", "world"]
     )
-    optional_sections: list = field(
+    optional_sections: List[str] = field(
         default_factory=lambda: ["github", "financial", "music", "fitness"]
     )
     voice_id: str = ""
@@ -1269,7 +1269,9 @@ class DigestConfig:
         default_factory=lambda: DigestSectionConfig(sources=["gcalendar"])
     )
     health: DigestSectionConfig = field(
-        default_factory=lambda: DigestSectionConfig(sources=["oura"])
+        default_factory=lambda: DigestSectionConfig(
+            sources=["oura", "apple_health"]
+        )
     )
     world: DigestSectionConfig = field(
         default_factory=lambda: DigestSectionConfig(sources=[])
