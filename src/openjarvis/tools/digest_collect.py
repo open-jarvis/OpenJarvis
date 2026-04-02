@@ -28,9 +28,12 @@ _SECTION_ORDER: List[tuple] = [
             "imessage",
             "whatsapp",
             "outlook",
+            "notion",
+            "github_notifications",
         },
     ),
     ("CALENDAR", {"gcalendar"}),
+    ("WORLD", {"weather", "hackernews", "news_rss"}),
     ("MUSIC", {"spotify", "apple_music"}),
 ]
 
@@ -156,10 +159,14 @@ def _format_strava(doc: Document) -> str:
 def _format_gmail(doc: Document) -> str:
     """Format a Gmail email document."""
     sender = doc.author or "Unknown"
-    # Clean up sender: extract just email or name
     subject = doc.title or "(no subject)"
     ago = _time_ago(doc.timestamp)
-    return f'[gmail] From: {sender} — "{subject}" ({ago})'
+    # Include body preview (first 150 chars, single line)
+    body = doc.content.replace("\n", " ").strip()[:150] if doc.content else ""
+    line = f'[gmail] From: {sender} — "{subject}" ({ago})'
+    if body:
+        line += f"\n  Preview: {body}"
+    return line
 
 
 def _format_gmail_imap(doc: Document) -> str:
@@ -190,16 +197,26 @@ def _format_slack(doc: Document) -> str:
     """Format a Slack message document."""
     author = doc.author or "Unknown"
     channel = doc.metadata.get("channel", "")
-    content_preview = doc.content[:80].replace("\n", " ").strip() if doc.content else ""
+    ago = _time_ago(doc.timestamp)
+    snippet = doc.content[:150].replace("\n", " ").strip()
+    content_preview = snippet if doc.content else ""
     prefix = f"[slack] #{channel}" if channel else "[slack]"
-    return f"{prefix} {author}: {content_preview}"
+    line = f"{prefix} {author} ({ago})"
+    if content_preview:
+        line += f": {content_preview}"
+    return line
 
 
 def _format_imessage(doc: Document) -> str:
     """Format an iMessage document."""
     sender = doc.author or "Unknown"
-    content_preview = doc.content[:80].replace("\n", " ").strip() if doc.content else ""
-    return f"[imessage] {sender}: {content_preview}"
+    ago = _time_ago(doc.timestamp)
+    snippet = doc.content[:150].replace("\n", " ").strip()
+    content_preview = snippet if doc.content else ""
+    line = f"[imessage] {sender} ({ago})"
+    if content_preview:
+        line += f": {content_preview}"
+    return line
 
 
 def _format_whatsapp(doc: Document) -> str:
@@ -215,6 +232,13 @@ def _format_outlook(doc: Document) -> str:
     subject = doc.title or "(no subject)"
     ago = _time_ago(doc.timestamp)
     return f'[outlook] From: {sender} — "{subject}" ({ago})'
+
+
+def _format_notion(doc: Document) -> str:
+    """Format a Notion page document."""
+    title = doc.title or "Untitled"
+    ago = _time_ago(doc.timestamp)
+    return f"[notion] {title} (updated {ago})"
 
 
 def _format_gcalendar(doc: Document) -> str:
@@ -262,6 +286,48 @@ def _format_apple_music(doc: Document) -> str:
     return doc.title
 
 
+def _format_weather(doc: Document) -> str:
+    """Format a weather document."""
+    data = _parse_content_json(doc)
+    if doc.doc_type == "current":
+        temp = data.get("temp_f", "?")
+        cond = data.get("conditions", "?")
+        humidity = data.get("humidity", "?")
+        return f"[weather] Current: {temp}°F, {cond}, humidity {humidity}%"
+    if doc.doc_type == "forecast":
+        return f"[weather] Forecast: {doc.content[:200]}"
+    return f"[weather] {doc.title}"
+
+
+def _format_github_notifications(doc: Document) -> str:
+    """Format a GitHub notification."""
+    reason = doc.metadata.get("reason", "")
+    repo = doc.metadata.get("repo", "")
+    title = doc.title or "(no title)"
+    ago = _time_ago(doc.timestamp)
+    reason_str = f" ({reason})" if reason else ""
+    repo_str = f" in {repo}" if repo else ""
+    return f"[github] {title}{repo_str}{reason_str} ({ago})"
+
+
+def _format_hackernews(doc: Document) -> str:
+    """Format a Hacker News story."""
+    score = doc.metadata.get("score", "?")
+    comments = doc.metadata.get("descendants", "?")
+    return f"[hackernews] {doc.title} (score {score}, {comments} comments)"
+
+
+def _format_news_rss(doc: Document) -> str:
+    """Format an RSS news item."""
+    feed_name = doc.metadata.get("feed_name", "")
+    prefix = f"[{feed_name}]" if feed_name else "[news]"
+    description = doc.content[:150].replace("\n", " ").strip() if doc.content else ""
+    line = f"{prefix} {doc.title}"
+    if description:
+        line += f" — {description}"
+    return line
+
+
 # Map connector IDs to their formatting functions
 _FORMATTERS: Dict[str, Any] = {
     "oura": _format_oura,
@@ -274,7 +340,12 @@ _FORMATTERS: Dict[str, Any] = {
     "imessage": _format_imessage,
     "whatsapp": _format_whatsapp,
     "outlook": _format_outlook,
+    "notion": _format_notion,
     "gcalendar": _format_gcalendar,
+    "weather": _format_weather,
+    "github_notifications": _format_github_notifications,
+    "hackernews": _format_hackernews,
+    "news_rss": _format_news_rss,
     "spotify": _format_spotify,
     "apple_music": _format_apple_music,
 }

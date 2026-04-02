@@ -60,6 +60,7 @@ class TextToSpeechTool(BaseTool):
         voice_id = params.get("voice_id", "")
         backend_key = params.get("backend", "cartesia")
         output_dir = params.get("output_dir", "")
+        speed = float(params.get("speed", 1.0))
 
         if not text:
             return ToolResult(
@@ -78,7 +79,7 @@ class TextToSpeechTool(BaseTool):
         backend_cls = TTSRegistry.get(backend_key)
         backend = backend_cls()
 
-        result = backend.synthesize(text, voice_id=voice_id)
+        result = backend.synthesize(text, voice_id=voice_id, speed=speed)
 
         # Save to file
         if output_dir:

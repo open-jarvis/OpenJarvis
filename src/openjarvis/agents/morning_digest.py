@@ -44,45 +44,61 @@ class MorningDigestAgent(ToolUsingAgent):
         self._section_sources = kwargs.pop("section_sources", {})
         self._timezone = kwargs.pop("timezone", "America/Los_Angeles")
         self._voice_id = kwargs.pop("voice_id", "")
+        self._voice_speed = kwargs.pop("voice_speed", 1.0)
         self._tts_backend = kwargs.pop("tts_backend", "cartesia")
         self._digest_store_path = kwargs.pop("digest_store_path", "")
+        self._honorific = kwargs.pop("honorific", "sir")
         super().__init__(*args, **kwargs)
 
     def _build_system_prompt(self) -> str:
-        """Assemble the system prompt from persona + context."""
+        """Assemble the system prompt from persona + briefing structure."""
         persona_text = _load_persona(self._persona)
         now = datetime.now()
+        honorific = getattr(self, "_honorific", "sir")
 
         return (
             f"{persona_text}\n\n"
             f"Today is {now.strftime('%A, %B %d, %Y')}. "
-            f"The time is {now.strftime('%I:%M %p')} in {self._timezone}.\n\n"
-            f"Generate a morning briefing covering: "
-            f"{', '.join(self._sections)}.\n\n"
-            "CRITICAL RULES:\n"
-            "1. ONLY report facts that appear in the provided data. "
-            "Do NOT invent, hallucinate, or embellish any information.\n"
-            "2. Do NOT describe actions you are taking (e.g. 'I have adjusted "
-            "the lights', 'I have queued a delivery'). You are reporting, not "
-            "acting.\n"
-            "3. Do NOT use any markdown formatting — no #, ##, *, -, or bullet "
-            "points. This text will be read aloud as speech.\n"
-            "4. Use natural spoken transitions between sections like "
-            "'Regarding your health', 'Moving on to your calendar', "
-            "'As for your messages'.\n"
-            "5. Be concise — under 200 words total. State facts directly.\n"
-            "6. If a section has no data, skip it entirely rather than "
-            "making something up."
+            f"The time is {now.strftime('%I:%M %p')} in {self._timezone}.\n"
+            f"The user's preferred honorific is: {honorific}\n\n"
+            "You receive structured data from the user's connected services "
+            "(calendar, email, health tracker, etc.). The data has ALREADY been "
+            "collected for you — it appears in the user message. You do NOT need "
+            "to fetch or access anything yourself.\n\n"
+            "Produce a spoken morning briefing following this structure:\n\n"
+            "1. GREETING — One sentence with the honorific, framing the day.\n"
+            "2. PRIORITIES — What needs attention NOW. Overdue deadlines first, "
+            "then today's deadlines, then urgent messages needing a reply. "
+            "Connect related items across sections.\n"
+            "3. SCHEDULE — Upcoming events only (skip past ones). Be time-aware: "
+            "'You have 3 hours before your next commitment.'\n"
+            "4. MESSAGES — Who reached out and what they need. Lead with messages "
+            "requiring a reply, then FYI items. Quote actual message text when "
+            "relevant.\n"
+            "5. HEALTH — Interpret, don't list. 'Your sleep has improved three "
+            "nights running' not 'HRV 53, HR 56 bpm.' Compare to trends.\n"
+            "6. WORLD — Weather, news, notable developments. Skip if no data.\n"
+            "7. CLOSING — One encouraging or forward-looking sentence.\n\n"
+            "RULES:\n"
+            "- ONLY report facts from the provided data. Never invent.\n"
+            "- NEVER describe actions you are taking.\n"
+            "- Skip sections with no data entirely.\n"
+            "- No markdown, emojis, bullet points, or headers.\n"
+            "- Natural spoken transitions between sections.\n"
+            "- Under 250 words total."
         )
 
     def _resolve_sources(self) -> List[str]:
         """Get the list of connector IDs to query."""
         default_source_map = {
-            "messages": ["gmail", "slack", "google_tasks"],
+            "messages": [
+                "gmail", "slack", "google_tasks",
+                "imessage", "github_notifications",
+            ],
             "calendar": ["gcalendar"],
             "health": ["oura", "apple_health"],
+            "world": ["weather", "hackernews", "news_rss"],
             "music": ["spotify", "apple_music"],
-            "world": [],  # Handled by web_search, not connectors
         }
         sources = set()
         for section in self._sections:
@@ -119,12 +135,10 @@ class MorningDigestAgent(ToolUsingAgent):
                 content=(
                     f"Here is the collected data from my sources:\n\n"
                     f"{collected_data}\n\n"
-                    f"Synthesize my morning briefing. REMEMBER:\n"
-                    f"- Start with 'Good morning, sir.' (or afternoon/evening)\n"
-                    f"- NO markdown, NO emojis, NO bullet points, NO headers\n"
-                    f"- Plain spoken English only — this is read aloud\n"
-                    f"- Only state facts from the data above\n"
-                    f"- Under 200 words"
+                    f"Synthesize my morning briefing. Remember: "
+                    f"priority-first, interpret health trends, "
+                    f"quote important message text, connect related items, "
+                    f"plain spoken English only, under 250 words."
                 ),
             ),
         ]
@@ -149,6 +163,7 @@ class MorningDigestAgent(ToolUsingAgent):
                     "text": tts_text,
                     "voice_id": self._voice_id,
                     "backend": self._tts_backend,
+                    "speed": self._voice_speed,
                 }
             ),
         )

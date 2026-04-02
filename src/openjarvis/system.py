@@ -225,7 +225,9 @@ class JarvisSystem:
                 "section_sources": section_sources,
                 "timezone": dc.timezone,
                 "voice_id": dc.voice_id,
+                "voice_speed": dc.voice_speed,
                 "tts_backend": dc.tts_backend,
+                "honorific": dc.honorific,
             })
             # Ensure digest agent always has its required tools
             from openjarvis.tools.digest_collect import DigestCollectTool

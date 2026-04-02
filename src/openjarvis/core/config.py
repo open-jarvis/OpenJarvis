@@ -1258,7 +1258,9 @@ class DigestConfig:
     optional_sections: List[str] = field(
         default_factory=lambda: ["github", "financial", "music", "fitness"]
     )
+    honorific: str = "sir"
     voice_id: str = ""
+    voice_speed: float = 1.0
     tts_backend: str = "cartesia"
     messages: DigestSectionConfig = field(
         default_factory=lambda: DigestSectionConfig(

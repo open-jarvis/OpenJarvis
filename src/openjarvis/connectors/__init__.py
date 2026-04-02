@@ -107,3 +107,23 @@ try:
     import openjarvis.connectors.google_tasks  # noqa: F401
 except ImportError:
     pass
+
+try:
+    import openjarvis.connectors.weather  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.connectors.github_notifications  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.connectors.hackernews  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.connectors.news_rss  # noqa: F401
+except ImportError:
+    pass

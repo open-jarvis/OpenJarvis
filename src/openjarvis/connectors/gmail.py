@@ -253,11 +253,11 @@ class GmailConnector(BaseConnector):
         if not token:
             return
 
-        query = ""
+        query = "category:primary"
         if since is not None:
             # Gmail's after: operator accepts Unix epoch seconds.
             epoch = int(since.timestamp())
-            query = f"after:{epoch}"
+            query = f"category:primary after:{epoch}"
 
         page_token: Optional[str] = cursor
         synced = 0
