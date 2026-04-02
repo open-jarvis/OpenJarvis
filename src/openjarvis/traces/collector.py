@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, BaseAgent
 from openjarvis.core.events import EventBus, EventType
@@ -19,12 +19,15 @@ class TraceCollector:
     ``TraceStep`` objects.  When the agent finishes, the complete ``Trace``
     is persisted to the ``TraceStore`` and published on the bus.
 
+    Enhanced to capture full model response content, tool call arguments and
+    results, and the complete conversation message history.
+
     Usage::
 
         agent = OrchestratorAgent(engine, model, tools=tools, bus=bus)
         collector = TraceCollector(agent, store=trace_store, bus=bus)
         result = collector.run("What is 2+2?")
-        # Trace is automatically saved to trace_store
+        trace = collector.last_trace  # Rich trace with steps + messages
     """
 
     def __init__(
@@ -40,6 +43,7 @@ class TraceCollector:
         self._current_steps: list[TraceStep] = []
         self._current_model: str = ""
         self._current_engine: str = ""
+        self._last_trace: Optional[Trace] = None
 
     def run(
         self,
@@ -73,6 +77,9 @@ class TraceCollector:
             )
         )
 
+        # Extract messages from agent result metadata
+        messages: List[Dict[str, Any]] = result.metadata.get("messages", [])
+
         # Build and persist the trace
         trace = Trace(
             query=input,
@@ -81,6 +88,7 @@ class TraceCollector:
             engine=self._current_engine,
             steps=list(self._current_steps),
             result=result.content,
+            messages=messages,
             started_at=started_at,
             ended_at=ended_at,
         )
@@ -88,6 +96,8 @@ class TraceCollector:
         for step in trace.steps:
             trace.total_latency_seconds += step.duration_seconds
             trace.total_tokens += step.output.get("tokens", 0)
+
+        self._last_trace = trace
 
         if self._store is not None:
             self._store.save(trace)
@@ -99,11 +109,8 @@ class TraceCollector:
 
     @property
     def last_trace(self) -> Optional[Trace]:
-        """Return the trace from the most recent ``run()``, if available."""
-        if not self._current_steps:
-            return None
-        # Reconstruct from saved steps (steps cleared on next run)
-        return None  # Use TraceStore.get() for retrieval after run
+        """Return the trace from the most recent ``run()``."""
+        return self._last_trace
 
     # -- event handlers --------------------------------------------------------
 
@@ -146,31 +153,50 @@ class TraceCollector:
                     "prompt_tokens": usage.get("prompt_tokens", 0),
                     "completion_tokens": usage.get("completion_tokens", 0),
                     "total_tokens": usage.get("total_tokens", 0),
-                    "tokens": usage.get("total_tokens", data.get("total_tokens", 0)),
+                    "tokens": usage.get(
+                        "total_tokens", data.get("total_tokens", 0),
+                    ),
+                    "content": data.get("content", ""),
+                    "tool_calls": data.get("tool_calls", []),
+                    "finish_reason": data.get("finish_reason", ""),
                 },
                 metadata={
                     "engine": self._current_engine,
                     "ttft": data.get("ttft", 0.0),
                     "energy_joules": data.get("energy_joules", 0.0),
                     "power_watts": data.get("power_watts", 0.0),
-                    "gpu_utilization_pct": data.get("gpu_utilization_pct", 0.0),
-                    "throughput_tok_per_sec": data.get("throughput_tok_per_sec", 0.0),
+                    "gpu_utilization_pct": data.get(
+                        "gpu_utilization_pct", 0.0,
+                    ),
+                    "throughput_tok_per_sec": data.get(
+                        "throughput_tok_per_sec", 0.0,
+                    ),
                 },
             )
         )
 
     def _on_tool_start(self, event: Any) -> None:
         self._tool_start_time = event.timestamp
+        self._tool_start_data = event.data
 
     def _on_tool_end(self, event: Any) -> None:
         start = getattr(self, "_tool_start_time", event.timestamp)
+        start_data = getattr(self, "_tool_start_data", {})
         self._current_steps.append(
             TraceStep(
                 step_type=StepType.TOOL_CALL,
                 timestamp=start,
-                duration_seconds=event.data.get("latency", event.timestamp - start),
-                input={"tool": event.data.get("tool", "")},
-                output={"success": event.data.get("success", False)},
+                duration_seconds=event.data.get(
+                    "latency", event.timestamp - start,
+                ),
+                input={
+                    "tool": event.data.get("tool", ""),
+                    "arguments": start_data.get("arguments", {}),
+                },
+                output={
+                    "success": event.data.get("success", False),
+                    "result": event.data.get("result", ""),
+                },
             )
         )
 

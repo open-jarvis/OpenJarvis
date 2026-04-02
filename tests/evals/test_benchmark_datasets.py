@@ -129,6 +129,27 @@ class TestDatasetInstantiation:
         assert ds.dataset_id == "terminalbench-native"
         assert ds.dataset_name == "TerminalBench Native"
 
+    def test_livecodebench(self) -> None:
+        from openjarvis.evals.datasets.livecodebench import LiveCodeBenchDataset
+
+        ds = LiveCodeBenchDataset()
+        assert ds.dataset_id == "livecodebench"
+        assert ds.dataset_name == "LiveCodeBench"
+
+    def test_liveresearch(self) -> None:
+        from openjarvis.evals.datasets.liveresearch import LiveResearchBenchDataset
+
+        ds = LiveResearchBenchDataset()
+        assert ds.dataset_id == "liveresearch"
+        assert ds.dataset_name == "LiveResearchBench"
+
+    def test_toolcall15(self) -> None:
+        from openjarvis.evals.datasets.toolcall15 import ToolCall15Dataset
+
+        ds = ToolCall15Dataset()
+        assert ds.dataset_id == "toolcall15"
+        assert ds.dataset_name == "ToolCall-15"
+
 
 # ---------------------------------------------------------------------------
 # Scorer instantiation tests
@@ -233,6 +254,24 @@ class TestScorerInstantiation:
         s = TerminalBenchNativeScorer(_mock_backend(), "test-model")
         assert s.scorer_id == "terminalbench-native"
 
+    def test_livecodebench_scorer(self) -> None:
+        from openjarvis.evals.scorers.livecodebench import LiveCodeBenchScorer
+
+        s = LiveCodeBenchScorer(_mock_backend(), "test-model")
+        assert s.scorer_id == "livecodebench"
+
+    def test_liveresearch_scorer(self) -> None:
+        from openjarvis.evals.scorers.liveresearch import LiveResearchBenchScorer
+
+        s = LiveResearchBenchScorer(_mock_backend(), "test-model")
+        assert s.scorer_id == "liveresearch"
+
+    def test_toolcall15_scorer(self) -> None:
+        from openjarvis.evals.scorers.toolcall15 import ToolCall15Scorer
+
+        s = ToolCall15Scorer(_mock_backend(), "test-model")
+        assert s.scorer_id == "toolcall15"
+
 
 # ---------------------------------------------------------------------------
 # CLI factory tests
@@ -255,6 +294,9 @@ ALL_BENCHMARKS = [
     "swefficiency",
     "terminalbench",
     "terminalbench-native",
+    "livecodebench",
+    "liveresearch",
+    "toolcall15",
 ]
 
 
@@ -313,7 +355,7 @@ class TestConfigBenchmarks:
     def test_benchmarks_count(self) -> None:
         from openjarvis.evals.core.config import KNOWN_BENCHMARKS
 
-        assert len(KNOWN_BENCHMARKS) == 27
+        assert len(KNOWN_BENCHMARKS) == 30
 
 
 # ---------------------------------------------------------------------------

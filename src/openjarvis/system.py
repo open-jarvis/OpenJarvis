@@ -201,9 +201,21 @@ class JarvisSystem:
 
         self.bus.subscribe(EventType.INFERENCE_END, _on_inference_end)
 
-        # Run
+        # Run — wrap with TraceCollector when tracing is enabled.
+        # Check trace_store (set at build time) instead of config.traces.enabled
+        # because the shared config singleton can be mutated by other SystemBuilder
+        # instances (e.g. the judge backend).
         try:
-            result = ag.run(query, context=ctx)
+            if self.trace_store is not None:
+                from openjarvis.traces.collector import TraceCollector
+
+                collector = TraceCollector(
+                    ag, store=self.trace_store, bus=self.bus,
+                )
+                result = collector.run(query, context=ctx)
+                self.trace_collector = collector
+            else:
+                result = ag.run(query, context=ctx)
         finally:
             self.bus.unsubscribe(EventType.INFERENCE_END, _on_inference_end)
 
@@ -608,6 +620,16 @@ class SystemBuilder:
         # Set up session store
         session_store = self._setup_sessions(config)
 
+        # Set up trace store
+        trace_store = None
+        if traces_enabled:
+            try:
+                from openjarvis.traces.store import TraceStore
+
+                trace_store = TraceStore(config.traces.db_path)
+            except Exception:
+                logger.warning("Failed to initialize TraceStore", exc_info=True)
+
         # Set up capability policy
         capability_policy = sec.capability_policy
 
@@ -685,6 +707,7 @@ class SystemBuilder:
             memory_backend=memory_backend,
             channel_backend=channel_backend,
             telemetry_store=telemetry_store,
+            trace_store=trace_store,
             gpu_monitor=gpu_monitor,
             scheduler_store=scheduler_store,
             scheduler=task_scheduler,

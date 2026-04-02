@@ -227,6 +227,8 @@ class TauBenchTaskEnv:
         max_tokens: int = 4096,
         user_model: Optional[str] = None,
         num_trials: int = 1,
+        telemetry: bool = False,
+        gpu_metrics: bool = False,
     ) -> None:
         self._record = record
         self._num_trials = num_trials
@@ -235,6 +237,8 @@ class TauBenchTaskEnv:
         self._temperature = temperature
         self._max_tokens = max_tokens
         self._user_model = user_model or "gpt-5-mini-2025-08-07"
+        self._telemetry = telemetry
+        self._gpu_metrics = gpu_metrics
         self._system = None
 
     def __enter__(self) -> TauBenchTaskEnv:
@@ -244,7 +248,9 @@ class TauBenchTaskEnv:
         builder = SystemBuilder()
         if self._engine_key:
             builder.engine(self._engine_key)
-        self._system = builder.build()
+        if self._gpu_metrics:
+            builder._config.telemetry.gpu_metrics = True
+        self._system = builder.telemetry(self._telemetry).build()
 
         # Run the simulation
         self._run_simulation()

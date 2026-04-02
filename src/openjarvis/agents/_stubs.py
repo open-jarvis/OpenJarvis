@@ -151,14 +151,38 @@ class BaseAgent(ABC):
         """Call ``engine.generate()`` with stored defaults.
 
         Extra kwargs (e.g. ``tools``) are forwarded to the engine.
+        Publishes INFERENCE_START/END events on the bus when the engine
+        does not publish its own (i.e. non-instrumented engines).
         """
-        return self._engine.generate(
+        if self._bus and not getattr(self._engine, "_publishes_events", False):
+            engine_id = getattr(self._engine, "engine_id", "")
+            self._bus.publish(
+                EventType.INFERENCE_START,
+                {"model": self._model, "engine": engine_id},
+            )
+
+        result = self._engine.generate(
             messages,
             model=self._model,
             temperature=self._temperature,
             max_tokens=self._max_tokens,
             **extra_kwargs,
         )
+
+        if self._bus and not getattr(self._engine, "_publishes_events", False):
+            usage = result.get("usage", {})
+            self._bus.publish(
+                EventType.INFERENCE_END,
+                {
+                    "model": self._model,
+                    "usage": usage,
+                    "content": result.get("content", ""),
+                    "tool_calls": result.get("tool_calls", []),
+                    "finish_reason": result.get("finish_reason", ""),
+                },
+            )
+
+        return result
 
     def _max_turns_result(
         self,

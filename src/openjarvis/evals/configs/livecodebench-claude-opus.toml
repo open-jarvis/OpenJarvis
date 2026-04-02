@@ -1,0 +1,30 @@
+# LiveCodeBench evaluation with Claude Opus
+# Benchmark: competitive programming from LeetCode, AtCoder, CodeForces
+# Reference: https://livecodebench.github.io/
+
+[meta]
+name = "livecodebench-claude-opus"
+description = "LiveCodeBench code generation with Claude Opus"
+
+[defaults]
+temperature = 0.0
+max_tokens = 4096
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+max_tokens = 1024
+
+[run]
+max_workers = 8
+output_dir = "results/livecodebench-claude-opus/"
+seed = 42
+
+[[models]]
+name = "anthropic/claude-opus-4-5"
+provider = "anthropic"
+
+[[benchmarks]]
+name = "livecodebench"
+backend = "jarvis-direct"
+max_samples = 100

@@ -128,6 +128,18 @@ BENCHMARKS = {
         "category": "agentic",
         "description": "TauBench multi-turn customer service",
     },
+    "livecodebench": {
+        "category": "coding",
+        "description": "LiveCodeBench competitive programming",
+    },
+    "liveresearch": {
+        "category": "agentic",
+        "description": "LiveResearchBench deep research tasks",
+    },
+    "toolcall15": {
+        "category": "agentic",
+        "description": "ToolCall-15 tool calling benchmark",
+    },
 }
 
 BACKENDS = {
@@ -316,6 +328,18 @@ def _build_dataset(benchmark: str, subset: str | None = None):
         from openjarvis.evals.datasets.taubench import TauBenchDataset
         domains = subset.split(",") if subset else None
         return TauBenchDataset(domains=domains)
+    elif benchmark == "livecodebench":
+        from openjarvis.evals.datasets.livecodebench import LiveCodeBenchDataset
+
+        return LiveCodeBenchDataset()
+    elif benchmark == "liveresearch":
+        from openjarvis.evals.datasets.liveresearch import LiveResearchBenchDataset
+
+        return LiveResearchBenchDataset(path=subset)
+    elif benchmark == "toolcall15":
+        from openjarvis.evals.datasets.toolcall15 import ToolCall15Dataset
+
+        return ToolCall15Dataset()
     else:
         raise click.ClickException(f"Unknown benchmark: {benchmark}")
 
@@ -455,6 +479,18 @@ def _build_scorer(benchmark: str, judge_backend, judge_model: str):
     elif benchmark == "taubench":
         from openjarvis.evals.scorers.taubench import TauBenchScorer
         return TauBenchScorer(judge_backend, judge_model)
+    elif benchmark == "livecodebench":
+        from openjarvis.evals.scorers.livecodebench import LiveCodeBenchScorer
+
+        return LiveCodeBenchScorer(judge_backend, judge_model)
+    elif benchmark == "liveresearch":
+        from openjarvis.evals.scorers.liveresearch import LiveResearchBenchScorer
+
+        return LiveResearchBenchScorer(judge_backend, judge_model)
+    elif benchmark == "toolcall15":
+        from openjarvis.evals.scorers.toolcall15 import ToolCall15Scorer
+
+        return ToolCall15Scorer(judge_backend, judge_model)
     else:
         raise click.ClickException(f"Unknown benchmark: {benchmark}")
 
@@ -563,6 +599,8 @@ def _run_single(config, console: Optional[Console] = None) -> object:
             model=config.model,
             temperature=config.temperature,
             max_tokens=config.max_tokens,
+            telemetry=getattr(config, "telemetry", False),
+            gpu_metrics=getattr(config, "gpu_metrics", False),
         )
     judge_engine = getattr(config, "judge_engine", "cloud") or "cloud"
     judge_backend = _build_judge_backend(config.judge_model, engine_key=judge_engine)

@@ -234,3 +234,138 @@ class TestTraceCollector:
         for s in trace.steps:
             assert s.input.get("model") != "stray"
         store.close()
+
+
+class _RichToolAgent(BaseAgent):
+    """Agent that emits content-enriched events for testing."""
+
+    agent_id = "rich_tool_agent"
+
+    def __init__(self, bus: EventBus) -> None:
+        self._bus = bus
+
+    def run(
+        self, input: str, context: Optional[AgentContext] = None,
+        **kwargs: Any,
+    ) -> AgentResult:
+        from openjarvis.core.types import ToolResult
+
+        # Turn 1: inference with tool call request
+        self._bus.publish(EventType.INFERENCE_START, {
+            "model": "test-model", "engine": "test",
+        })
+        self._bus.publish(EventType.INFERENCE_END, {
+            "total_tokens": 30,
+            "usage": {"prompt_tokens": 20, "completion_tokens": 10},
+            "content": "I'll calculate that for you.",
+            "tool_calls": [
+                {"id": "call_1", "name": "calculator",
+                 "arguments": "{\"expr\": \"2+2\"}"},
+            ],
+            "finish_reason": "tool_calls",
+        })
+        # Tool execution
+        self._bus.publish(EventType.TOOL_CALL_START, {
+            "tool": "calculator", "arguments": {"expr": "2+2"},
+        })
+        self._bus.publish(EventType.TOOL_CALL_END, {
+            "tool": "calculator", "success": True, "latency": 0.01,
+            "result": "4",
+        })
+        # Turn 2: final answer
+        self._bus.publish(EventType.INFERENCE_START, {
+            "model": "test-model", "engine": "test",
+        })
+        self._bus.publish(EventType.INFERENCE_END, {
+            "total_tokens": 15,
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+            "content": "The answer is 4.",
+            "tool_calls": [],
+            "finish_reason": "stop",
+        })
+
+        # Return result with messages in metadata
+        messages = [
+            {"role": "user", "content": input},
+            {"role": "assistant", "content": "I'll calculate that for you."},
+            {"role": "tool", "content": "4", "name": "calculator"},
+            {"role": "assistant", "content": "The answer is 4."},
+        ]
+        return AgentResult(
+            content="The answer is 4.",
+            tool_results=[
+                ToolResult(tool_name="calculator", content="4",
+                           success=True),
+            ],
+            turns=2,
+            metadata={"messages": messages},
+        )
+
+
+class TestRichTraceCollector:
+    def test_captures_content_in_generate_steps(self, tmp_path: Path) -> None:
+        bus = EventBus()
+        store = TraceStore(tmp_path / "test.db")
+        agent = _RichToolAgent(bus=bus)
+        collector = TraceCollector(agent, store=store, bus=bus)
+
+        collector.run("What is 2+2?")
+
+        trace = store.list_traces()[0]
+        gen_steps = [s for s in trace.steps if s.step_type == StepType.GENERATE]
+        assert len(gen_steps) == 2
+        assert gen_steps[0].output["content"] == "I'll calculate that for you."
+        expected_tc = [
+            {"id": "call_1", "name": "calculator",
+             "arguments": "{\"expr\": \"2+2\"}"},
+        ]
+        assert gen_steps[0].output["tool_calls"] == expected_tc
+        assert gen_steps[0].output["finish_reason"] == "tool_calls"
+        assert gen_steps[1].output["content"] == "The answer is 4."
+        assert gen_steps[1].output["finish_reason"] == "stop"
+        store.close()
+
+    def test_captures_tool_arguments_and_result(self, tmp_path: Path) -> None:
+        bus = EventBus()
+        store = TraceStore(tmp_path / "test.db")
+        agent = _RichToolAgent(bus=bus)
+        collector = TraceCollector(agent, store=store, bus=bus)
+
+        collector.run("What is 2+2?")
+
+        trace = store.list_traces()[0]
+        tool_steps = [s for s in trace.steps if s.step_type == StepType.TOOL_CALL]
+        assert len(tool_steps) == 1
+        assert tool_steps[0].input["tool"] == "calculator"
+        assert tool_steps[0].input["arguments"] == {"expr": "2+2"}
+        assert tool_steps[0].output["result"] == "4"
+        assert tool_steps[0].output["success"] is True
+        store.close()
+
+    def test_captures_messages_in_trace(self, tmp_path: Path) -> None:
+        bus = EventBus()
+        store = TraceStore(tmp_path / "test.db")
+        agent = _RichToolAgent(bus=bus)
+        collector = TraceCollector(agent, store=store, bus=bus)
+
+        collector.run("What is 2+2?")
+
+        trace = store.list_traces()[0]
+        assert len(trace.messages) == 4
+        assert trace.messages[0]["role"] == "user"
+        assert trace.messages[3]["role"] == "assistant"
+        store.close()
+
+    def test_last_trace_property(self, tmp_path: Path) -> None:
+        bus = EventBus()
+        store = TraceStore(tmp_path / "test.db")
+        agent = _RichToolAgent(bus=bus)
+        collector = TraceCollector(agent, store=store, bus=bus)
+
+        collector.run("What is 2+2?")
+
+        trace = collector.last_trace
+        assert trace is not None
+        assert trace.query == "What is 2+2?"
+        assert len(trace.messages) == 4
+        store.close()

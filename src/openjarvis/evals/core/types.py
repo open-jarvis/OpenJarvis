@@ -45,8 +45,10 @@ class EvalResult:
     energy_per_output_token_joules: float = 0.0
     throughput_per_watt: float = 0.0
     mean_itl_ms: float = 0.0
+    estimated_flops: float = 0.0
     trace_steps: int = 0
     trace_energy_joules: float = 0.0
+    trace_data: Optional[Dict[str, Any]] = None
 
 
 @dataclass(slots=True)
@@ -133,6 +135,8 @@ class RunSummary:
     input_token_stats: Optional[MetricStats] = None
     output_token_stats: Optional[MetricStats] = None
     total_energy_joules: float = 0.0
+    total_estimated_flops: float = 0.0
+    flops_stats: Optional[MetricStats] = None
     warmup_samples_excluded: int = 0
     steady_state_reached: bool = False
     energy_method: str = ""

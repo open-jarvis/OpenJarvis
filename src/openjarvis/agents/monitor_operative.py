@@ -21,7 +21,7 @@ from typing import Any, List, Optional
 from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
 from openjarvis.core.events import EventBus
 from openjarvis.core.registry import AgentRegistry
-from openjarvis.core.types import Message, Role, ToolCall, ToolResult
+from openjarvis.core.types import Message, Role, ToolCall, ToolResult, _message_to_dict
 from openjarvis.engine._stubs import InferenceEngine
 from openjarvis.tools._stubs import BaseTool
 
@@ -314,11 +314,12 @@ class MonitorOperativeAgent(ToolUsingAgent):
         else:
             # Max turns exceeded
             self._save_session(input, content)
+            msg_dicts = [_message_to_dict(m) for m in messages]
             return self._max_turns_result(
                 all_tool_results,
                 turns,
                 content=content,
-                metadata=total_usage,
+                metadata={**total_usage, "messages": msg_dicts},
             )
 
         # 6. Save session
@@ -329,11 +330,12 @@ class MonitorOperativeAgent(ToolUsingAgent):
             self._auto_persist_state(content)
 
         self._emit_turn_end(turns=turns, content_length=len(content))
+        msg_dicts = [_message_to_dict(m) for m in messages]
         return AgentResult(
             content=content,
             tool_results=all_tool_results,
             turns=turns,
-            metadata=total_usage,
+            metadata={**total_usage, "messages": msg_dicts},
         )
 
     # ------------------------------------------------------------------

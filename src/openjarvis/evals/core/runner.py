@@ -43,6 +43,11 @@ try:
 except ImportError:  # pragma: no cover
     compute_efficiency = None  # type: ignore[assignment]
 
+try:
+    from openjarvis.telemetry.efficiency import estimate_model_flops_per_token
+except ImportError:  # pragma: no cover
+    estimate_model_flops_per_token = None  # type: ignore[assignment]
+
 LOGGER = logging.getLogger(__name__)
 
 _THINK_TAG_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
@@ -346,6 +351,21 @@ class EvalRunner:
                     mfu = eff.mfu_pct
                     mbu = eff.mbu_pct
 
+            # Estimate FLOPs: 2 * active_params * total_tokens
+            estimated_flops = 0.0
+            if estimate_model_flops_per_token is not None:
+                model_meta = cfg.metadata or {}
+                param_b = model_meta.get("param_count_b", 0.0)
+                active_b = model_meta.get("active_params_b")
+                total_tokens = usage.get("prompt_tokens", 0) + usage.get(
+                    "completion_tokens", 0
+                )
+                if param_b > 0 and total_tokens > 0:
+                    flops_per_tok = estimate_model_flops_per_token(
+                        param_b, active_b
+                    )
+                    estimated_flops = flops_per_tok * total_tokens
+
             # Extract derived and ITL metrics from _telemetry dict
             _telem = full.get("_telemetry", {})
             energy_per_out_tok = _telem.get("energy_per_output_token_joules", 0.0)
@@ -374,6 +394,8 @@ class EvalRunner:
                 energy_per_output_token_joules=energy_per_out_tok,
                 throughput_per_watt=throughput_per_w,
                 mean_itl_ms=mean_itl,
+                estimated_flops=estimated_flops,
+                trace_data=full.get("trace_data"),
             )
         except Exception as exc:
             LOGGER.error("Error processing %s: %s", record.record_id, exc)
@@ -655,6 +677,7 @@ class EvalRunner:
                 completion_tokens=total_completion_tokens,
                 cost_usd=total_cost,
                 scoring_metadata=scoring_meta,
+                trace_data=full.get("trace_data"),
             )
         except Exception as exc:
             LOGGER.error(
@@ -726,6 +749,7 @@ class EvalRunner:
             "energy_per_output_token_joules": result.energy_per_output_token_joules,
             "throughput_per_watt": result.throughput_per_watt,
             "mean_itl_ms": result.mean_itl_ms,
+            "estimated_flops": result.estimated_flops,
         }
         try:
             line = json.dumps(record_dict, default=str)
@@ -834,12 +858,14 @@ class EvalRunner:
         ]
         tpw_vals = [r.throughput_per_watt for r in results if r.throughput_per_watt > 0]
         itl_vals = [r.mean_itl_ms for r in results if r.mean_itl_ms > 0]
+        flops_vals = [r.estimated_flops for r in results if r.estimated_flops > 0]
         input_tok_vals = [r.prompt_tokens for r in results if r.prompt_tokens > 0]
         output_tok_vals = [
             r.completion_tokens for r in results if r.completion_tokens > 0
         ]
 
         total_energy = sum(r.energy_joules for r in results)
+        total_estimated_flops = sum(r.estimated_flops for r in results)
         total_input_tokens = sum(r.prompt_tokens for r in results)
         total_output_tokens = sum(r.completion_tokens for r in results)
         avg_power = statistics.mean(power_vals) if power_vals else 0.0
@@ -849,6 +875,7 @@ class EvalRunner:
             "accuracy": round(accuracy, 4),
             "total_energy_joules": round(total_energy, 6),
             "avg_power_watts": round(avg_power, 4),
+            "total_estimated_flops": total_estimated_flops,
             "ipj": (round(accuracy / total_energy, 6) if total_energy > 0 else None),
             "ipw": (round(accuracy / avg_power, 6) if avg_power > 0 else None),
         }
@@ -891,6 +918,8 @@ class EvalRunner:
             input_token_stats=_metric_stats([float(v) for v in input_tok_vals]),
             output_token_stats=_metric_stats([float(v) for v in output_tok_vals]),
             total_energy_joules=round(total_energy, 6),
+            total_estimated_flops=total_estimated_flops,
+            flops_stats=_metric_stats(flops_vals),
             warmup_samples_excluded=cfg.warmup_samples,
             avg_power_watts=round(avg_power, 4),
             total_input_tokens=total_input_tokens,
@@ -1044,6 +1073,8 @@ def _summary_to_dict(s: RunSummary) -> Dict[str, Any]:
         "input_token_stats": _metric_stats_to_dict(s.input_token_stats),
         "output_token_stats": _metric_stats_to_dict(s.output_token_stats),
         "total_energy_joules": s.total_energy_joules,
+        "total_estimated_flops": s.total_estimated_flops,
+        "flops_stats": _metric_stats_to_dict(s.flops_stats),
         "warmup_samples_excluded": s.warmup_samples_excluded,
         "steady_state_reached": s.steady_state_reached,
         "energy_method": s.energy_method,
@@ -1053,12 +1084,33 @@ def _summary_to_dict(s: RunSummary) -> Dict[str, Any]:
         "efficiency": s.efficiency,
         "normalized_statistics": s.normalized_statistics,
         "normalized_efficiency": s.normalized_efficiency,
+        "telemetry_summary": {
+            "total_energy_joules": s.total_energy_joules,
+            "avg_power_watts": s.avg_power_watts,
+            "total_input_tokens": s.total_input_tokens,
+            "total_output_tokens": s.total_output_tokens,
+            "total_tokens": s.total_input_tokens + s.total_output_tokens,
+            "total_estimated_flops": s.total_estimated_flops,
+            "throughput_stats": _metric_stats_to_dict(s.throughput_stats),
+            "gpu_utilization_stats": _metric_stats_to_dict(
+                s.gpu_utilization_stats,
+            ),
+            "energy_stats": _metric_stats_to_dict(s.energy_stats),
+            "power_stats": _metric_stats_to_dict(s.power_stats),
+            "flops_stats": _metric_stats_to_dict(s.flops_stats),
+            "ipw": (
+                s.efficiency.get("ipw") if s.efficiency else None
+            ),
+            "ipj": (
+                s.efficiency.get("ipj") if s.efficiency else None
+            ),
+        },
     }
 
 
 def _result_to_trace_dict(result: EvalResult) -> Dict[str, Any]:
     """Convert an EvalResult to a full trace dict for per-sample export."""
-    return {
+    d = {
         "record_id": result.record_id,
         "model_answer": result.model_answer,
         "is_correct": result.is_correct,
@@ -1081,7 +1133,11 @@ def _result_to_trace_dict(result: EvalResult) -> Dict[str, Any]:
         "energy_per_output_token_joules": result.energy_per_output_token_joules,
         "throughput_per_watt": result.throughput_per_watt,
         "mean_itl_ms": result.mean_itl_ms,
+        "estimated_flops": result.estimated_flops,
     }
+    if result.trace_data is not None:
+        d["trace_data"] = result.trace_data
+    return d
 
 
 __all__ = ["EvalRunner"]

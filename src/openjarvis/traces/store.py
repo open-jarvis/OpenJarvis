@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS traces (
     ended_at             REAL    NOT NULL DEFAULT 0.0,
     total_tokens         INTEGER NOT NULL DEFAULT 0,
     total_latency_seconds REAL   NOT NULL DEFAULT 0.0,
-    metadata             TEXT    NOT NULL DEFAULT '{}'
+    metadata             TEXT    NOT NULL DEFAULT '{}',
+    messages             TEXT    NOT NULL DEFAULT '[]'
 );
 """
 
@@ -64,8 +65,8 @@ _INSERT_TRACE = """\
 INSERT INTO traces (
     trace_id, query, agent, model, engine, result,
     outcome, feedback, started_at, ended_at,
-    total_tokens, total_latency_seconds, metadata
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    total_tokens, total_latency_seconds, metadata, messages
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _INSERT_STEP = """\
@@ -95,6 +96,13 @@ class TraceStore:
         self._conn.execute(_CREATE_STEPS)
         self._conn.execute(_CREATE_FTS)
         self._conn.execute(_FTS_SYNC_INSERT)
+        # Migrate: add messages column if missing (pre-existing databases)
+        try:
+            self._conn.execute(
+                "ALTER TABLE traces ADD COLUMN messages TEXT NOT NULL DEFAULT '[]'"
+            )
+        except sqlite3.OperationalError:
+            pass  # Column already exists
         self._conn.commit()
 
     def save(self, trace: Trace) -> None:
@@ -115,6 +123,7 @@ class TraceStore:
                 trace.total_tokens,
                 trace.total_latency_seconds,
                 json.dumps(trace.metadata),
+                json.dumps(trace.messages),
             ),
         )
         for idx, step in enumerate(trace.steps):
@@ -257,6 +266,9 @@ class TraceStore:
             )
             for sr in step_rows
         ]
+        # messages column (index 14) was added after metadata; handle
+        # databases created before the column existed.
+        messages_raw = row[14] if len(row) > 14 else "[]"
         return Trace(
             trace_id=trace_id,
             query=row[2],
@@ -271,6 +283,7 @@ class TraceStore:
             total_tokens=row[11],
             total_latency_seconds=row[12],
             metadata=json.loads(row[13]),
+            messages=json.loads(messages_raw),
             steps=steps,
         )
 

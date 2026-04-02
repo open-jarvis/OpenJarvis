@@ -62,6 +62,9 @@ KNOWN_BENCHMARKS = {
     "browser_assistant",
     "pinchbench",
     "taubench",
+    "livecodebench",
+    "liveresearch",
+    "toolcall15",
 }
 
 

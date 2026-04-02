@@ -12,7 +12,7 @@ from typing import Any, List, Optional
 from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
 from openjarvis.core.events import EventBus
 from openjarvis.core.registry import AgentRegistry
-from openjarvis.core.types import Message, Role, ToolCall, ToolResult
+from openjarvis.core.types import Message, Role, ToolCall, ToolResult, _message_to_dict
 from openjarvis.engine._stubs import InferenceEngine
 from openjarvis.tools._stubs import BaseTool, build_tool_descriptions
 
@@ -140,21 +140,23 @@ class NativeReActAgent(ToolUsingAgent):
             # Final answer?
             if parsed["final_answer"]:
                 self._emit_turn_end(turns=turns)
+                msg_dicts = [_message_to_dict(m) for m in messages]
                 return AgentResult(
                     content=parsed["final_answer"],
                     tool_results=all_tool_results,
                     turns=turns,
-                    metadata=total_usage,
+                    metadata={**total_usage, "messages": msg_dicts},
                 )
 
             # No action? Treat content as final answer
             if not parsed["action"]:
                 self._emit_turn_end(turns=turns)
+                msg_dicts = [_message_to_dict(m) for m in messages]
                 return AgentResult(
                     content=content,
                     tool_results=all_tool_results,
                     turns=turns,
-                    metadata=total_usage,
+                    metadata={**total_usage, "messages": msg_dicts},
                 )
 
             # Execute action
@@ -190,7 +192,11 @@ class NativeReActAgent(ToolUsingAgent):
             messages.append(Message(role=Role.USER, content=observation))
 
         # Max turns exceeded
-        return self._max_turns_result(all_tool_results, turns, metadata=total_usage)
+        msg_dicts = [_message_to_dict(m) for m in messages]
+        return self._max_turns_result(
+            all_tool_results, turns,
+            metadata={**total_usage, "messages": msg_dicts},
+        )
 
 
 __all__ = ["NativeReActAgent", "REACT_SYSTEM_PROMPT"]

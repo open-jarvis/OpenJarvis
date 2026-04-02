@@ -69,6 +69,8 @@ class TauBenchDataset(DatasetProvider):
         self._max_tokens: int = 4096
         self._user_model: Optional[str] = None
         self._num_trials: int = 3  # pass^k: best of k trials per task
+        self._telemetry: bool = False
+        self._gpu_metrics: bool = False
 
     def set_engine_config(
         self,
@@ -78,6 +80,8 @@ class TauBenchDataset(DatasetProvider):
         max_tokens: int = 4096,
         user_model: Optional[str] = None,
         num_trials: Optional[int] = None,
+        telemetry: bool = False,
+        gpu_metrics: bool = False,
     ) -> None:
         """Inject engine configuration for the agent. Called by CLI."""
         if engine_key is not None:
@@ -90,6 +94,8 @@ class TauBenchDataset(DatasetProvider):
             self._user_model = user_model
         if num_trials is not None:
             self._num_trials = num_trials
+        self._telemetry = telemetry
+        self._gpu_metrics = gpu_metrics
 
     def verify_requirements(self) -> List[str]:
         issues: List[str] = []
@@ -228,6 +234,8 @@ class TauBenchDataset(DatasetProvider):
             max_tokens=self._max_tokens,
             user_model=self._user_model,
             num_trials=self._num_trials,
+            telemetry=self._telemetry,
+            gpu_metrics=self._gpu_metrics,
         )
 
 

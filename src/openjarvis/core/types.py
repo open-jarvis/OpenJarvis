@@ -179,6 +179,21 @@ def _trace_id() -> str:
     return uuid.uuid4().hex[:16]
 
 
+def _message_to_dict(msg: "Message") -> Dict[str, Any]:
+    """Serialize a Message to a JSON-safe dict."""
+    d: Dict[str, Any] = {"role": msg.role.value, "content": msg.content}
+    if msg.name:
+        d["name"] = msg.name
+    if msg.tool_calls:
+        d["tool_calls"] = [
+            {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
+            for tc in msg.tool_calls
+        ]
+    if msg.tool_call_id:
+        d["tool_call_id"] = msg.tool_call_id
+    return d
+
+
 @dataclass(slots=True)
 class TraceStep:
     """A single step within an agent trace.
@@ -220,6 +235,7 @@ class Trace:
     total_tokens: int = 0
     total_latency_seconds: float = 0.0
     metadata: Dict[str, Any] = field(default_factory=dict)
+    messages: List[Dict[str, Any]] = field(default_factory=list)
 
     def add_step(self, step: TraceStep) -> None:
         """Append a step and update running totals."""
@@ -257,4 +273,5 @@ __all__ = [
     "ToolResult",
     "Trace",
     "TraceStep",
+    "_message_to_dict",
 ]

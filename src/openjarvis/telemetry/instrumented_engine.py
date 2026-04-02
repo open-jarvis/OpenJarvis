@@ -74,6 +74,7 @@ class InstrumentedEngine(InferenceEngine):
         self._bus = bus
         self._gpu_monitor = gpu_monitor
         self._energy_monitor = energy_monitor
+        self._publishes_events = True
 
     def generate(
         self,
@@ -254,6 +255,10 @@ class InstrumentedEngine(InferenceEngine):
             "mean_itl_ms": mean_itl_ms,
             "energy_method": energy_method,
             "energy_vendor": energy_vendor,
+            # Rich trace data: model response content
+            "content": result.get("content", ""),
+            "tool_calls": result.get("tool_calls", []),
+            "finish_reason": result.get("finish_reason", ""),
         }
 
         self._bus.publish(EventType.INFERENCE_END, event_data)

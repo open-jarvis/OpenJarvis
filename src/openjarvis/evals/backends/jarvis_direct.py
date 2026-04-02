@@ -31,6 +31,10 @@ class JarvisDirectBackend(InferenceBackend):
         builder = SystemBuilder()
         if engine_key:
             builder.engine(engine_key)
+        # Propagate gpu_metrics to the runtime config so SystemBuilder
+        # creates an EnergyMonitor / GpuMonitor for the InstrumentedEngine.
+        if gpu_metrics:
+            builder._config.telemetry.gpu_metrics = True
         self._system = builder.telemetry(telemetry).traces(telemetry).build()
 
     def generate(
