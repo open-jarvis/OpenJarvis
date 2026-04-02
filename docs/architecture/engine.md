@@ -172,7 +172,7 @@ The MLX backend serves models via the MLX framework on Apple Silicon. It uses th
 
 - **Default host:** `http://localhost:8080`
 - **Health check:** `GET /v1/models`
-- **Best for:** Apple Silicon Macs (M1/M2/M3/M4) running MLX-format or GGUF models natively
+- **Best for:** Apple Silicon Macs (M1 through M5) running MLX-format or GGUF models natively
 
 ### LM Studio
 

@@ -326,6 +326,40 @@ Efficient CPU and GPU inference with GGUF quantized models.
 2. Start: `llama-server -m /path/to/model.gguf --port 8080`
 3. Auto-detected at `http://localhost:8080`
 
+### MLX (Apple Silicon)
+
+Native inference on Apple Silicon using the MLX framework. Significantly faster than
+llama.cpp on M-series chips and the recommended engine for Apple Silicon Macs.
+
+1. Install the MLX extra:
+
+    ```bash
+    uv sync --extra inference-mlx
+    ```
+
+2. Run `jarvis init` to detect your chip and download the recommended model:
+
+    ```bash
+    uv run jarvis init
+    ```
+
+    `jarvis init` detects your chip and RAM and selects the best MLX-format model.
+    Model files are cached in `~/.cache/huggingface/hub/`.
+
+3. Start the MLX server:
+
+    ```bash
+    uv run python -m mlx_lm server \
+      --model mlx-community/<model-name> \
+      --port 8080
+    ```
+
+    Replace `<model-name>` with the model recommended by `jarvis init`.
+
+4. Auto-detected at `http://localhost:8080`
+
+!!! tip "Best for: Apple Silicon Macs (M1 through M5)"
+
 ### Cloud APIs
 
 ```bash
