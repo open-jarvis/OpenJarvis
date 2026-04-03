@@ -672,8 +672,7 @@ class ToolCall15Dataset(DatasetProvider):
             # instructions, available tools, and user message so the
             # model can respond with tool calls via any backend.
             tool_descriptions = "\n".join(
-                f"- {t['function']['name']}: "
-                f"{t['function']['description']}"
+                f"- {t['function']['name']}: {t['function']['description']}"
                 for t in TOOLS
             )
             prompt = (

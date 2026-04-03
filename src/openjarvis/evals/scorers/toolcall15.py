@@ -41,20 +41,24 @@ def _extract_tool_calls(
             for tc in getattr(turn, "tool_calls", []):
                 if tc is None:
                     continue
-                tool_calls.append({
-                    "name": tc.get("name", ""),
-                    "arguments": tc.get("arguments") or {},
-                })
+                tool_calls.append(
+                    {
+                        "name": tc.get("name", ""),
+                        "arguments": tc.get("arguments") or {},
+                    }
+                )
         if tool_calls:
             return tool_calls
 
     # Try tool_results list (from JarvisAgentBackend)
     tool_results = record.metadata.get("tool_results", [])
     for tr in tool_results:
-        tool_calls.append({
-            "name": tr.get("tool_name", ""),
-            "arguments": tr.get("arguments") or {},
-        })
+        tool_calls.append(
+            {
+                "name": tr.get("tool_name", ""),
+                "arguments": tr.get("arguments") or {},
+            }
+        )
     if tool_calls:
         return tool_calls
 
