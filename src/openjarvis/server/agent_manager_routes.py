@@ -112,7 +112,8 @@ def _make_lightweight_system(
             )
 
             plain_engine = InstrumentedEngine(
-                plain_engine, get_event_bus(),
+                plain_engine,
+                get_event_bus(),
             )
         except Exception:
             pass  # telemetry is optional
@@ -559,7 +560,8 @@ async def _stream_managed_agent(
     agent_type = agent_record.get("agent_type", "")
     if agent_type == "deep_research":
         dr_tools = _build_deep_research_tools(
-            engine=engine, model=model,
+            engine=engine,
+            model=model,
         )
         # Store on app_state so streaming loop can access them
         if app_state is not None and dr_tools:
@@ -628,9 +630,7 @@ async def _stream_managed_agent(
 
                 def _tracked_execute(tc):
                     tool_name = tc.name
-                    args_str = (
-                        tc.arguments[:80] if tc.arguments else ""
-                    )
+                    args_str = tc.arguments[:80] if tc.arguments else ""
                     # Log tool call start
                     try:
                         manager.add_learning_log(
@@ -642,11 +642,13 @@ async def _stream_managed_agent(
                     except Exception as _tc_exc:
                         logger.warning("Log tool_call failed: %s", _tc_exc)
 
-                    progress_q.put({
-                        "type": "tool_start",
-                        "tool": tool_name,
-                        "args": args_str,
-                    })
+                    progress_q.put(
+                        {
+                            "type": "tool_start",
+                            "tool": tool_name,
+                            "args": args_str,
+                        }
+                    )
                     result = original_execute(tc)
 
                     # Log tool result
@@ -666,11 +668,13 @@ async def _stream_managed_agent(
                     except Exception as _tr_exc:
                         logger.warning("Log tool_result failed: %s", _tr_exc)
 
-                    progress_q.put({
-                        "type": "tool_end",
-                        "tool": tool_name,
-                        "success": result.success,
-                    })
+                    progress_q.put(
+                        {
+                            "type": "tool_end",
+                            "tool": tool_name,
+                            "success": result.success,
+                        }
+                    )
                     return result
 
                 dr_agent._executor.execute = _tracked_execute
@@ -679,9 +683,7 @@ async def _stream_managed_agent(
                     agent_metadata = {}
                     try:
                         result = dr_agent.run(user_content)
-                        content = (
-                            result.content or "No results found."
-                        )
+                        content = result.content or "No results found."
                         agent_metadata = result.metadata or {}
                     except Exception as exc:
                         content = f"Error: {exc}"
@@ -703,15 +705,18 @@ async def _stream_managed_agent(
                         )
                     except Exception as _qc_exc:
                         logger.warning(
-                            "Log failed: %s", _qc_exc,
+                            "Log failed: %s",
+                            _qc_exc,
                         )
 
-                    progress_q.put({
-                        "type": "error" if content.startswith("Error:") else "done",
-                        "content": content,
-                        "metadata": agent_metadata,
-                        "elapsed": elapsed,
-                    })
+                    progress_q.put(
+                        {
+                            "type": "error" if content.startswith("Error:") else "done",
+                            "content": content,
+                            "metadata": agent_metadata,
+                            "elapsed": elapsed,
+                        }
+                    )
 
                 thread = threading.Thread(target=_run_agent, daemon=True)
                 thread.start()
@@ -795,7 +800,8 @@ async def _stream_managed_agent(
 
                         # Persist
                         manager.store_agent_response(
-                            agent_id, content,
+                            agent_id,
+                            content,
                         )
                         break
 
@@ -1235,7 +1241,9 @@ def create_agent_manager_router(
 
     @agents_router.post("/{agent_id}/channels")
     async def bind_channel(
-        agent_id: str, req: BindChannelRequest, request: Request,
+        agent_id: str,
+        req: BindChannelRequest,
+        request: Request,
     ):
         if not manager.get_agent(agent_id):
             raise HTTPException(status_code=404, detail="Agent not found")
@@ -1315,9 +1323,7 @@ def create_agent_manager_router(
                     request.app.state.sendblue_channel = sb_channel
 
                     # Create or update the channel bridge
-                    bridge = getattr(
-                        request.app.state, "channel_bridge", None
-                    )
+                    bridge = getattr(request.app.state, "channel_bridge", None)
                     if bridge and hasattr(bridge, "_channels"):
                         bridge._channels["sendblue"] = sb_channel
                     else:
@@ -1330,39 +1336,30 @@ def create_agent_manager_router(
                         )
 
                         session_store = SessionStore()
-                        engine = getattr(
-                            request.app.state, "engine", None
-                        )
+                        engine = getattr(request.app.state, "engine", None)
                         dr_agent = None
                         if engine:
                             from openjarvis.server.agent_manager_routes import (
                                 _build_deep_research_tools as _bdr,
                             )
 
-                            tools = _bdr(
-                                engine=engine, model=""
-                            )
+                            tools = _bdr(engine=engine, model="")
                             if tools:
                                 from openjarvis.agents.deep_research import (
                                     DeepResearchAgent,
                                 )
 
-                                model_name = (
-                                    getattr(engine, "_model", "")
-                                    or getattr(
-                                        request.app.state,
-                                        "model",
-                                        "",
-                                    )
+                                model_name = getattr(engine, "_model", "") or getattr(
+                                    request.app.state,
+                                    "model",
+                                    "",
                                 )
                                 dr_agent = DeepResearchAgent(
                                     engine=engine,
                                     model=model_name,
                                     tools=tools,
                                 )
-                        bus = getattr(
-                            request.app.state, "bus", None
-                        )
+                        bus = getattr(request.app.state, "bus", None)
                         if bus is None:
                             from openjarvis.core.events import EventBus
 
@@ -1381,9 +1378,7 @@ def create_agent_manager_router(
                         from_number,
                     )
                 except Exception as exc:
-                    logger.warning(
-                        "Failed to init SendBlue channel: %s", exc
-                    )
+                    logger.warning("Failed to init SendBlue channel: %s", exc)
 
         # Start Slack via slack-bolt Socket Mode
         if req.channel_type == "slack":
@@ -1403,31 +1398,40 @@ def create_agent_manager_router(
                     stop_slack()
 
                     # Spawn as subprocess (reliable)
-                    srv_model = getattr(
+                    srv_model = (
                         getattr(
-                            request.app.state, "engine", None,
-                        ),
-                        "_model",
-                        "qwen3.5:9b",
-                    ) or "qwen3.5:9b"
+                            getattr(
+                                request.app.state,
+                                "engine",
+                                None,
+                            ),
+                            "_model",
+                            "qwen3.5:9b",
+                        )
+                        or "qwen3.5:9b"
+                    )
                     pid = start_slack_daemon(
                         bot_token=bot_token,
                         app_token=app_token,
                         model=srv_model,
                     )
                     logger.info(
-                        "Slack daemon started (PID %d)", pid,
+                        "Slack daemon started (PID %d)",
+                        pid,
                     )
                 except Exception as exc:
                     logger.warning(
-                        "Failed to start Slack: %s", exc,
+                        "Failed to start Slack: %s",
+                        exc,
                     )
 
         return binding
 
     @agents_router.delete("/{agent_id}/channels/{binding_id}")
     async def unbind_channel(
-        agent_id: str, binding_id: str, request: Request,
+        agent_id: str,
+        binding_id: str,
+        request: Request,
     ):
         try:
             binding = manager._get_binding(binding_id)
@@ -1747,9 +1751,7 @@ def create_agent_manager_router(
 
     # ── SendBlue auto-setup helpers ─────────────────────────
 
-    sendblue_router = APIRouter(
-        prefix="/v1/channels/sendblue", tags=["sendblue"]
-    )
+    sendblue_router = APIRouter(prefix="/v1/channels/sendblue", tags=["sendblue"])
 
     @sendblue_router.post("/verify")
     async def sendblue_verify(request: Request):
@@ -1786,8 +1788,10 @@ def create_agent_manager_router(
                 )
             data = resp.json()
             # data might be a list of lines or {"lines": [...]}
-            lines = data if isinstance(data, list) else data.get(
-                "lines", data.get("data", [])
+            lines = (
+                data
+                if isinstance(data, list)
+                else data.get("lines", data.get("data", []))
             )
             numbers = []
             for line in lines:
@@ -1843,9 +1847,7 @@ def create_agent_manager_router(
             return {
                 "registered": resp.status_code < 300,
                 "status": resp.status_code,
-                "response": resp.json()
-                if resp.status_code < 300
-                else resp.text[:200],
+                "response": resp.json() if resp.status_code < 300 else resp.text[:200],
             }
         except Exception as exc:
             raise HTTPException(
@@ -1894,9 +1896,7 @@ def create_agent_manager_router(
             return {
                 "sent": resp.status_code < 300,
                 "status": resp.status_code,
-                "response": resp.json()
-                if resp.status_code < 300
-                else resp.text[:200],
+                "response": resp.json() if resp.status_code < 300 else resp.text[:200],
             }
         except Exception as exc:
             raise HTTPException(
@@ -1910,8 +1910,7 @@ def create_agent_manager_router(
         sb = getattr(request.app.state, "sendblue_channel", None)
         bridge = getattr(request.app.state, "channel_bridge", None)
         has_bridge = bridge is not None and (
-            hasattr(bridge, "_channels")
-            and "sendblue" in bridge._channels
+            hasattr(bridge, "_channels") and "sendblue" in bridge._channels
         )
         return {
             "channel_connected": sb is not None,

@@ -13,8 +13,8 @@ from fastapi.staticfiles import StaticFiles
 from openjarvis.server.api_routes import include_all_routes
 from openjarvis.server.comparison import comparison_router
 from openjarvis.server.connectors_router import create_connectors_router
-from openjarvis.server.digest_routes import create_digest_router
 from openjarvis.server.dashboard import dashboard_router
+from openjarvis.server.digest_routes import create_digest_router
 from openjarvis.server.routes import router
 from openjarvis.server.upload_router import router as upload_router
 
@@ -73,17 +73,15 @@ def _restore_sendblue_bindings(app: FastAPI) -> None:
                             _build_deep_research_tools,
                         )
 
-                        tools = _build_deep_research_tools(
-                            engine=engine, model=""
-                        )
+                        tools = _build_deep_research_tools(engine=engine, model="")
                         if tools:
                             from openjarvis.agents.deep_research import (
                                 DeepResearchAgent,
                             )
 
-                            model_name = getattr(
-                                app.state, "model", ""
-                            ) or getattr(engine, "_model", "")
+                            model_name = getattr(app.state, "model", "") or getattr(
+                                engine, "_model", ""
+                            )
                             dr_agent = DeepResearchAgent(
                                 engine=engine,
                                 model=model_name,
@@ -111,6 +109,7 @@ def _restore_sendblue_bindings(app: FastAPI) -> None:
                 return  # Only need one SendBlue binding
     except Exception as exc:
         logger.debug("SendBlue binding restore skipped: %s", exc)
+
 
 # No-cache headers applied to static file responses
 _NO_CACHE_HEADERS = {

@@ -106,24 +106,18 @@ def _connect_source(registry: object, source: str, path: str = "") -> None:
         try:
             instance = connector_cls()
             if instance.is_connected():
-                console.print(
-                    f"[green]{source} is already connected.[/green]"
-                )
+                console.print(f"[green]{source} is already connected.[/green]")
                 return
 
             provider = get_provider_for_connector(source)
             if provider is None:
-                console.print(
-                    f"[red]No OAuth provider configured for {source}.[/red]"
-                )
+                console.print(f"[red]No OAuth provider configured for {source}.[/red]")
                 return
 
             client_id, client_secret = get_client_credentials(provider)
 
             if not client_id or not client_secret:
-                console.print(
-                    f"[cyan]First-time setup for {source}.[/cyan]"
-                )
+                console.print(f"[cyan]First-time setup for {source}.[/cyan]")
                 console.print(
                     f"[yellow]Create an OAuth app at: {provider.setup_url}[/yellow]"
                 )
@@ -148,9 +142,7 @@ def _connect_source(registry: object, source: str, path: str = "") -> None:
         try:
             instance = connector_cls()
             if instance.is_connected():
-                console.print(
-                    f"[green]{source} is already connected.[/green]"
-                )
+                console.print(f"[green]{source} is already connected.[/green]")
                 return
 
             token = click.prompt(f"Enter your {source} personal access token")

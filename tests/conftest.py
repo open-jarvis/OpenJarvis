@@ -20,8 +20,8 @@ from openjarvis.core.registry import (
     ModelRegistry,
     RouterPolicyRegistry,
     SpeechRegistry,
-    TTSRegistry,
     ToolRegistry,
+    TTSRegistry,
 )
 
 

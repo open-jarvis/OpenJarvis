@@ -4,11 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import pytest
-
 from openjarvis.core.registry import TTSRegistry
-from openjarvis.speech.tts import TTSBackend, TTSResult
-
+from openjarvis.speech.tts import TTSResult
 
 # ---------------------------------------------------------------------------
 # TTSResult tests

@@ -163,25 +163,17 @@ class LiveCodeBenchDataset(DatasetProvider):
 
         # Extract title
         title = str(
-            raw.get("question_title")
-            or raw.get("title")
-            or raw.get("name")
-            or ""
+            raw.get("question_title") or raw.get("title") or raw.get("name") or ""
         ).strip()
 
         # Extract difficulty
         difficulty = str(
-            raw.get("difficulty")
-            or raw.get("question_difficulty")
-            or ""
+            raw.get("difficulty") or raw.get("question_difficulty") or ""
         ).strip()
 
         # Extract platform/source
         platform = str(
-            raw.get("platform")
-            or raw.get("source")
-            or raw.get("contest_source")
-            or ""
+            raw.get("platform") or raw.get("source") or raw.get("contest_source") or ""
         ).strip()
 
         # Extract input/output format (may not always be separate fields)
@@ -266,8 +258,10 @@ class LiveCodeBenchDataset(DatasetProvider):
                 metadata[key] = val
 
         # Build subject from platform and difficulty
-        subject = f"{platform}/{difficulty}" if platform and difficulty else (
-            platform or difficulty or "competitive-programming"
+        subject = (
+            f"{platform}/{difficulty}"
+            if platform and difficulty
+            else (platform or difficulty or "competitive-programming")
         )
 
         return EvalRecord(

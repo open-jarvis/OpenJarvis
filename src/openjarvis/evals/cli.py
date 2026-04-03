@@ -326,6 +326,7 @@ def _build_dataset(benchmark: str, subset: str | None = None):
         return PinchBenchDataset(path=subset)
     elif benchmark == "taubench":
         from openjarvis.evals.datasets.taubench import TauBenchDataset
+
         domains = subset.split(",") if subset else None
         return TauBenchDataset(domains=domains)
     elif benchmark == "livecodebench":
@@ -478,6 +479,7 @@ def _build_scorer(benchmark: str, judge_backend, judge_model: str):
         return PinchBenchScorer(judge_backend, judge_model)
     elif benchmark == "taubench":
         from openjarvis.evals.scorers.taubench import TauBenchScorer
+
         return TauBenchScorer(judge_backend, judge_model)
     elif benchmark == "livecodebench":
         from openjarvis.evals.scorers.livecodebench import LiveCodeBenchScorer

@@ -328,7 +328,9 @@ class GCalendarConnector(BaseConnector):
             while True:
                 try:
                     events_resp = _gcal_api_events_list(
-                        token, calendar_id, page_token=page_token,
+                        token,
+                        calendar_id,
+                        page_token=page_token,
                         time_min=time_min,
                     )
                 except httpx.HTTPStatusError:

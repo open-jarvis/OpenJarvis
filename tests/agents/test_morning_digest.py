@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from openjarvis.agents._stubs import AgentResult
 from openjarvis.core.registry import AgentRegistry
@@ -32,7 +29,7 @@ def test_morning_digest_run(tmp_path):
     # Mock collect result
     mock_collect_result = ToolResult(
         tool_name="digest_collect",
-        content="=== MESSAGES ===\n[gmail] From: alice@co.com — \"Budget\" (1h ago)\n",
+        content='=== MESSAGES ===\n[gmail] From: alice@co.com — "Budget" (1h ago)\n',
         success=True,
         metadata={"total_items": 2},
     )

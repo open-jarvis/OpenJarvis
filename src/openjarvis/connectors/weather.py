@@ -20,9 +20,7 @@ from openjarvis.core.registry import ConnectorRegistry
 _DEFAULT_TOKEN_PATH = str(DEFAULT_CONFIG_DIR / "connectors" / "weather.json")
 
 
-def _weather_api_get(
-    url: str, params: Dict[str, str]
-) -> Dict[str, Any]:
+def _weather_api_get(url: str, params: Dict[str, str]) -> Dict[str, Any]:
     """Call an OpenWeatherMap API endpoint."""
     resp = httpx.get(url, params=params, timeout=30.0)
     resp.raise_for_status()
@@ -112,9 +110,7 @@ class WeatherConnector(BaseConnector):
         for entry in forecast.get("list", []):
             dt_txt = entry.get("dt_txt", "")
             temp = entry.get("main", {}).get("temp")
-            desc = ", ".join(
-                w.get("description", "") for w in entry.get("weather", [])
-            )
+            desc = ", ".join(w.get("description", "") for w in entry.get("weather", []))
             summaries.append(f"{dt_txt}: {temp}°F, {desc}")
         forecast_content = "Forecast:\n" + "\n".join(summaries)
 

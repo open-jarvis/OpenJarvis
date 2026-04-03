@@ -219,16 +219,18 @@ class JarvisSystem:
                 sc = getattr(dc, s, None)
                 if sc and hasattr(sc, "sources"):
                     section_sources[s] = sc.sources
-            agent_kwargs.update({
-                "persona": dc.persona,
-                "sections": dc.sections,
-                "section_sources": section_sources,
-                "timezone": dc.timezone,
-                "voice_id": dc.voice_id,
-                "voice_speed": dc.voice_speed,
-                "tts_backend": dc.tts_backend,
-                "honorific": dc.honorific,
-            })
+            agent_kwargs.update(
+                {
+                    "persona": dc.persona,
+                    "sections": dc.sections,
+                    "section_sources": section_sources,
+                    "timezone": dc.timezone,
+                    "voice_id": dc.voice_id,
+                    "voice_speed": dc.voice_speed,
+                    "tts_backend": dc.tts_backend,
+                    "honorific": dc.honorific,
+                }
+            )
             # Ensure digest agent always has its required tools
             from openjarvis.tools.digest_collect import DigestCollectTool
             from openjarvis.tools.text_to_speech import TextToSpeechTool
@@ -262,7 +264,9 @@ class JarvisSystem:
                 from openjarvis.traces.collector import TraceCollector
 
                 collector = TraceCollector(
-                    ag, store=self.trace_store, bus=self.bus,
+                    ag,
+                    store=self.trace_store,
+                    bus=self.bus,
                 )
                 result = collector.run(query, context=ctx)
                 self.trace_collector = collector

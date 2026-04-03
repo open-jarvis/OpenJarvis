@@ -7,7 +7,6 @@ from unittest.mock import patch
 
 import pytest
 
-from openjarvis.connectors._stubs import Document
 from openjarvis.core.registry import ConnectorRegistry
 
 

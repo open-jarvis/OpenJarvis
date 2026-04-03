@@ -138,9 +138,7 @@ def _get_channel(
         import os
 
         kwargs["api_key_id"] = os.environ.get("SENDBLUE_API_KEY_ID", "")
-        kwargs["api_secret_key"] = os.environ.get(
-            "SENDBLUE_API_SECRET_KEY", ""
-        )
+        kwargs["api_secret_key"] = os.environ.get("SENDBLUE_API_SECRET_KEY", "")
         kwargs["from_number"] = os.environ.get("SENDBLUE_FROM_NUMBER", "")
         sbc = getattr(config.channel, "sendblue", None)
         if sbc:

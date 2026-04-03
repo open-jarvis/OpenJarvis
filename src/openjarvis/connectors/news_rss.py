@@ -39,12 +39,14 @@ def _parse_rss_items(xml_text: str, max_items: int = 5) -> List[Dict[str, str]]:
     for item_el in root.iter("item"):
         if len(items) >= max_items:
             break
-        items.append({
-            "title": (item_el.findtext("title") or "").strip(),
-            "description": (item_el.findtext("description") or "").strip()[:200],
-            "link": (item_el.findtext("link") or "").strip(),
-            "pubDate": (item_el.findtext("pubDate") or "").strip(),
-        })
+        items.append(
+            {
+                "title": (item_el.findtext("title") or "").strip(),
+                "description": (item_el.findtext("description") or "").strip()[:200],
+                "link": (item_el.findtext("link") or "").strip(),
+                "pubDate": (item_el.findtext("pubDate") or "").strip(),
+            }
+        )
 
     # Atom: <feed><entry>
     if not items:
@@ -56,14 +58,16 @@ def _parse_rss_items(xml_text: str, max_items: int = 5) -> List[Dict[str, str]]:
             link_href = link_el.get("href", "") if link_el is not None else ""
             summary = entry_el.findtext("{http://www.w3.org/2005/Atom}summary") or ""
             updated = entry_el.findtext("{http://www.w3.org/2005/Atom}updated") or ""
-            items.append({
-                "title": (
-                    entry_el.findtext("{http://www.w3.org/2005/Atom}title") or ""
-                ).strip(),
-                "description": summary.strip()[:200],
-                "link": link_href.strip(),
-                "pubDate": updated.strip(),
-            })
+            items.append(
+                {
+                    "title": (
+                        entry_el.findtext("{http://www.w3.org/2005/Atom}title") or ""
+                    ).strip(),
+                    "description": summary.strip()[:200],
+                    "link": link_href.strip(),
+                    "pubDate": updated.strip(),
+                }
+            )
 
     return items
 

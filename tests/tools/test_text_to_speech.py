@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.speech.tts import TTSResult
 
@@ -28,9 +26,7 @@ def test_tts_tool_execute(tmp_path):
         duration_seconds=2.5,
     )
 
-    with patch(
-        "openjarvis.tools.text_to_speech.TTSRegistry"
-    ) as mock_registry:
+    with patch("openjarvis.tools.text_to_speech.TTSRegistry") as mock_registry:
         mock_backend_cls = MagicMock()
         mock_backend_cls.return_value.synthesize.return_value = mock_result
         mock_registry.contains.return_value = True

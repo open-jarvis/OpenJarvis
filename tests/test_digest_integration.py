@@ -6,11 +6,7 @@ digest_collect -> LLM synthesis -> TTS -> DigestStore -> CLI delivery.
 
 from __future__ import annotations
 
-from datetime import datetime
-from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from openjarvis.agents.digest_store import DigestStore
 from openjarvis.core.types import ToolResult
@@ -37,7 +33,7 @@ def test_full_digest_pipeline(tmp_path):
         tool_name="digest_collect",
         content=(
             "=== HEALTH ===\n[oura] Sleep — April 1: score 78, avg HR 58 bpm\n\n"
-            "=== MESSAGES ===\n[gmail] From: alice@co.com — \"Q3 Review\" (2h ago)\n\n"
+            '=== MESSAGES ===\n[gmail] From: alice@co.com — "Q3 Review" (2h ago)\n\n'
             "=== CALENDAR ===\n[gcalendar] 10:30 AM — Team Standup (30 min)\n"
         ),
         success=True,

@@ -1271,9 +1271,7 @@ class DigestConfig:
         default_factory=lambda: DigestSectionConfig(sources=["gcalendar"])
     )
     health: DigestSectionConfig = field(
-        default_factory=lambda: DigestSectionConfig(
-            sources=["oura", "apple_health"]
-        )
+        default_factory=lambda: DigestSectionConfig(sources=["oura", "apple_health"])
     )
     world: DigestSectionConfig = field(
         default_factory=lambda: DigestSectionConfig(sources=[])

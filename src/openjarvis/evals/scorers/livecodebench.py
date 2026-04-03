@@ -43,11 +43,21 @@ def _extract_code(answer: str) -> str:
     in_code = False
     for line in lines:
         stripped = line.lstrip()
-        if stripped.startswith((
-            "def ", "class ", "from ", "import ",
-            "n = ", "t = ", "for ", "while ",
-            "input(", "sys.stdin", "print(",
-        )):
+        if stripped.startswith(
+            (
+                "def ",
+                "class ",
+                "from ",
+                "import ",
+                "n = ",
+                "t = ",
+                "for ",
+                "while ",
+                "input(",
+                "sys.stdin",
+                "print(",
+            )
+        ):
             in_code = True
         if in_code:
             code_lines.append(line)
@@ -211,11 +221,13 @@ class LiveCodeBenchScorer(Scorer):
             ok, detail = _run_single_test(code, inp, expected, timeout=timeout)
             if ok:
                 passed += 1
-            test_details.append({
-                "test_index": i,
-                "passed": ok,
-                "detail": detail,
-            })
+            test_details.append(
+                {
+                    "test_index": i,
+                    "passed": ok,
+                    "detail": detail,
+                }
+            )
 
         if total == 0:
             return None, {"reason": "no_test_cases_after_filtering"}

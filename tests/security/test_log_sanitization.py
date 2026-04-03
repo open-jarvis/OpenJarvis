@@ -86,9 +86,7 @@ class TestScopedCredentialAccess:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
             f.write('[slack]\nSLACK_BOT_TOKEN = "xoxb-test-token"\n')
             f.flush()
-            result = get_tool_credential(
-                "slack", "SLACK_BOT_TOKEN", path=Path(f.name)
-            )
+            result = get_tool_credential("slack", "SLACK_BOT_TOKEN", path=Path(f.name))
             assert result == "xoxb-test-token"
             assert os.environ.get("SLACK_BOT_TOKEN") != "xoxb-test-token"
         os.unlink(f.name)
@@ -99,9 +97,7 @@ class TestScopedCredentialAccess:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
             f.write("[slack]\n")
             f.flush()
-            result = get_tool_credential(
-                "slack", "SLACK_BOT_TOKEN", path=Path(f.name)
-            )
+            result = get_tool_credential("slack", "SLACK_BOT_TOKEN", path=Path(f.name))
             assert result is None
         os.unlink(f.name)
 

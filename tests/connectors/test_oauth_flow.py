@@ -1,4 +1,5 @@
 """Tests for OAuth token exchange and Google connector integration."""
+
 from __future__ import annotations
 
 from pathlib import Path

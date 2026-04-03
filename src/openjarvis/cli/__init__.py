@@ -17,6 +17,7 @@ from openjarvis.cli.config_cmd import config
 from openjarvis.cli.connect_cmd import connect
 from openjarvis.cli.daemon_cmd import restart, start, status, stop
 from openjarvis.cli.deep_research_setup_cmd import deep_research_setup
+from openjarvis.cli.digest_cmd import digest
 from openjarvis.cli.doctor_cmd import doctor
 from openjarvis.cli.eval_cmd import eval_group
 from openjarvis.cli.feedback_cmd import feedback_group
@@ -36,7 +37,6 @@ from openjarvis.cli.skill_cmd import skill
 from openjarvis.cli.telemetry_cmd import telemetry
 from openjarvis.cli.tool_cmd import tool
 from openjarvis.cli.vault_cmd import vault
-from openjarvis.cli.digest_cmd import digest
 from openjarvis.cli.workflow_cmd import workflow
 
 

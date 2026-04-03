@@ -35,7 +35,9 @@ _ALL_CONNECTORS = _LOCAL_CONNECTORS + _TOKEN_CONNECTORS
     ids=[c[0] for c in _ALL_CONNECTORS],
 )
 def test_connector_instantiates(
-    connector_id: str, module_path: str, class_name: str,
+    connector_id: str,
+    module_path: str,
+    class_name: str,
 ) -> None:
     """Every connector can be instantiated without errors."""
     import importlib
@@ -52,7 +54,9 @@ def test_connector_instantiates(
     ids=[c[0] for c in _ALL_CONNECTORS],
 )
 def test_connector_has_required_methods(
-    connector_id: str, module_path: str, class_name: str,
+    connector_id: str,
+    module_path: str,
+    class_name: str,
 ) -> None:
     """Every connector implements the BaseConnector interface."""
     import importlib
@@ -75,7 +79,9 @@ def test_connector_has_required_methods(
     ids=[c[0] for c in _TOKEN_CONNECTORS],
 )
 def test_connector_not_connected_without_creds(
-    connector_id: str, module_path: str, class_name: str,
+    connector_id: str,
+    module_path: str,
+    class_name: str,
 ) -> None:
     """Token connectors report not connected without credentials."""
     import importlib
@@ -96,7 +102,9 @@ def test_connector_not_connected_without_creds(
     ids=[c[0] for c in _ALL_CONNECTORS],
 )
 def test_connector_has_metadata(
-    connector_id: str, module_path: str, class_name: str,
+    connector_id: str,
+    module_path: str,
+    class_name: str,
 ) -> None:
     """Every connector has connector_id, display_name, and auth_type."""
     import importlib

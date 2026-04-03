@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path
 
 import pytest
 
@@ -40,9 +39,7 @@ def test_get_digest(store, tmp_path):
     from openjarvis.server.digest_routes import create_digest_router
 
     app = FastAPI()
-    app.include_router(
-        create_digest_router(db_path=str(tmp_path / "digest.db"))
-    )
+    app.include_router(create_digest_router(db_path=str(tmp_path / "digest.db")))
 
     client = TestClient(app)
     resp = client.get("/api/digest")
@@ -59,9 +56,7 @@ def test_get_digest_audio(store, tmp_path):
     from openjarvis.server.digest_routes import create_digest_router
 
     app = FastAPI()
-    app.include_router(
-        create_digest_router(db_path=str(tmp_path / "digest.db"))
-    )
+    app.include_router(create_digest_router(db_path=str(tmp_path / "digest.db")))
 
     client = TestClient(app)
     resp = client.get("/api/digest/audio")
@@ -76,9 +71,7 @@ def test_get_digest_404(tmp_path):
     from openjarvis.server.digest_routes import create_digest_router
 
     app = FastAPI()
-    app.include_router(
-        create_digest_router(db_path=str(tmp_path / "empty.db"))
-    )
+    app.include_router(create_digest_router(db_path=str(tmp_path / "empty.db")))
 
     client = TestClient(app)
     resp = client.get("/api/digest")
@@ -92,9 +85,7 @@ def test_get_history(store, tmp_path):
     from openjarvis.server.digest_routes import create_digest_router
 
     app = FastAPI()
-    app.include_router(
-        create_digest_router(db_path=str(tmp_path / "digest.db"))
-    )
+    app.include_router(create_digest_router(db_path=str(tmp_path / "digest.db")))
 
     client = TestClient(app)
     resp = client.get("/api/digest/history")

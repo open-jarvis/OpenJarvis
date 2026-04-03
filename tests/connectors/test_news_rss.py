@@ -72,11 +72,13 @@ def connector(tmp_path):
 
     config_path = tmp_path / "news_rss.json"
     config_path.write_text(
-        json.dumps({
-            "feeds": [
-                {"name": "Test Feed", "url": "https://example.com/rss.xml"},
-            ]
-        }),
+        json.dumps(
+            {
+                "feeds": [
+                    {"name": "Test Feed", "url": "https://example.com/rss.xml"},
+                ]
+            }
+        ),
         encoding="utf-8",
     )
     return NewsRSSConnector(config_path=str(config_path))
@@ -130,11 +132,13 @@ def test_sync_atom_feed(tmp_path):
 
     config_path = tmp_path / "news_rss.json"
     config_path.write_text(
-        json.dumps({
-            "feeds": [
-                {"name": "Atom Feed", "url": "https://example.com/atom.xml"},
-            ]
-        }),
+        json.dumps(
+            {
+                "feeds": [
+                    {"name": "Atom Feed", "url": "https://example.com/atom.xml"},
+                ]
+            }
+        ),
         encoding="utf-8",
     )
     c = NewsRSSConnector(config_path=str(config_path))

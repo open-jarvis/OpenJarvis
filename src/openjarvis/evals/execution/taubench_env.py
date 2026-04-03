@@ -22,6 +22,7 @@ LOGGER = logging.getLogger(__name__)
 # Message conversion helpers
 # ---------------------------------------------------------------------------
 
+
 def _tau2_to_oj_messages(
     tau2_messages: list,
 ) -> list:
@@ -59,13 +60,12 @@ def _tau2_to_oj_messages(
                     )
                 )
             else:
-                oj_msgs.append(
-                    Message(role=Role.ASSISTANT, content=m.content or "")
-                )
+                oj_msgs.append(Message(role=Role.ASSISTANT, content=m.content or ""))
         elif role_str == "tool":
             # tau2 ToolMessage uses 'id', not 'tool_call_id'
             raw_id = getattr(m, "id", "") or getattr(m, "tool_call_id", "") or ""
             import re as _re
+
             clean_id = _re.sub(r"[^a-zA-Z0-9_-]", "_", raw_id)
             oj_msgs.append(
                 Message(
@@ -111,6 +111,7 @@ def _oj_result_to_tau2_msg(result: dict):
 # Jarvis-powered tau2 agent
 # ---------------------------------------------------------------------------
 
+
 class JarvisHalfDuplexAgent:
     """A tau2 HalfDuplexAgent backed by OpenJarvis's inference engine.
 
@@ -139,6 +140,7 @@ class JarvisHalfDuplexAgent:
     @property
     def system_prompt(self) -> str:
         from tau2.agent.llm_agent import AGENT_INSTRUCTION, SYSTEM_PROMPT
+
         return SYSTEM_PROMPT.format(
             domain_policy=self.domain_policy,
             agent_instruction=AGENT_INSTRUCTION,
@@ -147,6 +149,7 @@ class JarvisHalfDuplexAgent:
     def get_init_state(self, message_history=None):
         from tau2.agent.llm_agent import LLMAgentState
         from tau2.data_model.message import SystemMessage
+
         return LLMAgentState(
             system_messages=[
                 SystemMessage(role="system", content=self.system_prompt),
@@ -210,6 +213,7 @@ class JarvisHalfDuplexAgent:
 # ---------------------------------------------------------------------------
 # Task environment
 # ---------------------------------------------------------------------------
+
 
 class TauBenchTaskEnv:
     """Per-task environment for TauBench evaluation.
@@ -315,9 +319,7 @@ class TauBenchTaskEnv:
                 )
 
                 reward = (
-                    simulation.reward_info.reward
-                    if simulation.reward_info
-                    else 0.0
+                    simulation.reward_info.reward if simulation.reward_info else 0.0
                 )
                 info: dict = {}
                 if simulation.reward_info:
@@ -331,11 +333,16 @@ class TauBenchTaskEnv:
 
                 trial_label = (
                     f" (trial {trial + 1}/{self._num_trials})"
-                    if self._num_trials > 1 else ""
+                    if self._num_trials > 1
+                    else ""
                 )
                 LOGGER.info(
                     "TauBench %s/%s: reward=%.2f messages=%d%s",
-                    domain, task_id, reward, n_messages, trial_label,
+                    domain,
+                    task_id,
+                    reward,
+                    n_messages,
+                    trial_label,
                 )
 
                 if reward > best_reward:
@@ -350,7 +357,9 @@ class TauBenchTaskEnv:
             except Exception as exc:
                 LOGGER.error(
                     "TauBench simulation failed for %s/%s: %s",
-                    domain, task_id, exc,
+                    domain,
+                    task_id,
+                    exc,
                 )
 
         self._record.metadata["tau_reward"] = best_reward

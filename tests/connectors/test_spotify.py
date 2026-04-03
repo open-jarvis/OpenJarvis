@@ -7,7 +7,6 @@ from unittest.mock import patch
 
 import pytest
 
-from openjarvis.connectors._stubs import Document
 from openjarvis.core.registry import ConnectorRegistry
 
 
@@ -32,9 +31,7 @@ _RECENTLY_PLAYED_RESPONSE = {
                 "artists": [{"name": "Queen"}],
                 "album": {"name": "A Night at the Opera"},
                 "duration_ms": 354000,
-                "external_urls": {
-                    "spotify": "https://open.spotify.com/track/track1"
-                },
+                "external_urls": {"spotify": "https://open.spotify.com/track/track1"},
             },
         },
         {
@@ -45,9 +42,7 @@ _RECENTLY_PLAYED_RESPONSE = {
                 "artists": [{"name": "Led Zeppelin"}],
                 "album": {"name": "Led Zeppelin IV"},
                 "duration_ms": 482000,
-                "external_urls": {
-                    "spotify": "https://open.spotify.com/track/track2"
-                },
+                "external_urls": {"spotify": "https://open.spotify.com/track/track2"},
             },
         },
     ]

@@ -108,10 +108,7 @@ OAUTH_PROVIDERS: Dict[str, OAuthProvider] = {
         token_endpoint="https://accounts.spotify.com/api/token",
         scopes=["user-read-recently-played"],
         setup_url="https://developer.spotify.com/dashboard",
-        setup_hint=(
-            "Create an app, add redirect URI: "
-            "http://127.0.0.1:8888/callback"
-        ),
+        setup_hint=("Create an app, add redirect URI: http://127.0.0.1:8888/callback"),
         callback_port=8888,
         token_auth="basic",
         connector_ids=("spotify",),
@@ -177,9 +174,7 @@ def save_client_credentials(
 # Shared credentials file — one OAuth flow covers all Google connectors
 # ---------------------------------------------------------------------------
 
-_SHARED_GOOGLE_CREDENTIALS_PATH: str = str(
-    _CONNECTORS_DIR / "google.json"
-)
+_SHARED_GOOGLE_CREDENTIALS_PATH: str = str(_CONNECTORS_DIR / "google.json")
 
 _GOOGLE_AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
 _DEFAULT_REDIRECT_URI = "http://localhost:8789/callback"
@@ -580,17 +575,13 @@ def _exchange_token(
     headers: Dict[str, str] = {}
 
     if provider.token_auth == "basic":
-        creds = base64.b64encode(
-            f"{client_id}:{client_secret}".encode()
-        ).decode()
+        creds = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
         headers["Authorization"] = f"Basic {creds}"
     else:
         data["client_id"] = client_id
         data["client_secret"] = client_secret
 
-    resp = httpx.post(
-        provider.token_endpoint, data=data, headers=headers, timeout=30.0
-    )
+    resp = httpx.post(provider.token_endpoint, data=data, headers=headers, timeout=30.0)
     resp.raise_for_status()
     return resp.json()
 
@@ -652,9 +643,7 @@ def run_connector_oauth(
     )
 
     # Exchange code for tokens
-    tokens = _exchange_token(
-        provider, code, client_id, client_secret, redirect_uri
-    )
+    tokens = _exchange_token(provider, code, client_id, client_secret, redirect_uri)
 
     # Build payload with client credentials included (needed for refresh)
     payload = {

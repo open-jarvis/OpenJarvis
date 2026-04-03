@@ -17,9 +17,7 @@ from openjarvis.core.config import DEFAULT_CONFIG_DIR
 from openjarvis.core.registry import ConnectorRegistry
 
 _TASKS_API_BASE = "https://tasks.googleapis.com/tasks/v1"
-_DEFAULT_CREDENTIALS_PATH = str(
-    DEFAULT_CONFIG_DIR / "connectors" / "google_tasks.json"
-)
+_DEFAULT_CREDENTIALS_PATH = str(DEFAULT_CONFIG_DIR / "connectors" / "google_tasks.json")
 
 
 def _tasks_api_get(
@@ -46,9 +44,7 @@ class GoogleTasksConnector(BaseConnector):
 
     def __init__(self, *, credentials_path: str = "") -> None:
         self._credentials_path = Path(
-            resolve_google_credentials(
-                credentials_path or _DEFAULT_CREDENTIALS_PATH
-            )
+            resolve_google_credentials(credentials_path or _DEFAULT_CREDENTIALS_PATH)
         )
         self._status = SyncStatus()
 

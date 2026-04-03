@@ -194,7 +194,8 @@ class NativeReActAgent(ToolUsingAgent):
         # Max turns exceeded
         msg_dicts = [_message_to_dict(m) for m in messages]
         return self._max_turns_result(
-            all_tool_results, turns,
+            all_tool_results,
+            turns,
             metadata={**total_usage, "messages": msg_dicts},
         )
 
