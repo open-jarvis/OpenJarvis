@@ -61,45 +61,52 @@ class MorningDigestAgent(ToolUsingAgent):
             f"Today is {now.strftime('%A, %B %d, %Y')}. "
             f"The time is {now.strftime('%I:%M %p')} in {self._timezone}.\n"
             f"The user's preferred honorific is: {honorific}\n\n"
-            "You receive structured data from the user's connected services "
-            "(calendar, email, health tracker, etc.). The data has ALREADY been "
-            "collected for you — it appears in the user message. You do NOT need "
-            "to fetch or access anything yourself.\n\n"
-            "Produce a spoken morning briefing following this structure:\n\n"
-            "1. GREETING — One sentence with the honorific, framing the day.\n"
-            "2. PRIORITIES — What needs attention NOW. Overdue deadlines first, "
-            "then today's deadlines, then urgent messages needing a reply. "
-            "Connect related items across sections.\n"
-            "3. SCHEDULE — Upcoming events only (skip past ones). Be time-aware: "
-            "'You have 3 hours before your next commitment.'\n"
-            "4. MESSAGES — Who reached out and what they need. Lead with messages "
-            "requiring a reply, then FYI items. Quote actual message text when "
-            "relevant.\n"
-            "5. HEALTH — Interpret, don't list. 'Your sleep has improved three "
-            "nights running' not 'HRV 53, HR 56 bpm.' Compare to trends.\n"
-            "6. WORLD — Weather, news, notable developments. Skip if no data.\n"
-            "7. CLOSING — One encouraging or forward-looking sentence.\n\n"
-            "RULES:\n"
-            "- ONLY report facts from the provided data. Never invent.\n"
+            "You receive structured data from the user's connected services. "
+            "The data has ALREADY been collected — it appears in the user "
+            "message. You do NOT fetch anything yourself.\n\n"
+            "Produce a 2-4 minute spoken briefing in DECREASING order of "
+            "importance:\n\n"
+            "1. GREETING + PRIORITIES — Open with the honorific and "
+            "immediately state what needs attention: overdue tasks, today's "
+            "deadlines, events requiring preparation. Connect related items "
+            "('Your rebuttals are overdue and you have a dinner at 6, so "
+            "I'd tackle those first').\n\n"
+            "2. SCHEDULE — Today's upcoming events with time context: 'You "
+            "have 3 hours before your next meeting.' Skip past events.\n\n"
+            "3. MESSAGES — Triage across ALL channels (email, texts, Slack):\n"
+            "  - First: messages from real people needing a REPLY or DECISION\n"
+            "  - Second: messages containing deadlines or action items\n"
+            "  - Last: brief acknowledgment of casual threads ('Your group "
+            "chat has been lively but nothing requiring a response')\n"
+            "  - SKIP automated emails, newsletters, and marketing entirely\n"
+            "  - Quote relevant message text when it helps\n\n"
+            "4. HEALTH — Interpret trends, not raw numbers. 'Your sleep has "
+            "improved three nights running and your readiness is strong' — "
+            "not 'HRV 53, HR 56.' If multiple days of data, compare.\n\n"
+            "5. WORLD — Weather forecast, top news (AI/tech, business, "
+            "general). Skip if no data.\n\n"
+            "6. CLOSING — One forward-looking sentence with the honorific.\n\n"
+            "ABSOLUTE RULES (violations are unacceptable):\n"
+            "- ONLY facts from the data. Zero hallucination.\n"
+            "- NEVER mention disconnected or unavailable sources.\n"
+            "- NEVER state raw health numbers. Say 'your sleep was solid' "
+            "NOT 'heart rate 56 bpm' or 'HRV 53' or '6000 steps' or "
+            "'readiness 82'. Interpret, never enumerate.\n"
             "- NEVER describe actions you are taking.\n"
-            "- Briefly acknowledge EVERY data source that returned results, "
-            "even if nothing is urgent. For example: 'No pressing Slack "
-            "messages, just some chatter in the general and engineering "
-            "channels' or 'Your iMessage threads are quiet today.' This "
-            "lets the user know you checked.\n"
-            "- If a source returned an error or is disconnected, skip it "
-            "silently — do not mention connection issues.\n"
-            "- No markdown, emojis, bullet points, or headers.\n"
-            "- Natural spoken transitions between sections.\n"
-            "- Under 300 words total."
+            "- Acknowledge every source that returned data, even briefly.\n"
+            "- No markdown, emojis, bullets, or headers.\n"
+            "- STRICT LIMIT: 200 words. Be concise."
         )
 
     def _resolve_sources(self) -> List[str]:
         """Get the list of connector IDs to query."""
         default_source_map = {
             "messages": [
-                "gmail", "slack", "google_tasks",
-                "imessage", "github_notifications",
+                "gmail",
+                "slack",
+                "google_tasks",
+                "imessage",
+                "github_notifications",
             ],
             "calendar": ["gcalendar"],
             "health": ["oura", "apple_health"],
@@ -141,16 +148,50 @@ class MorningDigestAgent(ToolUsingAgent):
                 content=(
                     f"Here is the collected data from my sources:\n\n"
                     f"{collected_data}\n\n"
-                    f"Synthesize my morning briefing. Remember: "
-                    f"priority-first, interpret health trends, "
-                    f"quote important message text, connect related items, "
-                    f"plain spoken English only, under 250 words."
+                    f"Synthesize my morning briefing. Remember:\n"
+                    f"- Priority-first, connect related items\n"
+                    f"- For health: say 'solid', 'improving', 'dipped' "
+                    f"— NEVER say any number (no 82, no 56, no 6000)\n"
+                    f"- Do NOT invent reasons for health changes\n"
+                    f"- Do NOT mention disconnected sources\n"
+                    f"- Do NOT repeat the greeting in your closing\n"
+                    f"- Use the honorific ONLY 2-3 times total\n"
+                    f"- Skip notifications from the user themselves\n"
+                    f"- STRICT LIMIT: 200-250 words maximum"
                 ),
             ),
         ]
 
         result = self._generate(messages)
         narrative = self._strip_think_tags(result.get("content", ""))
+
+        # Step 2b: Self-evaluate and optionally regenerate
+        quality_score = 0.0
+        evaluator_feedback = ""
+        try:
+            from openjarvis.agents.digest_evaluator import DigestEvaluator
+
+            evaluator = DigestEvaluator(self._engine, self._model)
+            quality_score, evaluator_feedback = evaluator.evaluate(
+                collected_data, narrative
+            )
+
+            if quality_score < 7.0 and evaluator_feedback:
+                # Regenerate with feedback
+                messages.append(
+                    Message(
+                        role=Role.USER,
+                        content=(
+                            f"Your briefing scored {quality_score:.1f}/10. "
+                            f"Feedback: {evaluator_feedback}\n"
+                            f"Please revise the briefing addressing this feedback."
+                        ),
+                    )
+                )
+                result = self._generate(messages)
+                narrative = self._strip_think_tags(result.get("content", ""))
+        except Exception:  # noqa: BLE001
+            pass  # Evaluator failure shouldn't block digest delivery
 
         # Step 3: Generate audio via TTS
         # Strip any markdown that slipped through (##, *, -, etc.)
@@ -187,6 +228,8 @@ class MorningDigestAgent(ToolUsingAgent):
             generated_at=datetime.now(),
             model_used=self._model,
             voice_used=self._voice_id,
+            quality_score=quality_score,
+            evaluator_feedback=evaluator_feedback,
         )
 
         store = DigestStore(db_path=self._digest_store_path)
