@@ -1,12 +1,13 @@
-# PinchBench eval: Qwen3.5-27B-FP8 (vLLM, TP=2)
+# PinchBench eval: Kimi-K2.5 (llamacpp, 2x GPU)
 # Agent: native_openhands — all PinchBench-required tools enabled
+# Kimi-K2.5 thinking mode: temperature=1.0
 
 [meta]
-name = "pinchbench-qwen-27b"
-description = "PinchBench on Qwen/Qwen3.5-27B-FP8 (vLLM, TP=2)"
+name = "pinchbench-kimi-k25"
+description = "PinchBench on moonshotai/Kimi-K2.5 (llamacpp, 2x GPU)"
 
 [defaults]
-temperature = 0.6
+temperature = 1.0
 max_tokens = 8192
 
 [judge]
@@ -16,12 +17,12 @@ engine = "cloud"
 
 [run]
 max_workers = 1
-output_dir = "results/neurips-2026/baselines/qwen-27b/pinchbench/"
+output_dir = "results/neurips-2026/baselines/kimi-k25/pinchbench/"
 seed = 42
 
 [[models]]
-name = "Qwen/Qwen3.5-27B-FP8"
-engine = "vllm"
+name = "moonshotai/Kimi-K2.5"
+engine = "llamacpp"
 num_gpus = 2
 
 [[benchmarks]]

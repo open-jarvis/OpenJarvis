@@ -1,0 +1,30 @@
+# TerminalBench V2 (native Docker) on Trinity-Large-Thinking (vLLM, TP=4)
+# NOTE: verify exact HuggingFace model ID before running
+
+[meta]
+name = "terminalbench-native-trinity-large"
+description = "TerminalBench V2 native on trinity-ai/Trinity-Large-Thinking (vLLM, TP=4)"
+
+[defaults]
+temperature = 0.6
+max_tokens = 8192
+
+[judge]
+model = "gpt-4.1-mini"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/baselines/trinity-large/terminalbench/"
+seed = 42
+
+[[models]]
+name = "trinity-ai/Trinity-Large-Thinking"
+engine = "vllm"
+num_gpus = 4
+
+[[benchmarks]]
+name = "terminalbench-native"
+backend = "terminalbench-native"
+max_samples = 20

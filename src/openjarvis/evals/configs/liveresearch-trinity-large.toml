@@ -1,0 +1,32 @@
+# LiveResearchBench: Trinity-Large-Thinking (vLLM, TP=4)
+# NOTE: verify exact HuggingFace model ID before running
+
+[meta]
+name = "liveresearch-trinity-large"
+description = "LiveResearchBench deep research on trinity-ai/Trinity-Large-Thinking"
+
+[defaults]
+temperature = 0.6
+max_tokens = 16384
+
+[judge]
+model = "gpt-4.1-mini"
+temperature = 0.0
+max_tokens = 4096
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/baselines/trinity-large/liveresearch/"
+seed = 42
+
+[[models]]
+name = "trinity-ai/Trinity-Large-Thinking"
+engine = "vllm"
+num_gpus = 4
+
+[[benchmarks]]
+name = "liveresearch"
+backend = "jarvis-agent"
+agent = "monitor_operative"
+max_samples = 10
+tools = ["web_search", "file_read", "file_write", "code_interpreter", "think"]

@@ -1,0 +1,28 @@
+# ToolCall-15 eval: gpt-5.4-2026-03-05 (cloud)
+# Lightweight tool calling benchmark — 15 scenarios, 5 categories
+
+[meta]
+name = "toolcall15-gpt54"
+description = "ToolCall-15 on gpt-5.4-2026-03-05 (temperature=0)"
+
+[defaults]
+temperature = 0.0
+max_tokens = 4096
+
+[judge]
+model = "gpt-4.1-mini"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 8
+output_dir = "results/neurips-2026/baselines/gpt54/toolcall15/"
+seed = 42
+
+[[models]]
+name = "gpt-5.4-2026-03-05"
+engine = "cloud"
+
+[[benchmarks]]
+name = "toolcall15"
+backend = "jarvis-direct"

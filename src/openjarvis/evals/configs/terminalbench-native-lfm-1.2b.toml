@@ -1,0 +1,28 @@
+# TerminalBench V2 (native Docker) on LFM2.5-1.2B-Instruct (llamacpp, CPU)
+
+[meta]
+name = "terminalbench-native-lfm-1.2b"
+description = "TerminalBench V2 native on liquid-ai/LFM2.5-1.2B-Instruct (llamacpp, CPU)"
+
+[defaults]
+temperature = 0.6
+max_tokens = 8192
+
+[judge]
+model = "gpt-4.1-mini"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/baselines/lfm-1.2b/terminalbench/"
+seed = 42
+
+[[models]]
+name = "liquid-ai/LFM2.5-1.2B-Instruct"
+engine = "llamacpp"
+
+[[benchmarks]]
+name = "terminalbench-native"
+backend = "terminalbench-native"
+max_samples = 20

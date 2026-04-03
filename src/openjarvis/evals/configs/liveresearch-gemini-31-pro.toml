@@ -1,7 +1,8 @@
-# LiveResearchBench: claude-opus-4-6 (cloud)
+# LiveResearchBench: Gemini 3.1 Pro Preview (cloud)
+
 [meta]
-name = "liveresearch-claude-opus"
-description = "LiveResearchBench deep research on claude-opus-4-6 (cloud)"
+name = "liveresearch-gemini-31-pro"
+description = "LiveResearchBench deep research on gemini-3.1-pro-preview"
 
 [defaults]
 temperature = 0.6
@@ -14,11 +15,11 @@ max_tokens = 4096
 
 [run]
 max_workers = 8
-output_dir = "results/neurips-2026/baselines/claude-opus/liveresearch/"
+output_dir = "results/neurips-2026/baselines/gemini-31-pro/liveresearch/"
 seed = 42
 
 [[models]]
-name = "claude-opus-4-6"
+name = "gemini-3.1-pro-preview"
 engine = "cloud"
 
 [[benchmarks]]
