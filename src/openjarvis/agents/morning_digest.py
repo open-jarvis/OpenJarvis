@@ -82,10 +82,16 @@ class MorningDigestAgent(ToolUsingAgent):
             "RULES:\n"
             "- ONLY report facts from the provided data. Never invent.\n"
             "- NEVER describe actions you are taking.\n"
-            "- Skip sections with no data entirely.\n"
+            "- Briefly acknowledge EVERY data source that returned results, "
+            "even if nothing is urgent. For example: 'No pressing Slack "
+            "messages, just some chatter in the general and engineering "
+            "channels' or 'Your iMessage threads are quiet today.' This "
+            "lets the user know you checked.\n"
+            "- If a source returned an error or is disconnected, skip it "
+            "silently — do not mention connection issues.\n"
             "- No markdown, emojis, bullet points, or headers.\n"
             "- Natural spoken transitions between sections.\n"
-            "- Under 250 words total."
+            "- Under 300 words total."
         )
 
     def _resolve_sources(self) -> List[str]:
