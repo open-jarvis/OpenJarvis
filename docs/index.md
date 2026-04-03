@@ -169,7 +169,7 @@ OpenJarvis is built around five composable layers. Each has a clean interface an
 
     ---
 
-    CLI, Python SDK, agents, memory, tools, telemetry, and benchmarks.
+    CLI, Python SDK, [Morning Digest](user-guide/morning-digest.md), agents, memory, tools, telemetry, and benchmarks.
 
 -   **[Architecture](architecture/overview.md)**
 
