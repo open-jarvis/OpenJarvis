@@ -21,6 +21,8 @@ class DigestArtifact:
     generated_at: datetime
     model_used: str
     voice_used: str
+    quality_score: float = 0.0
+    evaluator_feedback: str = ""
 
 
 class DigestStore:
@@ -42,11 +44,30 @@ class DigestStore:
                 sources_used TEXT NOT NULL,
                 generated_at TEXT NOT NULL,
                 model_used TEXT NOT NULL,
-                voice_used TEXT NOT NULL
+                voice_used TEXT NOT NULL,
+                quality_score REAL NOT NULL DEFAULT 0.0,
+                evaluator_feedback TEXT NOT NULL DEFAULT ''
             )
             """
         )
+        self._migrate()
         self._conn.commit()
+
+    def _migrate(self) -> None:
+        """Add columns introduced after the initial schema."""
+        existing = {
+            row[1]
+            for row in self._conn.execute("PRAGMA table_info(digests)").fetchall()
+        }
+        if "quality_score" not in existing:
+            self._conn.execute(
+                "ALTER TABLE digests ADD COLUMN quality_score REAL NOT NULL DEFAULT 0.0"
+            )
+        if "evaluator_feedback" not in existing:
+            self._conn.execute(
+                "ALTER TABLE digests"
+                " ADD COLUMN evaluator_feedback TEXT NOT NULL DEFAULT ''"
+            )
 
     def save(self, artifact: DigestArtifact) -> None:
         """Save a digest artifact."""
@@ -54,8 +75,9 @@ class DigestStore:
             """
             INSERT INTO digests
                 (text, audio_path, sections, sources_used,
-                 generated_at, model_used, voice_used)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                 generated_at, model_used, voice_used,
+                 quality_score, evaluator_feedback)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 artifact.text,
@@ -65,6 +87,8 @@ class DigestStore:
                 artifact.generated_at.isoformat(),
                 artifact.model_used,
                 artifact.voice_used,
+                artifact.quality_score,
+                artifact.evaluator_feedback,
             ),
         )
         self._conn.commit()
@@ -78,13 +102,16 @@ class DigestStore:
             generated_at=datetime.fromisoformat(row[4]),
             model_used=row[5],
             voice_used=row[6],
+            quality_score=row[7] if len(row) > 7 else 0.0,
+            evaluator_feedback=row[8] if len(row) > 8 else "",
         )
 
     def get_latest(self) -> Optional[DigestArtifact]:
         """Return the most recent digest, or None."""
         row = self._conn.execute(
             "SELECT text, audio_path, sections, sources_used,"
-            " generated_at, model_used, voice_used"
+            " generated_at, model_used, voice_used,"
+            " quality_score, evaluator_feedback"
             " FROM digests ORDER BY id DESC LIMIT 1"
         ).fetchone()
         if row is None:
@@ -102,7 +129,8 @@ class DigestStore:
 
         row = self._conn.execute(
             "SELECT text, audio_path, sections, sources_used,"
-            " generated_at, model_used, voice_used"
+            " generated_at, model_used, voice_used,"
+            " quality_score, evaluator_feedback"
             " FROM digests WHERE generated_at LIKE ? ORDER BY id DESC LIMIT 1",
             (f"{today}%",),
         ).fetchone()
@@ -114,7 +142,8 @@ class DigestStore:
         """Return the N most recent digests."""
         rows = self._conn.execute(
             "SELECT text, audio_path, sections, sources_used,"
-            " generated_at, model_used, voice_used"
+            " generated_at, model_used, voice_used,"
+            " quality_score, evaluator_feedback"
             " FROM digests ORDER BY id DESC LIMIT ?",
             (limit,),
         ).fetchall()
