@@ -1,9 +1,9 @@
-# PinchBench eval: Qwen3.5-27B-FP8 (vLLM, TP=2)
+# PinchBench eval: LFM2.5-1.2B-Instruct (llamacpp, CPU)
 # Agent: native_openhands — all PinchBench-required tools enabled
 
 [meta]
-name = "pinchbench-qwen-27b"
-description = "PinchBench on Qwen/Qwen3.5-27B-FP8 (vLLM, TP=2)"
+name = "pinchbench-lfm-1.2b"
+description = "PinchBench on liquid-ai/LFM2.5-1.2B-Instruct (llamacpp, CPU)"
 
 [defaults]
 temperature = 0.6
@@ -16,13 +16,12 @@ engine = "cloud"
 
 [run]
 max_workers = 1
-output_dir = "results/neurips-2026/baselines/qwen-27b/pinchbench/"
+output_dir = "results/neurips-2026/baselines/lfm-1.2b/pinchbench/"
 seed = 42
 
 [[models]]
-name = "Qwen/Qwen3.5-27B-FP8"
-engine = "vllm"
-num_gpus = 2
+name = "liquid-ai/LFM2.5-1.2B-Instruct"
+engine = "llamacpp"
 
 [[benchmarks]]
 name = "pinchbench"

@@ -1,0 +1,32 @@
+# GAIA eval: MiniMax-M2.5 (llamacpp, 2x GPU)
+# Agentic multi-step reasoning benchmark — requires web search, file reading, code execution
+
+[meta]
+name = "gaia-minimax-m25"
+description = "GAIA on MiniMaxAI/MiniMax-M2.5 (llamacpp, 2x GPU)"
+
+[defaults]
+temperature = 0.6
+max_tokens = 8192
+
+[judge]
+model = "gpt-4.1-mini"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/baselines/minimax-m25/gaia/"
+seed = 42
+
+[[models]]
+name = "MiniMaxAI/MiniMax-M2.5"
+engine = "llamacpp"
+num_gpus = 2
+
+[[benchmarks]]
+name = "gaia"
+backend = "jarvis-agent"
+agent = "native_openhands"
+max_samples = 20
+tools = ["code_interpreter", "web_search", "file_read", "calculator", "think"]

@@ -1,0 +1,29 @@
+# TerminalBench V2 (native Docker) on Qwen3.5-2B (vLLM, 1 GPU)
+
+[meta]
+name = "terminalbench-native-qwen-2b"
+description = "TerminalBench V2 native on Qwen/Qwen3.5-2B (vLLM, 1 GPU)"
+
+[defaults]
+temperature = 0.6
+max_tokens = 8192
+
+[judge]
+model = "gpt-4.1-mini"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/baselines/qwen-2b/terminalbench/"
+seed = 42
+
+[[models]]
+name = "Qwen/Qwen3.5-2B"
+engine = "vllm"
+num_gpus = 1
+
+[[benchmarks]]
+name = "terminalbench-native"
+backend = "terminalbench-native"
+max_samples = 20

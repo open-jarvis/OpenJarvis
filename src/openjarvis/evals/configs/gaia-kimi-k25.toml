@@ -1,0 +1,33 @@
+# GAIA eval: Kimi-K2.5 (llamacpp, 2x GPU)
+# Agentic multi-step reasoning benchmark — requires web search, file reading, code execution
+# Kimi-K2.5 thinking mode: temperature=1.0, top_p=0.95
+
+[meta]
+name = "gaia-kimi-k25"
+description = "GAIA on moonshotai/Kimi-K2.5 (llamacpp, 2x GPU)"
+
+[defaults]
+temperature = 1.0
+max_tokens = 8192
+
+[judge]
+model = "gpt-4.1-mini"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/baselines/kimi-k25/gaia/"
+seed = 42
+
+[[models]]
+name = "moonshotai/Kimi-K2.5"
+engine = "llamacpp"
+num_gpus = 2
+
+[[benchmarks]]
+name = "gaia"
+backend = "jarvis-agent"
+agent = "native_openhands"
+max_samples = 20
+tools = ["code_interpreter", "web_search", "file_read", "calculator", "think"]

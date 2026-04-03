@@ -1,7 +1,8 @@
-# LiveResearchBench: claude-opus-4-6 (cloud)
+# LiveResearchBench: LFM2.5-1.2B-Instruct (llamacpp, CPU)
+
 [meta]
-name = "liveresearch-claude-opus"
-description = "LiveResearchBench deep research on claude-opus-4-6 (cloud)"
+name = "liveresearch-lfm-1.2b"
+description = "LiveResearchBench deep research on liquid-ai/LFM2.5-1.2B-Instruct"
 
 [defaults]
 temperature = 0.6
@@ -13,13 +14,13 @@ temperature = 0.0
 max_tokens = 4096
 
 [run]
-max_workers = 8
-output_dir = "results/neurips-2026/baselines/claude-opus/liveresearch/"
+max_workers = 1
+output_dir = "results/neurips-2026/baselines/lfm-1.2b/liveresearch/"
 seed = 42
 
 [[models]]
-name = "claude-opus-4-6"
-engine = "cloud"
+name = "liquid-ai/LFM2.5-1.2B-Instruct"
+engine = "llamacpp"
 
 [[benchmarks]]
 name = "liveresearch"

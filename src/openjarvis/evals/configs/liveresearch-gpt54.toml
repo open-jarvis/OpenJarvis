@@ -1,7 +1,8 @@
-# LiveResearchBench: claude-opus-4-6 (cloud)
+# LiveResearchBench: gpt-5.4-2026-03-05 (cloud)
+
 [meta]
-name = "liveresearch-claude-opus"
-description = "LiveResearchBench deep research on claude-opus-4-6 (cloud)"
+name = "liveresearch-gpt54"
+description = "LiveResearchBench deep research on gpt-5.4-2026-03-05"
 
 [defaults]
 temperature = 0.6
@@ -14,11 +15,11 @@ max_tokens = 4096
 
 [run]
 max_workers = 8
-output_dir = "results/neurips-2026/baselines/claude-opus/liveresearch/"
+output_dir = "results/neurips-2026/baselines/gpt54/liveresearch/"
 seed = 42
 
 [[models]]
-name = "claude-opus-4-6"
+name = "gpt-5.4-2026-03-05"
 engine = "cloud"
 
 [[benchmarks]]

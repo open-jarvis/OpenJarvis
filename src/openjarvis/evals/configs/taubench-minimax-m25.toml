@@ -1,27 +1,27 @@
-# TauBench V2 eval: Qwen3.5-27B-FP8 (vLLM, TP=2)
+# TauBench V2 eval: MiniMax-M2.5 (llamacpp, 2x GPU)
 # Multi-turn customer service benchmark — airline + retail splits
 
 [meta]
-name = "taubench-qwen-27b"
-description = "TauBench V2 on Qwen/Qwen3.5-27B-FP8 (vLLM, TP=2)"
+name = "taubench-minimax-m25"
+description = "TauBench V2 on MiniMaxAI/MiniMax-M2.5 (llamacpp, 2x GPU)"
 
 [defaults]
 temperature = 0.7
 max_tokens = 4096
 
 [judge]
-model = "gpt-5-mini-2025-08-07"
+model = "gpt-4.1-mini"
 temperature = 0.0
 engine = "cloud"
 
 [run]
 max_workers = 1
-output_dir = "results/neurips-2026/baselines/qwen-27b/taubench/"
+output_dir = "results/neurips-2026/baselines/minimax-m25/taubench/"
 seed = 42
 
 [[models]]
-name = "Qwen/Qwen3.5-27B-FP8"
-engine = "vllm"
+name = "MiniMaxAI/MiniMax-M2.5"
+engine = "llamacpp"
 num_gpus = 2
 
 [[benchmarks]]

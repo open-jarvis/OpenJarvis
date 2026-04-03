@@ -1,0 +1,30 @@
+# LiveCodeBench eval: Qwen3.5-397B-A17B-FP8 (vLLM, TP=8)
+# Competitive programming from LeetCode, AtCoder, CodeForces
+
+[meta]
+name = "livecodebench-qwen-397b"
+description = "LiveCodeBench on Qwen/Qwen3.5-397B-A17B-FP8 (vLLM, TP=8)"
+
+[defaults]
+temperature = 0.0
+max_tokens = 4096
+
+[judge]
+model = "gpt-4.1-mini"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/baselines/qwen-397b/livecodebench/"
+seed = 42
+
+[[models]]
+name = "Qwen/Qwen3.5-397B-A17B-FP8"
+engine = "vllm"
+num_gpus = 8
+
+[[benchmarks]]
+name = "livecodebench"
+backend = "jarvis-direct"
+max_samples = 20

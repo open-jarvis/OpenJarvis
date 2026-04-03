@@ -1,0 +1,29 @@
+# TerminalBench V2 (native Docker) on NVIDIA-Nemotron-3-Nano-30B-A3B-FP8 (vLLM, 1 GPU)
+
+[meta]
+name = "terminalbench-native-nemotron-nano"
+description = "TerminalBench V2 native on nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8 (vLLM, 1 GPU)"
+
+[defaults]
+temperature = 0.6
+max_tokens = 8192
+
+[judge]
+model = "gpt-4.1-mini"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/baselines/nemotron-nano/terminalbench/"
+seed = 42
+
+[[models]]
+name = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8"
+engine = "vllm"
+num_gpus = 1
+
+[[benchmarks]]
+name = "terminalbench-native"
+backend = "terminalbench-native"
+max_samples = 20

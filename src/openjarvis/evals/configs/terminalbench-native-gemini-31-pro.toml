@@ -1,0 +1,28 @@
+# TerminalBench V2 (native Docker) on Gemini 3.1 Pro Preview (cloud)
+
+[meta]
+name = "terminalbench-native-gemini-31-pro"
+description = "TerminalBench V2 native on gemini-3.1-pro-preview (cloud)"
+
+[defaults]
+temperature = 0.6
+max_tokens = 8192
+
+[judge]
+model = "gpt-4.1-mini"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 4
+output_dir = "results/neurips-2026/baselines/gemini-31-pro/terminalbench/"
+seed = 42
+
+[[models]]
+name = "gemini-3.1-pro-preview"
+engine = "cloud"
+
+[[benchmarks]]
+name = "terminalbench-native"
+backend = "terminalbench-native"
+max_samples = 20

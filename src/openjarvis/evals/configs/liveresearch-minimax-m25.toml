@@ -1,7 +1,8 @@
-# LiveResearchBench: claude-opus-4-6 (cloud)
+# LiveResearchBench: MiniMax-M2.5 (llamacpp, 2x GPU)
+
 [meta]
-name = "liveresearch-claude-opus"
-description = "LiveResearchBench deep research on claude-opus-4-6 (cloud)"
+name = "liveresearch-minimax-m25"
+description = "LiveResearchBench deep research on MiniMaxAI/MiniMax-M2.5"
 
 [defaults]
 temperature = 0.6
@@ -13,13 +14,14 @@ temperature = 0.0
 max_tokens = 4096
 
 [run]
-max_workers = 8
-output_dir = "results/neurips-2026/baselines/claude-opus/liveresearch/"
+max_workers = 1
+output_dir = "results/neurips-2026/baselines/minimax-m25/liveresearch/"
 seed = 42
 
 [[models]]
-name = "claude-opus-4-6"
-engine = "cloud"
+name = "MiniMaxAI/MiniMax-M2.5"
+engine = "llamacpp"
+num_gpus = 2
 
 [[benchmarks]]
 name = "liveresearch"

@@ -1,9 +1,10 @@
-# PinchBench eval: Qwen3.5-27B-FP8 (vLLM, TP=2)
+# PinchBench eval: Trinity-Large-Thinking (vLLM, TP=4)
 # Agent: native_openhands — all PinchBench-required tools enabled
+# NOTE: verify exact HuggingFace model ID before running
 
 [meta]
-name = "pinchbench-qwen-27b"
-description = "PinchBench on Qwen/Qwen3.5-27B-FP8 (vLLM, TP=2)"
+name = "pinchbench-trinity-large"
+description = "PinchBench on trinity-ai/Trinity-Large-Thinking (vLLM, TP=4)"
 
 [defaults]
 temperature = 0.6
@@ -16,13 +17,13 @@ engine = "cloud"
 
 [run]
 max_workers = 1
-output_dir = "results/neurips-2026/baselines/qwen-27b/pinchbench/"
+output_dir = "results/neurips-2026/baselines/trinity-large/pinchbench/"
 seed = 42
 
 [[models]]
-name = "Qwen/Qwen3.5-27B-FP8"
+name = "trinity-ai/Trinity-Large-Thinking"
 engine = "vllm"
-num_gpus = 2
+num_gpus = 4
 
 [[benchmarks]]
 name = "pinchbench"

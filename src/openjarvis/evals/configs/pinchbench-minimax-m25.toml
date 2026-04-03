@@ -1,9 +1,9 @@
-# PinchBench eval: Qwen3.5-27B-FP8 (vLLM, TP=2)
+# PinchBench eval: MiniMax-M2.5 (llamacpp, 2x GPU)
 # Agent: native_openhands — all PinchBench-required tools enabled
 
 [meta]
-name = "pinchbench-qwen-27b"
-description = "PinchBench on Qwen/Qwen3.5-27B-FP8 (vLLM, TP=2)"
+name = "pinchbench-minimax-m25"
+description = "PinchBench on MiniMaxAI/MiniMax-M2.5 (llamacpp, 2x GPU)"
 
 [defaults]
 temperature = 0.6
@@ -16,12 +16,12 @@ engine = "cloud"
 
 [run]
 max_workers = 1
-output_dir = "results/neurips-2026/baselines/qwen-27b/pinchbench/"
+output_dir = "results/neurips-2026/baselines/minimax-m25/pinchbench/"
 seed = 42
 
 [[models]]
-name = "Qwen/Qwen3.5-27B-FP8"
-engine = "vllm"
+name = "MiniMaxAI/MiniMax-M2.5"
+engine = "llamacpp"
 num_gpus = 2
 
 [[benchmarks]]

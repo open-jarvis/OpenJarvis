@@ -16,7 +16,7 @@ engine = "cloud"
 
 [run]
 max_workers = 1
-output_dir = "results/taubench-claude-opus/"
+output_dir = "results/neurips-2026/baselines/claude-opus/taubench/"
 seed = 42
 
 [[models]]
