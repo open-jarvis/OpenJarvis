@@ -57,10 +57,16 @@ def _make_credentials(tmp_path: Path) -> Path:
 @pytest.fixture()
 def connector(tmp_path: Path):
     """GCalendarConnector pointing at a tmp credentials path (no file yet)."""
+    from unittest.mock import patch
+
     from openjarvis.connectors.gcalendar import GCalendarConnector  # noqa: PLC0415
 
     creds_path = str(tmp_path / "gcalendar.json")
-    return GCalendarConnector(credentials_path=creds_path)
+    with patch(
+        "openjarvis.connectors.oauth._SHARED_GOOGLE_CREDENTIALS_PATH",
+        str(tmp_path / "google_shared.json"),
+    ):
+        yield GCalendarConnector(credentials_path=creds_path)
 
 
 # ---------------------------------------------------------------------------

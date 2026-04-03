@@ -28,6 +28,7 @@ def _register_sendblue():
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_channel(**overrides):
     from openjarvis.channels.sendblue import SendBlueChannel
 
@@ -167,15 +168,17 @@ class TestWebhookHandler:
         received = []
         ch.on_message(lambda msg: received.append(msg))
 
-        ch.handle_webhook({
-            "from_number": "+19127130720",
-            "to_number": "+15551234567",
-            "content": "Hello Jarvis",
-            "message_handle": "msg-001",
-            "is_outbound": False,
-            "status": "RECEIVED",
-            "service": "iMessage",
-        })
+        ch.handle_webhook(
+            {
+                "from_number": "+19127130720",
+                "to_number": "+15551234567",
+                "content": "Hello Jarvis",
+                "message_handle": "msg-001",
+                "is_outbound": False,
+                "status": "RECEIVED",
+                "service": "iMessage",
+            }
+        )
 
         assert len(received) == 1
         assert received[0].sender == "+19127130720"
@@ -187,11 +190,13 @@ class TestWebhookHandler:
         received = []
         ch.on_message(lambda msg: received.append(msg))
 
-        ch.handle_webhook({
-            "from_number": "+15551234567",
-            "content": "Outbound message",
-            "is_outbound": True,
-        })
+        ch.handle_webhook(
+            {
+                "from_number": "+15551234567",
+                "content": "Outbound message",
+                "is_outbound": True,
+            }
+        )
 
         assert len(received) == 0
 
@@ -200,11 +205,13 @@ class TestWebhookHandler:
         received = []
         ch.on_message(lambda msg: received.append(msg))
 
-        ch.handle_webhook({
-            "from_number": "+19127130720",
-            "content": "",
-            "is_outbound": False,
-        })
+        ch.handle_webhook(
+            {
+                "from_number": "+19127130720",
+                "content": "",
+                "is_outbound": False,
+            }
+        )
 
         assert len(received) == 0
 
@@ -212,19 +219,20 @@ class TestWebhookHandler:
         bus = EventBus(record_history=True)
         ch = _make_channel(bus=bus)
 
-        ch.handle_webhook({
-            "from_number": "+19127130720",
-            "content": "Test",
-            "message_handle": "msg-002",
-            "is_outbound": False,
-            "service": "iMessage",
-        })
+        ch.handle_webhook(
+            {
+                "from_number": "+19127130720",
+                "content": "Test",
+                "message_handle": "msg-002",
+                "is_outbound": False,
+                "service": "iMessage",
+            }
+        )
 
         event_types = [e.event_type for e in bus.history]
         assert EventType.CHANNEL_MESSAGE_RECEIVED in event_types
         event = [
-            e for e in bus.history
-            if e.event_type == EventType.CHANNEL_MESSAGE_RECEIVED
+            e for e in bus.history if e.event_type == EventType.CHANNEL_MESSAGE_RECEIVED
         ][0]
         assert event.data["sender"] == "+19127130720"
         assert event.data["service"] == "iMessage"
@@ -234,12 +242,14 @@ class TestWebhookHandler:
         ch.on_message(lambda msg: 1 / 0)  # Will raise ZeroDivisionError
 
         # Should not raise
-        ch.handle_webhook({
-            "from_number": "+19127130720",
-            "content": "Test",
-            "message_handle": "msg-003",
-            "is_outbound": False,
-        })
+        ch.handle_webhook(
+            {
+                "from_number": "+19127130720",
+                "content": "Test",
+                "message_handle": "msg-003",
+                "is_outbound": False,
+            }
+        )
 
 
 # ---------------------------------------------------------------------------

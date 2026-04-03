@@ -310,18 +310,18 @@ SCENARIOS: List[Dict[str, Any]] = [
         "category": "A-ToolSelection",
         "user_message": "What's the weather like in Berlin right now?",
         "mock_tool_outputs": {
-            "get_weather": json.dumps({
-                "location": "Berlin",
-                "temperature": 8,
-                "units": "celsius",
-                "condition": "Overcast",
-                "humidity": 72,
-            }),
-            "web_search": json.dumps({
-                "results": [
-                    {"snippet": "Berlin weather right now: 8C and overcast."}
-                ]
-            }),
+            "get_weather": json.dumps(
+                {
+                    "location": "Berlin",
+                    "temperature": 8,
+                    "units": "celsius",
+                    "condition": "Overcast",
+                    "humidity": 72,
+                }
+            ),
+            "web_search": json.dumps(
+                {"results": [{"snippet": "Berlin weather right now: 8C and overcast."}]}
+            ),
         },
     },
     {
@@ -330,18 +330,18 @@ SCENARIOS: List[Dict[str, Any]] = [
         "category": "A-ToolSelection",
         "user_message": "What is the current price of AAPL stock?",
         "mock_tool_outputs": {
-            "get_stock_price": json.dumps({
-                "ticker": "AAPL",
-                "price": 187.42,
-                "currency": "USD",
-                "change": "+1.23",
-                "change_percent": "+0.66%",
-            }),
-            "web_search": json.dumps({
-                "results": [
-                    {"snippet": "AAPL is trading around $187.42."}
-                ]
-            }),
+            "get_stock_price": json.dumps(
+                {
+                    "ticker": "AAPL",
+                    "price": 187.42,
+                    "currency": "USD",
+                    "change": "+1.23",
+                    "change_percent": "+0.66%",
+                }
+            ),
+            "web_search": json.dumps(
+                {"results": [{"snippet": "AAPL is trading around $187.42."}]}
+            ),
         },
     },
     {
@@ -350,15 +350,15 @@ SCENARIOS: List[Dict[str, Any]] = [
         "category": "A-ToolSelection",
         "user_message": "I need to let Sarah know the meeting moved to 3pm.",
         "mock_tool_outputs": {
-            "get_contacts": json.dumps({
-                "results": [
-                    {"name": "Sarah Chen", "email": "sarah.chen@company.com"}
-                ]
-            }),
-            "send_email": json.dumps({
-                "status": "sent",
-                "message_id": "msg_8821",
-            }),
+            "get_contacts": json.dumps(
+                {"results": [{"name": "Sarah Chen", "email": "sarah.chen@company.com"}]}
+            ),
+            "send_email": json.dumps(
+                {
+                    "status": "sent",
+                    "message_id": "msg_8821",
+                }
+            ),
         },
     },
     # --- Category B: Parameter Precision ---
@@ -368,21 +368,25 @@ SCENARIOS: List[Dict[str, Any]] = [
         "category": "B-ParameterPrecision",
         "user_message": "What's the temperature in Tokyo in Fahrenheit?",
         "mock_tool_outputs": {
-            "get_weather": json.dumps({
-                "location": "Tokyo",
-                "temperature": 64,
-                "units": "fahrenheit",
-                "condition": "Clear",
-                "humidity": 55,
-            }),
+            "get_weather": json.dumps(
+                {
+                    "location": "Tokyo",
+                    "temperature": 64,
+                    "units": "fahrenheit",
+                    "condition": "Clear",
+                    "humidity": 55,
+                }
+            ),
             # Default (celsius) mock for partial-credit scoring
-            "get_weather__default": json.dumps({
-                "location": "Tokyo",
-                "temperature": 18,
-                "units": "celsius",
-                "condition": "Clear",
-                "humidity": 55,
-            }),
+            "get_weather__default": json.dumps(
+                {
+                    "location": "Tokyo",
+                    "temperature": 18,
+                    "units": "celsius",
+                    "condition": "Clear",
+                    "humidity": 55,
+                }
+            ),
         },
     },
     {
@@ -394,18 +398,22 @@ SCENARIOS: List[Dict[str, Any]] = [
             "30 minutes, with Alex and Jamie."
         ),
         "mock_tool_outputs": {
-            "get_contacts": json.dumps({
-                "results": [
-                    {"name": "Alex Stone", "email": "alex.stone@company.com"},
-                    {"name": "Jamie Liu", "email": "jamie.liu@company.com"},
-                ]
-            }),
-            "create_calendar_event": json.dumps({
-                "event_id": "evt_4412",
-                "status": "created",
-                "title": "Team Standup",
-                "date": "2026-03-23",
-            }),
+            "get_contacts": json.dumps(
+                {
+                    "results": [
+                        {"name": "Alex Stone", "email": "alex.stone@company.com"},
+                        {"name": "Jamie Liu", "email": "jamie.liu@company.com"},
+                    ]
+                }
+            ),
+            "create_calendar_event": json.dumps(
+                {
+                    "event_id": "evt_4412",
+                    "status": "created",
+                    "title": "Team Standup",
+                    "date": "2026-03-23",
+                }
+            ),
         },
         # Reference date is 2026-03-20 (Friday), next Monday = 2026-03-23
         "reference_date": "2026-03-20",
@@ -419,12 +427,16 @@ SCENARIOS: List[Dict[str, Any]] = [
             "from English to both Spanish and Japanese."
         ),
         "mock_tool_outputs": {
-            "translate_text__spanish": json.dumps({
-                "translated": "\u00bfD\u00f3nde est\u00e1 el hospital m\u00e1s cercano?",
-            }),
-            "translate_text__japanese": json.dumps({
-                "translated": "\u6700\u5bc4\u308a\u306e\u75c5\u9662\u306f\u3069\u3053\u3067\u3059\u304b\uff1f",
-            }),
+            "translate_text__spanish": json.dumps(
+                {
+                    "translated": "\u00bfD\u00f3nde est\u00e1 el hospital m\u00e1s cercano?",
+                }
+            ),
+            "translate_text__japanese": json.dumps(
+                {
+                    "translated": "\u6700\u5bc4\u308a\u306e\u75c5\u9662\u306f\u3069\u3053\u3067\u3059\u304b\uff1f",
+                }
+            ),
         },
     },
     # --- Category C: Multi-Step Chains ---
@@ -436,29 +448,35 @@ SCENARIOS: List[Dict[str, Any]] = [
             "Find the Q3 budget report and email the total to my manager."
         ),
         "mock_tool_outputs": {
-            "search_files": json.dumps({
-                "results": [
-                    {
-                        "file_id": "file_091",
-                        "name": "Q3_Budget_Report_2025.xlsx",
-                    }
-                ]
-            }),
-            "read_file": json.dumps({
-                "content": (
-                    "Department budgets: Engineering $2.1M, Marketing $800K, "
-                    "Sales $1.5M. Total: $4.4M"
-                ),
-            }),
-            "get_contacts": json.dumps({
-                "results": [
-                    {
-                        "name": "Jordan Park",
-                        "email": "jordan.park@company.com",
-                        "role": "manager",
-                    }
-                ]
-            }),
+            "search_files": json.dumps(
+                {
+                    "results": [
+                        {
+                            "file_id": "file_091",
+                            "name": "Q3_Budget_Report_2025.xlsx",
+                        }
+                    ]
+                }
+            ),
+            "read_file": json.dumps(
+                {
+                    "content": (
+                        "Department budgets: Engineering $2.1M, Marketing $800K, "
+                        "Sales $1.5M. Total: $4.4M"
+                    ),
+                }
+            ),
+            "get_contacts": json.dumps(
+                {
+                    "results": [
+                        {
+                            "name": "Jordan Park",
+                            "email": "jordan.park@company.com",
+                            "role": "manager",
+                        }
+                    ]
+                }
+            ),
             "send_email": json.dumps({"status": "sent"}),
         },
     },
@@ -471,16 +489,20 @@ SCENARIOS: List[Dict[str, Any]] = [
             "remind me to bring an umbrella tomorrow at 8am."
         ),
         "mock_tool_outputs": {
-            "get_weather": json.dumps({
-                "location": "Paris",
-                "temperature": 11,
-                "condition": "Light rain",
-                "humidity": 89,
-            }),
-            "set_reminder": json.dumps({
-                "reminder_id": "rem_553",
-                "status": "set",
-            }),
+            "get_weather": json.dumps(
+                {
+                    "location": "Paris",
+                    "temperature": 11,
+                    "condition": "Light rain",
+                    "humidity": 89,
+                }
+            ),
+            "set_reminder": json.dumps(
+                {
+                    "reminder_id": "rem_553",
+                    "status": "set",
+                }
+            ),
         },
         "reference_date": "2026-03-20",
     },
@@ -488,29 +510,33 @@ SCENARIOS: List[Dict[str, Any]] = [
         "id": "TC-09",
         "name": "Parallel Independence",
         "category": "C-MultiStepChains",
-        "user_message": (
-            "What's the weather in London and the stock price of MSFT?"
-        ),
+        "user_message": ("What's the weather in London and the stock price of MSFT?"),
         "mock_tool_outputs": {
-            "get_weather": json.dumps({
-                "location": "London",
-                "temperature": 12,
-                "condition": "Cloudy",
-            }),
-            "get_stock_price": json.dumps({
-                "ticker": "MSFT",
-                "price": 412.78,
-                "currency": "USD",
-            }),
-            "web_search": json.dumps({
-                "results": [
-                    {
-                        "snippet": (
-                            "London is cloudy at 12C and MSFT is around $412.78."
-                        )
-                    }
-                ]
-            }),
+            "get_weather": json.dumps(
+                {
+                    "location": "London",
+                    "temperature": 12,
+                    "condition": "Cloudy",
+                }
+            ),
+            "get_stock_price": json.dumps(
+                {
+                    "ticker": "MSFT",
+                    "price": 412.78,
+                    "currency": "USD",
+                }
+            ),
+            "web_search": json.dumps(
+                {
+                    "results": [
+                        {
+                            "snippet": (
+                                "London is cloudy at 12C and MSFT is around $412.78."
+                            )
+                        }
+                    ]
+                }
+            ),
         },
     },
     # --- Category D: Restraint & Refusal ---
@@ -546,14 +572,16 @@ SCENARIOS: List[Dict[str, Any]] = [
         "mock_tool_outputs": {
             # First call returns empty, second (broader) returns a result
             "search_files__first": json.dumps({"results": []}),
-            "search_files__retry": json.dumps({
-                "results": [
-                    {
-                        "file_id": "file_117",
-                        "name": "Johnson_Project_Proposal_v2.docx",
-                    }
-                ]
-            }),
+            "search_files__retry": json.dumps(
+                {
+                    "results": [
+                        {
+                            "file_id": "file_117",
+                            "name": "Johnson_Project_Proposal_v2.docx",
+                        }
+                    ]
+                }
+            ),
         },
     },
     {
@@ -562,14 +590,14 @@ SCENARIOS: List[Dict[str, Any]] = [
         "category": "E-ErrorRecovery",
         "user_message": "What's Apple's stock price?",
         "mock_tool_outputs": {
-            "get_stock_price": json.dumps({
-                "error": "Service temporarily unavailable. Rate limit exceeded.",
-            }),
-            "web_search": json.dumps({
-                "results": [
-                    {"snippet": "Apple (AAPL) is trading around $187.42."}
-                ]
-            }),
+            "get_stock_price": json.dumps(
+                {
+                    "error": "Service temporarily unavailable. Rate limit exceeded.",
+                }
+            ),
+            "web_search": json.dumps(
+                {"results": [{"snippet": "Apple (AAPL) is trading around $187.42."}]}
+            ),
         },
     },
     {
@@ -577,20 +605,21 @@ SCENARIOS: List[Dict[str, Any]] = [
         "name": "Conflicting Information",
         "category": "E-ErrorRecovery",
         "user_message": (
-            "Search for the population of Iceland "
-            "and calculate what 2% of it would be."
+            "Search for the population of Iceland and calculate what 2% of it would be."
         ),
         "mock_tool_outputs": {
-            "web_search": json.dumps({
-                "results": [
-                    {
-                        "snippet": (
-                            "Iceland has a population of approximately "
-                            "372,520 as of 2025."
-                        )
-                    }
-                ]
-            }),
+            "web_search": json.dumps(
+                {
+                    "results": [
+                        {
+                            "snippet": (
+                                "Iceland has a population of approximately "
+                                "372,520 as of 2025."
+                            )
+                        }
+                    ]
+                }
+            ),
             "calculator": json.dumps({"result": 7450.4}),
         },
     },
@@ -629,9 +658,7 @@ class ToolCall15Dataset(DatasetProvider):
             scenarios = [
                 s
                 for s in scenarios
-                if any(
-                    s["category"].upper().startswith(fc) for fc in filter_cats
-                )
+                if any(s["category"].upper().startswith(fc) for fc in filter_cats)
             ]
 
         if seed is not None:
@@ -645,8 +672,7 @@ class ToolCall15Dataset(DatasetProvider):
             # instructions, available tools, and user message so the
             # model can respond with tool calls via any backend.
             tool_descriptions = "\n".join(
-                f"- {t['function']['name']}: "
-                f"{t['function']['description']}"
+                f"- {t['function']['name']}: {t['function']['description']}"
                 for t in TOOLS
             )
             prompt = (

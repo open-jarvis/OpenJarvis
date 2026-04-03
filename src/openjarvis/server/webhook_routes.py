@@ -129,7 +129,9 @@ def create_webhook_router(
 
         # Use bridge or app.state.channel_bridge
         active_bridge = bridge or getattr(
-            request.app.state, "channel_bridge", None,
+            request.app.state,
+            "channel_bridge",
+            None,
         )
 
         def _handle_twilio() -> None:
@@ -140,7 +142,9 @@ def create_webhook_router(
 
                 # Get creds from app state bindings
                 mgr = getattr(
-                    request.app.state, "agent_manager", None,
+                    request.app.state,
+                    "agent_manager",
+                    None,
                 )
                 twilio_client = None
                 twilio_from = ""
@@ -153,20 +157,19 @@ def create_webhook_router(
                                 sid = cfg.get("account_sid", "")
                                 tok = cfg.get("auth_token", "")
                                 twilio_from = cfg.get(
-                                    "phone_number", "",
+                                    "phone_number",
+                                    "",
                                 )
                                 if sid and tok:
                                     twilio_client = Client(
-                                        sid, tok,
+                                        sid,
+                                        tok,
                                     )
                                 break
 
                 if twilio_client and twilio_from:
                     twilio_client.messages.create(
-                        body=(
-                            "Message received! "
-                            "Working on it now..."
-                        ),
+                        body=("Message received! Working on it now..."),
                         from_=twilio_from,
                         to=from_number,
                     )
@@ -177,7 +180,9 @@ def create_webhook_router(
             response = ""
             if active_bridge:
                 response = active_bridge.handle_incoming(
-                    from_number, body, "twilio",
+                    from_number,
+                    body,
+                    "twilio",
                     max_length=1600,
                 )
             else:
@@ -191,16 +196,21 @@ def create_webhook_router(
                     )
 
                     engine = getattr(
-                        request.app.state, "engine", None,
+                        request.app.state,
+                        "engine",
+                        None,
                     )
                     if engine:
                         tools = _build_deep_research_tools(
-                            engine=engine, model="",
+                            engine=engine,
+                            model="",
                         )
                         agent = DeepResearchAgent(
                             engine=engine,
                             model=getattr(
-                                engine, "_model", "",
+                                engine,
+                                "_model",
+                                "",
                             ),
                             tools=tools,
                             max_turns=5,
@@ -224,7 +234,8 @@ def create_webhook_router(
                     )
                 except Exception as _e:
                     logger.warning(
-                        "Twilio reply failed: %s", _e,
+                        "Twilio reply failed: %s",
+                        _e,
                     )
 
         task = asyncio.create_task(
@@ -336,9 +347,7 @@ def create_webhook_router(
         payload = await request.json()
 
         # Get the SendBlue channel — may be passed at init or set later
-        sb = sendblue_channel or getattr(
-            request.app.state, "sendblue_channel", None
-        )
+        sb = sendblue_channel or getattr(request.app.state, "sendblue_channel", None)
 
         # Verify webhook secret if configured
         if sb and sb.webhook_secret:
@@ -364,18 +373,14 @@ def create_webhook_router(
         # Capture sb for the closure
         reply_channel = sb
         # Also check for a dynamically-created bridge on app.state
-        active_bridge = bridge or getattr(
-            request.app.state, "channel_bridge", None
-        )
+        active_bridge = bridge or getattr(request.app.state, "channel_bridge", None)
 
         if not active_bridge:
             logger.warning("No channel bridge — cannot process SendBlue msg")
             return Response("OK", status_code=200)
 
         # Message queue tracking (per-sender)
-        _sendblue_queues = getattr(
-            request.app.state, "_sendblue_queues", None
-        )
+        _sendblue_queues = getattr(request.app.state, "_sendblue_queues", None)
         if _sendblue_queues is None:
             import threading as _th
 
@@ -390,9 +395,7 @@ def create_webhook_router(
 
             # Track queue depth for this sender
             with lock:
-                q = _sendblue_queues.setdefault(
-                    from_number, {"pending": 0}
-                )
+                q = _sendblue_queues.setdefault(from_number, {"pending": 0})
                 q["pending"] += 1
                 position = q["pending"]
 
@@ -421,9 +424,7 @@ def create_webhook_router(
                             "Still working! Will reply ASAP",
                         )
 
-            reminder = threading.Thread(
-                target=_send_reminders, daemon=True
-            )
+            reminder = threading.Thread(target=_send_reminders, daemon=True)
             reminder.start()
 
             try:
@@ -437,9 +438,7 @@ def create_webhook_router(
 
             # Format response for clean text message display
             if response and reply_channel:
-                reply_channel.send(
-                    from_number, _format_for_sms(response)
-                )
+                reply_channel.send(from_number, _format_for_sms(response))
 
         task = asyncio.create_task(asyncio.to_thread(_handle_and_reply))
         task.add_done_callback(_log_task_exception)

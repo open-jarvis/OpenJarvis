@@ -28,7 +28,9 @@ class TauBenchScorer(Scorer):
         self._judge_model = judge_model
 
     def score(
-        self, record: EvalRecord, model_answer: str,
+        self,
+        record: EvalRecord,
+        model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
         reward = record.metadata.get("tau_reward", 0.0)
         info = record.metadata.get("tau_info", {})

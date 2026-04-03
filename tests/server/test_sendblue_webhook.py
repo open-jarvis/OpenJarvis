@@ -134,9 +134,7 @@ class TestSendBlueWebhook:
         ch.connect()
 
         app = FastAPI()
-        router = create_webhook_router(
-            bridge=mock_bridge, sendblue_channel=ch
-        )
+        router = create_webhook_router(bridge=mock_bridge, sendblue_channel=ch)
         app.include_router(router)
         c = TestClient(app)
 
@@ -169,9 +167,7 @@ class TestSendBlueWebhook:
         from openjarvis.server.webhook_routes import create_webhook_router
 
         app = FastAPI()
-        router = create_webhook_router(
-            bridge=None, sendblue_channel=sendblue_channel
-        )
+        router = create_webhook_router(bridge=None, sendblue_channel=sendblue_channel)
         app.include_router(router)
         c = TestClient(app)
 

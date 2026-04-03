@@ -9,6 +9,7 @@ import pytest
 
 try:
     import fastapi  # noqa: F401
+
     HAS_FASTAPI = True
 except ImportError:
     HAS_FASTAPI = False

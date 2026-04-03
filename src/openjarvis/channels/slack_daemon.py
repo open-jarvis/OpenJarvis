@@ -63,7 +63,10 @@ def run_slack_daemon(
     engine = OllamaEngine()
     tools = _build_deep_research_tools(engine=engine, model=model)
     agent = DeepResearchAgent(
-        engine=engine, model=model, tools=tools, max_turns=5,
+        engine=engine,
+        model=model,
+        tools=tools,
+        max_turns=5,
     )
     logger.info("Slack daemon: agent ready with %d tools", len(tools))
 
@@ -143,11 +146,15 @@ def start_slack_daemon(
 
     proc = subprocess.Popen(
         [
-            sys.executable, "-m",
+            sys.executable,
+            "-m",
             "openjarvis.channels.slack_daemon",
-            "--bot-token", bot_token,
-            "--app-token", app_token,
-            "--model", model,
+            "--bot-token",
+            bot_token,
+            "--app-token",
+            app_token,
+            "--model",
+            model,
         ],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,

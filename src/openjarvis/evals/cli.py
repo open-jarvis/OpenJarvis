@@ -326,6 +326,7 @@ def _build_dataset(benchmark: str, subset: str | None = None):
         return PinchBenchDataset(path=subset)
     elif benchmark == "taubench":
         from openjarvis.evals.datasets.taubench import TauBenchDataset
+
         domains = subset.split(",") if subset else None
         return TauBenchDataset(domains=domains)
     elif benchmark == "livecodebench":
@@ -478,6 +479,7 @@ def _build_scorer(benchmark: str, judge_backend, judge_model: str):
         return PinchBenchScorer(judge_backend, judge_model)
     elif benchmark == "taubench":
         from openjarvis.evals.scorers.taubench import TauBenchScorer
+
         return TauBenchScorer(judge_backend, judge_model)
     elif benchmark == "livecodebench":
         from openjarvis.evals.scorers.livecodebench import LiveCodeBenchScorer
@@ -597,6 +599,7 @@ def _run_terminalbench_native(config, console: Console) -> object:
     )
 
     import re
+
     # Docker compose project names must be lowercase alphanumeric + hyphens/underscores
     model_slug = re.sub(r"[^a-z0-9_-]", "-", model.lower().replace("/", "-"))
     run_id = f"tb2-{model_slug}"

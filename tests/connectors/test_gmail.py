@@ -221,10 +221,11 @@ def test_sync_passes_since_as_query(
     mock_list.assert_called_once()
     _, call_kwargs = mock_list.call_args
     assert "query" in call_kwargs
-    assert call_kwargs["query"].startswith("after:")
+    assert "after:" in call_kwargs["query"]
     # Verify the epoch value is correct
     expected_epoch = int(since_dt.timestamp())
-    assert call_kwargs["query"] == f"after:{expected_epoch}"
+    assert f"after:{expected_epoch}" in call_kwargs["query"]
+    assert "category:primary" in call_kwargs["query"]
 
 
 # ---------------------------------------------------------------------------
@@ -250,7 +251,7 @@ def test_sync_without_since_passes_empty_query(
 
     mock_list.assert_called_once()
     _, call_kwargs = mock_list.call_args
-    assert call_kwargs.get("query", "") == ""
+    assert call_kwargs.get("query", "") == "category:primary"
 
 
 # ---------------------------------------------------------------------------

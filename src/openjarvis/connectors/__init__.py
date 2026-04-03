@@ -13,8 +13,11 @@ __all__ = ["Attachment", "BaseConnector", "Document", "KnowledgeStore", "SyncSta
 # Auto-register built-in connectors
 import openjarvis.connectors.obsidian  # noqa: F401
 
-# gmail (REST API / OAuth) is not registered — use gmail_imap instead.
-# The REST API connector requires a full OAuth flow that isn't wired up yet.
+try:
+    import openjarvis.connectors.gmail  # noqa: F401
+except ImportError:
+    pass
+
 try:
     import openjarvis.connectors.gmail_imap  # noqa: F401
 except ImportError:
@@ -51,6 +54,11 @@ except ImportError:
     pass
 
 try:
+    import openjarvis.connectors.apple_music  # noqa: F401
+except ImportError:
+    pass
+
+try:
     import openjarvis.connectors.slack_connector  # noqa: F401
 except ImportError:
     pass
@@ -72,5 +80,50 @@ except ImportError:
 
 try:
     import openjarvis.connectors.whatsapp  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.connectors.oura  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.connectors.apple_health  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.connectors.strava  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.connectors.spotify  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.connectors.google_tasks  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.connectors.weather  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.connectors.github_notifications  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.connectors.hackernews  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.connectors.news_rss  # noqa: F401
 except ImportError:
     pass

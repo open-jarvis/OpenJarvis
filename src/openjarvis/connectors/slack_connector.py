@@ -302,7 +302,9 @@ class SlackConnector(BaseConnector):
                     # Try to join the public channel
                     try:
                         join_resp = _slack_api_with_retry(
-                            "conversations.join", token, {"channel": chan_id},
+                            "conversations.join",
+                            token,
+                            {"channel": chan_id},
                             http_method="POST",
                         )
                         if not join_resp.get("ok"):

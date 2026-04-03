@@ -57,15 +57,11 @@ class SendBlueChannel(BaseChannel):
         webhook_secret: str = "",
         bus: Optional[EventBus] = None,
     ) -> None:
-        self._api_key_id = api_key_id or os.environ.get(
-            "SENDBLUE_API_KEY_ID", ""
-        )
+        self._api_key_id = api_key_id or os.environ.get("SENDBLUE_API_KEY_ID", "")
         self._api_secret_key = api_secret_key or os.environ.get(
             "SENDBLUE_API_SECRET_KEY", ""
         )
-        self._from_number = from_number or os.environ.get(
-            "SENDBLUE_FROM_NUMBER", ""
-        )
+        self._from_number = from_number or os.environ.get("SENDBLUE_FROM_NUMBER", "")
         self._webhook_secret = webhook_secret
         self._bus = bus
         self._handlers: List[ChannelHandler] = []
@@ -215,9 +211,7 @@ class SendBlueChannel(BaseChannel):
 
     # -- internal helpers -------------------------------------------------------
 
-    def _publish_sent(
-        self, channel: str, content: str, conversation_id: str
-    ) -> None:
+    def _publish_sent(self, channel: str, content: str, conversation_id: str) -> None:
         """Publish a CHANNEL_MESSAGE_SENT event on the bus."""
         if self._bus is not None:
             self._bus.publish(

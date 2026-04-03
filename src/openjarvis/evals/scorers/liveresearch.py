@@ -277,9 +277,7 @@ class LiveResearchBenchScorer(LLMJudgeScorer):
         try:
             raw = self._ask_judge(prompt, temperature=0.0, max_tokens=4096)
         except Exception as exc:
-            LOGGER.error(
-                "LLM judge call failed for %s: %s", record.record_id, exc
-            )
+            LOGGER.error("LLM judge call failed for %s: %s", record.record_id, exc)
             return None, {"error": str(exc), "score": 0.0}
 
         parsed = _parse_judge_response(raw)

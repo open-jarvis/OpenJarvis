@@ -97,6 +97,11 @@ class JarvisSystem:
 
         # Agent mode
         use_agent = agent or self.agent_name
+        # Auto-detect agent intent if no explicit agent was requested
+        if not agent and use_agent != "none":
+            detected = self._detect_agent_intent(query)
+            if detected:
+                use_agent = detected
         if use_agent and use_agent != "none":
             return self._run_agent(
                 query,
@@ -123,6 +128,27 @@ class JarvisSystem:
             "model": self.model,
             "engine": self.engine_key,
         }
+
+    def _detect_agent_intent(self, query: str) -> Optional[str]:
+        """Detect if a query should be routed to a specific agent.
+
+        Uses lightweight pattern matching for known intent triggers.
+        Returns the agent name or None to use the default.
+        """
+        import re
+
+        from openjarvis.core.registry import AgentRegistry
+
+        # Morning digest triggers
+        if re.search(
+            r"\b(good\s+morning|morning\s+digest|daily\s+briefing|morning\s+briefing)\b",
+            query,
+            re.IGNORECASE,
+        ):
+            if AgentRegistry.contains("morning_digest"):
+                return "morning_digest"
+
+        return None
 
     def _run_agent(
         self,
@@ -185,6 +211,34 @@ class JarvisSystem:
             agent_kwargs["session_store"] = self.session_store
             agent_kwargs["memory_backend"] = self.memory_backend
 
+        # Inject DigestConfig when instantiating the morning_digest agent
+        if agent_name == "morning_digest" and hasattr(self.config, "digest"):
+            dc = self.config.digest
+            section_sources = {}
+            for s in dc.sections:
+                sc = getattr(dc, s, None)
+                if sc and hasattr(sc, "sources"):
+                    section_sources[s] = sc.sources
+            agent_kwargs.update(
+                {
+                    "persona": dc.persona,
+                    "sections": dc.sections,
+                    "section_sources": section_sources,
+                    "timezone": dc.timezone,
+                    "voice_id": dc.voice_id,
+                    "voice_speed": dc.voice_speed,
+                    "tts_backend": dc.tts_backend,
+                    "honorific": dc.honorific,
+                }
+            )
+            # Ensure digest agent always has its required tools
+            from openjarvis.tools.digest_collect import DigestCollectTool
+            from openjarvis.tools.text_to_speech import TextToSpeechTool
+
+            digest_tools = [DigestCollectTool(), TextToSpeechTool()]
+            existing = agent_kwargs.get("tools", [])
+            agent_kwargs["tools"] = digest_tools + list(existing)
+
         try:
             ag = agent_cls(self.engine, self.model, **agent_kwargs)
         except TypeError:
@@ -210,7 +264,9 @@ class JarvisSystem:
                 from openjarvis.traces.collector import TraceCollector
 
                 collector = TraceCollector(
-                    ag, store=self.trace_store, bus=self.bus,
+                    ag,
+                    store=self.trace_store,
+                    bus=self.bus,
                 )
                 result = collector.run(query, context=ctx)
                 self.trace_collector = collector
@@ -278,6 +334,7 @@ class JarvisSystem:
                 for tr in getattr(result, "tool_results", [])
             ],
             "turns": getattr(result, "turns", 1),
+            "metadata": getattr(result, "metadata", {}),
             "model": self.model,
             "engine": self.engine_key,
             "_telemetry": _telemetry,

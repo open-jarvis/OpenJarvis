@@ -14,9 +14,11 @@ import httpx
 
 from openjarvis.connectors._stubs import BaseConnector, Document, SyncStatus
 from openjarvis.connectors.oauth import (
+    GOOGLE_ALL_SCOPES,
     build_google_auth_url,
     delete_tokens,
     load_tokens,
+    resolve_google_credentials,
     run_oauth_flow,
     save_tokens,
 )
@@ -134,7 +136,9 @@ class GDriveConnector(BaseConnector):
     auth_type = "oauth"
 
     def __init__(self, credentials_path: str = "") -> None:
-        self._credentials_path = credentials_path or _DEFAULT_CREDENTIALS_PATH
+        self._credentials_path = resolve_google_credentials(
+            credentials_path or _DEFAULT_CREDENTIALS_PATH
+        )
         self._items_synced: int = 0
         self._items_total: int = 0
         self._last_sync: Optional[datetime] = None
@@ -166,7 +170,7 @@ class GDriveConnector(BaseConnector):
             return "https://console.cloud.google.com/apis/credentials"
         return build_google_auth_url(
             client_id=client_id,
-            scopes=[_GDRIVE_SCOPE],
+            scopes=GOOGLE_ALL_SCOPES,
         )
 
     def handle_callback(self, code: str) -> None:
@@ -197,7 +201,7 @@ class GDriveConnector(BaseConnector):
                     run_oauth_flow(
                         client_id=client_id.strip(),
                         client_secret=client_secret.strip(),
-                        scopes=[_GDRIVE_SCOPE],
+                        scopes=GOOGLE_ALL_SCOPES,
                         credentials_path=self._credentials_path,
                     )
                 except Exception:  # noqa: BLE001

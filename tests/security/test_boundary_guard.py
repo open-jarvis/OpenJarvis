@@ -14,6 +14,7 @@ from openjarvis.core.types import ToolCall
 # Lightweight mock scanners that don't depend on Rust
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class _Finding:
     pattern_name: str

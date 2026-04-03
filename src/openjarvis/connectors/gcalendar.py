@@ -7,16 +7,18 @@ to make them trivially mockable in tests.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, Iterator, List, Optional
 
 import httpx
 
 from openjarvis.connectors._stubs import BaseConnector, Document, SyncStatus
 from openjarvis.connectors.oauth import (
+    GOOGLE_ALL_SCOPES,
     build_google_auth_url,
     delete_tokens,
     load_tokens,
+    resolve_google_credentials,
     run_oauth_flow,
     save_tokens,
 )
@@ -204,7 +206,9 @@ class GCalendarConnector(BaseConnector):
     auth_type = "oauth"
 
     def __init__(self, credentials_path: str = "") -> None:
-        self._credentials_path = credentials_path or _DEFAULT_CREDENTIALS_PATH
+        self._credentials_path = resolve_google_credentials(
+            credentials_path or _DEFAULT_CREDENTIALS_PATH
+        )
         self._items_synced: int = 0
         self._items_total: int = 0
         self._last_sync: Optional[datetime] = None
@@ -236,7 +240,7 @@ class GCalendarConnector(BaseConnector):
             return "https://console.cloud.google.com/apis/credentials"
         return build_google_auth_url(
             client_id=client_id,
-            scopes=[_GCAL_SCOPE],
+            scopes=GOOGLE_ALL_SCOPES,
         )
 
     def handle_callback(self, code: str) -> None:
@@ -265,7 +269,7 @@ class GCalendarConnector(BaseConnector):
                     run_oauth_flow(
                         client_id=client_id.strip(),
                         client_secret=client_secret.strip(),
-                        scopes=[_GCAL_SCOPE],
+                        scopes=GOOGLE_ALL_SCOPES,
                         credentials_path=self._credentials_path,
                     )
                 except Exception:  # noqa: BLE001
@@ -279,7 +283,7 @@ class GCalendarConnector(BaseConnector):
     def sync(
         self,
         *,
-        since: Optional[datetime] = None,  # noqa: ARG002 — reserved for future use
+        since: Optional[datetime] = None,
         cursor: Optional[str] = None,
     ) -> Iterator[Document]:
         """Yield :class:`Document` objects for Google Calendar events.
@@ -290,7 +294,8 @@ class GCalendarConnector(BaseConnector):
         Parameters
         ----------
         since:
-            Not yet used (filtering is done server-side via ``timeMin``).
+            Only return events starting after this datetime.  Defaults to
+            24 hours ago when ``None``.
         cursor:
             ``nextPageToken`` from a previous sync to resume pagination.
         """
@@ -306,6 +311,11 @@ class GCalendarConnector(BaseConnector):
         calendars_resp = _gcal_api_calendars_list(token)
         calendars: List[Dict[str, Any]] = calendars_resp.get("items", [])
 
+        # Default to 24 hours ago so we don't dump the entire calendar history
+        if since is None:
+            since = datetime.now() - timedelta(days=1)
+        time_min = since.strftime("%Y-%m-%dT%H:%M:%SZ")
+
         synced = 0
 
         for calendar in calendars:
@@ -318,7 +328,10 @@ class GCalendarConnector(BaseConnector):
             while True:
                 try:
                     events_resp = _gcal_api_events_list(
-                        token, calendar_id, page_token=page_token
+                        token,
+                        calendar_id,
+                        page_token=page_token,
+                        time_min=time_min,
                     )
                 except httpx.HTTPStatusError:
                     break

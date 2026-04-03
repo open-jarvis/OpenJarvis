@@ -14,7 +14,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 try:
     import tomllib  # Python 3.11+
@@ -1236,6 +1236,49 @@ class SkillsConfig:
 
 
 @dataclass
+class DigestSectionConfig:
+    """Configuration for a single digest section."""
+
+    sources: List[str] = field(default_factory=list)
+    max_items: int = 10
+    priority_contacts: List[str] = field(default_factory=list)
+
+
+@dataclass
+class DigestConfig:
+    """Configuration for the morning digest feature."""
+
+    enabled: bool = False
+    schedule: str = "0 6 * * *"
+    timezone: str = "America/Los_Angeles"
+    persona: str = "jarvis"
+    sections: List[str] = field(
+        default_factory=lambda: ["messages", "calendar", "health", "world"]
+    )
+    optional_sections: List[str] = field(
+        default_factory=lambda: ["github", "financial", "music", "fitness"]
+    )
+    honorific: str = "sir"
+    voice_id: str = ""
+    voice_speed: float = 1.0
+    tts_backend: str = "cartesia"
+    messages: DigestSectionConfig = field(
+        default_factory=lambda: DigestSectionConfig(
+            sources=["gmail", "slack", "google_tasks"]
+        )
+    )
+    calendar: DigestSectionConfig = field(
+        default_factory=lambda: DigestSectionConfig(sources=["gcalendar"])
+    )
+    health: DigestSectionConfig = field(
+        default_factory=lambda: DigestSectionConfig(sources=["oura", "apple_health"])
+    )
+    world: DigestSectionConfig = field(
+        default_factory=lambda: DigestSectionConfig(sources=[])
+    )
+
+
+@dataclass
 class JarvisConfig:
     """Top-level configuration for OpenJarvis."""
 
@@ -1263,6 +1306,7 @@ class JarvisConfig:
     system_prompt: SystemPromptConfig = field(default_factory=SystemPromptConfig)
     compression: CompressionConfig = field(default_factory=CompressionConfig)
     skills: SkillsConfig = field(default_factory=SkillsConfig)
+    digest: DigestConfig = field(default_factory=DigestConfig)
 
     @property
     def memory(self) -> StorageConfig:
@@ -1472,6 +1516,7 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
             "speech",
             "optimize",
             "agent_manager",
+            "digest",
         )
         for section_name in top_sections:
             if section_name in data:

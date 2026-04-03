@@ -41,20 +41,24 @@ def _extract_tool_calls(
             for tc in getattr(turn, "tool_calls", []):
                 if tc is None:
                     continue
-                tool_calls.append({
-                    "name": tc.get("name", ""),
-                    "arguments": tc.get("arguments") or {},
-                })
+                tool_calls.append(
+                    {
+                        "name": tc.get("name", ""),
+                        "arguments": tc.get("arguments") or {},
+                    }
+                )
         if tool_calls:
             return tool_calls
 
     # Try tool_results list (from JarvisAgentBackend)
     tool_results = record.metadata.get("tool_results", [])
     for tr in tool_results:
-        tool_calls.append({
-            "name": tr.get("tool_name", ""),
-            "arguments": tr.get("arguments") or {},
-        })
+        tool_calls.append(
+            {
+                "name": tr.get("tool_name", ""),
+                "arguments": tr.get("arguments") or {},
+            }
+        )
     if tool_calls:
         return tool_calls
 
@@ -133,7 +137,8 @@ def _arg_equals(tc: Dict[str, Any], key: str, value: str) -> bool:
 
 
 def _score_tc01(
-    tool_calls: List[Dict[str, Any]], answer: str,
+    tool_calls: List[Dict[str, Any]],
+    answer: str,
 ) -> Tuple[int, str]:
     """TC-01: Direct Specialist Match — get_weather for Berlin."""
     weather = _tools_called(tool_calls, "get_weather")
@@ -151,7 +156,8 @@ def _score_tc01(
 
 
 def _score_tc02(
-    tool_calls: List[Dict[str, Any]], answer: str,
+    tool_calls: List[Dict[str, Any]],
+    answer: str,
 ) -> Tuple[int, str]:
     """TC-02: Distractor Resistance — get_stock_price for AAPL only."""
     stock = _tools_called(tool_calls, "get_stock_price")
@@ -169,16 +175,15 @@ def _score_tc02(
 
 
 def _score_tc03(
-    tool_calls: List[Dict[str, Any]], answer: str,
+    tool_calls: List[Dict[str, Any]],
+    answer: str,
 ) -> Tuple[int, str]:
     """TC-03: Implicit Tool Need — get_contacts then send_email."""
     contacts = _tools_called(tool_calls, "get_contacts")
     email = _tools_called(tool_calls, "send_email")
 
     if contacts and email:
-        contact_has_sarah = any(
-            _arg_contains(tc, "query", "sarah") for tc in contacts
-        )
+        contact_has_sarah = any(_arg_contains(tc, "query", "sarah") for tc in contacts)
         email_has_addr = any(
             _arg_contains(tc, "to", "sarah.chen@company.com") for tc in email
         )
@@ -197,7 +202,8 @@ def _score_tc03(
 
 
 def _score_tc04(
-    tool_calls: List[Dict[str, Any]], answer: str,
+    tool_calls: List[Dict[str, Any]],
+    answer: str,
 ) -> Tuple[int, str]:
     """TC-04: Unit Handling — get_weather(Tokyo, units=fahrenheit)."""
     weather = _tools_called(tool_calls, "get_weather")
@@ -219,7 +225,8 @@ def _score_tc04(
 
 
 def _score_tc05(
-    tool_calls: List[Dict[str, Any]], answer: str,
+    tool_calls: List[Dict[str, Any]],
+    answer: str,
 ) -> Tuple[int, str]:
     """TC-05: Date and Time Parsing — create_calendar_event with correct fields."""
     events = _tools_called(tool_calls, "create_calendar_event")
@@ -239,7 +246,9 @@ def _score_tc05(
     time_ok = time_val in ("09:30", "9:30")
     duration_ok = duration == 30 or str(duration) == "30"
 
-    attendees_lower = [a.lower() if isinstance(a, str) else "" for a in (attendees or [])]
+    attendees_lower = [
+        a.lower() if isinstance(a, str) else "" for a in (attendees or [])
+    ]
     attendees_str = " ".join(attendees_lower)
     has_alex = "alex" in attendees_str
     has_jamie = "jamie" in attendees_str
@@ -252,7 +261,8 @@ def _score_tc05(
 
 
 def _score_tc06(
-    tool_calls: List[Dict[str, Any]], answer: str,
+    tool_calls: List[Dict[str, Any]],
+    answer: str,
 ) -> Tuple[int, str]:
     """TC-06: Multi-Value Extraction — two translate_text calls."""
     translates = _tools_called(tool_calls, "translate_text")
@@ -278,7 +288,8 @@ def _score_tc06(
 
 
 def _score_tc07(
-    tool_calls: List[Dict[str, Any]], answer: str,
+    tool_calls: List[Dict[str, Any]],
+    answer: str,
 ) -> Tuple[int, str]:
     """TC-07: Search -> Read -> Act — 4-step chain."""
     search = _tools_called(tool_calls, "search_files")
@@ -286,24 +297,20 @@ def _score_tc07(
     contacts = _tools_called(tool_calls, "get_contacts")
     email = _tools_called(tool_calls, "send_email")
 
-    steps_done = sum([
-        bool(search),
-        bool(read),
-        bool(contacts),
-        bool(email),
-    ])
+    steps_done = sum(
+        [
+            bool(search),
+            bool(read),
+            bool(contacts),
+            bool(email),
+        ]
+    )
 
     if steps_done == 4:
         # Verify data threading
-        has_file_id = any(
-            _arg_contains(tc, "file_id", "file_091") for tc in read
-        )
-        has_manager = any(
-            _arg_contains(tc, "query", "manager") for tc in contacts
-        )
-        has_total = any(
-            _arg_contains(tc, "body", "4.4") for tc in email
-        )
+        has_file_id = any(_arg_contains(tc, "file_id", "file_091") for tc in read)
+        has_manager = any(_arg_contains(tc, "query", "manager") for tc in contacts)
+        has_total = any(_arg_contains(tc, "body", "4.4") for tc in email)
         email_to = any(
             _arg_contains(tc, "to", "jordan.park@company.com") for tc in email
         )
@@ -317,16 +324,15 @@ def _score_tc07(
 
 
 def _score_tc08(
-    tool_calls: List[Dict[str, Any]], answer: str,
+    tool_calls: List[Dict[str, Any]],
+    answer: str,
 ) -> Tuple[int, str]:
     """TC-08: Conditional Branching — weather check then conditional reminder."""
     weather = _tools_called(tool_calls, "get_weather")
     reminder = _tools_called(tool_calls, "set_reminder")
 
     if weather and reminder:
-        weather_paris = any(
-            _arg_contains(tc, "location", "paris") for tc in weather
-        )
+        weather_paris = any(_arg_contains(tc, "location", "paris") for tc in weather)
         reminder_umbrella = any(
             _arg_contains(tc, "message", "umbrella") for tc in reminder
         )
@@ -345,19 +351,16 @@ def _score_tc08(
 
 
 def _score_tc09(
-    tool_calls: List[Dict[str, Any]], answer: str,
+    tool_calls: List[Dict[str, Any]],
+    answer: str,
 ) -> Tuple[int, str]:
     """TC-09: Parallel Independence — weather AND stock price."""
     weather = _tools_called(tool_calls, "get_weather")
     stock = _tools_called(tool_calls, "get_stock_price")
     web = _tools_called(tool_calls, "web_search")
 
-    weather_london = any(
-        _arg_contains(tc, "location", "london") for tc in weather
-    )
-    stock_msft = any(
-        _arg_contains(tc, "ticker", "msft") for tc in stock
-    )
+    weather_london = any(_arg_contains(tc, "location", "london") for tc in weather)
+    stock_msft = any(_arg_contains(tc, "ticker", "msft") for tc in stock)
 
     if weather_london and stock_msft:
         return 2, "PASS: both get_weather(London) and get_stock_price(MSFT)"
@@ -370,7 +373,8 @@ def _score_tc09(
 
 
 def _score_tc10(
-    tool_calls: List[Dict[str, Any]], answer: str,
+    tool_calls: List[Dict[str, Any]],
+    answer: str,
 ) -> Tuple[int, str]:
     """TC-10: Trivial Knowledge — answer without tools."""
     if not tool_calls and "1945" in answer:
@@ -381,7 +385,8 @@ def _score_tc10(
 
 
 def _score_tc11(
-    tool_calls: List[Dict[str, Any]], answer: str,
+    tool_calls: List[Dict[str, Any]],
+    answer: str,
 ) -> Tuple[int, str]:
     """TC-11: Simple Math — answer without tools."""
     if not tool_calls and "30" in answer:
@@ -400,14 +405,22 @@ def _score_tc11(
 
 
 def _score_tc12(
-    tool_calls: List[Dict[str, Any]], answer: str,
+    tool_calls: List[Dict[str, Any]],
+    answer: str,
 ) -> Tuple[int, str]:
     """TC-12: Impossible Request — refuse without tool calls."""
     lower = answer.lower()
     refusal_phrases = [
-        "cannot", "can't", "do not have", "don't have",
-        "not able", "unable", "no tool", "not available",
-        "not possible", "no way to",
+        "cannot",
+        "can't",
+        "do not have",
+        "don't have",
+        "not able",
+        "unable",
+        "no tool",
+        "not available",
+        "not possible",
+        "no way to",
     ]
     has_refusal = any(phrase in lower for phrase in refusal_phrases)
     mentions_delete = "delete" in lower or "available tool" in lower or "tool" in lower
@@ -422,7 +435,8 @@ def _score_tc12(
 
 
 def _score_tc13(
-    tool_calls: List[Dict[str, Any]], answer: str,
+    tool_calls: List[Dict[str, Any]],
+    answer: str,
 ) -> Tuple[int, str]:
     """TC-13: Empty Results — retry or ask for clarification."""
     search = _tools_called(tool_calls, "search_files")
@@ -432,8 +446,15 @@ def _score_tc13(
     if len(search) == 1:
         lower = answer.lower()
         clarification_phrases = [
-            "could you", "can you", "more details", "more specific",
-            "clarify", "which", "what type", "not found", "no results",
+            "could you",
+            "can you",
+            "more details",
+            "more specific",
+            "clarify",
+            "which",
+            "what type",
+            "not found",
+            "no results",
         ]
         if any(phrase in lower for phrase in clarification_phrases):
             return 2, "PASS: single search with clarification request"
@@ -441,7 +462,8 @@ def _score_tc13(
 
 
 def _score_tc14(
-    tool_calls: List[Dict[str, Any]], answer: str,
+    tool_calls: List[Dict[str, Any]],
+    answer: str,
 ) -> Tuple[int, str]:
     """TC-14: Malformed Response — surface error, offer fallback."""
     stock = _tools_called(tool_calls, "get_stock_price")
@@ -449,8 +471,13 @@ def _score_tc14(
     lower = answer.lower()
 
     error_ack_phrases = [
-        "temporarily unavailable", "rate limit", "service",
-        "couldn't", "error", "unable", "failed",
+        "temporarily unavailable",
+        "rate limit",
+        "service",
+        "couldn't",
+        "error",
+        "unable",
+        "failed",
         "get_stock_price",
     ]
     has_error_ack = any(phrase in lower for phrase in error_ack_phrases)
@@ -466,15 +493,16 @@ def _score_tc14(
 
 
 def _score_tc15(
-    tool_calls: List[Dict[str, Any]], answer: str,
+    tool_calls: List[Dict[str, Any]],
+    answer: str,
 ) -> Tuple[int, str]:
     """TC-15: Conflicting Information — use search result in calculator."""
     web = _tools_called(tool_calls, "web_search")
     calc = _tools_called(tool_calls, "calculator")
 
     web_has_iceland = any(
-        _arg_contains(tc, "query", "iceland") or
-        _arg_contains(tc, "query", "population")
+        _arg_contains(tc, "query", "iceland")
+        or _arg_contains(tc, "query", "population")
         for tc in web
     )
 

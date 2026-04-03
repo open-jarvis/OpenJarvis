@@ -171,10 +171,7 @@ async def ingest_files(
             allowed = ", ".join(sorted(_ALLOWED_EXTENSIONS))
             raise HTTPException(
                 status_code=400,
-                detail=(
-                    f"Unsupported file type: {ext}. "
-                    f"Allowed: {allowed}"
-                ),
+                detail=(f"Unsupported file type: {ext}. Allowed: {allowed}"),
             )
 
         data = await upload.read()

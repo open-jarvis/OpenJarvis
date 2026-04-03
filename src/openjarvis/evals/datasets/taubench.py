@@ -129,6 +129,7 @@ class TauBenchDataset(DatasetProvider):
 
             # Load tasks, filtering to test split when available
             from tau2.runner import load_task_splits
+
             try:
                 task_splits = load_task_splits(domain)
                 test_ids = (
@@ -144,12 +145,14 @@ class TauBenchDataset(DatasetProvider):
                 tasks = [t for t in tasks if str(t.id) in test_ids]
                 LOGGER.info(
                     "TauBench: loaded %d test-split tasks for domain '%s'",
-                    len(tasks), domain,
+                    len(tasks),
+                    domain,
                 )
             else:
                 LOGGER.info(
                     "TauBench: loaded %d tasks for domain '%s' (no test split)",
-                    len(tasks), domain,
+                    len(tasks),
+                    domain,
                 )
 
             for task in tasks:
@@ -206,6 +209,7 @@ class TauBenchDataset(DatasetProvider):
 
         if seed is not None:
             import random
+
             random.Random(seed).shuffle(all_records)
         if max_samples is not None:
             all_records = all_records[:max_samples]
@@ -226,6 +230,7 @@ class TauBenchDataset(DatasetProvider):
     def create_task_env(self, record: EvalRecord):
         """Create a TauBench task environment for evaluation."""
         from openjarvis.evals.execution.taubench_env import TauBenchTaskEnv
+
         return TauBenchTaskEnv(
             record,
             engine_key=self._engine_key,

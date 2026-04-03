@@ -361,9 +361,7 @@ class EvalRunner:
                     "completion_tokens", 0
                 )
                 if param_b > 0 and total_tokens > 0:
-                    flops_per_tok = estimate_model_flops_per_token(
-                        param_b, active_b
-                    )
+                    flops_per_tok = estimate_model_flops_per_token(param_b, active_b)
                     estimated_flops = flops_per_tok * total_tokens
 
             # Extract derived and ITL metrics from _telemetry dict
@@ -1098,12 +1096,8 @@ def _summary_to_dict(s: RunSummary) -> Dict[str, Any]:
             "energy_stats": _metric_stats_to_dict(s.energy_stats),
             "power_stats": _metric_stats_to_dict(s.power_stats),
             "flops_stats": _metric_stats_to_dict(s.flops_stats),
-            "ipw": (
-                s.efficiency.get("ipw") if s.efficiency else None
-            ),
-            "ipj": (
-                s.efficiency.get("ipj") if s.efficiency else None
-            ),
+            "ipw": (s.efficiency.get("ipw") if s.efficiency else None),
+            "ipj": (s.efficiency.get("ipj") if s.efficiency else None),
         },
     }
 

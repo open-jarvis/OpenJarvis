@@ -133,10 +133,7 @@ class ToolExecutor:
             )
 
         # Boundary guard: scan external tool arguments
-        if (
-            self._boundary_guard is not None
-            and not getattr(tool, "is_local", True)
-        ):
+        if self._boundary_guard is not None and not getattr(tool, "is_local", True):
             try:
                 tool_call = self._boundary_guard.check_outbound(tool_call)
                 # Re-parse arguments after potential redaction

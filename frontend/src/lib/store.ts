@@ -149,6 +149,7 @@ interface AppState {
     toolCalls?: ToolCallInfo[],
     usage?: TokenUsage,
     telemetry?: MessageTelemetry,
+    audio?: { url: string },
   ) => void;
   setStreamState: (state: Partial<StreamState>) => void;
   resetStream: () => void;
@@ -337,6 +338,7 @@ export const useAppStore = create<AppState>((set, get) => {
       toolCalls?: ToolCallInfo[],
       usage?: TokenUsage,
       telemetry?: MessageTelemetry,
+      audio?: { url: string },
     ) => {
       const store = loadConversations();
       const conv = store.conversations[conversationId];
@@ -347,6 +349,7 @@ export const useAppStore = create<AppState>((set, get) => {
         if (toolCalls) lastMsg.toolCalls = toolCalls;
         if (usage) lastMsg.usage = usage;
         if (telemetry) lastMsg.telemetry = telemetry;
+        if (audio) lastMsg.audio = audio;
         conv.updatedAt = Date.now();
         saveConversations(store);
         set({ messages: [...conv.messages] });
