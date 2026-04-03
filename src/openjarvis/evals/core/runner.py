@@ -266,6 +266,8 @@ class EvalRunner:
                 task_env = self._dataset.create_task_env(record)
                 ctx = task_env if task_env is not None else nullcontext()
                 with ctx:
+                    if hasattr(self._backend, "set_current_record"):
+                        self._backend.set_current_record(record)
                     full = self._backend.generate_full(
                         record.problem,
                         **gen_kwargs,
@@ -302,6 +304,8 @@ class EvalRunner:
                         content,
                     )
             else:
+                if hasattr(self._backend, "set_current_record"):
+                    self._backend.set_current_record(record)
                 full = self._backend.generate_full(
                     record.problem,
                     **gen_kwargs,

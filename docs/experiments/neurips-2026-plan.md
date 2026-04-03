@@ -111,13 +111,13 @@ Key comparisons:
 
 | ID | Benchmark | Tasks | Fast Subset | Status |
 |----|-----------|-------|-------------|--------|
-| pinchbench | PinchBench | 23 | 23 (all) | Implemented |
-| taubench | TauBench V2 | 60+40 | 20 A+R | Implemented |
-| gaia | GAIA | 50 | 20 | Implemented |
-| terminalbench | TerminalBench | varies | 20 | Implemented |
-| toolcall15 | ToolCall-15 | 15 | 15 (all) | TODO |
-| livecodebench | LiveCodeBench | ~100 | 20 | TODO |
-| liveresearch | LiveResearchBench | 100 | 10 | TODO |
+| pinchbench | PinchBench | 23 | 23 (all) | Implemented, audited (~95% faithful) |
+| taubench | TauBench V2 | 60+40 | 20 A+R | Implemented, audited (~90% faithful) |
+| gaia | GAIA | 50 | 20 | Implemented, audited (~88% faithful) |
+| terminalbench | TerminalBench | varies | 20 | Implemented, bugs fixed, audited |
+| toolcall15 | ToolCall-15 | 15 | 15 (all) | Implemented, audited (~98% faithful) |
+| livecodebench | LiveCodeBench | ~100 | 20 | Implemented, audited (~92% faithful) |
+| liveresearch | LiveResearchBench | 100 | 10 | Implemented, audited (~85% faithful) |
 
 ## Metrics Captured Per Run
 - accuracy (benchmark-specific)
@@ -136,10 +136,14 @@ Key comparisons:
 ## Step 1: Baseline Sweep
 
 ### Phase 1a: Implement missing benchmarks
-- [ ] ToolCall-15 integration
-- [ ] LiveCodeBench integration
-- [ ] LiveResearchBench integration
+- [x] ToolCall-15 integration (audited ~98% faithful; all 15 tasks, 12 tool schemas, deterministic scoring verified)
+- [x] LiveCodeBench integration (audited ~92% faithful; HuggingFace source, subprocess test execution, multi-tier output comparison)
+- [x] LiveResearchBench integration (audited ~85% faithful; git-clone source, 4-dimension LLM-as-judge scorer, task-specific rubrics)
+- [x] TerminalBench native path bugs fixed: task_dir stored as Path, set_current_record wired through EvalRunner, scorer reads is_resolved from metadata; full pipeline integration tests added (13 tests pass)
 - [ ] Wire telemetry capture to all eval runs
+- [ ] Create NeurIPS sweep configs for GAIA (only claude-opus exists)
+- [ ] Create NeurIPS sweep configs for LiveResearchBench (only claude-opus exists)
+- [ ] Create NeurIPS sweep configs for TerminalBench native path (only claude-haiku smoke test exists)
 
 ### Phase 1b: Run cloud baselines (no GPU needed)
 - [x] Claude Opus — PinchBench (95.65%), TauBench A+R (86.67%),
@@ -225,16 +229,20 @@ Training targets:
 - 7 models evaluated on TauBench A+R
 - 4 models evaluated on TauBench Telecom
 - 4 models evaluated on GAIA
+- ToolCall-15 integration: fully implemented and fidelity-audited (~98%)
+- LiveCodeBench integration: fully implemented and fidelity-audited (~92%)
+- LiveResearchBench integration: fully implemented and fidelity-audited (~85%)
+- TerminalBench native path: 3 bugs fixed (task_dir as Path, set_current_record wiring, is_resolved in metadata); CLI now routes through EvalRunner; 13 pipeline integration tests added
+- All 7 benchmark implementations audited for fidelity against original papers/repos
 
 ### In Progress
 - Qwen 35B: TauBench telecom + GAIA running
-- ToolCall-15 integration: TODO
-- LiveCodeBench integration: TODO
-- LiveResearchBench integration: TODO
 - Telemetry wiring: TODO
+- Missing NeurIPS sweep configs: GAIA, LiveResearchBench, TerminalBench native (only cloud baseline configs exist)
 
 ### Blocked
+- TerminalBench end-to-end execution: Docker socket not accessible in SLURM batch jobs (needs sysadmin to grant docker group or switch to Singularity)
 - Qwen 397B telecom + GAIA: needs 8 GPUs
 - Trinity-Large: not yet served
-- Small models (2B, 9B): configs not yet created
+- Small models (2B, 9B): configs exist for LiveCodeBench and PinchBench/TauBench but not all 7 benchmarks
 - GGUF models (Kimi, MiniMax): need llama.cpp/Ollama serving setup

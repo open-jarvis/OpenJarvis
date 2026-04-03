@@ -1,0 +1,23 @@
+# TerminalBench Native on claude-3-5-haiku-20241022 (cloud, 1-task smoke test)
+
+[meta]
+name = "terminalbench-native-claude-haiku"
+description = "TerminalBench V2 native harness — Claude 3.5 Haiku via Anthropic API"
+
+[defaults]
+temperature = 0.6
+max_tokens = 8192
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/baselines/claude-haiku/terminalbench/"
+seed = 42
+
+[[models]]
+name = "claude-3-5-haiku-20241022"
+engine = "cloud"
+
+[[benchmarks]]
+name = "terminalbench-native"
+backend = "terminalbench-native"
+max_samples = 1

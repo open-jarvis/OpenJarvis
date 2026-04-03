@@ -165,6 +165,7 @@ def _build_backend(
     telemetry: bool = False,
     gpu_metrics: bool = False,
     model: Optional[str] = None,
+    output_dir: Optional[str] = None,
 ):
     """Construct the appropriate backend."""
     if backend_name == "jarvis-agent":
@@ -177,6 +178,21 @@ def _build_backend(
             telemetry=telemetry,
             gpu_metrics=gpu_metrics,
             model=model,
+        )
+    elif backend_name == "terminalbench-native":
+        from openjarvis.evals.backends.terminalbench_native import (
+            TerminalBenchNativeBackend,
+        )
+        from pathlib import Path as _Path
+
+        # output_dir from the caller is the full .jsonl path; take its parent.
+        tb_output_dir = (
+            str(_Path(output_dir).parent) if output_dir else "results/terminalbench-native/"
+        )
+        return TerminalBenchNativeBackend(
+            model=model or "claude-3-5-haiku-20241022",
+            engine_key=engine_key or "cloud",
+            output_dir=tb_output_dir,
         )
     else:
         from openjarvis.evals.backends.jarvis_direct import JarvisDirectBackend
@@ -639,10 +655,6 @@ def _run_single(config, console: Optional[Console] = None) -> object:
     if console is None:
         console = Console()
 
-    # TerminalBench V2 native: use terminal-bench Harness directly
-    if config.benchmark == "terminalbench-native":
-        return _run_terminalbench_native(config, console)
-
     eval_backend = _build_backend(
         config.backend,
         config.engine_key,
@@ -651,6 +663,7 @@ def _run_single(config, console: Optional[Console] = None) -> object:
         telemetry=getattr(config, "telemetry", False),
         gpu_metrics=getattr(config, "gpu_metrics", False),
         model=config.model,
+        output_dir=getattr(config, "output_path", None),
     )
     dataset = _build_dataset(config.benchmark)
     # Inject engine config for benchmarks that run their own simulation

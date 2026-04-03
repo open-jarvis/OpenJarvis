@@ -19,10 +19,11 @@ class TestTerminalBenchTaskEnv:
         assert env._metadata is metadata
         assert env._terminal is None
 
-    def test_enter_without_task_raises(self):
+    def test_enter_without_task_or_task_dir_raises(self):
+        # Neither task/task_paths nor task_dir provided — must raise.
         metadata = {"task_id": "test-1"}
         env = TerminalBenchTaskEnv(metadata)
-        with pytest.raises(ValueError, match="Task metadata missing"):
+        with pytest.raises(ValueError, match="requires 'task_dir'"):
             env.__enter__()
 
     def test_exit_cleans_metadata(self):
