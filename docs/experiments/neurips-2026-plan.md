@@ -141,10 +141,9 @@ Key comparisons:
 - [x] LiveResearchBench integration (audited ~85% faithful; git-clone source, 4-dimension LLM-as-judge scorer, task-specific rubrics)
 - [x] TerminalBench native path bugs fixed: task_dir stored as Path, set_current_record wired through EvalRunner, scorer reads is_resolved from metadata; full pipeline integration tests added (13 tests pass)
 - [ ] Wire telemetry capture to all eval runs
-- [x] Create NeurIPS sweep configs for GAIA (all 12 models)
-- [x] Create NeurIPS sweep configs for LiveResearchBench (all 12 models)
-- [x] Create NeurIPS sweep configs for TerminalBench native path (all 12 models)
-- [x] Fill missing PinchBench/TauBench/ToolCall-15/LiveCodeBench configs (qwen-9b, trinity-large, kimi-k25, minimax-m25, lfm-1.2b)
+- [ ] Create NeurIPS sweep configs for GAIA (only claude-opus exists)
+- [ ] Create NeurIPS sweep configs for LiveResearchBench (only claude-opus exists)
+- [ ] Create NeurIPS sweep configs for TerminalBench native path (only claude-haiku smoke test exists)
 
 ### Phase 1b: Run cloud baselines (no GPU needed)
 - [x] Claude Opus — PinchBench (95.65%), TauBench A+R (86.67%),

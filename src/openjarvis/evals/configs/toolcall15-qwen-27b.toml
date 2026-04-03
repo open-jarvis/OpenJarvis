@@ -1,4 +1,4 @@
-# ToolCall-15 eval: Qwen3.5-27B-FP8 (vLLM, TP=2)
+# ToolCall-15 eval: Qwen3.5-27B-FP8 (vLLM, TP=4)
 # Lightweight tool calling benchmark — 15 scenarios, 5 categories
 
 [meta]
@@ -22,7 +22,7 @@ seed = 42
 [[models]]
 name = "Qwen/Qwen3.5-27B-FP8"
 engine = "vllm"
-num_gpus = 2
+num_gpus = 4
 
 [[benchmarks]]
 name = "toolcall15"

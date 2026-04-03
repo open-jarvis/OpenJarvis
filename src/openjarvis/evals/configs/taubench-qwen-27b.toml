@@ -1,9 +1,9 @@
-# TauBench V2 eval: Qwen3.5-27B-FP8 (vLLM, TP=2)
+# TauBench V2 eval: Qwen3.5-27B-FP8 (vLLM, TP=4)
 # Multi-turn customer service benchmark — airline + retail splits
 
 [meta]
 name = "taubench-qwen-27b"
-description = "TauBench V2 on Qwen/Qwen3.5-27B-FP8 (vLLM, TP=2)"
+description = "TauBench V2 on Qwen/Qwen3.5-27B-FP8 (vLLM, TP=4)"
 
 [defaults]
 temperature = 0.7
@@ -22,7 +22,7 @@ seed = 42
 [[models]]
 name = "Qwen/Qwen3.5-27B-FP8"
 engine = "vllm"
-num_gpus = 2
+num_gpus = 4
 
 [[benchmarks]]
 name = "taubench"
