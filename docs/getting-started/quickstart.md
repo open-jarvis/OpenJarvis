@@ -45,7 +45,32 @@ OpenJarvis is a modular AI assistant framework. Here's what developers build wit
     # Now use any OpenAI-compatible client
     ```
 
+=== "Morning Digest"
+
+    ```bash
+    cp configs/openjarvis/examples/morning-digest-mac.toml ~/.openjarvis/config.toml
+    jarvis connect gdrive       # one OAuth flow for Gmail, Calendar, Tasks
+    CARTESIA_API_KEY="..." jarvis digest --fresh
+    # Plays a spoken daily briefing with your email, calendar, health, and news
+    ```
+
 For complete copy-paste patterns, see [Code Snippets](snippets.md).
+
+## Starter Configs
+
+Copy one of these to `~/.openjarvis/config.toml` to get a pre-configured setup:
+
+| Config | For | What it does |
+|--------|-----|-------------|
+| [`morning-digest-mac.toml`](https://github.com/open-jarvis/OpenJarvis/blob/main/configs/openjarvis/examples/morning-digest-mac.toml) | Mac (Apple Silicon) | Daily spoken briefing from email, calendar, health, news |
+| [`morning-digest-linux.toml`](https://github.com/open-jarvis/OpenJarvis/blob/main/configs/openjarvis/examples/morning-digest-linux.toml) | Linux / GPU server | Same, with vLLM support |
+| [`morning-digest-minimal.toml`](https://github.com/open-jarvis/OpenJarvis/blob/main/configs/openjarvis/examples/morning-digest-minimal.toml) | Any machine | Just Gmail + Calendar |
+
+Or generate a config with digest included:
+
+```bash
+jarvis init --digest
+```
 
 This guide walks through the core workflows of OpenJarvis: the browser app, CLI, Python SDK, agents with tools, memory, benchmarks, and the API server.
 
