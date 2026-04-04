@@ -143,15 +143,17 @@ class TestEmitTurnEnd:
 
 
 class TestBuildMessages:
-    def test_basic(self):
+    def test_default_system_prompt_injected(self):
         engine = MagicMock()
         agent = _ConcreteAgent(engine, "m")
         messages = agent._build_messages("hello")
-        assert len(messages) == 1
-        assert messages[0].role == Role.USER
-        assert messages[0].content == "hello"
+        assert len(messages) == 2
+        assert messages[0].role == Role.SYSTEM
+        assert "local" in messages[0].content.lower()
+        assert messages[1].role == Role.USER
+        assert messages[1].content == "hello"
 
-    def test_with_system_prompt(self):
+    def test_explicit_system_prompt_overrides_default(self):
         engine = MagicMock()
         agent = _ConcreteAgent(engine, "m")
         messages = agent._build_messages("hello", system_prompt="Be helpful.")
@@ -159,6 +161,21 @@ class TestBuildMessages:
         assert messages[0].role == Role.SYSTEM
         assert messages[0].content == "Be helpful."
         assert messages[1].role == Role.USER
+
+    def test_empty_config_default_no_system_message(self, monkeypatch):
+        from openjarvis.core.config import JarvisConfig
+
+        empty_cfg = JarvisConfig()
+        empty_cfg.agent.default_system_prompt = ""
+        monkeypatch.setattr(
+            "openjarvis.agents._stubs.load_config", lambda: empty_cfg
+        )
+
+        engine = MagicMock()
+        agent = _ConcreteAgent(engine, "m")
+        messages = agent._build_messages("hello")
+        assert len(messages) == 1
+        assert messages[0].role == Role.USER
 
     def test_with_context(self):
         engine = MagicMock()
@@ -168,10 +185,10 @@ class TestBuildMessages:
         conv.add(Message(role=Role.ASSISTANT, content="reply"))
         ctx = AgentContext(conversation=conv)
         messages = agent._build_messages("new", ctx)
-        assert len(messages) == 3
-        assert messages[0].content == "prev"
-        assert messages[1].content == "reply"
-        assert messages[2].content == "new"
+        # default system prompt + 2 context + 1 user
+        assert messages[-1].content == "new"
+        assert messages[-2].content == "reply"
+        assert messages[-3].content == "prev"
 
     def test_with_system_prompt_and_context(self):
         engine = MagicMock()
@@ -186,6 +203,7 @@ class TestBuildMessages:
         )
         assert len(messages) == 3
         assert messages[0].role == Role.SYSTEM
+        assert messages[0].content == "System."
         assert messages[1].content == "prev"
         assert messages[2].content == "new"
 

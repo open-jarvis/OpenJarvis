@@ -134,12 +134,26 @@ class BaseAgent(ABC):
         conversation messages, and finally the user input.
         """
         messages: list[Message] = []
+        # Check if the context already supplies a system message
+        _context_has_system = (
+            context
+            and context.conversation.messages
+            and any(m.role == Role.SYSTEM for m in context.conversation.messages)
+        )
+
         if self._prompt_builder is not None:
             effective_system_prompt = self._prompt_builder.build()
         elif system_prompt:
             effective_system_prompt = system_prompt
-        else:
+        elif _context_has_system:
             effective_system_prompt = None
+        else:
+            # Fall back to the config-level default (grounds local models)
+            try:
+                cfg = load_config()
+                effective_system_prompt = cfg.agent.default_system_prompt or None
+            except Exception:
+                effective_system_prompt = None
         if effective_system_prompt:
             messages.append(Message(role=Role.SYSTEM, content=effective_system_prompt))
         if context and context.conversation.messages:

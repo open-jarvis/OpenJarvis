@@ -57,8 +57,10 @@ class TestSimpleAgent:
         agent.run("Hello")
         call_args = engine.generate.call_args
         messages = call_args[1].get("messages") or call_args[0][0]
-        assert len(messages) == 1
-        assert messages[0].role == Role.USER
+        # Default system prompt + user message
+        assert len(messages) == 2
+        assert messages[0].role == Role.SYSTEM
+        assert messages[1].role == Role.USER
 
     def test_custom_temperature(self):
         engine = _make_mock_engine()

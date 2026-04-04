@@ -772,6 +772,11 @@ class AgentConfig:
     system_prompt: str = ""  # inline system prompt (takes precedence if set)
     system_prompt_path: str = ""  # path to system prompt file (.txt, .md)
     context_from_memory: bool = True  # inject relevant memory context into prompts
+    default_system_prompt: str = (
+        "You are a helpful AI assistant running locally on the user's own "
+        "hardware through OpenJarvis. You are not a cloud service. Respond "
+        "helpfully, concisely, and accurately."
+    )
 
     # Backward-compat property for old field name
     @property
