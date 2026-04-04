@@ -344,7 +344,20 @@ def serve(
             from openjarvis.agents.executor import AgentExecutor
             from openjarvis.agents.scheduler import AgentScheduler
 
-            executor = AgentExecutor(manager=agent_manager, event_bus=bus)
+            _trace_store = None
+            try:
+                if config.traces.enabled:
+                    from openjarvis.traces.store import TraceStore
+
+                    _trace_store = TraceStore(db_path=config.traces.db_path)
+            except Exception:
+                pass
+
+            executor = AgentExecutor(
+                manager=agent_manager,
+                event_bus=bus,
+                trace_store=_trace_store,
+            )
             from openjarvis.system import SystemBuilder
 
             system = SystemBuilder(config).build()

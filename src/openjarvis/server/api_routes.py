@@ -196,17 +196,37 @@ async def memory_stats(request: Request):
 traces_router = APIRouter(prefix="/v1/traces", tags=["traces"])
 
 
+def _serialise_trace(trace) -> dict:
+    """Convert a Trace dataclass to a frontend-friendly dict."""
+    import datetime
+    from dataclasses import asdict
+
+    d = asdict(trace)
+    d["id"] = d.pop("trace_id", "")
+    started = d.pop("started_at", 0.0)
+    d["created_at"] = (
+        datetime.datetime.fromtimestamp(started, tz=datetime.timezone.utc).isoformat()
+        if started
+        else None
+    )
+    dur = d.pop("total_latency_seconds", 0.0)
+    d["duration_ms"] = round(dur * 1000)
+    for step in d.get("steps", []):
+        st = step.get("step_type")
+        if hasattr(st, "value"):
+            step["step_type"] = st.value
+    return d
+
+
 @traces_router.get("")
 async def list_traces(request: Request, limit: int = 20):
     """List recent traces."""
     try:
-        from dataclasses import asdict
-
         store = getattr(request.app.state, "trace_store", None)
         if store is None:
             return {"traces": []}
         traces = store.list_traces(limit=limit)
-        items = [asdict(t) for t in traces]
+        items = [_serialise_trace(t) for t in traces]
         return {"traces": items}
     except Exception as exc:
         return {"traces": [], "error": str(exc)}
@@ -216,15 +236,13 @@ async def list_traces(request: Request, limit: int = 20):
 async def get_trace(trace_id: str, request: Request):
     """Get a specific trace by ID."""
     try:
-        from dataclasses import asdict
-
         store = getattr(request.app.state, "trace_store", None)
         if store is None:
             raise HTTPException(status_code=404, detail="Trace not found")
         trace = store.get(trace_id)
         if trace is None:
             raise HTTPException(status_code=404, detail="Trace not found")
-        return asdict(trace)
+        return _serialise_trace(trace)
     except HTTPException:
         raise
     except Exception as exc:
