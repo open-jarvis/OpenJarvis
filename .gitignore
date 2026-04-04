@@ -19,8 +19,9 @@ env/
 .vscode/
 *.swp
 
-# Personal Claude instructions (not for repo)
+# Personal local files (not for repo)
 CLAUDE.md
+SETUP.md
 *.swo
 *~
 
