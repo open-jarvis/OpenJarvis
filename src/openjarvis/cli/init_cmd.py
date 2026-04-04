@@ -304,12 +304,8 @@ def init(
 
     # Handle --preset: copy a starter config and return early
     if preset:
-
         examples_dir = (
-            Path(__file__).resolve().parents[2]
-            / "configs"
-            / "openjarvis"
-            / "examples"
+            Path(__file__).resolve().parents[2] / "configs" / "openjarvis" / "examples"
         )
         # Also check installed package location
         if not examples_dir.exists():
@@ -322,15 +318,12 @@ def init(
         preset_path = examples_dir / f"{preset}.toml"
         if not preset_path.exists():
             console.print(f"[red]Preset '{preset}' not found.[/red]")
-            console.print(
-                f"  Looked in: {examples_dir}"
-            )
+            console.print(f"  Looked in: {examples_dir}")
             raise SystemExit(1)
         DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         DEFAULT_CONFIG_PATH.write_text(preset_path.read_text())
         console.print(
-            f"[green]Preset '{preset}' installed to "
-            f"{DEFAULT_CONFIG_PATH}[/green]"
+            f"[green]Preset '{preset}' installed to {DEFAULT_CONFIG_PATH}[/green]"
         )
         console.print(
             "\n  Edit the config to customize, then run "
