@@ -114,7 +114,9 @@ def _connect_source(registry: object, source: str, path: str = "") -> None:
                 console.print(f"[red]No OAuth provider configured for {source}.[/red]")
                 return
 
-            client_id, client_secret = get_client_credentials(provider)
+            creds = get_client_credentials(provider)
+            client_id = creds[0] if creds else ""
+            client_secret = creds[1] if creds else ""
 
             if not client_id or not client_secret:
                 console.print(f"[cyan]First-time setup for {source}.[/cyan]")

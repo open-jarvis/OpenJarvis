@@ -165,8 +165,20 @@ nav:
       - Design Principles: architecture/design-principles.md
   - API Reference: api-reference/
   - User Guide:
+      - CLI: user-guide/cli.md
+      - Python SDK: user-guide/python-sdk.md
+      - Morning Digest: user-guide/morning-digest.md
+      - Deep Research: user-guide/deep-research.md
+      - Code Assistant: user-guide/code-assistant.md
+      - Scheduled Monitor: user-guide/scheduled-monitor.md
+      - Simple Chat: user-guide/chat-simple.md
+      - Agents: user-guide/agents.md
       - Channels & Connectors: user-guide/channels-and-connectors.md
       - Tools: user-guide/tools.md
+      - Memory: user-guide/memory.md
       - External MCP Servers: user-guide/mcp-external-servers.md
+      - Scheduler: user-guide/scheduler.md
+      - Telemetry: user-guide/telemetry.md
+      - Security: user-guide/security.md
   - Leaderboard: leaderboard.md
   - Roadmap: development/roadmap.md

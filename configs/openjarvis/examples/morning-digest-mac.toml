@@ -1,0 +1,56 @@
+# Morning Digest — Mac (Apple Silicon) with Ollama
+# Copy to ~/.openjarvis/config.toml and customize
+#
+# Requirements:
+#   - Ollama installed (https://ollama.com)
+#   - ollama pull qwen3.5:9b
+#   - Cartesia API key (https://play.cartesia.ai) or OpenAI API key
+
+[engine]
+default = "ollama"
+
+[intelligence]
+default_model = "qwen3.5:9b"       # Good balance of speed + quality on M1/M2/M3
+# default_model = "qwen3.5:4b"     # Faster, lower quality
+# default_model = "qwen3.5:35b"    # Slower, higher quality (needs 32GB+ RAM)
+
+[agent]
+default_agent = "simple"
+
+[tools]
+enabled = ["code_interpreter", "web_search", "file_read", "shell_exec", "digest_collect", "text_to_speech"]
+
+# ─── Morning Digest ─────────────────────────────────────────
+
+[digest]
+enabled = true
+schedule = "0 7 * * *"             # 7 AM daily
+timezone = "America/Los_Angeles"   # Change to your timezone
+persona = "jarvis"
+honorific = "sir"                  # "sir", "ma'am", "boss", or any custom
+tts_backend = "cartesia"           # "cartesia" or "openai"
+voice_id = "c8f7835e-28a3-4f0c-80d7-c1302ac62aae"  # Alistair (British male)
+voice_speed = 1.2                  # 1.0 = normal, 1.2 = 20% faster
+
+# Sections in order of priority (remove any you don't want):
+sections = ["health", "messages", "calendar", "world"]
+
+[digest.health]
+sources = ["oura"]                 # Add "apple_health" if you export from iPhone
+# sources = ["oura", "apple_health", "strava"]
+
+[digest.messages]
+sources = ["gmail", "google_tasks", "imessage"]
+# Add any of: "slack", "notion", "github_notifications"
+
+[digest.calendar]
+sources = ["gcalendar"]
+
+[digest.world]
+sources = ["hackernews", "news_rss"]
+# Add "weather" after setting up OpenWeatherMap API key
+
+# ─── Optional: Music section ────────────────────────────────
+# Uncomment and add "music" to sections list above
+# [digest.music]
+# sources = ["spotify", "apple_music"]

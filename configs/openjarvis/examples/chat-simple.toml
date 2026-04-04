@@ -1,0 +1,24 @@
+# Simple Chat — lightweight conversational AI, no tools
+# Copy to ~/.openjarvis/config.toml
+#
+# The fastest setup: just Ollama + a model.
+#
+# Usage:
+#   jarvis ask "What is quantum computing?"
+#   jarvis chat                  # interactive chat session
+#   jarvis serve                 # start API server for browser/desktop app
+
+[engine]
+default = "ollama"
+
+[intelligence]
+default_model = "qwen3.5:4b"       # Fast and lightweight
+# default_model = "qwen3.5:9b"     # Better quality
+# default_model = "llama3.1:8b"    # Alternative model
+
+[agent]
+default_agent = "simple"            # Single-turn, no tools
+
+[server]
+host = "0.0.0.0"
+port = 8000

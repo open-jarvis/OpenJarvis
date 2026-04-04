@@ -77,6 +77,51 @@ uv run jarvis ask "What is the capital of France?"
 
 `jarvis init` auto-detects your hardware and recommends the best engine. Run `uv run jarvis doctor` at any time to diagnose issues.
 
+## Starter Configs
+
+Install any preset with one command:
+
+```bash
+jarvis init --preset morning-digest-mac   # or any preset below
+```
+
+| Preset | Use Case | What it does |
+|--------|----------|-------------|
+| `morning-digest-mac` | Daily Briefing (Mac) | Spoken briefing from email, calendar, health, news with Jarvis voice |
+| `morning-digest-linux` | Daily Briefing (Linux) | Same, with vLLM support for GPU servers |
+| `morning-digest-minimal` | Daily Briefing (minimal) | Just Gmail + Calendar, runs on any machine |
+| `deep-research` | Research Assistant | Multi-hop research across indexed docs with citations |
+| `code-assistant` | Code Companion | Agent with code execution, file I/O, and shell access |
+| `scheduled-monitor` | Persistent Monitor | Stateful agent that runs on a schedule with memory |
+| `chat-simple` | Simple Chat | Lightweight conversation, no tools needed |
+
+```bash
+# Example: Morning Digest on Mac
+jarvis init --preset morning-digest-mac
+jarvis connect gdrive          # one OAuth flow covers Gmail, Calendar, Tasks
+jarvis digest --fresh           # generate and play your first briefing
+
+# Example: Deep Research
+jarvis init --preset deep-research
+jarvis memory index ./docs/    # index your documents
+jarvis ask "Summarize all emails about Project X"
+```
+
+### Built-in Agents
+
+| Agent | Type | What it does |
+|-------|------|-------------|
+| `morning_digest` | Scheduled | Daily briefing from email, calendar, health, news — with TTS audio |
+| `deep_research` | On-demand | Multi-hop research with citations across web and local docs |
+| `monitor_operative` | Continuous | Long-horizon monitoring with memory, compression, and retrieval |
+| `orchestrator` | On-demand | Multi-turn reasoning with automatic tool selection |
+| `native_react` | On-demand | ReAct (Thought-Action-Observation) loop agent |
+| `operative` | Continuous | Persistent autonomous agent with state management |
+| `native_openhands` | On-demand | CodeAct — generates and executes Python code |
+| `simple` | On-demand | Single-turn chat, no tools |
+
+See the [User Guide](https://open-jarvis.github.io/OpenJarvis/user-guide/morning-digest/) and [Tutorials](https://open-jarvis.github.io/OpenJarvis/tutorials/) for detailed setup instructions.
+
 Full documentation — including Docker deployment, cloud engines, development setup, and tutorials — at **[open-jarvis.github.io/OpenJarvis](https://open-jarvis.github.io/OpenJarvis/)**.
 
 ## Contributing

@@ -1,0 +1,35 @@
+# Scheduled Monitor — persistent agent that runs on a schedule
+# Copy to ~/.openjarvis/config.toml
+#
+# The operative agent maintains state across runs, making it ideal for:
+# - Daily email/inbox monitoring
+# - Recurring status checks
+# - Long-running research projects
+#
+# Setup:
+#   1. Index your data: jarvis memory index ~/Documents/
+#   2. Start the scheduler: jarvis scheduler start
+#   3. Create a task:
+#      jarvis scheduler create \
+#        --prompt "Check for new emails about Project X and update your notes" \
+#        --schedule "0 9 * * 1-5" \
+#        --agent operative \
+#        --tools "knowledge_search,knowledge_sql,memory_store,think"
+
+[engine]
+default = "ollama"
+
+[intelligence]
+default_model = "qwen3.5:9b"
+temperature = 0.3
+
+[agent]
+default_agent = "operative"
+max_turns = 20
+context_from_memory = true          # Inject relevant memory into context
+
+[tools]
+enabled = ["knowledge_search", "knowledge_sql", "scan_chunks", "memory_store", "memory_search", "think", "web_search"]
+
+[tools.storage]
+default_backend = "sqlite"
