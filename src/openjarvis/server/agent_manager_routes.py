@@ -1156,9 +1156,11 @@ def create_agent_manager_router(
                 from openjarvis.agents.executor import AgentExecutor
                 from openjarvis.core.events import get_event_bus
 
+                _ts = getattr(request.app.state, "trace_store", None)
                 executor = AgentExecutor(
                     manager=manager,
                     event_bus=get_event_bus(),
+                    trace_store=_ts,
                 )
                 system = _make_lightweight_system(
                     server_engine,
@@ -1501,9 +1503,11 @@ def create_agent_manager_router(
                     _srv_model,
                 )
                 try:
+                    _ts2 = getattr(request.app.state, "trace_store", None)
                     executor = AgentExecutor(
                         manager=manager,
                         event_bus=get_event_bus(),
+                        trace_store=_ts2,
                     )
                     system = _make_lightweight_system(
                         _srv_engine,
