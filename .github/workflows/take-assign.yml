@@ -11,7 +11,7 @@ jobs:
   assign:
     if: >-
       !github.event.issue.pull_request
-      && contains(fromJSON('["take", "Take", "TAKE"]'), trim(github.event.comment.body))
+      && contains(fromJSON('["take", "Take", "TAKE"]'), github.event.comment.body)
     runs-on: ubuntu-latest
     steps:
       - name: Assign commenter
