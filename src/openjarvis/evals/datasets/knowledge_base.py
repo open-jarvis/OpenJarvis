@@ -128,9 +128,9 @@ _RECORDS = [
         "answer": "A2A uses JSON-RPC 2.0. Agents are discovered via /.well-known/agent.json.",
     },
     {
-        "documents": "Deployment Guide:\nOpenJarvis provides three Docker variants: Dockerfile (Python 3.12-slim for CPU), Dockerfile.gpu (NVIDIA CUDA 12.4), and Dockerfile.gpu.rocm (AMD ROCm 6.2). The docker-compose.yml runs two services: jarvis on port 8000 and ollama on port 11434. SystemD and launchd service files are also provided for system-level deployment.",
+        "documents": "Deployment Guide:\nOpenJarvis provides three Docker variants: Dockerfile (Python 3.12-slim for CPU), Dockerfile.gpu (NVIDIA CUDA 12.4), and Dockerfile.gpu.rocm (AMD ROCm 7.2). The docker-compose.yml runs two services: jarvis on port 8000 and ollama on port 11434. SystemD and launchd service files are also provided for system-level deployment.",
         "question": "What Docker variants are available and what ports do the services use?",
-        "answer": "Three Docker variants: CPU (Python 3.12-slim), NVIDIA (CUDA 12.4), and AMD (ROCm 6.2). Jarvis runs on port 8000 and Ollama on port 11434.",
+        "answer": "Three Docker variants: CPU (Python 3.12-slim), NVIDIA (CUDA 12.4), and AMD (ROCm 7.2). Jarvis runs on port 8000 and Ollama on port 11434.",
     },
     {
         "documents": "Event System Reference:\nThe EventBus provides synchronous pub/sub event dispatch. Approximately 30 EventType values cover inference, tools, memory, agents, telemetry, traces, channels, security, scheduler, workflow, skills, sessions, and A2A. Subscribers register handlers for specific event types. Events are dispatched synchronously within the publishing thread.",
