@@ -40,12 +40,12 @@ def test_get_today(tmp_path):
         audio_path=Path("/tmp/today.mp3"),
         sections={"messages": "Nothing urgent."},
         sources_used=["gmail"],
-        generated_at=datetime.now(),
+        generated_at=datetime.now(tz=__import__("datetime").timezone.utc),
         model_used="test-model",
         voice_used="jarvis",
     )
     store.save(artifact)
-    today = store.get_today()
+    today = store.get_today(timezone_name="UTC")
     assert today is not None
     assert today.text == "Today's digest"
     store.close()
