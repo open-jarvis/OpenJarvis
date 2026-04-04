@@ -505,14 +505,23 @@ sources = ["hackernews", "news_rss"]
     else:
         spec = find_model_spec(model)
         size_gb = estimated_download_gb(spec.parameter_count_b) if spec else 0
+        from openjarvis.core.config import _available_memory_gb
+
+        avail = _available_memory_gb(hw)
         console.print(
-            f"\n  [bold]Recommended model:[/bold] {model} (~{size_gb:.1f} GB estimated)"
+            f"\n  [bold]Recommended model:[/bold] {model} (~{size_gb:.1f} GB)"
+            f"  [dim](selected for {avail:.0f} GB available memory)[/dim]"
         )
 
         if not no_download and spec:
-            prompt = f"  Download {model} (~{size_gb:.1f} GB estimated) now?"
+            prompt = f"  Download {model} (~{size_gb:.1f} GB) now?"
             if click.confirm(prompt, default=True):
                 _do_download(selected_engine, model, spec, console)
+            else:
+                console.print(
+                    f"\n  Skipped. Download later with:\n"
+                    f"    [bold]jarvis model pull {model}[/bold]"
+                )
 
     if not skip_scan:
         _quick_privacy_check(console)

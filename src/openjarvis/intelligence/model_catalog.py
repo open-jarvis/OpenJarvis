@@ -12,15 +12,76 @@ BUILTIN_MODELS: List[ModelSpec] = [
     # Local models — Dense
     # -----------------------------------------------------------------------
     ModelSpec(
+        model_id="qwen3:0.6b",
+        name="Qwen3 0.6B",
+        parameter_count_b=0.6,
+        context_length=40960,
+        supported_engines=("ollama", "vllm", "llamacpp", "sglang", "mlx", "lemonade"),
+        provider="alibaba",
+        metadata={
+            "architecture": "dense",
+            "hf_repo": "Qwen/Qwen3-0.6B",
+        },
+    ),
+    ModelSpec(
+        model_id="qwen3:1.7b",
+        name="Qwen3 1.7B",
+        parameter_count_b=1.7,
+        context_length=40960,
+        supported_engines=("ollama", "vllm", "llamacpp", "sglang", "mlx", "lemonade"),
+        provider="alibaba",
+        metadata={
+            "architecture": "dense",
+            "hf_repo": "Qwen/Qwen3-1.7B",
+        },
+    ),
+    ModelSpec(
+        model_id="qwen3:4b",
+        name="Qwen3 4B",
+        parameter_count_b=4.0,
+        context_length=262144,
+        supported_engines=("ollama", "vllm", "llamacpp", "sglang", "mlx", "lemonade"),
+        provider="alibaba",
+        metadata={
+            "architecture": "dense",
+            "hf_repo": "Qwen/Qwen3-4B",
+        },
+    ),
+    ModelSpec(
         model_id="qwen3:8b",
         name="Qwen3 8B",
         parameter_count_b=8.2,
         context_length=32768,
-        supported_engines=("vllm", "ollama", "llamacpp", "sglang", "lemonade"),
+        supported_engines=("vllm", "ollama", "llamacpp", "sglang", "mlx", "lemonade"),
         provider="alibaba",
         metadata={
             "architecture": "dense",
             "hf_repo": "Qwen/Qwen3-8B",
+        },
+    ),
+    ModelSpec(
+        model_id="qwen3:14b",
+        name="Qwen3 14B",
+        parameter_count_b=14.0,
+        context_length=40960,
+        supported_engines=("ollama", "vllm", "llamacpp", "sglang", "lemonade"),
+        provider="alibaba",
+        metadata={
+            "architecture": "dense",
+            "hf_repo": "Qwen/Qwen3-14B",
+        },
+    ),
+    ModelSpec(
+        model_id="qwen3:30b",
+        name="Qwen3 30B",
+        parameter_count_b=30.0,
+        context_length=262144,
+        min_vram_gb=18.0,
+        supported_engines=("ollama", "vllm", "sglang"),
+        provider="alibaba",
+        metadata={
+            "architecture": "dense",
+            "hf_repo": "Qwen/Qwen3-30B",
         },
     ),
     ModelSpec(
