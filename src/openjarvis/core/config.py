@@ -240,17 +240,19 @@ def _available_memory_gb(hw: HardwareInfo) -> float:
 
 # Explicit tier table: (max_ram_gb, model_id).
 # Walked in order — first tier where available_gb <= max_ram is chosen.
+# Uses Qwen3.5 MoE models — better quality per GB than dense models since
+# only a fraction of parameters are active per token.
 _MODEL_TIERS = [
-    (8, "qwen3:1.7b"),
-    (16, "qwen3:4b"),
-    (32, "qwen3:8b"),
-    (64, "qwen3:14b"),
+    (8, "qwen3.5:2b"),
+    (16, "qwen3.5:4b"),
+    (32, "qwen3.5:9b"),
+    (64, "qwen3.5:27b"),
 ]
-_MODEL_TIER_FALLBACK = "qwen3:14b"
+_MODEL_TIER_FALLBACK = "qwen3.5:27b"
 
 
 def recommend_model(hw: HardwareInfo, engine: str) -> str:
-    """Suggest a Qwen3 dense model that fits the detected hardware.
+    """Suggest the best Qwen3.5 model that fits the detected hardware.
 
     Uses an explicit tier table mapping available memory to model size.
     Falls back to scanning the full catalog if the tiered model is not
@@ -276,12 +278,12 @@ def recommend_model(hw: HardwareInfo, engine: str) -> str:
     if spec and engine in spec.supported_engines:
         return model_id
 
-    # Fallback: scan all Qwen3 dense models for engine compatibility
+    # Fallback: scan all Qwen3.5 models for engine compatibility
     candidates = [
         s
         for s in BUILTIN_MODELS
         if s.provider == "alibaba"
-        and s.model_id.startswith("qwen3:")
+        and s.model_id.startswith("qwen3.5:")
         and engine in s.supported_engines
     ]
     candidates.sort(key=lambda s: s.parameter_count_b, reverse=True)
