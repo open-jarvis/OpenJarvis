@@ -195,6 +195,7 @@ def load_eval_config(path: str | Path) -> EvalSuiteConfig:
                 temperature=float(b["temperature"]) if "temperature" in b else None,
                 max_tokens=int(b["max_tokens"]) if "max_tokens" in b else None,
                 subset=b.get("subset"),
+                max_turns=int(b["max_turns"]) if "max_turns" in b else None,
             )
         )
 
@@ -278,6 +279,7 @@ def expand_suite(suite: EvalSuiteConfig) -> List[RunConfig]:
                     engine_key=model.engine,
                     agent_name=bench.agent,
                     tools=list(bench.tools),
+                    max_turns=bench.max_turns,
                     output_path=output_path,
                     seed=suite.run.seed,
                     dataset_split=bench.split,

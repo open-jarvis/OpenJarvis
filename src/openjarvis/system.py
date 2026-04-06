@@ -323,7 +323,11 @@ class JarvisSystem:
 
         return {
             "content": result.content,
-            "usage": getattr(result, "usage", {}),
+            "usage": {
+                "prompt_tokens": getattr(ag, "_total_prompt_tokens", 0),
+                "completion_tokens": getattr(ag, "_total_completion_tokens", 0),
+            },
+            "cost_usd": getattr(ag, "_total_cost_usd", 0.0),
             "tool_results": [
                 {
                     "tool_name": tr.tool_name,
@@ -546,6 +550,10 @@ class SystemBuilder:
 
     def traces(self, enabled: bool) -> SystemBuilder:
         self._traces = enabled
+        return self
+
+    def max_turns(self, n: int) -> SystemBuilder:
+        self._config.agent.max_turns = n
         return self
 
     def sandbox(self, enabled: bool) -> SystemBuilder:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -10,6 +11,128 @@ from typing import Optional
 import click
 from rich.console import Console
 from rich.table import Table
+
+# ---------------------------------------------------------------------------
+# API key validation helpers
+# ---------------------------------------------------------------------------
+
+_ANTHROPIC_PREFIXES = ("claude-",)
+_OPENAI_PREFIXES = ("gpt-", "o1-", "o3-", "o4-")
+_GOOGLE_PREFIXES = ("gemini-",)
+_MINIMAX_PREFIXES = ("minimax",)
+
+_PROVIDER_ENV = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "google": "GEMINI_API_KEY",
+    "minimax": "MINIMAX_API_KEY",
+}
+
+# Cheapest model per provider used for the live ping
+_PROBE_MODELS = {
+    "anthropic": "claude-haiku-4-5-20251001",
+    "openai": "gpt-4o-mini",
+    "google": "gemini-3.1-flash-lite-preview",
+}
+
+
+def _provider_for_model(model_name: str) -> Optional[str]:
+    m = model_name.lower()
+    if any(m.startswith(p) for p in _ANTHROPIC_PREFIXES):
+        return "anthropic"
+    if any(m.startswith(p) for p in _OPENAI_PREFIXES):
+        return "openai"
+    if any(m.startswith(p) for p in _GOOGLE_PREFIXES):
+        return "google"
+    if any(m.startswith(p) for p in _MINIMAX_PREFIXES):
+        return "minimax"
+    return None
+
+
+def _live_ping(provider: str, key: str) -> tuple[bool, str]:
+    """Make the smallest possible call to verify a key is accepted."""
+    try:
+        if provider == "anthropic":
+            import anthropic  # type: ignore[import]
+            anthropic.Anthropic(api_key=key).messages.create(
+                model=_PROBE_MODELS["anthropic"],
+                max_tokens=1,
+                messages=[{"role": "user", "content": "hi"}],
+            )
+        elif provider == "openai":
+            import openai  # type: ignore[import]
+            openai.OpenAI(api_key=key).chat.completions.create(
+                model=_PROBE_MODELS["openai"],
+                max_tokens=1,
+                messages=[{"role": "user", "content": "hi"}],
+            )
+        elif provider == "google":
+            from google import genai  # type: ignore[import]
+            with genai.Client(api_key=key) as _client:
+                _client.models.generate_content(
+                    model=_PROBE_MODELS["google"],
+                    contents="hi",
+                )
+        else:
+            # No live check available for this provider — trust the key is set
+            return True, "key set (no live probe)"
+        return True, "ok"
+    except Exception as exc:  # noqa: BLE001
+        return False, str(exc)[:100]
+
+
+def _resolve_key(provider: str) -> Optional[str]:
+    key = os.environ.get(_PROVIDER_ENV.get(provider, ""))
+    if not key and provider == "google":
+        key = os.environ.get("GOOGLE_API_KEY")
+    return key or None
+
+
+def check_api_keys(providers_needed: set[str], console: Console) -> None:
+    """Verify API keys for every required provider.
+
+    Prints a status table, then aborts if any key is missing or rejected.
+    """
+    table = Table(
+        title="[bold]API Key Check[/bold]",
+        border_style="bright_blue",
+        title_style="bold cyan",
+    )
+    table.add_column("Provider", style="cyan", no_wrap=True)
+    table.add_column("Env Var", style="dim")
+    table.add_column("Set", justify="center")
+    table.add_column("Live Test", justify="center")
+    table.add_column("Details", style="dim")
+
+    all_ok = True
+    for provider in sorted(providers_needed):
+        env_var = _PROVIDER_ENV.get(provider, "?")
+        key = _resolve_key(provider)
+
+        if not key:
+            table.add_row(
+                provider, env_var, "[red]✗[/red]", "[red]–[/red]", "not set"
+            )
+            all_ok = False
+        else:
+            ok, detail = _live_ping(provider, key)
+            set_cell = "[green]✓[/green]"
+            live_cell = "[green]✓[/green]" if ok else "[red]✗[/red]"
+            if not ok:
+                all_ok = False
+            table.add_row(provider, env_var, set_cell, live_cell, detail)
+
+    console.print(table)
+
+    if not all_ok:
+        console.print(
+            "[red bold]One or more required API keys are missing or invalid. "
+            "Set the env vars above and retry.[/red bold]"
+        )
+        sys.exit(1)
+
+    console.print("[green]All required API keys verified.[/green]")
+    click.confirm("\nProceed with evaluation?", default=True, abort=True)
 
 # Known benchmarks and backends — mirrored from the evals framework so the
 # CLI can display them even when the (optional) evals package is not installed.
@@ -311,6 +434,23 @@ def eval_run(
             f"{len(suite.benchmarks)} benchmark(s) = {len(run_configs)} run(s)"
         )
 
+        # Collect all cloud providers needed (models + judge)
+        cloud_providers: set[str] = set()
+        for rc in run_configs:
+            if rc.engine_key in (None, "cloud"):
+                p = _provider_for_model(rc.model)
+                if p:
+                    cloud_providers.add(p)
+            # Judge always runs in the cloud
+            p = _provider_for_model(rc.judge_model)
+            if p:
+                cloud_providers.add(p)
+
+        if cloud_providers:
+            console.print()
+            check_api_keys(cloud_providers, console)
+            console.print()
+
         try:
             from openjarvis.evals.cli import _run_single
         except ImportError:
@@ -376,6 +516,19 @@ def eval_run(
         sheets_worksheet=sheets_worksheet,
         sheets_credentials_path=sheets_credentials_path,
     )
+
+    # Determine which providers are needed for this single run
+    single_providers: set[str] = set()
+    if engine_key in (None, "cloud"):
+        p = _provider_for_model(model)
+        if p:
+            single_providers.add(p)
+    # Judge defaults to gpt-5-mini (OpenAI)
+    single_providers.add("openai")
+
+    console.print()
+    check_api_keys(single_providers, console)
+    console.print()
 
     try:
         from openjarvis.evals.cli import _run_single

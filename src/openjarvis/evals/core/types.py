@@ -25,6 +25,8 @@ class EvalResult:
 
     record_id: str
     model_answer: str
+    problem: str = ""
+    reference: str = ""
     is_correct: Optional[bool] = None
     score: Optional[float] = None
     latency_seconds: float = 0.0
@@ -73,6 +75,7 @@ class RunConfig:
     telemetry: bool = False
     gpu_metrics: bool = False
     metadata: Dict[str, Any] = field(default_factory=dict)
+    max_turns: Optional[int] = None
     warmup_samples: int = 0
     wandb_project: str = ""
     wandb_entity: str = ""
@@ -234,6 +237,7 @@ class BenchmarkConfig:
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
     subset: Optional[str] = None
+    max_turns: Optional[int] = None
 
 
 @dataclass(slots=True)

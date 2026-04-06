@@ -25,6 +25,7 @@ class JarvisAgentBackend(InferenceBackend):
         telemetry: bool = False,
         gpu_metrics: bool = False,
         model: Optional[str] = None,
+        max_turns: Optional[int] = None,
     ) -> None:
         from openjarvis.system import SystemBuilder
 
@@ -41,6 +42,8 @@ class JarvisAgentBackend(InferenceBackend):
         builder.agent(agent_name)
         if tools:
             builder.tools(tools)
+        if max_turns is not None:
+            builder.max_turns(max_turns)
         # Propagate gpu_metrics to the runtime config so SystemBuilder
         # creates a GpuMonitor when building the InstrumentedEngine.
         if gpu_metrics:
@@ -116,6 +119,12 @@ class JarvisAgentBackend(InferenceBackend):
 
         usage = result.get("usage", {})
         telemetry_data = result.get("_telemetry", {})
+        completion_tokens = usage.get("completion_tokens", 0)
+        # Compute throughput from accumulated tokens/elapsed when InstrumentedEngine
+        # doesn't aggregate it across multi-turn agent loops.
+        throughput = telemetry_data.get("throughput_tok_per_sec", 0.0)
+        if throughput == 0.0 and completion_tokens > 0 and elapsed > 0:
+            throughput = completion_tokens / elapsed
         return {
             "content": result.get("content", ""),
             "usage": usage,
@@ -128,7 +137,7 @@ class JarvisAgentBackend(InferenceBackend):
             "energy_joules": telemetry_data.get("energy_joules", 0.0),
             "power_watts": telemetry_data.get("power_watts", 0.0),
             "gpu_utilization_pct": telemetry_data.get("gpu_utilization_pct", 0.0),
-            "throughput_tok_per_sec": telemetry_data.get("throughput_tok_per_sec", 0.0),
+            "throughput_tok_per_sec": throughput,
             "trace_data": trace_data,
         }
 

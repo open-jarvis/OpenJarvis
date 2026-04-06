@@ -377,6 +377,8 @@ class EvalRunner:
             return EvalResult(
                 record_id=record.record_id,
                 model_answer=content,
+                problem=record.problem,
+                reference=record.reference,
                 is_correct=is_correct,
                 score=1.0 if is_correct else (0.0 if is_correct is not None else None),
                 latency_seconds=latency,
@@ -404,6 +406,8 @@ class EvalRunner:
             return EvalResult(
                 record_id=record.record_id,
                 model_answer="",
+                problem=record.problem,
+                reference=record.reference,
                 error=str(exc),
             )
 
@@ -672,6 +676,8 @@ class EvalRunner:
             return EvalResult(
                 record_id=record.record_id,
                 model_answer="\n---\n".join(all_responses),
+                problem=record.problem,
+                reference=record.reference,
                 is_correct=is_correct,
                 score=1.0 if is_correct else (0.0 if is_correct is not None else None),
                 latency_seconds=total_latency,
@@ -690,6 +696,8 @@ class EvalRunner:
             return EvalResult(
                 record_id=record.record_id,
                 model_answer="",
+                problem=record.problem,
+                reference=record.reference,
                 error=str(exc),
                 scoring_metadata={"interactive": True, "error": str(exc)},
             )
@@ -730,6 +738,8 @@ class EvalRunner:
             "benchmark": self._config.benchmark,
             "model": self._config.model,
             "backend": self._config.backend,
+            "problem": result.problem,
+            "reference": result.reference,
             "model_answer": result.model_answer,
             "is_correct": result.is_correct,
             "score": result.score,

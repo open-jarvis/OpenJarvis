@@ -543,7 +543,11 @@ class Jarvis:
         result = agent_obj.run(query, context=ctx)
         return {
             "content": result.content,
-            "usage": {},
+            "usage": {
+                "prompt_tokens": agent_obj._total_prompt_tokens,
+                "completion_tokens": agent_obj._total_completion_tokens,
+            },
+            "cost_usd": agent_obj._total_cost_usd,
             "tool_results": [
                 {
                     "tool_name": tr.tool_name,
