@@ -2,17 +2,31 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
-# Distribution / packaging
-dist/
+*.so
+.Python
 build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
 *.egg-info/
 *.egg
+MANIFEST
 
 # Virtual environments
 .venv/
 venv/
 env/
+ENV/
+env.bak/
+venv.bak/
 
 # IDE
 .idea/
@@ -20,49 +34,74 @@ env/
 *.swp
 *.swo
 *~
+.DS_Store
+Thumbs.db
+
+# Editor temporaries
+*.sublime-*
 
 # Testing
 .pytest_cache/
 .ruff_cache/
 .coverage
+.coverage.*
 htmlcov/
+.tox/
+.hypothesis/
+*.cover
 
 # uv
 # Note: uv.lock is intentionally tracked — it pins all transitive deps for reproducibility.
-# Uncomment the line below only if you deliberately choose not to commit the lock file.
-# uv.lock
 
 # OS
 .DS_Store
 Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
 
 # Secrets
 .env
 .env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+secrets.yaml
 
-# Project
+# Project data
 *.sqlite
+*.sqlite3
 *.db
+*.db-journal
 *.jsonl
 *.npz
 results/
 logs/
 traces/
+*.log
 coding_task_*
 get-pip.py
 
 # MkDocs build output
 site/
+.site/
 
 # Frontend
 frontend/node_modules/
 frontend/dist/
+frontend/build/
+frontend/.parcel-cache/
+frontend/tsconfig.tsbuildinfo
+
+# Server static (generated at build time)
 src/openjarvis/server/static/
 
 # Desktop (Tauri)
 desktop/node_modules/
 desktop/dist/
 desktop/src-tauri/target/
+desktop/src-tauri/gen/
 
 # Worktrees
 .worktrees/
@@ -70,16 +109,14 @@ desktop/src-tauri/target/
 # Rust
 target/
 
-# Claude plan artifacts
+# Claude Code artifacts
 docs/plans/
 docs/superpowers/
 .superpowers/
-
-# Claude Code project instructions (per-developer)
-CLAUDE.md
 .claude/
+CLAUDE.md
 
-# Tauri auto-generated schemas
+# Tauri schemas
 **/src-tauri/gen/schemas/
 
 # NFS lock artifacts
@@ -89,8 +126,28 @@ CLAUDE.md
 # Research output
 research_mining_*
 .python-version
+.python-versions
+
+# Channel-specific
 src/openjarvis/channels/whatsapp_baileys_bridge/node_modules/
 
-# SQLite in-memory artifacts
+# Memory/database
 :memory:
 MagicMock/
+*.cache
+
+# Maturin build
+maturin_log.txt
+out.txt
+python_list.txt
+rustup-init.exe
+
+# uv/ruff
+.ruff_cache/
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+tmp/
+

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -25,6 +26,15 @@ from openjarvis.server.models import (
 )
 
 router = APIRouter()
+
+# In-memory cache for realtime metrics
+_realtime_metrics_cache: dict[str, Any] = {
+    "last_update": None,
+    "active_requests": 0,
+    "total_requests": 0,
+    "avg_latency_ms": 0,
+    "energy_joules": 0,
+}
 
 
 def _to_messages(chat_messages) -> list[Message]:
@@ -681,6 +691,55 @@ async def server_info(request: Request):
         "agent": agent_id,
         "engine": getattr(request.app.state, "engine_name", ""),
     }
+
+
+@router.get("/v1/metrics/realtime")
+async def get_realtime_metrics(request: Request):
+    """Get realtime metrics for the dashboard.
+
+    Returns live metrics including active requests, latency stats,
+    and energy consumption.
+    """
+    global _realtime_metrics_cache
+
+    telem_store = getattr(request.app.state, "telem_store", None)
+
+    metrics = {
+        "active_requests": _realtime_metrics_cache["active_requests"],
+        "total_requests": _realtime_metrics_cache["total_requests"],
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+    if telem_store:
+        try:
+            recent = telem_store.get_recent(limit=100)
+            if recent:
+                total_energy = sum(r.energy_joules for r in recent)
+                total_tokens = sum(r.total_tokens for r in recent)
+                total_latency = sum(r.latency_seconds for r in recent)
+                count = len(recent)
+
+                metrics.update(
+                    {
+                        "avg_latency_ms": (total_latency / count * 1000)
+                        if count
+                        else 0,
+                        "total_energy_j": total_energy,
+                        "tokens_per_joule": total_tokens / total_energy
+                        if total_energy
+                        else 0,
+                        "throughput_tok_per_sec": total_tokens / total_latency
+                        if total_latency
+                        else 0,
+                        "recent_samples": count,
+                    }
+                )
+        except Exception:
+            pass
+
+    _realtime_metrics_cache["last_update"] = datetime.utcnow().isoformat()
+
+    return {"metrics": metrics}
 
 
 @router.get("/health")

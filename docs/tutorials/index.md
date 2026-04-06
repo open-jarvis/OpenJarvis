@@ -44,6 +44,14 @@ Hands-on guides that walk through building real applications with OpenJarvis. Ea
 
     [:octicons-arrow-right-24: Get started](code-companion.md)
 
+- :material-check-all:{ .lg .middle } **Custom Eval Scorers**
+
+    ---
+
+    Create custom evaluation scorers to measure agent quality. Learn exact match, LLM-as-judge, and multi-dimensional scoring patterns.
+
+    [:octicons-arrow-right-24: Get started](custom-scorer.md)
+
 </div>
 
 ## What You Will Learn

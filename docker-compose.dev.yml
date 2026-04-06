@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  openjarvis:
+    build:
+      context: .
+      dockerfile: .devcontainer/Dockerfile.dev
+    volumes:
+      - .:/app
+      - ollama-data:/root/.ollama
+    environment:
+      - DEBUG=1
+      - OPENJARVIS_LOG_LEVEL=DEBUG
+      - OLLAMA_HOST=ollama:11434
+    ports:
+      - "8000:8000"
+      - "5173:5173"
+    depends_on:
+      - ollama
+    command: sleep infinity
+
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama-data:/root/.ollama
+    ports:
+      - "11434:11434"
+    deploy:
+      resources:
+        capabilities:
+          - GPU
+
+  frontend:
+    build:
+      context: ./frontend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    command: npm run dev
+
+volumes:
+  ollama-data:
