@@ -48,6 +48,15 @@ def load_operator(path: str | Path) -> OperatorManifest:
         if prompt_path.exists():
             system_prompt = prompt_path.read_text(encoding="utf-8")
 
+    # Resolve event triggers — top-level list under [operator] or nested
+    # Supports both ``operator.event_triggers`` (list of dicts) and the
+    # TOML array-of-tables syntax ``[[operator.event_triggers]]``.
+    raw_triggers = op_data.get("event_triggers", [])
+    if isinstance(raw_triggers, dict):
+        # Single trigger written as an inline table — wrap in list
+        raw_triggers = [raw_triggers]
+    event_triggers: list = list(raw_triggers)
+
     return OperatorManifest(
         id=op_data.get("id", path.stem),
         name=op_data.get("name", path.stem),
@@ -61,6 +70,7 @@ def load_operator(path: str | Path) -> OperatorManifest:
         temperature=temperature,
         schedule_type=schedule_type,
         schedule_value=str(schedule_value),
+        event_triggers=event_triggers,
         metrics=op_data.get("metrics", []),
         required_capabilities=op_data.get("required_capabilities", []),
         settings=op_data.get("settings", {}),

@@ -489,7 +489,8 @@ sources = ["hackernews", "news_rss"]
 
     user_path = DEFAULT_CONFIG_DIR / "USER.md"
     if not user_path.exists():
-        user_path.write_text("# User Profile\n\n")
+        from openjarvis.profile.store import ProfileStore, STANDARD_SECTIONS
+        ProfileStore(user_path).ensure_template()
 
     skills_dir = DEFAULT_CONFIG_DIR / "skills"
     skills_dir.mkdir(exist_ok=True)

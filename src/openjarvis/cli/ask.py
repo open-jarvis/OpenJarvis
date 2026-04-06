@@ -32,6 +32,57 @@ from openjarvis.telemetry.store import TelemetryStore
 logger = logging.getLogger(__name__)
 
 
+def _prepend_screen_context(
+    query: str,
+    *,
+    ocr: bool = False,
+    region_str: str | None = None,
+) -> str:
+    """Capture the screen and prepend visual context to the query."""
+    try:
+        import openjarvis.tools  # noqa: F401 — trigger tool registration
+        from openjarvis.tools.screen_capture import ScreenCaptureTool
+
+        region = None
+        if region_str:
+            parts = [p.strip() for p in region_str.split(",")]
+            if len(parts) == 4:
+                region = {
+                    "left":   int(parts[0]),
+                    "top":    int(parts[1]),
+                    "width":  int(parts[2]),
+                    "height": int(parts[3]),
+                }
+
+        tool = ScreenCaptureTool()
+        result = tool.execute(region=region, ocr=ocr)
+
+        if not result.success:
+            logger.warning("Screen capture failed: %s", result.content)
+            return query
+
+        # Extract OCR text from the result content (after the data URL)
+        parts = result.content.split("\n\n[OCR TEXT]\n", 1)
+        b64_part = parts[0]  # data:image/png;base64,...
+        ocr_text = parts[1].strip() if len(parts) > 1 else ""
+
+        context_lines = ["[SCREEN CONTEXT]"]
+        context_lines.append(
+            f"Screenshot captured: {result.metadata.get('width', '?')}x"
+            f"{result.metadata.get('height', '?')} px"
+        )
+        if ocr_text:
+            context_lines.append(f"\nVisible text on screen:\n{ocr_text}")
+        context_lines.append(f"\nImage (base64 PNG):\n{b64_part}")
+        context_lines.append("[END SCREEN CONTEXT]\n")
+
+        return "\n".join(context_lines) + query
+
+    except Exception as exc:
+        logger.warning("Screen capture error: %s", exc)
+        return query
+
+
 def _get_memory_backend(config):
     """Try to instantiate the memory backend, return None on failure."""
     try:
@@ -326,6 +377,26 @@ def _print_profile(
     is_flag=True,
     help="Print inference telemetry profile (latency, tokens, energy, IPW).",
 )
+@click.option(
+    "--screenshot",
+    "take_screenshot",
+    is_flag=True,
+    default=False,
+    help="Capture the screen and include its context with the query.",
+)
+@click.option(
+    "--screenshot-ocr",
+    "screenshot_ocr",
+    is_flag=True,
+    default=False,
+    help="Extract text from the screenshot via OCR (requires pytesseract or easyocr).",
+)
+@click.option(
+    "--screenshot-region",
+    "screenshot_region",
+    default=None,
+    help="Capture region as 'left,top,width,height' (default: full screen).",
+)
 def ask(
     query: tuple[str, ...],
     model_name: str | None,
@@ -338,10 +409,21 @@ def ask(
     agent_name: str | None,
     tool_names: str | None,
     enable_profile: bool,
+    take_screenshot: bool,
+    screenshot_ocr: bool,
+    screenshot_region: str | None,
 ) -> None:
     """Ask Jarvis a question."""
     console = Console(stderr=True)
     query_text = " ".join(query)
+
+    # ------------------------------------------------------------------
+    # Screen capture (prepend visual context to query)
+    # ------------------------------------------------------------------
+    if take_screenshot:
+        query_text = _prepend_screen_context(
+            query_text, ocr=screenshot_ocr, region_str=screenshot_region
+        )
 
     wall_start = time.monotonic() if enable_profile else None
 

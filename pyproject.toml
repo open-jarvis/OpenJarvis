@@ -28,6 +28,7 @@ dev = [
     "pytest-cov>=5",
     "respx>=0.22",
     "ruff>=0.4",
+    "mypy>=1.10",
     "pre-commit>=3.0",
 ]
 inference-mlx = ["mlx-lm>=0.19; sys_platform == 'darwin'"]
@@ -100,6 +101,36 @@ sandbox-docker = ["docker>=7.0"]
 dashboard = ["textual>=0.80"]
 speech = ["faster-whisper>=1.0"]
 speech-deepgram = ["deepgram-sdk>=3.0"]
+operators-events = [
+    "psutil>=6.0",
+    "watchdog>=4.0",
+]
+voice = [
+    "sounddevice>=0.4",
+    "soundfile>=0.12",
+    "numpy>=1.24",
+]
+voice-vad = [
+    "openjarvis[voice]",
+    "webrtcvad-wheels>=2.0.10; sys_platform == 'win32'",
+    "webrtcvad>=2.0; sys_platform != 'win32'",
+]
+voice-wakeword = [
+    "openjarvis[voice]",
+    "openwakeword>=0.6",
+]
+bundle-voice = [
+    "openjarvis[voice,speech]",
+    "kokoro>=0.9",
+]
+screen = [
+    "mss>=9.0",
+    "Pillow>=10.0",
+]
+screen-ocr = [
+    "openjarvis[screen]",
+    "pytesseract>=0.3",
+]
 eval-wandb = ["wandb>=0.17"]
 eval-sheets = ["gspread>=6.0", "google-auth>=2.0"]
 docs = [
@@ -109,6 +140,23 @@ docs = [
     "mkdocs-gen-files>=0.5",
     "mkdocs-literate-nav>=0.6",
 ]
+bundle-chat = [
+    "openjarvis[inference-cloud,inference-vllm]",
+    "openjarvis[memory-faiss,memory-bm25]",
+    "openjarvis[channel-telegram,channel-discord,channel-slack]",
+    "openjarvis[speech]",
+]
+bundle-research = [
+    "openjarvis[memory-faiss,memory-colbert,memory-bm25]",
+    "openjarvis[tools-search]",
+    "openjarvis[browser]",
+    "openjarvis[pdf]",
+]
+bundle-dev = [
+    "openjarvis[dev]",
+    "openjarvis[inference-cloud]",
+]
+mypy = ["mypy>=1.10"]
 
 [project.scripts]
 jarvis = "openjarvis.cli:main"
@@ -138,7 +186,8 @@ target-version = "py310"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "W"]
+select = ["E", "F", "W"]
+ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/openjarvis/evals/datasets/*.py" = ["E501"]
@@ -147,4 +196,29 @@ select = ["E", "F", "I", "W"]
 [dependency-groups]
 dev = [
     "maturin>=1.12.6",
+    "mypy>=1.10",
 ]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+follow_imports = "normal"
+ignore_missing_imports = true
+namespace_packages = true
+explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = "openjarvis.agents.claude_code_runner.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "openjarvis.channels.whatsapp_baileys_bridge.*"
+ignore_missing_imports = true

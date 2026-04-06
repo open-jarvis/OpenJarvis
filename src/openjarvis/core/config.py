@@ -1199,13 +1199,33 @@ class OperatorsConfig:
 
 @dataclass(slots=True)
 class SpeechConfig:
-    """Speech-to-text settings."""
+    """Speech-to-text and voice-loop settings."""
 
+    # STT backend
     backend: str = "auto"  # "auto", "faster-whisper", "openai", "deepgram"
     model: str = "base"  # Whisper model size: tiny, base, small, medium, large-v3
     language: str = ""  # Empty = auto-detect
     device: str = "auto"  # "auto", "cpu", "cuda"
     compute_type: str = "float16"  # "float16", "int8", "float32"
+
+    # TTS backend (used by the voice loop)
+    tts_backend: str = "auto"  # "auto", "kokoro", "cartesia", "openai_tts"
+    tts_voice_id: str = ""  # Voice ID for the TTS backend (backend-specific)
+    tts_speed: float = 1.0  # TTS playback speed multiplier
+
+    # Wake-word detection
+    wake_word: str = "jarvis"  # Wake keyword (case-insensitive)
+    wake_word_engine: str = "keyword"  # "keyword" or "openwakeword"
+
+    # Voice Activity Detection
+    vad_engine: str = "energy"  # "energy" (default) or "webrtcvad"
+    vad_aggressiveness: int = 2  # WebRTC VAD aggressiveness 0–3 (ignored for energy)
+    silence_timeout_ms: int = 1500  # Ms of silence that mark end-of-utterance
+    min_speech_ms: int = 300  # Minimum voiced duration before an utterance is accepted
+
+    # Audio device overrides (empty string = system default)
+    input_device: str = ""  # Microphone device name or index
+    output_device: str = ""  # Speaker device name or index
 
 
 @dataclass(slots=True)
