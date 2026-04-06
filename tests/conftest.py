@@ -246,3 +246,85 @@ def mock_engine():
 def event_bus() -> EventBus:
     """Fresh EventBus with history recording enabled."""
     return EventBus(record_history=True)
+
+
+# ---------------------------------------------------------------------------
+# Temp directory fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def temp_dir(tmp_path):
+    """Provide a temporary directory that auto-cleans."""
+    return tmp_path
+
+
+@pytest.fixture
+def sample_config_file(temp_dir):
+    """Create a sample config file for testing."""
+    config_content = """
+[intelligence]
+preferred_engine = "ollama"
+default_model = "qwen3:8b"
+temperature = 0.7
+
+[memory]
+default_backend = "sqlite"
+db_path = ":memory:"
+
+[telemetry]
+enabled = true
+    """
+    config_file = temp_dir / "test_config.toml"
+    config_file.write_text(config_content)
+    return config_file
+
+
+@pytest.fixture
+def sample_json_data():
+    """Sample JSON data for testing tools."""
+    return {
+        "users": [
+            {"id": 1, "name": "Alice", "email": "alice@example.com"},
+            {"id": 2, "name": "Bob", "email": "bob@example.com"},
+        ],
+        "metadata": {"version": "1.0", "count": 2},
+    }
+
+
+@pytest.fixture
+def sample_csv_data():
+    """Sample CSV data for testing."""
+    return "name,value,category\nfoo,1,A\nbar,2,B\nbaz,3,C"
+
+
+@pytest.fixture
+def sample_text_file(temp_dir):
+    """Create a sample text file for testing."""
+    content = "This is a test file.\nIt has multiple lines.\nFor testing file tools."
+    file_path = temp_dir / "sample.txt"
+    file_path.write_text(content)
+    return file_path
+
+
+@pytest.fixture
+def sample_pdf_bytes():
+    """Sample PDF bytes for testing PDF tools."""
+    # Minimal valid PDF (empty)
+    return b"""%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [] /Count 0 >>
+endobj
+xref
+0 3
+0000000000 65535 f
+0000000009 00000 n
+0000000058 00000 n
+trailer
+<< /Size 3 /Root 1 0 R >>
+startxref
+0
+%%EOF"""

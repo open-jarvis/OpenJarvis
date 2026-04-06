@@ -322,6 +322,8 @@ export function InputArea() {
           border: '1px solid var(--color-input-border)',
           boxShadow: 'var(--shadow-sm)',
         }}
+        role="form"
+        aria-label="Chat input"
       >
         <textarea
           ref={textareaRef}
@@ -333,6 +335,9 @@ export function InputArea() {
           className="flex-1 bg-transparent outline-none resize-none text-sm leading-relaxed"
           style={{ color: 'var(--color-text)', maxHeight: '200px' }}
           disabled={streamState.isStreaming || modelLoading}
+          aria-label="Message input"
+          aria-describedby="input-hint"
+          aria-invalid={false}
         />
         {streamState.isStreaming ? (
           <button
@@ -340,8 +345,9 @@ export function InputArea() {
             className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer"
             style={{ background: 'var(--color-error)', color: 'white' }}
             title="Stop generating"
+            aria-label="Stop generating response"
           >
-            <Square size={16} />
+            <Square size={16} aria-hidden="true" />
           </button>
         ) : (
           <div className="flex items-center gap-1">
@@ -360,13 +366,15 @@ export function InputArea() {
                 color: input.trim() ? 'white' : 'var(--color-text-tertiary)',
               }}
               title="Send message"
+              aria-label="Send message"
+              aria-disabled={!input.trim() || modelLoading}
             >
-              <Send size={16} />
+              <Send size={16} aria-hidden="true" />
             </button>
           </div>
         )}
       </div>
-      <div className="flex items-center justify-center mt-2 text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>
+      <div className="flex items-center justify-center mt-2 text-[11px]" style={{ color: 'var(--color-text-tertiary)' }} id="input-hint">
         <span>
           <kbd className="font-mono">Enter</kbd> to send &middot;{' '}
           <kbd className="font-mono">Shift+Enter</kbd> for new line
