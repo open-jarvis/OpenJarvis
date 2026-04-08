@@ -1,0 +1,28 @@
+# Livecodebench: Qwen/Qwen3.5-122B-A10B-FP8
+[meta]
+name = "livecodebench-qwen-122b"
+description = "livecodebench on Qwen/Qwen3.5-122B-A10B-FP8"
+
+[defaults]
+temperature = 0.0
+max_tokens = 4096
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/baselines/qwen-122b/livecodebench/"
+seed = 42
+
+[[models]]
+name = "Qwen/Qwen3.5-122B-A10B-FP8"
+engine = "vllm"
+num_gpus = 2
+
+[[benchmarks]]
+name = "livecodebench"
+backend = "jarvis-direct"
+max_samples = 20

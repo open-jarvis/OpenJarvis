@@ -1,0 +1,30 @@
+# Gaia: Qwen/Qwen3.5-35B-A3B-FP8
+[meta]
+name = "gaia-qwen-35b"
+description = "gaia on Qwen/Qwen3.5-35B-A3B-FP8"
+
+[defaults]
+temperature = 0.6
+max_tokens = 8192
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/baselines/qwen-35b/gaia/"
+seed = 42
+
+[[models]]
+name = "Qwen/Qwen3.5-35B-A3B-FP8"
+engine = "vllm"
+num_gpus = 1
+
+[[benchmarks]]
+name = "gaia"
+backend = "jarvis-agent"
+max_samples = 50
+agent = "monitor_operative"
+tools = ["think", "calculator", "code_interpreter", "web_search", "file_read"]

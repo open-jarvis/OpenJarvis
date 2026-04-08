@@ -1,0 +1,27 @@
+# TauBench V2 Telecom: GPT-5.4
+[meta]
+name = "taubench-telecom-gpt54"
+description = "TauBench V2 telecom on gpt-5.4 (test split, pass^3)"
+
+[defaults]
+temperature = 0.7
+max_tokens = 4096
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/taubench-telecom-gpt54/"
+seed = 42
+
+[[models]]
+name = "gpt-5.4-2026-03-05"
+engine = "cloud"
+
+[[benchmarks]]
+name = "taubench"
+backend = "jarvis-direct"
+split = "telecom"

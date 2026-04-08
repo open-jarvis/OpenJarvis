@@ -1,0 +1,31 @@
+# GAIA eval: Qwen3.5-2B (vLLM, 1 GPU)
+[meta]
+name = "gaia-qwen-2b"
+description = "GAIA on Qwen/Qwen3.5-2B"
+
+[defaults]
+temperature = 0.6
+max_tokens = 8192
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+max_tokens = 4096
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/baselines/qwen-2b/gaia/"
+seed = 42
+
+[[models]]
+name = "Qwen/Qwen3.5-2B"
+engine = "vllm"
+num_gpus = 1
+
+[[benchmarks]]
+name = "gaia"
+backend = "jarvis-agent"
+agent = "monitor_operative"
+max_samples = 50
+tools = ["think", "calculator", "code_interpreter", "web_search", "file_read"]
