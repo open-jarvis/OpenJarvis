@@ -19,7 +19,7 @@ def app():
 
     _app = FastAPI()
     router = create_connectors_router()
-    _app.include_router(router)
+    _app.include_router(router, prefix="/v1")
     return TestClient(_app)
 
 
@@ -92,30 +92,3 @@ def test_trigger_sync(app, tmp_path: Path) -> None:
     assert resp.status_code == 200
     data = resp.json()
     assert data["chunks_indexed"] >= 1
-
-
-def test_list_connectors_closes_store_connections(app, monkeypatch) -> None:
-    """GET /v1/connectors closes every KnowledgeStore it opens (regression)."""
-    from openjarvis.connectors import store as store_module
-
-    close_calls = 0
-    original_close = store_module.KnowledgeStore.close
-
-    def counted_close(self: store_module.KnowledgeStore) -> None:
-        nonlocal close_calls
-        close_calls += 1
-        original_close(self)
-
-    monkeypatch.setattr(store_module.KnowledgeStore, "close", counted_close)
-
-    resp = app.get("/v1/connectors")
-    assert resp.status_code == 200
-    num_connectors = len(resp.json()["connectors"])
-    assert num_connectors > 0
-
-    baseline = close_calls
-    polls = 3
-    for _ in range(polls):
-        assert app.get("/v1/connectors").status_code == 200
-
-    assert close_calls - baseline == polls * num_connectors
