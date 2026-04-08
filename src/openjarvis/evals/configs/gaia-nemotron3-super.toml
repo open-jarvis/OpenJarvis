@@ -1,0 +1,31 @@
+# GAIA eval: Nemotron-3-Super-120B-A12B-FP8 (SGLang on port 8001)
+[meta]
+name = "gaia-nemotron3-super"
+description = "GAIA on Nemotron-3-Super-120B-A12B-FP8 (SGLang)"
+
+[defaults]
+temperature = 1.0
+max_tokens = 8192
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+max_tokens = 4096
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/gaia-nemotron3-super/"
+seed = 42
+
+[[models]]
+name = "nemotron"
+engine = "vllm"
+num_gpus = 4
+
+[[benchmarks]]
+name = "gaia"
+backend = "jarvis-agent"
+agent = "monitor_operative"
+max_samples = 50
+tools = ["think", "calculator", "code_interpreter", "web_search", "file_read"]

@@ -1,0 +1,37 @@
+# TauBench V2 eval: MiniMax-M2.5 (Ollama, UD-TQ1_0 GGUF ~55 GB, GPUs 2-3)
+# Multi-turn customer service benchmark -- airline + retail splits
+# Pull model: ollama pull hf.co/unsloth/MiniMax-M2.5-GGUF:latest
+# NOTE: Q4_K_M and higher quants are sharded GGUFs which Ollama does not
+# support yet (see github.com/ollama/ollama/issues/5245). The "latest" tag
+# pulls the largest non-sharded quant: UD-TQ1_0 (1-bit, ~55 GB).
+
+[meta]
+name = "taubench-minimax-m25"
+description = "TauBench V2 on MiniMax-M2.5 UD-TQ1_0 via Ollama"
+
+[defaults]
+temperature = 0.7
+max_tokens = 4096
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/baselines/minimax-m25-ollama/taubench/"
+seed = 42
+
+[[models]]
+name = "hf.co/unsloth/MiniMax-M2.5-GGUF:latest"
+engine = "ollama"
+param_count_b = 229.0
+active_params_b = 45.6
+num_gpus = 2
+
+[[benchmarks]]
+name = "taubench"
+backend = "jarvis-direct"
+max_samples = 20
+split = "airline,retail"
