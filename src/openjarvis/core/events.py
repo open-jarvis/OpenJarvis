@@ -61,6 +61,7 @@ class EventType(str, Enum):
     # Phase 22 — Operators
     OPERATOR_TICK_START = "operator_tick_start"
     OPERATOR_TICK_END = "operator_tick_end"
+    OPERATOR_EVENT_FIRED = "operator_event_fired"  # event-driven trigger fired
     # Managed agent lifecycle (distinct from OPERATOR_TICK_* for the operator subsystem)
     AGENT_TICK_START = "agent_tick_start"
     AGENT_TICK_END = "agent_tick_end"

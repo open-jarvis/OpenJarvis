@@ -1,0 +1,74 @@
+# Event-Driven Operator Example
+# Demonstrates all four event trigger types supported by OpenJarvis.
+#
+# Activate with:
+#   jarvis operators activate event-driven-demo
+# Or via compose:
+#   jarvis compose deploy event-driven-demo
+
+[operator]
+id          = "event-driven-demo"
+name        = "Event-Driven Demo Operator"
+description = "Reacts to files, system metrics, URL changes, and bus events"
+version     = "0.1.0"
+
+[operator.agent]
+system_prompt = """
+You are a proactive monitoring agent. When triggered by an event, analyse what happened
+and take the appropriate action. Be concise and precise in your responses.
+"""
+tools       = ["file_read", "web_search", "memory_store", "think"]
+max_turns   = 10
+temperature = 0.3
+
+# Time-based fallback schedule (runs every 30 minutes even without events)
+[operator.schedule]
+type  = "interval"
+value = "1800"
+
+# ─────────────────────────────────────────────
+# Event Trigger 1: File System
+# Fires when a new PDF or text file lands in ~/Documents/inbox/
+# ─────────────────────────────────────────────
+[[operator.event_triggers]]
+type             = "file"
+path             = "~/Documents/inbox"
+pattern          = "*.{pdf,txt,md}"
+events           = ["created"]
+check_interval_s = 5
+cooldown_s       = 60
+
+# ─────────────────────────────────────────────
+# Event Trigger 2: System Metric
+# Fires when CPU usage exceeds 85% for 30+ seconds
+# ─────────────────────────────────────────────
+[[operator.event_triggers]]
+type             = "system_metric"
+metric           = "cpu_percent"
+threshold        = 85.0
+operator         = ">"
+check_interval_s = 30
+cooldown_s       = 300
+
+# ─────────────────────────────────────────────
+# Event Trigger 3: HTTP Poll
+# Fires when the Hacker News RSS feed changes (new top story)
+# ─────────────────────────────────────────────
+[[operator.event_triggers]]
+type             = "http_poll"
+url              = "https://news.ycombinator.com/rss"
+fire_on_change   = true
+check_interval_s = 600
+cooldown_s       = 1800
+
+# ─────────────────────────────────────────────
+# Event Trigger 4: EventBus
+# Fires when a message arrives on any connected channel (Telegram, Discord, etc.)
+# Filtered to only forward messages that mention "urgent"
+# ─────────────────────────────────────────────
+[[operator.event_triggers]]
+type         = "bus_event"
+event_type   = "channel_message_received"
+filter_key   = ""        # Leave empty to receive ALL channel messages
+filter_value = ""
+cooldown_s   = 10

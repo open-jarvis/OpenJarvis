@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from openjarvis.operators.event_engine import EventTriggerEngine
 from openjarvis.operators.loader import load_operator
 from openjarvis.operators.types import OperatorManifest
 
@@ -28,6 +29,8 @@ class OperatorManager:
     def __init__(self, system: Any) -> None:
         self._system = system
         self._manifests: Dict[str, OperatorManifest] = {}
+        # operator_id -> active EventTriggerEngine (only for event-driven operators)
+        self._event_engines: Dict[str, EventTriggerEngine] = {}
 
     # -- Registration --------------------------------------------------------
 
@@ -111,10 +114,18 @@ class OperatorManager:
         scheduler._store.save_task(task_dict)
 
         logger.info("Activated operator %s (task_id=%s)", operator_id, task_id)
+
+        # Start event-driven watchers if the manifest declares event triggers
+        if manifest.event_triggers:
+            self._start_event_engine(operator_id, manifest)
+
         return task_id
 
     def deactivate(self, operator_id: str) -> None:
         """Deactivate an operator by cancelling its scheduler task."""
+        # Stop event engine first (if any)
+        self._stop_event_engine(operator_id)
+
         scheduler = self._system.scheduler
         if scheduler is None:
             raise RuntimeError("TaskScheduler not available.")
@@ -124,6 +135,59 @@ class OperatorManager:
             logger.info("Deactivated operator %s", operator_id)
         except KeyError:
             logger.warning("No active task for operator %s", operator_id)
+
+    # -- Event engine helpers -------------------------------------------------
+
+    def _start_event_engine(
+        self, operator_id: str, manifest: OperatorManifest
+    ) -> None:
+        """Spin up an ``EventTriggerEngine`` for the given operator."""
+        # Stop any existing engine for this operator first
+        self._stop_event_engine(operator_id)
+
+        bus = getattr(self._system, "bus", None)
+        if bus is None:
+            logger.warning(
+                "No EventBus on system — event triggers for operator %s will "
+                "not fire.  Make sure the system was built with an EventBus.",
+                operator_id,
+            )
+            return
+
+        def _tick_callback(oid: str, prompt: str) -> None:
+            """Run the operator agent with the event-enriched prompt."""
+            op_manifest = self._manifests.get(oid)
+            system_prompt = op_manifest.system_prompt if op_manifest else ""
+            try:
+                self._system.ask(
+                    prompt,
+                    agent="operative",
+                    operator_id=oid,
+                    system_prompt=system_prompt or None,
+                )
+            except Exception:
+                logger.exception(
+                    "Event tick failed for operator %s", oid
+                )
+
+        engine = EventTriggerEngine(
+            operator_id=operator_id,
+            bus=bus,
+            tick_callback=_tick_callback,
+        )
+        engine.start(manifest.event_triggers)
+        self._event_engines[operator_id] = engine
+        logger.info(
+            "Started event engine for operator %s (%d trigger(s))",
+            operator_id,
+            len(manifest.event_triggers),
+        )
+
+    def _stop_event_engine(self, operator_id: str) -> None:
+        """Stop and remove the ``EventTriggerEngine`` for the given operator."""
+        engine = self._event_engines.pop(operator_id, None)
+        if engine is not None:
+            engine.stop()
 
     def pause(self, operator_id: str) -> None:
         """Pause an active operator."""
