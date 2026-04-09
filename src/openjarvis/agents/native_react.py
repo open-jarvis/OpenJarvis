@@ -28,7 +28,25 @@ Action Input: <json arguments>
 Thought: <your reasoning>
 Final Answer: <your answer>
 
-{tool_descriptions}"""
+# Using Skills
+
+Tools whose names begin with `skill_` are SKILLS. When you call a skill tool,
+the response can take one of two forms:
+
+- **Computed result**: The skill ran a deterministic pipeline and returned a
+  value (number, string, JSON, etc.). Use the value directly in your answer.
+
+- **Procedural instructions**: The skill returned markdown text describing
+  HOW to accomplish a task. Recognize this when the response starts with
+  `#` headings, contains bullet lists, or uses phrases like "When asked
+  to...", "First...", "Steps:". When you receive instructions:
+  1. READ the instructions carefully — they are your playbook
+  2. FOLLOW the steps using your OTHER tools (e.g. calculator, web_search,
+     shell_exec, file_read) — not the same skill
+  3. DO NOT call the same skill again — you already have its instructions
+  4. Synthesize a Final Answer from what you learned
+
+{skill_examples}{tool_descriptions}"""
 
 
 @AgentRegistry.register("native_react")
@@ -52,6 +70,7 @@ class NativeReActAgent(ToolUsingAgent):
         max_tokens: Optional[int] = None,
         interactive: bool = False,
         confirm_callback=None,
+        skill_few_shot_examples: Optional[List[str]] = None,
     ) -> None:
         super().__init__(
             engine,
@@ -63,6 +82,7 @@ class NativeReActAgent(ToolUsingAgent):
             max_tokens=max_tokens,
             interactive=interactive,
             confirm_callback=confirm_callback,
+            skill_few_shot_examples=skill_few_shot_examples,
         )
 
     def _parse_response(self, text: str) -> dict:
@@ -111,7 +131,22 @@ class NativeReActAgent(ToolUsingAgent):
 
         # Build system prompt with rich tool descriptions
         tool_desc = build_tool_descriptions(self._tools)
-        system_prompt = REACT_SYSTEM_PROMPT.format(tool_descriptions=tool_desc)
+        # Plan 2B I3: render the optimized few-shot examples as a section
+        # that the model sees BEFORE the tool descriptions.  When no
+        # examples are present, this is an empty string and the rendered
+        # prompt is unchanged.
+        if self._skill_few_shot_examples:
+            skill_examples_block = (
+                "## Skill Examples\n\n"
+                + "\n\n".join(self._skill_few_shot_examples)
+                + "\n\n"
+            )
+        else:
+            skill_examples_block = ""
+        system_prompt = REACT_SYSTEM_PROMPT.format(
+            tool_descriptions=tool_desc,
+            skill_examples=skill_examples_block,
+        )
 
         messages = self._build_messages(input, context, system_prompt=system_prompt)
 

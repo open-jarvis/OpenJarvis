@@ -11,6 +11,18 @@ from rich.console import Console
 from rich.table import Table
 
 
+def _get_trace_store():
+    """Return a TraceStore from user config, or None on failure."""
+    try:
+        from openjarvis.core.config import load_config
+        from openjarvis.traces.store import TraceStore
+
+        cfg = load_config()
+        return TraceStore(cfg.traces.db_path)
+    except Exception:
+        return None
+
+
 @click.group("optimize")
 def optimize_group() -> None:
     """LLM-driven configuration optimization."""
@@ -415,6 +427,87 @@ def optimize_personal(action: str, workflow: str, trials: int) -> None:
         console.print(
             "[yellow]Personal optimization is not yet fully implemented.[/yellow]"
         )
+
+
+@optimize_group.command("skills")
+@click.option(
+    "--policy",
+    "-p",
+    type=click.Choice(["dspy", "gepa"]),
+    default="dspy",
+    show_default=True,
+    help="Optimization policy to use.",
+)
+@click.option(
+    "--min-traces",
+    "-n",
+    default=20,
+    show_default=True,
+    type=int,
+    help="Minimum traces required per skill.",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Show planned work without invoking the optimizer LM.",
+)
+def skills(policy: str, min_traces: int, dry_run: bool) -> None:
+    """Optimize per-skill descriptions and few-shot examples from traces."""
+    from rich.console import Console
+    from rich.table import Table
+
+    from openjarvis.core.events import EventBus
+    from openjarvis.learning.agents.skill_optimizer import SkillOptimizer
+    from openjarvis.skills.manager import SkillManager
+
+    console = Console()
+    store = _get_trace_store()
+    if store is None:
+        console.print("[red]No trace store found. Enable tracing first.[/red]")
+        raise SystemExit(1)
+
+    if dry_run:
+        # Just bucket and report counts
+        traces = store.list_traces(limit=10000)
+        opt = SkillOptimizer(min_traces_per_skill=min_traces, optimizer=policy)
+        buckets = opt._bucket_traces_by_skill(traces)
+        if not buckets:
+            console.print("[dim]No skill-tagged traces found.[/dim]")
+            return
+        table = Table(title="Optimization plan (dry run)")
+        table.add_column("Skill", style="cyan")
+        table.add_column("Trace count")
+        table.add_column("Action")
+        for name, bucket in buckets.items():
+            action = (
+                "would optimize"
+                if len(bucket) >= min_traces
+                else f"skip (< {min_traces} traces)"
+            )
+            table.add_row(name, str(len(bucket)), action)
+        console.print(table)
+        return
+
+    # Real run
+    mgr = SkillManager(bus=EventBus())
+    mgr.discover()
+    optimizer = SkillOptimizer(min_traces_per_skill=min_traces, optimizer=policy)
+    results = optimizer.optimize(store, mgr)
+
+    if not results:
+        console.print("[dim]No skill-tagged traces found.[/dim]")
+        return
+
+    table = Table(title=f"Skill optimization ({policy})")
+    table.add_column("Skill", style="cyan")
+    table.add_column("Status")
+    table.add_column("Traces")
+    table.add_column("Overlay path")
+    for name, res in results.items():
+        path_str = str(res.overlay_path) if res.overlay_path else "—"
+        table.add_row(name, res.status, str(res.trace_count), path_str)
+    console.print(table)
 
 
 __all__ = ["optimize_group"]
