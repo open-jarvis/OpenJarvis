@@ -14,7 +14,7 @@ max_tokens = 4096
 engine = "cloud"
 
 [run]
-max_workers = 1
+max_workers = 8
 output_dir = "results/neurips-2026/baselines/qwen-2b/liveresearch/"
 seed = 42
 
