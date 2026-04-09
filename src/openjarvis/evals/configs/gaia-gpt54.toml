@@ -1,0 +1,29 @@
+# GAIA eval: gpt-5.4 (cloud)
+[meta]
+name = "gaia-gpt54"
+description = "GAIA on gpt-5.4-2026-03-05"
+
+[defaults]
+temperature = 0.6
+max_tokens = 8192
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+max_tokens = 4096
+
+[run]
+max_workers = 1
+output_dir = "results/gaia-gpt54/"
+seed = 42
+
+[[models]]
+name = "gpt-5.4-2026-03-05"
+engine = "cloud"
+
+[[benchmarks]]
+name = "gaia"
+backend = "jarvis-agent"
+agent = "monitor_operative"
+max_samples = 50
+tools = ["think", "calculator", "code_interpreter", "web_search", "file_read"]

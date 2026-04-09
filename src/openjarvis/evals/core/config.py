@@ -133,6 +133,9 @@ def load_eval_config(path: str | Path) -> EvalSuiteConfig:
         sheets_spreadsheet_id=run_raw.get("sheets_spreadsheet_id", ""),
         sheets_worksheet=run_raw.get("sheets_worksheet", "Results"),
         sheets_credentials_path=run_raw.get("sheets_credentials_path", ""),
+        max_turns=(
+            int(run_raw["max_turns"]) if "max_turns" in run_raw else None
+        ),
     )
 
     # Parse [[models]]
@@ -293,6 +296,7 @@ def expand_suite(suite: EvalSuiteConfig) -> List[RunConfig]:
                     sheets_spreadsheet_id=suite.run.sheets_spreadsheet_id,
                     sheets_worksheet=suite.run.sheets_worksheet,
                     sheets_credentials_path=suite.run.sheets_credentials_path,
+                    max_turns=suite.run.max_turns,
                 )
             )
 

@@ -26,6 +26,7 @@ class JarvisAgentBackend(InferenceBackend):
         telemetry: bool = False,
         gpu_metrics: bool = False,
         model: Optional[str] = None,
+        max_turns: Optional[int] = None,
         skills_enabled: bool = True,
         overlay_dir: Optional[Path] = None,
     ) -> None:
@@ -48,13 +49,16 @@ class JarvisAgentBackend(InferenceBackend):
         # creates a GpuMonitor when building the InstrumentedEngine.
         if gpu_metrics:
             builder._config.telemetry.gpu_metrics = True
+        # Override the agent's per-run turn budget. JarvisConfig.agent.max_turns
+        # defaults to 10, which is too low for thinking/reasoning models on
+        # multi-step agentic benchmarks (Trinity-Large hit the cap on 25/50
+        # GAIA tasks before this was configurable per-eval).
+        if max_turns is not None:
+            builder._config.agent.max_turns = max_turns
         # Plan 2B: per-condition skill switches.  Mutate the builder's
         # config directly so SystemBuilder picks them up at build time.
         builder._config.skills.enabled = skills_enabled
         if overlay_dir is not None:
-            # Convert Path to str so the SkillsLearningConfig (which
-            # stores the value as str) accepts it.  SkillManager's
-            # config-fallback path (Plan 2A I1 fix) reads this back.
             builder._config.learning.skills.overlay_dir = str(overlay_dir)
         self._system = builder.telemetry(telemetry).traces(True).build()
 

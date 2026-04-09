@@ -222,6 +222,12 @@ class TauBenchTaskEnv:
     runs the simulation, and stores results in record.metadata for the scorer.
     """
 
+    # Thread-safety marker for the eval runner. tau2 simulations are pure
+    # in-process (LLM calls + tau2 orchestrator state held inside this
+    # instance) — no CWD changes, no shared mutable globals — so multiple
+    # TauBenchTaskEnv instances can run in parallel threads safely.
+    THREAD_SAFE = True
+
     def __init__(
         self,
         record: EvalRecord,

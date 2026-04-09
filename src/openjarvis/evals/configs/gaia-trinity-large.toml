@@ -1,0 +1,34 @@
+# GAIA eval: Trinity-Large-Thinking-FP8-Block (vLLM, TP=8)
+[meta]
+name = "gaia-trinity-large"
+description = "GAIA on arcee-ai/Trinity-Large-Thinking-FP8-Block with monitor_operative agent"
+
+[defaults]
+temperature = 0.6
+max_tokens = 16384
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+max_tokens = 4096
+
+[run]
+max_workers = 16
+# Trinity-Large is a "thinking" model — needs more turns to reach an answer.
+# Without this override the agent hits the default max_turns=10 cap on
+# ~50% of GAIA tasks before producing a final answer.
+max_turns = 50
+output_dir = "results/neurips-2026/baselines/gaia-trinity-large/"
+seed = 42
+
+[[models]]
+name = "arcee-ai/Trinity-Large-Thinking-FP8-Block"
+engine = "vllm"
+num_gpus = 8
+
+[[benchmarks]]
+name = "gaia"
+backend = "jarvis-agent"
+agent = "monitor_operative"
+max_samples = 50
+tools = ["web_search", "file_read", "file_write", "code_interpreter", "think"]

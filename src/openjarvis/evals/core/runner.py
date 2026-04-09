@@ -131,6 +131,23 @@ class EvalRunner:
         except AttributeError:
             self._has_task_env = False
 
+        # Probe whether this task env is thread-safe (no CWD changes, no
+        # shared mutable globals). Datasets opt in by setting THREAD_SAFE = True
+        # on the env class returned by create_task_env. Default: False (safe).
+        self._task_env_thread_safe = False
+        if self._has_task_env:
+            try:
+                # Cheap probe: instantiate-free attribute lookup via a sample record
+                sample_records = list(self._dataset.iter_records())
+                if sample_records:
+                    probe_env = self._dataset.create_task_env(sample_records[0])
+                    if probe_env is not None and getattr(
+                        type(probe_env), "THREAD_SAFE", False
+                    ):
+                        self._task_env_thread_safe = True
+            except Exception as exc:  # pragma: no cover - probe is best-effort
+                LOGGER.debug("Task env thread-safety probe failed: %s", exc)
+
         records = list(self._dataset.iter_records())
         LOGGER.info(
             "Running %s: %d samples, backend=%s, model=%s, workers=%d, episode_mode=%s",
@@ -171,9 +188,11 @@ class EvalRunner:
         try:
             if cfg.episode_mode:
                 self._run_episode_mode(records, progress_callback, total)
-            elif self._has_task_env:
+            elif self._has_task_env and not self._task_env_thread_safe:
                 # Task environments (PinchBench etc.) change CWD —
                 # must process sequentially for thread safety.
+                # Envs that opt in via THREAD_SAFE=True fall through to the
+                # parallel ThreadPoolExecutor branch below.
                 for record in records:
                     result = self._process_one(record)
                     self._results.append(result)

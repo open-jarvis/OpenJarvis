@@ -1,0 +1,28 @@
+# TauBench V2 Telecom eval: NVIDIA-Nemotron-3-Nano-30B-A3B-FP8 (vLLM, 1 GPU)
+[meta]
+name = "taubench-telecom-nemotron-nano"
+description = "TauBench V2 Telecom on nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8 (temperature=0.7)"
+
+[defaults]
+temperature = 0.7
+max_tokens = 4096
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 24
+output_dir = "results/neurips-2026/baselines/taubench-telecom-nemotron-nano/"
+seed = 42
+
+[[models]]
+name = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8"
+engine = "vllm"
+num_gpus = 1
+
+[[benchmarks]]
+name = "taubench"
+backend = "jarvis-direct"
+split = "telecom"

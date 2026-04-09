@@ -1,0 +1,30 @@
+# Gaia: nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8
+[meta]
+name = "gaia-nemotron-super"
+description = "gaia on nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8"
+
+[defaults]
+temperature = 0.6
+max_tokens = 8192
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/baselines/nemotron-super/gaia/"
+seed = 42
+
+[[models]]
+name = "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8"
+engine = "vllm"
+num_gpus = 2
+
+[[benchmarks]]
+name = "gaia"
+backend = "jarvis-agent"
+max_samples = 50
+agent = "monitor_operative"
+tools = ["think", "calculator", "code_interpreter", "web_search", "file_read"]
