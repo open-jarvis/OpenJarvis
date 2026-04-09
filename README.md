@@ -107,6 +107,29 @@ jarvis memory index ./docs/    # index your documents
 jarvis ask "Summarize all emails about Project X"
 ```
 
+### Skills
+
+Skills teach agents how to better use tools and improve their reasoning. Every skill is a tool — agents discover them from a catalog and invoke them on demand.
+
+```bash
+# Install skills from public sources
+jarvis skill install hermes:arxiv
+jarvis skill sync hermes --category research
+
+# Use skills with any agent
+jarvis ask "Use the code-explainer skill to explain this Python code: for i in range(5): print(i*2)"
+
+# Optimize skills from your trace history
+jarvis optimize skills --policy dspy
+
+# Benchmark the impact
+jarvis bench skills --max-samples 5 --seeds 42
+```
+
+Import from [Hermes Agent](https://github.com/NousResearch/hermes-agent) (~150 skills), [OpenClaw](https://github.com/openclaw/skills) (~13,700 community skills), or any GitHub repo. Skills follow the [agentskills.io](https://agentskills.io/specification) open standard.
+
+See the [Skills User Guide](https://open-jarvis.github.io/OpenJarvis/user-guide/skills/) and [Skills Tutorial](https://open-jarvis.github.io/OpenJarvis/tutorials/skills-workflow/) for details.
+
 ### Built-in Agents
 
 | Agent | Type | What it does |

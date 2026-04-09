@@ -19,6 +19,7 @@ from openjarvis.core.registry import (
     MemoryRegistry,
     ModelRegistry,
     RouterPolicyRegistry,
+    SkillRegistry,
     SpeechRegistry,
     ToolRegistry,
     TTSRegistry,
@@ -40,6 +41,7 @@ def _clean_registries() -> None:
     CompressionRegistry.clear()
     ConnectorRegistry.clear()
     TTSRegistry.clear()
+    SkillRegistry.clear()
     reset_event_bus()
 
 

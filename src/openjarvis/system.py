@@ -49,6 +49,7 @@ class JarvisSystem:
     agent_scheduler: Optional[Any] = None  # AgentScheduler
     agent_executor: Optional[Any] = None  # AgentExecutor
     speech_backend: Optional[Any] = None  # SpeechBackend
+    skill_manager: Optional[Any] = None  # SkillManager
     _learning_orchestrator: Optional[Any] = None  # LearningOrchestrator
     _mcp_clients: List = field(default_factory=list)
 
@@ -202,6 +203,12 @@ class JarvisSystem:
         if getattr(agent_cls, "accepts_tools", False):
             agent_kwargs["tools"] = agent_tools
             agent_kwargs["max_turns"] = self.config.agent.max_turns
+            # Plan 2B I3: forward optimized few-shot examples to agents
+            # that accept them.  Older agents that don't accept the kwarg
+            # are handled by the existing TypeError fallback below.
+            examples = getattr(self, "_skill_few_shot_examples", None)
+            if examples:
+                agent_kwargs["skill_few_shot_examples"] = examples
         if system_prompt is not None:
             agent_kwargs["system_prompt"] = system_prompt
         if self.capability_policy is not None:
@@ -662,6 +669,37 @@ class SystemBuilder:
         # Build tool executor
         tool_executor = ToolExecutor(tool_list, bus) if tool_list else None
 
+        # Resolve skills
+        skill_manager = None
+        skill_few_shot_examples: List[str] = []
+        if config.skills.enabled:
+            try:
+                from pathlib import Path
+
+                from openjarvis.skills.manager import SkillManager
+
+                skill_manager = SkillManager(
+                    bus, capability_policy=sec.capability_policy
+                )
+                skill_paths = [Path(config.skills.skills_dir).expanduser()]
+                workspace_skills = Path("./skills")
+                if workspace_skills.exists():
+                    skill_paths.insert(0, workspace_skills)
+                skill_manager.discover(paths=skill_paths)
+                if tool_executor:
+                    skill_manager.set_tool_executor(tool_executor)
+                skill_tools = skill_manager.get_skill_tools(
+                    tool_executor=tool_executor,
+                )
+                tool_list.extend(skill_tools)
+                if tool_list:
+                    tool_executor = ToolExecutor(tool_list, bus)
+                # Plan 2B I3: capture optimized few-shot examples so
+                # _run_agent can forward them to tool-using agents.
+                skill_few_shot_examples = skill_manager.get_few_shot_examples()
+            except Exception as exc:
+                logger.warning("Failed to initialize skills: %s", exc)
+
         # Resolve agent name
         agent_name = self._agent_name or config.agent.default_agent
 
@@ -777,8 +815,12 @@ class SystemBuilder:
             agent_scheduler=agent_scheduler,
             agent_executor=agent_executor,
             speech_backend=speech_backend,
+            skill_manager=skill_manager,
         )
         system._learning_orchestrator = learning_orchestrator
+        # Plan 2B I3: stash few-shot examples on the system so _run_agent
+        # can include them in agent_kwargs for tool-using agents.
+        system._skill_few_shot_examples = skill_few_shot_examples
         # Transfer MCP clients so JarvisSystem.close() can shut them down
         system._mcp_clients = list(getattr(self, "_mcp_clients", []))
         # Wire system reference — must happen before scheduler.start()

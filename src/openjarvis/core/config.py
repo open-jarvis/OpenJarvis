@@ -654,6 +654,17 @@ class AgentLearningConfig:
 
 
 @dataclass(slots=True)
+class SkillsLearningConfig:
+    """Configuration for the skills learning loop (Plan 2A)."""
+
+    auto_optimize: bool = False  # opt in via config
+    optimizer: str = "dspy"  # "dspy" or "gepa"
+    min_traces_per_skill: int = 20
+    optimization_interval_seconds: int = 86400
+    overlay_dir: str = "~/.openjarvis/learning/skills/"
+
+
+@dataclass(slots=True)
 class MetricsConfig:
     """Reward / optimization metric weights."""
 
@@ -675,6 +686,7 @@ class LearningConfig:
         default_factory=IntelligenceLearningConfig,
     )
     agent: AgentLearningConfig = field(default_factory=AgentLearningConfig)
+    skills: SkillsLearningConfig = field(default_factory=SkillsLearningConfig)
     metrics: MetricsConfig = field(default_factory=MetricsConfig)
 
     # Training pipeline
@@ -1261,12 +1273,30 @@ class CompressionConfig:
 
 
 @dataclass(slots=True)
+class SkillSourceConfig:
+    """Configuration for a single skill source (Hermes, OpenClaw, GitHub)."""
+
+    source: str = ""  # "hermes", "openclaw", or "github"
+    url: str = ""  # required when source = "github"
+    filter: Dict[str, Any] = field(default_factory=dict)
+    auto_update: bool = False
+
+
+@dataclass(slots=True)
 class SkillsConfig:
     """Configuration for agent-authored procedural skills."""
 
+    enabled: bool = True
     skills_dir: str = "~/.openjarvis/skills/"
-    nudge_interval: int = 15
+    active: str = "*"
     auto_discover: bool = True
+    auto_sync: bool = False
+    nudge_interval: int = 15
+    index_repo: str = "https://github.com/openjarvis/skill-index.git"
+    index_dir: str = "~/.openjarvis/skill-index/"
+    max_depth: int = 5
+    sandbox_dangerous: bool = True
+    sources: List[SkillSourceConfig] = field(default_factory=list)
 
 
 @dataclass
