@@ -165,6 +165,7 @@ def _build_backend(
     telemetry: bool = False,
     gpu_metrics: bool = False,
     model: Optional[str] = None,
+    max_turns: Optional[int] = None,
 ):
     """Construct the appropriate backend."""
     if backend_name == "jarvis-agent":
@@ -177,6 +178,7 @@ def _build_backend(
             telemetry=telemetry,
             gpu_metrics=gpu_metrics,
             model=model,
+            max_turns=max_turns,
         )
     else:
         from openjarvis.evals.backends.jarvis_direct import JarvisDirectBackend
@@ -651,6 +653,7 @@ def _run_single(config, console: Optional[Console] = None) -> object:
         telemetry=getattr(config, "telemetry", False),
         gpu_metrics=getattr(config, "gpu_metrics", False),
         model=config.model,
+        max_turns=getattr(config, "max_turns", None),
     )
     dataset = _build_dataset(config.benchmark)
     # Inject engine config for benchmarks that run their own simulation

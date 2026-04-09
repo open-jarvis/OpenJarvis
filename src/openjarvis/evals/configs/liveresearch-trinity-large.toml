@@ -14,6 +14,10 @@ max_tokens = 4096
 
 [run]
 max_workers = 16
+# Trinity-Large is a "thinking" model — needs more turns to reach an answer.
+# Without this override the agent hits the default max_turns=10 cap on
+# ~78% of LiveResearchBench tasks before producing a final answer.
+max_turns = 50
 output_dir = "results/neurips-2026/baselines/liveresearch-trinity-large/"
 seed = 42
 

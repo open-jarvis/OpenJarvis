@@ -25,6 +25,7 @@ class JarvisAgentBackend(InferenceBackend):
         telemetry: bool = False,
         gpu_metrics: bool = False,
         model: Optional[str] = None,
+        max_turns: Optional[int] = None,
     ) -> None:
         from openjarvis.system import SystemBuilder
 
@@ -45,6 +46,12 @@ class JarvisAgentBackend(InferenceBackend):
         # creates a GpuMonitor when building the InstrumentedEngine.
         if gpu_metrics:
             builder._config.telemetry.gpu_metrics = True
+        # Override the agent's per-run turn budget. JarvisConfig.agent.max_turns
+        # defaults to 10, which is too low for thinking/reasoning models on
+        # multi-step agentic benchmarks (Trinity-Large hit the cap on 25/50
+        # GAIA tasks before this was configurable per-eval).
+        if max_turns is not None:
+            builder._config.agent.max_turns = max_turns
         self._system = builder.telemetry(telemetry).traces(True).build()
 
     def generate(
