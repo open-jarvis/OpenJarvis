@@ -1,0 +1,22 @@
+Subject: URGENT: Payment Gateway Integration Failure
+
+From: sarah.chen@acmecorp.com
+To: me
+Date: Today, 8:45 AM
+
+Hi Team,
+
+We're experiencing a critical issue with our payment processing. 
+Customers are unable to complete purchases since 7:30 AM EST.
+
+Our monitoring shows the API is returning 503 errors consistently.
+We've tried restarting the service but it keeps failing.
+
+This is affecting approximately 500+ transactions per hour.
+Revenue impact is significant and we need immediate assistance.
+
+Can you please help us resolve this ASAP? We're losing customers every minute.
+
+Best regards,
+Sarah Chen
+CTO, Acme Corp

@@ -1,0 +1,25 @@
+Subject: CRITICAL: Security Breach Detected - Customer Data Exposed
+
+From: security-team@company.com
+To: me, security-leads@company.com
+Date: Today, 10:00 AM
+
+SECURITY ALERT: Potential data breach detected
+
+We have identified unauthorized access to the customer database.
+Approximately 15,000 customer records may have been accessed.
+
+Details:
+- Timestamp: 9:45 AM today
+- Source IP: 192.168.1.100 (internal network)
+- Data accessed: Names, emails, phone numbers
+- No payment information was accessed
+
+IMMEDIATE ACTIONS REQUIRED:
+1. Isolate affected systems
+2. Preserve forensic evidence
+3. Notify legal and compliance teams
+4. Prepare customer communication
+5. Engage incident response vendor
+
+This requires immediate attention from the security team.

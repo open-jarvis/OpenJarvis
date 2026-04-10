@@ -1,0 +1,20 @@
+development:
+  adapter: postgresql
+  host: prod-db.example.com
+  database: myapp_prod
+  username: dev_user
+  password: dev_password
+
+test:
+  adapter: postgresql
+  host: prod-db.example.com
+  database: myapp_prod
+  username: test_user
+  password: test_password
+
+production:
+  adapter: postgresql
+  host: prod-db.example.com
+  database: myapp_prod
+  username: prod_user
+  password: prod_password

@@ -1,0 +1,18 @@
+Subject: Weekly Tech Newsletter - Issue #47
+
+From: newsletter@techweekly.com
+To: me
+Date: Yesterday, 6:00 PM
+
+Hello Developer,
+
+This week's highlights:
+- Python 3.12 release notes
+- New React features in React 19
+- Cloud computing trends for Q4
+- Open source projects of the week
+
+Read the full newsletter: https://techweekly.com/issue-47
+
+Best regards,
+Tech Weekly Team

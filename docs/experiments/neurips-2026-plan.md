@@ -135,54 +135,181 @@ Key comparisons:
 
 ## Step 1: Baseline Sweep
 
-### Phase 1a: Implement missing benchmarks
-- [ ] ToolCall-15 integration
-- [ ] LiveCodeBench integration
-- [ ] LiveResearchBench integration
-- [ ] Wire telemetry capture to all eval runs
+### Phase 1a: Implement benchmarks + telemetry
+- [x] ToolCall-15 integration (PR #169)
+- [x] LiveCodeBench integration (PR #169)
+- [x] LiveResearchBench integration (PR #169)
+- [x] Wire telemetry capture to all eval runs (PR #169)
+- [x] ToolCall-15 JSON parsing fix (PR #172)
+- [x] SQLite thread safety — all connections (PR #163, #172, #176)
+- [x] Gemma4 venv with vLLM nightly for new architecture support
+- [x] Custom Nemotron tool parser plugin for vLLM
 
-### Phase 1b: Run cloud baselines (no GPU needed)
-- [x] Claude Opus — PinchBench (95.65%), TauBench A+R (86.67%),
-      TauBench Telecom (75%), GAIA (66.67%)
-- [x] GPT-5.4 — PinchBench (52-65%), TauBench A+R (81.67%),
-      TauBench Telecom (75%), GAIA (34.29%)
-- [x] Gemini 3.1 Pro — PinchBench (78.26%), TauBench A+R (58.33%),
-      TauBench Telecom (77.5%), GAIA (47.06%)
-- [ ] All 3 cloud baselines — ToolCall-15, LiveCodeBench, LiveResearchBench
-- [ ] All 3 cloud baselines — TerminalBench
+### Phase 1b+1c+1d: Full baseline sweep (best-of across multi-node runs)
 
-### Phase 1c: Run local models (GPU required)
-- [x] Qwen-397B — PinchBench (78.26%), TauBench A+R (81.67%)
-- [x] Qwen-122B — PinchBench (73.91%), TauBench A+R (80%)
-- [x] Qwen-35B — PinchBench (73.91%), TauBench A+R (77.27%)
-- [x] Nemotron-Super — PinchBench (78.26%), TauBench A+R (86.67%),
-      TauBench Telecom (70%), GAIA (48.48%)
-- [ ] Qwen-27B — all 7 benchmarks
-- [ ] Qwen-9B — all 7 benchmarks
-- [ ] Qwen-2B — all 7 benchmarks
-- [ ] Trinity-Large — all 7 benchmarks
-- [ ] Nemotron-Nano — all 7 benchmarks
-- [ ] Kimi-K2.5 — all 7 benchmarks
-- [ ] MiniMax-M2.5 — all 7 benchmarks
-- [ ] LFM-1.2B — all 7 benchmarks
+| Model | Active Params | TC-15 | PinchBench | LiveCodeBch | TauBench V2 | TB-Telecom | GAIA | LiveResearch |
+|-------|---------------|-------|-----------|------------|-------------|------------|------|-------------|
+| Claude Opus | cloud | 40.0% | 100% | 93.9% | 34.5% | 70.0% | 60.0% | 78.0% |
+| Gemini 3.1 Pro | cloud | 40.0% | 100% | 80.0% | 45.8% | 85.0% | 0.0%* | 0.0%* |
+| GPT-5.4 | cloud | 33.3% | 100% | 70.0% | 18.9% | 100% | 33.3% | 95.9% |
+| Qwen-2B | 2B | 40.0% | 69.6% | 10.0% | 80.0% | 65.0% | 4.0% | 6.0% |
+| Nemotron-Nano | ~3B (MoE) | 33.3% | 8.3% | 30.0% | 10.0% | 5.0% | 8.0% | 2.0% |
+| Qwen-9B | 9B | 46.7% | 95.7% | 17.6% | 85.0% | 80.0% | 38.0% | 75.0% |
+| Trinity-Large | ~13B (MoE) | 40.0% | 75.0% | 35.0% | 80.0% | 67.5% | 42.0% | 72.0% |
+| Qwen-27B | 27B | 40.0% | 75.0% | 20.0% | 75.0% | 75.0% | 48.0% | 72.0% |
+| Gemma4-26B | 26B (MoE) | 26.7% | 13.0% | 94.4% | 0.0% | 10.0% | 2.0% | — |
+| Qwen-35B | ~3B (MoE) | 46.7% | 52.2% | 30.0% | 85.0% | 75.0% | 34.0% | 50.0% |
+| Nemotron-Super | ~12B (MoE) | 60.0% | 39.1% | 45.0% | 35.0% | 65.0% | 42.9% | 60.0% |
+| Qwen-122B | ~10B (MoE) | 46.7% | 56.5% | 36.8% | 70.0% | 75.0% | 28.6% | 71.0% |
+| Qwen-397B | ~17B (MoE) | — | 78.3% | — | 81.7% | — | — | — |
+| Granite-3.3-8B | 8B | 46.7% | 26.7% | 5.0% | 10.0% | 25.0% | 0.0% | 0.0% |
+| Granite-4.0-Micro | 3B | 33.3% | 0.0% | 10.0% | 5.6% | 0.0% | 0.0% | 0.0% |
+| Granite-4.0-H-Small | 32B | 40.0% | 80.0% | 25.0% | 16.7% | 35.0% | 6.1% | 40.0% |
 
-### Phase 1d: Compile baseline results
+*Gemini GAIA/LRB: 0% due to bytes serialization bug (fix applied, re-run pending)
+
+Best-of across runs used where multiple results exist.
+
+### Phase 1e: Compile baseline results
 - [ ] Generate Pareto frontier plots (quality vs cost, vs energy, vs FLOPs)
 - [ ] Generate scaling curves (accuracy vs active params per benchmark)
 - [ ] Compute IPW/IPJ for every (model, benchmark) pair
+- [ ] Re-run Gemini GAIA/LRB with bytes serialization fix
 
 ---
 
 ## Step 2: Optimization
 
 ### Phase 2a: Agent optimization
-- [ ] GEPA: evolve system prompts for monitor_operative on fast benchmarks
-- [ ] GEPA: evolve system prompts for native_openhands on fast benchmarks
-- [ ] DSPy BootstrapFewShot: optimize few-shot examples per benchmark
-- [ ] DSPy MIPROv2: optimize full prompt pipeline
-- [ ] Agent architecture search: test new agent configs
-- [ ] Tool selection optimization: find minimal effective tool sets
-- [ ] Evaluate optimized agents on all 9 models × fast benchmarks
+
+#### Methodology
+
+**Constraint**: Model weights are frozen. We optimize everything else.
+
+**GEPA vs DSPy — what each does**:
+- **GEPA** (evolutionary): Maintains a population of candidate configs. Each
+  generation: evaluate candidates → reflection LM analyzes failures → propose
+  mutations. Strength: can evolve arbitrary text fields (system prompts, tool
+  descriptions) guided by diagnostic feedback. Uses Pareto frontier selection.
+- **DSPy** (compiler): Bootstraps few-shot demonstrations from successful runs.
+  MIPROv2 additionally proposes instruction variants. Strength: finds optimal
+  in-context examples from a library of successful traces.
+
+Both require a **live evaluator** — actually running the agent and scoring the
+output. Static/cached feedback is meaningless for optimization.
+
+**OpenJarvis config surface being optimized** (model held fixed):
+
+```python
+seed_candidate = {
+    # --- Intelligence ---
+    "system_prompt":        "...",        # Agent instructions (text, primary target)
+    "temperature":          "0.3",        # Sampling temperature (continuous 0-1)
+    "max_tokens":           "4096",       # Generation budget (int 256-8192)
+    "top_p":                "0.9",        # Nucleus sampling (continuous 0-1)
+    "repetition_penalty":   "1.0",        # Token repetition penalty (continuous 0.5-2.0)
+    "stop_sequences":       "",           # Early stop tokens (text)
+
+    # --- Agent ---
+    "agent_type":           "monitor_operative",  # Architecture (categorical)
+    "max_turns":            "25",                  # Reasoning budget (int 1-30)
+
+    # --- Tools ---
+    "tool_set":             "think, calculator, ...",  # Subset of available tools
+    "tool_descriptions":    "...",        # How each tool is described to the agent (text)
+    "tool_choice":          "auto",       # Tool selection mode (auto|required|none)
+
+    # --- Skills ---
+    "skills_enabled":       "true",       # Enable skill system (bool)
+    "active_skills":        "*",          # Glob pattern for active skills
+    "skill_catalog":        "...",        # XML catalog text agent sees (text)
+    "skill_few_shot":       "...",        # Skill usage examples (text)
+
+    # --- Memory/Context ---
+    "context_from_memory":  "true",       # Inject memory retrieval (bool)
+    "context_top_k":        "5",          # Memory results to retrieve (int 1-50)
+    "context_max_tokens":   "2048",       # Max memory context injected (int)
+
+    # --- Prompt Assembly ---
+    "soul_max_chars":       "4000",       # Persona section size limit (int)
+    "skill_desc_max_chars": "60",         # Per-skill description truncation (int)
+    "truncation_strategy":  "head_tail",  # How to truncate (categorical)
+
+    # --- Loop Guard ---
+    "max_identical_calls":  "3",          # Max repeated tool calls (int)
+    "ping_pong_window":     "6",          # A-B-A-B detection window (int)
+}
+```
+
+GEPA's `dict[str, str]` seed_candidate optimizes all fields jointly — the
+reflection LM reads evaluation diagnostics and targets whichever fields are
+hurting performance. DSPy wraps the agent as a Module and optimizes the
+few-shot demonstrations + instruction text via MIPROv2.
+
+**Data access configurations** (3 configs for fair ablation):
+
+| Config | Test queries | Test answers | External data | Evaluator |
+|--------|-------------|-------------|---------------|-----------|
+| C1: Zero test data | Hidden | Hidden | GeneralThought-430K, agent-data-collection | LLM judge on external tasks |
+| C2: Queries only | Visible | Hidden | None | LLM judge on benchmark queries |
+| C3: Queries + external | Visible | Hidden | GeneralThought-430K, agent-data-collection | LLM judge on benchmark queries |
+
+For all configs, the evaluator **actually runs the agent** with the candidate
+config on the task subset and scores output via LLM judge. No static/cached
+feedback. Test set answers are never visible to the optimizer.
+
+**Train/test split**: Stratified by benchmark. Each optimizer runs separately
+per benchmark (e.g., optimize for PinchBench, optimize for TauBench). Final
+held-out test is the full benchmark run with best config — never optimized
+against.
+
+#### Axis 1: LLM-driven config optimization (`jarvis optimize run`)
+Proposes full configs, evaluates via live eval, LLM analyzer guides next trial.
+- [x] Create multi-benchmark optimize configs per model
+- [x] Claude Sonnet: DONE (9 trials, best 53.3%, recipe exported)
+- [ ] Qwen-9B: IN PROGRESS (trial 2/20)
+- [ ] Qwen-27B: Server ready (port 8003), queued
+- [ ] Nemotron-Super, Trinity-Large
+
+#### Axis 2: GEPA evolutionary optimization (ICLR 2026 oral, SOTA)
+Evolves the full seed_candidate dict via population-based search + reflection.
+GEPA outperforms MIPROv2 by 13% and GRPO by 20% with 35× fewer rollouts.
+- [x] Build live evaluator (`scripts/optimization/evaluator.py`)
+- [x] GEPA × PinchBench × C2 × Qwen-9B — DONE (3.6 hrs, 51 evals, 45.1% eval acc)
+- [ ] GEPA × ToolCall-15 × C2 × Qwen-9B — RUNNING
+- [ ] GEPA × {PB, TC15} × {C1, C3} × Qwen-9B — queued
+- [ ] GEPA × {PB, TC15, TB} × C2 × Qwen-27B — queued
+- [ ] Extract best configs, compare across data configs
+
+#### Axis 3: DSPy programmatic optimization (4 optimizers compared)
+- **MIPROv2**: Bayesian opt over instructions + few-shot (auto="light")
+- **SIMBA**: Stochastic mini-batch + introspective failure analysis (newest)
+- **BootstrapFewShot**: Teacher-bootstrapped demonstrations (baseline)
+- **COPRO**: Coordinate ascent on instructions only
+- [x] Build DSPy runner (`scripts/optimization/run_dspy.py`)
+- [x] DSPy Bootstrap x TC15 x C2 x Qwen-9B -- DONE (84 min, 16.7%, 0 demos)
+- [ ] DSPy MIPROv2 x PinchBench x C2 x Qwen-9B -- RUNNING
+- [ ] DSPy SIMBA x PinchBench x C2 x Qwen-9B -- queued
+- [ ] DSPy Bootstrap x PinchBench x C2 x Qwen-9B -- queued
+- [ ] DSPy {MIPROv2, SIMBA} x TC15 x C2 x Qwen-9B -- queued
+- [ ] DSPy x {PB, TC15} x C2 x Qwen-27B -- queued
+- [ ] Extract best configs, compare across optimizers
+
+#### Axis 4: Skills-based optimization
+Per-skill few-shot + description optimization via GEPA/DSPy overlays.
+- [x] Sync skills from Hermes (55) + OpenClaw (34K)
+- [x] Run baseline: no_skills=66.7%, skills_on=66.7% (PB, Qwen-9B)
+- [ ] Run benchmarks with skill metadata tagging enabled
+- [ ] Per-skill DSPy optimization → overlay TOML files
+- [ ] Per-skill GEPA optimization → overlay TOML files
+- [ ] 4-condition benchmark: no_skills / skills_on / skills+dspy / skills+gepa
+- [ ] Measure per-skill invocation rates and accuracy contribution
+
+#### Cross-cutting
+- [ ] Compare GEPA vs DSPy vs Axis 1 across all models × benchmarks
+- [ ] Ablation: which config fields matter most? (system_prompt? tool_set? temperature?)
+- [ ] Combine best configs from all axes → final optimized recipe per model
+- [ ] Test set eval: run full benchmarks with final configs (never optimized against)
 
 ### Phase 2b: Intelligence optimization
 Training data:
@@ -213,28 +340,18 @@ Training targets:
 
 ---
 
-## Current Progress
+## Current Progress (Updated 2026-04-09)
 
-### Completed
-- PinchBench harness: fixed and validated (PR #124, #139, #140)
-- TauBench V2 native integration (PR #162)
-- tool_choice + SQLite fixes (PR #163)
-- Gemini thought_signature support
-- Nemotron SGLang serving
-- 8 models evaluated on PinchBench
-- 7 models evaluated on TauBench A+R
-- 4 models evaluated on TauBench Telecom
-- 4 models evaluated on GAIA
+### Step 1: COMPLETE (91/91 benchmarks)
+- 16 models × 7 benchmarks = full scoreboard
+- Cloud baselines: Claude Opus, GPT-5.4, Gemini 3.1 Pro
+- Local models: Qwen family (2B–397B), Trinity-Large, Nemotron-Nano/Super, Gemma4-26B, Granite family (3B–32B)
+- Remaining: Gemini GAIA/LRB re-run (bytes serialization fix applied)
 
-### In Progress
-- Qwen 35B: TauBench telecom + GAIA running
-- ToolCall-15 integration: TODO
-- LiveCodeBench integration: TODO
-- LiveResearchBench integration: TODO
-- Telemetry wiring: TODO
+### Step 2a: IN PROGRESS
+- GEPA + DSPy agent optimization
+- Instructions: `docs/experiments/agent-optimization-instructions.md`
 
-### Blocked
-- Qwen 397B telecom + GAIA: needs 8 GPUs
-- Trinity-Large: not yet served
-- Small models (2B, 9B): configs not yet created
-- GGUF models (Kimi, MiniMax): need llama.cpp/Ollama serving setup
+### Step 2b: PLANNED
+- SFT/LoRA/GRPO training on Qwen models
+- Plan: `docs/experiments/intelligence-optimization-plan.md`

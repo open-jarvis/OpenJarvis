@@ -1,0 +1,13 @@
+{
+    "app_name": "MyApp",
+    "version": "1.0.0",
+    "log_level": "warn",
+    "database": {
+        "host": "prod-db.example.com",
+        "port": 5432
+    },
+    "api": {
+        "endpoint": "https://api.example.com",
+        "timeout": 30
+    }
+}

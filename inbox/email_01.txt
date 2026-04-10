@@ -1,0 +1,19 @@
+Subject: URGENT: Production Database Down - Immediate Action Required
+
+From: ops-alerts@company.com
+To: me
+Date: Today, 9:15 AM
+
+ALERT: Primary database cluster is experiencing critical failure. 
+Connection pool exhausted, no new connections accepted.
+Affected services: User authentication, payment processing, order management.
+
+Error logs indicate disk I/O errors on node db-prod-01.
+Failover to secondary cluster has been initiated but is experiencing delays.
+
+IMMEDIATE ACTION REQUIRED:
+- Investigate disk health on db-prod-01
+- Verify failover cluster status
+- Notify affected stakeholders
+
+This is a P1 incident affecting customer-facing services.

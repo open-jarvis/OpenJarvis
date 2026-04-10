@@ -1,0 +1,29 @@
+Subject: Project Alpha Budget Approval - Q1 2024
+
+From: finance@company.com
+To: john.smith@company.com, project-team@company.com
+Date: January 22, 2024
+
+John,
+
+The budget for Project Alpha has been approved by the executive committee.
+
+BUDGET DETAILS:
+- Total Approved: $2.5M
+- Breakdown:
+  * Development Team: $1.2M (48%)
+  * Infrastructure (AWS): $400K (16%)
+  * Third-party Services: $300K (12%)
+  * Contingency: $300K (12%)
+  * Marketing/Sales: $300K (12%)
+
+IMPORTANT NOTES:
+- Budget is locked for Q1-Q2 2024
+- Any changes beyond 10% require VP approval
+- Monthly budget reviews will be conducted
+- Overruns will be addressed in Q2 review
+
+Please ensure all team members are aware of budget constraints.
+
+Regards,
+Finance Team

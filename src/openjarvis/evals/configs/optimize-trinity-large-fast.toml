@@ -1,0 +1,94 @@
+# Agent optimization: trinity-large on fast benchmarks
+[meta]
+name = "optimize-trinity-large-fast"
+description = "LLM-driven agent optimization for trinity-large on fast benchmarks"
+
+[defaults]
+temperature = 0.6
+max_tokens = 8192
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+max_tokens = 4096
+engine = "cloud"
+
+[[models]]
+name = "arcee-ai/Trinity-Large-Thinking-FP8-Block"
+engine = "vllm"
+num_gpus = 4
+
+[optimize]
+max_trials = 20
+max_samples = 30
+optimizer_model = "claude-sonnet-4-6"
+early_stop_patience = 5
+output_dir = "results/neurips-2026/agent-optimization/optimize/trinity-large/"
+
+[[optimize.benchmarks]]
+name = "pinchbench"
+max_samples = 23
+weight = 1.0
+
+[[optimize.benchmarks]]
+name = "taubench"
+max_samples = 20
+weight = 1.0
+
+[[optimize.benchmarks]]
+name = "toolcall15"
+max_samples = 15
+weight = 1.0
+
+[[optimize.search]]
+name = "agent.type"
+type = "categorical"
+values = ["monitor_operative", "native_react", "native_openhands"]
+description = "Agent architecture"
+
+[[optimize.search]]
+name = "agent.max_turns"
+type = "integer"
+low = 5
+high = 30
+description = "Maximum agent reasoning turns"
+
+[[optimize.search]]
+name = "intelligence.temperature"
+type = "continuous"
+low = 0.0
+high = 1.0
+description = "Generation temperature"
+
+[[optimize.search]]
+name = "intelligence.system_prompt"
+type = "text"
+description = "System prompt to guide agent behavior"
+
+[[optimize.search]]
+name = "tools.tool_set"
+type = "subset"
+values = ["think", "calculator", "code_interpreter", "web_search", "file_read", "file_write", "shell_exec", "http_request", "database_query", "apply_patch", "llm"]
+description = "Tools available to the agent"
+
+[optimize.fixed]
+"engine.backend" = "vllm"
+"intelligence.model" = "arcee-ai/Trinity-Large-Thinking-FP8-Block"
+
+[optimize.constraints]
+rules = [
+    "monitor_operative agent typically needs max_turns >= 10",
+    "Tools must include 'think' for reasoning",
+    "PinchBench requires file_read and shell_exec tools",
+    "TauBench is retail/telecom customer service — needs web_search and database_query",
+]
+
+[[optimize.objectives]]
+metric = "accuracy"
+direction = "maximize"
+weight = 1.0
+
+[[optimize.objectives]]
+metric = "mean_latency_seconds"
+direction = "minimize"
+weight = 0.3
