@@ -17,7 +17,7 @@ jobs:
 
       - name: Fetch clone traffic
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN }}
         run: |
           gh api repos/${{ github.repository }}/traffic/clones > /tmp/traffic.json
 
