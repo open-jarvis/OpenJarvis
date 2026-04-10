@@ -10,6 +10,13 @@
     <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="License">
     <a href="https://discord.gg/wfXEkpPX"><img src="https://img.shields.io/badge/discord-join-7289da?logo=discord&logoColor=white" alt="Discord"></a>
   </p>
+
+  <p>
+    <a href="https://github.com/open-jarvis/OpenJarvis/releases"><img src="https://img.shields.io/github/downloads/open-jarvis/OpenJarvis/total?label=Desktop%20Downloads&logo=github&color=blue" alt="Desktop Downloads"></a>
+    <a href="https://pypistats.org/packages/openjarvisai"><img src="https://img.shields.io/pypi/dm/OpenJarvisAI?label=PyPI%20Installs/month&logo=python&color=blue" alt="PyPI Downloads"></a>
+    <a href="https://github.com/open-jarvis/OpenJarvis"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/open-jarvis/OpenJarvis/main/.github/clone-stats/badge.json" alt="Git Clones"></a>
+    <a href="https://github.com/open-jarvis/OpenJarvis"><img src="https://img.shields.io/github/stars/open-jarvis/OpenJarvis?style=social" alt="GitHub Stars"></a>
+  </p>
 </div>
 
 ---
