@@ -28,6 +28,14 @@ _ANTHROPIC_PREFIXES = ("claude-",)
 _GOOGLE_PREFIXES = ("gemini-",)
 _MINIMAX_PREFIXES = ("MiniMax-",)
 
+# HuggingFace orgs that host local-only quantised models — never route to cloud.
+_LOCAL_HF_ORGS = (
+    "mlx-community/",
+    "bartowski/",
+    "unsloth/",
+    "lmstudio-community/",
+)
+
 
 def _load_keys() -> dict[str, str]:
     """Read cloud-keys.env from disk every call so live updates are picked up."""
@@ -64,6 +72,8 @@ def get_provider(model: str) -> str | None:
         return "google"
     if any(model.startswith(p) for p in _MINIMAX_PREFIXES):
         return "minimax"
+    if any(model.startswith(org) for org in _LOCAL_HF_ORGS):
+        return None  # local model, never route to cloud
     if "/" in model:  # openrouter format: "meta-llama/llama-3-8b"
         return "openrouter"
     return None
