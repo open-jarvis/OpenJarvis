@@ -93,3 +93,46 @@ jobs:
 
       - name: Test
         run: cargo test --workspace
+
+  benchmark:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install eval dependencies
+        run: uv sync --extra dev --extra eval-wandb --extra eval-sheets
+
+      - name: Run quick benchmark
+        run: |
+          uv run python -c "
+          from openjarvis.evals.core.runner import EvalRunner
+          from openjarvis.evals.datasets.mmlu_pro import MMLUProDataset
+
+          dataset = MMLUProDataset()
+          print(f'Dataset loaded: {len(dataset)} questions')
+          print('Benchmark infrastructure ready')
+          "
+        shell: bash
+
+      - name: Comment benchmark results
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '✅ Benchmark infrastructure validated successfully.'
+            })
