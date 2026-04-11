@@ -48,10 +48,18 @@ impl PySkillManifest {
     }
 
     fn verify_signature(&self, public_key_hex: &str) -> bool {
-        let key_bytes: Vec<u8> = (0..public_key_hex.len())
-            .step_by(2)
-            .filter_map(|i| u8::from_str_radix(&public_key_hex[i..i + 2], 16).ok())
-            .collect();
+        if public_key_hex.len() % 2 != 0 {
+            return false;
+        }
+
+        let mut key_bytes = Vec::with_capacity(public_key_hex.len() / 2);
+        for i in (0..public_key_hex.len()).step_by(2) {
+            match u8::from_str_radix(&public_key_hex[i..i + 2], 16) {
+                Ok(byte) => key_bytes.push(byte),
+                Err(_) => return false,
+            }
+        }
+
         openjarvis_skills::verify_signature(&self.inner, &key_bytes)
     }
 }
