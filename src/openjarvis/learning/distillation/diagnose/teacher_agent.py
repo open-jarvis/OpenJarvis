@@ -67,6 +67,7 @@ class TeacherAgent:
         tools: list[DiagnosticTool],
         max_turns: int = 30,
         max_cost_usd: float = 5.0,
+        max_tokens: int = 8192,
     ) -> None:
         self._engine = engine
         self._model = model
@@ -74,6 +75,7 @@ class TeacherAgent:
         self._tool_specs = [t.to_openai_function() for t in tools]
         self._max_turns = max_turns
         self._max_cost_usd = max_cost_usd
+        self._max_tokens = max_tokens
 
     def run(
         self,
@@ -110,9 +112,36 @@ class TeacherAgent:
             gen_kwargs["tools"] = self._tool_specs
 
         for turn in range(1, self._max_turns + 1):
+            # Budget pre-check: don't start a new turn if we've already
+            # exceeded the budget. Without this, the `if not raw_tool_calls`
+            # early-return path below bypasses the post-check entirely,
+            # meaning the final (terminal) turn runs unchecked. Pre-checking
+            # here closes that hole.
+            #
+            # Note: a single turn that ITSELF exceeds the remaining budget
+            # still overshoots. With Opus + ~8k max_tokens + growing input
+            # context, a late-in-conversation final turn can cost $2-4. To
+            # bound this further, lower `max_turns` (caps context growth)
+            # or lower `max_cost_usd` in the config.
+            if total_cost >= self._max_cost_usd:
+                logger.warning(
+                    "Teacher budget exceeded before turn %d: $%.2f >= $%.2f",
+                    turn,
+                    total_cost,
+                    self._max_cost_usd,
+                )
+                return TeacherAgentResult(
+                    content=final_content,
+                    turns=turn - 1,
+                    total_cost_usd=total_cost,
+                    total_tokens=total_tokens,
+                    tool_call_records=tool_call_records,
+                )
+
             result = self._engine.generate(
                 messages=messages,
                 model=self._model,
+                max_tokens=self._max_tokens,
                 **gen_kwargs,
             )
 
@@ -180,18 +209,30 @@ class TeacherAgent:
                     tool_result = json.dumps({"error": f"Unknown tool: {tc_name}"})
                 elapsed_ms = (time.monotonic() - start_time) * 1000
 
+                # Safety cap on tool results to bound context growth.
+                # Primary truncation should happen inside each tool, but this
+                # is defense-in-depth for tools that return too much. 20KB
+                # per call × 30 max_turns = 600KB total, well under Opus's
+                # 1M-token context window.
+                MAX_TOOL_RESULT_CHARS = 20000
+                if len(tool_result) > MAX_TOOL_RESULT_CHARS:
+                    tool_result = (
+                        tool_result[:MAX_TOOL_RESULT_CHARS]
+                        + f"\n...[tool result truncated from {len(tool_result)} chars]"
+                    )
+
                 tool_call_records.append(
                     ToolCallRecord(
                         timestamp=datetime.now(timezone.utc),
                         tool=tc_name,
                         args=tc_args,
-                        result=tool_result[:5000],  # Truncate large results
+                        result=tool_result[:8000],  # Shorter cap for audit log
                         latency_ms=elapsed_ms,
                         cost_usd=0.0,  # Tool calls themselves are free
                     )
                 )
 
-                # Append tool result message
+                # Append tool result message (uses the safety-capped value)
                 messages.append(
                     Message(
                         role=Role.TOOL,

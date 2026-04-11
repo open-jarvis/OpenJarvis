@@ -96,18 +96,34 @@ def build_diagnostic_tools(
         trace = trace_store.get(trace_id)
         if trace is None:
             return json.dumps({"error": f"Trace {trace_id} not found"})
+        # Truncate large free-text fields so a single get_trace call can't
+        # blow out the teacher's context window. monitor_operative traces
+        # can have 50-95K tokens of result text each.
+        query = trace.query or ""
+        result = trace.result or ""
+        max_query, max_result = 2000, 6000
+        query_display = query[:max_query] + (
+            f"...[query truncated from {len(query)} chars]"
+            if len(query) > max_query
+            else ""
+        )
+        result_display = result[:max_result] + (
+            f"...[result truncated from {len(result)} chars]"
+            if len(result) > max_result
+            else ""
+        )
         return json.dumps(
             {
                 "trace_id": trace.trace_id,
-                "query": trace.query,
+                "query": query_display,
                 "agent": trace.agent,
                 "model": trace.model,
                 "outcome": trace.outcome,
                 "feedback": getattr(trace, "feedback", None),
-                "result": trace.result,
+                "result": result_display,
                 "total_tokens": trace.total_tokens,
                 "total_latency_seconds": trace.total_latency_seconds,
-                "steps": [str(s) for s in getattr(trace, "steps", [])],
+                "steps": [str(s)[:200] for s in getattr(trace, "steps", [])[:20]],
             },
             default=str,
         )
@@ -116,7 +132,33 @@ def build_diagnostic_tools(
     # search_traces
     # ------------------------------------------------------------------
     def _search_traces(query: str, limit: int = 20) -> str:
-        results = trace_store.search(query, limit=limit)
+        # Cap limit to avoid pathological calls that would OOM the context.
+        # 20 x 95K-token traces = ~1.9M tokens, well over Opus's 1M window.
+        limit = max(1, min(limit, 20))
+        try:
+            results = trace_store.search(query, limit=limit)
+        except Exception as e:
+            # SQLite FTS5 raises "unknown special query" for patterns with
+            # unescaped special chars (- / . etc). Return a structured error
+            # so the teacher can retry with a cleaner query instead of the
+            # call being swallowed and context still growing.
+            return json.dumps(
+                {
+                    "error": f"search_traces failed: {e}",
+                    "hint": "FTS5 special chars (- / . : etc) need escaping. Try a simpler keyword query.",
+                }
+            )
+        # Truncate per-trace text fields. Each trace's `result` column can be
+        # 50-95K tokens; returning raw content would blow the context window.
+        max_query_per_trace = 300
+        max_result_per_trace = 1500
+        for r in results:
+            q = r.get("query") or ""
+            if len(q) > max_query_per_trace:
+                r["query"] = q[:max_query_per_trace] + f"...[{len(q)} chars]"
+            res = r.get("result") or ""
+            if len(res) > max_result_per_trace:
+                r["result"] = res[:max_result_per_trace] + f"...[{len(res)} chars]"
         return json.dumps(results, default=str)
 
     # ------------------------------------------------------------------
