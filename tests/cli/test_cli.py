@@ -7,6 +7,7 @@ from unittest import mock
 
 from click.testing import CliRunner
 
+import openjarvis
 from openjarvis.cli import cli
 
 
@@ -19,7 +20,7 @@ class TestCLI:
     def test_version(self) -> None:
         result = CliRunner().invoke(cli, ["--version"])
         assert result.exit_code == 0
-        assert "0.1.0" in result.output
+        assert openjarvis.__version__ in result.output
 
     def test_ask_requires_query(self) -> None:
         result = CliRunner().invoke(cli, ["ask"])
