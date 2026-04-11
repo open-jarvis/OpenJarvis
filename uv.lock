@@ -4776,8 +4776,8 @@ wheels = [
 ]
 
 [[package]]
-name = "openjarvisai"
-version = "0.1.0"
+name = "openjarvis"
+version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
