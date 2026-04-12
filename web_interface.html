@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jarvis — Arsenij's Personal Assistant</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0a0a0f;
+    color: #e0e0e0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    padding: 16px 24px;
+    background: #111118;
+    border-bottom: 1px solid #222;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .logo {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, #4f8ef7, #8b5cf6);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; font-weight: bold; color: white;
+  }
+
+  header h1 { font-size: 18px; font-weight: 600; }
+  header span { font-size: 12px; color: #666; margin-left: 4px; }
+
+  .status-dot {
+    width: 8px; height: 8px;
+    background: #22c55e;
+    border-radius: 50%;
+    margin-left: auto;
+    box-shadow: 0 0 6px #22c55e;
+  }
+
+  #messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .message {
+    display: flex;
+    gap: 12px;
+    max-width: 800px;
+    animation: fadeIn 0.2s ease;
+  }
+
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .message.user { margin-left: auto; flex-direction: row-reverse; }
+
+  .avatar {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  .message.jarvis .avatar { background: linear-gradient(135deg, #4f8ef7, #8b5cf6); color: white; }
+  .message.user .avatar { background: #2a2a3a; color: #aaa; }
+
+  .bubble {
+    padding: 12px 16px;
+    border-radius: 16px;
+    line-height: 1.6;
+    font-size: 14px;
+    max-width: 600px;
+  }
+
+  .message.jarvis .bubble {
+    background: #161622;
+    border: 1px solid #222;
+    border-top-left-radius: 4px;
+  }
+
+  .message.user .bubble {
+    background: #1a1a4a;
+    border: 1px solid #2a2a6a;
+    border-top-right-radius: 4px;
+  }
+
+  .bubble pre {
+    background: #0d0d18;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 12px;
+    margin: 8px 0;
+    overflow-x: auto;
+    font-size: 13px;
+  }
+
+  .bubble code { font-family: 'Fira Code', monospace; }
+
+  .typing {
+    display: flex;
+    gap: 4px;
+    padding: 14px 16px;
+  }
+
+  .typing span {
+    width: 6px; height: 6px;
+    background: #555;
+    border-radius: 50%;
+    animation: bounce 1.2s infinite;
+  }
+
+  .typing span:nth-child(2) { animation-delay: 0.2s; }
+  .typing span:nth-child(3) { animation-delay: 0.4s; }
+
+  @keyframes bounce {
+    0%, 60%, 100% { transform: translateY(0); }
+    30% { transform: translateY(-6px); }
+  }
+
+  #input-area {
+    padding: 16px 24px;
+    background: #111118;
+    border-top: 1px solid #222;
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+  }
+
+  #input {
+    flex: 1;
+    background: #1a1a28;
+    border: 1px solid #333;
+    border-radius: 12px;
+    padding: 12px 16px;
+    color: #e0e0e0;
+    font-size: 14px;
+    resize: none;
+    min-height: 44px;
+    max-height: 120px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  #input:focus { border-color: #4f8ef7; }
+  #input::placeholder { color: #555; }
+
+  button {
+    background: linear-gradient(135deg, #4f8ef7, #8b5cf6);
+    border: none;
+    border-radius: 10px;
+    width: 44px; height: 44px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: opacity 0.2s, transform 0.1s;
+    flex-shrink: 0;
+  }
+
+  button:hover { opacity: 0.9; transform: scale(1.05); }
+  button:active { transform: scale(0.95); }
+  button svg { width: 18px; height: 18px; fill: white; }
+
+  #mic-btn {
+    background: #1a1a28;
+    border: 1px solid #333;
+  }
+
+  #mic-btn.recording {
+    background: #4a0000;
+    border-color: #f44;
+    animation: pulse 1s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(244,68,68,0.4); }
+    50% { box-shadow: 0 0 0 8px rgba(244,68,68,0); }
+  }
+
+  .welcome {
+    text-align: center;
+    padding: 60px 24px;
+    color: #444;
+  }
+
+  .welcome h2 { font-size: 28px; color: #666; margin-bottom: 8px; }
+  .welcome p { font-size: 14px; }
+
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">J</div>
+  <div>
+    <h1>Jarvis <span>by Arsenij</span></h1>
+  </div>
+  <div class="status-dot" id="status-dot"></div>
+</header>
+
+<div id="messages">
+  <div class="welcome" id="welcome">
+    <h2>Hallo Arsenij</h2>
+    <p>Jarvis ist bereit. Schreib etwas oder halte die Mikrofon-Taste gedrückt.</p>
+  </div>
+</div>
+
+<div id="input-area">
+  <textarea id="input" placeholder="Schreib Jarvis etwas..." rows="1"></textarea>
+  <button id="mic-btn" title="Sprachaufnahme">
+    <svg viewBox="0 0 24 24"><path d="M12 1a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4zm-1 14.93A7.001 7.001 0 0 1 5 9H3a9 9 0 0 0 8 8.94V20H8v2h8v-2h-3v-2.07A9 9 0 0 0 21 9h-2a7 7 0 0 1-6 6.93z"/></svg>
+  </button>
+  <button id="send-btn" title="Senden">
+    <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg>
+  </button>
+</div>
+
+<script>
+const API = 'http://localhost:11434/api/chat';
+const MODEL = 'qwen3:8b';
+const SYSTEM = `Du bist Jarvis, der persoenliche KI-Assistent von Arsenij.
+Du agierst wie eine Kombination aus Siri, Gemini und einem smarten Mitarbeiter.
+WICHTIG: Du heisst Jarvis. Der Nutzer heisst Arsenij.
+Antworte in der Sprache in der Arsenij schreibt (Deutsch oder Englisch).
+Sei direkt, hilfsbereit und auf den Punkt.`;
+
+let history = [{ role: 'system', content: SYSTEM }];
+let isRecording = false;
+let mediaRecorder = null;
+let recognition = null;
+
+const messagesEl = document.getElementById('messages');
+const inputEl = document.getElementById('input');
+const sendBtn = document.getElementById('send-btn');
+const micBtn = document.getElementById('mic-btn');
+const statusDot = document.getElementById('status-dot');
+
+// Check if Ollama is reachable
+async function checkStatus() {
+  try {
+    const r = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(2000) });
+    statusDot.style.background = r.ok ? '#22c55e' : '#f59e0b';
+    statusDot.style.boxShadow = r.ok ? '0 0 6px #22c55e' : '0 0 6px #f59e0b';
+  } catch {
+    statusDot.style.background = '#ef4444';
+    statusDot.style.boxShadow = '0 0 6px #ef4444';
+  }
+}
+checkStatus();
+setInterval(checkStatus, 10000);
+
+function addMessage(role, text) {
+  const welcome = document.getElementById('welcome');
+  if (welcome) welcome.remove();
+
+  const div = document.createElement('div');
+  div.className = `message ${role}`;
+
+  const avatar = document.createElement('div');
+  avatar.className = 'avatar';
+  avatar.textContent = role === 'jarvis' ? 'J' : 'A';
+
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  bubble.innerHTML = formatText(text);
+
+  div.appendChild(avatar);
+  div.appendChild(bubble);
+  messagesEl.appendChild(div);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return bubble;
+}
+
+function formatText(text) {
+  // Simple markdown: code blocks
+  text = text.replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+  text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+  text = text.replace(/\n/g, '<br>');
+  return text;
+}
+
+function showTyping() {
+  const div = document.createElement('div');
+  div.className = 'message jarvis';
+  div.id = 'typing-indicator';
+
+  const avatar = document.createElement('div');
+  avatar.className = 'avatar';
+  avatar.textContent = 'J';
+
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble typing';
+  bubble.innerHTML = '<span></span><span></span><span></span>';
+
+  div.appendChild(avatar);
+  div.appendChild(bubble);
+  messagesEl.appendChild(div);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function removeTyping() {
+  const el = document.getElementById('typing-indicator');
+  if (el) el.remove();
+}
+
+async function sendMessage(text) {
+  if (!text.trim()) return;
+
+  addMessage('user', text);
+  history.push({ role: 'user', content: text });
+  inputEl.value = '';
+  inputEl.style.height = 'auto';
+  showTyping();
+
+  try {
+    const resp = await fetch(API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: MODEL, messages: history, stream: false })
+    });
+
+    const data = await resp.json();
+    const reply = data.message?.content || 'Keine Antwort erhalten.';
+
+    removeTyping();
+    addMessage('jarvis', reply);
+    history.push({ role: 'assistant', content: reply });
+
+  } catch (err) {
+    removeTyping();
+    addMessage('jarvis', 'Fehler: Kann Ollama nicht erreichen. Stelle sicher dass Ollama läuft (ollama serve).');
+  }
+}
+
+// Send button
+sendBtn.onclick = () => sendMessage(inputEl.value);
+
+// Enter to send (Shift+Enter for newline)
+inputEl.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage(inputEl.value);
+  }
+});
+
+// Auto-resize textarea
+inputEl.addEventListener('input', () => {
+  inputEl.style.height = 'auto';
+  inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';
+});
+
+// Voice input via Web Speech API
+micBtn.onclick = () => {
+  if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+    alert('Spracherkennung wird in diesem Browser nicht unterstuetzt. Nutze Chrome oder Edge.');
+    return;
+  }
+
+  if (isRecording) {
+    recognition?.stop();
+    return;
+  }
+
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  recognition = new SpeechRec();
+  recognition.lang = 'de-DE';
+  recognition.interimResults = false;
+  recognition.continuous = false;
+
+  recognition.onstart = () => {
+    isRecording = true;
+    micBtn.classList.add('recording');
+  };
+
+  recognition.onresult = (e) => {
+    const transcript = e.results[0][0].transcript;
+    inputEl.value = transcript;
+    sendMessage(transcript);
+  };
+
+  recognition.onend = () => {
+    isRecording = false;
+    micBtn.classList.remove('recording');
+  };
+
+  recognition.onerror = () => {
+    isRecording = false;
+    micBtn.classList.remove('recording');
+  };
+
+  recognition.start();
+};
+</script>
+</body>
+</html>
