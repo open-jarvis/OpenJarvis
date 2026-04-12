@@ -1196,6 +1196,259 @@ async fn speech_health(api_url: String) -> Result<serde_json::Value, String> {
 }
 
 // ---------------------------------------------------------------------------
+// Native macOS overlay — NSPanel + WKWebView, entirely bypassing Tauri's
+// window management so we get proper always-on-top, transparency, non-
+// activating panel behaviour and cross-Space support.
+// ---------------------------------------------------------------------------
+
+#[cfg(target_os = "macos")]
+mod native_overlay {
+    use objc::declare::ClassDecl;
+    use objc::runtime::{Class, Object, Sel, BOOL, NO, YES};
+    use objc::{class, msg_send, sel, sel_impl};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// Raw pointer to the NSPanel, stored as usize for atomicity.
+    static PANEL_PTR: AtomicUsize = AtomicUsize::new(0);
+    /// Raw pointer to the previously-frontmost NSRunningApplication.
+    static PREV_APP: AtomicUsize = AtomicUsize::new(0);
+
+    // CoreGraphics geometry types expected by AppKit.
+    #[repr(C)]
+    #[derive(Copy, Clone)]
+    struct CGPoint {
+        x: f64,
+        y: f64,
+    }
+    #[repr(C)]
+    #[derive(Copy, Clone)]
+    struct CGSize {
+        width: f64,
+        height: f64,
+    }
+    #[repr(C)]
+    #[derive(Copy, Clone)]
+    struct CGRect {
+        origin: CGPoint,
+        size: CGSize,
+    }
+
+    /// Create an autoreleased NSString from a Rust &str.
+    unsafe fn nsstring(s: &str) -> *mut Object {
+        let obj: *mut Object = msg_send![class!(NSString), alloc];
+        msg_send![obj,
+            initWithBytes: s.as_ptr()
+            length: s.len()
+            encoding: 4usize  // NSUTF8StringEncoding
+        ]
+    }
+
+    // ------------------------------------------------------------------
+    // Public API (must be called on the main thread)
+    // ------------------------------------------------------------------
+
+    /// Build the native overlay panel.  Call once during app setup.
+    pub unsafe fn create(html: &str, api_port: u16) {
+        // --- Custom NSPanel subclass that accepts keyboard input ------
+        if Class::get("JarvisOverlayPanel").is_none() {
+            let sup = Class::get("NSPanel").unwrap();
+            let mut decl = ClassDecl::new("JarvisOverlayPanel", sup).unwrap();
+            extern "C" fn yes(_: &Object, _: Sel) -> BOOL {
+                YES
+            }
+            decl.add_method(
+                sel!(canBecomeKeyWindow),
+                yes as extern "C" fn(&Object, Sel) -> BOOL,
+            );
+            decl.register();
+        }
+
+        // --- WKScriptMessageHandler so JS can call hide() ------------
+        if Class::get("JarvisOverlayMsgHandler").is_none() {
+            let sup = Class::get("NSObject").unwrap();
+            let mut decl = ClassDecl::new("JarvisOverlayMsgHandler", sup).unwrap();
+            extern "C" fn on_msg(_: &Object, _: Sel, _ctrl: *mut Object, msg: *mut Object) {
+                unsafe {
+                    let body: *mut Object = msg_send![msg, body];
+                    if body.is_null() {
+                        return;
+                    }
+                    let c: *const std::os::raw::c_char = msg_send![body, UTF8String];
+                    if c.is_null() {
+                        return;
+                    }
+                    if let Ok("hide") = std::ffi::CStr::from_ptr(c).to_str() {
+                        hide();
+                    }
+                }
+            }
+            decl.add_method(
+                sel!(userContentController:didReceiveScriptMessage:),
+                on_msg as extern "C" fn(&Object, Sel, *mut Object, *mut Object),
+            );
+            decl.register();
+        }
+
+        // --- Create the NSPanel --------------------------------------
+        let frame = CGRect {
+            origin: CGPoint { x: 0.0, y: 0.0 },
+            size: CGSize {
+                width: 560.0,
+                height: 400.0,
+            },
+        };
+        // NSWindowStyleMaskNonactivatingPanel = 1 << 7
+        let style: u64 = 1 << 7;
+
+        let cls = Class::get("JarvisOverlayPanel").unwrap();
+        let panel: *mut Object = msg_send![cls, alloc];
+        let panel: *mut Object = msg_send![panel,
+            initWithContentRect: frame
+            styleMask: style
+            backing: 2u64       // NSBackingStoreBuffered
+            defer: NO
+        ];
+
+        // Window level — NSFloatingWindowLevel (3).
+        let _: () = msg_send![panel, setLevel: 3_i64];
+        // canJoinAllSpaces (1) | fullScreenAuxiliary (1<<8)
+        let _: () = msg_send![panel, setCollectionBehavior: 257_u64];
+        let _: () = msg_send![panel, setHidesOnDeactivate: NO];
+        let _: () = msg_send![panel, setOpaque: NO];
+        let _: () = msg_send![panel, setHasShadow: YES];
+        let _: () = msg_send![panel, setMovableByWindowBackground: YES];
+
+        let clear: *mut Object = msg_send![class!(NSColor), clearColor];
+        let _: () = msg_send![panel, setBackgroundColor: clear];
+        let _: () = msg_send![panel, center];
+
+        // --- WKWebView -----------------------------------------------
+        let cfg: *mut Object = msg_send![class!(WKWebViewConfiguration), alloc];
+        let cfg: *mut Object = msg_send![cfg, init];
+
+        // Attach message handler ("overlay" channel)
+        let hcls = Class::get("JarvisOverlayMsgHandler").unwrap();
+        let handler: *mut Object = msg_send![hcls, alloc];
+        let handler: *mut Object = msg_send![handler, init];
+        let uc: *mut Object = msg_send![cfg, userContentController];
+        let _: () = msg_send![uc,
+            addScriptMessageHandler: handler
+            name: nsstring("overlay")
+        ];
+
+        let wv: *mut Object = msg_send![class!(WKWebView), alloc];
+        let wv: *mut Object = msg_send![wv,
+            initWithFrame: frame
+            configuration: cfg
+        ];
+
+        // Transparent webview background
+        let key = nsstring("drawsBackground");
+        let no_num: *mut Object = msg_send![class!(NSNumber), numberWithBool: NO];
+        let _: () = msg_send![wv, setValue: no_num forKey: key];
+
+        let _: () = msg_send![panel, setContentView: wv];
+
+        // Load HTML.  Use the API server as the base URL so fetch()
+        // calls in the HTML are same-origin (no CORS issues).
+        let base_str = nsstring(&format!("http://127.0.0.1:{}", api_port));
+        let base_url: *mut Object = msg_send![class!(NSURL), URLWithString: base_str];
+        let _: () = msg_send![wv,
+            loadHTMLString: nsstring(html)
+            baseURL: base_url
+        ];
+
+        PANEL_PTR.store(panel as usize, Ordering::SeqCst);
+    }
+
+    pub unsafe fn toggle() {
+        let ptr = PANEL_PTR.load(Ordering::SeqCst);
+        if ptr == 0 {
+            return;
+        }
+        let panel = ptr as *mut Object;
+        let vis: BOOL = msg_send![panel, isVisible];
+        if vis != NO {
+            hide();
+        } else {
+            show();
+        }
+    }
+
+    pub unsafe fn show() {
+        let ptr = PANEL_PTR.load(Ordering::SeqCst);
+        if ptr == 0 {
+            return;
+        }
+        let panel = ptr as *mut Object;
+
+        // Remember the currently-frontmost app so we can restore it.
+        let ws: *mut Object = msg_send![class!(NSWorkspace), sharedWorkspace];
+        let front: *mut Object = msg_send![ws, frontmostApplication];
+        if !front.is_null() {
+            let _: () = msg_send![front, retain];
+            let old = PREV_APP.swap(front as usize, Ordering::SeqCst);
+            if old != 0 {
+                let _: () = msg_send![(old as *mut Object), release];
+            }
+        }
+
+        // Activate our process so the panel receives keyboard input.
+        let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
+        let _: () = msg_send![app, activateIgnoringOtherApps: YES];
+        let nil: *mut Object = std::ptr::null_mut();
+        let _: () = msg_send![panel, makeKeyAndOrderFront: nil];
+
+        // Focus the text field inside the webview.
+        let wv: *mut Object = msg_send![panel, contentView];
+        let js = nsstring("document.getElementById('input').focus()");
+        let _: () = msg_send![wv, evaluateJavaScript: js completionHandler: nil];
+    }
+
+    pub unsafe fn hide() {
+        let ptr = PANEL_PTR.load(Ordering::SeqCst);
+        if ptr == 0 {
+            return;
+        }
+        let panel = ptr as *mut Object;
+        let nil: *mut Object = std::ptr::null_mut();
+        let _: () = msg_send![panel, orderOut: nil];
+
+        // Give focus back to whatever app was frontmost before.
+        let prev = PREV_APP.swap(0, Ordering::SeqCst);
+        if prev != 0 {
+            let prev_app = prev as *mut Object;
+            let _: BOOL = msg_send![prev_app, activateWithOptions: 2_u64];
+            let _: () = msg_send![prev_app, release];
+        }
+    }
+}
+
+/// Dispatch a closure onto the main thread via GCD.
+#[cfg(target_os = "macos")]
+fn on_main_thread(f: impl FnOnce() + Send + 'static) {
+    dispatch::Queue::main().exec_async(f);
+}
+
+// ---------------------------------------------------------------------------
+// Overlay Tauri commands (thin wrappers that dispatch to the main thread)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+async fn toggle_overlay() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    on_main_thread(|| unsafe { native_overlay::toggle() });
+    Ok(())
+}
+
+#[tauri::command]
+async fn hide_overlay() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    on_main_thread(|| unsafe { native_overlay::hide() });
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // App entry point
 // ---------------------------------------------------------------------------
 
@@ -1262,6 +1515,30 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            // Create native macOS overlay panel
+            #[cfg(target_os = "macos")]
+            unsafe {
+                native_overlay::create(include_str!("overlay.html"), JARVIS_PORT);
+            }
+
+            // Register Cmd+Shift+Space to toggle the overlay
+            {
+                use tauri_plugin_global_shortcut::{
+                    Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState,
+                };
+                let sc = Shortcut::new(Some(Modifiers::META | Modifiers::SHIFT), Code::Space);
+                if let Err(e) = app.global_shortcut().on_shortcut(sc, |_app, _sc, ev| {
+                    if ev.state == ShortcutState::Pressed {
+                        #[cfg(target_os = "macos")]
+                        unsafe {
+                            native_overlay::toggle();
+                        }
+                    }
+                }) {
+                    eprintln!("Warning: could not register Cmd+Shift+Space: {e}");
+                }
+            }
+
             // Auto-start backend services on launch
             tauri::async_runtime::spawn(boot_backend(boot_backend_ref, boot_status_ref));
 
@@ -1292,6 +1569,8 @@ pub fn run() {
             delete_ollama_model,
             save_cloud_key,
             get_cloud_key_status,
+            toggle_overlay,
+            hide_overlay,
         ])
         .build(tauri::generate_context!())
         .expect("error while building OpenJarvis Desktop")
