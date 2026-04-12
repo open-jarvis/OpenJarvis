@@ -240,21 +240,25 @@ async function send(){
 
 window.addEventListener('focus',()=>input.focus());
 
-// --- Drag-to-move: click anywhere except input/buttons to drag ---
+// --- Drag-to-move: click anywhere to drag, with threshold so
+//     clicks on inputs/buttons still work normally ---
 (function(){
-  let dragging=false,sx=0,sy=0;
+  let down=false,dragging=false,sx=0,sy=0;
+  const THRESH=3;
   document.addEventListener('mousedown',e=>{
-    if(e.target.closest('input,button,textarea,select,[contenteditable]'))return;
-    dragging=true;sx=e.screenX;sy=e.screenY;
-    e.preventDefault(); // keep input focused
+    down=true;dragging=false;sx=e.screenX;sy=e.screenY;
   });
   document.addEventListener('mousemove',e=>{
-    if(!dragging)return;
+    if(!down)return;
     const dx=e.screenX-sx,dy=e.screenY-sy;
+    if(!dragging){
+      if(Math.abs(dx)+Math.abs(dy)<THRESH)return;
+      dragging=true;
+    }
     sx=e.screenX;sy=e.screenY;
     try{window.webkit.messageHandlers.overlay.postMessage('drag:'+dx+','+dy)}catch{}
   });
-  document.addEventListener('mouseup',()=>{dragging=false});
+  document.addEventListener('mouseup',()=>{down=false;dragging=false});
 })();
 </script>
 </body>
