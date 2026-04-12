@@ -49,12 +49,20 @@ html,body{
   box-shadow:0 20px 40px -12px rgba(0,0,0,0.4);
   flex-shrink:0;
 }
+#model-wrap{
+  position:relative;flex-shrink:0;
+}
 #model-select{
   background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.6);
-  border:none;border-radius:8px;padding:4px 6px;
+  border:none;border-radius:8px;padding:4px 22px 4px 8px;
   font-size:11px;outline:none;cursor:pointer;
-  max-width:130px;flex-shrink:0;
+  max-width:140px;
   -webkit-appearance:none;appearance:none;
+}
+#model-select:hover{background:rgba(255,255,255,0.14);color:#fff}
+#model-wrap .arrow{
+  position:absolute;right:7px;top:50%;transform:translateY(-50%);
+  pointer-events:none;color:rgba(255,255,255,0.35);
 }
 #model-select option,#model-select optgroup{
   background:#1e1e1e;color:#eee;
@@ -83,7 +91,10 @@ html,body{
     <button id="new-btn" class="btn" title="New conversation">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
     </button>
-    <select id="model-select"><option>loading...</option></select>
+    <div id="model-wrap">
+      <select id="model-select"><option>loading...</option></select>
+      <svg class="arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
     <input id="input" type="text" placeholder="Ask Jarvis anything..." autofocus>
     <button id="send-btn" class="btn" disabled title="Send">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
