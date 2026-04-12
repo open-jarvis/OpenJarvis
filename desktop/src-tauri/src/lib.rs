@@ -1244,6 +1244,28 @@ mod native_overlay {
     }
 
     // ------------------------------------------------------------------
+    // Conversation persistence
+    // ------------------------------------------------------------------
+
+    fn conversation_path() -> std::path::PathBuf {
+        std::path::PathBuf::from(super::home_dir())
+            .join(".openjarvis")
+            .join("overlay-conversation.json")
+    }
+
+    pub fn load_conversation() -> String {
+        std::fs::read_to_string(conversation_path()).unwrap_or_else(|_| "[]".into())
+    }
+
+    fn save_conversation(json: &str) {
+        let path = conversation_path();
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(&path, json);
+    }
+
+    // ------------------------------------------------------------------
     // Public API (must be called on the main thread)
     // ------------------------------------------------------------------
 
@@ -1277,8 +1299,14 @@ mod native_overlay {
                     if c.is_null() {
                         return;
                     }
-                    if let Ok("hide") = std::ffi::CStr::from_ptr(c).to_str() {
-                        hide();
+                    if let Ok(s) = std::ffi::CStr::from_ptr(c).to_str() {
+                        if s == "hide" {
+                            hide();
+                        } else if let Some(json) = s.strip_prefix("save:") {
+                            save_conversation(json);
+                        } else if let Some(coords) = s.strip_prefix("drag:") {
+                            drag(coords);
+                        }
                     }
                 }
             }
@@ -1349,12 +1377,16 @@ mod native_overlay {
 
         let _: () = msg_send![panel, setContentView: wv];
 
-        // Load HTML.  Use the API server as the base URL so fetch()
-        // calls in the HTML are same-origin (no CORS issues).
+        // Inject saved conversation into the HTML template, then load it.
+        // Use the API server as the base URL so fetch() is same-origin.
+        // Escape "</" so the JSON can't prematurely close the <script> tag.
+        // ("\/" is valid JSON — resolves back to "/" when parsed.)
+        let saved = load_conversation().replace("</", "<\\/");
+        let filled = html.replace("__SAVED_MESSAGES__", &saved);
         let base_str = nsstring(&format!("http://127.0.0.1:{}", api_port));
         let base_url: *mut Object = msg_send![class!(NSURL), URLWithString: base_str];
         let _: () = msg_send![wv,
-            loadHTMLString: nsstring(html)
+            loadHTMLString: nsstring(&filled)
             baseURL: base_url
         ];
 
@@ -1405,6 +1437,28 @@ mod native_overlay {
         let _: () = msg_send![wv, evaluateJavaScript: js completionHandler: nil];
     }
 
+    /// Move the panel by a screen-space delta (called from JS drag handler).
+    unsafe fn drag(coords: &str) {
+        let ptr = PANEL_PTR.load(Ordering::SeqCst);
+        if ptr == 0 {
+            return;
+        }
+        let panel = ptr as *mut Object;
+        let Some((dxs, dys)) = coords.split_once(',') else {
+            return;
+        };
+        let Ok(dx) = dxs.parse::<f64>() else { return };
+        let Ok(dy) = dys.parse::<f64>() else { return };
+        // NSWindow frame origin is bottom-left; screen Y increases upward,
+        // but mouse screenY increases downward, so invert dy.
+        let frame: CGRect = msg_send![panel, frame];
+        let origin = CGPoint {
+            x: frame.origin.x + dx,
+            y: frame.origin.y - dy,
+        };
+        let _: () = msg_send![panel, setFrameOrigin: origin];
+    }
+
     pub unsafe fn hide() {
         let ptr = PANEL_PTR.load(Ordering::SeqCst);
         if ptr == 0 {
@@ -1433,6 +1487,16 @@ fn on_main_thread(f: impl FnOnce() + Send + 'static) {
 // ---------------------------------------------------------------------------
 // Overlay Tauri commands (thin wrappers that dispatch to the main thread)
 // ---------------------------------------------------------------------------
+
+#[tauri::command]
+async fn get_overlay_conversation() -> Result<String, String> {
+    #[cfg(target_os = "macos")]
+    {
+        return Ok(native_overlay::load_conversation());
+    }
+    #[cfg(not(target_os = "macos"))]
+    Ok("[]".into())
+}
 
 #[tauri::command]
 async fn toggle_overlay() -> Result<(), String> {
@@ -1571,6 +1635,7 @@ pub fn run() {
             get_cloud_key_status,
             toggle_overlay,
             hide_overlay,
+            get_overlay_conversation,
         ])
         .build(tauri::generate_context!())
         .expect("error while building OpenJarvis Desktop")

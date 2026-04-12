@@ -2,125 +2,161 @@
 <html>
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{
   background:transparent;
-  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;
-  color:#fff;
-  height:100%;
-  overflow:hidden;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;
+  color:#fff;height:100%;overflow:hidden;
 }
 #container{
-  display:flex;flex-direction:column;justify-content:flex-end;
-  height:100%;padding:12px;
+  display:flex;flex-direction:column;
+  height:100%;padding:8px 12px;
 }
-#response{
-  display:none;
-  margin-bottom:8px;padding:16px;
+#messages{
+  flex:1;overflow-y:auto;
+  display:flex;flex-direction:column;gap:6px;
+  margin-bottom:8px;padding:12px;
   border-radius:16px;
   background:rgba(30,30,30,0.88);
   -webkit-backdrop-filter:blur(50px);
-  backdrop-filter:blur(50px);
-  border:1px solid rgba(255,255,255,0.06);
-  font-size:13px;line-height:1.6;
-  color:rgba(255,255,255,0.88);
-  max-height:280px;overflow-y:auto;
+}
+#messages:empty{display:none}
+#messages::-webkit-scrollbar{width:6px}
+#messages::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.15);border-radius:3px}
+#messages::-webkit-scrollbar-track{background:transparent}
+.msg{
+  padding:8px 12px;border-radius:12px;
+  font-size:13px;line-height:1.55;max-width:90%;
   white-space:pre-wrap;word-wrap:break-word;
   -webkit-user-select:text;user-select:text;
 }
-#response.visible{display:block}
+.msg.user{
+  align-self:flex-end;
+  background:rgba(59,130,246,0.35);
+  color:rgba(255,255,255,0.95);
+}
+.msg.assistant{
+  align-self:flex-start;
+  background:rgba(255,255,255,0.06);
+  color:rgba(255,255,255,0.88);
+}
 #input-bar{
-  display:flex;align-items:center;gap:8px;
-  border-radius:16px;padding:8px 8px 8px 4px;
+  display:flex;align-items:center;gap:6px;
+  border-radius:16px;padding:6px 8px;
   background:rgba(30,30,30,0.88);
   -webkit-backdrop-filter:blur(50px);
-  backdrop-filter:blur(50px);
-  border:1px solid rgba(255,255,255,0.08);
-  box-shadow:0 25px 50px -12px rgba(0,0,0,0.5);
+  box-shadow:0 20px 40px -12px rgba(0,0,0,0.4);
+  flex-shrink:0;
 }
 #input{
   flex:1;background:transparent;border:none;outline:none;
-  color:#fff;font-size:14px;padding:6px 12px;
+  color:#fff;font-size:14px;padding:6px 10px;
 }
 #input::placeholder{color:rgba(255,255,255,0.35)}
 .btn{
   display:flex;align-items:center;justify-content:center;
-  width:32px;height:32px;border-radius:50%;border:none;
-  background:rgba(255,255,255,0.15);color:#fff;cursor:pointer;
-  transition:background .15s;flex-shrink:0;
+  width:30px;height:30px;border-radius:50%;border:none;
+  background:rgba(255,255,255,0.10);
+  color:rgba(255,255,255,0.6);cursor:pointer;
+  transition:background .15s,color .15s;flex-shrink:0;
 }
-.btn:hover{background:rgba(255,255,255,0.25)}
-.btn:disabled{opacity:0.3;cursor:default}
-.btn:disabled:hover{background:rgba(255,255,255,0.15)}
-#response::-webkit-scrollbar{width:6px}
-#response::-webkit-scrollbar-track{background:transparent}
-#response::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.15);border-radius:3px}
+.btn:hover{background:rgba(255,255,255,0.20);color:#fff}
+.btn:disabled{opacity:0.25;cursor:default}
+.btn:disabled:hover{background:rgba(255,255,255,0.10)}
 </style>
 </head>
 <body>
 <div id="container">
-  <div id="response"></div>
+  <div id="messages"></div>
   <div id="input-bar">
+    <button id="new-btn" class="btn" title="New conversation">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+    </button>
     <input id="input" type="text" placeholder="Ask Jarvis anything..." autofocus>
     <button id="send-btn" class="btn" disabled title="Send">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-           stroke="currentColor" stroke-width="2"
-           stroke-linecap="round" stroke-linejoin="round">
-        <line x1="12" y1="19" x2="12" y2="5"/>
-        <polyline points="5 12 12 5 19 12"/>
-      </svg>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
     </button>
   </div>
 </div>
+<script type="application/json" id="saved-data">__SAVED_MESSAGES__</script>
 <script>
 const input=document.getElementById('input');
 const sendBtn=document.getElementById('send-btn');
-const responseEl=document.getElementById('response');
+const messagesEl=document.getElementById('messages');
 let streaming=false,abort=null,model='qwen3.5:4b';
+let messages=[];
 
-// Try to pick the best available model
+// Restore previous conversation
+try{
+  const raw=document.getElementById('saved-data').textContent.trim();
+  if(raw&&raw!=='__SAVED_PLACEHOLDER__') messages=JSON.parse(raw);
+}catch{}
+if(messages.length) renderAll();
+
+// Detect best available model
 fetch('/v1/models').then(r=>r.json()).then(d=>{
-  const list=Array.isArray(d)?d:(d.data||d.models||[]);
-  if(list.length)model=list[0].id||list[0].name||model;
+  const l=Array.isArray(d)?d:(d.data||d.models||[]);
+  if(l.length) model=l[0].id||l[0].name||model;
 }).catch(()=>{});
 
-const SEND_ICON='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>';
-const STOP_ICON='<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+const SEND='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>';
+const STOP='<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+
+function renderAll(){
+  messagesEl.innerHTML='';
+  for(const m of messages) bubble(m.role,m.content);
+  scroll();
+}
+function bubble(role,text){
+  const d=document.createElement('div');
+  d.className='msg '+(role==='user'?'user':'assistant');
+  d.textContent=text;
+  messagesEl.appendChild(d);
+  return d;
+}
+function scroll(){messagesEl.scrollTop=messagesEl.scrollHeight}
+function save(){
+  try{window.webkit.messageHandlers.overlay.postMessage('save:'+JSON.stringify(messages))}catch{}
+}
 
 input.addEventListener('input',()=>{sendBtn.disabled=!input.value.trim()||streaming});
-
 input.addEventListener('keydown',e=>{
   if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}
+});
+document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){
     if(streaming){abort&&abort.abort()}
-    else{try{window.webkit.messageHandlers.overlay.postMessage('hide')}catch(x){}}
+    else{try{window.webkit.messageHandlers.overlay.postMessage('hide')}catch{}}
   }
 });
-
-sendBtn.addEventListener('click',()=>{
-  if(streaming){abort&&abort.abort()}else{send()}
+sendBtn.addEventListener('click',()=>{if(streaming){abort&&abort.abort()}else send()});
+document.getElementById('new-btn').addEventListener('click',()=>{
+  messages=[];messagesEl.innerHTML='';save();input.focus();
 });
 
 async function send(){
   const text=input.value.trim();
   if(!text||streaming)return;
   input.value='';sendBtn.disabled=true;
-  responseEl.textContent='';responseEl.classList.add('visible');
-  streaming=true;abort=new AbortController();
-  sendBtn.innerHTML=STOP_ICON;sendBtn.disabled=false;
 
+  messages.push({role:'user',content:text});
+  bubble('user',text);scroll();save();
+
+  streaming=true;abort=new AbortController();
+  sendBtn.innerHTML=STOP;sendBtn.disabled=false;
+  const b=bubble('assistant','');scroll();
+
+  let acc='';
   try{
     const r=await fetch('/v1/chat/completions',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({model,messages:[{role:'user',content:text}],stream:true}),
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({model,messages,stream:true}),
       signal:abort.signal
     });
     if(!r.ok)throw new Error(r.status);
     const reader=r.body.getReader(),dec=new TextDecoder();
-    let buf='',acc='';
+    let buf='';
     for(;;){
       const{done,value}=await reader.read();
       if(done)break;
@@ -131,21 +167,38 @@ async function send(){
         const d=ln.slice(6);if(d==='[DONE]')break;
         try{
           const c=JSON.parse(d).choices?.[0]?.delta?.content;
-          if(c){acc+=c;responseEl.textContent=acc;responseEl.scrollTop=responseEl.scrollHeight}
-        }catch(x){}
+          if(c){acc+=c;b.textContent=acc;scroll()}
+        }catch{}
       }
     }
   }catch(e){
-    if(e.name!=='AbortError')responseEl.textContent='Could not get a response. Is the backend running?';
+    if(e.name!=='AbortError'){acc='Could not get a response. Is the backend running?';b.textContent=acc}
   }finally{
     streaming=false;abort=null;
-    sendBtn.innerHTML=SEND_ICON;
-    sendBtn.disabled=!input.value.trim();
+    sendBtn.innerHTML=SEND;sendBtn.disabled=!input.value.trim();
     input.focus();
   }
+  if(acc){messages.push({role:'assistant',content:acc});save()}
 }
 
 window.addEventListener('focus',()=>input.focus());
+
+// --- Drag-to-move: click anywhere except input/buttons to drag ---
+(function(){
+  let dragging=false,sx=0,sy=0;
+  document.addEventListener('mousedown',e=>{
+    if(e.target.closest('input,button,textarea,[contenteditable]'))return;
+    dragging=true;sx=e.screenX;sy=e.screenY;
+    e.preventDefault(); // keep input focused
+  });
+  document.addEventListener('mousemove',e=>{
+    if(!dragging)return;
+    const dx=e.screenX-sx,dy=e.screenY-sy;
+    sx=e.screenX;sy=e.screenY;
+    try{window.webkit.messageHandlers.overlay.postMessage('drag:'+dx+','+dy)}catch{}
+  });
+  document.addEventListener('mouseup',()=>{dragging=false});
+})();
 </script>
 </body>
 </html>
