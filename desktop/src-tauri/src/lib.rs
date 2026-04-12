@@ -1257,6 +1257,29 @@ mod native_overlay {
         std::fs::read_to_string(conversation_path()).unwrap_or_else(|_| "[]".into())
     }
 
+    /// Read cloud API keys and return a JSON array of model IDs
+    /// whose provider has a key configured.
+    fn cloud_models_json() -> String {
+        let keys = super::read_cloud_keys();
+        let mut models: Vec<&str> = Vec::new();
+        for (name, value) in &keys {
+            if value.is_empty() {
+                continue;
+            }
+            match name.as_str() {
+                "OPENAI_API_KEY" => models.extend(["gpt-4o", "gpt-4o-mini"]),
+                "ANTHROPIC_API_KEY" => {
+                    models.extend(["claude-sonnet-4-20250514", "claude-haiku-4-20250414"])
+                }
+                "GEMINI_API_KEY" | "GOOGLE_API_KEY" => {
+                    models.extend(["gemini-2.5-flash", "gemini-2.5-pro"])
+                }
+                _ => {}
+            }
+        }
+        serde_json::to_string(&models).unwrap_or_else(|_| "[]".into())
+    }
+
     fn save_conversation(json: &str) {
         let path = conversation_path();
         if let Some(parent) = path.parent() {
@@ -1382,7 +1405,10 @@ mod native_overlay {
         // Escape "</" so the JSON can't prematurely close the <script> tag.
         // ("\/" is valid JSON — resolves back to "/" when parsed.)
         let saved = load_conversation().replace("</", "<\\/");
-        let filled = html.replace("__SAVED_MESSAGES__", &saved);
+        let cloud = cloud_models_json();
+        let filled = html
+            .replace("__SAVED_MESSAGES__", &saved)
+            .replace("__CLOUD_MODELS__", &cloud);
         let base_str = nsstring(&format!("http://127.0.0.1:{}", api_port));
         let base_url: *mut Object = msg_send![class!(NSURL), URLWithString: base_str];
         let _: () = msg_send![wv,

@@ -49,6 +49,16 @@ html,body{
   box-shadow:0 20px 40px -12px rgba(0,0,0,0.4);
   flex-shrink:0;
 }
+#model-select{
+  background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.6);
+  border:none;border-radius:8px;padding:4px 6px;
+  font-size:11px;outline:none;cursor:pointer;
+  max-width:130px;flex-shrink:0;
+  -webkit-appearance:none;appearance:none;
+}
+#model-select option,#model-select optgroup{
+  background:#1e1e1e;color:#eee;
+}
 #input{
   flex:1;background:transparent;border:none;outline:none;
   color:#fff;font-size:14px;padding:6px 10px;
@@ -73,6 +83,7 @@ html,body{
     <button id="new-btn" class="btn" title="New conversation">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
     </button>
+    <select id="model-select"><option>loading...</option></select>
     <input id="input" type="text" placeholder="Ask Jarvis anything..." autofocus>
     <button id="send-btn" class="btn" disabled title="Send">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
@@ -80,6 +91,7 @@ html,body{
   </div>
 </div>
 <script type="application/json" id="saved-data">__SAVED_MESSAGES__</script>
+<script type="application/json" id="cloud-data">__CLOUD_MODELS__</script>
 <script>
 const input=document.getElementById('input');
 const sendBtn=document.getElementById('send-btn');
@@ -102,11 +114,33 @@ try{
 if(!convId) convId=genId();
 if(messages.length) renderAll();
 
-// Detect best available model
+// Build model dropdown: local (installed) + cloud (keyed)
+const modelSelect=document.getElementById('model-select');
+let cloudModels=[];
+try{
+  const cd=document.getElementById('cloud-data').textContent.trim();
+  if(cd&&cd!=='__CLOUD_PLACEHOLDER__') cloudModels=JSON.parse(cd);
+}catch{}
+
 fetch('/v1/models').then(r=>r.json()).then(d=>{
-  const l=Array.isArray(d)?d:(d.data||d.models||[]);
-  if(l.length) model=l[0].id||l[0].name||model;
+  const local=(Array.isArray(d)?d:(d.data||d.models||[])).map(m=>m.id||m.name).filter(Boolean);
+  modelSelect.innerHTML='';
+  if(local.length){
+    const g=document.createElement('optgroup');g.label='Local';
+    local.forEach(id=>{const o=document.createElement('option');o.value=id;o.textContent=id;g.appendChild(o)});
+    modelSelect.appendChild(g);
+  }
+  if(cloudModels.length){
+    const g=document.createElement('optgroup');g.label='Cloud';
+    cloudModels.forEach(id=>{const o=document.createElement('option');o.value=id;o.textContent=id;g.appendChild(o)});
+    modelSelect.appendChild(g);
+  }
+  // Restore saved model or pick first available
+  const saved=messages.length&&messages[0].model;
+  if(saved&&modelSelect.querySelector('option[value="'+CSS.escape(saved)+'"]')){modelSelect.value=saved}
+  model=modelSelect.value||model;
 }).catch(()=>{});
+modelSelect.addEventListener('change',()=>{model=modelSelect.value});
 
 const SEND='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>';
 const STOP='<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
@@ -199,7 +233,7 @@ window.addEventListener('focus',()=>input.focus());
 (function(){
   let dragging=false,sx=0,sy=0;
   document.addEventListener('mousedown',e=>{
-    if(e.target.closest('input,button,textarea,[contenteditable]'))return;
+    if(e.target.closest('input,button,textarea,select,[contenteditable]'))return;
     dragging=true;sx=e.screenX;sy=e.screenY;
     e.preventDefault(); // keep input focused
   });
