@@ -169,9 +169,15 @@ function bubble(role,text){
   return d;
 }
 function scroll(){messagesEl.scrollTop=messagesEl.scrollHeight}
+const CLOUD_PFX=['gpt-','o1-','o3-','o4-','claude-','gemini-','openrouter/','chatgpt-'];
 function save(){
   const conv={id:convId,title:convTitle,createdAt:convCreated,updatedAt:Date.now(),model,
-    messages:messages.map((m,i)=>({id:convId+'_'+i,role:m.role,content:m.content,timestamp:m.timestamp||Date.now()}))};
+    messages:messages.map((m,i)=>{
+      const o={id:convId+'_'+i,role:m.role,content:m.content,timestamp:m.timestamp||Date.now()};
+      if(m.usage)o.usage=m.usage;
+      if(m.telemetry)o.telemetry=m.telemetry;
+      return o;
+    })};
   try{window.webkit.messageHandlers.overlay.postMessage('save:'+JSON.stringify(conv))}catch{}
 }
 
@@ -204,7 +210,8 @@ async function send(){
   sendBtn.innerHTML=STOP;sendBtn.disabled=false;
   const b=bubble('assistant','');scroll();
 
-  let acc='';
+  let acc='',usage=null,complexity=null,ttft=0;
+  const t0=Date.now();
   try{
     const r=await fetch('/v1/chat/completions',{
       method:'POST',headers:{'Content-Type':'application/json'},
@@ -223,8 +230,11 @@ async function send(){
         if(!ln.startsWith('data: '))continue;
         const d=ln.slice(6);if(d==='[DONE]')break;
         try{
-          const c=JSON.parse(d).choices?.[0]?.delta?.content;
-          if(c){acc+=c;b.textContent=acc;scroll()}
+          const p=JSON.parse(d);
+          if(p.usage)usage=p.usage;
+          if(p.complexity)complexity=p.complexity;
+          const c=p.choices?.[0]?.delta?.content;
+          if(c){if(!ttft)ttft=Date.now()-t0;acc+=c;b.textContent=acc;scroll()}
         }catch{}
       }
     }
@@ -235,7 +245,16 @@ async function send(){
     sendBtn.innerHTML=SEND;sendBtn.disabled=!input.value.trim();
     input.focus();
   }
-  if(acc){messages.push({role:'assistant',content:acc,timestamp:Date.now()});save()}
+  if(acc){
+    const totalMs=Date.now()-t0;
+    const engine=CLOUD_PFX.some(p=>model.startsWith(p))?'cloud':'ollama';
+    const telem={engine,model_id:model,total_ms:totalMs,ttft_ms:ttft||undefined,
+      tokens_per_sec:usage?.completion_tokens?usage.completion_tokens/(totalMs/1000):undefined,
+      complexity_score:complexity?.score,complexity_tier:complexity?.tier,
+      suggested_max_tokens:complexity?.suggested_max_tokens};
+    messages.push({role:'assistant',content:acc,timestamp:Date.now(),usage:usage||undefined,telemetry:telem});
+    save();
+  }
 }
 
 window.addEventListener('focus',()=>input.focus());
