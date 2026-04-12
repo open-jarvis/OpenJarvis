@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Clark</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@300;400&family=DM+Mono:wght@300&family=DM+Sans:ital,wght@0,300;0,400;1,300&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:      #0e0d0b;
+  --bg2:     #141210;
+  --border:  rgba(210,195,170,0.07);
+  --text:    #d4ccbe;
+  --muted:   #4a4640;
+  --faint:   #252220;
+  --gold:    #b8a882;
+  --gold-lo: rgba(184,168,130,0.1);
+  --gold-hi: rgba(184,168,130,0.25);
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── HEADER ── */
+header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 20px 32px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.wordmark {
+  font-family: 'Playfair Display', serif;
+  font-weight: 300;
+  font-size: 20px;
+  letter-spacing: 0.28em;
+  color: var(--text);
+  text-transform: uppercase;
+}
+
+.wordmark span {
+  color: var(--gold);
+  font-style: italic;
+}
+
+.header-meta {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.search-btn {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 3px 9px;
+  border: 1px solid transparent;
+  transition: all .25s;
+}
+.search-btn.on  { color: var(--gold); border-color: rgba(184,168,130,0.18); }
+.search-btn:hover { color: var(--text); }
+
+.conn {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--faint);
+  transition: background .4s, box-shadow .4s;
+}
+.conn.ok   { background: var(--gold); box-shadow: 0 0 5px var(--gold); }
+.conn.off  { background: #4a2020; }
+.conn.busy { background: var(--gold); animation: connPulse 1.1s ease-in-out infinite; }
+@keyframes connPulse { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+/* ── STAGE ── */
+.stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 26px;
+  min-height: 0;
+  padding: 16px 24px;
+}
+
+/* ── ORB ── */
+.orb-outer {
+  position: relative;
+  width: 188px; height: 188px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* Elegant fine-line rings */
+.ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 1px solid rgba(184,168,130,0.06);
+  transition: border-color .6s;
+  pointer-events: none;
+}
+.ring-1 { inset: -16px; animation: breathe 5s ease-in-out infinite; }
+.ring-2 { inset: -30px; animation: breathe 5s ease-in-out infinite .7s; border-color: rgba(184,168,130,0.03); }
+.ring-3 { inset: -46px; animation: breathe 5s ease-in-out infinite 1.4s; border-color: rgba(184,168,130,0.015); }
+
+@keyframes breathe {
+  0%,100% { transform: scale(1);    opacity: .5; }
+  50%      { transform: scale(1.03); opacity: 1; }
+}
+
+.orb-outer.listening .ring { border-color: rgba(255,255,255,0.1); animation-duration: 1.6s; }
+.orb-outer.speaking  .ring { border-color: rgba(184,168,130,0.18); animation-duration: 1.1s; }
+
+/* The orb itself */
+.orb {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 35% 32%, #1d1a15 0%, #0f0e0b 55%, #080806 100%);
+  border: 1px solid rgba(184,168,130,0.08);
+  box-shadow:
+    0 0 80px rgba(0,0,0,.85),
+    inset 0 1px 0 rgba(255,255,255,0.04),
+    inset 0 0 50px rgba(0,0,0,.5);
+  overflow: hidden;
+  transition: border-color .5s, box-shadow .5s;
+}
+
+.orb.listening {
+  border-color: rgba(255,255,255,0.1);
+}
+.orb.speaking {
+  border-color: rgba(184,168,130,0.22);
+  box-shadow: 0 0 80px rgba(0,0,0,.85), inset 0 0 50px rgba(0,0,0,.5),
+              0 0 40px rgba(184,168,130,0.07);
+}
+
+canvas { width:100%; height:100%; display:block; }
+
+/* ── STATE ── */
+.state-wrap {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.state-name {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--muted);
+  transition: color .35s;
+}
+.state-name.listening { color: #8a8278; }
+.state-name.speaking  { color: var(--gold); }
+
+.state-sub {
+  font-family: 'DM Mono', monospace;
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+  min-height: 12px;
+}
+
+/* ── MESSAGES ── */
+.log {
+  width: 100%;
+  max-width: 500px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 190px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.log::-webkit-scrollbar { width: 1px; }
+.log::-webkit-scrollbar-thumb { background: var(--faint); }
+
+.entry {
+  font-size: 12.5px;
+  font-weight: 300;
+  line-height: 1.6;
+  padding: 9px 13px;
+  animation: entryIn .15s ease;
+  border-left: 2px solid transparent;
+}
+@keyframes entryIn { from{opacity:0;transform:translateY(3px)} to{opacity:1;transform:none} }
+
+.entry.user {
+  background: #111009;
+  border-left-color: var(--faint);
+  color: #8a8070;
+  align-self: flex-end;
+  max-width: 85%;
+  font-style: italic;
+}
+.entry.clark {
+  background: #0c0b09;
+  border-left-color: rgba(184,168,130,0.18);
+  color: var(--text);
+  max-width: 88%;
+}
+.entry .tag {
+  font-family: 'DM Mono', monospace;
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: 4px;
+}
+.entry.interim {
+  opacity: .3;
+  font-style: italic;
+  border-left-color: var(--faint);
+}
+
+/* ── BOTTOM ── */
+.bottom {
+  flex-shrink: 0;
+  padding: 13px 28px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.field {
+  flex: 1;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--faint);
+  padding: 7px 0;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 300;
+  font-style: italic;
+  color: var(--text);
+  outline: none;
+  transition: border-color .25s;
+  letter-spacing: 0.01em;
+}
+.field:focus { border-bottom-color: var(--gold-hi); }
+.field::placeholder { color: var(--faint); }
+
+.go {
+  background: none;
+  border: 1px solid var(--faint);
+  padding: 6px 12px;
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color .2s, color .2s;
+  flex-shrink: 0;
+}
+.go:hover { border-color: var(--gold-hi); color: var(--gold); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wordmark">C<span>l</span>ark</div>
+  <div class="header-meta">
+    <span class="search-btn on" id="search-btn">Web</span>
+    <div class="conn" id="conn"></div>
+  </div>
+</header>
+
+<div class="stage">
+  <div class="orb-outer" id="orb-outer">
+    <div class="ring ring-1"></div>
+    <div class="ring ring-2"></div>
+    <div class="ring ring-3"></div>
+    <div class="orb" id="orb">
+      <canvas id="cv"></canvas>
+    </div>
+  </div>
+
+  <div class="state-wrap">
+    <div class="state-name" id="state-name">Bereit</div>
+    <div class="state-sub"  id="state-sub">Klicke zum Sprechen</div>
+  </div>
+
+  <div class="log" id="log"></div>
+</div>
+
+<div class="bottom">
+  <input class="field" id="field" placeholder="Schreibe hier…" autocomplete="off" />
+  <button class="go" id="go-btn">Senden</button>
+</div>
+
+<script>
+const API = 'http://localhost:7777';
+const SID = 'clark_' + Math.random().toString(36).substr(2, 8);
+
+let state = 'idle', searchOn = true, recognition = null, abortCtrl = null;
+var audioQ  = {};
+let nPlay   = 0, playing = false, streamDone = false, totalS = 0;
+let curAudio = null, liveEntry = null, interimEl = null;
+let autoListen = false;   // Clark hat eine Frage gestellt → nach Sprechen auto-zuhören
+
+const orbOuter  = document.getElementById('orb-outer');
+const orb       = document.getElementById('orb');
+const cv        = document.getElementById('cv');
+const stateName = document.getElementById('state-name');
+const stateSub  = document.getElementById('state-sub');
+const connEl    = document.getElementById('conn');
+const log       = document.getElementById('log');
+const field     = document.getElementById('field');
+const searchBtn = document.getElementById('search-btn');
+
+/* ── CANVAS: Refined particle field ── */
+const c2  = cv.getContext('2d');
+const N   = 24;
+let pts   = [];
+
+function initCanvas() {
+  const W = cv.offsetWidth, H = cv.offsetHeight;
+  cv.width = W; cv.height = H;
+  pts = [];
+  const cx = W/2, cy = H/2;
+  for (let i = 0; i < N; i++) {
+    const a = (i / N) * Math.PI * 2;
+    const r = W * 0.29 * (0.65 + Math.random() * 0.35);
+    pts.push({ x: cx+Math.cos(a)*r, y: cy+Math.sin(a)*r,
+      phase: Math.random()*Math.PI*2, speed: 0.25+Math.random()*0.35,
+      size: 0.8+Math.random()*1.2, cx, cy, a, base: r });
+  }
+}
+
+function drawCanvas(ts) {
+  requestAnimationFrame(drawCanvas);
+  const W = cv.width, H = cv.height;
+  c2.clearRect(0, 0, W, H);
+  const t = ts * 0.001;
+  const speak = state==='speaking', listen = state==='listening';
+
+  pts.forEach(p => {
+    let e = 0;
+    if (speak)  e = 0.38 * Math.sin(t * p.speed * 5.5 + p.phase);
+    if (listen) e = 0.2  * Math.sin(t * p.speed * 3   + p.phase);
+
+    const rT = p.base * (1 + e * 0.45);
+    p.x += (p.cx + Math.cos(p.a)*rT - p.x) * 0.09;
+    p.y += (p.cy + Math.sin(p.a)*rT - p.y) * 0.09;
+    if (!speak && !listen) {
+      p.x += Math.sin(t*0.3+p.phase)*0.12;
+      p.y += Math.cos(t*0.25+p.phase)*0.12;
+    }
+
+    let a, sz;
+    if (speak) {
+      a  = 0.2 + 0.6*Math.abs(Math.sin(t*p.speed*2.5+p.phase));
+      sz = p.size * (1 + 0.55*Math.abs(Math.sin(t*p.speed*3+p.phase)));
+    } else if (listen) {
+      a  = 0.15 + 0.3*Math.abs(Math.sin(t*p.speed*2+p.phase));
+      sz = p.size * 1.05;
+    } else {
+      a  = 0.04 + 0.06*Math.abs(Math.sin(t*0.45+p.phase));
+      sz = p.size;
+    }
+
+    // Gold when speaking, cool white when listening, dim otherwise
+    const fill = speak
+      ? `rgba(184,168,130,${a.toFixed(2)})`
+      : `rgba(210,200,185,${a.toFixed(2)})`;
+    c2.beginPath(); c2.arc(p.x, p.y, sz, 0, Math.PI*2);
+    c2.fillStyle = fill; c2.fill();
+  });
+
+  // Center dot
+  const cx = W/2, cy = H/2;
+  const ca = speak ? 0.45+0.4*Math.abs(Math.sin(t*3.5)) : listen ? 0.25+0.15*Math.abs(Math.sin(t*2.5)) : 0.06;
+  const cs = speak ? 2.2 : listen ? 1.8 : 1.3;
+  c2.beginPath(); c2.arc(cx, cy, cs, 0, Math.PI*2);
+  c2.fillStyle = speak ? `rgba(184,168,130,${ca})` : `rgba(210,200,185,${ca})`;
+  c2.fill();
+}
+
+/* ── STATE ── */
+function setState(s) {
+  state = s;
+  orb.className      = 'orb'+(s==='listening'?' listening':s==='speaking'?' speaking':'');
+  orbOuter.className = 'orb-outer'+(s==='listening'?' listening':s==='speaking'?' speaking':'');
+  stateName.className= 'state-name'+(s==='listening'?' listening':s==='speaking'?' speaking':'');
+
+  const L = {idle:'Bereit', listening:'Hört zu', thinking:'Verarbeitet', speaking:'Spricht'};
+  const S = {idle:'Klicke zum Sprechen', listening:'Klicke zum Stoppen', thinking:'', speaking:'Klicke zum Unterbrechen'};
+  stateName.textContent = L[s]||s;
+  stateSub.textContent  = S[s]||'';
+  connEl.className = s==='idle' ? connEl.className.replace(' busy','') : connEl.className+(!connEl.className.includes('busy')?' busy':'');
+
+  // Wake-Word / Interrupt je nach Zustand
+  if (s === 'idle')     { stopInterrupt(); setTimeout(startWakeWord, 600); }
+  else if (s === 'speaking') { stopWakeWord(); startInterrupt(); }
+  else                  { stopWakeWord(); stopInterrupt(); }
+}
+
+/* ── CONNECTION ── */
+async function checkConn() {
+  try {
+    const r = await fetch(API+'/api/chat',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({message:'_ping',session_id:'hc',use_search:false}),
+      signal:AbortSignal.timeout(3000)});
+    connEl.className = r.ok ? 'conn ok' : 'conn off';
+  } catch { connEl.className = 'conn off'; }
+}
+checkConn(); setInterval(checkConn, 25000);
+
+/* ── LOG ── */
+function addEntry(role, text, tag='') {
+  const d = document.createElement('div');
+  d.className = 'entry '+role;
+  if (tag) { const t=document.createElement('div'); t.className='tag'; t.textContent=tag; d.appendChild(t); }
+  const p = document.createElement('div'); p.textContent = text; d.appendChild(p);
+  log.appendChild(d); log.scrollTop = log.scrollHeight;
+  while (log.children.length > 18) log.removeChild(log.firstChild);
+  return d;
+}
+function startLive(tag) { liveEntry = addEntry('clark','',tag); }
+function appendLive(c)  {
+  if (!liveEntry) return;
+  liveEntry.querySelector('div:last-child').textContent += c;
+  log.scrollTop = log.scrollHeight;
+}
+
+/* ── AUDIO QUEUE ── */
+function enqueue(idx, b64) {
+  totalS = Math.max(totalS, idx+1);
+  audioQ[idx] = b64;
+  // Erst spielen wenn streamDone — Clark denkt fertig bevor er redet
+  if (!playing && streamDone) tryNext();
+}
+function skipSlot(idx) {
+  totalS = Math.max(totalS, idx+1);
+  audioQ[idx] = null;
+  if (!playing && streamDone) tryNext();
+}
+function tryNext() {
+  if (playing) return;
+  if (!streamDone) return;   // Warten bis Clark fertig gedacht hat
+  // Null-Slots (TTS-Fehler) sofort überspringen
+  while (nPlay in audioQ && audioQ[nPlay] === null) {
+    delete audioQ[nPlay]; nPlay++;
+  }
+  if (!(nPlay in audioQ)) {
+    if (!Object.keys(audioQ).length) {
+      // Alles gesprochen — falls Frage: auto-zuhören
+      if (autoListen) { autoListen = false; setState('idle'); setTimeout(startListening, 350); }
+      else setState('idle');
+    }
+    return;
+  }
+  const b64 = audioQ[nPlay]; delete audioQ[nPlay]; nPlay++;
+  playing = true; setState('speaking');
+  const bytes = Uint8Array.from(atob(b64), c=>c.charCodeAt(0));
+  const url = URL.createObjectURL(new Blob([bytes],{type:'audio/mpeg'}));
+  curAudio = new Audio(url);
+  const done = () => { URL.revokeObjectURL(url); playing=false; curAudio=null; tryNext(); };
+  curAudio.onended = done; curAudio.onerror = done;
+  curAudio.play().catch(done);
+}
+function stopAll() {
+  abortCtrl?.abort(); curAudio?.pause(); curAudio=null; speechSynthesis.cancel();
+  stopInterrupt();
+  for (const k in audioQ) delete audioQ[k];
+  nPlay=0; playing=false; streamDone=false; setState('idle');
+}
+
+/* ── INTERRUPT: "Clark" / "Clark stop" waehrend er spricht ── */
+let interruptRecog = null;
+
+function startInterrupt() {
+  if (interruptRecog) return;
+  if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) return;
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  interruptRecog = new SR();
+  interruptRecog.lang = 'de-DE';
+  interruptRecog.continuous = true;
+  interruptRecog.interimResults = true;
+  interruptRecog.maxAlternatives = 2;
+  interruptRecog.onresult = e => {
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript.toLowerCase();
+      if (t.includes('clark') || t.includes('stop') || t.includes('stopp') || t.includes('halt')) {
+        stopAll();
+        return;
+      }
+    }
+  };
+  interruptRecog.onend = () => { interruptRecog = null; if (state === 'speaking') startInterrupt(); };
+  interruptRecog.onerror = () => { interruptRecog = null; };
+  try { interruptRecog.start(); } catch (_) { interruptRecog = null; }
+}
+
+function stopInterrupt() {
+  try { interruptRecog?.abort(); } catch (_) {}
+  interruptRecog = null;
+}
+
+/* ── SEND ── */
+async function send(text) {
+  if (!text.trim()) return;
+  if (state==='speaking'||state==='thinking') { stopAll(); return; }
+  if (state==='listening') recognition?.stop();
+  addEntry('user', text);
+  field.value=''; setState('thinking');
+  for (const k in audioQ) delete audioQ[k];
+  nPlay=0; playing=false; streamDone=false; totalS=0; liveEntry=null;
+  abortCtrl = new AbortController();
+  try {
+    const r = await fetch(API+'/api/stream',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({message:text, session_id:SID, use_search:searchOn}),
+      signal: abortCtrl.signal,
+    });
+    if (!r.ok) throw new Error('fail');
+    const rd=r.body.getReader(), dec=new TextDecoder();
+    let buf='', live=false, ce=null;
+    while(true) {
+      const {done,value}=await rd.read(); if(done) break;
+      buf+=dec.decode(value,{stream:true});
+      const lines=buf.split('\n'); buf=lines.pop();
+      for(const ln of lines) {
+        if(ln.startsWith('event: ')){ce=ln.slice(7).trim();continue;}
+        if(ln.startsWith('data: ')){
+          const d=JSON.parse(ln.slice(6));
+          if(ce==='text') { if(!live){startLive(d.searched?'web':'');live=true;} appendLive(d.chunk); }
+          else if(ce==='audio') enqueue(d.idx, d.data);
+          else if(ce==='audio_skip') skipSlot(d.idx);
+          else if(ce==='done') {
+            streamDone = true;
+            // Fragt Clark etwas? → nach Sprechen auto-zuhören
+            const full = (d.full||'').trim();
+            autoListen = full.endsWith('?');
+            if (!totalS) {
+              // Kein ElevenLabs → Browser-TTS
+              const u = new SpeechSynthesisUtterance(full.slice(0,400));
+              u.lang = d.lang==='de'?'de-DE':'en-US';
+              u.onend = () => {
+                if (autoListen) { autoListen=false; setTimeout(startListening,350); }
+                else setState('idle');
+              };
+              setState('speaking'); speechSynthesis.speak(u);
+            } else {
+              tryNext();  // Jetzt Audio abspielen
+            }
+          }
+          else if(ce==='error'){addEntry('clark','Fehler: '+(d.error||''));setState('idle');}
+          ce=null;
+        }
+      }
+    }
+  } catch(e) { if(e.name!=='AbortError') addEntry('clark','Server nicht erreichbar.'); setState('idle'); }
+}
+
+/* ── VOICE ── */
+function startListening() {
+  if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+    addEntry('clark', 'Spracherkennung nur in Chrome / Edge.'); return;
+  }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  recognition = new SR();
+  recognition.lang='de-DE'; recognition.interimResults=true; recognition.maxAlternatives=1;
+  recognition.onstart=()=>{
+    setState('listening');
+    interimEl=addEntry('user','…');
+    interimEl.classList.add('interim');
+  };
+  recognition.onresult=e=>{
+    let fin='',tmp='';
+    for(const r of e.results){if(r.isFinal)fin+=r[0].transcript;else tmp+=r[0].transcript;}
+    if(interimEl) interimEl.querySelector('div:last-child').textContent=fin||tmp||'…';
+    if(fin){interimEl?.remove();interimEl=null;recognition.stop();send(fin);}
+  };
+  recognition.onend=()=>{interimEl?.remove();interimEl=null;if(state==='listening')setState('idle');};
+  recognition.onerror=()=>{interimEl?.remove();interimEl=null;setState('idle');};
+  recognition.start();
+}
+
+function toggleListen() {
+  stopWakeWord();
+  if (state==='speaking'||state==='thinking') { stopAll(); return; }
+  if (state==='listening') { recognition?.stop(); return; }
+  startListening();
+}
+
+/* ── EVENTS ── */
+document.getElementById('orb-outer').onclick = toggleListen;
+document.getElementById('go-btn').onclick     = () => send(field.value);
+field.addEventListener('keydown', e=>{if(e.key==='Enter')send(field.value);});
+searchBtn.onclick = () => {
+  searchOn=!searchOn;
+  searchBtn.className='search-btn'+(searchOn?' on':'');
+};
+
+/* ── WAKE-WORD ("Clark") ── */
+let wakeRecog  = null;
+let wakeActive = false;
+
+// Alle Varianten wie "Clark" auf Deutsch klingen kann
+const CLARK = ['clark', 'klark', 'clarc', 'klahk', 'clack', 'klac', 'kla', 'clar'];
+
+function isClark(text) {
+  const t = text.toLowerCase();
+  return CLARK.some(v => t.includes(v));
+}
+
+function isStopCmd(text) {
+  const t = text.toLowerCase();
+  return isClark(t) || t.includes('stop') || t.includes('stopp') ||
+         t.includes('halt') || t.includes('aufhören') || t.includes('hör auf');
+}
+
+function startWakeWord() {
+  if (wakeActive || wakeRecog || state !== 'idle') return;
+  if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) return;
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  wakeRecog = new SR();
+  wakeRecog.lang = 'de-DE';
+  wakeRecog.continuous = true;
+  wakeRecog.interimResults = true;
+  wakeRecog.maxAlternatives = 3;  // Mehr Alternativen = besser bei Eigennamen
+  wakeRecog.onresult = e => {
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      // Alle Alternativen prüfen
+      for (let a = 0; a < e.results[i].length; a++) {
+        if (isClark(e.results[i][a].transcript)) {
+          stopWakeWord();
+          if (state === 'idle') startListening();
+          return;
+        }
+      }
+    }
+  };
+  wakeRecog.onend = () => {
+    wakeRecog = null; wakeActive = false;
+    if (state === 'idle') setTimeout(startWakeWord, 600);
+  };
+  wakeRecog.onerror = e => {
+    if (e.error !== 'no-speech' && e.error !== 'aborted') {
+      wakeRecog = null; wakeActive = false;
+      setTimeout(startWakeWord, 2000);
+    }
+  };
+  try { wakeRecog.start(); wakeActive = true; } catch (_) { wakeActive = false; }
+}
+
+function stopWakeWord() {
+  wakeActive = false;
+  try { wakeRecog?.abort(); } catch (_) {}
+  wakeRecog = null;
+}
+
+setTimeout(startWakeWord, 1500);
+
+/* ── INIT ── */
+window.addEventListener('resize', initCanvas);
+initCanvas();
+requestAnimationFrame(drawCanvas);
+</script>
+</body>
+</html>
