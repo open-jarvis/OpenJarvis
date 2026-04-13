@@ -266,12 +266,12 @@ window.addEventListener('focus',()=>input.focus());
   const THRESH=3;
   const INTERACTIVE='input,select,button,textarea,a,label,[contenteditable="true"],[role="button"]';
   document.addEventListener('mousedown',e=>{
-    // Never start a drag from an interactive control — the native <select>
-    // in particular steals focus and never delivers a matching mouseup,
-    // which would leave us stuck in the "down" state.
-    if(e.target.closest(INTERACTIVE))return;
+    if(e.target.closest('select'))return;
     down=true;dragging=false;sx=e.screenX;sy=e.screenY;
   });
+  // macOS native select menus swallow the mouseup — reset on change too
+  document.getElementById('model-select').addEventListener('mousedown',()=>{down=false;dragging=false});
+  document.getElementById('model-select').addEventListener('change',()=>{down=false;dragging=false});
   document.addEventListener('mousemove',e=>{
     if(!down)return;
     // If the mouse button is no longer pressed (e.g. the user released
