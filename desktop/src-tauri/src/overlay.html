@@ -41,6 +41,59 @@ html,body,:root{
   align-self:flex-start;
   background:rgba(255,255,255,0.20);
   color:rgba(255,255,255,0.88);
+  white-space:normal;
+}
+.msg.assistant > p{margin:0 0 6px 0;white-space:pre-wrap}
+.msg.assistant > p:last-child{margin-bottom:0}
+.msg.assistant h1,.msg.assistant h2,.msg.assistant h3{
+  font-size:14px;font-weight:600;margin:6px 0 4px 0;
+}
+.msg.assistant ul,.msg.assistant ol{margin:2px 0 6px 18px;padding:0}
+.msg.assistant li{margin:1px 0}
+.msg.assistant a{color:#93c5fd;text-decoration:underline}
+.msg.assistant code{
+  background:rgba(0,0,0,0.35);
+  padding:1px 5px;border-radius:4px;
+  font-family:"SF Mono",Menlo,Monaco,monospace;
+  font-size:12px;
+}
+.msg.assistant pre{
+  background:rgba(0,0,0,0.40);
+  padding:8px 10px;border-radius:8px;
+  margin:4px 0;overflow-x:auto;
+  border:1px solid rgba(255,255,255,0.08);
+}
+.msg.assistant pre code{
+  background:transparent;padding:0;border-radius:0;
+  font-size:11.5px;line-height:1.4;white-space:pre;
+}
+.msg.assistant strong{font-weight:600;color:#fff}
+.msg.assistant em{font-style:italic}
+.msg.assistant del{opacity:0.6;text-decoration:line-through}
+
+/* Streaming caret — pulses at the end of the in-progress bubble */
+.caret{
+  display:inline-block;width:6px;height:13px;
+  vertical-align:text-bottom;margin-left:2px;
+  background:rgba(255,255,255,0.85);
+  animation:caret-blink 1s steps(1) infinite;
+}
+@keyframes caret-blink{50%{opacity:0}}
+
+/* Thinking dots — shown while waiting for the first token */
+.thinking{
+  display:inline-flex;gap:4px;align-items:center;padding:2px 0;
+}
+.thinking span{
+  width:6px;height:6px;border-radius:50%;
+  background:rgba(255,255,255,0.65);
+  animation:thinking-bounce 1.2s ease-in-out infinite;
+}
+.thinking span:nth-child(2){animation-delay:0.15s}
+.thinking span:nth-child(3){animation-delay:0.30s}
+@keyframes thinking-bounce{
+  0%,60%,100%{transform:translateY(0);opacity:0.4}
+  30%{transform:translateY(-4px);opacity:1}
 }
 #input-bar{
   display:flex;align-items:center;gap:6px;
@@ -135,7 +188,7 @@ try{
 
 fetch('/v1/models').then(r=>r.json()).then(d=>{
   const local=(Array.isArray(d)?d:(d.data||d.models||[])).map(m=>m.id||m.name).filter(Boolean);
-  modelSelect.innerHTML='';
+  while(modelSelect.firstChild) modelSelect.removeChild(modelSelect.firstChild);
   if(local.length){
     const g=document.createElement('optgroup');g.label='Local';
     local.forEach(id=>{const o=document.createElement('option');o.value=id;o.textContent=id;g.appendChild(o)});
@@ -157,18 +210,97 @@ const SEND='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="
 const STOP='<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
 
 function renderAll(){
-  messagesEl.innerHTML='';
+  while(messagesEl.firstChild) messagesEl.removeChild(messagesEl.firstChild);
   for(const m of messages) bubble(m.role,m.content);
   scroll();
 }
 function bubble(role,text){
   const d=document.createElement('div');
   d.className='msg '+(role==='user'?'user':'assistant');
-  d.textContent=text;
+  if(role==='assistant') setHtml(d, md(text||''));
+  else d.textContent=text;
   messagesEl.appendChild(d);
   return d;
 }
 function scroll(){messagesEl.scrollTop=messagesEl.scrollHeight}
+
+// Safe HTML injection helper. All incoming LLM/user text is escaped
+// via escHtml() before any markdown transformations, so the string
+// reaching this function only contains tags from our controlled
+// regex replacements. We use Range.createContextualFragment which is
+// the W3C-recommended way to construct a DocumentFragment from HTML.
+function setHtml(el,html){
+  while(el.firstChild) el.removeChild(el.firstChild);
+  const range=document.createRange();
+  range.selectNodeContents(el);
+  el.appendChild(range.createContextualFragment(html));
+}
+
+// --- Minimal markdown renderer (inline, no deps) ---
+//     Handles: fenced code, inline code, headings, bold, italic,
+//     strikethrough, links, ordered/unordered lists, paragraphs.
+function escHtml(s){
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+          .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function md(src){
+  if(!src)return '';
+  const blocks=[],inlines=[];
+  // 1. Extract fenced code blocks first so their contents aren't touched.
+  src=src.replace(/```(\w*)\n?([\s\S]*?)```/g,(_,lang,code)=>{
+    blocks.push({lang,code});
+    return '\u0000CB'+(blocks.length-1)+'\u0000';
+  });
+  // 2. Extract inline code (single-line backticks).
+  src=src.replace(/`([^`\n]+)`/g,(_,c)=>{
+    inlines.push(c);
+    return '\u0000IC'+(inlines.length-1)+'\u0000';
+  });
+  // 3. Escape everything else.
+  src=escHtml(src);
+  // 4. Headings.
+  src=src.replace(/^###\s+(.+)$/gm,'<h3>$1</h3>')
+         .replace(/^##\s+(.+)$/gm,'<h2>$1</h2>')
+         .replace(/^#\s+(.+)$/gm,'<h1>$1</h1>');
+  // 5. Bold / italic / strikethrough.
+  src=src.replace(/\*\*([^*\n]+)\*\*/g,'<strong>$1</strong>')
+         .replace(/__([^_\n]+)__/g,'<strong>$1</strong>')
+         .replace(/(^|[^*\w])\*([^*\n]+)\*(?!\*)/g,'$1<em>$2</em>')
+         .replace(/(^|[^_\w])_([^_\n]+)_(?!_)/g,'$1<em>$2</em>')
+         .replace(/~~([^~\n]+)~~/g,'<del>$1</del>');
+  // 6. Links — url is escaped above, so quotes are safe.
+  src=src.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+  // 7. Unordered + ordered lists.
+  src=src.replace(/(?:^[-*]\s+.+(?:\n|$))+/gm,block=>{
+    const items=block.trim().split('\n')
+      .map(l=>'<li>'+l.replace(/^[-*]\s+/,'')+'</li>').join('');
+    return '<ul>'+items+'</ul>';
+  });
+  src=src.replace(/(?:^\d+\.\s+.+(?:\n|$))+/gm,block=>{
+    const items=block.trim().split('\n')
+      .map(l=>'<li>'+l.replace(/^\d+\.\s+/,'')+'</li>').join('');
+    return '<ol>'+items+'</ol>';
+  });
+  // 8. Paragraphs: split on blank lines, wrap non-block chunks in <p>.
+  src=src.split(/\n{2,}/).map(chunk=>{
+    const t=chunk.trim();
+    if(!t)return '';
+    if(/^<(h\d|ul|ol|pre|blockquote)/.test(t))return t;
+    if(t.startsWith('\u0000CB'))return t;
+    return '<p>'+t.replace(/\n/g,'<br>')+'</p>';
+  }).join('');
+  // 9. Restore inline code.
+  src=src.replace(/\u0000IC(\d+)\u0000/g,(_,i)=>'<code>'+escHtml(inlines[+i])+'</code>');
+  // 10. Restore fenced code blocks.
+  src=src.replace(/\u0000CB(\d+)\u0000/g,(_,i)=>{
+    const b=blocks[+i];
+    const cls=b.lang?' class="lang-'+escHtml(b.lang)+'"':'';
+    return '<pre><code'+cls+'>'+escHtml(b.code)+'</code></pre>';
+  });
+  return src;
+}
+const THINKING='<span class="thinking"><span></span><span></span><span></span></span>';
+const CARET='<span class="caret"></span>';
 const CLOUD_PFX=['gpt-','o1-','o3-','o4-','claude-','gemini-','openrouter/','chatgpt-'];
 function save(){
   const conv={id:convId,title:convTitle,createdAt:convCreated,updatedAt:Date.now(),model,
@@ -194,7 +326,9 @@ document.addEventListener('keydown',e=>{
 sendBtn.addEventListener('click',()=>{if(streaming){abort&&abort.abort()}else send()});
 document.getElementById('new-btn').addEventListener('click',()=>{
   convId=genId();convTitle='Overlay chat';convCreated=Date.now();
-  messages=[];messagesEl.innerHTML='';save();input.focus();
+  messages=[];
+  while(messagesEl.firstChild) messagesEl.removeChild(messagesEl.firstChild);
+  save();input.focus();
 });
 
 async function send(){
@@ -207,11 +341,26 @@ async function send(){
   bubble('user',text);scroll();save();
 
   streaming=true;abort=new AbortController();
-  sendBtn.innerHTML=STOP;sendBtn.disabled=false;
-  const b=bubble('assistant','');scroll();
+  setHtml(sendBtn,STOP);sendBtn.disabled=false;
+  const b=bubble('assistant','');
+  // Show thinking dots until the first token arrives.
+  setHtml(b,THINKING);
+  scroll();
 
   let acc='',usage=null,complexity=null,ttft=0;
   const t0=Date.now();
+  // Throttle markdown re-renders to ~30fps so tight streams don't
+  // rebuild the DOM on every single token.
+  let pending=false;
+  const render=()=>{
+    if(pending)return;
+    pending=true;
+    requestAnimationFrame(()=>{
+      pending=false;
+      setHtml(b, md(acc)+CARET);
+      scroll();
+    });
+  };
   try{
     const r=await fetch('/v1/chat/completions',{
       method:'POST',headers:{'Content-Type':'application/json'},
@@ -234,16 +383,22 @@ async function send(){
           if(p.usage)usage=p.usage;
           if(p.complexity)complexity=p.complexity;
           const c=p.choices?.[0]?.delta?.content;
-          if(c){if(!ttft)ttft=Date.now()-t0;acc+=c;b.textContent=acc;scroll()}
+          if(c){if(!ttft)ttft=Date.now()-t0;acc+=c;render()}
         }catch{}
       }
     }
   }catch(e){
-    if(e.name!=='AbortError'){acc='Could not get a response. Is the backend running?';b.textContent=acc}
+    if(e.name!=='AbortError'){
+      acc='Could not get a response. Is the backend running?';
+      b.textContent=acc;
+    }
   }finally{
     streaming=false;abort=null;
-    sendBtn.innerHTML=SEND;sendBtn.disabled=!input.value.trim();
+    setHtml(sendBtn,SEND);sendBtn.disabled=!input.value.trim();
     input.focus();
+    // Final render without the caret.
+    if(acc) setHtml(b, md(acc));
+    else if(b.querySelector('.thinking')) b.textContent='';
   }
   if(acc){
     const totalMs=Date.now()-t0;
