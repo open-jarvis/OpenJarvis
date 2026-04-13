@@ -1,7 +1,7 @@
-# LiveResearchBench eval: Qwen3.5-27B-FP8 (vLLM, TP=4)
+# DeepResearchBench eval: Qwen3.5-27B-FP8 (vLLM, TP=4)
 [meta]
 name = "liveresearch-qwen-27b"
-description = "LiveResearchBench on Qwen/Qwen3.5-27B-FP8 with monitor_operative agent"
+description = "DeepResearchBench on Qwen/Qwen3.5-27B-FP8 with monitor_operative agent"
 
 [defaults]
 temperature = 0.6

@@ -1,7 +1,7 @@
-# DeepResearchBench: Qwen3.5-9B (vLLM, 1 GPU)
+# liveresearch: gemini-3.1-pro-preview (cloud)
 [meta]
-name = "liveresearch-qwen-9b"
-description = "DeepResearchBench on Qwen/Qwen3.5-9B"
+name = "liveresearch-gemini-31-pro"
+description = "liveresearch on gemini-3.1-pro-preview"
 
 [defaults]
 temperature = 0.6
@@ -10,22 +10,20 @@ max_tokens = 16384
 [judge]
 model = "gpt-5-mini-2025-08-07"
 temperature = 0.0
-max_tokens = 4096
 engine = "cloud"
 
 [run]
-max_workers = 1
-output_dir = "results/neurips-2026/baselines/qwen-9b/liveresearch/"
+max_workers = 8
+output_dir = "results/neurips-2026/baselines/gemini-31-pro/liveresearch/"
 seed = 42
 
 [[models]]
-name = "Qwen/Qwen3.5-9B"
-engine = "vllm"
-num_gpus = 1
+name = "gemini-3.1-pro-preview"
+engine = "cloud"
 
 [[benchmarks]]
 name = "liveresearch"
 backend = "jarvis-agent"
-agent = "monitor_operative"
 max_samples = 50
+agent = "monitor_operative"
 tools = ["web_search", "file_read", "file_write", "code_interpreter", "think"]

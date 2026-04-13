@@ -1,7 +1,7 @@
-# DeepResearchBench eval: NVIDIA-Nemotron-3-Nano-30B-A3B-FP8 (vLLM, 1 GPU)
+# DeepResearchBench eval: Qwen3.5-27B-FP8 (vLLM, TP=4)
 [meta]
-name = "liveresearch-nemotron-nano"
-description = "DeepResearchBench on nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8 with monitor_operative agent"
+name = "liveresearch-qwen-27b-lora-r32"
+description = "DeepResearchBench on qwen27b-lora-r32 with monitor_operative agent"
 
 [defaults]
 temperature = 0.6
@@ -14,13 +14,13 @@ max_tokens = 4096
 
 [run]
 max_workers = 8
-output_dir = "results/neurips-2026/baselines/liveresearch-nemotron-nano/"
+output_dir = "results/neurips-2026/baselines/liveresearch-qwen-27b/"
 seed = 42
 
 [[models]]
-name = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8"
+name = "qwen27b-lora-r32"
 engine = "vllm"
-num_gpus = 1
+num_gpus = 4
 
 [[benchmarks]]
 name = "liveresearch"

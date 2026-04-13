@@ -134,7 +134,15 @@ BENCHMARKS = {
     },
     "liveresearch": {
         "category": "agentic",
-        "description": "LiveResearchBench deep research tasks",
+        "description": "DeepResearchBench report generation (alias: deepresearch)",
+    },
+    "deepresearch": {
+        "category": "agentic",
+        "description": "DeepResearchBench deep research report generation",
+    },
+    "liveresearchbench": {
+        "category": "reasoning",
+        "description": "LiveResearchBench recent research comprehension (Salesforce)",
     },
     "toolcall15": {
         "category": "agentic",
@@ -335,10 +343,16 @@ def _build_dataset(benchmark: str, subset: str | None = None):
         from openjarvis.evals.datasets.livecodebench import LiveCodeBenchDataset
 
         return LiveCodeBenchDataset()
-    elif benchmark == "liveresearch":
+    elif benchmark in ("liveresearch", "deepresearch"):
         from openjarvis.evals.datasets.liveresearch import LiveResearchBenchDataset
 
         return LiveResearchBenchDataset(path=subset)
+    elif benchmark == "liveresearchbench":
+        from openjarvis.evals.datasets.liveresearchbench import (
+            LiveResearchBenchSFDataset,
+        )
+
+        return LiveResearchBenchSFDataset()
     elif benchmark == "toolcall15":
         from openjarvis.evals.datasets.toolcall15 import ToolCall15Dataset
 
@@ -487,10 +501,16 @@ def _build_scorer(benchmark: str, judge_backend, judge_model: str):
         from openjarvis.evals.scorers.livecodebench import LiveCodeBenchScorer
 
         return LiveCodeBenchScorer(judge_backend, judge_model)
-    elif benchmark == "liveresearch":
+    elif benchmark in ("liveresearch", "deepresearch"):
         from openjarvis.evals.scorers.liveresearch import LiveResearchBenchScorer
 
         return LiveResearchBenchScorer(judge_backend, judge_model)
+    elif benchmark == "liveresearchbench":
+        from openjarvis.evals.scorers.liveresearchbench import (
+            LiveResearchBenchSFScorer,
+        )
+
+        return LiveResearchBenchSFScorer(judge_backend, judge_model)
     elif benchmark == "toolcall15":
         from openjarvis.evals.scorers.toolcall15 import ToolCall15Scorer
 
