@@ -11,6 +11,10 @@ from openjarvis.telemetry.energy_rapl import (
     RaplEnergyMonitor,
     _discover_domains,
 )
+from tests.telemetry.energy_test_helpers import (
+    assert_close_sets_uninitialized,
+    assert_sample_result_basics,
+)
 
 _PLAT = "openjarvis.telemetry.energy_rapl.platform.system"
 _BASE = "openjarvis.telemetry.energy_rapl._RAPL_BASE"
@@ -154,9 +158,9 @@ class TestSampleNormalDelta:
         assert result.cpu_energy_joules == pytest.approx(100000 / 1e6)
         assert result.dram_energy_joules == pytest.approx(20000 / 1e6)
         assert result.energy_joules == pytest.approx(120000 / 1e6)
-        assert result.vendor == "cpu_rapl"
-        assert result.energy_method == "rapl"
-        assert result.duration_seconds >= 0
+        assert_sample_result_basics(
+            result, vendor="cpu_rapl", energy_method="rapl"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +253,5 @@ class TestClose:
             assert len(monitor._domains) == 2
             assert monitor._initialized is True
 
-        monitor.close()
-
+        assert_close_sets_uninitialized(monitor)
         assert monitor._domains == []
-        assert monitor._initialized is False

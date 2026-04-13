@@ -10,6 +10,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tests.telemetry.energy_test_helpers import (
+    assert_available_false_when_lib_missing,
+    assert_close_sets_uninitialized,
+    assert_empty_sample_result,
+    assert_sample_result_basics,
+)
+
 # ---------------------------------------------------------------------------
 # Helpers: build a fake pynvml module
 # ---------------------------------------------------------------------------
@@ -76,12 +83,9 @@ class TestAvailable:
     def test_available_false_when_pynvml_not_importable(self):
         import openjarvis.telemetry.energy_nvidia as mod
 
-        orig = mod._PYNVML_AVAILABLE
-        mod._PYNVML_AVAILABLE = False
-        try:
-            assert mod.NvidiaEnergyMonitor.available() is False
-        finally:
-            mod._PYNVML_AVAILABLE = orig
+        assert_available_false_when_lib_missing(
+            mod, mod.NvidiaEnergyMonitor, "_PYNVML_AVAILABLE"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -218,8 +222,9 @@ class TestSampleHwCounters:
                 # delta = 8000 - 5000 = 3000 mJ => 3.0 J
                 assert result.energy_joules == pytest.approx(3.0)
                 assert result.gpu_energy_joules == pytest.approx(3.0)
-                assert result.vendor == "nvidia"
-                assert result.energy_method == "hw_counter"
+                assert_sample_result_basics(
+                    result, vendor="nvidia", energy_method="hw_counter"
+                )
             finally:
                 mod._PYNVML_AVAILABLE = orig
 
@@ -253,9 +258,9 @@ class TestSamplePolling:
 
                 # With constant 300W polling, energy should be > 0
                 assert result.energy_joules > 0
-                assert result.duration_seconds > 0
-                assert result.vendor == "nvidia"
-                assert result.energy_method == "polling"
+                assert_sample_result_basics(
+                    result, vendor="nvidia", energy_method="polling"
+                )
             finally:
                 mod._PYNVML_AVAILABLE = orig
 
@@ -327,9 +332,7 @@ class TestSampleNoDevices:
         with monitor.sample() as result:
             pass
 
-        assert result.energy_joules == 0.0
-        assert result.duration_seconds >= 0
-        assert result.vendor == "nvidia"
+        assert_empty_sample_result(result, vendor="nvidia")
 
 
 # ---------------------------------------------------------------------------
@@ -352,9 +355,7 @@ class TestClose:
                 assert monitor._initialized is True
 
                 fake_pynvml.nvmlShutdown.reset_mock()
-                monitor.close()
-
+                assert_close_sets_uninitialized(monitor)
                 fake_pynvml.nvmlShutdown.assert_called_once()
-                assert monitor._initialized is False
             finally:
                 mod._PYNVML_AVAILABLE = orig
