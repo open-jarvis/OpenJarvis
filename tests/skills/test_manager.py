@@ -480,9 +480,7 @@ class TestSkillManagerOverlayLoading:
 
         with patch("openjarvis.core.config.load_config", return_value=cfg):
             mgr = SkillManager(bus=EventBus())
-            assert (
-                mgr._overlay_dir == (tmp_path / "configured-overlays").expanduser()
-            )
+            assert mgr._overlay_dir == (tmp_path / "configured-overlays").expanduser()
 
     def test_discover_with_empty_paths_still_loads_overlays(
         self, tmp_path: Path
@@ -518,3 +516,54 @@ class TestSkillManagerOverlayLoading:
 
         manifest = mgr.resolve("seeded-skill")
         assert manifest.description == "Optimized seeded description"
+
+
+class TestSkillManagerRemove:
+    def test_find_installed_paths_returns_empty_when_missing(
+        self, tmp_path: Path
+    ) -> None:
+        mgr = SkillManager(bus=EventBus())
+        assert mgr.find_installed_paths("ghost", roots=[tmp_path]) == []
+
+    def test_find_installed_paths_matches_directory_name(self, tmp_path: Path) -> None:
+        _write_toml_skill(tmp_path, "alpha")
+        mgr = SkillManager(bus=EventBus())
+        paths = mgr.find_installed_paths("alpha", roots=[tmp_path])
+        assert paths == [tmp_path / "alpha"]
+
+    def test_find_installed_paths_matches_manifest_name(self, tmp_path: Path) -> None:
+        # Directory name differs from manifest name (mimics imported layout)
+        skill_dir = tmp_path / "some-other-dirname"
+        skill_dir.mkdir()
+        (skill_dir / "skill.toml").write_text(
+            textwrap.dedent("""\
+                [skill]
+                name = "real-name"
+                description = "renamed"
+
+                [[skill.steps]]
+                tool_name = "echo"
+                output_key = "x"
+            """)
+        )
+        mgr = SkillManager(bus=EventBus())
+        paths = mgr.find_installed_paths("real-name", roots=[tmp_path])
+        assert paths == [skill_dir]
+
+    def test_remove_deletes_directory_and_drops_from_catalog(
+        self, tmp_path: Path
+    ) -> None:
+        _write_toml_skill(tmp_path, "doomed")
+        mgr = SkillManager(bus=EventBus())
+        mgr.discover(paths=[tmp_path])
+        assert "doomed" in mgr.skill_names()
+
+        removed = mgr.remove("doomed", roots=[tmp_path])
+        assert removed == [tmp_path / "doomed"]
+        assert not (tmp_path / "doomed").exists()
+        assert "doomed" not in mgr.skill_names()
+
+    def test_remove_raises_when_skill_missing(self, tmp_path: Path) -> None:
+        mgr = SkillManager(bus=EventBus())
+        with pytest.raises(FileNotFoundError):
+            mgr.remove("ghost", roots=[tmp_path])

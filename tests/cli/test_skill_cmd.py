@@ -93,6 +93,106 @@ class TestSkillCmd:
             assert "test_author" in result.output
 
 
+class TestSkillRemoveCommand:
+    def test_remove_help(self) -> None:
+        result = CliRunner().invoke(cli, ["skill", "remove", "--help"])
+        assert result.exit_code == 0
+
+    def test_remove_missing_skill(self, tmp_path: Path) -> None:
+        with patch(
+            "openjarvis.cli.skill_cmd._get_skill_paths",
+            return_value=[tmp_path],
+        ):
+            result = CliRunner().invoke(cli, ["skill", "remove", "ghost", "--yes"])
+            assert result.exit_code != 0
+            assert "no installed skill" in result.output.lower()
+
+    def test_remove_deletes_directory(self, tmp_path: Path) -> None:
+        skill_dir = tmp_path / "to_remove"
+        skill_dir.mkdir()
+        (skill_dir / "skill.toml").write_text(
+            textwrap.dedent("""\
+            [skill]
+            name = "to_remove"
+            description = "doomed"
+
+            [[skill.steps]]
+            tool_name = "echo"
+            output_key = "x"
+        """)
+        )
+        with patch(
+            "openjarvis.cli.skill_cmd._get_skill_paths",
+            return_value=[tmp_path],
+        ):
+            result = CliRunner().invoke(cli, ["skill", "remove", "to_remove", "--yes"])
+            assert result.exit_code == 0, result.output
+            assert "Removed" in result.output
+            assert not skill_dir.exists()
+
+
+class TestSkillSearchCommand:
+    def test_search_help(self) -> None:
+        result = CliRunner().invoke(cli, ["skill", "search", "--help"])
+        assert result.exit_code == 0
+
+    def test_search_no_sources_configured(self) -> None:
+        from openjarvis.core.config import JarvisConfig, SkillsConfig
+
+        cfg = JarvisConfig()
+        cfg.skills = SkillsConfig(sources=[])
+        with patch("openjarvis.cli.skill_cmd.load_config", return_value=cfg):
+            result = CliRunner().invoke(cli, ["skill", "search", "anything"])
+            assert result.exit_code != 0
+            assert "no skill sources" in result.output.lower()
+
+    def test_search_filters_results(self) -> None:
+        from pathlib import Path as _P
+
+        from openjarvis.core.config import (
+            JarvisConfig,
+            SkillsConfig,
+            SkillSourceConfig,
+        )
+        from openjarvis.skills.sources.base import ResolvedSkill
+
+        class _FakeResolver:
+            def sync(self) -> None:
+                return None
+
+            def list_skills(self):
+                return [
+                    ResolvedSkill(
+                        name="apple-notes",
+                        source="hermes",
+                        path=_P("/tmp"),
+                        category="apple",
+                        description="Take notes on macOS",
+                        commit="abc",
+                    ),
+                    ResolvedSkill(
+                        name="github-prs",
+                        source="hermes",
+                        path=_P("/tmp"),
+                        category="dev",
+                        description="List pull requests",
+                        commit="def",
+                    ),
+                ]
+
+        cfg = JarvisConfig()
+        cfg.skills = SkillsConfig(sources=[SkillSourceConfig(source="hermes")])
+        with patch("openjarvis.cli.skill_cmd.load_config", return_value=cfg):
+            with patch(
+                "openjarvis.cli.skill_cmd._get_resolver",
+                return_value=_FakeResolver(),
+            ):
+                result = CliRunner().invoke(cli, ["skill", "search", "notes"])
+                assert result.exit_code == 0, result.output
+                assert "apple-notes" in result.output
+                assert "github-prs" not in result.output
+
+
 class TestSkillInstallCommand:
     def test_install_help(self) -> None:
         result = CliRunner().invoke(cli, ["skill", "install", "--help"])
