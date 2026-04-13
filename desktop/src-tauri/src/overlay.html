@@ -264,11 +264,19 @@ window.addEventListener('focus',()=>input.focus());
 (function(){
   let down=false,dragging=false,sx=0,sy=0;
   const THRESH=3;
+  const INTERACTIVE='input,select,button,textarea,a,label,[contenteditable="true"],[role="button"]';
   document.addEventListener('mousedown',e=>{
+    // Never start a drag from an interactive control — the native <select>
+    // in particular steals focus and never delivers a matching mouseup,
+    // which would leave us stuck in the "down" state.
+    if(e.target.closest(INTERACTIVE))return;
     down=true;dragging=false;sx=e.screenX;sy=e.screenY;
   });
   document.addEventListener('mousemove',e=>{
     if(!down)return;
+    // If the mouse button is no longer pressed (e.g. the user released
+    // it over a native menu that swallowed mouseup), abort the drag.
+    if(e.buttons===0){down=false;dragging=false;return;}
     const dx=e.screenX-sx,dy=e.screenY-sy;
     if(!dragging){
       if(Math.abs(dx)+Math.abs(dy)<THRESH)return;
@@ -277,7 +285,10 @@ window.addEventListener('focus',()=>input.focus());
     sx=e.screenX;sy=e.screenY;
     try{window.webkit.messageHandlers.overlay.postMessage('drag:'+dx+','+dy)}catch{}
   });
-  document.addEventListener('mouseup',()=>{down=false;dragging=false});
+  const reset=()=>{down=false;dragging=false};
+  document.addEventListener('mouseup',reset);
+  window.addEventListener('blur',reset);
+  document.addEventListener('mouseleave',reset);
 })();
 </script>
 </body>
