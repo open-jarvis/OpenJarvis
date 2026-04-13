@@ -1,7 +1,7 @@
-# LiveResearchBench: Gemma-4-26B-A4B-it (vLLM, 1 GPU)
+# DeepResearchBench: Gemma-4-26B-A4B-it (vLLM, 1 GPU)
 [meta]
 name = "liveresearch-gemma4-26b"
-description = "LiveResearchBench on google/gemma-4-26B-A4B-it"
+description = "DeepResearchBench on google/gemma-4-26B-A4B-it"
 
 [defaults]
 temperature = 0.6

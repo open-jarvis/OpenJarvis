@@ -1,7 +1,7 @@
-# LiveResearchBench: Qwen3.5-2B (vLLM, 1 GPU)
+# DeepResearchBench: Qwen3.5-2B (vLLM, 1 GPU)
 [meta]
 name = "liveresearch-qwen-2b"
-description = "LiveResearchBench on Qwen/Qwen3.5-2B"
+description = "DeepResearchBench on Qwen/Qwen3.5-2B"
 
 [defaults]
 temperature = 0.6

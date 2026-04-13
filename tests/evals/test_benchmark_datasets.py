@@ -136,12 +136,12 @@ class TestDatasetInstantiation:
         assert ds.dataset_id == "livecodebench"
         assert ds.dataset_name == "LiveCodeBench"
 
-    def test_liveresearch(self) -> None:
+    def test_deepresearch(self) -> None:
         from openjarvis.evals.datasets.liveresearch import LiveResearchBenchDataset
 
         ds = LiveResearchBenchDataset()
         assert ds.dataset_id == "liveresearch"
-        assert ds.dataset_name == "LiveResearchBench"
+        assert ds.dataset_name == "DeepResearchBench"
 
     def test_toolcall15(self) -> None:
         from openjarvis.evals.datasets.toolcall15 import ToolCall15Dataset
@@ -260,7 +260,7 @@ class TestScorerInstantiation:
         s = LiveCodeBenchScorer(_mock_backend(), "test-model")
         assert s.scorer_id == "livecodebench"
 
-    def test_liveresearch_scorer(self) -> None:
+    def test_deepresearch_scorer(self) -> None:
         from openjarvis.evals.scorers.liveresearch import LiveResearchBenchScorer
 
         s = LiveResearchBenchScorer(_mock_backend(), "test-model")
