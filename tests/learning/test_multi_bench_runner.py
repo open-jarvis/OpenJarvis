@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from openjarvis.learning.optimize.trial_runner import BenchmarkSpec, MultiBenchTrialRunner
+from openjarvis.learning.optimize.trial_runner import (
+    BenchmarkSpec,
+    MultiBenchTrialRunner,
+)
 from openjarvis.learning.optimize.types import (
     BenchmarkScore,
     SampleScore,

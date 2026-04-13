@@ -7,9 +7,6 @@ hiding vendor-specific mock setup.
 
 from __future__ import annotations
 
-import pytest
-
-
 # ---------------------------------------------------------------------------
 # available() helpers
 # ---------------------------------------------------------------------------
