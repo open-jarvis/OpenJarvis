@@ -12,6 +12,7 @@ from openjarvis.channels._stubs import ChannelStatus
 from openjarvis.channels.gmail import GmailChannel
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.registry import ChannelRegistry
+from tests.channels.channel_test_helpers import make_common_channel_tests
 
 
 @pytest.fixture(autouse=True)
@@ -21,13 +22,10 @@ def _register_gmail():
         ChannelRegistry.register_value("gmail", GmailChannel)
 
 
-class TestRegistration:
-    def test_gmail_channel_registered(self):
-        assert ChannelRegistry.contains("gmail")
-
-    def test_channel_id(self):
-        ch = GmailChannel()
-        assert ch.channel_id == "gmail"
+TestCommonChannel = make_common_channel_tests(GmailChannel, "gmail")
+# Gmail overrides list_channels() to return ["inbox"], so remove the
+# generic assertion and keep the channel-specific TestListChannels below.
+del TestCommonChannel.test_list_channels
 
 
 class TestNoCredentials:
@@ -119,14 +117,6 @@ class TestListChannels:
         assert ch.list_channels() == ["inbox"]
 
 
-class TestOnMessage:
-    def test_gmail_on_message_registers_handler(self):
-        ch = GmailChannel()
-        handler = MagicMock()
-        ch.on_message(handler)
-        assert handler in ch._handlers
-
-
 class TestEventBus:
     def test_gmail_event_bus_integration(self):
         bus = EventBus(record_history=True)
@@ -142,10 +132,6 @@ class TestEventBus:
 
 
 class TestStatus:
-    def test_disconnected_initially(self):
-        ch = GmailChannel()
-        assert ch.status() == ChannelStatus.DISCONNECTED
-
     def test_status_error_when_connected_but_no_service(self):
         ch = GmailChannel()
         ch._status = ChannelStatus.CONNECTED

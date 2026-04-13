@@ -1,23 +1,20 @@
-"""Backward-compat: verify router with model catalog via intelligence imports.
-
-Canonical tests live in tests/learning/test_routing_models.py.
-"""
+"""Tests for the router with model catalog via canonical imports."""
 
 from __future__ import annotations
 
 from openjarvis.intelligence.model_catalog import register_builtin_models
-from openjarvis.intelligence.router import (
+from openjarvis.learning._stubs import RoutingContext
+from openjarvis.learning.routing.router import (
     HeuristicRouter,
     build_routing_context,
 )
-from openjarvis.learning._stubs import RoutingContext
 
 
 def _setup_models() -> None:
     register_builtin_models()
 
 
-class TestShimRouterWithModels:
+class TestRouterWithModels:
     def test_short_query(self) -> None:
         _setup_models()
         router = HeuristicRouter(

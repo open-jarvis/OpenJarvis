@@ -11,6 +11,7 @@ from openjarvis.channels._stubs import ChannelStatus
 from openjarvis.channels.signal_channel import SignalChannel
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.registry import ChannelRegistry
+from tests.channels.channel_test_helpers import make_common_channel_tests
 
 
 @pytest.fixture(autouse=True)
@@ -20,13 +21,14 @@ def _register_signal():
         ChannelRegistry.register_value("signal", SignalChannel)
 
 
-class TestRegistration:
-    def test_registry_key(self):
-        assert ChannelRegistry.contains("signal")
-
-    def test_channel_id(self):
-        ch = SignalChannel(api_url="http://localhost:8080", phone_number="+1234567890")
-        assert ch.channel_id == "signal"
+TestCommonChannel = make_common_channel_tests(
+    SignalChannel,
+    "signal",
+    constructor_kwargs={
+        "api_url": "http://localhost:8080",
+        "phone_number": "+1234567890",
+    },
+)
 
 
 class TestInit:
@@ -122,34 +124,8 @@ class TestSend:
         assert EventType.CHANNEL_MESSAGE_SENT in event_types
 
 
-class TestListChannels:
-    def test_list_channels(self):
-        ch = SignalChannel(api_url="http://localhost:8080", phone_number="+1234567890")
-        assert ch.list_channels() == ["signal"]
-
-
 class TestStatus:
-    def test_disconnected_initially(self):
-        ch = SignalChannel(api_url="http://localhost:8080", phone_number="+1234567890")
-        assert ch.status() == ChannelStatus.DISCONNECTED
-
     def test_no_config_connect_error(self):
         ch = SignalChannel()
         ch.connect()
         assert ch.status() == ChannelStatus.ERROR
-
-
-class TestOnMessage:
-    def test_on_message(self):
-        ch = SignalChannel(api_url="http://localhost:8080", phone_number="+1234567890")
-        handler = MagicMock()
-        ch.on_message(handler)
-        assert handler in ch._handlers
-
-
-class TestDisconnect:
-    def test_disconnect(self):
-        ch = SignalChannel(api_url="http://localhost:8080", phone_number="+1234567890")
-        ch._status = ChannelStatus.CONNECTED
-        ch.disconnect()
-        assert ch.status() == ChannelStatus.DISCONNECTED
