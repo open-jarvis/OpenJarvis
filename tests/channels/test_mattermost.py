@@ -11,6 +11,7 @@ from openjarvis.channels._stubs import ChannelStatus
 from openjarvis.channels.mattermost import MattermostChannel
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.registry import ChannelRegistry
+from tests.channels.channel_test_helpers import make_common_channel_tests
 
 
 @pytest.fixture(autouse=True)
@@ -20,13 +21,11 @@ def _register_mattermost():
         ChannelRegistry.register_value("mattermost", MattermostChannel)
 
 
-class TestRegistration:
-    def test_registry_key(self):
-        assert ChannelRegistry.contains("mattermost")
-
-    def test_channel_id(self):
-        ch = MattermostChannel(url="https://mattermost.example.com", token="test-token")
-        assert ch.channel_id == "mattermost"
+TestCommonChannel = make_common_channel_tests(
+    MattermostChannel,
+    "mattermost",
+    constructor_kwargs={"url": "https://mattermost.example.com", "token": "test-token"},
+)
 
 
 class TestInit:
@@ -135,34 +134,8 @@ class TestSend:
         assert EventType.CHANNEL_MESSAGE_SENT in event_types
 
 
-class TestListChannels:
-    def test_list_channels(self):
-        ch = MattermostChannel(url="https://mattermost.example.com", token="test-token")
-        assert ch.list_channels() == ["mattermost"]
-
-
 class TestStatus:
-    def test_disconnected_initially(self):
-        ch = MattermostChannel(url="https://mattermost.example.com", token="test-token")
-        assert ch.status() == ChannelStatus.DISCONNECTED
-
     def test_no_url_connect_error(self):
         ch = MattermostChannel()
         ch.connect()
         assert ch.status() == ChannelStatus.ERROR
-
-
-class TestOnMessage:
-    def test_on_message(self):
-        ch = MattermostChannel(url="https://mattermost.example.com", token="test-token")
-        handler = MagicMock()
-        ch.on_message(handler)
-        assert handler in ch._handlers
-
-
-class TestDisconnect:
-    def test_disconnect(self):
-        ch = MattermostChannel(url="https://mattermost.example.com", token="test-token")
-        ch._status = ChannelStatus.CONNECTED
-        ch.disconnect()
-        assert ch.status() == ChannelStatus.DISCONNECTED

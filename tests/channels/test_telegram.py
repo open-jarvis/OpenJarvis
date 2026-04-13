@@ -11,6 +11,7 @@ from openjarvis.channels._stubs import ChannelStatus
 from openjarvis.channels.telegram import TelegramChannel
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.registry import ChannelRegistry
+from tests.channels.channel_test_helpers import make_common_channel_tests
 
 
 @pytest.fixture(autouse=True)
@@ -20,13 +21,9 @@ def _register_telegram():
         ChannelRegistry.register_value("telegram", TelegramChannel)
 
 
-class TestRegistration:
-    def test_registry_key(self):
-        assert ChannelRegistry.contains("telegram")
-
-    def test_channel_id(self):
-        ch = TelegramChannel(bot_token="test-token")
-        assert ch.channel_id == "telegram"
+TestCommonChannel = make_common_channel_tests(
+    TelegramChannel, "telegram", constructor_kwargs={"bot_token": "test-token"}
+)
 
 
 class TestInit:
@@ -109,37 +106,11 @@ class TestSend:
         assert EventType.CHANNEL_MESSAGE_SENT in event_types
 
 
-class TestListChannels:
-    def test_list_channels(self):
-        ch = TelegramChannel(bot_token="123:ABC")
-        assert ch.list_channels() == ["telegram"]
-
-
 class TestStatus:
-    def test_disconnected_initially(self):
-        ch = TelegramChannel(bot_token="123:ABC")
-        assert ch.status() == ChannelStatus.DISCONNECTED
-
     def test_no_token_connect_error(self):
         ch = TelegramChannel()
         ch.connect()
         assert ch.status() == ChannelStatus.ERROR
-
-
-class TestOnMessage:
-    def test_on_message(self):
-        ch = TelegramChannel(bot_token="123:ABC")
-        handler = MagicMock()
-        ch.on_message(handler)
-        assert handler in ch._handlers
-
-
-class TestDisconnect:
-    def test_disconnect(self):
-        ch = TelegramChannel(bot_token="123:ABC")
-        ch._status = ChannelStatus.CONNECTED
-        ch.disconnect()
-        assert ch.status() == ChannelStatus.DISCONNECTED
 
 
 class TestAllowedChatIds:

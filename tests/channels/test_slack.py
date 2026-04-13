@@ -11,6 +11,7 @@ from openjarvis.channels._stubs import ChannelStatus
 from openjarvis.channels.slack import SlackChannel
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.registry import ChannelRegistry
+from tests.channels.channel_test_helpers import make_common_channel_tests
 
 
 @pytest.fixture(autouse=True)
@@ -20,13 +21,9 @@ def _register_slack():
         ChannelRegistry.register_value("slack", SlackChannel)
 
 
-class TestRegistration:
-    def test_registry_key(self):
-        assert ChannelRegistry.contains("slack")
-
-    def test_channel_id(self):
-        ch = SlackChannel(bot_token="xoxb-test")
-        assert ch.channel_id == "slack"
+TestCommonChannel = make_common_channel_tests(
+    SlackChannel, "slack", constructor_kwargs={"bot_token": "xoxb-test"}
+)
 
 
 class TestInit:
@@ -137,34 +134,8 @@ class TestSend:
         assert EventType.CHANNEL_MESSAGE_SENT in event_types
 
 
-class TestListChannels:
-    def test_list_channels(self):
-        ch = SlackChannel(bot_token="xoxb-test")
-        assert ch.list_channels() == ["slack"]
-
-
 class TestStatus:
-    def test_disconnected_initially(self):
-        ch = SlackChannel(bot_token="xoxb-test")
-        assert ch.status() == ChannelStatus.DISCONNECTED
-
     def test_no_token_connect_error(self):
         ch = SlackChannel()
         ch.connect()
         assert ch.status() == ChannelStatus.ERROR
-
-
-class TestOnMessage:
-    def test_on_message(self):
-        ch = SlackChannel(bot_token="xoxb-test")
-        handler = MagicMock()
-        ch.on_message(handler)
-        assert handler in ch._handlers
-
-
-class TestDisconnect:
-    def test_disconnect(self):
-        ch = SlackChannel(bot_token="xoxb-test")
-        ch._status = ChannelStatus.CONNECTED
-        ch.disconnect()
-        assert ch.status() == ChannelStatus.DISCONNECTED

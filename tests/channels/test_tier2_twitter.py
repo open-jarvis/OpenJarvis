@@ -11,6 +11,7 @@ from openjarvis.channels._stubs import ChannelStatus
 from openjarvis.channels.twitter import TwitterChannel
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.registry import ChannelRegistry
+from tests.channels.channel_test_helpers import make_common_channel_tests
 
 
 @pytest.fixture(autouse=True)
@@ -20,11 +21,10 @@ def _register_twitter():
         ChannelRegistry.register_value("twitter", TwitterChannel)
 
 
-def test_twitter_channel_registered():
-    """Twitter channel should be discoverable via the registry."""
-    assert ChannelRegistry.contains("twitter")
-    cls = ChannelRegistry.get("twitter")
-    assert cls is TwitterChannel
+TestCommonChannel = make_common_channel_tests(TwitterChannel, "twitter")
+# Twitter overrides list_channels() to return ["timeline", "dm"],
+# so remove the generic assertion and keep the channel-specific test below.
+del TestCommonChannel.test_list_channels
 
 
 def test_twitter_no_credentials_status():
