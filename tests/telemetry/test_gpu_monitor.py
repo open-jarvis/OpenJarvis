@@ -10,10 +10,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+
 # ---------------------------------------------------------------------------
 # Helpers: build a fake pynvml module
 # ---------------------------------------------------------------------------
-
 
 @dataclass
 class _FakeUtilization:
@@ -59,7 +59,6 @@ def _snap(power=300, util=80, mem=12, temp=65, dev=0):
 # ---------------------------------------------------------------------------
 # Tests: GpuHardwareSpec lookup
 # ---------------------------------------------------------------------------
-
 
 class TestGpuHardwareSpec:
     def test_lookup_exact_key(self):
@@ -107,6 +106,13 @@ class TestGpuHardwareSpec:
             "MI250X",
             "M4 Max",
             "M2 Ultra",
+            "Arc B580",
+            "Arc B570",
+            "Jetson Orin NX 16GB",
+            "Jetson Orin NX 8GB",
+            "Jetson AGX Orin",
+            "Snapdragon X Elite",
+            "Snapdragon X Plus",
         }
         assert set(GPU_SPECS.keys()) == expected
 
@@ -122,7 +128,6 @@ class TestGpuHardwareSpec:
 # Tests: energy integration math (trapezoidal rule)
 # ---------------------------------------------------------------------------
 
-
 class TestEnergyIntegration:
     def test_constant_power(self):
         """Constant 300W for 10 seconds = 3000 J."""
@@ -130,7 +135,6 @@ class TestEnergyIntegration:
 
         snapshots = [[_snap(power=300)] for _ in range(11)]
         timestamps = [float(i) for i in range(11)]
-
         sample = GpuMonitor._aggregate(snapshots, timestamps, wall_duration=10.0)
         assert sample.energy_joules == pytest.approx(3000.0, rel=1e-6)
         assert sample.mean_power_watts == pytest.approx(300.0, rel=1e-6)
@@ -146,7 +150,6 @@ class TestEnergyIntegration:
             [_snap(power=100.0 * i, util=50, mem=8, temp=60)] for i in range(5)
         ]
         timestamps = [float(i) for i in range(5)]
-
         sample = GpuMonitor._aggregate(snapshots, timestamps, wall_duration=4.0)
         assert sample.energy_joules == pytest.approx(800.0, rel=1e-6)
         assert sample.mean_power_watts == pytest.approx(200.0, rel=1e-6)
@@ -167,7 +170,6 @@ class TestEnergyIntegration:
 
         snapshots = [[_snap(power=250, util=90, mem=16, temp=70)]]
         timestamps = [0.0]
-
         sample = GpuMonitor._aggregate(snapshots, timestamps, wall_duration=0.05)
         assert sample.energy_joules == 0.0
         assert sample.num_snapshots == 1
@@ -177,7 +179,6 @@ class TestEnergyIntegration:
 # ---------------------------------------------------------------------------
 # Tests: GpuSample aggregation
 # ---------------------------------------------------------------------------
-
 
 class TestGpuSampleAggregation:
     def test_peak_values(self):
@@ -189,7 +190,6 @@ class TestGpuSampleAggregation:
             [_snap(power=300, util=70, mem=15, temp=65)],
         ]
         timestamps = [0.0, 1.0, 2.0]
-
         sample = GpuMonitor._aggregate(snapshots, timestamps, wall_duration=2.0)
         assert sample.peak_power_watts == pytest.approx(400.0)
         assert sample.peak_utilization_pct == pytest.approx(95.0)
@@ -205,7 +205,6 @@ class TestGpuSampleAggregation:
             [_snap(power=300, util=80, mem=16, temp=70)],
         ]
         timestamps = [0.0, 1.0, 2.0]
-
         sample = GpuMonitor._aggregate(snapshots, timestamps, wall_duration=2.0)
         assert sample.mean_power_watts == pytest.approx(200.0)
         assert sample.mean_utilization_pct == pytest.approx(60.0)
@@ -216,7 +215,6 @@ class TestGpuSampleAggregation:
 # ---------------------------------------------------------------------------
 # Tests: Multi-GPU aggregation
 # ---------------------------------------------------------------------------
-
 
 class TestMultiGpu:
     def test_multi_device_power_sum(self):
@@ -229,7 +227,6 @@ class TestMultiGpu:
         ]
         snapshots = [tick, tick]
         timestamps = [0.0, 1.0]
-
         sample = GpuMonitor._aggregate(snapshots, timestamps, wall_duration=1.0)
         assert sample.energy_joules == pytest.approx(500.0)
         assert sample.mean_power_watts == pytest.approx(500.0)
@@ -252,7 +249,6 @@ class TestMultiGpu:
             ],
         ]
         timestamps = [0.0, 2.0]
-
         sample = GpuMonitor._aggregate(snapshots, timestamps, wall_duration=2.0)
         # Tick powers: 200, 600 => 0.5*(200+600)*2 = 800
         assert sample.energy_joules == pytest.approx(800.0)
@@ -262,7 +258,6 @@ class TestMultiGpu:
 # ---------------------------------------------------------------------------
 # Tests: context manager flow (with mocked pynvml)
 # ---------------------------------------------------------------------------
-
 
 class TestContextManager:
     def test_sample_context_manager(self):
@@ -280,10 +275,8 @@ class TestContextManager:
             monitor._initialized = True
             monitor._device_count = 1
             monitor._handles = ["handle-0"]
-
             with monitor.sample() as result:
                 time.sleep(0.1)
-
             assert result.duration_seconds > 0
             assert result.num_snapshots > 0
             assert result.mean_power_watts > 0
@@ -301,10 +294,8 @@ class TestContextManager:
         monitor._handles = []
         monitor._device_count = 0
         monitor._initialized = False
-
         with monitor.sample() as result:
             pass
-
         assert result.num_snapshots == 0
         assert result.energy_joules == 0.0
         assert result.duration_seconds >= 0
@@ -313,7 +304,6 @@ class TestContextManager:
 # ---------------------------------------------------------------------------
 # Tests: available()
 # ---------------------------------------------------------------------------
-
 
 class TestAvailable:
     def test_available_false_when_pynvml_missing(self):
@@ -330,7 +320,6 @@ class TestAvailable:
     def test_available_true_with_fake_pynvml(self):
         """available() returns True when pynvml can init."""
         fake_pynvml = _make_fake_pynvml()
-
         with patch.dict(sys.modules, {"pynvml": fake_pynvml}):
             import openjarvis.telemetry.gpu_monitor as mod
 
@@ -348,7 +337,6 @@ class TestAvailable:
         """available() returns False when nvmlInit raises."""
         fake_pynvml = _make_fake_pynvml()
         fake_pynvml.nvmlInit.side_effect = RuntimeError("no driver")
-
         with patch.dict(sys.modules, {"pynvml": fake_pynvml}):
             import openjarvis.telemetry.gpu_monitor as mod
 
@@ -364,7 +352,6 @@ class TestAvailable:
 # ---------------------------------------------------------------------------
 # Tests: dataclass defaults
 # ---------------------------------------------------------------------------
-
 
 class TestDataclasses:
     def test_gpu_snapshot_defaults(self):
