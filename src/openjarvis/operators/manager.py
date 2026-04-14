@@ -271,12 +271,20 @@ class OperatorManager:
             "total_cost": summary.total_cost,
             "total_latency": summary.total_latency,
             "total_energy_joules": summary.total_energy_joules,
-            "avg_throughput_tok_per_sec": summary.avg_throughput_tok_per_sec,
+            "avg_throughput_tok_per_sec": (
+                summary.avg_throughput_tok_per_sec
+            ),
             "avg_gpu_utilization_pct": summary.avg_gpu_utilization_pct,
-            "avg_energy_per_output_token_joules": summary.avg_energy_per_output_token_joules,
+            "avg_energy_per_output_token_joules": (
+                summary.avg_energy_per_output_token_joules
+            ),
             "avg_throughput_per_watt": summary.avg_throughput_per_watt,
-            "total_prefill_energy_joules": summary.total_prefill_energy_joules,
-            "total_decode_energy_joules": summary.total_decode_energy_joules,
+            "total_prefill_energy_joules": (
+                summary.total_prefill_energy_joules
+            ),
+            "total_decode_energy_joules": (
+                summary.total_decode_energy_joules
+            ),
             "avg_mean_itl_ms": summary.avg_mean_itl_ms,
             "avg_median_itl_ms": summary.avg_median_itl_ms,
             "avg_p95_itl_ms": summary.avg_p95_itl_ms,
