@@ -1453,8 +1453,8 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
     .reverse();
 
   return (
-    <div className="flex flex-col h-full" style={{ minHeight: 320 }}>
-      <div className="flex-1 overflow-y-auto space-y-3 pb-4" style={{ maxHeight: 400 }}>
+    <div className="flex flex-col" style={{ minHeight: 320 }}>
+      <div className="flex-1 overflow-y-auto space-y-3 pb-4" style={{ maxHeight: 'calc(100vh - 400px)' }}>
         {displayMessages.length === 0 && !waitingForResponse && (
           <div className="text-sm text-center py-8" style={{ color: 'var(--color-text-tertiary)' }}>
             No messages yet. Send a message to interact with this agent.

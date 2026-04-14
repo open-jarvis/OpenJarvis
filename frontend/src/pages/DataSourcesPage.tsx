@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useAppStore } from '../lib/store';
 import {
   fetchManagedAgents,
@@ -8,10 +8,14 @@ import {
   createManagedAgent,
   sendblueRegisterWebhook,
   sendblueHealth,
+  getMemoryStats,
+  searchMemory,
+  storeMemory,
+  indexMemoryPath,
 } from '../lib/api';
-import type { ChannelBinding, ManagedAgent } from '../lib/api';
+import type { ChannelBinding, ManagedAgent, MemoryStats, MemorySearchResult } from '../lib/api';
 import { getBase } from '../lib/api';
-import { Database, MessageSquare, Loader2 } from 'lucide-react';
+import { Database, MessageSquare, Loader2, Brain, Search, FolderOpen, FileText } from 'lucide-react';
 import { SOURCE_CATALOG } from '../types/connectors';
 import type { ConnectRequest } from '../types/connectors';
 import { listConnectors, connectSource, getSyncStatus, triggerSync } from '../lib/connectors-api';
@@ -1412,12 +1416,275 @@ function MessagingSection({ agentId }: { agentId: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Memory section
+// ---------------------------------------------------------------------------
+
+function MemorySection() {
+  const [stats, setStats] = useState<MemoryStats | null>(null);
+  const [statsError, setStatsError] = useState('');
+
+  // Search
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<MemorySearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchDone, setSearchDone] = useState(false);
+
+  // Index
+  const [indexPath, setIndexPath] = useState('');
+  const [indexing, setIndexing] = useState(false);
+  const [indexResult, setIndexResult] = useState('');
+  const [indexError, setIndexError] = useState('');
+
+  // Store
+  const [storeContent, setStoreContent] = useState('');
+  const [storing, setStoring] = useState(false);
+  const [storeResult, setStoreResult] = useState('');
+  const [storeError, setStoreError] = useState('');
+
+  const statsInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const loadStats = useCallback(() => {
+    getMemoryStats()
+      .then((s) => { setStats(s); setStatsError(''); })
+      .catch(() => setStatsError('Could not reach memory backend'));
+  }, []);
+
+  useEffect(() => {
+    loadStats();
+    statsInterval.current = setInterval(loadStats, 10000);
+    return () => { if (statsInterval.current) clearInterval(statsInterval.current); };
+  }, [loadStats]);
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return;
+    setSearching(true);
+    setSearchDone(false);
+    try {
+      const results = await searchMemory(searchQuery.trim());
+      setSearchResults(results || []);
+      setSearchDone(true);
+    } catch {
+      setSearchResults([]);
+      setSearchDone(true);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const handleIndex = async () => {
+    if (!indexPath.trim()) return;
+    setIndexing(true);
+    setIndexResult('');
+    setIndexError('');
+    try {
+      const res = await indexMemoryPath(indexPath.trim());
+      setIndexResult(`Indexed ${res.chunks_indexed} chunk${res.chunks_indexed !== 1 ? 's' : ''}`);
+      setIndexPath('');
+      loadStats();
+    } catch (err: any) {
+      setIndexError(err.message || 'Indexing failed');
+    } finally {
+      setIndexing(false);
+    }
+  };
+
+  const handleStore = async () => {
+    if (!storeContent.trim()) return;
+    setStoring(true);
+    setStoreResult('');
+    setStoreError('');
+    try {
+      await storeMemory(storeContent.trim());
+      setStoreResult('Stored successfully');
+      setStoreContent('');
+      loadStats();
+    } catch (err: any) {
+      setStoreError(err.message || 'Failed to store');
+    } finally {
+      setStoring(false);
+    }
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '7px 10px',
+    background: 'var(--color-bg)',
+    border: '1px solid var(--color-border)',
+    borderRadius: 4, color: 'var(--color-text)',
+    fontSize: 12, marginBottom: 6,
+    boxSizing: 'border-box' as const,
+  };
+
+  const cardStyle: React.CSSProperties = {
+    background: 'var(--color-bg-secondary)',
+    border: '1px solid var(--color-border)',
+    borderRadius: 8, padding: 14, marginBottom: 10,
+  };
+
+  const buttonStyle = (disabled: boolean): React.CSSProperties => ({
+    width: '100%', padding: 8,
+    background: disabled ? '#444' : '#7c3aed',
+    color: 'white', border: 'none',
+    borderRadius: 6, fontSize: 12, cursor: 'pointer',
+    fontWeight: 600,
+    opacity: disabled ? 0.5 : 1,
+  });
+
+  return (
+    <div>
+      {/* Stats card */}
+      <div style={cardStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+          <Brain size={16} style={{ color: '#7c3aed' }} />
+          <span style={{ fontWeight: 600, fontSize: 14 }}>Memory Backend</span>
+        </div>
+        {statsError ? (
+          <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{statsError}</div>
+        ) : stats ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
+            <span style={{
+              width: 8, height: 8, borderRadius: '50%',
+              background: stats.entries > 0 ? '#4ade80' : '#6b7280',
+              display: 'inline-block', flexShrink: 0,
+            }} />
+            <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
+              <strong style={{ color: 'var(--color-text)' }}>{stats.backend}</strong>
+              {' \u2014 '}
+              {stats.entries.toLocaleString()} {stats.entries === 1 ? 'entry' : 'entries'}
+            </span>
+          </div>
+        ) : (
+          <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>Loading...</div>
+        )}
+      </div>
+
+      {/* Search */}
+      <div style={cardStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <Search size={14} style={{ color: '#7c3aed' }} />
+          <span style={{ fontWeight: 600, fontSize: 13 }}>Search Memory</span>
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
+            placeholder="Search your memory..."
+            style={{ ...inputStyle, flex: 1, marginBottom: 0 }}
+          />
+          <button
+            onClick={handleSearch}
+            disabled={searching || !searchQuery.trim()}
+            style={{
+              padding: '7px 14px',
+              background: searching || !searchQuery.trim() ? '#444' : '#7c3aed',
+              color: 'white', border: 'none',
+              borderRadius: 4, fontSize: 12, cursor: 'pointer',
+              fontWeight: 600, whiteSpace: 'nowrap',
+              opacity: searching || !searchQuery.trim() ? 0.5 : 1,
+            }}
+          >
+            {searching ? 'Searching...' : 'Search'}
+          </button>
+        </div>
+        {searchDone && searchResults.length === 0 && (
+          <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginTop: 8 }}>
+            No results found.
+          </div>
+        )}
+        {searchResults.length > 0 && (
+          <div style={{ marginTop: 8 }}>
+            {searchResults.map((r, i) => (
+              <div
+                key={i}
+                style={{
+                  background: 'var(--color-bg)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 6, padding: 10, marginBottom: 6,
+                }}
+              >
+                <div style={{ fontSize: 12, color: 'var(--color-text)', lineHeight: 1.5 }}>
+                  {r.content.length > 200 ? r.content.slice(0, 200) + '...' : r.content}
+                </div>
+                <div style={{ display: 'flex', gap: 10, marginTop: 6, fontSize: 11, color: 'var(--color-text-tertiary)' }}>
+                  <span>Score: {(r.score * 100).toFixed(1)}%</span>
+                  {r.metadata?.source ? <span>Source: {String(r.metadata.source)}</span> : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Index path */}
+      <div style={cardStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <FolderOpen size={14} style={{ color: '#7c3aed' }} />
+          <span style={{ fontWeight: 600, fontSize: 13 }}>Index a Path</span>
+        </div>
+        <input
+          value={indexPath}
+          onChange={(e) => setIndexPath(e.target.value)}
+          placeholder="/path/to/folder/or/file"
+          style={inputStyle}
+        />
+        <button
+          onClick={handleIndex}
+          disabled={indexing || !indexPath.trim()}
+          style={buttonStyle(indexing || !indexPath.trim())}
+        >
+          {indexing ? 'Indexing...' : 'Index'}
+        </button>
+        {indexResult && (
+          <div style={{ fontSize: 12, color: '#4ade80', marginTop: 8 }}>{indexResult}</div>
+        )}
+        {indexError && (
+          <div style={{ fontSize: 12, color: '#ef4444', marginTop: 8 }}>{indexError}</div>
+        )}
+      </div>
+
+      {/* Manual store */}
+      <div style={cardStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <FileText size={14} style={{ color: '#7c3aed' }} />
+          <span style={{ fontWeight: 600, fontSize: 13 }}>Store Content</span>
+        </div>
+        <textarea
+          value={storeContent}
+          onChange={(e) => setStoreContent(e.target.value)}
+          placeholder="Paste content to store in memory..."
+          rows={5}
+          style={{
+            ...inputStyle,
+            resize: 'vertical',
+            fontFamily: 'inherit',
+            minHeight: 80,
+          }}
+        />
+        <button
+          onClick={handleStore}
+          disabled={storing || !storeContent.trim()}
+          style={buttonStyle(storing || !storeContent.trim())}
+        >
+          {storing ? 'Storing...' : 'Store'}
+        </button>
+        {storeResult && (
+          <div style={{ fontSize: 12, color: '#4ade80', marginTop: 8 }}>{storeResult}</div>
+        )}
+        {storeError && (
+          <div style={{ fontSize: 12, color: '#ef4444', marginTop: 8 }}>{storeError}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
 export function DataSourcesPage() {
   const [agents, setAgents] = useState<ManagedAgent[]>([]);
-  const [activeTab, setActiveTab] = useState<'sources' | 'messaging'>('sources');
+  const [activeTab, setActiveTab] = useState<'sources' | 'messaging' | 'memory'>('sources');
   const [creatingAgent, setCreatingAgent] = useState(false);
 
   const loadAgents = useCallback(() => {
@@ -1457,6 +1724,7 @@ export function DataSourcesPage() {
   const tabs = [
     { id: 'sources' as const, label: 'Data Sources', icon: Database },
     { id: 'messaging' as const, label: 'Messaging Channels', icon: MessageSquare },
+    { id: 'memory' as const, label: 'Memory', icon: Brain },
   ];
 
   return (
@@ -1464,7 +1732,7 @@ export function DataSourcesPage() {
       {/* Header */}
       <div className="shrink-0 px-6 pt-6 pb-4">
         <h1 className="text-lg font-semibold" style={{ color: 'var(--color-text)' }}>
-          Data Sources &amp; Messaging Channels
+          Data Sources, Channels &amp; Memory
         </h1>
         <p className="text-sm mt-1" style={{ color: 'var(--color-text-secondary)' }}>
           Connect your personal data so your AI can search across everything, and set up messaging channels to chat from your phone.
@@ -1504,6 +1772,7 @@ export function DataSourcesPage() {
             </div>
           ) : null
         )}
+        {activeTab === 'memory' && <MemorySection />}
       </div>
     </div>
   );

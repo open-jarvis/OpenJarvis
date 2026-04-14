@@ -784,3 +784,69 @@ export async function submitSavings(data: SavingsSubmission): Promise<boolean> {
     return false;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Memory
+// ---------------------------------------------------------------------------
+
+export interface MemorySearchResult {
+  content: string;
+  score: number;
+  metadata: Record<string, unknown>;
+}
+
+export interface MemoryStats {
+  entries: number;
+  backend: string;
+  [key: string]: unknown;
+}
+
+export interface MemoryConfig {
+  backend: string;
+  context_from_memory: boolean;
+  context_top_k: number;
+  context_min_score: number;
+  context_max_tokens: number;
+}
+
+export async function getMemoryStats(): Promise<MemoryStats> {
+  const res = await fetch(`${getBase()}/v1/memory/stats`);
+  if (!res.ok) throw new Error('Failed to fetch memory stats');
+  return res.json();
+}
+
+export async function searchMemory(query: string, topK: number = 5): Promise<MemorySearchResult[]> {
+  const res = await fetch(`${getBase()}/v1/memory/search`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, top_k: topK }),
+  });
+  if (!res.ok) throw new Error('Failed to search memory');
+  const data = await res.json();
+  return data.results;
+}
+
+export async function storeMemory(content: string, metadata?: Record<string, unknown>): Promise<void> {
+  const res = await fetch(`${getBase()}/v1/memory/store`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content, metadata }),
+  });
+  if (!res.ok) throw new Error('Failed to store memory');
+}
+
+export async function indexMemoryPath(path: string): Promise<{ chunks_indexed: number }> {
+  const res = await fetch(`${getBase()}/v1/memory/index`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  });
+  if (!res.ok) throw new Error('Failed to index path');
+  return res.json();
+}
+
+export async function getMemoryConfig(): Promise<MemoryConfig> {
+  const res = await fetch(`${getBase()}/v1/memory/config`);
+  if (!res.ok) throw new Error('Failed to fetch memory config');
+  return res.json();
+}
