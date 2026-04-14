@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 
 try:
     import pynvml
-
     _PYNVML_AVAILABLE = True
 except ImportError:
     _PYNVML_AVAILABLE = False
@@ -22,7 +21,6 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Hardware spec database
 # ---------------------------------------------------------------------------
-
 
 @dataclass(frozen=True)
 class GpuHardwareSpec:
@@ -50,7 +48,7 @@ GPU_SPECS: Dict[str, GpuHardwareSpec] = {
     # Apple Silicon
     "M4 Max": GpuHardwareSpec(tflops_fp16=53, bandwidth_gb_s=546, tdp_watts=40),
     "M2 Ultra": GpuHardwareSpec(tflops_fp16=27, bandwidth_gb_s=800, tdp_watts=60),
-        # Intel Arc
+    # Intel Arc
     "Arc B580": GpuHardwareSpec(tflops_fp16=196, bandwidth_gb_s=456, tdp_watts=190),
     "Arc B570": GpuHardwareSpec(tflops_fp16=136, bandwidth_gb_s=380, tdp_watts=150),
     # NVIDIA Jetson
@@ -79,7 +77,6 @@ def lookup_gpu_spec(name: str) -> Optional[GpuHardwareSpec]:
 # ---------------------------------------------------------------------------
 # Snapshot & aggregated sample
 # ---------------------------------------------------------------------------
-
 
 @dataclass
 class GpuSnapshot:
@@ -112,7 +109,6 @@ class GpuSample:
 # ---------------------------------------------------------------------------
 # Monitor
 # ---------------------------------------------------------------------------
-
 
 class GpuMonitor:
     """Background GPU poller using pynvml.
@@ -229,6 +225,7 @@ class GpuMonitor:
             mean_util = sum(s.utilization_pct for s in tick_snaps) / len(tick_snaps)
             total_mem = sum(s.memory_used_gb for s in tick_snaps)
             mean_temp = sum(s.temperature_c for s in tick_snaps) / len(tick_snaps)
+
             tick_powers.append(total_power)
             tick_utils.append(mean_util)
             tick_mems.append(total_mem)
@@ -266,7 +263,6 @@ class GpuMonitor:
         :class:`GpuSample` without starting a background thread.
         """
         result = GpuSample()
-
         if not self._initialized or self._device_count == 0:
             t_start = time.monotonic()
             yield result
@@ -286,11 +282,13 @@ class GpuMonitor:
 
         t_start = time.monotonic()
         thread.start()
+
         try:
             yield result
         finally:
             stop_event.set()
             thread.join(timeout=2.0)
+
             wall = time.monotonic() - t_start
 
             with lock:
