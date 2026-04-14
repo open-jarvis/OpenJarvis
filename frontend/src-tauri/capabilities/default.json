@@ -18,6 +18,7 @@
     "shell:allow-stdin-write",
     "shell:allow-kill",
     "shell:allow-open",
+    "dialog:allow-open",
     {
       "identifier": "shell:allow-execute",
       "allow": [

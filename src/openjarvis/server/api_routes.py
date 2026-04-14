@@ -185,9 +185,13 @@ async def memory_search(req: MemorySearchRequest, request: Request):
     if backend is None:
         return {"results": []}
     try:
-        results = backend.search(req.query, top_k=req.top_k)
+        results = backend.retrieve(req.query, top_k=req.top_k)
         items = [
-            {"content": r.content, "score": r.score, "metadata": r.metadata}
+            {
+                "content": r.content,
+                "score": getattr(r, "score", 0.0),
+                "metadata": getattr(r, "metadata", {}),
+            }
             for r in results
         ]
         return {"results": items}
@@ -202,8 +206,10 @@ async def memory_stats(request: Request):
     if backend is None:
         return {"entries": 0, "backend": "none", "status": "not_configured"}
     try:
-        stats = backend.stats()
-        return stats
+        return {
+            "entries": backend.count(),
+            "backend": getattr(backend, "backend_id", "unknown"),
+        }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -241,19 +247,24 @@ async def memory_index(req: MemoryIndexRequest, request: Request):
 
         from openjarvis.tools.storage.ingest import ingest_path
 
-        target = Path(req.path)
+        target = Path(req.path).expanduser().resolve()
         if not target.exists():
             raise HTTPException(status_code=404, detail=f"Path not found: {req.path}")
 
-        chunks = ingest_path(target)
         backend = _get_memory_backend(request)
+        if backend is None:
+            raise HTTPException(status_code=503, detail="No memory backend available")
+
+        chunks = ingest_path(target)
+        stored = 0
         for chunk in chunks:
-            metadata = {"source": chunk.source}
-            if chunk.metadata:
+            metadata = {"source": getattr(chunk, "source", str(target))}
+            if hasattr(chunk, "metadata") and chunk.metadata:
                 metadata.update(chunk.metadata)
             backend.store(chunk.content, metadata=metadata)
+            stored += 1
 
-        return {"status": "indexed", "chunks": len(chunks)}
+        return {"status": "indexed", "chunks_indexed": stored}
     except HTTPException:
         raise
     except Exception as exc:
