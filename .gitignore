@@ -60,9 +60,7 @@ frontend/dist/
 src/openjarvis/server/static/
 
 # Desktop (Tauri)
-desktop/node_modules/
-desktop/dist/
-desktop/src-tauri/target/
+frontend/src-tauri/target/
 
 # Worktrees
 .worktrees/

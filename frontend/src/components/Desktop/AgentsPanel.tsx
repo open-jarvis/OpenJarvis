@@ -14,8 +14,8 @@ import {
   fetchLearningLog,
   triggerLearning,
   fetchAgentTraces,
-} from '../lib/api';
-import type { ManagedAgent, AgentTask, AgentMessage, AgentTemplate, LearningLogEntry, AgentTrace } from '../lib/api';
+} from '../../lib/api';
+import type { ManagedAgent, AgentTask, AgentMessage, AgentTemplate, LearningLogEntry, AgentTrace } from '../../lib/api';
 
 // ---------------------------------------------------------------------------
 // Colors — Catppuccin Mocha

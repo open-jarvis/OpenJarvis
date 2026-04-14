@@ -12,11 +12,11 @@
 # Ollama distributes platform binaries as archives (.tgz / .tar.zst).
 # This script downloads, extracts the `ollama` CLI binary, renames it
 # to the Tauri target-triple convention, and places it under
-# desktop/src-tauri/binaries/.
+# frontend/src-tauri/binaries/.
 
 set -euo pipefail
 
-BINARIES_DIR="$(cd "$(dirname "$0")/../src-tauri/binaries" 2>/dev/null && pwd || echo "$(dirname "$0")/../src-tauri/binaries")"
+BINARIES_DIR="$(cd "$(dirname "$0")/../binaries" 2>/dev/null && pwd || echo "$(dirname "$0")/../binaries")"
 mkdir -p "$BINARIES_DIR"
 
 # Determine target triple

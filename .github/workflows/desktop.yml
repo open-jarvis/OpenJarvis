@@ -4,7 +4,6 @@ on:
   push:
     branches: [main]
     paths:
-      - 'desktop/**'
       - 'frontend/**'
       - '.github/workflows/desktop.yml'
     tags:
@@ -12,7 +11,6 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - 'desktop/**'
       - 'frontend/**'
       - '.github/workflows/desktop.yml'
   workflow_dispatch:
@@ -51,10 +49,6 @@ jobs:
         working-directory: frontend
         run: npm install
 
-      - name: Install desktop dependencies
-        working-directory: desktop
-        run: npm install
-
       - name: TypeScript type-check
         working-directory: frontend
         run: npx tsc --noEmit
@@ -65,13 +59,13 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: 'desktop/src-tauri -> target'
+          workspaces: 'frontend/src-tauri -> target'
 
       - name: Create frontend dist stub
         run: mkdir -p frontend/dist && echo '<html><body></body></html>' > frontend/dist/index.html
 
       - name: Cargo check
-        working-directory: desktop/src-tauri
+        working-directory: frontend/src-tauri
         run: cargo check
 
   # Remove stale artifacts from the desktop-latest pre-release so that
@@ -135,7 +129,7 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: 'desktop/src-tauri -> target'
+          workspaces: 'frontend/src-tauri -> target'
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -146,14 +140,10 @@ jobs:
         working-directory: frontend
         run: npm install
 
-      - name: Install desktop dependencies
-        working-directory: desktop
-        run: npm install
-
       - name: Download Ollama sidecar
         shell: bash
         run: |
-          cd desktop/scripts && chmod +x download-ollama.sh
+          cd frontend/src-tauri/scripts && chmod +x download-ollama.sh
           if [[ "${{ matrix.platform }}" == "macos-14" ]]; then
             ./download-ollama.sh aarch64-apple-darwin
             ./download-ollama.sh x86_64-apple-darwin
@@ -211,7 +201,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           TAURI_CONFIG: '{"bundle":{"externalBin":["binaries/ollama"]}}'
         with:
-          projectPath: desktop
+          projectPath: frontend
           tauriScript: npx tauri
           tagName: ${{ steps.release-info.outputs.tag }}
           releaseName: ${{ steps.release-info.outputs.name }}

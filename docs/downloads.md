@@ -75,7 +75,7 @@ npm install
 npm run tauri build
 ```
 
-The built installer will be in `desktop/src-tauri/target/release/bundle/`.
+The built installer will be in `frontend/src-tauri/target/release/bundle/`.
 
 ---
 
