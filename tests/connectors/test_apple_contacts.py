@@ -499,3 +499,128 @@ def test_sync_missing_db() -> None:
     c = AppleContactsConnector(db_path="/nonexistent/AddressBook.db")
     docs = list(c.sync())
     assert docs == []
+
+
+# ---------------------------------------------------------------------------
+# Helper: create a minimal contacts DB with just the required tables
+# ---------------------------------------------------------------------------
+
+_MINIMAL_SCHEMA = """
+    CREATE TABLE ZABCDRECORD (
+        Z_PK INTEGER PRIMARY KEY, ZFIRSTNAME VARCHAR,
+        ZMIDDLENAME VARCHAR, ZLASTNAME VARCHAR,
+        ZORGANIZATION VARCHAR, ZJOBTITLE VARCHAR,
+        ZDEPARTMENT VARCHAR, ZNICKNAME VARCHAR,
+        ZBIRTHDAY TIMESTAMP, ZCREATIONDATE TIMESTAMP,
+        ZMODIFICATIONDATE TIMESTAMP, ZUNIQUEID VARCHAR
+    );
+    CREATE TABLE ZABCDPHONENUMBER (
+        Z_PK INTEGER PRIMARY KEY, ZOWNER INTEGER,
+        ZORDERINGINDEX INTEGER, ZFULLNUMBER VARCHAR, ZLABEL VARCHAR
+    );
+    CREATE TABLE ZABCDEMAILADDRESS (
+        Z_PK INTEGER PRIMARY KEY, ZOWNER INTEGER,
+        ZORDERINGINDEX INTEGER, ZADDRESS VARCHAR, ZLABEL VARCHAR
+    );
+    CREATE TABLE ZABCDPOSTALADDRESS (
+        Z_PK INTEGER PRIMARY KEY, ZOWNER INTEGER,
+        ZORDERINGINDEX INTEGER, ZSTREET VARCHAR, ZCITY VARCHAR,
+        ZSTATE VARCHAR, ZZIPCODE VARCHAR, ZCOUNTRYNAME VARCHAR,
+        ZLABEL VARCHAR
+    );
+    CREATE TABLE ZABCDURLADDRESS (
+        Z_PK INTEGER PRIMARY KEY, ZOWNER INTEGER,
+        ZORDERINGINDEX INTEGER, ZURL VARCHAR, ZLABEL VARCHAR
+    );
+    CREATE TABLE ZABCDSOCIALPROFILE (
+        Z_PK INTEGER PRIMARY KEY, ZOWNER INTEGER,
+        ZORDERINGINDEX INTEGER, ZUSERNAME VARCHAR,
+        ZSERVICENAME VARCHAR, ZLABEL VARCHAR
+    );
+    CREATE TABLE ZABCDNOTE (
+        Z_PK INTEGER PRIMARY KEY, ZCONTACT INTEGER, ZTEXT VARCHAR
+    );
+"""
+
+
+def _create_minimal_db(db_path: Path, contacts: list[tuple]) -> None:
+    """Create a DB with given contacts: [(pk, first, last, org, uid), ...]."""
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript(_MINIMAL_SCHEMA)
+    for pk, first, last, org, uid in contacts:
+        conn.execute(
+            "INSERT INTO ZABCDRECORD "
+            "(Z_PK, ZFIRSTNAME, ZLASTNAME, ZORGANIZATION, "
+            " ZCREATIONDATE, ZMODIFICATIONDATE, ZUNIQUEID) "
+            f"VALUES ({pk}, ?, ?, ?, 694310400.0, 694310400.0, ?)",
+            (first, last, org, uid),
+        )
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Test 16 — sync reads contacts from iCloud source databases
+# ---------------------------------------------------------------------------
+
+
+def test_sync_reads_source_databases(tmp_path: Path) -> None:
+    """sync() reads contacts from Sources/<UUID>/ databases."""
+    from openjarvis.connectors.apple_contacts import AppleContactsConnector
+
+    # Main DB with 1 contact
+    main_db = tmp_path / "AddressBook-v22.abcddb"
+    _create_minimal_db(main_db, [(1, "Local", "Contact", None, "uid-local")])
+
+    # Source DB with 2 contacts
+    source_dir = tmp_path / "Sources" / "FAKE-UUID-1"
+    source_dir.mkdir(parents=True)
+    _create_minimal_db(
+        source_dir / "AddressBook-v22.abcddb",
+        [
+            (1, "Cloud", "One", None, "uid-cloud1"),
+            (2, "Cloud", "Two", None, "uid-cloud2"),
+        ],
+    )
+
+    c = AppleContactsConnector(db_path=str(main_db))
+    docs = list(c.sync())
+
+    assert len(docs) == 3
+    ids = {d.doc_id for d in docs}
+    assert "apple_contacts:uid-local" in ids
+    assert "apple_contacts:uid-cloud1" in ids
+    assert "apple_contacts:uid-cloud2" in ids
+
+
+# ---------------------------------------------------------------------------
+# Test 17 — sync deduplicates contacts across sources
+# ---------------------------------------------------------------------------
+
+
+def test_sync_deduplicates_across_sources(tmp_path: Path) -> None:
+    """sync() deduplicates contacts that appear in multiple databases."""
+    from openjarvis.connectors.apple_contacts import AppleContactsConnector
+
+    # Main DB with Alice
+    main_db = tmp_path / "AddressBook-v22.abcddb"
+    _create_minimal_db(main_db, [(1, "Alice", "Smith", None, "uid-alice")])
+
+    # Source DB also has Alice (same ZUNIQUEID) + Bob
+    source_dir = tmp_path / "Sources" / "FAKE-UUID-1"
+    source_dir.mkdir(parents=True)
+    _create_minimal_db(
+        source_dir / "AddressBook-v22.abcddb",
+        [
+            (1, "Alice", "Smith", None, "uid-alice"),  # duplicate
+            (2, "Bob", "Jones", None, "uid-bob"),
+        ],
+    )
+
+    c = AppleContactsConnector(db_path=str(main_db))
+    docs = list(c.sync())
+
+    assert len(docs) == 2
+    ids = {d.doc_id for d in docs}
+    assert "apple_contacts:uid-alice" in ids
+    assert "apple_contacts:uid-bob" in ids

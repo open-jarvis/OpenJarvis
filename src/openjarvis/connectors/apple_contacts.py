@@ -28,13 +28,11 @@ from openjarvis.tools._stubs import ToolSpec
 # Constants
 # ---------------------------------------------------------------------------
 
-_DEFAULT_DB_PATH = (
-    Path.home()
-    / "Library"
-    / "Application Support"
-    / "AddressBook"
-    / "AddressBook-v22.abcddb"
-)
+_ADDRESSBOOK_DIR = Path.home() / "Library" / "Application Support" / "AddressBook"
+
+_DEFAULT_DB_PATH = _ADDRESSBOOK_DIR / "AddressBook-v22.abcddb"
+
+_DB_FILENAME = "AddressBook-v22.abcddb"
 
 # Apple epoch: 2001-01-01 00:00:00 UTC
 _APPLE_EPOCH = datetime(2001, 1, 1, tzinfo=timezone.utc)
@@ -189,10 +187,30 @@ class AppleContactsConnector(BaseConnector):
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _open_db(self) -> sqlite3.Connection | None:
-        """Open the Contacts database read-only.  Returns None on failure."""
+    def _all_db_paths(self) -> List[Path]:
+        """Return paths to all AddressBook databases (main + iCloud sources).
+
+        macOS stores the local address book at the top level and synced
+        accounts (iCloud, Exchange, etc.) under ``Sources/<UUID>/``.
+        """
+        paths: List[Path] = []
+        # Main database
+        if self._db_path.exists():
+            paths.append(self._db_path)
+        # Source databases (iCloud, Exchange, etc.)
+        sources_dir = self._db_path.parent / "Sources"
+        if sources_dir.is_dir():
+            for child in sorted(sources_dir.iterdir()):
+                candidate = child / _DB_FILENAME
+                if candidate.exists():
+                    paths.append(candidate)
+        return paths
+
+    @staticmethod
+    def _open_db(path: Path) -> sqlite3.Connection | None:
+        """Open a Contacts database read-only.  Returns None on failure."""
         try:
-            return sqlite3.connect(f"file:{self._db_path}?mode=ro", uri=True)
+            return sqlite3.connect(f"file:{path}?mode=ro", uri=True)
         except sqlite3.OperationalError:
             return None
 
@@ -280,8 +298,8 @@ class AppleContactsConnector(BaseConnector):
     # ------------------------------------------------------------------
 
     def is_connected(self) -> bool:
-        """Return ``True`` if AddressBook database exists at the configured path."""
-        return self._db_path.exists()
+        """Return ``True`` if any AddressBook database exists."""
+        return len(self._all_db_paths()) > 0
 
     def disconnect(self) -> None:
         """Mark the connector as disconnected."""
@@ -309,84 +327,98 @@ class AppleContactsConnector(BaseConnector):
         Document
             One document per contact with all fields as structured text.
         """
-        conn = self._open_db()
-        if conn is None:
+        db_paths = self._all_db_paths()
+        if not db_paths:
             return
 
-        try:
-            rows = conn.execute(_CONTACTS_QUERY).fetchall()
-            self._items_total = len(rows)
-            synced = 0
+        seen_ids: set[str] = set()
+        synced = 0
+        total = 0
 
-            for row in rows:
-                pk: int = row[0]
-                first: str = row[1] or ""
-                middle: str = row[2] or ""
-                last: str = row[3] or ""
-                org: str = row[4] or ""
-                job_title: str = row[5] or ""
-                department: str = row[6] or ""
-                nickname: str = row[7] or ""
-                birthday_ts: float | None = row[8]
-                creation_ts: float = row[9] or 0.0
-                mod_ts: float = row[10] or 0.0
-                unique_id: str = row[11] or str(pk)
+        for db_path in db_paths:
+            conn = self._open_db(db_path)
+            if conn is None:
+                continue
 
-                timestamp = (
-                    _apple_ts_to_datetime(mod_ts)
-                    if mod_ts
-                    else _apple_ts_to_datetime(creation_ts)
-                )
+            try:
+                rows = conn.execute(_CONTACTS_QUERY).fetchall()
+                total += len(rows)
+                self._items_total = total
 
-                # Apply since filter
-                if since is not None:
-                    since_utc = since
-                    if since_utc.tzinfo is None:
-                        since_utc = since_utc.replace(tzinfo=timezone.utc)
-                    if timestamp < since_utc:
+                for row in rows:
+                    pk: int = row[0]
+                    first: str = row[1] or ""
+                    middle: str = row[2] or ""
+                    last: str = row[3] or ""
+                    org: str = row[4] or ""
+                    job_title: str = row[5] or ""
+                    department: str = row[6] or ""
+                    nickname: str = row[7] or ""
+                    birthday_ts: float | None = row[8]
+                    creation_ts: float = row[9] or 0.0
+                    mod_ts: float = row[10] or 0.0
+                    unique_id: str = row[11] or str(pk)
+
+                    # Deduplicate across sources
+                    if unique_id in seen_ids:
                         continue
+                    seen_ids.add(unique_id)
 
-                name = _build_name(first, middle, last, org)
-                birthday = ""
-                if birthday_ts:
-                    try:
-                        birthday = _apple_ts_to_datetime(birthday_ts).strftime(
-                            "%Y-%m-%d"
-                        )
-                    except (ValueError, OverflowError):
-                        pass
+                    timestamp = (
+                        _apple_ts_to_datetime(mod_ts)
+                        if mod_ts
+                        else _apple_ts_to_datetime(creation_ts)
+                    )
 
-                meta: Dict[str, Any] = {
-                    "name": name,
-                    "first_name": first,
-                    "last_name": last,
-                    "organization": org,
-                    "job_title": job_title,
-                    "department": department,
-                    "nickname": nickname,
-                    "birthday": birthday,
-                }
+                    # Apply since filter
+                    if since is not None:
+                        since_utc = since
+                        if since_utc.tzinfo is None:
+                            since_utc = since_utc.replace(tzinfo=timezone.utc)
+                        if timestamp < since_utc:
+                            continue
 
-                content = self._build_content(conn, pk, meta)
+                    name = _build_name(first, middle, last, org)
+                    birthday = ""
+                    if birthday_ts:
+                        try:
+                            birthday = _apple_ts_to_datetime(birthday_ts).strftime(
+                                "%Y-%m-%d"
+                            )
+                        except (ValueError, OverflowError):
+                            pass
 
-                doc = Document(
-                    doc_id=f"apple_contacts:{unique_id}",
-                    source="apple_contacts",
-                    doc_type="contact",
-                    content=content,
-                    title=name,
-                    author=name,
-                    timestamp=timestamp,
-                    metadata=meta,
-                )
-                synced += 1
-                yield doc
+                    meta: Dict[str, Any] = {
+                        "name": name,
+                        "first_name": first,
+                        "last_name": last,
+                        "organization": org,
+                        "job_title": job_title,
+                        "department": department,
+                        "nickname": nickname,
+                        "birthday": birthday,
+                    }
 
-            self._items_synced = synced
-            self._last_sync = datetime.now(tz=timezone.utc)
+                    content = self._build_content(conn, pk, meta)
 
-        finally:
-            conn.close()
+                    doc = Document(
+                        doc_id=f"apple_contacts:{unique_id}",
+                        source="apple_contacts",
+                        doc_type="contact",
+                        content=content,
+                        title=name,
+                        author=name,
+                        timestamp=timestamp,
+                        metadata=meta,
+                    )
+                    synced += 1
+                    yield doc
+
+            finally:
+                conn.close()
+
+        self._items_synced = synced
+        self._last_sync = datetime.now(tz=timezone.utc)
 
     def sync_status(self) -> SyncStatus:
         """Return sync progress from the most recent :meth:`sync` call."""
