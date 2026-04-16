@@ -879,6 +879,14 @@ class SystemBuilder:
 
             key = config.memory.default_backend
             if MemoryRegistry.contains(key):
+                if key == "synapse":
+                    return MemoryRegistry.create(
+                        key,
+                        url=config.memory.synapse_url,
+                        store_event=config.memory.synapse_store_event,
+                        retrieve_query=config.memory.synapse_retrieve_query,
+                        delete_event=config.memory.synapse_delete_event,
+                    )
                 return MemoryRegistry.create(key, db_path=config.memory.db_path)
         except Exception as exc:
             logger.warning("Failed to resolve memory backend: %s", exc)

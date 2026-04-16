@@ -2,6 +2,7 @@
 
 use openjarvis_tools::storage::MemoryBackend;
 use pyo3::prelude::*;
+use serde_json::Value;
 
 #[pyclass(name = "SQLiteMemory")]
 pub struct PySQLiteMemory {
@@ -352,5 +353,209 @@ impl PyKnowledgeGraphMemory {
         self.inner
             .count()
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Synapse memory backend (MemoryBackend adapter + raw emit/query)
+// ---------------------------------------------------------------------------
+
+#[pyclass(name = "SynapseMemory")]
+pub struct PySynapseMemory {
+    inner: openjarvis_tools::storage::SynapseMemory,
+}
+
+#[pymethods]
+impl PySynapseMemory {
+    #[new]
+    #[pyo3(signature = (url="http://localhost:8080", store_event="store", retrieve_query="Retrieve", delete_event="delete"))]
+    fn new(
+        url: &str,
+        store_event: &str,
+        retrieve_query: &str,
+        delete_event: &str,
+    ) -> PyResult<Self> {
+        let inner =
+            openjarvis_tools::storage::SynapseMemory::new(url, store_event, retrieve_query, delete_event)
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        Ok(Self { inner })
+    }
+
+    fn backend_id(&self) -> &str {
+        self.inner.backend_id()
+    }
+
+    #[pyo3(signature = (content, source, metadata=None))]
+    fn store(&self, content: &str, source: &str, metadata: Option<&str>) -> PyResult<String> {
+        let meta = metadata
+            .map(|m| serde_json::from_str(m))
+            .transpose()
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        self.inner
+            .store(content, source, meta.as_ref())
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
+    }
+
+    #[pyo3(signature = (query, top_k=5))]
+    fn retrieve(&self, query: &str, top_k: usize) -> PyResult<String> {
+        let results = self
+            .inner
+            .retrieve(query, top_k)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        Ok(serde_json::to_string(&results).unwrap_or_default())
+    }
+
+    fn count(&self) -> PyResult<usize> {
+        self.inner
+            .count()
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
+    }
+
+    fn delete(&self, doc_id: &str) -> PyResult<bool> {
+        self.inner
+            .delete(doc_id)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
+    }
+
+    fn clear(&self) -> PyResult<()> {
+        self.inner
+            .clear()
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
+    }
+
+    fn emit(&self, event: &str, payload_json: &str) -> PyResult<String> {
+        let payload: Value = serde_json::from_str(payload_json)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        let result = self
+            .inner
+            .emit(event, &payload)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        Ok(serde_json::to_string(&result).unwrap_or_default())
+    }
+
+    fn query_raw(&self, name: &str, params_json: &str) -> PyResult<String> {
+        let params: Value = serde_json::from_str(params_json)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        let result = self
+            .inner
+            .query_raw(name, &params)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        Ok(serde_json::to_string(&result).unwrap_or_default())
+    }
+
+    fn health(&self) -> PyResult<String> {
+        let result = self
+            .inner
+            .health()
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        Ok(serde_json::to_string(&result).unwrap_or_default())
+    }
+
+    fn status(&self) -> PyResult<String> {
+        let result = self
+            .inner
+            .status()
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        Ok(serde_json::to_string(&result).unwrap_or_default())
+    }
+
+    fn inspect_raw(&self) -> PyResult<String> {
+        let result = self
+            .inner
+            .inspect_raw()
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        Ok(serde_json::to_string(&result).unwrap_or_default())
+    }
+
+    fn ping(&self) -> bool {
+        self.inner.ping()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Standalone Synapse client (raw emit/query without MemoryBackend adapter)
+// ---------------------------------------------------------------------------
+
+#[pyclass(name = "SynapseClient")]
+pub struct PySynapseClient {
+    client: synapse_client::Client,
+    rt: tokio::runtime::Runtime,
+}
+
+#[pymethods]
+impl PySynapseClient {
+    #[new]
+    #[pyo3(signature = (url="http://localhost:8080"))]
+    fn new(url: &str) -> PyResult<Self> {
+        let rt = tokio::runtime::Runtime::new()
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        Ok(Self {
+            client: synapse_client::Client::new(url),
+            rt,
+        })
+    }
+
+    fn emit(&self, event: &str, payload_json: &str) -> PyResult<String> {
+        let payload: Value = serde_json::from_str(payload_json)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        let result = self
+            .rt
+            .block_on(self.client.emit(event, payload))
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        Ok(serde_json::to_string(&result).unwrap_or_default())
+    }
+
+    fn query(&self, name: &str, params_json: &str) -> PyResult<String> {
+        let params: Value = serde_json::from_str(params_json)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        let result = self
+            .rt
+            .block_on(self.client.query(name, params))
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        Ok(serde_json::to_string(&result).unwrap_or_default())
+    }
+
+    fn health(&self) -> PyResult<String> {
+        let result = self
+            .rt
+            .block_on(self.client.health())
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        Ok(serde_json::to_string(&result).unwrap_or_default())
+    }
+
+    fn status(&self) -> PyResult<String> {
+        let result = self
+            .rt
+            .block_on(self.client.status())
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        Ok(serde_json::to_string(&result).unwrap_or_default())
+    }
+
+    fn inspect(&self) -> PyResult<String> {
+        let result = self
+            .rt
+            .block_on(self.client.inspect())
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        Ok(serde_json::to_string(&result).unwrap_or_default())
+    }
+
+    fn reload(&self) -> PyResult<String> {
+        let result = self
+            .rt
+            .block_on(self.client.reload())
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        Ok(serde_json::to_string(&result).unwrap_or_default())
+    }
+
+    fn clear(&self) -> PyResult<String> {
+        let result = self
+            .rt
+            .block_on(self.client.clear())
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        Ok(serde_json::to_string(&result).unwrap_or_default())
+    }
+
+    fn ping(&self) -> bool {
+        self.rt.block_on(self.client.ping())
     }
 }

@@ -108,6 +108,8 @@ fn openjarvis_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<storage::PyColBERTMemory>()?;
     m.add_class::<storage::PyHybridMemory>()?;
     m.add_class::<storage::PyKnowledgeGraphMemory>()?;
+    m.add_class::<storage::PySynapseMemory>()?;
+    m.add_class::<storage::PySynapseClient>()?;
 
     // --- Security ---
     m.add_class::<security::PySecretScanner>()?;
