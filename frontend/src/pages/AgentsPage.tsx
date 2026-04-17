@@ -32,6 +32,7 @@ import {
   sendblueHealth,
 } from '../lib/api';
 import type { AgentTask, ChannelBinding, AgentTemplate, AgentMessage, ManagedAgent, LearningLogEntry, AgentTrace, ToolInfo } from '../lib/api';
+import { useAgentEvents } from '../lib/useAgentEvents';
 import {
   Plus,
   Bot,
@@ -1332,9 +1333,20 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 2000);
+    // Fallback slow poll — WS is primary, this catches missed events / dropped sockets
+    const interval = setInterval(loadData, 30000);
     return () => clearInterval(interval);
   }, [loadData]);
+
+  // Event-driven refresh — fires when the server reports agent activity
+  useAgentEvents(agentId, loadData, [
+    'agent_tick_start',
+    'agent_tick_end',
+    'agent_tick_error',
+    'agent_message_received',
+    'tool_call_end',
+    'inference_end',
+  ]);
 
   useEffect(() => { setLiveStatus(agentStatus); }, [agentStatus]);
 
@@ -2854,9 +2866,19 @@ function LogsTab({ agentId }: { agentId: string }) {
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 5000);
+    // Fallback slow poll — WS is primary, this catches missed events
+    const interval = setInterval(loadData, 30000);
     return () => clearInterval(interval);
   }, [loadData]);
+
+  // Event-driven refresh — trace/learning entries are created by tick + tool events
+  useAgentEvents(agentId, loadData, [
+    'agent_tick_end',
+    'agent_tick_error',
+    'tool_call_end',
+    'inference_end',
+    'agent_learning_completed',
+  ]);
 
   // Merge traces and learning entries into a unified timeline
   type TimelineEntry =
