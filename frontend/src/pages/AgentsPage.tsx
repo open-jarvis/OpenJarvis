@@ -320,6 +320,7 @@ function LaunchWizard({
   });
   const [launching, setLaunching] = useState(false);
   const [recommendedModel, setRecommendedModel] = useState('');
+  const [availableTools, setAvailableTools] = useState<ToolInfo[]>([]);
   const models = useAppStore((s) => s.models);
 
   useEffect(() => {
@@ -328,6 +329,9 @@ function LaunchWizard({
       if (!wizard.model) {
         setWizard((w) => ({ ...w, model: r.model }));
       }
+    }).catch(() => {});
+    fetchAvailableTools().then((tools) => {
+      setAvailableTools(tools);
     }).catch(() => {});
   }, []);
 
@@ -523,6 +527,82 @@ function LaunchWizard({
               <p className="text-[10px] mt-1" style={{ color: '#f59e0b' }}>
                 Replace the [bracketed text] with your own values
               </p>
+            )}
+          </div>
+
+          {/* Tools picker */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+                Tools
+              </label>
+              <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
+                {wizard.selectedTools.length} selected
+              </span>
+            </div>
+            <p className="text-[10px] mb-2" style={{ color: 'var(--color-text-tertiary)' }}>
+              What the agent is allowed to call. Leaving this empty gives a chat-only agent with no tool access.
+            </p>
+            {availableTools.length === 0 ? (
+              <div
+                className="px-3 py-2 rounded-lg text-xs"
+                style={{
+                  background: 'var(--color-bg-secondary)',
+                  border: '1px solid var(--color-border)',
+                  color: 'var(--color-text-tertiary)',
+                }}
+              >
+                Loading available tools…
+              </div>
+            ) : (
+              <div
+                className="rounded-lg p-2 flex flex-wrap gap-1.5 max-h-44 overflow-y-auto"
+                style={{
+                  background: 'var(--color-bg-secondary)',
+                  border: '1px solid var(--color-border)',
+                }}
+              >
+                {availableTools.map((tool) => {
+                  const selected = wizard.selectedTools.includes(tool.name);
+                  const disabled = !tool.configured;
+                  return (
+                    <button
+                      key={tool.name}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => {
+                        setWizard((w) => ({
+                          ...w,
+                          selectedTools: selected
+                            ? w.selectedTools.filter((t) => t !== tool.name)
+                            : [...w.selectedTools, tool.name],
+                        }));
+                      }}
+                      title={
+                        disabled
+                          ? `Missing credentials: ${tool.credential_keys.join(', ')}`
+                          : tool.description || tool.name
+                      }
+                      className="text-[11px] px-2 py-1 rounded-md font-mono transition-colors"
+                      style={{
+                        background: selected
+                          ? 'rgba(124,58,237,0.18)'
+                          : 'var(--color-bg)',
+                        color: disabled
+                          ? 'var(--color-text-tertiary)'
+                          : selected
+                            ? '#c4b5fd'
+                            : 'var(--color-text-secondary)',
+                        border: `1px solid ${selected ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                        cursor: disabled ? 'not-allowed' : 'pointer',
+                        opacity: disabled ? 0.5 : 1,
+                      }}
+                    >
+                      {tool.name}
+                    </button>
+                  );
+                })}
+              </div>
             )}
           </div>
 
