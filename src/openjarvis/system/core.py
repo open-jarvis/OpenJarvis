@@ -706,131 +706,15 @@ class SystemBuilder:
         """Resolve channel backend from config."""
         if not config.channel.enabled:
             return None
+        key = config.channel.default_channel
         try:
             import openjarvis.channels  # noqa: F401 -- trigger registration
             from openjarvis.core.registry import ChannelRegistry
+            from openjarvis.system._channel_kwargs import build_channel_kwargs
 
-            key = config.channel.default_channel
-            if not key:
+            if not key or not ChannelRegistry.contains(key):
                 return None
-            if not ChannelRegistry.contains(key):
-                return None
-
-            kwargs: Dict[str, Any] = {"bus": bus}
-            if key == "telegram":
-                tc = config.channel.telegram
-                if tc.bot_token:
-                    kwargs["bot_token"] = tc.bot_token
-                if tc.parse_mode:
-                    kwargs["parse_mode"] = tc.parse_mode
-            elif key == "discord":
-                dc = config.channel.discord
-                if dc.bot_token:
-                    kwargs["bot_token"] = dc.bot_token
-            elif key == "slack":
-                sc = config.channel.slack
-                if sc.bot_token:
-                    kwargs["bot_token"] = sc.bot_token
-                if sc.app_token:
-                    kwargs["app_token"] = sc.app_token
-            elif key == "webhook":
-                wc = config.channel.webhook
-                if wc.url:
-                    kwargs["url"] = wc.url
-                if wc.secret:
-                    kwargs["secret"] = wc.secret
-                if wc.method:
-                    kwargs["method"] = wc.method
-            elif key == "email":
-                ec = config.channel.email
-                if ec.smtp_host:
-                    kwargs["smtp_host"] = ec.smtp_host
-                kwargs["smtp_port"] = ec.smtp_port
-                if ec.imap_host:
-                    kwargs["imap_host"] = ec.imap_host
-                kwargs["imap_port"] = ec.imap_port
-                if ec.username:
-                    kwargs["username"] = ec.username
-                if ec.password:
-                    kwargs["password"] = ec.password
-                kwargs["use_tls"] = ec.use_tls
-            elif key == "whatsapp":
-                wac = config.channel.whatsapp
-                if wac.access_token:
-                    kwargs["access_token"] = wac.access_token
-                if wac.phone_number_id:
-                    kwargs["phone_number_id"] = wac.phone_number_id
-            elif key == "signal":
-                sgc = config.channel.signal
-                if sgc.api_url:
-                    kwargs["api_url"] = sgc.api_url
-                if sgc.phone_number:
-                    kwargs["phone_number"] = sgc.phone_number
-            elif key == "google_chat":
-                gcc = config.channel.google_chat
-                if gcc.webhook_url:
-                    kwargs["webhook_url"] = gcc.webhook_url
-            elif key == "irc":
-                ic = config.channel.irc
-                if ic.server:
-                    kwargs["server"] = ic.server
-                kwargs["port"] = ic.port
-                if ic.nick:
-                    kwargs["nick"] = ic.nick
-                if ic.password:
-                    kwargs["password"] = ic.password
-                kwargs["use_tls"] = ic.use_tls
-            elif key == "webchat":
-                pass  # no config needed
-            elif key == "teams":
-                tmc = config.channel.teams
-                if tmc.app_id:
-                    kwargs["app_id"] = tmc.app_id
-                if tmc.app_password:
-                    kwargs["app_password"] = tmc.app_password
-                if tmc.service_url:
-                    kwargs["service_url"] = tmc.service_url
-            elif key == "matrix":
-                mc = config.channel.matrix
-                if mc.homeserver:
-                    kwargs["homeserver"] = mc.homeserver
-                if mc.access_token:
-                    kwargs["access_token"] = mc.access_token
-            elif key == "mattermost":
-                mmc = config.channel.mattermost
-                if mmc.url:
-                    kwargs["url"] = mmc.url
-                if mmc.token:
-                    kwargs["token"] = mmc.token
-            elif key == "feishu":
-                fc = config.channel.feishu
-                if fc.app_id:
-                    kwargs["app_id"] = fc.app_id
-                if fc.app_secret:
-                    kwargs["app_secret"] = fc.app_secret
-            elif key == "bluebubbles":
-                bbc = config.channel.bluebubbles
-                if bbc.url:
-                    kwargs["url"] = bbc.url
-                if bbc.password:
-                    kwargs["password"] = bbc.password
-            elif key == "whatsapp_baileys":
-                wbc = config.channel.whatsapp_baileys
-                if wbc.auth_dir:
-                    kwargs["auth_dir"] = wbc.auth_dir
-                if wbc.assistant_name:
-                    kwargs["assistant_name"] = wbc.assistant_name
-                kwargs["assistant_has_own_number"] = wbc.assistant_has_own_number
-            elif key == "sendblue":
-                sbc = getattr(config.channel, "sendblue", None)
-                if sbc:
-                    if getattr(sbc, "api_key_id", ""):
-                        kwargs["api_key_id"] = sbc.api_key_id
-                    if getattr(sbc, "api_secret_key", ""):
-                        kwargs["api_secret_key"] = sbc.api_secret_key
-                    if getattr(sbc, "from_number", ""):
-                        kwargs["from_number"] = sbc.from_number
-
+            kwargs = {"bus": bus, **build_channel_kwargs(config.channel, key)}
             return ChannelRegistry.create(key, **kwargs)
         except Exception as exc:
             logger.warning("Failed to resolve channel backend %r: %s", key, exc)
