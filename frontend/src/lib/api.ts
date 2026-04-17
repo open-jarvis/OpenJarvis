@@ -344,6 +344,14 @@ export interface AgentTemplate {
   [key: string]: unknown;
 }
 
+export interface PersistedToolCall {
+  tool: string;
+  arguments: string;
+  result?: string;
+  success?: boolean;
+  latency?: number;
+}
+
 export interface AgentMessage {
   id: string;
   agent_id: string;
@@ -352,6 +360,7 @@ export interface AgentMessage {
   mode: 'immediate' | 'queued';
   status: 'pending' | 'delivered' | 'responded';
   created_at: number;
+  tool_calls?: PersistedToolCall[] | null;
 }
 
 export async function fetchManagedAgents(): Promise<ManagedAgent[]> {
@@ -570,6 +579,18 @@ export async function fetchAgentState(agentId: string): Promise<{
   return res.json();
 }
 
+export interface AgentToolCallStart {
+  tool: string;
+  arguments: string;
+}
+
+export interface AgentToolCallEnd {
+  tool: string;
+  success: boolean;
+  latency: number;
+  result?: string;
+}
+
 export async function sendAgentMessage(
   agentId: string,
   content: string,
@@ -577,6 +598,8 @@ export async function sendAgentMessage(
   callbacks?: {
     onProgress?: (label: string) => void;
     onContentDelta?: (delta: string, fullContent: string) => void;
+    onToolCallStart?: (info: AgentToolCallStart) => void;
+    onToolCallEnd?: (info: AgentToolCallEnd) => void;
     onDone?: (fullContent: string, usage?: Record<string, number>, telemetry?: Record<string, unknown>) => void;
   },
 ): Promise<AgentMessage> {
@@ -596,6 +619,7 @@ export async function sendAgentMessage(
     let buffer = '';
     let lastUsage: Record<string, number> | undefined;
     let lastTelemetry: Record<string, unknown> | undefined;
+    let currentEvent: string | undefined;
     try {
       while (true) {
         const { done, value } = await reader.read();
@@ -604,10 +628,52 @@ export async function sendAgentMessage(
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
         for (const line of lines) {
-          if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
+          if (line.startsWith('event: ')) {
+            currentEvent = line.slice(7).trim();
+            continue;
+          }
+          if (!line.startsWith('data: ')) {
+            if (line.trim() === '') currentEvent = undefined;
+            continue;
+          }
+          const data = line.slice(6);
+          if (data === '[DONE]') {
+            currentEvent = undefined;
+            continue;
+          }
+          const evName = currentEvent;
+          currentEvent = undefined;
+
+          if (evName === 'tool_call_start') {
+            try {
+              const parsed = JSON.parse(data);
+              callbacks?.onToolCallStart?.({
+                tool: parsed.tool,
+                arguments: parsed.arguments ?? '',
+              });
+            } catch {
+              /* skip */
+            }
+            continue;
+          }
+          if (evName === 'tool_call_end') {
+            try {
+              const parsed = JSON.parse(data);
+              callbacks?.onToolCallEnd?.({
+                tool: parsed.tool,
+                success: !!parsed.success,
+                latency: typeof parsed.latency === 'number' ? parsed.latency : 0,
+                result: parsed.result,
+              });
+            } catch {
+              /* skip */
+            }
+            continue;
+          }
+
           try {
-            const chunk = JSON.parse(line.slice(6));
-            // Check for tool progress events
+            const chunk = JSON.parse(data);
+            // Deep-research branch still uses tool_progress in a data chunk
             const toolProgress = chunk.choices?.[0]?.tool_progress;
             if (toolProgress) {
               callbacks?.onProgress?.(toolProgress);
@@ -617,10 +683,11 @@ export async function sendAgentMessage(
               fullContent += delta;
               callbacks?.onContentDelta?.(delta, fullContent);
             }
-            // Capture usage + telemetry from final chunk
             if (chunk.usage) lastUsage = chunk.usage;
             if (chunk.telemetry) lastTelemetry = chunk.telemetry;
-          } catch { /* skip malformed chunks */ }
+          } catch {
+            /* skip malformed chunks */
+          }
         }
       }
     } catch { /* stream ended */ }

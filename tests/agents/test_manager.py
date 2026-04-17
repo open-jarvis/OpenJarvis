@@ -243,6 +243,40 @@ class TestMessageQueue:
         resp = manager.add_agent_response(agent["id"], "Found 3 papers")
         assert resp["direction"] == "agent_to_user"
 
+    def test_store_agent_response_with_tool_calls(self, manager):
+        """Tool calls captured during a turn must survive a list_messages
+        round-trip so the UI can re-render them after a page reload."""
+        agent = manager.create_agent(name="test", agent_type="simple")
+        tool_calls = [
+            {
+                "tool": "file_read",
+                "arguments": '{"path": "~/notes.md"}',
+                "result": "hello world",
+                "success": True,
+                "latency": 12.3,
+            },
+            {
+                "tool": "shell_exec",
+                "arguments": '{"command": "ls"}',
+                "result": "a.md b.md",
+                "success": True,
+                "latency": 4.5,
+            },
+        ]
+        manager.store_agent_response(
+            agent["id"], "Here is what I found", tool_calls=tool_calls
+        )
+        messages = manager.list_messages(agent["id"])
+        assert len(messages) == 1
+        assert messages[0]["content"] == "Here is what I found"
+        assert messages[0]["tool_calls"] == tool_calls
+
+    def test_store_agent_response_without_tool_calls(self, manager):
+        agent = manager.create_agent(name="test", agent_type="simple")
+        manager.store_agent_response(agent["id"], "plain reply")
+        messages = manager.list_messages(agent["id"])
+        assert messages[0]["tool_calls"] is None
+
 
 def test_update_agent_budget_fields(tmp_path):
     """update_agent() accepts budget and stall kwargs."""

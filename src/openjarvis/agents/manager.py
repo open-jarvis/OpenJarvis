@@ -114,6 +114,8 @@ class AgentManager:
             "ALTER TABLE managed_agents ADD COLUMN current_activity TEXT DEFAULT ''",
             "ALTER TABLE managed_agents ADD COLUMN input_tokens INTEGER DEFAULT 0",
             "ALTER TABLE managed_agents ADD COLUMN output_tokens INTEGER DEFAULT 0",
+            # JSON-encoded array of {tool, arguments, result, success, latency}
+            "ALTER TABLE agent_messages ADD COLUMN tool_calls TEXT",
         ]
         for migration in _MIGRATIONS:
             try:
@@ -521,15 +523,28 @@ class AgentManager:
             "created_at": now,
         }
 
-    def store_agent_response(self, agent_id: str, content: str) -> dict:
-        """Store an agent-to-user response message."""
+    def store_agent_response(
+        self,
+        agent_id: str,
+        content: str,
+        tool_calls: Optional[list] = None,
+    ) -> dict:
+        """Store an agent-to-user response message.
+
+        ``tool_calls`` is an optional list of ``{tool, arguments, result,
+        success, latency}`` dicts captured during the turn. They are stored
+        as JSON alongside the message so the UI can replay them after a
+        page reload.
+        """
         msg_id = uuid4().hex[:16]
         now = time.time()
+        tool_calls_json = json.dumps(tool_calls) if tool_calls else None
         self._conn.execute(
             "INSERT INTO agent_messages"
-            " (id, agent_id, direction, content, mode, status, created_at)"
-            " VALUES (?, ?, 'agent_to_user', ?, 'immediate', 'delivered', ?)",
-            (msg_id, agent_id, content, now),
+            " (id, agent_id, direction, content, mode, status, created_at,"
+            " tool_calls)"
+            " VALUES (?, ?, 'agent_to_user', ?, 'immediate', 'delivered', ?, ?)",
+            (msg_id, agent_id, content, now, tool_calls_json),
         )
         self._conn.commit()
         return {
@@ -540,6 +555,7 @@ class AgentManager:
             "mode": "immediate",
             "status": "delivered",
             "created_at": now,
+            "tool_calls": tool_calls or None,
         }
 
     def list_messages(self, agent_id: str, limit: int = 50) -> list[dict]:
@@ -588,6 +604,16 @@ class AgentManager:
 
     @staticmethod
     def _row_to_message(row: sqlite3.Row) -> dict:
+        tool_calls = None
+        try:
+            raw = row["tool_calls"]
+        except (IndexError, KeyError):
+            raw = None
+        if raw:
+            try:
+                tool_calls = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                tool_calls = None
         return {
             "id": row["id"],
             "agent_id": row["agent_id"],
@@ -596,6 +622,7 @@ class AgentManager:
             "mode": row["mode"],
             "status": row["status"],
             "created_at": row["created_at"],
+            "tool_calls": tool_calls,
         }
 
     # ── Learning log ──────────────────────────────────────────

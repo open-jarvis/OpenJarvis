@@ -103,3 +103,6 @@ MagicMock/
 
 # Second Repos
 Inline/
+
+# Local git worktrees
+.worktrees/
