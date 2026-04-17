@@ -977,6 +977,48 @@ async def _stream_managed_agent(
                 "Failed to get MCP tools for streaming: %s", exc, exc_info=True
             )
 
+    # Shared state between the generator and the BackgroundTask that
+    # runs after the SSE response completes (or the client disconnects
+    # mid-stream). Starlette guarantees the BackgroundTask runs in both
+    # cases, so we use it as the single, reliable persistence point.
+    persist_state: Dict[str, Any] = {
+        "content": "",
+        "tool_calls": [],
+        "persisted": False,
+    }
+
+    def _persist_final() -> None:
+        if persist_state["persisted"]:
+            return
+        persist_state["persisted"] = True
+        if persist_state["content"]:
+            try:
+                manager.store_agent_response(
+                    agent_id,
+                    persist_state["content"],
+                    tool_calls=persist_state["tool_calls"] or None,
+                )
+            except Exception as store_exc:
+                logger.error(
+                    "Failed to store agent response: %s",
+                    store_exc,
+                    exc_info=True,
+                )
+        try:
+            content = persist_state["content"] or ""
+            manager.add_learning_log(
+                agent_id,
+                "query_complete",
+                f"Response: {len(content)} chars, "
+                f"{len(persist_state['tool_calls'])} tool calls",
+                {
+                    "response_length": len(content),
+                    "tool_calls": len(persist_state["tool_calls"]),
+                },
+            )
+        except Exception as _qc_exc:
+            logger.warning("Log query_complete failed: %s", _qc_exc)
+
     async def generate():
         """Async generator yielding SSE-formatted chunks with real token streaming."""
 
@@ -984,6 +1026,19 @@ async def _stream_managed_agent(
         collected_tool_calls: List[Dict[str, Any]] = []
         messages_for_llm = list(llm_messages)
         turns = 0
+
+        import time as _lgtime
+
+        _query_start_ts = _lgtime.time()
+        try:
+            manager.add_learning_log(
+                agent_id,
+                "query_start",
+                f"Query: {user_content[:100]}",
+                {"full_query": user_content},
+            )
+        except Exception as _qs_exc:
+            logger.warning("Log query_start failed: %s", _qs_exc)
 
         while turns < max_turns:
             turns += 1
@@ -1002,6 +1057,9 @@ async def _stream_managed_agent(
                     # Stream content tokens immediately to the client
                     if chunk.content:
                         turn_content += chunk.content
+                        # Mirror partial content so a disconnect during
+                        # generation still saves what we've produced.
+                        persist_state["content"] = collected_content + turn_content
                         chunk_data = {
                             "id": chunk_id,
                             "object": "chat.completion.chunk",
@@ -1084,6 +1142,15 @@ async def _stream_managed_agent(
                         {"tool": tool_name, "arguments": tool_args}
                     )
                     yield f"event: tool_call_start\ndata: {_start_payload}\n\n"
+                    try:
+                        manager.add_learning_log(
+                            agent_id,
+                            "tool_call",
+                            f"Calling {tool_name}: {tool_args[:80]}",
+                            {"tool": tool_name, "arguments": tool_args or ""},
+                        )
+                    except Exception as _tc_exc:
+                        logger.warning("Log tool_call failed: %s", _tc_exc)
                     tool_start_ms = _time.monotonic() * 1000
 
                     try:
@@ -1156,6 +1223,24 @@ async def _stream_managed_agent(
                             "latency": tool_latency_ms,
                         }
                     )
+                    # Update the shared persist state so mid-stream
+                    # disconnects still capture already-executed tools.
+                    persist_state["tool_calls"] = list(collected_tool_calls)
+                    try:
+                        _ok = "succeeded" if tool_succeeded else "failed"
+                        _clen = len(tool_result_content) if tool_result_content else 0
+                        manager.add_learning_log(
+                            agent_id,
+                            "tool_result",
+                            f"{tool_name} {_ok} ({_clen} chars)",
+                            {
+                                "tool": tool_name,
+                                "success": tool_succeeded,
+                                "output_length": _clen,
+                            },
+                        )
+                    except Exception as _tr_exc:
+                        logger.warning("Log tool_result failed: %s", _tr_exc)
                     _end_payload = json.dumps(
                         {
                             "tool": tool_name,
@@ -1178,10 +1263,16 @@ async def _stream_managed_agent(
 
                 # Continue to next turn (loop back to stream_full)
                 collected_content += turn_content
+                # Mirror to shared state so BackgroundTask can persist
+                # even if the client disconnects mid-stream.
+                persist_state["content"] = collected_content
+                persist_state["tool_calls"] = list(collected_tool_calls)
                 continue
 
             # No tool calls — this is the final response
             collected_content += turn_content
+            persist_state["content"] = collected_content
+            persist_state["tool_calls"] = list(collected_tool_calls)
             break
 
         # Final chunk with finish_reason
@@ -1200,25 +1291,13 @@ async def _stream_managed_agent(
         yield f"data: {json.dumps(final_data)}\n\n"
         yield "data: [DONE]\n\n"
 
-        # Persist agent response in DB after streaming completes
-        if collected_content:
-            try:
-                manager.store_agent_response(
-                    agent_id,
-                    collected_content,
-                    tool_calls=collected_tool_calls or None,
-                )
-            except Exception as store_exc:
-                logger.error(
-                    "Failed to store agent response: %s",
-                    store_exc,
-                    exc_info=True,
-                )
+    from starlette.background import BackgroundTask
 
     return StreamingResponse(
         generate(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+        background=BackgroundTask(_persist_final),
     )
 
 
