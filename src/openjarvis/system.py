@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from openjarvis.mcp.client import MCPClient
     from openjarvis.mcp.server import MCPServer
     from openjarvis.operators.manager import OperatorManager
+    from openjarvis.query_orchestrator import QueryOrchestrator
     from openjarvis.sandbox.runner import ContainerRunner
     from openjarvis.scheduler.scheduler import TaskScheduler
     from openjarvis.scheduler.store import SchedulerStore
@@ -129,6 +130,16 @@ class JarvisSystem:
             runner=self.scheduler,
         )
 
+    def _get_orchestrator(self) -> QueryOrchestrator:
+        """Return the cached QueryOrchestrator, creating it on first access."""
+        orch = self.__dict__.get("_orchestrator")
+        if orch is None:
+            from openjarvis.query_orchestrator import QueryOrchestrator
+
+            orch = QueryOrchestrator(self)
+            self.__dict__["_orchestrator"] = orch
+        return orch
+
     def ask(
         self,
         query: str,
@@ -142,90 +153,32 @@ class JarvisSystem:
         operator_id: Optional[str] = None,
         prior_messages: Optional[List[Message]] = None,
     ) -> Dict[str, Any]:
-        """Execute a query through the system and return a result dict."""
-        if temperature is None:
-            temperature = self.config.intelligence.temperature
-        if max_tokens is None:
-            max_tokens = self.config.intelligence.max_tokens
+        """Execute a query through the system and return a result dict.
 
-        messages = [Message(role=Role.USER, content=query)]
-
-        # Context injection from memory
-        if context and self.memory_backend and self.config.agent.context_from_memory:
-            try:
-                from openjarvis.tools.storage.context import (
-                    ContextConfig,
-                    inject_context,
-                )
-
-                ctx_cfg = ContextConfig(
-                    top_k=self.config.memory.context_top_k,
-                    min_score=self.config.memory.context_min_score,
-                    max_context_tokens=self.config.memory.context_max_tokens,
-                )
-                messages = inject_context(
-                    query,
-                    messages,
-                    self.memory_backend,
-                    config=ctx_cfg,
-                )
-            except Exception as exc:
-                logger.warning("Failed to inject memory context: %s", exc)
-
-        # Agent mode
-        use_agent = agent or self.agent_name
-        # Auto-detect agent intent if no explicit agent was requested
-        if not agent and use_agent != "none":
-            detected = self._detect_agent_intent(query)
-            if detected:
-                use_agent = detected
-        if use_agent and use_agent != "none":
-            return self._run_agent(
-                query,
-                messages,
-                use_agent,
-                tools,
-                temperature,
-                max_tokens,
-                system_prompt=system_prompt,
-                operator_id=operator_id,
-                prior_messages=prior_messages,
-            )
-
-        # Direct engine mode
-        result = self.engine.generate(
-            messages,
-            model=self.model,
+        Behavior lives in :class:`openjarvis.query_orchestrator.QueryOrchestrator`;
+        this method is a thin delegate so tests can drive the orchestrator
+        directly with a Mock(spec=JarvisSystem) and without building the
+        full subsystem graph.
+        """
+        return self._get_orchestrator().ask(
+            query,
+            context=context,
             temperature=temperature,
             max_tokens=max_tokens,
+            agent=agent,
+            tools=tools,
+            system_prompt=system_prompt,
+            operator_id=operator_id,
+            prior_messages=prior_messages,
         )
-        return {
-            "content": result.get("content", ""),
-            "usage": result.get("usage", {}),
-            "model": self.model,
-            "engine": self.engine_key,
-        }
 
     def _detect_agent_intent(self, query: str) -> Optional[str]:
-        """Detect if a query should be routed to a specific agent.
+        """Deprecated alias — delegates to QueryOrchestrator."""
+        return self._get_orchestrator()._detect_agent_intent(query)
 
-        Uses lightweight pattern matching for known intent triggers.
-        Returns the agent name or None to use the default.
-        """
-        import re
-
-        from openjarvis.core.registry import AgentRegistry
-
-        # Morning digest triggers
-        if re.search(
-            r"\b(good\s+morning|morning\s+digest|daily\s+briefing|morning\s+briefing)\b",
-            query,
-            re.IGNORECASE,
-        ):
-            if AgentRegistry.contains("morning_digest"):
-                return "morning_digest"
-
-        return None
+    def _build_tools(self, tool_names: List[str]) -> List[BaseTool]:
+        """Deprecated alias — delegates to QueryOrchestrator."""
+        return self._get_orchestrator()._build_tools(tool_names)
 
     def _run_agent(
         self,
@@ -240,209 +193,18 @@ class JarvisSystem:
         operator_id=None,
         prior_messages=None,
     ) -> Dict[str, Any]:
-        """Run through an agent."""
-        from openjarvis.agents._stubs import AgentContext
-        from openjarvis.core.events import EventType
-        from openjarvis.core.registry import AgentRegistry
-
-        # Resolve agent
-        try:
-            agent_cls = AgentRegistry.get(agent_name)
-        except KeyError:
-            return {"content": f"Unknown agent: {agent_name}", "error": True}
-
-        # Build tools for agent
-        agent_tools = self.tools
-        if tool_names:
-            agent_tools = self._build_tools(tool_names)
-
-        # Build context
-        ctx = AgentContext()
-
-        # Seed prior conversation turns (channel session history)
-        if prior_messages:
-            for msg in prior_messages:
-                ctx.conversation.add(msg)
-
-        # Inject memory context messages into the agent conversation
-        if messages and len(messages) > 1:
-            # Context messages were prepended by inject_context
-            for msg in messages[:-1]:
-                ctx.conversation.add(msg)
-
-        # Instantiate agent with the same pattern as CLI
-        agent_kwargs: Dict[str, Any] = {
-            "bus": self.bus,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        }
-        if getattr(agent_cls, "accepts_tools", False):
-            agent_kwargs["tools"] = agent_tools
-            agent_kwargs["max_turns"] = self.config.agent.max_turns
-            # Plan 2B I3: forward optimized few-shot examples to agents
-            # that accept them.  Older agents that don't accept the kwarg
-            # are handled by the existing TypeError fallback below.
-            examples = getattr(self, "_skill_few_shot_examples", None)
-            if examples:
-                agent_kwargs["skill_few_shot_examples"] = examples
-        if system_prompt is not None:
-            agent_kwargs["system_prompt"] = system_prompt
-        if self.capability_policy is not None:
-            agent_kwargs["capability_policy"] = self.capability_policy
-        if operator_id is not None:
-            agent_kwargs["operator_id"] = operator_id
-            agent_kwargs["session_store"] = self.session_store
-            agent_kwargs["memory_backend"] = self.memory_backend
-
-        # Inject DigestConfig when instantiating the morning_digest agent
-        if agent_name == "morning_digest" and hasattr(self.config, "digest"):
-            dc = self.config.digest
-            section_sources = {}
-            for s in dc.sections:
-                sc = getattr(dc, s, None)
-                if sc and hasattr(sc, "sources"):
-                    section_sources[s] = sc.sources
-            agent_kwargs.update(
-                {
-                    "persona": dc.persona,
-                    "sections": dc.sections,
-                    "section_sources": section_sources,
-                    "timezone": dc.timezone,
-                    "voice_id": dc.voice_id,
-                    "voice_speed": dc.voice_speed,
-                    "tts_backend": dc.tts_backend,
-                    "honorific": dc.honorific,
-                }
-            )
-            # Ensure digest agent always has its required tools
-            from openjarvis.tools.digest_collect import DigestCollectTool
-            from openjarvis.tools.text_to_speech import TextToSpeechTool
-
-            digest_tools = [DigestCollectTool(), TextToSpeechTool()]
-            existing = agent_kwargs.get("tools", [])
-            agent_kwargs["tools"] = digest_tools + list(existing)
-
-        try:
-            ag = agent_cls(self.engine, self.model, **agent_kwargs)
-        except TypeError:
-            try:
-                ag = agent_cls(self.engine, self.model)
-            except TypeError:
-                ag = agent_cls()
-
-        # Collect telemetry from all engine calls during agent run
-        telemetry_events: List[Dict[str, Any]] = []
-
-        def _on_inference_end(event: Any) -> None:
-            telemetry_events.append(event.data if hasattr(event, "data") else event)
-
-        self.bus.subscribe(EventType.INFERENCE_END, _on_inference_end)
-
-        # Run — wrap with TraceCollector when tracing is enabled.
-        # Check trace_store (set at build time) instead of config.traces.enabled
-        # because the shared config singleton can be mutated by other SystemBuilder
-        # instances (e.g. the judge backend).
-        try:
-            if self.trace_store is not None:
-                from openjarvis.traces.collector import TraceCollector
-
-                collector = TraceCollector(
-                    ag,
-                    store=self.trace_store,
-                    bus=self.bus,
-                )
-                result = collector.run(query, context=ctx)
-                self.trace_collector = collector
-            else:
-                result = ag.run(query, context=ctx)
-        finally:
-            self.bus.unsubscribe(EventType.INFERENCE_END, _on_inference_end)
-
-        # Aggregate telemetry across all engine calls
-        _telemetry: Dict[str, Any] = {}
-        if telemetry_events:
-            total_energy = sum(e.get("energy_joules", 0.0) for e in telemetry_events)
-            total_latency = sum(e.get("latency", 0.0) for e in telemetry_events)
-            power_vals = [
-                e.get("power_watts", 0.0)
-                for e in telemetry_events
-                if e.get("power_watts", 0.0) > 0
-            ]
-            util_vals = [
-                e.get("gpu_utilization_pct", 0.0)
-                for e in telemetry_events
-                if e.get("gpu_utilization_pct", 0.0) > 0
-            ]
-            throughput_vals = [
-                e.get("throughput_tok_per_sec", 0.0)
-                for e in telemetry_events
-                if e.get("throughput_tok_per_sec", 0.0) > 0
-            ]
-            _telemetry = {
-                "ttft": telemetry_events[0].get("ttft", 0.0),
-                "energy_joules": total_energy,
-                "power_watts": (
-                    sum(power_vals) / len(power_vals) if power_vals else 0.0
-                ),
-                "gpu_utilization_pct": (
-                    sum(util_vals) / len(util_vals) if util_vals else 0.0
-                ),
-                "throughput_tok_per_sec": (
-                    sum(throughput_vals) / len(throughput_vals)
-                    if throughput_vals
-                    else 0.0
-                ),
-                "gpu_memory_used_gb": max(
-                    (e.get("gpu_memory_used_gb", 0.0) for e in telemetry_events),
-                    default=0.0,
-                ),
-                "gpu_temperature_c": max(
-                    (e.get("gpu_temperature_c", 0.0) for e in telemetry_events),
-                    default=0.0,
-                ),
-                "inference_calls": len(telemetry_events),
-                "total_inference_latency": total_latency,
-            }
-
-        return {
-            "content": result.content,
-            "usage": getattr(result, "usage", {}),
-            "tool_results": [
-                {
-                    "tool_name": tr.tool_name,
-                    "content": tr.content,
-                    "success": tr.success,
-                    "arguments": tr.metadata.get("arguments", {}),
-                }
-                for tr in getattr(result, "tool_results", [])
-            ],
-            "turns": getattr(result, "turns", 1),
-            "metadata": getattr(result, "metadata", {}),
-            "model": self.model,
-            "engine": self.engine_key,
-            "_telemetry": _telemetry,
-        }
-
-    def _build_tools(self, tool_names: List[str]) -> List[BaseTool]:
-        """Build tool instances from tool names."""
-        from openjarvis.core.registry import ToolRegistry
-
-        tools: List[BaseTool] = []
-        for name in tool_names:
-            try:
-                if name == "retrieval" and self.memory_backend:
-                    from openjarvis.tools.retrieval import RetrievalTool
-
-                    tools.append(RetrievalTool(self.memory_backend))
-                elif name == "llm":
-                    from openjarvis.tools.llm_tool import LLMTool
-
-                    tools.append(LLMTool(self.engine, model=self.model))
-                elif ToolRegistry.contains(name):
-                    tools.append(ToolRegistry.create(name))
-            except Exception as exc:
-                logger.warning("Failed to build tool %r: %s", name, exc)
-        return tools
+        """Deprecated alias — delegates to QueryOrchestrator."""
+        return self._get_orchestrator()._run_agent(
+            query,
+            messages,
+            agent_name,
+            tool_names,
+            temperature,
+            max_tokens,
+            system_prompt=system_prompt,
+            operator_id=operator_id,
+            prior_messages=prior_messages,
+        )
 
     def wire_channel(self, channel_bridge: Any) -> None:
         """Register a message handler on *channel_bridge* that routes every
@@ -457,7 +219,7 @@ class JarvisSystem:
             A connected :class:`~openjarvis.channels._stubs.BaseChannel`
             instance whose ``on_message`` method accepts a callable.
         """
-        from openjarvis.core.types import Message, Role
+        from openjarvis.core.types import Message
         from openjarvis.sessions.session import SessionStore
 
         if self.session_store is None:
