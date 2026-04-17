@@ -4,13 +4,40 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from openjarvis.core.config import JarvisConfig, load_config
 from openjarvis.core.events import EventBus, get_event_bus
 from openjarvis.core.types import Message, Role
 from openjarvis.engine._stubs import InferenceEngine
 from openjarvis.tools._stubs import BaseTool, ToolExecutor
+
+if TYPE_CHECKING:
+    from openjarvis.agents._stubs import BaseAgent
+    from openjarvis.agents.executor import AgentExecutor
+    from openjarvis.agents.manager import AgentManager
+    from openjarvis.agents.scheduler import AgentScheduler
+    from openjarvis.channels._stubs import BaseChannel
+    from openjarvis.learning._stubs import RouterPolicy
+    from openjarvis.learning.learning_orchestrator import LearningOrchestrator
+    from openjarvis.mcp.client import MCPClient
+    from openjarvis.mcp.server import MCPServer
+    from openjarvis.operators.manager import OperatorManager
+    from openjarvis.sandbox.runner import ContainerRunner
+    from openjarvis.scheduler.scheduler import TaskScheduler
+    from openjarvis.scheduler.store import SchedulerStore
+    from openjarvis.security.audit import AuditLogger
+    from openjarvis.security.boundary import BoundaryGuard
+    from openjarvis.security.capabilities import CapabilityPolicy
+    from openjarvis.sessions.session import SessionStore
+    from openjarvis.skills.manager import SkillManager
+    from openjarvis.speech._stubs import SpeechBackend
+    from openjarvis.telemetry.gpu_monitor import GpuMonitor
+    from openjarvis.telemetry.store import TelemetryStore
+    from openjarvis.tools.storage._stubs import MemoryBackend
+    from openjarvis.traces.collector import TraceCollector
+    from openjarvis.traces.store import TraceStore
+    from openjarvis.workflow.engine import WorkflowEngine
 
 logger = logging.getLogger(__name__)
 
@@ -24,34 +51,34 @@ class JarvisSystem:
     engine: InferenceEngine
     engine_key: str
     model: str
-    agent: Optional[Any] = None  # BaseAgent
+    agent: Optional[BaseAgent] = None
     agent_name: str = ""
     tools: List[BaseTool] = field(default_factory=list)
     tool_executor: Optional[ToolExecutor] = None
-    memory_backend: Optional[Any] = None  # MemoryBackend
-    channel_backend: Optional[Any] = None  # BaseChannel
-    router: Optional[Any] = None  # RouterPolicy
-    mcp_server: Optional[Any] = None  # MCPServer
-    telemetry_store: Optional[Any] = None
-    trace_store: Optional[Any] = None
-    trace_collector: Optional[Any] = None
-    gpu_monitor: Optional[Any] = None
-    scheduler_store: Optional[Any] = None  # SchedulerStore
-    scheduler: Optional[Any] = None  # TaskScheduler
-    container_runner: Optional[Any] = None  # ContainerRunner
-    workflow_engine: Optional[Any] = None  # WorkflowEngine
-    session_store: Optional[Any] = None  # SessionStore
-    capability_policy: Optional[Any] = None  # CapabilityPolicy
-    audit_logger: Optional[Any] = None  # AuditLogger
-    boundary_guard: Optional[Any] = None  # BoundaryGuard
-    operator_manager: Optional[Any] = None  # OperatorManager
-    agent_manager: Optional[Any] = None  # AgentManager
-    agent_scheduler: Optional[Any] = None  # AgentScheduler
-    agent_executor: Optional[Any] = None  # AgentExecutor
-    speech_backend: Optional[Any] = None  # SpeechBackend
-    skill_manager: Optional[Any] = None  # SkillManager
-    _learning_orchestrator: Optional[Any] = None  # LearningOrchestrator
-    _mcp_clients: List = field(default_factory=list)
+    memory_backend: Optional[MemoryBackend] = None
+    channel_backend: Optional[BaseChannel] = None
+    router: Optional[RouterPolicy] = None
+    mcp_server: Optional[MCPServer] = None
+    telemetry_store: Optional[TelemetryStore] = None
+    trace_store: Optional[TraceStore] = None
+    trace_collector: Optional[TraceCollector] = None
+    gpu_monitor: Optional[GpuMonitor] = None
+    scheduler_store: Optional[SchedulerStore] = None
+    scheduler: Optional[TaskScheduler] = None
+    container_runner: Optional[ContainerRunner] = None
+    workflow_engine: Optional[WorkflowEngine] = None
+    session_store: Optional[SessionStore] = None
+    capability_policy: Optional[CapabilityPolicy] = None
+    audit_logger: Optional[AuditLogger] = None
+    boundary_guard: Optional[BoundaryGuard] = None
+    operator_manager: Optional[OperatorManager] = None
+    agent_manager: Optional[AgentManager] = None
+    agent_scheduler: Optional[AgentScheduler] = None
+    agent_executor: Optional[AgentExecutor] = None
+    speech_backend: Optional[SpeechBackend] = None
+    skill_manager: Optional[SkillManager] = None
+    _learning_orchestrator: Optional[LearningOrchestrator] = None
+    _mcp_clients: List[MCPClient] = field(default_factory=list)
 
     def ask(
         self,
