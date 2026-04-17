@@ -425,3 +425,72 @@ class TestAgentManagerStreaming:
         assert resp.status_code == 200
         assert "Error:" in resp.text or "error" in resp.text.lower()
         assert "data: [DONE]" in resp.text
+
+
+@pytest.mark.skipif(not HAS_FASTAPI, reason="fastapi not installed")
+class TestResolveToolSpecs:
+    """Unit tests for _resolve_tool_specs — converts template string
+    tool names into OpenAI-format function specs so the engine can
+    actually bind them to the model.
+    """
+
+    @pytest.fixture
+    def _registered_tools(self):
+        """Re-register tools after the autouse conftest fixture clears them."""
+        import importlib
+        import sys
+
+        from openjarvis.core.registry import ToolRegistry
+
+        for mod_name in list(sys.modules):
+            if (
+                mod_name.startswith("openjarvis.tools.")
+                and not mod_name.endswith("_stubs")
+                and not mod_name.endswith("agent_tools")
+            ):
+                try:
+                    importlib.reload(sys.modules[mod_name])
+                except Exception:
+                    pass
+        yield ToolRegistry
+
+    def test_string_names_resolve_to_openai_specs(self, _registered_tools):
+        from openjarvis.server.agent_manager_routes import _resolve_tool_specs
+
+        specs = _resolve_tool_specs(["file_read", "think"])
+        assert len(specs) == 2
+        names = [s["function"]["name"] for s in specs]
+        assert "file_read" in names
+        assert "think" in names
+        for s in specs:
+            assert s["type"] == "function"
+            assert "description" in s["function"]
+            assert "parameters" in s["function"]
+
+    def test_unknown_names_dropped(self, _registered_tools):
+        from openjarvis.server.agent_manager_routes import _resolve_tool_specs
+
+        specs = _resolve_tool_specs(["file_read", "nonexistent_tool_xyz"])
+        assert len(specs) == 1
+        assert specs[0]["function"]["name"] == "file_read"
+
+    def test_dict_entries_passed_through(self, _registered_tools):
+        from openjarvis.server.agent_manager_routes import _resolve_tool_specs
+
+        full_spec = {
+            "type": "function",
+            "function": {
+                "name": "custom",
+                "description": "x",
+                "parameters": {"type": "object"},
+            },
+        }
+        specs = _resolve_tool_specs([full_spec, "file_read"])
+        assert len(specs) == 2
+        assert specs[0] is full_spec
+
+    def test_empty_and_none_return_empty_list(self):
+        from openjarvis.server.agent_manager_routes import _resolve_tool_specs
+
+        assert _resolve_tool_specs(None) == []
+        assert _resolve_tool_specs([]) == []

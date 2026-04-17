@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { toast } from 'sonner';
 import { useAppStore } from '../lib/store';
 import {
@@ -63,6 +64,8 @@ import {
 import { SOURCE_CATALOG } from '../types/connectors';
 import type { ConnectRequest } from '../types/connectors';
 import { listConnectors, connectSource } from '../lib/connectors-api';
+import type { ToolCallInfo } from '../types';
+import { ToolCallCard } from '../components/Chat/ToolCallCard';
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -284,6 +287,352 @@ function Tooltip({ text }: { text: string }) {
   return <span className="inline-block ml-1 cursor-help" style={{ color: 'var(--color-text-tertiary)', fontSize: 10 }} title={text}>(?)</span>;
 }
 
+// ---------------------------------------------------------------------------
+// ToolsPicker — dev-inventory style tool selector used by the launch wizard
+// ---------------------------------------------------------------------------
+
+const TOOL_CATEGORY_ORDER = [
+  'filesystem',
+  'system',
+  'code',
+  'vcs',
+  'storage',
+  'memory',
+  'knowledge',
+  'knowledge_graph',
+  'search',
+  'network',
+  'browser',
+  'database',
+  'data',
+  'math',
+  'reasoning',
+  'inference',
+  'media',
+  'audio',
+  'skill',
+  'channel',
+  'communication',
+  'other',
+];
+
+const TOOL_CATEGORY_LABELS: Record<string, string> = {
+  filesystem: 'filesystem',
+  system: 'shell & exec',
+  code: 'code & repl',
+  vcs: 'git',
+  storage: 'memory · storage',
+  memory: 'memory',
+  knowledge: 'knowledge',
+  knowledge_graph: 'knowledge graph',
+  search: 'search',
+  network: 'network',
+  browser: 'browser',
+  database: 'database',
+  data: 'data',
+  math: 'math',
+  reasoning: 'reasoning',
+  inference: 'inference',
+  media: 'media',
+  audio: 'audio',
+  skill: 'skills',
+  channel: 'channel primitives',
+  communication: 'channels',
+  other: 'other',
+};
+
+function ToolsPicker({
+  tools,
+  selected,
+  onChange,
+}: {
+  tools: ToolInfo[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const [hovered, setHovered] = useState<ToolInfo | null>(null);
+  const [pulseKey, setPulseKey] = useState(0);
+
+  // Channels (source === 'channel') live in ChannelRegistry and aren't
+  // directly callable by the LLM — the agent talks to them through the
+  // `channel_send` tool. Showing them in the tools picker is misleading,
+  // so filter them out; channel bindings are configured separately.
+  const tollableTools = tools.filter((t) => t.source !== 'channel');
+
+  // Group by category, respecting the preferred order then alphabetical.
+  const grouped = (() => {
+    const buckets: Record<string, ToolInfo[]> = {};
+    for (const t of tollableTools) {
+      const cat = TOOL_CATEGORY_ORDER.includes(t.category) ? t.category : 'other';
+      (buckets[cat] ||= []).push(t);
+    }
+    for (const cat of Object.keys(buckets)) {
+      buckets[cat].sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return TOOL_CATEGORY_ORDER
+      .filter((cat) => buckets[cat]?.length)
+      .map((cat) => ({ category: cat, items: buckets[cat] }));
+  })();
+
+  const configurable = tollableTools.filter((t) => t.configured).map((t) => t.name);
+  const allSelected =
+    configurable.length > 0 && configurable.every((n) => selected.includes(n));
+
+  const toggle = (name: string) => {
+    const next = selected.includes(name)
+      ? selected.filter((t) => t !== name)
+      : [...selected, name];
+    onChange(next);
+    setPulseKey((k) => k + 1);
+  };
+
+  const hint = hovered
+    ? hovered.configured
+      ? hovered.description || hovered.name
+      : `Needs ${hovered.credential_keys.join(', ') || 'credentials'}`
+    : 'hover a tool for details';
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-1">
+        <label
+          className="block text-[13px] font-medium"
+          style={{ color: 'var(--color-text-secondary)' }}
+        >
+          Tools
+        </label>
+        <div className="flex items-center gap-2">
+          <span
+            key={pulseKey}
+            className="tools-count"
+            style={{
+              fontFamily:
+                'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+              fontSize: 10.5,
+              color: 'var(--color-text-tertiary)',
+            }}
+          >
+            <span style={{ color: 'var(--color-accent)' }}>
+              {selected.length}
+            </span>
+            <span style={{ opacity: 0.5 }}> / {tollableTools.length}</span>
+          </span>
+          <span style={{ color: 'var(--color-text-tertiary)', opacity: 0.3 }}>·</span>
+          <button
+            type="button"
+            onClick={() => onChange(allSelected ? [] : configurable)}
+            disabled={tools.length === 0}
+            className="transition-colors"
+            style={{
+              fontFamily:
+                'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+              fontSize: 10,
+              color: 'var(--color-text-tertiary)',
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              cursor: tools.length === 0 ? 'default' : 'pointer',
+              textDecoration: 'underline',
+              textUnderlineOffset: 2,
+            }}
+            onMouseEnter={(e) =>
+              (e.currentTarget.style.color = 'var(--color-text)')
+            }
+            onMouseLeave={(e) =>
+              (e.currentTarget.style.color = 'var(--color-text-tertiary)')
+            }
+          >
+            {allSelected ? 'none' : 'all'}
+          </button>
+        </div>
+      </div>
+      <p
+        className="text-[10.5px] mb-2"
+        style={{ color: 'var(--color-text-tertiary)' }}
+      >
+        What the agent is allowed to call. An empty selection makes a
+        chat-only agent.
+      </p>
+      {tools.length === 0 ? (
+        <div
+          className="px-3 py-2 rounded-lg text-xs"
+          style={{
+            background: 'var(--color-bg-secondary)',
+            border: '1px solid var(--color-border)',
+            color: 'var(--color-text-tertiary)',
+          }}
+        >
+          Loading available tools…
+        </div>
+      ) : (
+        <div
+          className="rounded-lg overflow-hidden"
+          style={{
+            background: 'var(--color-bg-secondary)',
+            border: '1px solid var(--color-border)',
+          }}
+          onMouseLeave={() => setHovered(null)}
+        >
+          <div
+            className="px-2.5 py-2 overflow-y-auto"
+            style={{ maxHeight: 200 }}
+          >
+            {grouped.map(({ category, items }, idx) => (
+              <div key={category} style={{ marginTop: idx === 0 ? 0 : 10 }}>
+                <div
+                  className="flex items-center gap-1.5 mb-1.5"
+                  style={{
+                    fontFamily:
+                      'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+                    fontSize: 9.5,
+                    color: 'var(--color-text-tertiary)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.1em',
+                  }}
+                >
+                  <span style={{ opacity: 0.5 }}>─</span>
+                  <span>{TOOL_CATEGORY_LABELS[category] || category}</span>
+                  <span
+                    className="flex-1"
+                    style={{
+                      borderBottom: '1px dashed var(--color-border)',
+                      marginBottom: 3,
+                      opacity: 0.5,
+                    }}
+                  />
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {items.map((tool) => {
+                    const isSelected = selected.includes(tool.name);
+                    const disabled = !tool.configured;
+                    return (
+                      <button
+                        key={tool.name}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => toggle(tool.name)}
+                        onMouseEnter={() => setHovered(tool)}
+                        onFocus={() => setHovered(tool)}
+                        className="tool-chip"
+                        style={{
+                          fontFamily:
+                            'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+                          fontSize: 11,
+                          lineHeight: 1.2,
+                          padding: '3px 7px 3px 5px',
+                          borderRadius: 4,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 5,
+                          background: isSelected
+                            ? 'color-mix(in srgb, var(--color-accent) 14%, transparent)'
+                            : 'var(--color-bg)',
+                          color: disabled
+                            ? 'var(--color-text-tertiary)'
+                            : isSelected
+                              ? 'var(--color-accent)'
+                              : 'var(--color-text-secondary)',
+                          border: disabled
+                            ? '1px dashed var(--color-border)'
+                            : `1px solid ${isSelected ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                          boxShadow: isSelected
+                            ? 'inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 30%, transparent)'
+                            : 'none',
+                          cursor: disabled ? 'not-allowed' : 'pointer',
+                          opacity: disabled ? 0.55 : 1,
+                          transition:
+                            'background 120ms, color 120ms, border-color 120ms, transform 80ms',
+                        }}
+                        onMouseDown={(e) =>
+                          !disabled && (e.currentTarget.style.transform = 'scale(0.97)')
+                        }
+                        onMouseUp={(e) =>
+                          (e.currentTarget.style.transform = 'scale(1)')
+                        }
+                      >
+                        <span
+                          style={{
+                            opacity: isSelected ? 1 : 0.5,
+                            color: disabled
+                              ? 'var(--color-text-tertiary)'
+                              : isSelected
+                                ? 'var(--color-accent)'
+                                : 'var(--color-text-tertiary)',
+                            fontSize: 10.5,
+                          }}
+                        >
+                          {disabled ? '⨯' : isSelected ? '▣' : '□'}
+                        </span>
+                        <span>{tool.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* Live description strip */}
+          <div
+            className="flex items-center gap-2 px-2.5 py-1.5"
+            style={{
+              borderTop: '1px solid var(--color-border)',
+              background: 'var(--color-bg)',
+              fontFamily:
+                'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+              fontSize: 10.5,
+              color: 'var(--color-text-tertiary)',
+              minHeight: 26,
+            }}
+          >
+            <span
+              style={{
+                color: hovered
+                  ? hovered.configured
+                    ? 'var(--color-accent)'
+                    : '#f59e0b'
+                  : 'var(--color-text-tertiary)',
+                opacity: hovered ? 1 : 0.5,
+              }}
+            >
+              {hovered ? (hovered.configured ? '▸' : '!') : '·'}
+            </span>
+            {hovered && (
+              <span
+                style={{
+                  color: 'var(--color-text)',
+                  fontWeight: 500,
+                }}
+              >
+                {hovered.name}
+              </span>
+            )}
+            <span
+              className="truncate"
+              style={{
+                flex: 1,
+                color: 'var(--color-text-tertiary)',
+              }}
+            >
+              {hovered ? `— ${hint}` : hint}
+            </span>
+          </div>
+        </div>
+      )}
+      <style>{`
+        @keyframes tools-count-pulse {
+          0% { transform: scale(1); }
+          40% { transform: scale(1.18); }
+          100% { transform: scale(1); }
+        }
+        .tools-count {
+          display: inline-block;
+          animation: tools-count-pulse 220ms ease-out;
+        }
+      `}</style>
+    </div>
+  );
+}
+
 function LaunchWizard({
   templates,
   onClose,
@@ -318,6 +667,7 @@ function LaunchWizard({
   });
   const [launching, setLaunching] = useState(false);
   const [recommendedModel, setRecommendedModel] = useState('');
+  const [availableTools, setAvailableTools] = useState<ToolInfo[]>([]);
   const models = useAppStore((s) => s.models);
 
   useEffect(() => {
@@ -326,6 +676,9 @@ function LaunchWizard({
       if (!wizard.model) {
         setWizard((w) => ({ ...w, model: r.model }));
       }
+    }).catch(() => {});
+    fetchAvailableTools().then((tools) => {
+      setAvailableTools(tools);
     }).catch(() => {});
   }, []);
 
@@ -523,6 +876,15 @@ function LaunchWizard({
               </p>
             )}
           </div>
+
+          {/* Tools picker */}
+          <ToolsPicker
+            tools={availableTools}
+            selected={wizard.selectedTools}
+            onChange={(next) =>
+              setWizard((w) => ({ ...w, selectedTools: next }))
+            }
+          />
 
           {/* Model + Schedule row */}
           <div className="grid grid-cols-2 gap-3">
@@ -1190,6 +1552,7 @@ type InteractMessage = AgentMessage & {
   _toolCalls?: number;
   _usage?: Record<string, number>;
   _telemetry?: Record<string, unknown>;
+  _toolCallDetails?: ToolCallInfo[];
 };
 
 function AgentResponseFooter({
@@ -1203,7 +1566,8 @@ function AgentResponseFooter({
   const u = msg._usage;
   const t = msg._telemetry as Record<string, unknown> | undefined;
   const elapsed = msg._elapsed;
-  const toolCalls = msg._toolCalls || 0;
+  const toolCallDetails = msg._toolCallDetails || [];
+  const toolCalls = msg._toolCalls ?? toolCallDetails.length;
 
   // Build summary line like Chat: "ollama - qwen3.5:9b - 18.3s - 50 tokens"
   const parts: string[] = [];
@@ -1225,7 +1589,15 @@ function AgentResponseFooter({
     if (u.prompt_tokens) tokenParts.push(`${u.prompt_tokens} prompt`);
     if (tokenParts.length) rows.push({ label: 'Tokens', value: tokenParts.join(' · ') });
   }
-  if (toolCalls > 0) rows.push({ label: 'Tool calls', value: `${toolCalls}` });
+  if (toolCallDetails.length > 0) {
+    toolCallDetails.forEach((tc, i) => {
+      const prefix = toolCallDetails.length > 1 ? `Tool ${i + 1}` : 'Tool';
+      const args = tc.arguments ? ` ${tc.arguments}` : '';
+      rows.push({ label: prefix, value: `${tc.tool}(${args.trim()})` });
+    });
+  } else if (toolCalls > 0) {
+    rows.push({ label: 'Tool calls', value: `${toolCalls}` });
+  }
   if (t?.tokens_per_sec) rows.push({ label: 'Speed', value: `${Math.round(Number(t.tokens_per_sec))} tok/s` });
   if (t?.total_ms) rows.push({ label: 'Latency', value: `${(Number(t.total_ms) / 1000).toFixed(1)}s total` });
 
@@ -1297,12 +1669,19 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
   const [waitingForResponse, setWaitingForResponse] = useState(false);
   const [progressLabel, setProgressLabel] = useState('');
   const [streamingContent, setStreamingContent] = useState('');
+  const [streamingToolCalls, setStreamingToolCalls] = useState<ToolCallInfo[]>([]);
   const [currentActivity, setCurrentActivity] = useState('');
   const [liveStatus, setLiveStatus] = useState(agentStatus);
   const [streamElapsedMs, setStreamElapsedMs] = useState(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Tail-mode flag: when the user is pinned to the bottom of the transcript
+  // (within NEAR_BOTTOM_THRESHOLD px) we keep auto-scrolling as new content
+  // streams in. If they manually scroll up, we stop following so the view
+  // doesn't get yanked back down.
+  const isNearBottomRef = useRef(true);
 
   // Keep a ref of local metadata so polling doesn't overwrite it
   const localMetaRef = useRef<Map<string, {
@@ -1310,6 +1689,7 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
     _toolCalls?: number;
     _usage?: Record<string, number>;
     _telemetry?: Record<string, unknown>;
+    _toolCallDetails?: ToolCallInfo[];
   }>>(new Map());
 
   const loadData = useCallback(async () => {
@@ -1318,10 +1698,24 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
         fetchAgentMessages(agentId),
         fetchManagedAgent(agentId),
       ]);
-      // Merge server messages with locally-stored metadata
+      // Merge server messages with locally-stored metadata, and hydrate
+      // server-persisted tool_calls into _toolCallDetails so they survive
+      // page reloads.
       const merged: InteractMessage[] = msgs.map((m) => {
         const meta = localMetaRef.current.get(m.content?.slice(0, 100) || '');
-        return meta ? { ...m, ...meta } : m;
+        const base = meta ? { ...m, ...meta } : { ...m };
+        if (!base._toolCallDetails && m.tool_calls && m.tool_calls.length > 0) {
+          base._toolCallDetails = m.tool_calls.map((tc, i) => ({
+            id: `${m.id}-tc-${i}`,
+            tool: tc.tool,
+            arguments: tc.arguments || '',
+            status: tc.success === false ? 'error' : 'success',
+            result: tc.result,
+            latency: tc.latency,
+          }));
+          if (base._toolCalls == null) base._toolCalls = m.tool_calls.length;
+        }
+        return base;
       });
       setMessages(merged);
       setLiveStatus(agent.status);
@@ -1360,18 +1754,30 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
     };
   }, []);
 
-  // Scroll to bottom only on initial load, not on every poll update.
+  // Track whether the user is near the bottom. Called on every scroll
+  // event; only flips the ref, never triggers a re-render.
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    isNearBottomRef.current = distance < 80; // px threshold
+  }, []);
+
+  // Initial landing: jump to the bottom once the first batch of messages
+  // arrives. Subsequent poll updates honor the tail-mode ref.
   const hasScrolled = useRef(false);
   useEffect(() => {
     if (!hasScrolled.current && messages.length > 0) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+      bottomRef.current?.scrollIntoView({ behavior: 'auto' });
       hasScrolled.current = true;
+      isNearBottomRef.current = true;
     }
   }, [messages]);
 
-  // Scroll to bottom when streaming content updates
+  // Stream auto-follow: only scroll while the user is pinned to the bottom.
+  // If they've scrolled up to re-read something, stay put.
   useEffect(() => {
-    if (streamingContent) {
+    if (streamingContent && isNearBottomRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [streamingContent]);
@@ -1397,6 +1803,13 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
     setWaitingForResponse(true);
     setProgressLabel('Initializing agent...');
     setStreamingContent('');
+    setStreamingToolCalls([]);
+    // Sending is explicit user intent — always scroll and re-engage
+    // tail-mode so the subsequent stream follows along.
+    isNearBottomRef.current = true;
+    requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    });
 
     // Start elapsed-time timer
     const startTime = Date.now();
@@ -1408,6 +1821,7 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
     let toolCount = 0;
     let responseUsage: Record<string, number> | undefined;
     let responseTelemetry: Record<string, unknown> | undefined;
+    const collectedToolCalls: ToolCallInfo[] = [];
     try {
       const response = await sendAgentMessage(agentId, text, mode, {
         onProgress: (label) => {
@@ -1415,6 +1829,30 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
           toolCount++;
         },
         onContentDelta: (_delta, full) => setStreamingContent(full),
+        onToolCallStart: ({ tool, arguments: args }) => {
+          toolCount++;
+          const tc: ToolCallInfo = {
+            id: `tc-${Date.now()}-${collectedToolCalls.length}`,
+            tool,
+            arguments: args,
+            status: 'running',
+          };
+          collectedToolCalls.push(tc);
+          setStreamingToolCalls([...collectedToolCalls]);
+          setProgressLabel(`Calling ${tool}...`);
+        },
+        onToolCallEnd: ({ tool, success, latency, result }) => {
+          const match = [...collectedToolCalls]
+            .reverse()
+            .find((t) => t.tool === tool && t.status === 'running');
+          if (match) {
+            match.status = success ? 'success' : 'error';
+            match.latency = latency;
+            match.result = result;
+          }
+          setStreamingToolCalls([...collectedToolCalls]);
+          setProgressLabel('');
+        },
         onDone: (_content, usage, telemetry) => {
           setStreamingContent('');
           responseUsage = usage;
@@ -1429,6 +1867,7 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
           _toolCalls: toolCount,
           _usage: responseUsage,
           _telemetry: responseTelemetry,
+          _toolCallDetails: collectedToolCalls.length > 0 ? [...collectedToolCalls] : undefined,
         };
         // Store metadata keyed by content prefix so polling preserves it
         localMetaRef.current.set(response.content.slice(0, 100), meta);
@@ -1449,6 +1888,7 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
     } finally {
       setWaitingForResponse(false);
       setStreamingContent('');
+      setStreamingToolCalls([]);
       setProgressLabel('');
       if (timerRef.current) {
         clearInterval(timerRef.current);
@@ -1466,45 +1906,58 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
 
   return (
     <div className="flex flex-col" style={{ minHeight: 320 }}>
-      <div className="flex-1 overflow-y-auto space-y-3 pb-4" style={{ maxHeight: 'calc(100vh - 400px)' }}>
+      <div
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto space-y-3 pb-4"
+        style={{ maxHeight: 'calc(100vh - 400px)' }}
+      >
         {displayMessages.length === 0 && !waitingForResponse && (
           <div className="text-sm text-center py-8" style={{ color: 'var(--color-text-tertiary)' }}>
             No messages yet. Send a message to interact with this agent.
           </div>
         )}
         {displayMessages.map((msg) => (
-          <div
-            key={msg.id}
-            className={`flex ${msg.direction === 'user_to_agent' ? 'justify-end' : 'justify-start'}`}
-          >
-            <div
-              className="max-w-[75%] px-3 py-2 rounded-lg text-sm"
-              style={{
-                background: msg.direction === 'user_to_agent' ? 'var(--color-accent)' : 'var(--color-bg-secondary)',
-                color: msg.direction === 'user_to_agent' ? '#fff' : 'var(--color-text)',
-                border: msg.direction === 'agent_to_user' ? '1px solid var(--color-border)' : 'none',
-              }}
-            >
-              {msg.direction === 'agent_to_user' ? (
-                <div className="prose prose-sm prose-invert max-w-none"><ReactMarkdown>{msg.content}</ReactMarkdown></div>
-              ) : (
-                <p>{msg.content}</p>
-              )}
-              <p className="text-xs mt-1 opacity-70">
-                {msg.status === 'pending' ? 'sending...' : new Date(msg.created_at * 1000).toLocaleTimeString()}
-              </p>
-              {msg.direction === 'agent_to_user' && (
-                <AgentResponseFooter msg={msg} copiedId={copiedId} onCopy={(id) => {
-                  navigator.clipboard.writeText(msg.content);
-                  setCopiedId(id);
-                  setTimeout(() => setCopiedId(null), 2000);
-                }} />
-              )}
+          <div key={msg.id} className="space-y-2">
+            {/* Tool calls rendered as their own full-width entries (like Claude Code) */}
+            {msg.direction === 'agent_to_user' && msg._toolCallDetails && msg._toolCallDetails.length > 0 && (
+              <div className="flex flex-col items-start gap-2 max-w-[75%]">
+                {msg._toolCallDetails.map((tc) => (
+                  <ToolCallCard key={tc.id} toolCall={tc} />
+                ))}
+              </div>
+            )}
+            {/* Message bubble */}
+            <div className={`flex ${msg.direction === 'user_to_agent' ? 'justify-end' : 'justify-start'}`}>
+              <div
+                className="max-w-[75%] px-3 py-2 rounded-lg text-sm"
+                style={{
+                  background: msg.direction === 'user_to_agent' ? 'var(--color-accent)' : 'var(--color-bg-secondary)',
+                  color: msg.direction === 'user_to_agent' ? '#fff' : 'var(--color-text)',
+                  border: msg.direction === 'agent_to_user' ? '1px solid var(--color-border)' : 'none',
+                }}
+              >
+                {msg.direction === 'agent_to_user' ? (
+                  <div className="prose prose-sm prose-invert max-w-none"><ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown></div>
+                ) : (
+                  <p>{msg.content}</p>
+                )}
+                <p className="text-xs mt-1 opacity-70">
+                  {msg.status === 'pending' ? 'sending...' : new Date(msg.created_at * 1000).toLocaleTimeString()}
+                </p>
+                {msg.direction === 'agent_to_user' && (
+                  <AgentResponseFooter msg={msg} copiedId={copiedId} onCopy={(id) => {
+                    navigator.clipboard.writeText(msg.content);
+                    setCopiedId(id);
+                    setTimeout(() => setCopiedId(null), 2000);
+                  }} />
+                )}
+              </div>
             </div>
           </div>
         ))}
-        {/* Progress indicator — shown when waiting but no streamed content yet */}
-        {(waitingForResponse || sending) && !streamingContent && (
+        {/* Progress indicator — shown when waiting but no streamed content or tool calls yet */}
+        {(waitingForResponse || sending) && !streamingContent && streamingToolCalls.length === 0 && (
           <div className="flex justify-start">
             <div
               className="px-3 py-2 rounded-lg text-sm"
@@ -1523,7 +1976,15 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
             </div>
           </div>
         )}
-        {/* Streaming content bubble — real-time response as it arrives */}
+        {/* Live tool call cards rendered as their own entries in the flow */}
+        {waitingForResponse && streamingToolCalls.length > 0 && (
+          <div className="flex flex-col items-start gap-2 max-w-[75%]">
+            {streamingToolCalls.map((tc) => (
+              <ToolCallCard key={tc.id} toolCall={tc} />
+            ))}
+          </div>
+        )}
+        {/* Streaming content bubble — real-time response */}
         {waitingForResponse && streamingContent && (
           <div className="flex justify-start">
             <div
@@ -1540,7 +2001,9 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
                   {progressLabel}
                 </div>
               )}
-              <p className="whitespace-pre-wrap">{streamingContent}</p>
+              <div className="prose prose-sm prose-invert max-w-none">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingContent}</ReactMarkdown>
+              </div>
               <p className="text-xs mt-1 opacity-70">
                 {streamElapsedMs > 0 && `${(streamElapsedMs / 1000).toFixed(1)}s elapsed`}
               </p>
