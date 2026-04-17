@@ -10,6 +10,12 @@ from openjarvis.core.config import JarvisConfig, load_config
 from openjarvis.core.events import EventBus, get_event_bus
 from openjarvis.core.types import Message, Role
 from openjarvis.engine._stubs import InferenceEngine
+from openjarvis.system_bundles import (
+    AgentRuntime,
+    Observability,
+    Scheduling,
+    SecurityContext,
+)
 from openjarvis.tools._stubs import BaseTool, ToolExecutor
 
 if TYPE_CHECKING:
@@ -79,6 +85,49 @@ class JarvisSystem:
     skill_manager: Optional[SkillManager] = None
     _learning_orchestrator: Optional[LearningOrchestrator] = None
     _mcp_clients: List[MCPClient] = field(default_factory=list)
+
+    # ------------------------------------------------------------------
+    # Bounded-context bundles (issue #226).
+    #
+    # These are read-only snapshot views of the flat fields above. They
+    # let code that needs a few related dependencies accept a bundle
+    # parameter instead of the whole system. Mutating a snapshot does
+    # NOT flow back to the system — use the flat fields for writes.
+    # ------------------------------------------------------------------
+
+    @property
+    def security(self) -> SecurityContext:
+        return SecurityContext(
+            capability_policy=self.capability_policy,
+            audit_logger=self.audit_logger,
+            boundary_guard=self.boundary_guard,
+        )
+
+    @property
+    def observability(self) -> Observability:
+        return Observability(
+            telemetry_store=self.telemetry_store,
+            trace_store=self.trace_store,
+            trace_collector=self.trace_collector,
+            gpu_monitor=self.gpu_monitor,
+        )
+
+    @property
+    def agents(self) -> AgentRuntime:
+        return AgentRuntime(
+            agent=self.agent,
+            agent_name=self.agent_name,
+            manager=self.agent_manager,
+            scheduler=self.agent_scheduler,
+            executor=self.agent_executor,
+        )
+
+    @property
+    def scheduling(self) -> Scheduling:
+        return Scheduling(
+            store=self.scheduler_store,
+            runner=self.scheduler,
+        )
 
     def ask(
         self,
