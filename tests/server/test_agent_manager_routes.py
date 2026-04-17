@@ -427,6 +427,7 @@ class TestAgentManagerStreaming:
         assert "data: [DONE]" in resp.text
 
 
+@pytest.mark.skipif(not HAS_FASTAPI, reason="fastapi not installed")
 class TestResolveToolSpecs:
     """Unit tests for _resolve_tool_specs — converts template string
     tool names into OpenAI-format function specs so the engine can
