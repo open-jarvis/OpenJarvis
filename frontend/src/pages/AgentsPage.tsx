@@ -1674,7 +1674,13 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
   const [streamElapsedMs, setStreamElapsedMs] = useState(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Tail-mode flag: when the user is pinned to the bottom of the transcript
+  // (within NEAR_BOTTOM_THRESHOLD px) we keep auto-scrolling as new content
+  // streams in. If they manually scroll up, we stop following so the view
+  // doesn't get yanked back down.
+  const isNearBottomRef = useRef(true);
 
   // Keep a ref of local metadata so polling doesn't overwrite it
   const localMetaRef = useRef<Map<string, {
@@ -1736,18 +1742,30 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
     };
   }, []);
 
-  // Scroll to bottom only on initial load, not on every poll update.
+  // Track whether the user is near the bottom. Called on every scroll
+  // event; only flips the ref, never triggers a re-render.
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    isNearBottomRef.current = distance < 80; // px threshold
+  }, []);
+
+  // Initial landing: jump to the bottom once the first batch of messages
+  // arrives. Subsequent poll updates honor the tail-mode ref.
   const hasScrolled = useRef(false);
   useEffect(() => {
     if (!hasScrolled.current && messages.length > 0) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+      bottomRef.current?.scrollIntoView({ behavior: 'auto' });
       hasScrolled.current = true;
+      isNearBottomRef.current = true;
     }
   }, [messages]);
 
-  // Scroll to bottom when streaming content updates
+  // Stream auto-follow: only scroll while the user is pinned to the bottom.
+  // If they've scrolled up to re-read something, stay put.
   useEffect(() => {
-    if (streamingContent) {
+    if (streamingContent && isNearBottomRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [streamingContent]);
@@ -1774,8 +1792,9 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
     setProgressLabel('Initializing agent...');
     setStreamingContent('');
     setStreamingToolCalls([]);
-    // Scroll to the newly-sent message on the next frame (after the bubble
-    // is painted).
+    // Sending is explicit user intent — always scroll and re-engage
+    // tail-mode so the subsequent stream follows along.
+    isNearBottomRef.current = true;
     requestAnimationFrame(() => {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     });
@@ -1875,7 +1894,12 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
 
   return (
     <div className="flex flex-col" style={{ minHeight: 320 }}>
-      <div className="flex-1 overflow-y-auto space-y-3 pb-4" style={{ maxHeight: 'calc(100vh - 400px)' }}>
+      <div
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto space-y-3 pb-4"
+        style={{ maxHeight: 'calc(100vh - 400px)' }}
+      >
         {displayMessages.length === 0 && !waitingForResponse && (
           <div className="text-sm text-center py-8" style={{ color: 'var(--color-text-tertiary)' }}>
             No messages yet. Send a message to interact with this agent.
