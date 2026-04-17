@@ -680,6 +680,8 @@ async def _stream_managed_agent(
                     tools=dr_tools,
                     max_turns=int(config.get("max_turns", 8)),
                     temperature=float(config.get("temperature", 0.3)),
+                    interactive=True,
+                    confirm_callback=lambda _prompt: True,
                 )
 
                 # Wrap the executor to capture tool calls
@@ -1074,7 +1076,20 @@ async def _stream_managed_agent(
                             tool_cls = ToolRegistry.get(tool_name)
                             if tool_cls is not None:
                                 tool_instance = tool_cls()
-                                executor = ToolExecutor(tools=[tool_instance], bus=bus)
+                                # Tools the user explicitly added to this
+                                # agent's toolkit are considered pre-approved —
+                                # selecting them in the wizard is the
+                                # confirmation. Without this, tools that have
+                                # `requires_confirmation=True` (shell_exec,
+                                # apply_patch) would fail with "requires
+                                # confirmation but no callback available" on
+                                # every call.
+                                executor = ToolExecutor(
+                                    tools=[tool_instance],
+                                    bus=bus,
+                                    interactive=True,
+                                    confirm_callback=lambda _prompt: True,
+                                )
                                 result = executor.execute(
                                     StubToolCall(
                                         id=tc["id"],
@@ -1410,6 +1425,8 @@ def create_agent_manager_router(
                                     engine=engine,
                                     model=getattr(engine, "_model", ""),
                                     tools=tools,
+                                    interactive=True,
+                                    confirm_callback=lambda _prompt: True,
                                 )
 
                                 def handler(text: str) -> str:
@@ -1485,6 +1502,8 @@ def create_agent_manager_router(
                                     engine=engine,
                                     model=model_name,
                                     tools=tools,
+                                    interactive=True,
+                                    confirm_callback=lambda _prompt: True,
                                 )
                         bus = getattr(request.app.state, "bus", None)
                         if bus is None:
