@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { toast } from 'sonner';
 import { useAppStore } from '../lib/store';
 import {
@@ -62,6 +63,8 @@ import {
 import { SOURCE_CATALOG } from '../types/connectors';
 import type { ConnectRequest } from '../types/connectors';
 import { listConnectors, connectSource } from '../lib/connectors-api';
+import type { ToolCallInfo } from '../types';
+import { ToolCallCard } from '../components/Chat/ToolCallCard';
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -1189,6 +1192,7 @@ type InteractMessage = AgentMessage & {
   _toolCalls?: number;
   _usage?: Record<string, number>;
   _telemetry?: Record<string, unknown>;
+  _toolCallDetails?: ToolCallInfo[];
 };
 
 function AgentResponseFooter({
@@ -1202,7 +1206,8 @@ function AgentResponseFooter({
   const u = msg._usage;
   const t = msg._telemetry as Record<string, unknown> | undefined;
   const elapsed = msg._elapsed;
-  const toolCalls = msg._toolCalls || 0;
+  const toolCallDetails = msg._toolCallDetails || [];
+  const toolCalls = msg._toolCalls ?? toolCallDetails.length;
 
   // Build summary line like Chat: "ollama - qwen3.5:9b - 18.3s - 50 tokens"
   const parts: string[] = [];
@@ -1224,7 +1229,15 @@ function AgentResponseFooter({
     if (u.prompt_tokens) tokenParts.push(`${u.prompt_tokens} prompt`);
     if (tokenParts.length) rows.push({ label: 'Tokens', value: tokenParts.join(' · ') });
   }
-  if (toolCalls > 0) rows.push({ label: 'Tool calls', value: `${toolCalls}` });
+  if (toolCallDetails.length > 0) {
+    toolCallDetails.forEach((tc, i) => {
+      const prefix = toolCallDetails.length > 1 ? `Tool ${i + 1}` : 'Tool';
+      const args = tc.arguments ? ` ${tc.arguments}` : '';
+      rows.push({ label: prefix, value: `${tc.tool}(${args.trim()})` });
+    });
+  } else if (toolCalls > 0) {
+    rows.push({ label: 'Tool calls', value: `${toolCalls}` });
+  }
   if (t?.tokens_per_sec) rows.push({ label: 'Speed', value: `${Math.round(Number(t.tokens_per_sec))} tok/s` });
   if (t?.total_ms) rows.push({ label: 'Latency', value: `${(Number(t.total_ms) / 1000).toFixed(1)}s total` });
 
@@ -1296,6 +1309,7 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
   const [waitingForResponse, setWaitingForResponse] = useState(false);
   const [progressLabel, setProgressLabel] = useState('');
   const [streamingContent, setStreamingContent] = useState('');
+  const [streamingToolCalls, setStreamingToolCalls] = useState<ToolCallInfo[]>([]);
   const [currentActivity, setCurrentActivity] = useState('');
   const [liveStatus, setLiveStatus] = useState(agentStatus);
   const [streamElapsedMs, setStreamElapsedMs] = useState(0);
@@ -1309,6 +1323,7 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
     _toolCalls?: number;
     _usage?: Record<string, number>;
     _telemetry?: Record<string, unknown>;
+    _toolCallDetails?: ToolCallInfo[];
   }>>(new Map());
 
   const loadData = useCallback(async () => {
@@ -1317,10 +1332,24 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
         fetchAgentMessages(agentId),
         fetchManagedAgent(agentId),
       ]);
-      // Merge server messages with locally-stored metadata
+      // Merge server messages with locally-stored metadata, and hydrate
+      // server-persisted tool_calls into _toolCallDetails so they survive
+      // page reloads.
       const merged: InteractMessage[] = msgs.map((m) => {
         const meta = localMetaRef.current.get(m.content?.slice(0, 100) || '');
-        return meta ? { ...m, ...meta } : m;
+        const base = meta ? { ...m, ...meta } : { ...m };
+        if (!base._toolCallDetails && m.tool_calls && m.tool_calls.length > 0) {
+          base._toolCallDetails = m.tool_calls.map((tc, i) => ({
+            id: `${m.id}-tc-${i}`,
+            tool: tc.tool,
+            arguments: tc.arguments || '',
+            status: tc.success === false ? 'error' : 'success',
+            result: tc.result,
+            latency: tc.latency,
+          }));
+          if (base._toolCalls == null) base._toolCalls = m.tool_calls.length;
+        }
+        return base;
       });
       setMessages(merged);
       setLiveStatus(agent.status);
@@ -1385,6 +1414,12 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
     setWaitingForResponse(true);
     setProgressLabel('Initializing agent...');
     setStreamingContent('');
+    setStreamingToolCalls([]);
+    // Scroll to the newly-sent message on the next frame (after the bubble
+    // is painted).
+    requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    });
 
     // Start elapsed-time timer
     const startTime = Date.now();
@@ -1396,6 +1431,7 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
     let toolCount = 0;
     let responseUsage: Record<string, number> | undefined;
     let responseTelemetry: Record<string, unknown> | undefined;
+    const collectedToolCalls: ToolCallInfo[] = [];
     try {
       const response = await sendAgentMessage(agentId, text, mode, {
         onProgress: (label) => {
@@ -1403,6 +1439,30 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
           toolCount++;
         },
         onContentDelta: (_delta, full) => setStreamingContent(full),
+        onToolCallStart: ({ tool, arguments: args }) => {
+          toolCount++;
+          const tc: ToolCallInfo = {
+            id: `tc-${Date.now()}-${collectedToolCalls.length}`,
+            tool,
+            arguments: args,
+            status: 'running',
+          };
+          collectedToolCalls.push(tc);
+          setStreamingToolCalls([...collectedToolCalls]);
+          setProgressLabel(`Calling ${tool}...`);
+        },
+        onToolCallEnd: ({ tool, success, latency, result }) => {
+          const match = [...collectedToolCalls]
+            .reverse()
+            .find((t) => t.tool === tool && t.status === 'running');
+          if (match) {
+            match.status = success ? 'success' : 'error';
+            match.latency = latency;
+            match.result = result;
+          }
+          setStreamingToolCalls([...collectedToolCalls]);
+          setProgressLabel('');
+        },
         onDone: (_content, usage, telemetry) => {
           setStreamingContent('');
           responseUsage = usage;
@@ -1417,6 +1477,7 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
           _toolCalls: toolCount,
           _usage: responseUsage,
           _telemetry: responseTelemetry,
+          _toolCallDetails: collectedToolCalls.length > 0 ? [...collectedToolCalls] : undefined,
         };
         // Store metadata keyed by content prefix so polling preserves it
         localMetaRef.current.set(response.content.slice(0, 100), meta);
@@ -1437,6 +1498,7 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
     } finally {
       setWaitingForResponse(false);
       setStreamingContent('');
+      setStreamingToolCalls([]);
       setProgressLabel('');
       if (timerRef.current) {
         clearInterval(timerRef.current);
@@ -1461,38 +1523,46 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
           </div>
         )}
         {displayMessages.map((msg) => (
-          <div
-            key={msg.id}
-            className={`flex ${msg.direction === 'user_to_agent' ? 'justify-end' : 'justify-start'}`}
-          >
-            <div
-              className="max-w-[75%] px-3 py-2 rounded-lg text-sm"
-              style={{
-                background: msg.direction === 'user_to_agent' ? 'var(--color-accent)' : 'var(--color-bg-secondary)',
-                color: msg.direction === 'user_to_agent' ? '#fff' : 'var(--color-text)',
-                border: msg.direction === 'agent_to_user' ? '1px solid var(--color-border)' : 'none',
-              }}
-            >
-              {msg.direction === 'agent_to_user' ? (
-                <div className="prose prose-sm prose-invert max-w-none"><ReactMarkdown>{msg.content}</ReactMarkdown></div>
-              ) : (
-                <p>{msg.content}</p>
-              )}
-              <p className="text-xs mt-1 opacity-70">
-                {msg.status === 'pending' ? 'sending...' : new Date(msg.created_at * 1000).toLocaleTimeString()}
-              </p>
-              {msg.direction === 'agent_to_user' && (
-                <AgentResponseFooter msg={msg} copiedId={copiedId} onCopy={(id) => {
-                  navigator.clipboard.writeText(msg.content);
-                  setCopiedId(id);
-                  setTimeout(() => setCopiedId(null), 2000);
-                }} />
-              )}
+          <div key={msg.id} className="space-y-2">
+            {/* Tool calls rendered as their own full-width entries (like Claude Code) */}
+            {msg.direction === 'agent_to_user' && msg._toolCallDetails && msg._toolCallDetails.length > 0 && (
+              <div className="flex flex-col gap-2 max-w-[75%]">
+                {msg._toolCallDetails.map((tc) => (
+                  <ToolCallCard key={tc.id} toolCall={tc} />
+                ))}
+              </div>
+            )}
+            {/* Message bubble */}
+            <div className={`flex ${msg.direction === 'user_to_agent' ? 'justify-end' : 'justify-start'}`}>
+              <div
+                className="max-w-[75%] px-3 py-2 rounded-lg text-sm"
+                style={{
+                  background: msg.direction === 'user_to_agent' ? 'var(--color-accent)' : 'var(--color-bg-secondary)',
+                  color: msg.direction === 'user_to_agent' ? '#fff' : 'var(--color-text)',
+                  border: msg.direction === 'agent_to_user' ? '1px solid var(--color-border)' : 'none',
+                }}
+              >
+                {msg.direction === 'agent_to_user' ? (
+                  <div className="prose prose-sm prose-invert max-w-none"><ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown></div>
+                ) : (
+                  <p>{msg.content}</p>
+                )}
+                <p className="text-xs mt-1 opacity-70">
+                  {msg.status === 'pending' ? 'sending...' : new Date(msg.created_at * 1000).toLocaleTimeString()}
+                </p>
+                {msg.direction === 'agent_to_user' && (
+                  <AgentResponseFooter msg={msg} copiedId={copiedId} onCopy={(id) => {
+                    navigator.clipboard.writeText(msg.content);
+                    setCopiedId(id);
+                    setTimeout(() => setCopiedId(null), 2000);
+                  }} />
+                )}
+              </div>
             </div>
           </div>
         ))}
-        {/* Progress indicator — shown when waiting but no streamed content yet */}
-        {(waitingForResponse || sending) && !streamingContent && (
+        {/* Progress indicator — shown when waiting but no streamed content or tool calls yet */}
+        {(waitingForResponse || sending) && !streamingContent && streamingToolCalls.length === 0 && (
           <div className="flex justify-start">
             <div
               className="px-3 py-2 rounded-lg text-sm"
@@ -1511,7 +1581,15 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
             </div>
           </div>
         )}
-        {/* Streaming content bubble — real-time response as it arrives */}
+        {/* Live tool call cards rendered as their own entries in the flow */}
+        {waitingForResponse && streamingToolCalls.length > 0 && (
+          <div className="flex flex-col gap-2 max-w-[75%]">
+            {streamingToolCalls.map((tc) => (
+              <ToolCallCard key={tc.id} toolCall={tc} />
+            ))}
+          </div>
+        )}
+        {/* Streaming content bubble — real-time response */}
         {waitingForResponse && streamingContent && (
           <div className="flex justify-start">
             <div
@@ -1528,7 +1606,9 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
                   {progressLabel}
                 </div>
               )}
-              <p className="whitespace-pre-wrap">{streamingContent}</p>
+              <div className="prose prose-sm prose-invert max-w-none">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingContent}</ReactMarkdown>
+              </div>
               <p className="text-xs mt-1 opacity-70">
                 {streamElapsedMs > 0 && `${(streamElapsedMs / 1000).toFixed(1)}s elapsed`}
               </p>

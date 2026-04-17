@@ -308,6 +308,62 @@ def build_tools_list() -> List[Dict[str, Any]]:
     return items
 
 
+def _resolve_tool_specs(
+    tool_config: Any,
+) -> List[Dict[str, Any]]:
+    """Convert a template's ``tools`` config into OpenAI-format function specs.
+
+    The template TOML stores tools as a list of string names (e.g.
+    ``["file_read", "shell_exec"]``). Engines expect OpenAI-shaped dicts:
+    ``{"type": "function", "function": {"name, description, parameters"}}``.
+
+    Pass-throughs: if an entry is already a dict it is returned as-is
+    (allows advanced configs to supply fully-formed specs).
+    Unknown names are dropped with a warning so one bad entry doesn't
+    break tool binding for an entire agent.
+    """
+    if not tool_config:
+        return []
+
+    from openjarvis.core.registry import ToolRegistry
+
+    _ensure_registries_populated()
+
+    resolved: List[Dict[str, Any]] = []
+    for entry in tool_config:
+        if isinstance(entry, dict):
+            resolved.append(entry)
+            continue
+        if not isinstance(entry, str):
+            continue
+        if not ToolRegistry.contains(entry):
+            logger.warning(
+                "Tool '%s' referenced in agent config but not in ToolRegistry",
+                entry,
+            )
+            continue
+        try:
+            spec = ToolRegistry.get(entry)().spec
+        except Exception as exc:
+            logger.warning(
+                "Could not build spec for tool '%s' (%s) — dropping",
+                entry,
+                exc,
+            )
+            continue
+        resolved.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": spec.name,
+                    "description": spec.description,
+                    "parameters": spec.parameters,
+                },
+            }
+        )
+    return resolved
+
+
 def _build_deep_research_tools(
     engine: Any,
     model: str,
@@ -630,14 +686,15 @@ async def _stream_managed_agent(
 
                 def _tracked_execute(tc):
                     tool_name = tc.name
-                    args_str = tc.arguments[:80] if tc.arguments else ""
+                    full_args = tc.arguments or ""
+                    args_str = full_args[:80]
                     # Log tool call start
                     try:
                         manager.add_learning_log(
                             agent_id,
                             "tool_call",
                             f"Calling {tool_name}: {args_str}",
-                            {"tool": tool_name, "arguments": tc.arguments or ""},
+                            {"tool": tool_name, "arguments": full_args},
                         )
                     except Exception as _tc_exc:
                         logger.warning("Log tool_call failed: %s", _tc_exc)
@@ -647,9 +704,12 @@ async def _stream_managed_agent(
                             "type": "tool_start",
                             "tool": tool_name,
                             "args": args_str,
+                            "full_args": full_args,
                         }
                     )
+                    _tool_start = _dr_time.monotonic()
                     result = original_execute(tc)
+                    _tool_latency_ms = (_dr_time.monotonic() - _tool_start) * 1000
 
                     # Log tool result
                     try:
@@ -672,7 +732,10 @@ async def _stream_managed_agent(
                         {
                             "type": "tool_end",
                             "tool": tool_name,
+                            "arguments": full_args,
                             "success": result.success,
+                            "latency": _tool_latency_ms,
+                            "result": result.content or "",
                         }
                     )
                     return result
@@ -721,6 +784,12 @@ async def _stream_managed_agent(
                 thread = threading.Thread(target=_run_agent, daemon=True)
                 thread.start()
 
+                # Collect tool calls from deep-research so we can persist them
+                # alongside the final response (and the UI can re-render them
+                # after a page reload).
+                dr_tool_calls: List[Dict[str, Any]] = []
+                _pending_dr_starts: Dict[str, str] = {}
+
                 # Stream progress events and final content
                 while True:
                     try:
@@ -733,6 +802,16 @@ async def _stream_managed_agent(
                     if event["type"] == "tool_start":
                         tool = event["tool"]
                         args = event.get("args", "")
+                        full_args = event.get("full_args", "")
+                        _pending_dr_starts[tool] = full_args
+                        # Structured event so the UI can render a tool_call
+                        # message card (same shape as the non-DR path).
+                        _start_payload = json.dumps(
+                            {"tool": tool, "arguments": full_args}
+                        )
+                        yield f"event: tool_call_start\ndata: {_start_payload}\n\n"
+                        # Keep the human-readable progress label for the
+                        # thinking-bubble fallback.
                         label = _tool_progress_label(tool, args)
                         progress_data = {
                             "id": chunk_id,
@@ -750,7 +829,28 @@ async def _stream_managed_agent(
                         yield f"data: {json.dumps(progress_data)}\n\n"
 
                     elif event["type"] == "tool_end":
-                        pass  # Could emit completion signal
+                        tool = event["tool"]
+                        dr_tool_calls.append(
+                            {
+                                "tool": tool,
+                                "arguments": event.get(
+                                    "arguments", _pending_dr_starts.get(tool, "")
+                                ),
+                                "result": event.get("result", ""),
+                                "success": bool(event.get("success", False)),
+                                "latency": float(event.get("latency", 0.0)),
+                            }
+                        )
+                        _pending_dr_starts.pop(tool, None)
+                        _end_payload = json.dumps(
+                            {
+                                "tool": tool,
+                                "success": bool(event.get("success", False)),
+                                "latency": float(event.get("latency", 0.0)),
+                                "result": event.get("result", ""),
+                            }
+                        )
+                        yield f"event: tool_call_end\ndata: {_end_payload}\n\n"
 
                     elif event["type"] in ("done", "error"):
                         content = event["content"]
@@ -798,10 +898,12 @@ async def _stream_managed_agent(
                         yield f"data: {json.dumps(finish_data)}\n\n"
                         yield "data: [DONE]\n\n"
 
-                        # Persist
+                        # Persist (with the tool calls captured during
+                        # the deep-research turn so they survive reload).
                         manager.store_agent_response(
                             agent_id,
                             content,
+                            tool_calls=dr_tool_calls or None,
                         )
                         break
 
@@ -814,10 +916,13 @@ async def _stream_managed_agent(
                 },
             )
 
-    # Build extra kwargs for stream_full (e.g. tools from config)
+    # Build extra kwargs for stream_full (e.g. tools from config).
+    # Template stores tool names as strings; convert to OpenAI function specs
+    # so the engine can actually bind them to the model.
     stream_kwargs: Dict[str, Any] = {}
-    if config.get("tools"):
-        stream_kwargs["tools"] = config["tools"]
+    resolved_tools = _resolve_tool_specs(config.get("tools"))
+    if resolved_tools:
+        stream_kwargs["tools"] = resolved_tools
 
     # Discover MCP tools and merge into stream_kwargs
     mcp_adapters: Dict[str, Any] = {}
@@ -840,6 +945,7 @@ async def _stream_managed_agent(
         """Async generator yielding SSE-formatted chunks with real token streaming."""
 
         collected_content = ""
+        collected_tool_calls: List[Dict[str, Any]] = []
         messages_for_llm = list(llm_messages)
         turns = 0
 
@@ -909,19 +1015,6 @@ async def _stream_managed_agent(
                     tool_call_fragments[i] for i in sorted(tool_call_fragments.keys())
                 ]
 
-                # Emit tool_calls metadata as SSE event
-                tool_meta = []
-                for tc in sorted_tcs:
-                    tool_meta.append(
-                        {
-                            "tool_name": tc["function"]["name"],
-                            "arguments": tc["function"]["arguments"],
-                        }
-                    )
-                yield (
-                    f"event: tool_calls\ndata: {json.dumps({'calls': tool_meta})}\n\n"
-                )
-
                 # Add assistant message with tool_calls to conversation
                 from openjarvis.core.types import ToolCall as MsgToolCall
 
@@ -939,11 +1032,23 @@ async def _stream_managed_agent(
                 )
                 messages_for_llm.append(assistant_msg)
 
-                # Execute each tool call and append results
+                # Execute each tool call and append results. Emit
+                # tool_call_start/tool_call_end around each call so the UI
+                # can render them live (same event names as the main chat
+                # in stream_bridge.py).
+                import time as _time
+
                 for tc in sorted_tcs:
                     tool_name = tc["function"]["name"]
                     tool_args = tc["function"]["arguments"]
                     tool_result_content = f"Tool '{tool_name}' not available"
+                    tool_succeeded = False
+
+                    _start_payload = json.dumps(
+                        {"tool": tool_name, "arguments": tool_args}
+                    )
+                    yield f"event: tool_call_start\ndata: {_start_payload}\n\n"
+                    tool_start_ms = _time.monotonic() * 1000
 
                     try:
                         # Try MCP adapter first (external tools)
@@ -982,6 +1087,7 @@ async def _stream_managed_agent(
                                     "Tool '%s' not found in registry or MCP adapters",
                                     tool_name,
                                 )
+                        tool_succeeded = True
                     except Exception as tool_exc:
                         logger.error(
                             "Tool execution error for %s: %s",
@@ -991,11 +1097,25 @@ async def _stream_managed_agent(
                         )
                         tool_result_content = f"Error executing {tool_name}: {tool_exc}"
 
-                    # Emit tool result as SSE event
-                    tool_event_data = json.dumps(
-                        {"tool_name": tool_name, "output": tool_result_content}
+                    tool_latency_ms = (_time.monotonic() * 1000) - tool_start_ms
+                    collected_tool_calls.append(
+                        {
+                            "tool": tool_name,
+                            "arguments": tool_args,
+                            "result": tool_result_content,
+                            "success": tool_succeeded,
+                            "latency": tool_latency_ms,
+                        }
                     )
-                    yield (f"event: tool_result\ndata: {tool_event_data}\n\n")
+                    _end_payload = json.dumps(
+                        {
+                            "tool": tool_name,
+                            "success": tool_succeeded,
+                            "latency": tool_latency_ms,
+                            "result": tool_result_content,
+                        }
+                    )
+                    yield f"event: tool_call_end\ndata: {_end_payload}\n\n"
 
                     # Add tool result message to conversation
                     messages_for_llm.append(
@@ -1034,7 +1154,11 @@ async def _stream_managed_agent(
         # Persist agent response in DB after streaming completes
         if collected_content:
             try:
-                manager.store_agent_response(agent_id, collected_content)
+                manager.store_agent_response(
+                    agent_id,
+                    collected_content,
+                    tool_calls=collected_tool_calls or None,
+                )
             except Exception as store_exc:
                 logger.error(
                     "Failed to store agent response: %s",
