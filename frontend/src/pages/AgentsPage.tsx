@@ -352,10 +352,16 @@ function ToolsPicker({
   const [hovered, setHovered] = useState<ToolInfo | null>(null);
   const [pulseKey, setPulseKey] = useState(0);
 
+  // Channels (source === 'channel') live in ChannelRegistry and aren't
+  // directly callable by the LLM — the agent talks to them through the
+  // `channel_send` tool. Showing them in the tools picker is misleading,
+  // so filter them out; channel bindings are configured separately.
+  const tollableTools = tools.filter((t) => t.source !== 'channel');
+
   // Group by category, respecting the preferred order then alphabetical.
   const grouped = (() => {
     const buckets: Record<string, ToolInfo[]> = {};
-    for (const t of tools) {
+    for (const t of tollableTools) {
       const cat = TOOL_CATEGORY_ORDER.includes(t.category) ? t.category : 'other';
       (buckets[cat] ||= []).push(t);
     }
@@ -367,7 +373,7 @@ function ToolsPicker({
       .map((cat) => ({ category: cat, items: buckets[cat] }));
   })();
 
-  const configurable = tools.filter((t) => t.configured).map((t) => t.name);
+  const configurable = tollableTools.filter((t) => t.configured).map((t) => t.name);
   const allSelected =
     configurable.length > 0 && configurable.every((n) => selected.includes(n));
 
@@ -408,7 +414,7 @@ function ToolsPicker({
             <span style={{ color: 'var(--color-accent)' }}>
               {selected.length}
             </span>
-            <span style={{ opacity: 0.5 }}> / {tools.length}</span>
+            <span style={{ opacity: 0.5 }}> / {tollableTools.length}</span>
           </span>
           <span style={{ color: 'var(--color-text-tertiary)', opacity: 0.3 }}>·</span>
           <button

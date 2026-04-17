@@ -318,50 +318,83 @@ def _resolve_tool_specs(
     ``["file_read", "shell_exec"]``). Engines expect OpenAI-shaped dicts:
     ``{"type": "function", "function": {"name, description, parameters"}}``.
 
-    Pass-throughs: if an entry is already a dict it is returned as-is
-    (allows advanced configs to supply fully-formed specs).
-    Unknown names are dropped with a warning so one bad entry doesn't
-    break tool binding for an entire agent.
+    Special handling:
+      * Dict entries pass through as-is (allows advanced configs to
+        supply fully-formed specs).
+      * ``browser`` is a synthetic display-only meta-tool that expands
+        to the 6 real browser sub-tools (browser_navigate, click, …).
+      * Channel names (``slack``, ``gmail``, …) come from the
+        ``ChannelRegistry`` and are not directly callable by the LLM —
+        they're destinations for ``channel_send``. Silently skip them.
+      * Unknown tool names are dropped with a warning.
     """
     if not tool_config:
         return []
 
-    from openjarvis.core.registry import ToolRegistry
+    from openjarvis.core.registry import ChannelRegistry, ToolRegistry
 
     _ensure_registries_populated()
 
+    def _spec_dict_for(name: str) -> Optional[Dict[str, Any]]:
+        try:
+            spec = ToolRegistry.get(name)().spec
+        except Exception as exc:
+            logger.warning(
+                "Could not build spec for tool '%s' (%s) — dropping",
+                name,
+                exc,
+            )
+            return None
+        return {
+            "type": "function",
+            "function": {
+                "name": spec.name,
+                "description": spec.description,
+                "parameters": spec.parameters,
+            },
+        }
+
     resolved: List[Dict[str, Any]] = []
+    seen: set = set()
+
     for entry in tool_config:
         if isinstance(entry, dict):
             resolved.append(entry)
             continue
         if not isinstance(entry, str):
             continue
+
+        # Expand the synthetic "browser" meta-tool into its sub-tools.
+        if entry == "browser":
+            for sub in _BROWSER_SUB_TOOLS:
+                if sub in seen or not ToolRegistry.contains(sub):
+                    continue
+                spec_dict = _spec_dict_for(sub)
+                if spec_dict:
+                    resolved.append(spec_dict)
+                    seen.add(sub)
+            continue
+
+        # Channels (slack, gmail, …) live in ChannelRegistry and aren't
+        # callable by the LLM. Skip silently — the agent talks to them
+        # through the `channel_send` tool with a `channel` argument.
+        if ChannelRegistry.contains(entry):
+            continue
+
         if not ToolRegistry.contains(entry):
             logger.warning(
                 "Tool '%s' referenced in agent config but not in ToolRegistry",
                 entry,
             )
             continue
-        try:
-            spec = ToolRegistry.get(entry)().spec
-        except Exception as exc:
-            logger.warning(
-                "Could not build spec for tool '%s' (%s) — dropping",
-                entry,
-                exc,
-            )
+
+        if entry in seen:
             continue
-        resolved.append(
-            {
-                "type": "function",
-                "function": {
-                    "name": spec.name,
-                    "description": spec.description,
-                    "parameters": spec.parameters,
-                },
-            }
-        )
+        spec_dict = _spec_dict_for(entry)
+        if spec_dict:
+            resolved.append(spec_dict)
+            seen.add(entry)
+
     return resolved
 
 
