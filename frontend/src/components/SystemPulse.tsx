@@ -6,15 +6,15 @@ type PulseState = 'idle' | 'inferencing' | 'agent-active' | 'hidden';
 
 const PULSE_CONFIG: Record<Exclude<PulseState, 'hidden'>, { color: string; animation: string }> = {
   idle: {
-    color: 'rgba(59, 130, 246, 0.3)',
+    color: 'color-mix(in srgb, var(--color-accent) 22%, transparent)',
     animation: 'none',
   },
   inferencing: {
-    color: '#3b82f6',
+    color: 'var(--color-accent)',
     animation: 'pulse-glow 2s ease-in-out infinite',
   },
   'agent-active': {
-    color: '#8b5cf6',
+    color: 'var(--color-accent-purple)',
     animation: 'pulse-travel 3s linear infinite',
   },
 };

@@ -319,7 +319,7 @@ export function CommandPalette() {
           </div>
         )}
         {pullSuccess && (
-          <div className="px-4 py-2 text-xs flex items-center gap-1.5" style={{ color: 'var(--color-success)', background: 'rgba(34,197,94,0.05)' }}>
+          <div className="px-4 py-2 text-xs flex items-center gap-1.5" style={{ color: 'var(--color-success)', background: 'color-mix(in srgb, var(--color-success) 5%, transparent)' }}>
             <Check size={12} /> Downloaded {pullSuccess} successfully
           </div>
         )}
@@ -395,7 +395,7 @@ export function CommandPalette() {
                       className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium cursor-pointer"
                       style={{
                         background: justInstalled ? 'var(--color-accent-subtle)' : 'var(--color-accent)',
-                        color: justInstalled ? 'var(--color-accent)' : '#fff',
+                        color: justInstalled ? 'var(--color-accent)' : 'var(--color-on-accent)',
                         opacity: (isPulling || (pulling && !isPulling)) ? 0.5 : 1,
                       }}
                     >
@@ -420,7 +420,7 @@ export function CommandPalette() {
                   <button
                     onClick={handleCustomPull} disabled={!customModel.trim() || !!pulling}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer"
-                    style={{ background: 'var(--color-accent)', color: '#fff', opacity: (!customModel.trim() || pulling) ? 0.5 : 1 }}
+                    style={{ background: 'var(--color-accent)', color: 'var(--color-on-accent)', opacity: (!customModel.trim() || pulling) ? 0.5 : 1 }}
                   >
                     <Download size={12} /> Pull
                   </button>
@@ -445,7 +445,7 @@ export function CommandPalette() {
                       <Cloud size={14} style={{ color: hasKey ? 'var(--color-success)' : 'var(--color-text-tertiary)' }} />
                       <span className="text-xs font-medium" style={{ color: 'var(--color-text)' }}>{provider.name}</span>
                       {hasKey && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(34,197,94,0.1)', color: 'var(--color-success)' }}>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'color-mix(in srgb, var(--color-success) 10%, transparent)', color: 'var(--color-success)' }}>
                           Connected
                         </span>
                       )}

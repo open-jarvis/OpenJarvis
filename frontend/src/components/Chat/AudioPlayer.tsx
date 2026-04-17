@@ -63,8 +63,8 @@ export function AudioPlayer({ src }: AudioPlayerProps) {
     <div
       className="flex items-center gap-3 px-4 py-3 rounded-xl mb-3"
       style={{
-        background: 'var(--color-surface, #f5f5f5)',
-        border: '1px solid var(--color-border, #e0e0e0)',
+        background: 'var(--color-surface)',
+        border: '1px solid var(--color-border)',
       }}
     >
       <audio ref={audioRef} src={src} preload="metadata" />
@@ -73,8 +73,8 @@ export function AudioPlayer({ src }: AudioPlayerProps) {
         onClick={toggle}
         className="flex items-center justify-center w-9 h-9 rounded-full transition-colors shrink-0"
         style={{
-          background: 'var(--color-accent, #6366f1)',
-          color: 'white',
+          background: 'var(--color-accent)',
+          color: 'var(--color-on-accent)',
           cursor: 'pointer',
         }}
       >
@@ -94,14 +94,14 @@ export function AudioPlayer({ src }: AudioPlayerProps) {
 
         <div
           className="h-1.5 rounded-full cursor-pointer"
-          style={{ background: 'var(--color-bg-tertiary, #e0e0e0)' }}
+          style={{ background: 'var(--color-bg-tertiary)' }}
           onClick={seek}
         >
           <div
             className="h-full rounded-full transition-all"
             style={{
               width: `${progress}%`,
-              background: 'var(--color-accent, #6366f1)',
+              background: 'var(--color-accent)',
             }}
           />
         </div>

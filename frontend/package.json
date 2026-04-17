@@ -29,6 +29,7 @@
     "clsx": "^2.1.1",
     "katex": "^0.16.38",
     "lucide-react": "^0.576.0",
+    "motion": "^12.38.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",

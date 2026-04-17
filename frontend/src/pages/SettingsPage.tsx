@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import {
-  Settings,
   Palette,
   Globe,
   Cpu,
@@ -35,7 +34,7 @@ function OllamaModelList() {
       {models.map(m => (
         <span key={m.name} className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px]"
           style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text)' }}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--color-success)', display: 'inline-block' }} />
           {m.name} ({(m.size / 1e9).toFixed(1)} GB)
         </span>
       ))}
@@ -59,7 +58,7 @@ function ApiKeyInput({ storageKey, placeholder }: { storageKey: string; placehol
       <input type="password" value={value} onChange={e => save(e.target.value)} placeholder={placeholder}
         className="w-48 px-2 py-1 rounded text-xs"
         style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }} />
-      {saved && <span className="text-[10px]" style={{ color: '#22c55e' }}>Saved</span>}
+      {saved && <span className="text-[10px]" style={{ color: 'var(--color-success)' }}>Saved</span>}
     </div>
   );
 }
@@ -73,7 +72,7 @@ function CloudProviderStatus({ label, storageKey }: { label: string; storageKey:
     <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
       <span style={{
         width: 6, height: 6, borderRadius: '50%', display: 'inline-block',
-        background: hasKey ? '#22c55e' : 'var(--color-text-tertiary)',
+        background: hasKey ? 'var(--color-success)' : 'var(--color-text-tertiary)',
       }} />
       {label}
     </span>
@@ -203,22 +202,26 @@ export function SettingsPage() {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto p-6">
+    <div className="flex-1 overflow-y-auto px-6 py-10">
       <div className="max-w-2xl mx-auto">
-        <div className="flex items-center gap-3 mb-6">
-          <Settings size={24} style={{ color: 'var(--color-accent)' }} />
-          <h1 className="text-xl font-semibold" style={{ color: 'var(--color-text)' }}>
-            Settings
-          </h1>
-          {saved && (
-            <span className="flex items-center gap-1 text-xs px-2 py-1 rounded-full" style={{
-              background: 'var(--color-accent-subtle)',
-              color: 'var(--color-success)',
-            }}>
-              <Check size={12} /> Saved
-            </span>
-          )}
-        </div>
+        <header className="mb-6">
+          <div className="flex items-center justify-between gap-3">
+            <h1 className="text-lg font-semibold" style={{ color: 'var(--color-text)' }}>
+              Settings
+            </h1>
+            {saved && (
+              <span className="flex items-center gap-1 text-xs px-2 py-1 rounded-full" style={{
+                background: 'var(--color-accent-subtle)',
+                color: 'var(--color-success)',
+              }}>
+                <Check size={12} /> Saved
+              </span>
+            )}
+          </div>
+          <p className="text-sm mt-2 max-w-2xl" style={{ color: 'var(--color-text-secondary)' }}>
+            App preferences — appearance, model defaults, keyboard shortcuts, and data management.
+          </p>
+        </header>
 
         <div className="flex flex-col gap-4">
           {/* Appearance */}

@@ -338,7 +338,7 @@ export function InputArea() {
           <button
             onClick={stopStreaming}
             className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer"
-            style={{ background: 'var(--color-error)', color: 'white' }}
+            style={{ background: 'var(--color-error)', color: 'var(--color-on-accent)' }}
             title="Stop generating"
           >
             <Square size={16} />

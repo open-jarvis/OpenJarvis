@@ -138,9 +138,9 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
           <div
             className="flex items-start gap-3 px-4 py-3 rounded-xl text-sm"
             style={{
-              background: 'rgba(239, 68, 68, 0.1)',
-              border: '1px solid rgba(239, 68, 68, 0.2)',
-              color: '#ef4444',
+              background: 'color-mix(in srgb, var(--color-error) 10%, transparent)',
+              border: '1px solid color-mix(in srgb, var(--color-error) 20%, transparent)',
+              color: 'var(--color-error)',
             }}
           >
             <XCircle size={16} className="shrink-0 mt-0.5" />
