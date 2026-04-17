@@ -234,34 +234,35 @@ def build_tools_list() -> List[Dict[str, Any]]:
 
     items: List[Dict[str, Any]] = []
 
-    try:
-        for name, tool_cls in ToolRegistry.items():
-            if name in _BROWSER_SUB_TOOLS:
-                continue
-            spec = getattr(tool_cls, "spec", None)
-            if callable(spec):
-                try:
-                    spec = spec(tool_cls)
-                except Exception:
-                    spec = None
-            cred_keys = TOOL_CREDENTIALS.get(name, [])
-            items.append(
-                {
-                    "name": name,
-                    "description": spec.description if spec else "",
-                    "category": spec.category if spec else "",
-                    "source": "tool",
-                    "requires_credentials": len(cred_keys) > 0,
-                    "credential_keys": cred_keys,
-                    "configured": (
-                        all(bool(os.environ.get(k)) for k in cred_keys)
-                        if cred_keys
-                        else True
-                    ),
-                }
-            )
-    except Exception:
-        pass
+    for name, tool_cls in ToolRegistry.items():
+        if name in _BROWSER_SUB_TOOLS:
+            continue
+        # `spec` is an instance @property on BaseTool subclasses, so
+        # we have to instantiate the tool to read it. The earlier
+        # implementation used getattr(tool_cls, 'spec') which returns
+        # the property descriptor and crashed on spec.description,
+        # silently dropping every real tool from the picker.
+        try:
+            spec = tool_cls().spec
+        except Exception as exc:
+            logger.debug("Could not instantiate tool %s: %s", name, exc)
+            spec = None
+        cred_keys = TOOL_CREDENTIALS.get(name, [])
+        items.append(
+            {
+                "name": name,
+                "description": spec.description if spec else "",
+                "category": spec.category if spec else "",
+                "source": "tool",
+                "requires_credentials": len(cred_keys) > 0,
+                "credential_keys": cred_keys,
+                "configured": (
+                    all(bool(os.environ.get(k)) for k in cred_keys)
+                    if cred_keys
+                    else True
+                ),
+            }
+        )
 
     try:
         if any(ToolRegistry.contains(n) for n in _BROWSER_SUB_TOOLS):
