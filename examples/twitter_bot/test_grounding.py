@@ -22,7 +22,6 @@ import importlib
 import sys
 from pathlib import Path
 
-
 _THIS = Path(__file__).resolve().parent
 sys.path.insert(0, str(_THIS))
 twitter_bot = importlib.import_module("twitter_bot")

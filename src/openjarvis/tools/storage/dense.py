@@ -50,7 +50,8 @@ class MdChunk:
 
     content: str           # chunk body text (with breadcrumb prefix)
     source: str            # originating file
-    breadcrumb: str        # e.g. "macOS Installation Guide > Step-by-Step > Step 6 — Install llama.cpp"
+    # e.g. "macOS Installation Guide > Step-by-Step > Step 6 — Install llama.cpp"
+    breadcrumb: str
     start_line: int = 0
 
 
@@ -219,8 +220,14 @@ def chunk_markdown(
                 _emit_window()
                 # Use whichever cap is tighter for this paragraph —
                 # if it's char-bound, slide by chars; else by tokens.
-                if len(para) > max_section_chars and len(p_tokens) <= max_section_tokens:
-                    step_chars = max(1, max_section_chars - (paragraph_overlap_tokens * 8))
+                char_bound = (
+                    len(para) > max_section_chars
+                    and len(p_tokens) <= max_section_tokens
+                )
+                if char_bound:
+                    step_chars = max(
+                        1, max_section_chars - (paragraph_overlap_tokens * 8),
+                    )
                     for i in range(0, len(para), step_chars):
                         piece = para[i : i + max_section_chars]
                         chunks.append(
@@ -573,7 +580,9 @@ class DenseMemory(MemoryBackend):
         metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Embed and store one document. Returns its id."""
-        return self.store_many([content], sources=[source], metadatas=[metadata or {}])[0]
+        return self.store_many(
+            [content], sources=[source], metadatas=[metadata or {}],
+        )[0]
 
     def store_many(
         self,

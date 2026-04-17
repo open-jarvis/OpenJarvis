@@ -10,24 +10,22 @@ Tests cover:
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
-import threading
-from unittest.mock import MagicMock, call, patch
-
-import pytest
-
-from openjarvis.channels._stubs import ChannelMessage, ChannelStatus
-from openjarvis.channels.twitter_channel import TwitterChannel
-from openjarvis.tools.http_request import HttpRequestTool
-
 
 # ---------------------------------------------------------------------------
 # Import the bot module helpers
 # ---------------------------------------------------------------------------
-
 import sys
-import importlib
+import threading
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from openjarvis.channels._stubs import ChannelMessage
+from openjarvis.channels.twitter_channel import TwitterChannel
+from openjarvis.tools.http_request import HttpRequestTool
 
 # Add examples dir to path so we can import the bot module
 _EXAMPLES_DIR = os.path.join(
@@ -74,7 +72,10 @@ class TestClassifyMention:
         [
             ("@OpenJarvisAI feature request: add a scheduler UI", "FEATURE_REQUEST"),
             ("@OpenJarvisAI would love a web dashboard", "FEATURE_REQUEST"),
-            ("@OpenJarvisAI it would be great to have notifications", "FEATURE_REQUEST"),
+            (
+                "@OpenJarvisAI it would be great to have notifications",
+                "FEATURE_REQUEST",
+            ),
             ("@OpenJarvisAI I wish there was a mobile app", "FEATURE_REQUEST"),
             ("@OpenJarvisAI please add dark mode", "FEATURE_REQUEST"),
             ("@OpenJarvisAI can you add voice input?", "FEATURE_REQUEST"),
@@ -153,7 +154,11 @@ class TestPromptBuilders:
         assert "channel_send" in prompt
         assert context in prompt
         # Grounded prompt must instruct the model to answer ONLY from context
-        assert "only from facts in the context" in prompt.lower() or "only from the context" in prompt.lower()
+        lc = prompt.lower()
+        assert (
+            "only from facts in the context" in lc
+            or "only from the context" in lc
+        )
 
     def test_bug_prompt_contains_github_url(self):
         prompt = _build_bug_prompt("bob", "456", "crash on startup")
@@ -344,7 +349,10 @@ class TestEnvVarExpansion:
                 return_value=mock_rust,
             ),
             patch("openjarvis.tools.http_request.check_ssrf", return_value=None),
-            patch("openjarvis.tools.http_request.httpx.request", return_value=mock_resp) as mock_req,
+            patch(
+                "openjarvis.tools.http_request.httpx.request",
+                return_value=mock_resp,
+            ) as mock_req,
         ):
             result = tool.execute(
                 url="https://api.github.com/repos/open-jarvis/OpenJarvis/issues",
@@ -383,7 +391,10 @@ class TestEnvVarExpansion:
                 return_value=mock_rust,
             ),
             patch("openjarvis.tools.http_request.check_ssrf", return_value=None),
-            patch("openjarvis.tools.http_request.httpx.request", return_value=mock_resp) as mock_req,
+            patch(
+                "openjarvis.tools.http_request.httpx.request",
+                return_value=mock_resp,
+            ) as mock_req,
         ):
             tool.execute(
                 url="https://api.github.com/repos/test/test/issues",
@@ -415,7 +426,10 @@ class TestEnvVarExpansion:
                 return_value=mock_rust,
             ),
             patch("openjarvis.tools.http_request.check_ssrf", return_value=None),
-            patch("openjarvis.tools.http_request.httpx.request", return_value=mock_resp) as mock_req,
+            patch(
+                "openjarvis.tools.http_request.httpx.request",
+                return_value=mock_resp,
+            ) as mock_req,
         ):
             tool.execute(
                 url="https://example.com",
@@ -484,7 +498,12 @@ class TestFullE2EFlow:
         assert mention_type == "BUG_REPORT"
 
         prompt = _build_bug_prompt(tweet["author"], tweet["id"], tweet["text"])
-        j.ask(prompt, agent="orchestrator", tools=["http_request", "channel_send"], temperature=0.4)
+        j.ask(
+            prompt,
+            agent="orchestrator",
+            tools=["http_request", "channel_send"],
+            temperature=0.4,
+        )
 
         call_kwargs = j.ask.call_args
         assert "http_request" in call_kwargs[1]["tools"]
@@ -494,14 +513,23 @@ class TestFullE2EFlow:
 
     def test_feature_request_flow(self):
         """Feature mention → http_request (GitHub issue) + channel_send."""
-        j = self._make_mock_jarvis(["love this idea — opened an issue to track it"])
+        j = self._make_mock_jarvis(
+            ["love this idea — opened an issue to track it"],
+        )
         tweet = DEMO_TWEETS[2]
 
         mention_type = _classify_mention(tweet["text"])
         assert mention_type == "FEATURE_REQUEST"
 
-        prompt = _build_feature_prompt(tweet["author"], tweet["id"], tweet["text"])
-        j.ask(prompt, agent="orchestrator", tools=["http_request", "channel_send"], temperature=0.4)
+        prompt = _build_feature_prompt(
+            tweet["author"], tweet["id"], tweet["text"],
+        )
+        j.ask(
+            prompt,
+            agent="orchestrator",
+            tools=["http_request", "channel_send"],
+            temperature=0.4,
+        )
 
         call_kwargs = j.ask.call_args
         assert "http_request" in call_kwargs[1]["tools"]
@@ -535,7 +563,7 @@ class TestFullE2EFlow:
         j.ask.assert_not_called()
 
     def test_all_demo_tweets_processed(self):
-        """Run through all demo tweets and verify correct classification + tool selection.
+        """Run each demo tweet; verify classification + tool selection.
 
         Post dense-retrieval refactor: QUESTIONs no longer request
         ``memory_search`` as a tool — retrieval is done in Python.
@@ -605,13 +633,15 @@ class TestReplyConversationId:
 
 
 class TestGitHubIssueCreation:
-    """Simulate what happens when the LLM calls http_request to create a GitHub issue."""
+    """Simulate the LLM calling http_request to create a GitHub issue."""
 
     def test_create_bug_issue(self):
         tool = HttpRequestTool()
 
         mock_rust = MagicMock()
-        mock_rust.HttpRequestTool.return_value.execute.side_effect = RuntimeError("mocked")
+        mock_rust.HttpRequestTool.return_value.execute.side_effect = (
+            RuntimeError("mocked")
+        )
 
         mock_resp = MagicMock()
         mock_resp.status_code = 201
@@ -625,7 +655,10 @@ class TestGitHubIssueCreation:
             patch.dict(os.environ, {"GITHUB_TOKEN": "ghp_testtoken123"}),
             patch("openjarvis._rust_bridge.get_rust_module", return_value=mock_rust),
             patch("openjarvis.tools.http_request.check_ssrf", return_value=None),
-            patch("openjarvis.tools.http_request.httpx.request", return_value=mock_resp) as mock_req,
+            patch(
+                "openjarvis.tools.http_request.httpx.request",
+                return_value=mock_resp,
+            ) as mock_req,
         ):
             result = tool.execute(
                 url="https://api.github.com/repos/open-jarvis/OpenJarvis/issues",
@@ -636,7 +669,10 @@ class TestGitHubIssueCreation:
                 },
                 body=json.dumps({
                     "title": "memory_search tool crashes on empty index",
-                    "body": "reported via twitter by @bob_user: bug: the memory_search tool crashes when the index is empty",
+                    "body": (
+                        "reported via twitter by @bob_user: bug: the "
+                        "memory_search tool crashes when the index is empty"
+                    ),
                     "labels": ["bug", "from-twitter"],
                 }),
             )
@@ -647,7 +683,10 @@ class TestGitHubIssueCreation:
         actual_call = mock_req.call_args
         assert actual_call[0][0] == "POST"
         assert "api.github.com" in actual_call[0][1]
-        assert actual_call[1]["headers"]["Authorization"] == "Bearer ghp_testtoken123"
+        assert (
+            actual_call[1]["headers"]["Authorization"]
+            == "Bearer ghp_testtoken123"
+        )
 
         body = actual_call[1]["content"]
         parsed_body = json.loads(body)
@@ -658,7 +697,9 @@ class TestGitHubIssueCreation:
         tool = HttpRequestTool()
 
         mock_rust = MagicMock()
-        mock_rust.HttpRequestTool.return_value.execute.side_effect = RuntimeError("mocked")
+        mock_rust.HttpRequestTool.return_value.execute.side_effect = (
+            RuntimeError("mocked")
+        )
 
         mock_resp = MagicMock()
         mock_resp.status_code = 201
@@ -669,7 +710,10 @@ class TestGitHubIssueCreation:
             patch.dict(os.environ, {"GITHUB_TOKEN": "ghp_testtoken123"}),
             patch("openjarvis._rust_bridge.get_rust_module", return_value=mock_rust),
             patch("openjarvis.tools.http_request.check_ssrf", return_value=None),
-            patch("openjarvis.tools.http_request.httpx.request", return_value=mock_resp) as mock_req,
+            patch(
+                "openjarvis.tools.http_request.httpx.request",
+                return_value=mock_resp,
+            ) as mock_req,
         ):
             result = tool.execute(
                 url="https://api.github.com/repos/open-jarvis/OpenJarvis/issues",
@@ -680,7 +724,10 @@ class TestGitHubIssueCreation:
                 },
                 body=json.dumps({
                     "title": "feature request: built-in scheduler UI",
-                    "body": "requested via twitter by @carol_eng: it would be great to have a built-in scheduler UI",
+                    "body": (
+                        "requested via twitter by @carol_eng: it would "
+                        "be great to have a built-in scheduler UI"
+                    ),
                     "labels": ["enhancement", "from-twitter"],
                 }),
             )

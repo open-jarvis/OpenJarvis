@@ -104,9 +104,10 @@ def build_index(
             file=sys.stderr,
         )
         for g in report.groups:
+            dropped = sorted(set(g.dropped_sources))
             print(
                 f"  KEPT  {g.kept_source}\n"
-                f"  DROP  {len(g.dropped_indices)} from {sorted(set(g.dropped_sources))}\n"
+                f"  DROP  {len(g.dropped_indices)} from {dropped}\n"
                 f"  TEXT  {g.sample_text!r}",
                 file=sys.stderr,
             )

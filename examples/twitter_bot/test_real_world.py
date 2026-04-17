@@ -35,12 +35,18 @@ REAL_WORLD_MENTIONS = [
     {
         "id": "3000000000000000001",
         "author": "ml_researcher",
-        "text": "@OpenJarvisAI does this work with vllm or do I need ollama specifically?",
+        "text": (
+            "@OpenJarvisAI does this work with vllm or "
+            "do I need ollama specifically?"
+        ),
     },
     {
         "id": "3000000000000000002",
         "author": "indie_hacker",
-        "text": "@OpenJarvisAI can I run the orchestrator agent on a laptop without a gpu?",
+        "text": (
+            "@OpenJarvisAI can I run the orchestrator agent "
+            "on a laptop without a gpu?"
+        ),
     },
     {
         "id": "3000000000000000003",
@@ -50,7 +56,10 @@ REAL_WORLD_MENTIONS = [
     {
         "id": "3000000000000000004",
         "author": "longwinded_lou",
-        "text": "@OpenJarvisAI how does the memory system handle conflicting facts? overwrite or keep both?",
+        "text": (
+            "@OpenJarvisAI how does the memory system handle "
+            "conflicting facts? overwrite or keep both?"
+        ),
     },
 
     # === QUESTIONs that should defer (off-topic / unknowable) ===
@@ -62,24 +71,35 @@ REAL_WORLD_MENTIONS = [
     {
         "id": "3000000000000000006",
         "author": "specific_specs",
-        "text": "@OpenJarvisAI what's the exact tokens-per-second on an M3 Pro with the 70B model?",
+        "text": (
+            "@OpenJarvisAI what's the exact tokens-per-second "
+            "on an M3 Pro with the 70B model?"
+        ),
     },
 
     # === BUG / FEATURE / PRAISE / SPAM ===
     {
         "id": "3000000000000000007",
         "author": "devops_dan",
-        "text": "@OpenJarvisAI getting a segfault on startup with the lemonade backend, 0.18.2",
+        "text": (
+            "@OpenJarvisAI getting a segfault on startup "
+            "with the lemonade backend, 0.18.2"
+        ),
     },
     {
         "id": "3000000000000000008",
         "author": "enterprise_eng",
-        "text": "@OpenJarvisAI any plans for SSO support? would love to deploy this internally",
+        "text": (
+            "@OpenJarvisAI any plans for SSO support? "
+            "would love to deploy this internally"
+        ),
     },
     {
         "id": "3000000000000000009",
         "author": "convert_carl",
-        "text": "@OpenJarvisAI switched from langchain last week, this is incredible",
+        "text": (
+            "@OpenJarvisAI switched from langchain last week, this is incredible"
+        ),
     },
     {
         "id": "3000000000000000010",
@@ -89,9 +109,16 @@ REAL_WORLD_MENTIONS = [
 ]
 
 
+_EMOJI_RE = re.compile(
+    r"[\U0001F300-\U0001FAFF"
+    r"\U00002600-\U000027BF"
+    r"\U0001F900-\U0001F9FF]",
+)
+
+
 def _check_voice(reply: str) -> dict:
     has_upper = bool(re.search(r"[A-Z]", reply))
-    has_emoji = bool(re.search(r"[\U0001F300-\U0001FAFF\U00002600-\U000027BF\U0001F900-\U0001F9FF]", reply))
+    has_emoji = bool(_EMOJI_RE.search(reply))
     has_hashtag = "#" in reply
     return {
         "len": len(reply),
@@ -110,7 +137,7 @@ def main():
     sys.path.pop(0)
 
     model = "gemma4:31b"
-    print(f"Building dense index from README + docs/...", flush=True)
+    print("Building dense index from README + docs/...", flush=True)
     backend = build_index(Path(__file__).resolve().parents[2])
     print(f"Indexed {backend.count()} chunks.\n", flush=True)
 
@@ -123,7 +150,11 @@ def main():
     try:
         for idx, tweet in enumerate(REAL_WORLD_MENTIONS, 1):
             mention_type = _classify_mention(tweet["text"])
-            print(f"[{idx}/{len(REAL_WORLD_MENTIONS)}] [{mention_type}] @{tweet['author']}: {tweet['text'][:70]}", flush=True)
+            print(
+                f"[{idx}/{len(REAL_WORLD_MENTIONS)}] [{mention_type}] "
+                f"@{tweet['author']}: {tweet['text'][:70]}",
+                flush=True,
+            )
 
             entry = {
                 "n": idx,
@@ -139,7 +170,7 @@ def main():
 
             if mention_type == "SPAM":
                 results.append(entry)
-                print(f"   -> [ignored]\n", flush=True)
+                print("   -> [ignored]\n", flush=True)
                 continue
 
             if mention_type == "QUESTION":
@@ -151,15 +182,24 @@ def main():
                 entry["ground_state"] = (
                     "grounded" if score >= SCORE_THRESHOLD else "deferred"
                 )
-                print(f"   retrieval top-1: {score:.3f}  ->  {entry['ground_state']}", flush=True)
+                print(
+                    f"   retrieval top-1: {score:.3f}  ->  {entry['ground_state']}",
+                    flush=True,
+                )
             elif mention_type == "BUG_REPORT":
-                prompt = _build_bug_prompt(tweet["author"], tweet["id"], tweet["text"])
+                prompt = _build_bug_prompt(
+                    tweet["author"], tweet["id"], tweet["text"],
+                )
                 tools = ["http_request", "channel_send"]
             elif mention_type == "FEATURE_REQUEST":
-                prompt = _build_feature_prompt(tweet["author"], tweet["id"], tweet["text"])
+                prompt = _build_feature_prompt(
+                    tweet["author"], tweet["id"], tweet["text"],
+                )
                 tools = ["http_request", "channel_send"]
             else:
-                prompt = _build_praise_prompt(tweet["author"], tweet["id"], tweet["text"])
+                prompt = _build_praise_prompt(
+                    tweet["author"], tweet["id"], tweet["text"],
+                )
                 tools = ["channel_send"]
 
             demo_channel.last_sent = None
@@ -195,7 +235,11 @@ def main():
     print("|---|------|-------|-------|---------|-------|-----|----------|")
     for r in results:
         if r["voice"] is None:
-            print(f"| {r['n']} | {r['type']} | - | - | @{r['author']}: {r['text'][:50]}... | _[ignored]_ | - | - |")
+            print(
+                f"| {r['n']} | {r['type']} | - | - | "
+                f"@{r['author']}: {r['text'][:50]}... "
+                "| _[ignored]_ | - | - |",
+            )
         else:
             v = r["voice"]
             ok = all([v["<=280"], v["lowercase"], v["no_emoji"], v["no_hashtag"]])
@@ -203,23 +247,28 @@ def main():
             state = r["ground_state"] or "-"
             short_reply = r["reply"][:80].replace("\n", " ").replace("|", "/")
             short_text = r["text"][:50].replace("|", "/")
+            reply_suffix = "..." if len(r["reply"]) > 80 else ""
             print(
                 f"| {r['n']} | {r['type'][:8]} | {state} | {score_str} | "
-                f"@{r['author']}: {short_text}... | {short_reply}{'...' if len(r['reply']) > 80 else ''} "
-                f"| {v['len']} | {'yes' if ok else 'NO'} |"
+                f"@{r['author']}: {short_text}... "
+                f"| {short_reply}{reply_suffix} "
+                f"| {v['len']} | {'yes' if ok else 'NO'} |",
             )
 
     # Voice rules summary
     scored = [r for r in results if r["voice"] is not None]
     if scored:
+        n = len(scored)
+        n280 = sum(1 for r in scored if r["voice"]["<=280"])
+        nlow = sum(1 for r in scored if r["voice"]["lowercase"])
+        nemo = sum(1 for r in scored if r["voice"]["no_emoji"])
+        nhash = sum(1 for r in scored if r["voice"]["no_hashtag"])
         print(
-            f"\nVoice compliance: "
-            f"<=280: {sum(1 for r in scored if r['voice']['<=280'])}/{len(scored)}, "
-            f"lowercase: {sum(1 for r in scored if r['voice']['lowercase'])}/{len(scored)}, "
-            f"no emoji: {sum(1 for r in scored if r['voice']['no_emoji'])}/{len(scored)}, "
-            f"no hashtag: {sum(1 for r in scored if r['voice']['no_hashtag'])}/{len(scored)}"
+            f"\nVoice compliance: <=280: {n280}/{n}, "
+            f"lowercase: {nlow}/{n}, no emoji: {nemo}/{n}, "
+            f"no hashtag: {nhash}/{n}",
         )
-        avg_secs = sum(r["secs"] for r in scored) / len(scored)
+        avg_secs = sum(r["secs"] for r in scored) / n
         print(f"Avg latency: {avg_secs:.1f}s")
 
 

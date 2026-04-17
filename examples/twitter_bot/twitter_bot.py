@@ -19,6 +19,7 @@ from typing import Optional
 
 import click
 
+
 class _DemoChannel:
     """Stub channel for demo mode.
 
@@ -57,7 +58,10 @@ DEMO_TWEETS = [
     {
         "id": "1000000000000000002",
         "author": "bob_user",
-        "text": "@OpenJarvisAI bug: the memory_search tool crashes when the index is empty",
+        "text": (
+            "@OpenJarvisAI bug: the memory_search tool crashes "
+            "when the index is empty"
+        ),
     },
     {
         "id": "1000000000000000003",
@@ -229,16 +233,33 @@ def _build_praise_prompt(author: str, tweet_id: str, text: str) -> str:
     )
 
 
+_BUG_KEYWORDS = (
+    "bug:", "bug ", "crash", "error", "fails", "broken", "segfault",
+)
+_FEATURE_KEYWORDS = (
+    "feature", "would love", "would be great", "wish",
+    "please add", "can you add", "any plans",
+)
+_PRAISE_KEYWORDS = (
+    "love", "amazing", "awesome", "impressed",
+    "great work", "switched from", "incredible",
+)
+_SPAM_KEYWORDS = (
+    "buy", "crypto", "income", "free download",
+    "link in bio", "10x", "guaranteed",
+)
+
+
 def _classify_mention(text: str) -> str:
     """Simple keyword-based classification to avoid wasting a model turn."""
     lower = text.lower()
-    if any(w in lower for w in ["bug:", "bug ", "crash", "error", "fails", "broken", "segfault"]):
+    if any(w in lower for w in _BUG_KEYWORDS):
         return "BUG_REPORT"
-    if any(w in lower for w in ["feature", "would love", "would be great", "wish", "please add", "can you add", "any plans"]):
+    if any(w in lower for w in _FEATURE_KEYWORDS):
         return "FEATURE_REQUEST"
-    if any(w in lower for w in ["love", "amazing", "awesome", "impressed", "great work", "switched from", "incredible"]):
+    if any(w in lower for w in _PRAISE_KEYWORDS):
         return "PRAISE"
-    if any(w in lower for w in ["buy", "crypto", "income", "free download", "link in bio", "10x", "guaranteed"]):
+    if any(w in lower for w in _SPAM_KEYWORDS):
         return "SPAM"
     return "QUESTION"
 
@@ -369,10 +390,14 @@ def _run_demo(model: str, engine_key: str) -> None:
                 prompt = _build_bug_prompt(tweet["author"], tweet["id"], tweet["text"])
                 tools = ["http_request", "channel_send"]
             elif mention_type == "FEATURE_REQUEST":
-                prompt = _build_feature_prompt(tweet["author"], tweet["id"], tweet["text"])
+                prompt = _build_feature_prompt(
+                    tweet["author"], tweet["id"], tweet["text"],
+                )
                 tools = ["http_request", "channel_send"]
             else:
-                prompt = _build_praise_prompt(tweet["author"], tweet["id"], tweet["text"])
+                prompt = _build_praise_prompt(
+                    tweet["author"], tweet["id"], tweet["text"],
+                )
                 tools = ["channel_send"]
 
             demo_channel.last_sent = None
@@ -547,9 +572,15 @@ def _run_live(
 
     seeded = _seed_since_id_to_newest(channel)
     if seeded:
-        click.echo(f"Seeded since_id={seeded} — only new mentions after this point will trigger the bot.")
+        click.echo(
+            f"Seeded since_id={seeded} — only new mentions after "
+            "this point will trigger the bot.",
+        )
     else:
-        click.echo("No existing mentions found (or couldn't read inbox) — bot will start processing from the next one onward.")
+        click.echo(
+            "No existing mentions found (or couldn't read inbox) — "
+            "bot will start processing from the next one onward.",
+        )
 
     # ------------------------------------------------------------------
     # In dry-run, also intercept http_request so bug/feature mentions
@@ -569,19 +600,27 @@ def _run_live(
             click.echo(f"  │  {method} {url}")
             if body:
                 body_str = body if isinstance(body, str) else str(body)
-                click.echo(f"  │  body: {body_str[:300]}{'...' if len(body_str) > 300 else ''}")
+                suffix = "..." if len(body_str) > 300 else ""
+                click.echo(f"  │  body: {body_str[:300]}{suffix}")
             click.echo("  └──────────────────────────────")
             # Return a fake success response so the agent loop finishes.
             return ToolResult(
                 tool_name="http_request",
                 success=True,
-                content='{"number": 999, "html_url": "https://github.com/open-jarvis/OpenJarvis/issues/999"}',
+                content=(
+                    '{"number": 999, "html_url": '
+                    '"https://github.com/open-jarvis/OpenJarvis/issues/999"}'
+                ),
             )
 
         HttpRequestTool.execute = _dry_http_execute
         http_restore = (HttpRequestTool, _orig_execute)
 
-    mode_hint = "[DRY-RUN] Nothing will actually be posted or filed." if dry_run else "[LIVE] Real tweets will be posted."
+    mode_hint = (
+        "[DRY-RUN] Nothing will actually be posted or filed."
+        if dry_run
+        else "[LIVE] Real tweets will be posted."
+    )
     click.echo(f"\n{mode_hint}")
     click.echo("Waiting for @OpenJarvisAI mentions (poll every 60s). Ctrl+C to stop.\n")
 

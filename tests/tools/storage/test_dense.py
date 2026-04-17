@@ -26,7 +26,6 @@ from openjarvis.tools.storage.dense import (
     dedupe_chunks,
 )
 
-
 _FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "docs"
 _OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "localhost")
 _OLLAMA_PORT = int(os.environ.get("OLLAMA_PORT", "11434"))
@@ -42,7 +41,10 @@ def _ollama_up() -> bool:
 
 ollama_required = pytest.mark.skipif(
     not _ollama_up(),
-    reason="Requires Ollama with nomic-embed-text (start `ollama serve` then `ollama pull nomic-embed-text`)",
+    reason=(
+        "Requires Ollama with nomic-embed-text "
+        "(start `ollama serve` then `ollama pull nomic-embed-text`)"
+    ),
 )
 
 
@@ -57,7 +59,10 @@ class TestChunkMarkdown:
         assert chunk_markdown("   \n\n  ") == []
 
     def test_single_section_without_splits(self):
-        md = "# Title\n\nSome body paragraph with a few sentences. Enough to be a chunk."
+        md = (
+            "# Title\n\n"
+            "Some body paragraph with a few sentences. Enough to be a chunk."
+        )
         chunks = chunk_markdown(md, source="t.md")
         assert len(chunks) == 1
         assert chunks[0].breadcrumb == "Title"
@@ -103,7 +108,12 @@ class TestChunkMarkdown:
     def test_oversize_section_is_split_with_overlap(self):
         body = " ".join(["word"] * 2500)
         md = f"# Big\n\n## Section\n\n{body}\n"
-        chunks = chunk_markdown(md, source="t.md", max_section_tokens=500, paragraph_overlap_tokens=50)
+        chunks = chunk_markdown(
+            md,
+            source="t.md",
+            max_section_tokens=500,
+            paragraph_overlap_tokens=50,
+        )
         assert len(chunks) >= 2
         for c in chunks:
             # Every chunk carries the breadcrumb
@@ -152,9 +162,18 @@ class TestDedupeChunks:
     def test_keeps_distinct_content(self):
         """Genuinely different chunks must survive even with shared phrases."""
         chunks = [
-            _mk("install ollama with brew install ollama then run ollama serve", "a.md"),
-            _mk("configure vllm with tensor parallelism and prefix caching enabled", "b.md"),
-            _mk("llama.cpp builds with cmake and supports cpu metal cuda rocm targets", "c.md"),
+            _mk(
+                "install ollama with brew install ollama then run ollama serve",
+                "a.md",
+            ),
+            _mk(
+                "configure vllm with tensor parallelism and prefix caching",
+                "b.md",
+            ),
+            _mk(
+                "llama.cpp builds with cmake and supports cpu metal cuda rocm",
+                "c.md",
+            ),
         ]
         survivors, report = dedupe_chunks(chunks)
         assert len(survivors) == 3
@@ -184,7 +203,8 @@ class TestDedupeChunks:
         chunks = [_mk(a, "a.md"), _mk(b, "b.md"), _mk(c, "c.md")]
         survivors, report = dedupe_chunks(chunks)
         assert len(survivors) == 1, (
-            f"got {len(survivors)} survivors — expected single cluster from boilerplate"
+            f"got {len(survivors)} survivors — "
+            "expected single cluster from boilerplate"
         )
         assert report.removed_count == 2
 
@@ -192,22 +212,42 @@ class TestDedupeChunks:
         """Identical body wrapped in different breadcrumbs still dedupes.
 
         Without stripping the breadcrumb prefix before n-gram extraction,
-        chunks like ``Downloads\\n\\n<same body>`` and ``Installation\\n\\n<same body>``
-        would have lower Jaccard because the leading word differs.
+        chunks with the same body but different leading words (e.g.
+        ``Downloads`` vs ``Installation``) would have lower Jaccard.
         """
-        body = "openjarvis runs entirely on your hardware no cloud needed local first foundation"
+        body = (
+            "openjarvis runs entirely on your hardware no cloud needed "
+            "local first foundation"
+        )
         chunks = [
-            MdChunk(content=f"Downloads\n\n{body}", source="docs/downloads.md", breadcrumb="Downloads"),
-            MdChunk(content=f"Installation\n\n{body}", source="docs/install.md", breadcrumb="Installation"),
-            MdChunk(content=f"Welcome\n\n{body}", source="docs/index.md", breadcrumb="Welcome"),
+            MdChunk(
+                content=f"Downloads\n\n{body}",
+                source="docs/downloads.md",
+                breadcrumb="Downloads",
+            ),
+            MdChunk(
+                content=f"Installation\n\n{body}",
+                source="docs/install.md",
+                breadcrumb="Installation",
+            ),
+            MdChunk(
+                content=f"Welcome\n\n{body}",
+                source="docs/index.md",
+                breadcrumb="Welcome",
+            ),
         ]
         survivors, report = dedupe_chunks(chunks, min_files_for_dup=3)
-        assert len(survivors) == 1, f"got {len(survivors)} survivors: {[s.source for s in survivors]}"
+        assert len(survivors) == 1, (
+            f"got {len(survivors)} survivors: {[s.source for s in survivors]}"
+        )
         assert report.removed_count == 2
 
     def test_path_specificity_tiebreaker(self):
         """When duplicates exist, the deepest path wins."""
-        body = "we use the orchestrator agent backed by tools and memory backends configured per recipe"
+        body = (
+            "we use the orchestrator agent backed by tools and memory "
+            "backends configured per recipe"
+        )
         chunks = [
             _mk(body, "shallow.md"),
             _mk(body, "docs/middle.md"),
@@ -299,18 +339,25 @@ def test_paraphrase_matches_semantically(indexed_backend):
     for the query. That's fine for grounding: both chunks contain the
     facts we need (CPU-only, llama.cpp).
     """
-    results = indexed_backend.retrieve("can I run this on a laptop without a gpu?", top_k=3)
+    results = indexed_backend.retrieve(
+        "can I run this on a laptop without a gpu?", top_k=3,
+    )
     assert results, "expected at least one hit"
     # Top-3 should all be from the topical docs (engines.md or hardware.md)
     topical = {r.source for r in results[:3]}
-    assert topical <= {"engines.md", "hardware.md"}, f"off-topic sources in top-3: {topical}"
-    assert "llama.cpp" in results[0].content.lower() or "cpu" in results[0].content.lower()
+    assert topical <= {"engines.md", "hardware.md"}, (
+        f"off-topic sources in top-3: {topical}"
+    )
+    top_lc = results[0].content.lower()
+    assert "llama.cpp" in top_lc or "cpu" in top_lc
 
 
 @ollama_required
 def test_engine_query_finds_engines_doc(indexed_backend):
     """Semantic query about inference engines should find engines.md."""
-    results = indexed_backend.retrieve("which backend is best for high throughput serving?", top_k=3)
+    results = indexed_backend.retrieve(
+        "which backend is best for high throughput serving?", top_k=3,
+    )
     assert results
     assert results[0].source == "engines.md"
     assert results[0].score > 0.65
