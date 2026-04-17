@@ -1909,7 +1909,7 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
           <div key={msg.id} className="space-y-2">
             {/* Tool calls rendered as their own full-width entries (like Claude Code) */}
             {msg.direction === 'agent_to_user' && msg._toolCallDetails && msg._toolCallDetails.length > 0 && (
-              <div className="flex flex-col gap-2 max-w-[75%]">
+              <div className="flex flex-col items-start gap-2 max-w-[75%]">
                 {msg._toolCallDetails.map((tc) => (
                   <ToolCallCard key={tc.id} toolCall={tc} />
                 ))}
@@ -1966,7 +1966,7 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
         )}
         {/* Live tool call cards rendered as their own entries in the flow */}
         {waitingForResponse && streamingToolCalls.length > 0 && (
-          <div className="flex flex-col gap-2 max-w-[75%]">
+          <div className="flex flex-col items-start gap-2 max-w-[75%]">
             {streamingToolCalls.map((tc) => (
               <ToolCallCard key={tc.id} toolCall={tc} />
             ))}
