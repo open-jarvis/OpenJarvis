@@ -12,7 +12,10 @@ import re
 from typing import Any, List, Optional
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
-from openjarvis.agents.prompt_loader import load_system_prompt_override
+from openjarvis.agents.prompt_loader import (
+    load_few_shot_exemplars,
+    load_system_prompt_override,
+)
 from openjarvis.agents.rlm_repl import RLMRepl
 from openjarvis.core.events import EventBus
 from openjarvis.core.registry import AgentRegistry
@@ -181,6 +184,12 @@ class RLMAgent(ToolUsingAgent):
             context,
             system_prompt=system_prompt,
         )
+
+        # Inject few-shot exemplars before the user input
+        for ex in load_few_shot_exemplars("rlm"):
+            if ex.get("input") and ex.get("output"):
+                messages.insert(-1, Message(role=Role.USER, content=ex["input"]))
+                messages.insert(-1, Message(role=Role.ASSISTANT, content=ex["output"]))
 
         all_tool_results: list[ToolResult] = []
         turns = 0

@@ -19,7 +19,10 @@ import logging
 from typing import Any, List, Optional
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
-from openjarvis.agents.prompt_loader import load_system_prompt_override
+from openjarvis.agents.prompt_loader import (
+    load_few_shot_exemplars,
+    load_system_prompt_override,
+)
 from openjarvis.core.events import EventBus
 from openjarvis.core.registry import AgentRegistry
 from openjarvis.core.types import Message, Role, ToolCall, ToolResult, _message_to_dict
@@ -210,6 +213,12 @@ class MonitorOperativeAgent(ToolUsingAgent):
             system_prompt=system_prompt,
             session_messages=session_messages,
         )
+
+        # 4b. Inject few-shot exemplars before the user input
+        for ex in load_few_shot_exemplars("monitor_operative"):
+            if ex.get("input") and ex.get("output"):
+                messages.insert(-1, Message(role=Role.USER, content=ex["input"]))
+                messages.insert(-1, Message(role=Role.ASSISTANT, content=ex["output"]))
 
         # 5. Run function-calling tool loop
         openai_tools = self._executor.get_openai_tools() if self._tools else []

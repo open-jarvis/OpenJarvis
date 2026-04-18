@@ -10,7 +10,10 @@ from __future__ import annotations
 from typing import Any, List, Optional
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
-from openjarvis.agents.prompt_loader import load_system_prompt_override
+from openjarvis.agents.prompt_loader import (
+    load_few_shot_exemplars,
+    load_system_prompt_override,
+)
 from openjarvis.core.events import EventBus
 from openjarvis.core.registry import AgentRegistry
 from openjarvis.core.types import Message, Role, ToolCall, ToolResult
@@ -222,6 +225,12 @@ class DeepResearchAgent(ToolUsingAgent):
             load_system_prompt_override("deep_research") or _build_system_prompt()
         )
         messages = self._build_messages(input, context, system_prompt=system_prompt)
+
+        # Inject few-shot exemplars before the user input
+        for ex in load_few_shot_exemplars("deep_research"):
+            if ex.get("input") and ex.get("output"):
+                messages.insert(-1, Message(role=Role.USER, content=ex["input"]))
+                messages.insert(-1, Message(role=Role.ASSISTANT, content=ex["output"]))
 
         # Prepare OpenAI-format tool definitions for native function calling
         tools_openai = [t.to_openai_function() for t in self._tools]
