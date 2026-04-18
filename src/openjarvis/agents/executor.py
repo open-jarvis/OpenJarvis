@@ -261,7 +261,7 @@ class AgentExecutor:
         if router_policy_key and self._system:
             try:
                 from openjarvis.core.registry import RouterPolicyRegistry
-                from openjarvis.learning.routing.types import (
+                from openjarvis.learning.routing.router import (
                     build_routing_context,
                 )
 
