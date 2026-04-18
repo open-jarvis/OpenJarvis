@@ -36,6 +36,7 @@ _MATH_FUNCS = {
     "max": max,
     "sqrt": math.sqrt,
     "log": math.log,
+    "ln": math.log,  # alias: ln(x) == log(x)
     "log10": math.log10,
     "log2": math.log2,
     "sin": math.sin,
@@ -84,7 +85,7 @@ def _safe_eval_node(node: ast.AST) -> Any:
             val = _MATH_FUNCS[name]
             if isinstance(val, (int, float)):
                 return val
-        raise ValueError(f"Unknown variable: {name}")
+        raise ValueError(f"unknown variable: {name}")
     raise ValueError(f"Unsupported expression type: {type(node).__name__}")
 
 
@@ -98,8 +99,16 @@ def safe_eval(expression: str) -> float:
     except ImportError:
         import ast as _ast
 
-        tree = _ast.parse(expression, mode="eval")
-        return float(_safe_eval_node(tree.body))
+        # Support ^ as the power operator (common math/calculator notation).
+        expression = expression.replace("^", "**")
+        try:
+            tree = _ast.parse(expression, mode="eval")
+        except SyntaxError as exc:
+            raise ValueError(f"Syntax error in expression: {exc}") from exc
+        try:
+            return float(_safe_eval_node(tree.body))
+        except ZeroDivisionError:
+            return math.inf
 
 
 @ToolRegistry.register("calculator")
