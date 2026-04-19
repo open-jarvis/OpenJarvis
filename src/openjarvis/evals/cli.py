@@ -134,7 +134,15 @@ BENCHMARKS = {
     },
     "liveresearch": {
         "category": "agentic",
-        "description": "LiveResearchBench deep research tasks",
+        "description": "DeepResearchBench report generation (alias: deepresearch)",
+    },
+    "deepresearch": {
+        "category": "agentic",
+        "description": "DeepResearchBench deep research report generation",
+    },
+    "liveresearchbench": {
+        "category": "reasoning",
+        "description": "LiveResearchBench recent research comprehension (Salesforce)",
     },
     "toolcall15": {
         "category": "agentic",
@@ -165,6 +173,7 @@ def _build_backend(
     telemetry: bool = False,
     gpu_metrics: bool = False,
     model: Optional[str] = None,
+    max_turns: Optional[int] = None,
 ):
     """Construct the appropriate backend."""
     if backend_name == "jarvis-agent":
@@ -177,6 +186,7 @@ def _build_backend(
             telemetry=telemetry,
             gpu_metrics=gpu_metrics,
             model=model,
+            max_turns=max_turns,
         )
     else:
         from openjarvis.evals.backends.jarvis_direct import JarvisDirectBackend
@@ -333,10 +343,16 @@ def _build_dataset(benchmark: str, subset: str | None = None):
         from openjarvis.evals.datasets.livecodebench import LiveCodeBenchDataset
 
         return LiveCodeBenchDataset()
-    elif benchmark == "liveresearch":
+    elif benchmark in ("liveresearch", "deepresearch"):
         from openjarvis.evals.datasets.liveresearch import LiveResearchBenchDataset
 
         return LiveResearchBenchDataset(path=subset)
+    elif benchmark == "liveresearchbench":
+        from openjarvis.evals.datasets.liveresearchbench import (
+            LiveResearchBenchSFDataset,
+        )
+
+        return LiveResearchBenchSFDataset()
     elif benchmark == "toolcall15":
         from openjarvis.evals.datasets.toolcall15 import ToolCall15Dataset
 
@@ -485,10 +501,16 @@ def _build_scorer(benchmark: str, judge_backend, judge_model: str):
         from openjarvis.evals.scorers.livecodebench import LiveCodeBenchScorer
 
         return LiveCodeBenchScorer(judge_backend, judge_model)
-    elif benchmark == "liveresearch":
+    elif benchmark in ("liveresearch", "deepresearch"):
         from openjarvis.evals.scorers.liveresearch import LiveResearchBenchScorer
 
         return LiveResearchBenchScorer(judge_backend, judge_model)
+    elif benchmark == "liveresearchbench":
+        from openjarvis.evals.scorers.liveresearchbench import (
+            LiveResearchBenchSFScorer,
+        )
+
+        return LiveResearchBenchSFScorer(judge_backend, judge_model)
     elif benchmark == "toolcall15":
         from openjarvis.evals.scorers.toolcall15 import ToolCall15Scorer
 
@@ -651,6 +673,7 @@ def _run_single(config, console: Optional[Console] = None) -> object:
         telemetry=getattr(config, "telemetry", False),
         gpu_metrics=getattr(config, "gpu_metrics", False),
         model=config.model,
+        max_turns=getattr(config, "max_turns", None),
     )
     dataset = _build_dataset(config.benchmark)
     # Inject engine config for benchmarks that run their own simulation

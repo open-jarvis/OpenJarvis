@@ -1,0 +1,29 @@
+# liveresearch: gpt-5.4-2026-03-05 (cloud)
+[meta]
+name = "liveresearch-gpt54"
+description = "liveresearch on gpt-5.4-2026-03-05"
+
+[defaults]
+temperature = 0.6
+max_tokens = 16384
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 8
+output_dir = "results/neurips-2026/baselines/gpt54/liveresearch/"
+seed = 42
+
+[[models]]
+name = "gpt-5.4-2026-03-05"
+engine = "cloud"
+
+[[benchmarks]]
+name = "liveresearch"
+backend = "jarvis-agent"
+max_samples = 50
+agent = "monitor_operative"
+tools = ["web_search", "file_read", "file_write", "code_interpreter", "think"]

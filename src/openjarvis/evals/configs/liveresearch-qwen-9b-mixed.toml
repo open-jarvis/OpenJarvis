@@ -1,0 +1,31 @@
+# DeepResearchBench: Qwen3.5-9B (vLLM, 1 GPU)
+[meta]
+name = "liveresearch-qwen-9b-mixed"
+description = "DeepResearchBench on qwen9b-mixed"
+
+[defaults]
+temperature = 0.6
+max_tokens = 16384
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+max_tokens = 4096
+engine = "cloud"
+
+[run]
+max_workers = 8
+output_dir = "results/neurips-2026/baselines/optimized-eval/mixed/qwen-9b-lora/liveresearch/"
+seed = 42
+
+[[models]]
+name = "qwen9b-mixed"
+engine = "vllm"
+num_gpus = 1
+
+[[benchmarks]]
+name = "liveresearch"
+backend = "jarvis-agent"
+agent = "monitor_operative"
+max_samples = 50
+tools = ["web_search", "file_read", "file_write", "code_interpreter", "think"]

@@ -250,6 +250,7 @@ class Jarvis:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         context: bool = True,
+        channel: Optional[Any] = None,
     ) -> str:
         """Send a query and return the response text."""
         result = self.ask_full(
@@ -260,6 +261,7 @@ class Jarvis:
             temperature=temperature,
             max_tokens=max_tokens,
             context=context,
+            channel=channel,
         )
         return result["content"]
 
@@ -273,6 +275,7 @@ class Jarvis:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         context: bool = True,
+        channel: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Send a query and return the full result dict.
 
@@ -304,6 +307,7 @@ class Jarvis:
                 temperature=temperature,
                 max_tokens=max_tokens,
                 context=context,
+                channel=channel,
             )
 
         # Direct engine mode
@@ -443,6 +447,7 @@ class Jarvis:
         temperature: float,
         max_tokens: int,
         context: bool,
+        channel: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Run an agent and return the result dict."""
         import openjarvis.agents  # noqa: F401
@@ -468,6 +473,7 @@ class Jarvis:
                 self._config,
                 self._engine,
                 model_name,
+                channel=channel,
             )
 
         agent_kwargs: Dict[str, Any] = {

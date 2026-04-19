@@ -167,9 +167,7 @@ class TestBuildMessages:
 
         empty_cfg = JarvisConfig()
         empty_cfg.agent.default_system_prompt = ""
-        monkeypatch.setattr(
-            "openjarvis.agents._stubs.load_config", lambda: empty_cfg
-        )
+        monkeypatch.setattr("openjarvis.agents._stubs.load_config", lambda: empty_cfg)
 
         engine = MagicMock()
         agent = _ConcreteAgent(engine, "m")

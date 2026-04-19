@@ -45,11 +45,14 @@ Thumbs.db
 *.db
 *.jsonl
 *.npz
+*.log
 results/
 logs/
 traces/
 coding_task_*
 get-pip.py
+# Junk from mocked-path tests that write to their mock's __repr__ as a path
+MagicMock/
 
 # MkDocs build output
 site/
@@ -60,9 +63,7 @@ frontend/dist/
 src/openjarvis/server/static/
 
 # Desktop (Tauri)
-desktop/node_modules/
-desktop/dist/
-desktop/src-tauri/target/
+frontend/src-tauri/target/
 
 # Worktrees
 .worktrees/
@@ -90,6 +91,12 @@ CLAUDE.md
 research_mining_*
 .python-version
 src/openjarvis/channels/whatsapp_baileys_bridge/node_modules/
+
+# SQLite in-memory artifacts
+:memory:
+
+# Second Repos
+Inline/
 scratch/
 
 # ---------------------------------------------------------------------------

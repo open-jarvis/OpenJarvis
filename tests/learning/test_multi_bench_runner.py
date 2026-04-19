@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from openjarvis.optimize.trial_runner import BenchmarkSpec, MultiBenchTrialRunner
-from openjarvis.optimize.types import (
+from openjarvis.learning.optimize.trial_runner import (
+    BenchmarkSpec,
+    MultiBenchTrialRunner,
+)
+from openjarvis.learning.optimize.types import (
     BenchmarkScore,
     SampleScore,
     TrialConfig,
@@ -196,7 +199,7 @@ class TestMultiBenchAggregation:
 
 
 class TestMultiBenchRunTrial:
-    @patch("openjarvis.optimize.trial_runner.TrialRunner.run_trial")
+    @patch("openjarvis.learning.optimize.trial_runner.TrialRunner.run_trial")
     def test_delegates_to_trial_runners(self, mock_run_trial):
         """Each benchmark gets its own TrialRunner call."""
         mock_run_trial.return_value = _make_trial_result()
@@ -223,7 +226,7 @@ class TestMultiBenchRunTrial:
 
 class TestLoadBenchmarkSpecs:
     def test_multi_benchmark_format(self):
-        from openjarvis.optimize.config import load_benchmark_specs
+        from openjarvis.learning.optimize.config import load_benchmark_specs
 
         data = {
             "optimize": {
@@ -242,7 +245,7 @@ class TestLoadBenchmarkSpecs:
         assert specs[2].weight == 0.2
 
     def test_single_benchmark_fallback(self):
-        from openjarvis.optimize.config import load_benchmark_specs
+        from openjarvis.learning.optimize.config import load_benchmark_specs
 
         data = {
             "optimize": {
@@ -256,13 +259,13 @@ class TestLoadBenchmarkSpecs:
         assert specs[0].max_samples == 100
 
     def test_empty_returns_empty(self):
-        from openjarvis.optimize.config import load_benchmark_specs
+        from openjarvis.learning.optimize.config import load_benchmark_specs
 
         specs = load_benchmark_specs({"optimize": {}})
         assert specs == []
 
     def test_no_optimize_section(self):
-        from openjarvis.optimize.config import load_benchmark_specs
+        from openjarvis.learning.optimize.config import load_benchmark_specs
 
         specs = load_benchmark_specs({})
         assert specs == []
@@ -301,7 +304,7 @@ class TestTrialResultPerBenchmark:
 
 class TestParamToRecipe:
     def test_max_tokens_mapping(self):
-        from openjarvis.optimize.types import _PARAM_TO_RECIPE
+        from openjarvis.learning.optimize.types import _PARAM_TO_RECIPE
 
         assert "intelligence.max_tokens" in _PARAM_TO_RECIPE
         assert _PARAM_TO_RECIPE["intelligence.max_tokens"] == "max_tokens"

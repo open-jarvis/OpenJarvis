@@ -45,6 +45,15 @@ export default function App() {
     else if (settings.theme === 'light') root.classList.add('light');
   }, [settings.theme]);
 
+  // Sync overlay conversations into the main app
+  const importOverlay = useAppStore((s) => s.importOverlayConversation);
+  useEffect(() => {
+    if (!isTauri()) return;
+    importOverlay();
+    const interval = setInterval(importOverlay, 5000);
+    return () => clearInterval(interval);
+  }, [importOverlay]);
+
   // Fetch models on mount
   useEffect(() => {
     fetchModels()

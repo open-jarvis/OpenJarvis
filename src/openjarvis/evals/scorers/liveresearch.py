@@ -1,7 +1,7 @@
-"""LiveResearchBench scorer — LLM-as-judge for deep research quality.
+"""DeepResearchBench scorer — LLM-as-judge for deep research quality.
 
 Evaluates research output quality across four dimensions from the
-LiveResearchBench rubric: comprehensiveness, insight, instruction_following,
+DeepResearchBench rubric: comprehensiveness, insight, instruction_following,
 and readability. Uses LLM-as-judge with per-task criteria when available,
 falling back to a generic research quality rubric.
 
@@ -21,7 +21,7 @@ from openjarvis.evals.core.types import EvalRecord
 
 LOGGER = logging.getLogger(__name__)
 
-# The four scoring dimensions from LiveResearchBench
+# The four scoring dimensions from DeepResearchBench
 DIMENSIONS = ["comprehensiveness", "insight", "instruction_following", "readability"]
 
 # Default dimension weights when task-specific weights are unavailable
@@ -240,7 +240,7 @@ def _normalize_response(parsed: Dict[str, Any]) -> Dict[str, Any]:
 
 
 class LiveResearchBenchScorer(LLMJudgeScorer):
-    """LLM-as-judge scorer for LiveResearchBench deep research tasks.
+    """LLM-as-judge scorer for DeepResearchBench deep research tasks.
 
     Evaluates research reports across four dimensions:
     comprehensiveness, insight, instruction_following, readability.

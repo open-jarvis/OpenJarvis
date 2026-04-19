@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import ToolCall, ToolResult
@@ -19,6 +19,10 @@ class SkillResult:
     success: bool = True
     step_results: List[ToolResult] = field(default_factory=list)
     context: Dict[str, Any] = field(default_factory=dict)
+
+
+# Resolver callback: given a skill name and the current context, returns a SkillResult.
+SkillResolver = Callable[[str, Dict[str, Any]], SkillResult]
 
 
 class SkillExecutor:
@@ -36,6 +40,11 @@ class SkillExecutor:
     ) -> None:
         self._tool_executor = tool_executor
         self._bus = bus
+        self._skill_resolver: Optional[SkillResolver] = None
+
+    def set_skill_resolver(self, resolver: SkillResolver) -> None:
+        """Register a callback used to delegate ``skill_name`` steps."""
+        self._skill_resolver = resolver
 
     def run(
         self,
@@ -54,25 +63,34 @@ class SkillExecutor:
             )
 
         for i, step in enumerate(manifest.steps):
+            step_id = step.tool_name or step.skill_name
+
             # Render template
             try:
                 rendered = self._render_template(step.arguments_template, ctx)
             except Exception as exc:
                 result = ToolResult(
-                    tool_name=step.tool_name,
+                    tool_name=step_id,
                     content=f"Template rendering error: {exc}",
                     success=False,
                 )
                 all_results.append(result)
                 break
 
-            # Execute
-            tool_call = ToolCall(
-                id=f"skill_{manifest.name}_{i}",
-                name=step.tool_name,
-                arguments=rendered,
-            )
-            result = self._tool_executor.execute(tool_call)
+            if step.skill_name:
+                # Delegate to sub-skill resolver
+                result = self._run_sub_skill(
+                    step.skill_name, rendered, ctx, manifest.name, i
+                )
+            else:
+                # Execute via tool executor
+                tool_call = ToolCall(
+                    id=f"skill_{manifest.name}_{i}",
+                    name=step.tool_name,
+                    arguments=rendered,
+                )
+                result = self._tool_executor.execute(tool_call)
+
             all_results.append(result)
 
             if not result.success:
@@ -97,6 +115,54 @@ class SkillExecutor:
             context=ctx,
         )
 
+    def _run_sub_skill(
+        self,
+        skill_name: str,
+        rendered_args: str,
+        parent_ctx: Dict[str, Any],
+        parent_skill: str,
+        step_index: int,
+    ) -> ToolResult:
+        """Invoke the skill resolver and convert its result to a ToolResult."""
+        if self._skill_resolver is None:
+            return ToolResult(
+                tool_name=skill_name,
+                content=f"No skill resolver registered for sub-skill '{skill_name}'",
+                success=False,
+            )
+
+        # Parse rendered args and merge into a copy of the parent context
+        try:
+            args: Dict[str, Any] = json.loads(rendered_args)
+        except json.JSONDecodeError:
+            args = {}
+
+        child_ctx = {**parent_ctx, **args}
+
+        sub_result: SkillResult = self._skill_resolver(skill_name, child_ctx)
+
+        # Expose the final context value under the first output_key, or the
+        # last step's content, as the synthetic "content" of this ToolResult.
+        content: Any = ""
+        if sub_result.context:
+            # Return the last stored value from the child's context that is
+            # not already in the parent context (i.e. the output of the sub-skill).
+            new_keys = [k for k in sub_result.context if k not in parent_ctx]
+            if new_keys:
+                content = sub_result.context[new_keys[-1]]
+            else:
+                content = (
+                    list(sub_result.context.values())[-1] if sub_result.context else ""
+                )
+        elif sub_result.step_results:
+            content = sub_result.step_results[-1].content
+
+        return ToolResult(
+            tool_name=skill_name,
+            content=content,
+            success=sub_result.success,
+        )
+
     @staticmethod
     def _render_template(template: str, ctx: Dict[str, Any]) -> str:
         """Simple {key} placeholder rendering."""
@@ -111,4 +177,4 @@ class SkillExecutor:
         return re.sub(r"\{(\w+)\}", _replace, template)
 
 
-__all__ = ["SkillExecutor", "SkillResult"]
+__all__ = ["SkillExecutor", "SkillResolver", "SkillResult"]

@@ -17,10 +17,15 @@ tauri-plugin-autostart = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-process = "2"
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "multipart"] }
 tokio = { version = "1", features = ["full"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc = "0.2"
+dispatch = "0.2"
 
 [features]
 default = ["custom-protocol"]

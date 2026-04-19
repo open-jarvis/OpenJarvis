@@ -1,5 +1,5 @@
 import { useRef, useEffect } from 'react';
-import { ScrollText, Copy, Trash2 } from 'lucide-react';
+import { Copy, Trash2 } from 'lucide-react';
 import { useAppStore } from '../lib/store';
 
 const LEVEL_COLORS: Record<string, string> = {
@@ -30,32 +30,37 @@ export function LogsPage() {
   };
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden p-6">
+    <div className="flex-1 flex flex-col overflow-hidden px-6 py-10">
       <div className="max-w-4xl mx-auto w-full flex flex-col flex-1 overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center gap-3 mb-4 shrink-0">
-          <ScrollText size={24} style={{ color: 'var(--color-accent)' }} />
-          <h1 className="text-xl font-semibold flex-1" style={{ color: 'var(--color-text)' }}>
-            Logs
-          </h1>
-          <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
-            {logEntries.length} entries
-          </span>
-          <button
-            onClick={handleCopy}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer"
-            style={{ background: 'var(--color-bg-secondary)', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)' }}
-          >
-            <Copy size={12} /> Copy All
-          </button>
-          <button
-            onClick={clearLogs}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer"
-            style={{ background: 'var(--color-bg-secondary)', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)' }}
-          >
-            <Trash2 size={12} /> Clear
-          </button>
-        </div>
+        <header className="mb-6 shrink-0">
+          <div className="flex items-center justify-between gap-3">
+            <h1 className="text-lg font-semibold" style={{ color: 'var(--color-text)' }}>
+              Logs
+            </h1>
+            <div className="flex items-center gap-2">
+              <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+                {logEntries.length} entries
+              </span>
+              <button
+                onClick={handleCopy}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+                style={{ background: 'var(--color-bg-secondary)', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)' }}
+              >
+                <Copy size={12} /> Copy All
+              </button>
+              <button
+                onClick={clearLogs}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+                style={{ background: 'var(--color-bg-secondary)', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)' }}
+              >
+                <Trash2 size={12} /> Clear
+              </button>
+            </div>
+          </div>
+          <p className="text-sm mt-2 max-w-2xl" style={{ color: 'var(--color-text-secondary)' }}>
+            Recent activity — chat events, model switches, tool calls, and system messages from this session.
+          </p>
+        </header>
 
         {/* Log entries */}
         <div

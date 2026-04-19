@@ -1,0 +1,30 @@
+# liveresearch: ibm-granite/granite-4.0-micro
+[meta]
+name = "liveresearch-granite-4.0-micro"
+description = "liveresearch on ibm-granite/granite-4.0-micro"
+
+[defaults]
+temperature = 0.6
+max_tokens = 16384
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+engine = "cloud"
+
+[run]
+max_workers = 16
+output_dir = "results/neurips-2026/baselines/granite-4.0-micro/liveresearch/"
+seed = 42
+
+[[models]]
+name = "ibm-granite/granite-4.0-micro"
+engine = "vllm"
+num_gpus = 1
+
+[[benchmarks]]
+name = "liveresearch"
+backend = "jarvis-agent"
+max_samples = 50
+agent = "monitor_operative"
+tools = ["web_search", "file_read", "file_write", "code_interpreter", "think"]

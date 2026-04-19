@@ -1,7 +1,7 @@
-# LiveResearchBench: Qwen3.5-2B (vLLM, 1 GPU)
+# DeepResearchBench: Qwen3.5-2B (vLLM, 1 GPU)
 [meta]
 name = "liveresearch-qwen-2b"
-description = "LiveResearchBench on Qwen/Qwen3.5-2B"
+description = "DeepResearchBench on Qwen/Qwen3.5-2B"
 
 [defaults]
 temperature = 0.6
@@ -14,7 +14,7 @@ max_tokens = 4096
 engine = "cloud"
 
 [run]
-max_workers = 1
+max_workers = 8
 output_dir = "results/neurips-2026/baselines/qwen-2b/liveresearch/"
 seed = 42
 
