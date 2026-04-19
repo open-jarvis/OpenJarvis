@@ -14,7 +14,7 @@ max_tokens = 4096
 
 [run]
 max_workers = 8
-output_dir = "results/neurips-2026/baselines/gaia-qwen-27b/"
+output_dir = "results/neurips-2026/baselines/qwen-27b/gaia/"
 seed = 42
 
 [[models]]

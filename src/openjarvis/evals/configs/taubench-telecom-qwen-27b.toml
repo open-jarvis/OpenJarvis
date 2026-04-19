@@ -14,7 +14,7 @@ engine = "cloud"
 
 [run]
 max_workers = 8
-output_dir = "results/neurips-2026/baselines/taubench-telecom-qwen-27b/"
+output_dir = "results/neurips-2026/baselines/qwen-27b/taubench-telecom/"
 seed = 42
 
 [[models]]
