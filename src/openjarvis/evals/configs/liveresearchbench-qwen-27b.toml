@@ -1,0 +1,31 @@
+# LiveResearchBench: Qwen3.5-27B-FP8 (vLLM, 1 GPU)
+# Salesforce's checklist-based deep research benchmark.
+
+[meta]
+name = "liveresearchbench-qwen-27b"
+description = "LiveResearchBench (Salesforce) on Qwen/Qwen3.5-27B-FP8"
+
+[defaults]
+temperature = 0.6
+max_tokens = 16384
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+max_tokens = 4096
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/baselines/qwen-27b/liveresearchbench/"
+seed = 42
+
+[[models]]
+name = "Qwen/Qwen3.5-27B-FP8"
+engine = "vllm"
+num_gpus = 1
+
+[[benchmarks]]
+name = "liveresearchbench"
+backend = "jarvis-direct"
+max_samples = 50
