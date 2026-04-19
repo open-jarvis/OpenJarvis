@@ -203,9 +203,6 @@ class JarvisHalfDuplexAgent:
             gen_kwargs["chat_template_kwargs"] = {
                 "enable_thinking": False,
             }
-            gen_kwargs.setdefault("extra_body", {})["chat_template_kwargs"] = {
-                "enable_thinking": False,
-            }
         result = self._engine.generate(oj_messages, **gen_kwargs)
 
         # Convert result to tau2 AssistantMessage

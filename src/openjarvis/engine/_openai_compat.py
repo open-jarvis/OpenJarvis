@@ -52,18 +52,41 @@ class _OpenAICompatibleEngine(InferenceEngine):
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": False,
-            **kwargs,
         }
+        # Merge extra_body contents into the payload (OpenAI SDK compat)
+        extra_body = kwargs.pop("extra_body", None)
+        if isinstance(extra_body, dict):
+            kwargs.update(extra_body)
+        payload.update(kwargs)
         # Default to tool_choice=auto when tools are provided
         if "tools" in payload and "tool_choice" not in payload:
             payload["tool_choice"] = "auto"
         try:
             url = f"{self._api_prefix}/chat/completions"
             resp = self._client.post(url, json=payload)
-            if resp.status_code == 400 and "tools" in payload:
-                payload.pop("tools", None)
-                payload.pop("tool_choice", None)
-                resp = self._client.post(url, json=payload)
+            if resp.status_code == 400:
+                body = resp.text
+                logger.warning(
+                    "vLLM returned 400 for %s: %s",
+                    model,
+                    body[:500],
+                )
+                # Retry without chat_template_kwargs — older vLLM may
+                # not accept it alongside tools.
+                if "chat_template_kwargs" in payload:
+                    payload.pop("chat_template_kwargs", None)
+                    resp = self._client.post(url, json=payload)
+                # If still 400, drop tools as last resort.
+                if resp.status_code == 400 and "tools" in payload:
+                    logger.error(
+                        "vLLM still 400 after removing chat_template_kwargs, "
+                        "dropping tools — model will NOT be able to call "
+                        "tools this turn.  Response: %s",
+                        resp.text[:500],
+                    )
+                    payload.pop("tools", None)
+                    payload.pop("tool_choice", None)
+                    resp = self._client.post(url, json=payload)
             resp.raise_for_status()
         except (httpx.ConnectError, httpx.TimeoutException) as exc:
             raise EngineConnectionError(
@@ -127,8 +150,11 @@ class _OpenAICompatibleEngine(InferenceEngine):
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": True,
-            **kwargs,
         }
+        extra_body = kwargs.pop("extra_body", None)
+        if isinstance(extra_body, dict):
+            kwargs.update(extra_body)
+        payload.update(kwargs)
         # Default to tool_choice=auto when tools are provided
         if "tools" in payload and "tool_choice" not in payload:
             payload["tool_choice"] = "auto"
@@ -172,8 +198,11 @@ class _OpenAICompatibleEngine(InferenceEngine):
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": True,
-            **kwargs,
         }
+        extra_body = kwargs.pop("extra_body", None)
+        if isinstance(extra_body, dict):
+            kwargs.update(extra_body)
+        payload.update(kwargs)
         if "tools" in payload and "tool_choice" not in payload:
             payload["tool_choice"] = "auto"
         try:
