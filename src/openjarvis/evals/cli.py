@@ -957,6 +957,7 @@ def _run_from_config(
     verbose: bool,
     *,
     model_filter: str | None = None,
+    max_samples: int | None = None,
 ) -> None:
     """Load a TOML config and run the full models x benchmarks matrix."""
     from openjarvis.evals.core.config import expand_suite, load_eval_config
@@ -965,6 +966,11 @@ def _run_from_config(
 
     suite = load_eval_config(config_path)
     run_configs = expand_suite(suite)
+
+    # CLI -n/--max-samples overrides config-level max_samples
+    if max_samples is not None:
+        for rc in run_configs:
+            rc.max_samples = max_samples
 
     # Filter by model name substring if requested
     if model_filter:
@@ -1189,7 +1195,12 @@ def run(
 
     # Config-driven mode
     if config_path is not None:
-        _run_from_config(config_path, verbose, model_filter=model_filter)
+        _run_from_config(
+            config_path,
+            verbose,
+            model_filter=model_filter,
+            max_samples=max_samples,
+        )
         return
 
     # CLI-driven mode: validate required args
