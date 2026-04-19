@@ -693,31 +693,26 @@ def _run_single(config, console: Optional[Console] = None) -> object:
     trackers = _build_trackers(config)
     runner = EvalRunner(config, dataset, eval_backend, scorer, trackers=trackers)
     try:
-        num_samples = config.max_samples or 0
-        # Use progress bar if we know the sample count
-        if num_samples > 0:
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-                TimeRemainingColumn(),
-                console=console,
-            ) as progress:
-                task = progress.add_task(
-                    f"Evaluating samples (0/{num_samples})",
-                    total=num_samples,
-                )
-                summary = runner.run(
-                    progress_callback=lambda done, total: progress.update(
-                        task,
-                        completed=done,
-                        description=f"Evaluating samples ({done}/{total})",
-                    ),
-                )
-        else:
-            with console.status("Evaluating samples..."):
-                summary = runner.run()
+        num_samples = config.max_samples or dataset.size()
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TimeRemainingColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task(
+                f"Evaluating samples (0/{num_samples})",
+                total=num_samples,
+            )
+            summary = runner.run(
+                progress_callback=lambda done, total: progress.update(
+                    task,
+                    completed=done,
+                    description=f"Evaluating samples ({done}/{total})",
+                ),
+            )
         return summary
     finally:
         eval_backend.close()
