@@ -704,11 +704,15 @@ def _run_single(config, console: Optional[Console] = None) -> object:
                 TimeRemainingColumn(),
                 console=console,
             ) as progress:
-                task = progress.add_task("Evaluating samples...", total=num_samples)
+                task = progress.add_task(
+                    f"Evaluating samples (0/{num_samples})",
+                    total=num_samples,
+                )
                 summary = runner.run(
                     progress_callback=lambda done, total: progress.update(
                         task,
                         completed=done,
+                        description=f"Evaluating samples ({done}/{total})",
                     ),
                 )
         else:
@@ -1364,13 +1368,14 @@ def run_all(
                     console=console,
                 ) as progress:
                     task = progress.add_task(
-                        f"Evaluating {bench_name}...",
+                        f"Evaluating {bench_name} (0/{max_samples})",
                         total=max_samples,
                     )
                     summary = runner.run(
                         progress_callback=lambda done, total: progress.update(
                             task,
                             completed=done,
+                            description=f"Evaluating {bench_name} ({done}/{total})",
                         ),
                     )
             else:

@@ -197,6 +197,12 @@ class EvalRunner:
                     result = self._process_one(record)
                     self._results.append(result)
                     self._flush_result(result)
+                    LOGGER.info(
+                        "Sample %d/%d done: %s",
+                        len(self._results),
+                        total,
+                        result.record_id,
+                    )
                     if progress_callback is not None:
                         progress_callback(len(self._results), total)
             else:
@@ -206,6 +212,12 @@ class EvalRunner:
                         result = future.result()
                         self._results.append(result)
                         self._flush_result(result)
+                        LOGGER.info(
+                            "Sample %d/%d done: %s",
+                            len(self._results),
+                            total,
+                            result.record_id,
+                        )
                         if progress_callback is not None:
                             progress_callback(len(self._results), total)
         finally:
@@ -475,6 +487,12 @@ class EvalRunner:
 
                 self._results.append(result)
                 self._flush_result(result)
+                LOGGER.info(
+                    "Sample %d/%d done: %s",
+                    len(self._results),
+                    total,
+                    result.record_id,
+                )
 
                 # Accumulate successful examples for lifelong learning.
                 # Store the full interaction history when available.
