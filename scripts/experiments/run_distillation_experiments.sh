@@ -15,12 +15,29 @@
 #   bash scripts/experiments/run_distillation_experiments.sh               # Run all
 #   bash scripts/experiments/run_distillation_experiments.sh exp1a         # Run Phase 1a only
 #   bash scripts/experiments/run_distillation_experiments.sh exp1a opus    # Single config
+#
+#   # Point at an eval run's isolated traces.db (see commit b70b9a3):
+#   bash scripts/experiments/run_distillation_experiments.sh \
+#       --traces-db results/agentic_gaia_qwen3.5-9b/traces.db exp1a
+#   # or: TRACES_DB=results/.../traces.db bash scripts/.../run_distillation_experiments.sh exp1a
 # ──────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
 
 CONFIGS_DIR="src/openjarvis/evals/configs/distillation"
 RESULTS_DIR="results/neurips-2026/agent-optimization/distillation"
+
+# Parse --traces-db <path>; preserve positional args for EXPERIMENT/FILTER.
+_args=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --traces-db)   export TRACES_DB="$2"; shift 2 ;;
+        --traces-db=*) export TRACES_DB="${1#*=}"; shift ;;
+        *)             _args+=("$1"); shift ;;
+    esac
+done
+set -- "${_args[@]-}"
+
 EXPERIMENT=${1:-all}
 FILTER=${2:-}
 
@@ -65,9 +82,18 @@ check_prereqs() {
     done
 
     # Check distillation init
-    if [ ! -d "$HOME/.openjarvis/learning" ]; then
-        log "Running jarvis learning init..."
+    local oj_home="${OPENJARVIS_HOME:-$HOME/.openjarvis}"
+    if [ ! -d "${oj_home}/learning" ]; then
+        log "Running jarvis learning init (OPENJARVIS_HOME=${oj_home})..."
         uv run jarvis learning init
+    fi
+
+    if [ -n "${TRACES_DB:-}" ]; then
+        if [ ! -f "${TRACES_DB}" ]; then
+            fail "TRACES_DB does not exist: ${TRACES_DB}"
+            exit 1
+        fi
+        log "Using traces DB: ${TRACES_DB}"
     fi
 
     ok "Preflight complete"
@@ -170,8 +196,12 @@ cloud_engine = CloudEngine()
 judge_backend = JarvisDirectBackend(engine_key="cloud")
 judge = TraceJudge(backend=judge_backend, model="gpt-5-mini-2025-08-07")
 
-# Build benchmark samples from existing traces
-trace_store = TraceStore(home / "traces.db")
+# Build benchmark samples from existing traces.
+# TRACES_DB overrides the default so we can point distillation at an eval
+# run's isolated traces.db (see commit b70b9a3) without moving learning state.
+traces_db = os.environ.get("TRACES_DB") or str(home / "traces.db")
+print(f"[distill] traces_db={traces_db}", flush=True)
+trace_store = TraceStore(Path(traces_db))
 benchmark_samples = build_benchmark_samples_from_traces(trace_store, limit=50)
 
 orch = DistillationOrchestrator(
