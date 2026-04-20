@@ -235,14 +235,14 @@ def _build_praise_prompt(author: str, tweet_id: str, text: str) -> str:
 
 _CLASSIFIER_MODEL = "qwen3:8b"
 _CLASSIFY_LABELS = frozenset({
-    "QUESTION", "BUG_REPORT", "FEATURE_REQUEST", "PRAISE", "SPAM", "OTHER",
+    "QUESTION", "BUG_REPORT", "FEATURE_REQUEST", "PRAISE", "SPAM",
 })
 
 
 _CLASSIFIER_PROMPT = (
     "Classify the following tweet as exactly one of these labels:\n"
-    "QUESTION, BUG_REPORT, FEATURE_REQUEST, PRAISE, SPAM, OTHER.\n\n"
-    "Rules:\n"
+    "QUESTION, BUG_REPORT, FEATURE_REQUEST, PRAISE, SPAM.\n\n"
+    "Rules (pick the BEST fit — one of these always applies):\n"
     "- BUG_REPORT: user reports something broken, crashing, erroring, "
     "not working, or behaving contrary to docs. Examples: "
     '"found a bug", "this is broken", "crashes on startup", '
@@ -252,14 +252,23 @@ _CLASSIFIER_PROMPT = (
     '"please add X", "wish it had X".\n'
     "- QUESTION: user asks how/whether/what/why/when about the project. "
     'Examples: "does this work with X?", "how do I install?".\n'
-    "- PRAISE: user says something positive/supportive about the project "
-    'with no embedded question or request. Examples: "love this", '
-    '"switched from X, amazing", "great work".\n'
+    "- PRAISE: user expresses anything positive or supportive about the "
+    "project, its maintainers, or the bot itself — including shoutouts, "
+    "endorsements, announcements promoting the project, excitement "
+    "about a release, or \"glad this exists\" type sentiment. This "
+    "applies even when the tweet also contains informational content "
+    "like usage instructions for other users or a link to the project. "
+    'Examples: "love this", "switched from X, amazing", "great work", '
+    '"s/o to the team", "this is now live — go check it out", '
+    '"say hi to @this_bot, it can do X Y Z".\n'
     "- SPAM: ANY crypto/scam/promotion/link-in-bio/affiliate signal — "
     "return SPAM regardless of whatever else the tweet says. Examples: "
     '"buy $COIN now", "link in bio", "10x gains guaranteed", '
-    '"check my project at bit.ly/...".\n'
-    "- OTHER: none of the above cleanly applies.\n\n"
+    '"check my project at bit.ly/...".\n\n'
+    "If none of BUG_REPORT/FEATURE_REQUEST/QUESTION/SPAM clearly "
+    "applies, default to PRAISE (if the tweet is neutral-to-positive) "
+    "or QUESTION (if the tweet is neutral/ambiguous and might want a "
+    "response).\n\n"
     "Return ONLY the single-word label. No explanation, no punctuation, "
     "no quotes.\n\n"
     'Tweet: "{text}"\n'
@@ -308,18 +317,18 @@ def _classify_mention_llm(
 def _classify_mention(text: str, jarvis) -> str:
     """LLM-only classifier. Returns one of the 5 bot-flow labels.
 
-    Calls the classifier model (``qwen3:8b`` by default) and maps its
-    output to one of the labels the bot's flow handles:
-    ``QUESTION, BUG_REPORT, FEATURE_REQUEST, PRAISE, SPAM``.
+    Calls the classifier model (``qwen3:8b`` by default) and returns
+    one of: ``QUESTION, BUG_REPORT, FEATURE_REQUEST, PRAISE, SPAM``.
 
-    ``OTHER`` and any failure (model down, invalid label, empty
-    response) both collapse to ``QUESTION`` — that path runs dense
-    retrieval and gracefully defers on low retrieval scores, so the
-    bot can never "confidently" misclassify into a write-path
-    (BUG_REPORT/FEATURE_REQUEST) on bad classifier output.
+    On classifier failure (model down, empty response, or a label
+    outside the whitelist) the dispatcher defaults to ``QUESTION`` —
+    that path runs dense retrieval and gracefully defers on low
+    retrieval scores, so the bot can never "confidently" misclassify
+    into a write-path (BUG_REPORT/FEATURE_REQUEST) on bad classifier
+    output.
     """
     llm_label = _classify_mention_llm(text, jarvis)
-    if llm_label is None or llm_label == "OTHER":
+    if llm_label is None:
         return "QUESTION"
     return llm_label
 

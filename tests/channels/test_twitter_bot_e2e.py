@@ -64,9 +64,12 @@ class TestModelClassifierParse:
             ("**BUG_REPORT**", "BUG_REPORT"),
             ("QUESTION", "QUESTION"),
             ("SPAM", "SPAM"),
-            ("OTHER", "OTHER"),
+            ("PRAISE", "PRAISE"),
             ("<think>hmm</think>\nBUG_REPORT", "BUG_REPORT"),
-            # Invalid labels → None so the dispatcher defaults to QUESTION
+            # Invalid labels → None so the dispatcher defaults to QUESTION.
+            # OTHER is no longer in the whitelist — it was removed so the
+            # model commits to one of the 5 real bot-flow labels.
+            ("OTHER", None),
             ("MAYBE_BUG", None),
             ("buglike", None),
             ("", None),
@@ -101,9 +104,11 @@ class TestClassifyMentionDispatch:
         j.ask.return_value = llm_label
         assert _classify_mention("some tweet", jarvis=j) == expected
 
-    def test_other_maps_to_question(self):
-        """OTHER → QUESTION: the question path has graceful deferral so
-        ambiguous tweets never trigger a write-path (bug/feature)."""
+    def test_defaults_to_question_if_model_returns_other(self):
+        """OTHER was removed from the label set — if the model still
+        emits it (old prompt cache, etc.), it's treated as invalid and
+        defaults to QUESTION so the reply goes through retrieval +
+        deferral, never a write-path."""
         j = MagicMock()
         j.ask.return_value = "OTHER"
         assert _classify_mention("hahaha", jarvis=j) == "QUESTION"
