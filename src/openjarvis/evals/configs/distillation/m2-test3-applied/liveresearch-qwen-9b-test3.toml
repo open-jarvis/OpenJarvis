@@ -1,0 +1,32 @@
+# M2 Test 3 APPLIED: liveresearch × Qwen3.5-9B
+# Applies edits from Test 3 rich-context session: temp=0.3, max_turns=10 (via OJ_CONFIG)
+[meta]
+name = "liveresearch-qwen-9b-test3-applied"
+description = "Test 3 applied: temp=0.3, max_turns=10 (rich-context teacher's proposals)"
+
+[defaults]
+temperature = 0.3
+max_tokens = 16384
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+max_tokens = 4096
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/distillation-m2/test3-applied/qwen-9b/liveresearch/"
+seed = 42
+
+[[models]]
+name = "Qwen/Qwen3.5-9B"
+engine = "vllm"
+num_gpus = 1
+
+[[benchmarks]]
+name = "liveresearch"
+backend = "jarvis-agent"
+agent = "monitor_operative"
+max_samples = 50
+tools = ["web_search", "file_read", "file_write", "code_interpreter", "think"]

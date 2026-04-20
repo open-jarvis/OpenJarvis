@@ -1,0 +1,30 @@
+# M2 TEST2 (baseline temp + max_turns=15 + tool removals): taubench × Qwen/Qwen3.5-2B — temp 0.7→0.2
+[meta]
+name = "taubench-qwen-2b-test2"
+description = "Distilled taubench on Qwen/Qwen3.5-2B"
+
+[defaults]
+temperature = 0.7
+max_tokens = 4096
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+engine = "cloud"
+max_tokens = 4096
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/distillation-m2/test2/qwen-2b/taubench/"
+seed = 42
+
+[[models]]
+name = "Qwen/Qwen3.5-2B"
+engine = "vllm"
+num_gpus = 1
+
+[[benchmarks]]
+name = "taubench"
+backend = "jarvis-direct"
+max_samples = 20
+split = "airline,retail"

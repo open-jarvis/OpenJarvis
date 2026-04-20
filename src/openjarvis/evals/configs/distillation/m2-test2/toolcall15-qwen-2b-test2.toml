@@ -1,0 +1,28 @@
+# M2 TEST2 (baseline temp + max_turns=15 + tool removals): toolcall15 × Qwen/Qwen3.5-2B — CONTROL (no change)
+[meta]
+name = "toolcall15-qwen-2b-test2"
+description = "Distilled toolcall15 on Qwen/Qwen3.5-2B"
+
+[defaults]
+temperature = 0.0
+max_tokens = 4096
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+engine = "cloud"
+max_tokens = 4096
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/distillation-m2/test2/qwen-2b/toolcall15/"
+seed = 42
+
+[[models]]
+name = "Qwen/Qwen3.5-2B"
+engine = "vllm"
+num_gpus = 1
+
+[[benchmarks]]
+name = "toolcall15"
+backend = "jarvis-direct"

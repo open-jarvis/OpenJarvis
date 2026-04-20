@@ -1,0 +1,30 @@
+# M2 DISTILLED: pinchbench × Qwen/Qwen3.5-2B — temp 0.6→0.2; removed {'shell_exec', 'http_request'}; max_turns 10→15 (via OPENJARVIS_CONFIG)
+[meta]
+name = "pinchbench-qwen-2b-distilled"
+description = "Distilled pinchbench on Qwen/Qwen3.5-2B"
+
+[defaults]
+temperature = 0.2
+max_tokens = 8192
+
+[judge]
+model = "claude-opus-4-5"
+temperature = 0.0
+engine = "cloud"
+max_tokens = 4096
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/distilled/qwen-2b/pinchbench/"
+seed = 42
+
+[[models]]
+name = "Qwen/Qwen3.5-2B"
+engine = "vllm"
+num_gpus = 1
+
+[[benchmarks]]
+name = "pinchbench"
+backend = "jarvis-agent"
+agent = "native_openhands"
+tools = ["think", "file_read", "file_write", "web_search", "code_interpreter", "browser_navigate", "image_generate", "calculator", "pdf_extract"]

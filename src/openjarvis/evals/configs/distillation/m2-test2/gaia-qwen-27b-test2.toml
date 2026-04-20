@@ -1,0 +1,31 @@
+# M2 TEST2 (baseline temp + max_turns=15 + tool removals): gaia × Qwen/Qwen3.5-27B-FP8 — temp 0.6→0.2; max_turns 10→15 (via OPENJARVIS_CONFIG)
+[meta]
+name = "gaia-qwen-27b-test2"
+description = "Distilled gaia on Qwen/Qwen3.5-27B-FP8"
+
+[defaults]
+temperature = 0.6
+max_tokens = 8192
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+engine = "cloud"
+max_tokens = 4096
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/distillation-m2/test2/qwen-27b/gaia/"
+seed = 42
+
+[[models]]
+name = "Qwen/Qwen3.5-27B-FP8"
+engine = "vllm"
+num_gpus = 1
+
+[[benchmarks]]
+name = "gaia"
+backend = "jarvis-agent"
+agent = "monitor_operative"
+max_samples = 50
+tools = ["think", "calculator", "code_interpreter", "web_search", "file_read"]

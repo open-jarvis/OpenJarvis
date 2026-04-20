@@ -1,0 +1,30 @@
+# M2 DISTILLED: taubench-telecom × Qwen/Qwen3.5-9B — temp 0.7→0.2
+[meta]
+name = "taubench-telecom-qwen-9b-distilled"
+description = "Distilled taubench-telecom on Qwen/Qwen3.5-9B"
+
+[defaults]
+temperature = 0.2
+max_tokens = 4096
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+engine = "cloud"
+max_tokens = 4096
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/distilled/qwen-9b/taubench-telecom/"
+seed = 42
+
+[[models]]
+name = "Qwen/Qwen3.5-9B"
+engine = "vllm"
+num_gpus = 1
+
+[[benchmarks]]
+name = "taubench"
+backend = "jarvis-direct"
+max_samples = 20
+split = "telecom"
