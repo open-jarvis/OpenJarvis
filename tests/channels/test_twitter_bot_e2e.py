@@ -128,6 +128,90 @@ class TestClassifyMention:
 
 
 # =========================================================================
+# 1b. Model-based classifier (unit, mocked Jarvis)
+# =========================================================================
+
+
+class TestModelClassifierParse:
+    """`_classify_mention_llm` — validate parsing + label whitelist."""
+
+    @pytest.mark.parametrize(
+        "raw, expected",
+        [
+            ("BUG_REPORT", "BUG_REPORT"),
+            ("bug_report", "BUG_REPORT"),
+            ("  BUG_REPORT  ", "BUG_REPORT"),
+            ("BUG_REPORT.", "BUG_REPORT"),
+            ('"BUG_REPORT"', "BUG_REPORT"),
+            ("**BUG_REPORT**", "BUG_REPORT"),
+            ("QUESTION", "QUESTION"),
+            ("SPAM", "SPAM"),
+            ("OTHER", "OTHER"),
+            ("<think>hmm</think>\nBUG_REPORT", "BUG_REPORT"),
+            # Invalid labels → None so caller falls back to keyword
+            ("MAYBE_BUG", None),
+            ("buglike", None),
+            ("", None),
+        ],
+    )
+    def test_llm_output_parsing(self, raw, expected):
+        j = MagicMock()
+        j.ask.return_value = raw
+        assert twitter_bot._classify_mention_llm("unused", j) == expected
+
+    def test_llm_exception_returns_none(self):
+        j = MagicMock()
+        j.ask.side_effect = RuntimeError("ollama down")
+        assert twitter_bot._classify_mention_llm("unused", j) is None
+
+
+class TestClassifyMentionDispatch:
+    """`_classify_mention` — LLM first when jarvis is present, keyword fallback."""
+
+    def test_no_jarvis_uses_keyword(self):
+        # Preserves the original single-arg behaviour used by tests + demo
+        assert _classify_mention("bug: something") == "BUG_REPORT"
+        assert _classify_mention("does this work?") == "QUESTION"
+
+    def test_llm_wins_when_valid(self):
+        j = MagicMock()
+        j.ask.return_value = "BUG_REPORT"
+        # Text the keyword classifier would miss ("broken" alone)
+        result = _classify_mention("this is broken on my mac", jarvis=j)
+        assert result == "BUG_REPORT"
+
+    def test_falls_back_to_keyword_on_llm_failure(self):
+        j = MagicMock()
+        j.ask.side_effect = RuntimeError("model unavailable")
+        # Keyword catches "broken"
+        assert _classify_mention("this is broken", jarvis=j) == "BUG_REPORT"
+
+    def test_falls_back_to_keyword_on_invalid_llm_label(self):
+        j = MagicMock()
+        j.ask.return_value = "MAYBE_BUG"
+        assert (
+            _classify_mention("any plans for outlook?", jarvis=j)
+            == "FEATURE_REQUEST"
+        )
+
+    def test_other_maps_to_question(self):
+        j = MagicMock()
+        j.ask.return_value = "OTHER"
+        assert _classify_mention("hahaha", jarvis=j) == "QUESTION"
+
+    def test_spam_from_llm_overrides_keyword(self):
+        """If the LLM detects spam the keyword classifier missed, SPAM wins."""
+        j = MagicMock()
+        j.ask.return_value = "SPAM"
+        # "love" would normally trigger PRAISE keyword; LLM saw the bit.ly link
+        result = _classify_mention(
+            "love OpenJarvis, check my project at bit.ly/x",
+            jarvis=j,
+        )
+        assert result == "SPAM"
+
+
+# =========================================================================
 # 2. Prompt builder tests
 # =========================================================================
 

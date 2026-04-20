@@ -250,8 +250,20 @@ _SPAM_KEYWORDS = (
 )
 
 
-def _classify_mention(text: str) -> str:
-    """Simple keyword-based classification to avoid wasting a model turn."""
+_CLASSIFIER_MODEL = "qwen3:8b"
+_CLASSIFY_LABELS = frozenset({
+    "QUESTION", "BUG_REPORT", "FEATURE_REQUEST", "PRAISE", "SPAM", "OTHER",
+})
+
+
+def _classify_mention_keyword(text: str) -> str:
+    """Cheap keyword classifier — deterministic, no model call.
+
+    Used as the fallback when the LLM classifier is unavailable or
+    returns an invalid label. Brittle on natural phrasing ("broken"
+    without "bug", commas after "bug,", etc.) — the LLM classifier
+    is meant to cover those.
+    """
     lower = text.lower()
     if any(w in lower for w in _BUG_KEYWORDS):
         return "BUG_REPORT"
@@ -262,6 +274,104 @@ def _classify_mention(text: str) -> str:
     if any(w in lower for w in _SPAM_KEYWORDS):
         return "SPAM"
     return "QUESTION"
+
+
+_CLASSIFIER_PROMPT = (
+    "Classify the following tweet as exactly one of these labels:\n"
+    "QUESTION, BUG_REPORT, FEATURE_REQUEST, PRAISE, SPAM, OTHER.\n\n"
+    "Rules:\n"
+    "- BUG_REPORT: user reports something broken, crashing, erroring, "
+    "not working, or behaving contrary to docs. Examples: "
+    '"found a bug", "this is broken", "crashes on startup", '
+    '"installer fails".\n'
+    "- FEATURE_REQUEST: user asks for something to be added, built, or "
+    'supported. Examples: "any plans for X?", "would love X", '
+    '"please add X", "wish it had X".\n'
+    "- QUESTION: user asks how/whether/what/why/when about the project. "
+    'Examples: "does this work with X?", "how do I install?".\n'
+    "- PRAISE: user says something positive/supportive about the project "
+    'with no embedded question or request. Examples: "love this", '
+    '"switched from X, amazing", "great work".\n'
+    "- SPAM: ANY crypto/scam/promotion/link-in-bio/affiliate signal — "
+    "return SPAM regardless of whatever else the tweet says. Examples: "
+    '"buy $COIN now", "link in bio", "10x gains guaranteed", '
+    '"check my project at bit.ly/...".\n'
+    "- OTHER: none of the above cleanly applies.\n\n"
+    "Return ONLY the single-word label. No explanation, no punctuation, "
+    "no quotes.\n\n"
+    'Tweet: "{text}"\n'
+    "Label:"
+)
+
+
+def _classify_mention_llm(
+    text: str,
+    jarvis,
+    *,
+    model: str = _CLASSIFIER_MODEL,
+) -> Optional[str]:
+    """Model-based classifier. Returns a validated label or ``None``.
+
+    ``None`` signals the caller to fall back to the keyword classifier.
+    """
+    try:
+        response = jarvis.ask(
+            _CLASSIFIER_PROMPT.format(text=text),
+            model=model,
+            temperature=0.1,
+            max_tokens=16,
+            context=False,
+        )
+    except Exception as exc:
+        click.echo(f"     classifier LLM call failed: {exc}", err=True)
+        return None
+
+    # Strip markdown/punct/whitespace, uppercase, take the first token.
+    cleaned = (response or "").strip().upper()
+    # Strip common <think>...</think> wrappers and markdown fences
+    if "</THINK>" in cleaned:
+        cleaned = cleaned.rsplit("</THINK>", 1)[1].strip()
+    for sep in ("```", "**", "*", "`", '"', "'"):
+        cleaned = cleaned.replace(sep, "")
+    cleaned = cleaned.strip()
+    if not cleaned:
+        return None
+    first = cleaned.split()[0].rstrip(".,;:!")
+    return first if first in _CLASSIFY_LABELS else None
+
+
+def _classify_mention(text: str, jarvis=None) -> str:
+    """Model-based classifier with keyword fallback.
+
+    When *jarvis* is None (tests, tooling), falls through to the
+    keyword classifier — preserves the original single-arg signature.
+
+    When *jarvis* is provided, runs both and returns the LLM label if
+    valid; otherwise the keyword result. Disagreements are echoed so
+    we can audit how often the model wins.
+
+    The LLM may return ``OTHER`` (e.g. "hahaha", "just saying hi"); we
+    map that to ``QUESTION`` because the question path has graceful
+    deferral for low-retrieval-score content — the right safe default
+    without introducing a new bot flow.
+    """
+    kw_label = _classify_mention_keyword(text)
+    if jarvis is None:
+        return kw_label
+
+    llm_label = _classify_mention_llm(text, jarvis)
+    if llm_label is None:
+        return kw_label  # fallback
+
+    effective = "QUESTION" if llm_label == "OTHER" else llm_label
+
+    if llm_label != kw_label:
+        click.echo(
+            f"     classifier: kw={kw_label}  llm={llm_label}  "
+            f"(using llm={effective})",
+        )
+
+    return effective
 
 
 def _resolve_question_prompt(backend, author: str, tweet_id: str, text: str):
@@ -364,7 +474,7 @@ def _run_demo(model: str, engine_key: str) -> None:
 
     try:
         for idx, tweet in enumerate(DEMO_TWEETS, 1):
-            mention_type = _classify_mention(tweet["text"])
+            mention_type = _classify_mention(tweet["text"], jarvis=j)
             click.echo(
                 f"  [{idx}/{len(DEMO_TWEETS)}] [{mention_type}] @{tweet['author']}: "
                 f"{tweet['text'][:60]}...",
@@ -459,12 +569,24 @@ def _index_docs(j) -> None:  # noqa: ANN001
 
 
 def _seed_since_id_to_newest(channel) -> Optional[str]:
-    """Fetch the current newest mention and set ``_since_id`` so that the
-    subsequent poll loop only surfaces mentions that arrive AFTER now.
+    """Fetch the current newest mention and set ``_since_id`` so that
+    the subsequent poll includes everything from the current newest
+    onward.
 
-    Returns the id we seeded with, or ``None`` if the inbox is empty /
-    the call failed. This is how dry-run (and live first-boot) avoid
-    processing the historical backlog.
+    Twitter's ``since_id`` is a strict ``>`` filter. Seeding to the
+    newest id exactly would skip the very tweet we seeded on — if a
+    mention arrives between bot-stop and bot-start, it becomes the
+    "newest at boot" and gets excluded. Seeding to ``newest - 1``
+    keeps the newest in the first poll's results.
+
+    Trade-off: if the bot had already replied to this mention before a
+    restart, it gets re-processed (duplicate reply/issue). For this
+    project that's acceptable — the bot is almost always DOWN (not
+    mid-work) during restart windows, and the alternative of skipping
+    fresh mentions is worse.
+
+    Returns the *original* newest id (before decrement) for logging,
+    or ``None`` if the inbox is empty / call failed.
     """
     import httpx
 
@@ -484,6 +606,13 @@ def _seed_since_id_to_newest(channel) -> Optional[str]:
             data["data"][0]["id"] if data.get("data") else None
         )
         if newest:
+            # Seed to newest-1 so the newest itself is included in the
+            # first poll. Integer math; Twitter IDs are stringified ints.
+            try:
+                channel._since_id = str(int(newest) - 1)
+                return newest
+            except ValueError:
+                pass  # non-numeric, fall through and seed as-is
             channel._since_id = newest
         return newest
     except Exception:
@@ -555,6 +684,22 @@ def _run_live(
     else:
         channel = TwitterChannel()
 
+    # Seed since_id BEFORE connect() — connect() spawns the poll thread
+    # which reads _since_id on its very first iteration. Setting it after
+    # creates a race where the first poll runs with since_id=None and
+    # fetches the full backlog (up to Twitter's default 10 mentions).
+    seeded = _seed_since_id_to_newest(channel)
+    if seeded:
+        click.echo(
+            f"Seeded since_id={seeded} — only new mentions after "
+            "this point will trigger the bot.",
+        )
+    else:
+        click.echo(
+            "No existing mentions found (or couldn't read inbox) — "
+            "bot will start processing from the next one onward.",
+        )
+
     channel.connect()
 
     if channel.status() == ChannelStatus.ERROR:
@@ -569,18 +714,6 @@ def _run_live(
         )
         j.close()
         sys.exit(1)
-
-    seeded = _seed_since_id_to_newest(channel)
-    if seeded:
-        click.echo(
-            f"Seeded since_id={seeded} — only new mentions after "
-            "this point will trigger the bot.",
-        )
-    else:
-        click.echo(
-            "No existing mentions found (or couldn't read inbox) — "
-            "bot will start processing from the next one onward.",
-        )
 
     # ------------------------------------------------------------------
     # In dry-run, also intercept http_request so bug/feature mentions
@@ -626,9 +759,9 @@ def _run_live(
 
     def _handle_mention(msg):  # noqa: ANN001
         """Process an incoming mention through the agent."""
-        mention_type = _classify_mention(msg.content)
         click.echo("=" * 60)
         click.echo(f"[📨] mention {msg.message_id} from @{msg.sender}: {msg.content}")
+        mention_type = _classify_mention(msg.content, jarvis=j)
         click.echo(f"     classified: {mention_type}")
 
         if mention_type == "SPAM":
