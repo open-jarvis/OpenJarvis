@@ -27,8 +27,8 @@ const STEP_COLORS: Record<string, string> = {
   route: 'var(--color-accent)',
   retrieve: 'var(--color-success)',
   generate: 'var(--color-warning)',
-  tool_call: '#a855f7',
-  respond: '#ec4899',
+  tool_call: 'var(--color-accent-purple)',
+  respond: 'var(--color-accent-purple)',
 };
 
 function StepBadge({ type }: { type: string }) {
@@ -143,28 +143,22 @@ export function TraceDebugger() {
 
   if (error) {
     return (
-      <div
-        className="rounded-xl p-6"
-        style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
-      >
-        <h3 className="text-sm font-medium mb-4 flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
-          <GitBranch size={16} style={{ color: 'var(--color-accent)' }} />
+      <div className="hud-panel p-6">
+        <h3 className="hud-label flex items-center gap-2 mb-4">
+          <GitBranch size={12} style={{ color: 'var(--color-accent)' }} />
           Trace Debugger
         </h3>
         <div className="h-48 flex items-center justify-center text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
-          {error}
+          <span className="hud-mono">{error}</span>
         </div>
       </div>
     );
   }
 
   return (
-    <div
-      className="rounded-xl p-6"
-      style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
-    >
-      <h3 className="text-sm font-medium mb-4 flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
-        <GitBranch size={16} style={{ color: 'var(--color-accent)' }} />
+    <div className="hud-panel p-6">
+      <h3 className="hud-label flex items-center gap-2 mb-4">
+        <GitBranch size={12} style={{ color: 'var(--color-accent)' }} />
         Trace Debugger
       </h3>
 

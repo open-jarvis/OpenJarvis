@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { motion } from 'motion/react';
 import { useAppStore } from '../lib/store';
 import {
   fetchManagedAgents,
@@ -8,10 +9,19 @@ import {
   createManagedAgent,
   sendblueRegisterWebhook,
   sendblueHealth,
+  getMemoryStats,
+  searchMemory,
+  storeMemory,
+  indexMemoryPath,
 } from '../lib/api';
-import type { ChannelBinding, ManagedAgent } from '../lib/api';
-import { getBase } from '../lib/api';
-import { Database, MessageSquare, Loader2 } from 'lucide-react';
+import type { ChannelBinding, ManagedAgent, MemoryStats, MemorySearchResult } from '../lib/api';
+import { getBase, isTauri } from '../lib/api';
+import {
+  Database, MessageSquare, Loader2, Brain, Search, FolderOpen, FileText,
+  Mail, Hash, MessageCircle, CalendarDays, Contact, StickyNote, BookText,
+  Package, Upload, Link2, PhoneCall,
+} from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { SOURCE_CATALOG } from '../types/connectors';
 import type { ConnectRequest } from '../types/connectors';
 import { listConnectors, connectSource, getSyncStatus, triggerSync } from '../lib/connectors-api';
@@ -77,8 +87,8 @@ function InlineConnectForm({
         disabled={loading || !allFilled}
         style={{
           width: '100%', padding: 8,
-          background: loading || !allFilled ? '#444' : '#7c3aed',
-          color: 'white', border: 'none',
+          background: loading || !allFilled ? 'var(--color-disabled-bg)' : 'var(--color-accent-purple)',
+          color: 'var(--color-on-accent)', border: 'none',
           borderRadius: 6, fontSize: 12, cursor: 'pointer',
         }}
       >
@@ -163,7 +173,7 @@ function UploadForm({ onDone }: { onDone?: () => void }) {
   const tabStyle = (active: boolean): React.CSSProperties => ({
     flex: 1, padding: '6px 0', textAlign: 'center',
     fontSize: 12, fontWeight: 600, cursor: 'pointer',
-    background: active ? '#7c3aed' : 'transparent',
+    background: active ? 'var(--color-accent-purple)' : 'transparent',
     color: active ? 'white' : 'var(--color-text-secondary)',
     border: 'none', borderRadius: 4,
   });
@@ -217,8 +227,8 @@ function UploadForm({ onDone }: { onDone?: () => void }) {
             disabled={busy || !content.trim()}
             style={{
               width: '100%', padding: 8,
-              background: busy || !content.trim() ? '#444' : '#7c3aed',
-              color: 'white', border: 'none',
+              background: busy || !content.trim() ? 'var(--color-disabled-bg)' : 'var(--color-accent-purple)',
+              color: 'var(--color-on-accent)', border: 'none',
               borderRadius: 6, fontSize: 12, cursor: 'pointer',
             }}
           >
@@ -249,8 +259,8 @@ function UploadForm({ onDone }: { onDone?: () => void }) {
             disabled={busy || files.length === 0}
             style={{
               width: '100%', padding: 8,
-              background: busy || files.length === 0 ? '#444' : '#7c3aed',
-              color: 'white', border: 'none',
+              background: busy || files.length === 0 ? 'var(--color-disabled-bg)' : 'var(--color-accent-purple)',
+              color: 'var(--color-on-accent)', border: 'none',
               borderRadius: 6, fontSize: 12, cursor: 'pointer',
             }}
           >
@@ -260,12 +270,12 @@ function UploadForm({ onDone }: { onDone?: () => void }) {
       )}
 
       {result && (
-        <div style={{ fontSize: 12, color: '#4ade80', marginTop: 8 }}>
+        <div style={{ fontSize: 12, color: 'var(--color-success)', marginTop: 8 }}>
           {result}
         </div>
       )}
       {error && (
-        <div style={{ fontSize: 12, color: '#ef4444', marginTop: 8 }}>
+        <div style={{ fontSize: 12, color: 'var(--color-error)', marginTop: 8 }}>
           {error}
         </div>
       )}
@@ -277,12 +287,29 @@ function UploadForm({ onDone }: { onDone?: () => void }) {
 // Icon map
 // ---------------------------------------------------------------------------
 
-const iconMap: Record<string, string> = {
-  gmail: '\u2709\uFE0F', gmail_imap: '\u2709\uFE0F', gmail_api: '\u2709\uFE0F', slack: '#',
-  imessage: '\uD83D\uDCAC', gdrive: '\uD83D\uDCC1', notion: '\uD83D\uDCC4',
-  obsidian: '\uD83D\uDCC1', granola: '\uD83C\uDF99\uFE0F', gcalendar: '\uD83D\uDCC5',
-  gcontacts: '\uD83D\uDCC7', outlook: '\u2709\uFE0F', apple_notes: '\uD83C\uDF4E',
-  dropbox: '\uD83D\uDCE6', whatsapp: '\uD83D\uDCF1', upload: '\uD83D\uDCC2',
+const iconMap: Record<string, LucideIcon> = {
+  gmail: Mail,
+  gmail_imap: Mail,
+  gmail_api: Mail,
+  outlook: Mail,
+  slack: Hash,
+  imessage: MessageCircle,
+  whatsapp: PhoneCall,
+  gdrive: FolderOpen,
+  dropbox: Package,
+  notion: BookText,
+  obsidian: FileText,
+  apple_notes: StickyNote,
+  granola: FileText,
+  gcalendar: CalendarDays,
+  gcontacts: Contact,
+  apple_contacts: Contact,
+  upload: Upload,
+};
+
+const IconFor = ({ id, size = 18 }: { id: string; size?: number }) => {
+  const Ico = iconMap[id] ?? Link2;
+  return <Ico size={size} />;
 };
 
 // ---------------------------------------------------------------------------
@@ -323,7 +350,7 @@ function SyncStatusDisplay({
   if (sync?.error) {
     return (
       <div>
-        <div style={{ fontSize: 12, color: '#ef4444', marginBottom: 4 }}>
+        <div style={{ fontSize: 12, color: 'var(--color-error)', marginBottom: 4 }}>
           Error: {sync.error}
         </div>
         <button
@@ -331,7 +358,7 @@ function SyncStatusDisplay({
           disabled={syncing}
           style={{
             fontSize: 10, padding: '2px 10px',
-            background: '#7c3aed', color: 'white',
+            background: 'var(--color-accent-purple)', color: 'var(--color-on-accent)',
             border: 'none', borderRadius: 3,
             cursor: 'pointer', fontWeight: 600,
             opacity: syncing ? 0.5 : 1,
@@ -346,7 +373,7 @@ function SyncStatusDisplay({
     return (
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 12, color: '#4ade80' }}>
+          <span style={{ fontSize: 12, color: 'var(--color-success)' }}>
             {chunks.toLocaleString()} {unitLabel}
           </span>
           <button
@@ -362,7 +389,7 @@ function SyncStatusDisplay({
           >{syncing ? '...' : 'Re-sync'}</button>
         </div>
         {syncError && (
-          <div style={{ fontSize: 11, color: '#ef4444', marginTop: 4 }}>
+          <div style={{ fontSize: 11, color: 'var(--color-error)', marginTop: 4 }}>
             {syncError}
           </div>
         )}
@@ -382,7 +409,7 @@ function SyncStatusDisplay({
         : 'Starting...';
     return (
       <div>
-        <div style={{ fontSize: 11, color: '#f59e0b', marginBottom: 4 }}>
+        <div style={{ fontSize: 11, color: 'var(--color-warning)', marginBottom: 4 }}>
           Syncing — {label}
         </div>
         <div style={{
@@ -392,7 +419,7 @@ function SyncStatusDisplay({
         }}>
           <div style={{
             height: '100%', borderRadius: 2,
-            background: '#f59e0b',
+            background: 'var(--color-warning)',
             width: pct != null ? `${pct}%` : '30%',
             transition: 'width 0.5s ease',
             animationName: pct == null ? 'pulse' : undefined,
@@ -408,7 +435,7 @@ function SyncStatusDisplay({
   if (sync?.state === 'idle' && sync.items_synced > 0) {
     return (
       <div>
-        <div style={{ fontSize: 11, color: '#f59e0b', marginBottom: 4 }}>
+        <div style={{ fontSize: 11, color: 'var(--color-warning)', marginBottom: 4 }}>
           Indexing {sync.items_synced.toLocaleString()} items...
         </div>
         <div style={{
@@ -417,7 +444,7 @@ function SyncStatusDisplay({
           overflow: 'hidden',
         }}>
           <div style={{
-            height: '100%', borderRadius: 2, background: '#f59e0b',
+            height: '100%', borderRadius: 2, background: 'var(--color-warning)',
             width: '60%',
             animationName: 'pulse', animationDuration: '1.5s', animationIterationCount: 'infinite',
           }} />
@@ -441,7 +468,7 @@ function SyncStatusDisplay({
           disabled={syncing}
           style={{
             fontSize: 10, padding: '2px 10px',
-            background: '#7c3aed', color: 'white',
+            background: 'var(--color-accent-purple)', color: 'var(--color-on-accent)',
             border: 'none', borderRadius: 3,
             cursor: 'pointer', fontWeight: 600,
             opacity: syncing ? 0.5 : 1,
@@ -454,7 +481,7 @@ function SyncStatusDisplay({
         </div>
       )}
       {syncError && (
-        <div style={{ fontSize: 11, color: '#ef4444', marginTop: 4 }}>
+        <div style={{ fontSize: 11, color: 'var(--color-error)', marginTop: 4 }}>
           {syncError}
         </div>
       )}
@@ -463,9 +490,10 @@ function SyncStatusDisplay({
 }
 
 function DataSourcesSection() {
-  const [connectors, setConnectors] = useState<
-    Array<{ connector_id: string; display_name: string; connected: boolean; chunks: number }>
-  >([]);
+  const cachedConnectors = useAppStore((s) => s.cachedConnectors);
+  const setCachedConnectors = useAppStore((s) => s.setCachedConnectors);
+  const connectors = cachedConnectors ?? [];
+  const isFirstLoad = cachedConnectors === null;
   const [syncStatuses, setSyncStatuses] = useState<Record<string, SyncStatus>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -473,7 +501,7 @@ function DataSourcesSection() {
   const loadConnectors = useCallback(() => {
     listConnectors()
       .then((list) =>
-        setConnectors(
+        setCachedConnectors(
           list.map((c) => ({
             connector_id: c.connector_id,
             display_name: c.display_name,
@@ -483,7 +511,9 @@ function DataSourcesSection() {
         ),
       )
       .catch(() => {});
-  }, []);
+  }, [setCachedConnectors]);
+
+  const setConnectors = setCachedConnectors;
 
   // Poll sync status for connected sources
   const loadSyncStatuses = useCallback(async () => {
@@ -576,15 +606,41 @@ function DataSourcesSection() {
     ? notConnectedBase
     : [...notConnectedBase, uploadEntry];
 
+  if (isFirstLoad) {
+    return (
+      <div className="flex flex-col gap-5">
+        <section>
+          <div className="hud-label mb-2" style={{ color: 'var(--color-text-tertiary)' }}>
+            Loading sources…
+          </div>
+          <div className="flex flex-col gap-2">
+            {[0, 1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="hud-panel data-skeleton"
+                style={{
+                  padding: '14px 18px',
+                  height: 60,
+                  opacity: 0.6 - i * 0.08,
+                }}
+              />
+            ))}
+          </div>
+        </section>
+      </div>
+    );
+  }
+
   return (
-    <div>
-      {/* Connected sources grid */}
+    <div className="flex flex-col gap-5">
+      {/* Connected sources */}
       {connected.length > 0 && (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          gap: 6, marginBottom: 12,
-        }}>
+        <section>
+          <div className="hud-label mb-2 flex items-center gap-2">
+            <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: 999, background: 'var(--color-success)' }} />
+            Connected · {connected.length}
+          </div>
+          <div className="flex flex-col gap-2">
           {connected.map((c) => {
             const meta = SOURCE_CATALOG.find(s => s.connector_id === c.connector_id);
             const unit = meta?.unitLabel || 'items';
@@ -594,21 +650,19 @@ function DataSourcesSection() {
             return (
               <div
                 key={c.connector_id}
+                className="hud-panel"
                 style={{
-                  background: 'var(--color-bg-secondary)',
-                  border: hasError ? '1px solid #7f1d1d' : '1px solid #2a5a3a',
-                  borderRadius: 6,
-                  overflow: 'hidden',
-                  gridColumn: isReconnecting ? '1 / -1' : undefined,
+                  borderColor: hasError
+                    ? 'color-mix(in srgb, var(--color-error) 28%, transparent)'
+                    : 'var(--color-border)',
                 }}
               >
                 <div style={{
-                  padding: '12px 14px',
-                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '14px 18px',
+                  display: 'flex', alignItems: 'center', gap: 14,
                 }}>
-                  <span style={{ fontSize: 20 }}>{iconMap[c.connector_id] || '\uD83D\uDD17'}</span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="font-semibold" style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text)' }}>
                       {c.display_name}
                     </div>
                     <SyncStatusDisplay
@@ -621,12 +675,14 @@ function DataSourcesSection() {
                   </div>
                   <button
                     onClick={() => setExpandedId(isReconnecting ? null : c.connector_id)}
+                    className="hud-label"
                     style={{
-                      fontSize: 10, padding: '3px 10px',
+                      padding: '6px 12px',
                       background: 'transparent',
                       color: 'var(--color-text-secondary)',
                       border: '1px solid var(--color-border)',
                       borderRadius: 4, cursor: 'pointer',
+                      letterSpacing: '0.15em',
                     }}
                   >
                     {isReconnecting ? 'Cancel' : 'Reconnect'}
@@ -634,7 +690,7 @@ function DataSourcesSection() {
                 </div>
                 {isReconnecting && meta?.steps && (
                   <div style={{ borderTop: '1px solid var(--color-border)', padding: 12 }}>
-                    <div style={{ fontSize: 12, color: '#f59e0b', marginBottom: 8 }}>
+                    <div style={{ fontSize: 12, color: 'var(--color-warning)', marginBottom: 8 }}>
                       Re-enter credentials to reconnect this source.
                     </div>
                     {meta.steps.map((step, i) => (
@@ -647,7 +703,7 @@ function DataSourcesSection() {
                           marginBottom: 8,
                         }}
                       >
-                        <div style={{ color: '#7c3aed', fontSize: 10, fontWeight: 600, marginBottom: 3 }}>
+                        <div style={{ color: 'var(--color-accent-purple)', fontSize: 10, fontWeight: 600, marginBottom: 3 }}>
                           STEP {i + 1}
                         </div>
                         <div style={{ fontSize: 12, marginBottom: step.url ? 4 : 0 }}>{step.label}</div>
@@ -656,7 +712,7 @@ function DataSourcesSection() {
                             href={step.url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            style={{ color: '#60a5fa', fontSize: 11, textDecoration: 'underline' }}
+                            style={{ color: 'var(--color-accent)', fontSize: 11, textDecoration: 'underline' }}
                           >
                             {step.urlLabel || 'Open'} &rarr;
                           </a>
@@ -675,16 +731,18 @@ function DataSourcesSection() {
               </div>
             );
           })}
-        </div>
+          </div>
+        </section>
       )}
 
-      {/* Not connected grid */}
+      {/* Not connected list */}
       {notConnected.length > 0 && (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          gap: 6,
-        }}>
+        <section>
+          <div className="hud-label mb-2 flex items-center gap-2">
+            <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: 999, background: 'var(--color-text-tertiary)' }} />
+            Available · {notConnected.length}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
           {notConnected.map((c) => {
             const meta = SOURCE_CATALOG.find(s => s.connector_id === c.connector_id);
             const isExpanded = expandedId === c.connector_id;
@@ -692,33 +750,31 @@ function DataSourcesSection() {
             return (
               <div
                 key={c.connector_id}
+                className="hud-panel"
                 style={{
-                  background: 'var(--color-bg-secondary)',
-                  border: '1px dashed var(--color-border)',
-                  borderRadius: 6, overflow: 'hidden',
-                  opacity: isExpanded ? 1 : 0.6,
                   gridColumn: isExpanded ? '1 / -1' : undefined,
+                  opacity: isExpanded ? 1 : 0.85,
+                  borderStyle: isExpanded ? 'solid' : 'dashed',
                 }}
               >
                 <div
                   style={{
                     padding: '12px 14px', display: 'flex',
-                    alignItems: 'center', gap: 8,
+                    alignItems: 'center', gap: 12,
                     cursor: 'pointer',
                   }}
                   onClick={() => setExpandedId(isExpanded ? null : c.connector_id)}
                 >
-                  <span style={{ fontSize: 20 }}>{iconMap[c.connector_id] || '\uD83D\uDD17'}</span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-secondary)' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="font-semibold" style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text)' }}>
                       {c.display_name}
                     </div>
-                    <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 2 }}>
                       Not connected
                     </div>
                   </div>
-                  <span style={{ color: '#7c3aed', fontSize: 11, fontWeight: 500 }}>
-                    {isExpanded ? '\u2715 Close' : '+ Add'}
+                  <span style={{ color: 'var(--color-text-secondary)', fontSize: 12, fontWeight: 500 }}>
+                    {isExpanded ? '× Close' : '+ Add'}
                   </span>
                 </div>
 
@@ -743,7 +799,7 @@ function DataSourcesSection() {
                           marginBottom: 8,
                         }}
                       >
-                        <div style={{ color: '#7c3aed', fontSize: 10, fontWeight: 600, marginBottom: 3 }}>
+                        <div style={{ color: 'var(--color-accent-purple)', fontSize: 10, fontWeight: 600, marginBottom: 3 }}>
                           STEP {i + 1}
                         </div>
                         <div style={{ fontSize: 12, marginBottom: step.url ? 4 : 0 }}>{step.label}</div>
@@ -752,7 +808,7 @@ function DataSourcesSection() {
                             href={step.url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            style={{ color: '#60a5fa', fontSize: 11, textDecoration: 'underline' }}
+                            style={{ color: 'var(--color-accent)', fontSize: 11, textDecoration: 'underline' }}
                           >
                             {step.urlLabel || 'Open'} &rarr;
                           </a>
@@ -785,11 +841,11 @@ function DataSourcesSection() {
                       <div style={{ marginTop: 8 }}>
                         <div style={{
                           display: 'flex', alignItems: 'center', gap: 6,
-                          fontSize: 12, color: '#f59e0b',
+                          fontSize: 12, color: 'var(--color-warning)',
                         }}>
                           <div className="animate-spin" style={{
                             width: 12, height: 12, borderRadius: '50%',
-                            border: '2px solid #f59e0b',
+                            border: '2px solid var(--color-warning)',
                             borderTopColor: 'transparent',
                           }} />
                           {connectStage}
@@ -800,7 +856,7 @@ function DataSourcesSection() {
                           overflow: 'hidden',
                         }}>
                           <div style={{
-                            height: '100%', borderRadius: 2, background: '#f59e0b',
+                            height: '100%', borderRadius: 2, background: 'var(--color-warning)',
                             width: connectStage.includes('Sync') ? '75%' : connectStage.includes('Connected') ? '50%' : '25%',
                             transition: 'width 0.5s ease',
                           }} />
@@ -809,7 +865,7 @@ function DataSourcesSection() {
                     )}
                     {/* Connection error */}
                     {connectError && connectingId === null && expandedId === c.connector_id && (
-                      <div style={{ fontSize: 11, color: '#ef4444', marginTop: 6 }}>
+                      <div style={{ fontSize: 11, color: 'var(--color-error)', marginTop: 6 }}>
                         {connectError}
                       </div>
                     )}
@@ -818,7 +874,8 @@ function DataSourcesSection() {
               </div>
             );
           })}
-        </div>
+          </div>
+        </section>
       )}
     </div>
   );
@@ -917,7 +974,7 @@ function SendBlueSection({
     return (
       <div style={{
         background: 'var(--color-bg-secondary)',
-        border: '1px solid #2a5a3a',
+        border: '1px solid color-mix(in srgb, var(--color-success) 22%, transparent)',
         borderRadius: 8, marginBottom: 10,
         overflow: 'hidden',
       }}>
@@ -925,7 +982,7 @@ function SendBlueSection({
           <span style={{ fontSize: 18, marginRight: 10 }}>{'\uD83D\uDCF1'}</span>
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 600, fontSize: 13 }}>iMessage + SMS</div>
-            <div style={{ fontSize: 11, color: '#4ade80' }}>
+            <div style={{ fontSize: 11, color: 'var(--color-success)' }}>
               Active &mdash; text {(cfg.phone_number as string) || 'your number'} to chat
             </div>
           </div>
@@ -975,7 +1032,7 @@ function SendBlueSection({
               href="https://sendblue.co"
               target="_blank"
               rel="noopener noreferrer"
-              style={{ color: '#60a5fa', fontSize: 12, textDecoration: 'underline' }}
+              style={{ color: 'var(--color-accent)', fontSize: 12, textDecoration: 'underline' }}
             >
               1. Sign up at sendblue.co &rarr;
             </a>
@@ -985,7 +1042,7 @@ function SendBlueSection({
               href="https://dashboard.sendblue.co/api-credentials"
               target="_blank"
               rel="noopener noreferrer"
-              style={{ color: '#60a5fa', fontSize: 12, textDecoration: 'underline' }}
+              style={{ color: 'var(--color-accent)', fontSize: 12, textDecoration: 'underline' }}
             >
               2. Go to your API Credentials page &rarr;
             </a>
@@ -1027,7 +1084,7 @@ function SendBlueSection({
             padding: '8px 10px', marginBottom: 10,
             background: 'var(--color-bg-secondary)',
             borderRadius: 6,
-            borderLeft: '3px solid var(--color-accent, #7c3aed)',
+            borderLeft: '3px solid var(--color-accent, var(--color-accent-purple))',
           }}>
             <div><strong>1.</strong> Open a terminal and run: <code style={{ color: 'var(--color-accent)', background: 'var(--color-bg)', padding: '1px 4px', borderRadius: 3 }}>ngrok http 8000</code></div>
             <div style={{ marginTop: 4 }}><strong>2.</strong> Copy the <code style={{ color: 'var(--color-accent)', background: 'var(--color-bg)', padding: '1px 4px', borderRadius: 3 }}>https://</code> forwarding URL (e.g. https://abc123.ngrok.io)</div>
@@ -1045,8 +1102,8 @@ function SendBlueSection({
               disabled={!webhookUrl.trim() || webhookStatus === 'registering'}
               style={{
                 fontSize: 11, padding: '6px 12px', whiteSpace: 'nowrap',
-                background: webhookStatus === 'done' ? '#22c55e' : '#7c3aed',
-                color: 'white', border: 'none', borderRadius: 4,
+                background: webhookStatus === 'done' ? 'var(--color-success)' : 'var(--color-accent-purple)',
+                color: 'var(--color-on-accent)', border: 'none', borderRadius: 4,
                 cursor: 'pointer', fontWeight: 600,
                 opacity: !webhookUrl.trim() || webhookStatus === 'registering' ? 0.5 : 1,
               }}
@@ -1058,17 +1115,17 @@ function SendBlueSection({
             </button>
           </div>
           {webhookStatus === 'done' && (
-            <div style={{ fontSize: 11, color: '#22c55e', marginTop: 6 }}>
+            <div style={{ fontSize: 11, color: 'var(--color-success)', marginTop: 6 }}>
               Webhook registered! Incoming texts will be forwarded to your agent.
             </div>
           )}
           {webhookStatus === 'error' && (
-            <div style={{ fontSize: 11, color: '#ef4444', marginTop: 6 }}>
+            <div style={{ fontSize: 11, color: 'var(--color-error)', marginTop: 6 }}>
               Failed to register webhook. Check your ngrok URL and SendBlue credentials.
             </div>
           )}
           <div style={{ fontSize: 10, color: 'var(--color-text-tertiary)', marginTop: 8 }}>
-            Don't have ngrok? <a href="https://ngrok.com/download" target="_blank" rel="noopener noreferrer" style={{ color: '#60a5fa', textDecoration: 'underline' }}>Download it free</a>. You can also skip this step and register the webhook later.
+            Don't have ngrok? <a href="https://ngrok.com/download" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-accent)', textDecoration: 'underline' }}>Download it free</a>. You can also skip this step and register the webhook later.
           </div>
         </div>
       ),
@@ -1128,7 +1185,7 @@ function SendBlueSection({
             Let people text your agent from any phone
           </div>
         </div>
-        <span style={{ color: '#7c3aed', fontSize: 11, fontWeight: 500 }}>
+        <span style={{ color: 'var(--color-accent-purple)', fontSize: 11, fontWeight: 500 }}>
           {step >= 0 ? 'Set Up' : '+ Add'}
         </span>
       </div>
@@ -1142,7 +1199,7 @@ function SendBlueSection({
                 key={i}
                 style={{
                   flex: 1, height: 3, borderRadius: 2,
-                  background: i <= step ? '#7c3aed' : 'var(--color-border)',
+                  background: i <= step ? 'var(--color-accent-purple)' : 'var(--color-border)',
                 }}
               />
             ))}
@@ -1154,7 +1211,7 @@ function SendBlueSection({
           {steps[step]?.content}
 
           {error && (
-            <div style={{ fontSize: 11, color: '#ef4444', marginTop: 6 }}>{error}</div>
+            <div style={{ fontSize: 11, color: 'var(--color-error)', marginTop: 6 }}>{error}</div>
           )}
 
           <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
@@ -1176,7 +1233,7 @@ function SendBlueSection({
                 disabled={!steps[step]?.canAdvance}
                 style={{
                   fontSize: 12, padding: '6px 16px',
-                  background: '#7c3aed', color: 'white',
+                  background: 'var(--color-accent-purple)', color: 'var(--color-on-accent)',
                   border: 'none', borderRadius: 5,
                   cursor: 'pointer', fontWeight: 600,
                   opacity: steps[step]?.canAdvance ? 1 : 0.5,
@@ -1188,7 +1245,7 @@ function SendBlueSection({
                 disabled={loading || !steps[step]?.canAdvance}
                 style={{
                   fontSize: 12, padding: '6px 16px',
-                  background: '#7c3aed', color: 'white',
+                  background: 'var(--color-accent-purple)', color: 'var(--color-on-accent)',
                   border: 'none', borderRadius: 5,
                   cursor: 'pointer', fontWeight: 600,
                   opacity: loading || !steps[step]?.canAdvance ? 0.5 : 1,
@@ -1271,7 +1328,7 @@ function MessagingSection({ agentId }: { agentId: string }) {
             key={ch.type}
             style={{
               background: 'var(--color-bg-secondary)',
-              border: binding ? '1px solid #2a5a3a' : '1px dashed var(--color-border)',
+              border: binding ? '1px solid color-mix(in srgb, var(--color-success) 22%, transparent)' : '1px dashed var(--color-border)',
               borderRadius: 8, marginBottom: 10, overflow: 'hidden',
             }}
           >
@@ -1281,7 +1338,7 @@ function MessagingSection({ agentId }: { agentId: string }) {
                 <div style={{ fontWeight: 600, fontSize: 13 }}>{ch.name}</div>
                 <div style={{
                   fontSize: 11,
-                  color: binding ? '#4ade80' : 'var(--color-text-secondary)',
+                  color: binding ? 'var(--color-success)' : 'var(--color-text-secondary)',
                 }}>
                   {binding ? ch.activeLabel(cfg) : ch.description}
                 </div>
@@ -1289,7 +1346,7 @@ function MessagingSection({ agentId }: { agentId: string }) {
               {binding ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{
-                    background: '#2a5a3a', color: '#4ade80',
+                    background: 'color-mix(in srgb, var(--color-success) 22%, transparent)', color: 'var(--color-success)',
                     padding: '2px 8px', borderRadius: 10,
                     fontSize: 10, fontWeight: 600,
                   }}>Active</span>
@@ -1307,8 +1364,8 @@ function MessagingSection({ agentId }: { agentId: string }) {
                 <button
                   onClick={() => { setSetupType(isSetup ? null : ch.type); setFormValues({}); }}
                   style={{
-                    fontSize: 10, padding: '3px 12px', background: '#7c3aed',
-                    color: 'white', border: 'none', borderRadius: 5,
+                    fontSize: 10, padding: '3px 12px', background: 'var(--color-accent-purple)',
+                    color: 'var(--color-on-accent)', border: 'none', borderRadius: 5,
                     cursor: 'pointer', fontWeight: 600,
                   }}
                 >{isSetup ? 'Cancel' : 'Set Up'}</button>
@@ -1338,7 +1395,7 @@ function MessagingSection({ agentId }: { agentId: string }) {
                   marginBottom: 12, padding: '8px 10px',
                   background: 'var(--color-bg-secondary)',
                   borderRadius: 6,
-                  borderLeft: '3px solid var(--color-accent, #7c3aed)',
+                  borderLeft: '3px solid var(--color-accent, var(--color-accent-purple))',
                 }}>
                   {ch.setupSteps.map((s, i) => {
                     if (s.startsWith('COPYABLE:')) {
@@ -1360,7 +1417,7 @@ function MessagingSection({ agentId }: { agentId: string }) {
                               style={{
                                 position: 'sticky', float: 'right', top: 0,
                                 fontSize: 10, padding: '2px 8px',
-                                background: '#7c3aed', color: 'white',
+                                background: 'var(--color-accent-purple)', color: 'var(--color-on-accent)',
                                 border: 'none', borderRadius: 3,
                                 cursor: 'pointer', fontWeight: 600,
                               }}
@@ -1396,8 +1453,8 @@ function MessagingSection({ agentId }: { agentId: string }) {
                   onClick={() => handleSetup(ch)}
                   disabled={loading || !canConnect}
                   style={{
-                    fontSize: 12, padding: '7px 20px', background: '#7c3aed',
-                    color: 'white', border: 'none', borderRadius: 5,
+                    fontSize: 12, padding: '7px 20px', background: 'var(--color-accent-purple)',
+                    color: 'var(--color-on-accent)', border: 'none', borderRadius: 5,
                     cursor: 'pointer', fontWeight: 600,
                     opacity: loading || !canConnect ? 0.5 : 1, marginTop: 4,
                   }}
@@ -1412,12 +1469,377 @@ function MessagingSection({ agentId }: { agentId: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Memory section
+// ---------------------------------------------------------------------------
+
+function MemorySection() {
+  const [stats, setStats] = useState<MemoryStats | null>(null);
+  const [statsError, setStatsError] = useState('');
+
+  // Search
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<MemorySearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchDone, setSearchDone] = useState(false);
+
+  // Index
+  const [indexPath, setIndexPath] = useState('');
+  const [indexing, setIndexing] = useState(false);
+  const [indexResult, setIndexResult] = useState('');
+  const [indexError, setIndexError] = useState('');
+
+  // Store
+  const [storeContent, setStoreContent] = useState('');
+  const [storing, setStoring] = useState(false);
+  const [storeResult, setStoreResult] = useState('');
+  const [storeError, setStoreError] = useState('');
+
+  const statsInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const loadStats = useCallback(() => {
+    getMemoryStats()
+      .then((s) => { setStats(s); setStatsError(''); })
+      .catch(() => setStatsError('Could not reach memory backend'));
+  }, []);
+
+  useEffect(() => {
+    loadStats();
+    statsInterval.current = setInterval(loadStats, 10000);
+    return () => { if (statsInterval.current) clearInterval(statsInterval.current); };
+  }, [loadStats]);
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return;
+    setSearching(true);
+    setSearchDone(false);
+    try {
+      const results = await searchMemory(searchQuery.trim());
+      setSearchResults(results || []);
+      setSearchDone(true);
+    } catch {
+      setSearchResults([]);
+      setSearchDone(true);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const handleBrowse = async () => {
+    if (isTauri()) {
+      try {
+        const { open } = await import('@tauri-apps/plugin-dialog');
+        const selected = await open({ directory: true, multiple: false, title: 'Select folder to index' });
+        if (selected) setIndexPath(selected as string);
+        return;
+      } catch {
+        // fall through to browser picker
+      }
+    }
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.setAttribute('webkitdirectory', '');
+    input.onchange = () => {
+      const files = input.files;
+      if (files && files.length > 0) {
+        const rel = (files[0] as any).webkitRelativePath || '';
+        const folder = rel.split('/')[0];
+        if (folder) setIndexPath(folder);
+      }
+    };
+    input.click();
+  };
+
+  const handleIndex = async () => {
+    if (!indexPath.trim()) return;
+    setIndexing(true);
+    setIndexResult('');
+    setIndexError('');
+    try {
+      const res = await indexMemoryPath(indexPath.trim());
+      setIndexResult(`Indexed ${res.chunks_indexed} chunk${res.chunks_indexed !== 1 ? 's' : ''}`);
+      setIndexPath('');
+      loadStats();
+    } catch (err: any) {
+      setIndexError(err.message || 'Indexing failed');
+    } finally {
+      setIndexing(false);
+    }
+  };
+
+  const handleStore = async () => {
+    if (!storeContent.trim()) return;
+    setStoring(true);
+    setStoreResult('');
+    setStoreError('');
+    try {
+      await storeMemory(storeContent.trim());
+      setStoreResult('Stored successfully');
+      setStoreContent('');
+      loadStats();
+    } catch (err: any) {
+      setStoreError(err.message || 'Failed to store');
+    } finally {
+      setStoring(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Stats overview */}
+      <div
+        className="rounded-xl p-5 relative overflow-hidden"
+        style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
+      >
+        {/* Subtle gradient accent along top edge */}
+        <div className="absolute top-0 left-0 right-0 h-[2px]" style={{
+          background: 'linear-gradient(90deg, var(--color-accent-purple), var(--color-accent), transparent)',
+        }} />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{
+              background: 'var(--color-accent-purple-subtle)',
+            }}>
+              <Brain size={18} style={{ color: 'var(--color-accent-purple)' }} />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>Memory Backend</h3>
+              {statsError ? (
+                <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-tertiary)' }}>{statsError}</p>
+              ) : stats ? (
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="w-1.5 h-1.5 rounded-full" style={{
+                    background: stats.entries > 0 ? 'var(--color-success)' : 'var(--color-text-tertiary)',
+                  }} />
+                  <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                    {stats.backend} &middot; {stats.entries.toLocaleString()} {stats.entries === 1 ? 'chunk' : 'chunks'}
+                  </span>
+                </div>
+              ) : (
+                <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-tertiary)' }}>Connecting...</p>
+              )}
+            </div>
+          </div>
+          {stats && stats.entries > 0 && (
+            <div className="text-right">
+              <div className="text-lg font-bold tabular-nums" style={{ color: 'var(--color-text)' }}>
+                {stats.entries.toLocaleString()}
+              </div>
+              <div className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-text-tertiary)' }}>
+                indexed
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Search */}
+      <div
+        className="rounded-xl p-5"
+        style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
+      >
+        <div className="flex items-center gap-2 mb-3">
+          <Search size={14} style={{ color: 'var(--color-accent-purple)' }} />
+          <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>Search Memory</h3>
+        </div>
+        <div className="flex gap-2">
+          <div className="flex-1 relative">
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
+              placeholder="What are you looking for?"
+              className="w-full text-sm px-3 py-2 rounded-lg outline-none transition-colors"
+              style={{
+                background: 'var(--color-bg)',
+                border: '1px solid var(--color-border)',
+                color: 'var(--color-text)',
+              }}
+            />
+          </div>
+          <button
+            onClick={handleSearch}
+            disabled={searching || !searchQuery.trim()}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer whitespace-nowrap"
+            style={{
+              background: searching || !searchQuery.trim() ? 'var(--color-bg-tertiary)' : 'var(--color-accent-purple)',
+              color: searching || !searchQuery.trim() ? 'var(--color-text-tertiary)' : 'var(--color-on-accent)',
+              opacity: searching || !searchQuery.trim() ? 0.6 : 1,
+            }}
+          >
+            {searching ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />}
+            {searching ? 'Searching' : 'Search'}
+          </button>
+        </div>
+
+        {/* Results */}
+        {searchDone && searchResults.length === 0 && (
+          <div className="flex flex-col items-center py-6 gap-2">
+            <Search size={20} style={{ color: 'var(--color-text-tertiary)', opacity: 0.4 }} />
+            <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>No matching memories found</p>
+          </div>
+        )}
+        {searchResults.length > 0 && (
+          <div className="mt-3 space-y-2">
+            {searchResults.map((r, i) => (
+              <div
+                key={i}
+                className="rounded-lg p-3 transition-colors"
+                style={{
+                  background: 'var(--color-bg)',
+                  border: '1px solid var(--color-border)',
+                }}
+              >
+                <p className="text-xs leading-relaxed" style={{ color: 'var(--color-text)' }}>
+                  {r.content.length > 250 ? r.content.slice(0, 250) + '...' : r.content}
+                </p>
+                <div className="flex items-center gap-3 mt-2">
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium" style={{
+                    background: r.score > 0.5
+                      ? 'rgba(74, 222, 128, 0.1)'
+                      : r.score > 0.2
+                        ? 'var(--color-accent-amber-subtle)'
+                        : 'var(--color-bg-tertiary)',
+                    color: r.score > 0.5
+                      ? 'var(--color-success)'
+                      : r.score > 0.2
+                        ? 'var(--color-warning)'
+                        : 'var(--color-text-tertiary)',
+                  }}>
+                    {(r.score * 100).toFixed(0)}% match
+                  </span>
+                  {r.metadata?.source != null && (
+                    <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
+                      {String(r.metadata.source)}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Add to Memory — two-column grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Index folder */}
+        <div
+          className="rounded-xl p-5"
+          style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <FolderOpen size={14} style={{ color: 'var(--color-accent-purple)' }} />
+            <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>Index Folder</h3>
+          </div>
+          <p className="text-xs mb-3" style={{ color: 'var(--color-text-tertiary)' }}>
+            Scan a folder and index all supported files into memory.
+          </p>
+          <div className="flex gap-2 mb-2">
+            <input
+              value={indexPath}
+              onChange={(e) => setIndexPath(e.target.value)}
+              placeholder="~/Documents/notes"
+              className="flex-1 text-sm px-3 py-2 rounded-lg outline-none"
+              style={{
+                background: 'var(--color-bg)',
+                border: '1px solid var(--color-border)',
+                color: 'var(--color-text)',
+              }}
+            />
+            {isTauri() && (
+              <button
+                onClick={handleBrowse}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium cursor-pointer transition-colors whitespace-nowrap"
+                style={{
+                  background: 'var(--color-bg)',
+                  border: '1px solid var(--color-border)',
+                  color: 'var(--color-text-secondary)',
+                }}
+              >
+                <FolderOpen size={12} />
+                Browse
+              </button>
+            )}
+          </div>
+          <button
+            onClick={handleIndex}
+            disabled={indexing || !indexPath.trim()}
+            className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium cursor-pointer transition-all"
+            style={{
+              background: indexing || !indexPath.trim() ? 'var(--color-bg-tertiary)' : 'var(--color-accent-purple)',
+              color: indexing || !indexPath.trim() ? 'var(--color-text-tertiary)' : 'var(--color-on-accent)',
+              opacity: indexing || !indexPath.trim() ? 0.6 : 1,
+            }}
+          >
+            {indexing && <Loader2 size={13} className="animate-spin" />}
+            {indexing ? 'Indexing files...' : 'Index'}
+          </button>
+          {indexResult && (
+            <p className="text-xs mt-2 font-medium" style={{ color: 'var(--color-success)' }}>{indexResult}</p>
+          )}
+          {indexError && (
+            <p className="text-xs mt-2 font-medium" style={{ color: 'var(--color-error)' }}>{indexError}</p>
+          )}
+        </div>
+
+        {/* Paste content */}
+        <div
+          className="rounded-xl p-5"
+          style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <FileText size={14} style={{ color: 'var(--color-accent-purple)' }} />
+            <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>Store Text</h3>
+          </div>
+          <p className="text-xs mb-3" style={{ color: 'var(--color-text-tertiary)' }}>
+            Paste any text to add directly to your memory store.
+          </p>
+          <textarea
+            value={storeContent}
+            onChange={(e) => setStoreContent(e.target.value)}
+            placeholder="Paste or type content here..."
+            rows={4}
+            className="w-full text-sm px-3 py-2 rounded-lg outline-none resize-y"
+            style={{
+              background: 'var(--color-bg)',
+              border: '1px solid var(--color-border)',
+              color: 'var(--color-text)',
+              fontFamily: 'inherit',
+              minHeight: 80,
+              marginBottom: 8,
+            }}
+          />
+          <button
+            onClick={handleStore}
+            disabled={storing || !storeContent.trim()}
+            className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium cursor-pointer transition-all"
+            style={{
+              background: storing || !storeContent.trim() ? 'var(--color-bg-tertiary)' : 'var(--color-accent-purple)',
+              color: storing || !storeContent.trim() ? 'var(--color-text-tertiary)' : 'var(--color-on-accent)',
+              opacity: storing || !storeContent.trim() ? 0.6 : 1,
+            }}
+          >
+            {storing && <Loader2 size={13} className="animate-spin" />}
+            {storing ? 'Storing...' : 'Store'}
+          </button>
+          {storeResult && (
+            <p className="text-xs mt-2 font-medium" style={{ color: 'var(--color-success)' }}>{storeResult}</p>
+          )}
+          {storeError && (
+            <p className="text-xs mt-2 font-medium" style={{ color: 'var(--color-error)' }}>{storeError}</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
 export function DataSourcesPage() {
   const [agents, setAgents] = useState<ManagedAgent[]>([]);
-  const [activeTab, setActiveTab] = useState<'sources' | 'messaging'>('sources');
+  const [activeTab, setActiveTab] = useState<'sources' | 'messaging' | 'memory'>('sources');
   const [creatingAgent, setCreatingAgent] = useState(false);
 
   const loadAgents = useCallback(() => {
@@ -1457,42 +1879,52 @@ export function DataSourcesPage() {
   const tabs = [
     { id: 'sources' as const, label: 'Data Sources', icon: Database },
     { id: 'messaging' as const, label: 'Messaging Channels', icon: MessageSquare },
+    { id: 'memory' as const, label: 'Memory', icon: Brain },
   ];
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* Header */}
-      <div className="shrink-0 px-6 pt-6 pb-4">
+    <div className="flex-1 overflow-y-auto px-6 py-10">
+      <div className="max-w-5xl mx-auto">
+      <header className="mb-6">
         <h1 className="text-lg font-semibold" style={{ color: 'var(--color-text)' }}>
-          Data Sources &amp; Messaging Channels
+          Data Sources, Channels &amp; Memory
         </h1>
-        <p className="text-sm mt-1" style={{ color: 'var(--color-text-secondary)' }}>
-          Connect your personal data so your AI can search across everything, and set up messaging channels to chat from your phone.
+        <p className="text-sm mt-2 max-w-2xl" style={{ color: 'var(--color-text-secondary)' }}>
+          Connect personal data so the assistant can search across everything, and set up messaging channels to chat from your phone.
         </p>
+      </header>
+
+      <div
+        className="flex gap-1 mb-6"
+        style={{ borderBottom: '1px solid var(--color-border)' }}
+      >
+        {tabs.map((tab) => {
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className="relative px-4 py-2.5 text-sm transition-colors cursor-pointer"
+              style={{
+                color: isActive ? 'var(--color-text)' : 'var(--color-text-secondary)',
+                fontWeight: isActive ? 600 : 400,
+              }}
+            >
+              {tab.label}
+              {isActive && (
+                <motion.span
+                  layoutId="data-sources-tab-indicator"
+                  className="absolute left-0 right-0 -bottom-px h-[2px]"
+                  style={{ background: 'var(--color-text)' }}
+                  transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                />
+              )}
+            </button>
+          );
+        })}
       </div>
 
-      {/* Tabs */}
-      <div className="shrink-0 px-6 flex gap-1 mb-4">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors cursor-pointer"
-            style={{
-              background: activeTab === tab.id ? 'var(--color-accent-subtle)' : 'transparent',
-              color: activeTab === tab.id ? 'var(--color-text)' : 'var(--color-text-secondary)',
-              fontWeight: activeTab === tab.id ? 600 : 400,
-              border: activeTab === tab.id ? '1px solid var(--color-border)' : '1px solid transparent',
-            }}
-          >
-            <tab.icon size={14} />
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto px-6 pb-6">
+      <div>
         {activeTab === 'sources' && <DataSourcesSection />}
         {activeTab === 'messaging' && (
           firstAgent ? (
@@ -1504,6 +1936,8 @@ export function DataSourcesPage() {
             </div>
           ) : null
         )}
+        {activeTab === 'memory' && <MemorySection />}
+      </div>
       </div>
     </div>
   );

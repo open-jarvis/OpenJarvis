@@ -269,6 +269,13 @@ class ToolExecutor:
         # Emit end event
         if self._bus:
             result_text = str(result.content)[:10240] if result.content else ""
+            # Pass through ToolResult.metadata so downstream consumers
+            # (TraceCollector → TraceStep.metadata → SkillOptimizer) can
+            # see skill-tagged invocations.  Filter to JSON-serializable
+            # values only — internal objects like TaintSet (added by the
+            # taint auto-detect above) must not leak to event subscribers
+            # since the trace store will JSON-serialize them later.
+            event_metadata = self._json_safe_metadata(result.metadata)
             self._bus.publish(
                 EventType.TOOL_CALL_END,
                 {
@@ -276,10 +283,40 @@ class ToolExecutor:
                     "success": result.success,
                     "latency": latency,
                     "result": result_text,
+                    "metadata": event_metadata,
                 },
             )
 
         return result
+
+    @staticmethod
+    def _json_safe_metadata(metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Return a copy of *metadata* containing only JSON-serializable values.
+
+        ``ToolExecutor`` annotates ``ToolResult.metadata`` with internal
+        objects (currently ``_taint: TaintSet``).  Those are useful for
+        in-process security checks but cannot be serialized when the
+        ``TraceCollector`` writes ``TraceStep.metadata`` to JSON in the
+        SQLite trace store.  This helper drops any keys whose value is
+        not JSON-safe — silently, since the missing data is not
+        load-bearing for downstream consumers.
+        """
+        if not metadata:
+            return {}
+
+        import json
+
+        safe: Dict[str, Any] = {}
+        for key, value in metadata.items():
+            if not isinstance(key, str):
+                continue
+            try:
+                json.dumps(value)
+            except (TypeError, ValueError):
+                # Skip non-serializable values (e.g. TaintSet)
+                continue
+            safe[key] = value
+        return safe
 
     def available_tools(self) -> List[ToolSpec]:
         """Return specs for all available tools."""

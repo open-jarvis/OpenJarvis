@@ -79,7 +79,7 @@ export function ChatArea() {
           <button
             onClick={() => navigate('/data-sources')}
             className="px-3 py-1 rounded text-xs font-medium cursor-pointer"
-            style={{ background: 'var(--color-accent)', color: '#fff', border: 'none' }}
+            style={{ background: 'var(--color-accent)', color: 'var(--color-on-accent)', border: 'none' }}
           >
             Connect
           </button>

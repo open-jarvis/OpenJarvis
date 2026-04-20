@@ -306,6 +306,7 @@ class ToolUsingAgent(BaseAgent):
         agent_id: Optional[str] = None,
         interactive: bool = False,
         confirm_callback: Optional[Any] = None,
+        skill_few_shot_examples: Optional[List[str]] = None,
     ) -> None:
         super().__init__(
             engine,
@@ -317,6 +318,9 @@ class ToolUsingAgent(BaseAgent):
         from openjarvis.tools._stubs import ToolExecutor
 
         self._tools = tools or []
+        # Plan 2B I3: store optimized few-shot examples for agents to inject
+        # into their own system prompt templates as appropriate.
+        self._skill_few_shot_examples = list(skill_few_shot_examples or [])
         _aid = agent_id or getattr(self, "agent_id", "")
         self._executor = ToolExecutor(
             self._tools,

@@ -130,15 +130,44 @@ class SkillDiscovery:
                         "tool_name",
                         getattr(step, "name", ""),
                     )
+                    # Also check step.input dict for tool name (TraceStep format)
+                    if not name:
+                        step_input = getattr(step, "input", {}) or {}
+                        if isinstance(step_input, dict):
+                            name = step_input.get("tool", "") or ""
                     if name:
                         tools.append(name)
         return tools
 
     def _extract_outcome(self, trace: Any) -> float:
-        """Extract outcome score from a trace."""
+        """Extract outcome score from a trace.
+
+        Handles both numeric outcome scores and string labels
+        ("success" / "failure").  Falls back to the ``feedback`` field when
+        present, then defaults to 0.0.
+        """
         if isinstance(trace, dict):
-            return float(trace.get("outcome", 0.0))
-        return float(getattr(trace, "outcome", 0.0))
+            raw = trace.get("outcome")
+            if raw is None:
+                return float(trace.get("feedback", 0.0) or 0.0)
+        else:
+            raw = getattr(trace, "outcome", None)
+            if raw is None:
+                return float(getattr(trace, "feedback", 0.0) or 0.0)
+
+        if isinstance(raw, (int, float)):
+            return float(raw)
+        if isinstance(raw, str):
+            lraw = raw.lower()
+            if lraw == "success":
+                return 1.0
+            if lraw == "failure":
+                return 0.0
+            try:
+                return float(raw)
+            except ValueError:
+                return 0.0
+        return 0.0
 
     def _extract_query(self, trace: Any) -> str:
         """Extract the original query from a trace."""

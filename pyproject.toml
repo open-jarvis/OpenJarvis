@@ -3,11 +3,26 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "openjarvis"
-version = "0.1.0"
+name = "OpenJarvis"
+version = "0.1.1"
 description = "OpenJarvis — modular AI assistant backend with composable intelligence primitives"
 readme = "README.md"
 requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "Open Jarvis Contributors"},
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "click>=8",
     "datasets>=4.5.0",
@@ -81,6 +96,7 @@ channel-mastodon = ["Mastodon.py>=1.8"]
 channel-xmpp = ["slixmpp>=1.8"]
 channel-rocketchat = ["rocketchat-API>=1.30"]
 channel-zulip = ["zulip>=0.9"]
+channel-twitter = ["httpx>=0.27"]
 channel-twitch = ["twitchio>=2.6"]
 channel-nostr = ["pynostr>=0.6"]
 channel-twilio = ["twilio>=9.0"]
@@ -89,7 +105,6 @@ channel-gmail = [
     "google-auth-oauthlib>=1.0",
     "google-auth-httplib2>=0.2",
 ]
-channel-twitter = ["tweepy>=4.14"]
 browser = ["playwright>=1.40"]
 media = ["openai>=1.30"]
 pdf = ["pdfplumber>=0.10"]
@@ -109,6 +124,12 @@ docs = [
     "mkdocs-gen-files>=0.5",
     "mkdocs-literate-nav>=0.6",
 ]
+
+[project.urls]
+Homepage = "https://github.com/open-jarvis/OpenJarvis"
+Documentation = "https://open-jarvis.github.io/OpenJarvis/"
+Repository = "https://github.com/open-jarvis/OpenJarvis"
+Issues = "https://github.com/open-jarvis/OpenJarvis/issues"
 
 [project.scripts]
 jarvis = "openjarvis.cli:main"

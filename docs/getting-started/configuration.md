@@ -432,6 +432,81 @@ db_path = "~/.openjarvis/traces.db"
 
 ---
 
+### `[skills]` — Skills System
+
+Controls the skills system — reusable compositions of tools and agent instructions. Skills teach agents how to better use tools and improve their reasoning. See the [Skills User Guide](../user-guide/skills.md) for full documentation.
+
+```toml
+[skills]
+enabled = true
+skills_dir = "~/.openjarvis/skills/"
+active = "*"
+auto_discover = true
+auto_sync = false
+max_depth = 5
+sandbox_dangerous = true
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `true` | Whether to enable the skills system. When disabled, no skills are loaded or exposed to agents. |
+| `skills_dir` | string | `~/.openjarvis/skills/` | Directory where skills are installed. |
+| `active` | string | `"*"` | Comma-separated list of skill names to activate, or `"*"` for all discovered skills. |
+| `auto_discover` | bool | `true` | Whether to scan `skills_dir` for skills on startup. |
+| `auto_sync` | bool | `false` | Whether to pull from configured sources on session start (checks freshness every 24h). |
+| `max_depth` | int | `5` | Maximum sub-skill nesting depth for composed skills. |
+| `sandbox_dangerous` | bool | `true` | Whether to warn about skills with dangerous capabilities (`shell:execute`, `network:listen`, `filesystem:write`). |
+
+#### `[[skills.sources]]` — Skill Import Sources
+
+Configure one or more skill sources for automatic import. Each `[[skills.sources]]` entry defines a source to pull from.
+
+```toml
+[[skills.sources]]
+source = "hermes"
+filter = { category = ["research", "coding", "productivity"] }
+auto_update = true
+
+[[skills.sources]]
+source = "openclaw"
+filter = { search = "web3|crypto" }
+
+[[skills.sources]]
+source = "github"
+url = "https://github.com/myorg/internal-skills"
+auto_update = true
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `source` | string | `""` | Source type: `"hermes"`, `"openclaw"`, or `"github"`. |
+| `url` | string | `""` | Repository URL. Required when `source = "github"`. |
+| `filter` | table | `{}` | Filter criteria. Supported keys: `category` (list of strings), `search` (regex string). |
+| `auto_update` | bool | `false` | Whether to pull latest commits when syncing this source. |
+
+#### `[learning.skills]` — Skills Learning Loop
+
+Controls the automatic optimization of skill descriptions and few-shot examples from trace data. Requires `[traces] enabled = true` to collect the traces that the optimizer analyzes.
+
+```toml
+[learning.skills]
+auto_optimize = false
+optimizer = "dspy"
+min_traces_per_skill = 20
+optimization_interval_seconds = 86400
+overlay_dir = "~/.openjarvis/learning/skills/"
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `auto_optimize` | bool | `false` | Whether to run skill optimization automatically after each learning cycle. |
+| `optimizer` | string | `"dspy"` | Optimization policy: `"dspy"` (bootstrap few-shot) or `"gepa"` (evolutionary). |
+| `min_traces_per_skill` | int | `20` | Minimum trace count for a skill to be eligible for optimization. |
+| `optimization_interval_seconds` | int | `86400` | Run optimization at most once per this interval (default: once per day). |
+| `overlay_dir` | string | `~/.openjarvis/learning/skills/` | Where optimized skill overlays are stored. |
+
+---
+
 ### `[channel]` — Channel Messaging
 
 Controls the channel messaging bridge for multi-platform communication. Each supported platform has its own nested sub-section.

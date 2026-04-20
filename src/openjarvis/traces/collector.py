@@ -182,6 +182,10 @@ class TraceCollector:
     def _on_tool_end(self, event: Any) -> None:
         start = getattr(self, "_tool_start_time", event.timestamp)
         start_data = getattr(self, "_tool_start_data", {})
+        # Pull through any metadata the tool attached to its ToolResult
+        # (e.g. SkillTool's skill/skill_source/skill_kind tags) so the
+        # SkillOptimizer can bucket traces by skill name.
+        result_metadata = event.data.get("metadata") or {}
         self._current_steps.append(
             TraceStep(
                 step_type=StepType.TOOL_CALL,
@@ -197,6 +201,7 @@ class TraceCollector:
                     "success": event.data.get("success", False),
                     "result": event.data.get("result", ""),
                 },
+                metadata=dict(result_metadata),
             )
         )
 

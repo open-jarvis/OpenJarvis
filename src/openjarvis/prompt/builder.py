@@ -17,6 +17,9 @@ class SystemPromptBuilder:
         skill_index: Optional[List[Tuple[str, str]]] = None,
         session_context: Optional[str] = None,
         previous_state: Optional[str] = None,
+        skill_catalog_xml: Optional[str] = None,
+        skill_few_shot: Optional[List[str]] = None,
+        skill_few_shot_examples: Optional[List[str]] = None,
     ) -> None:
         self._agent_template = agent_template
         self._mf_config = memory_files_config or MemoryFilesConfig()
@@ -24,6 +27,12 @@ class SystemPromptBuilder:
         self._skill_index = skill_index or []
         self._session_context = session_context
         self._previous_state = previous_state
+        self._skill_catalog_xml = skill_catalog_xml
+        # Allow either name; skill_few_shot_examples is the Plan 2A canonical name.
+        if skill_few_shot_examples is not None:
+            self._skill_few_shot = list(skill_few_shot_examples)
+        else:
+            self._skill_few_shot = list(skill_few_shot or [])
         self._frozen_prefix: Optional[str] = None
 
     def build(self) -> str:
@@ -57,7 +66,10 @@ class SystemPromptBuilder:
         )
         if user:
             sections.append(f"## User Profile\n\n{user}")
-        if self._skill_index:
+        # XML skill catalog (preferred over legacy markdown list)
+        if self._skill_catalog_xml:
+            sections.append("## Available Skills\n\n" + self._skill_catalog_xml)
+        elif self._skill_index:
             skill_lines = []
             for name, desc in self._skill_index:
                 truncated = desc[: self._sp_config.skill_desc_max_chars]
@@ -65,6 +77,9 @@ class SystemPromptBuilder:
                     truncated = truncated[:-3] + "..."
                 skill_lines.append(f"- **{name}**: {truncated}")
             sections.append("## Available Skills\n\n" + "\n".join(skill_lines))
+        if self._skill_few_shot:
+            examples = "\n\n".join(self._skill_few_shot)
+            sections.append("## Skill Examples\n\n" + examples)
         return "\n\n".join(sections)
 
     def _load_file(self, path_str: str, max_chars: int) -> str:

@@ -33,7 +33,13 @@ logger = logging.getLogger(__name__)
 
 
 def _get_memory_backend(config):
-    """Try to instantiate the memory backend, return None on failure."""
+    """Try to instantiate the memory backend.
+
+    Returns None on failure and logs at DEBUG. Callers that *require*
+    the backend (e.g. when a memory tool is being instantiated) should
+    warn loudly themselves — silent failure of an explicitly-requested
+    tool is the hallucination vector.
+    """
     try:
         import openjarvis.tools.storage  # noqa: F401
         from openjarvis.core.registry import MemoryRegistry
@@ -50,20 +56,38 @@ def _get_memory_backend(config):
         else:
             backend = MemoryRegistry.create(key)
 
-        # Check if there's actually anything indexed
-        if hasattr(backend, "count") and backend.count() == 0:
-            if hasattr(backend, "close"):
-                backend.close()
-            return None
-
         return backend
     except Exception as exc:
         logger.debug("Memory backend unavailable (optional): %s", exc)
         return None
 
 
-def _build_tools(tool_names: list[str], config, engine, model_name: str):
-    """Instantiate tool objects from names."""
+_MEMORY_TOOLS = frozenset(
+    {"retrieval", "memory_store", "memory_search", "memory_index", "memory_retrieve"}
+)
+_CHANNEL_TOOLS = frozenset({"channel_send", "channel_list", "channel_status"})
+
+
+def _build_tools(
+    tool_names: list[str],
+    config,
+    engine,
+    model_name: str,
+    *,
+    channel=None,
+):
+    """Instantiate tool objects from names.
+
+    ``channel`` is an optional :class:`BaseChannel` used by ``channel_*``
+    tools. Threading it through here mirrors how memory backends are
+    injected; without it, channel tools have no backend and fail at
+    runtime.
+
+    Emits a WARNING when a memory tool is requested but no backend is
+    available, and when a channel tool is requested but no channel is
+    provided — these are the failure modes that silently cascade into
+    hallucinated or dropped replies downstream.
+    """
     from openjarvis.core.registry import ToolRegistry
 
     tools = []
@@ -75,9 +99,27 @@ def _build_tools(tool_names: list[str], config, engine, model_name: str):
             continue
         tool_cls = ToolRegistry.get(name)
         # Instantiate with appropriate arguments
-        if name == "retrieval":
+        if name in _MEMORY_TOOLS:
             backend = _get_memory_backend(config)
+            if backend is None:
+                logger.warning(
+                    "Tool %r was requested but no memory backend is "
+                    "available (default=%r). The tool will load but "
+                    "return no results — downstream agents may answer "
+                    "without grounding.",
+                    name,
+                    getattr(config.memory, "default_backend", "?"),
+                )
             tools.append(tool_cls(backend=backend))
+        elif name in _CHANNEL_TOOLS:
+            if channel is None:
+                logger.warning(
+                    "Tool %r was requested but no channel was injected. "
+                    "The tool will load but every call will fail with "
+                    "'No channel backend configured'.",
+                    name,
+                )
+            tools.append(tool_cls(channel=channel))
         elif name == "llm":
             tools.append(tool_cls(engine=engine, model=model_name))
         elif name == "file_read":

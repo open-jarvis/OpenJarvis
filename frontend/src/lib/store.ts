@@ -13,6 +13,13 @@ import type {
 } from '../types';
 import type { ManagedAgent } from './api';
 
+export interface CachedConnector {
+  connector_id: string;
+  display_name: string;
+  connected: boolean;
+  chunks: number;
+}
+
 export interface AgentEvent {
   type: string;
   timestamp: number;
@@ -171,6 +178,10 @@ interface AppState {
   setSidebarOpen: (open: boolean) => void;
   toggleSystemPanel: () => void;
   setSystemPanelOpen: (open: boolean) => void;
+
+  // Data sources (cached between visits to avoid empty-state flicker)
+  cachedConnectors: CachedConnector[] | null;
+  setCachedConnectors: (list: CachedConnector[] | null) => void;
 
   // Agents
   managedAgents: ManagedAgent[];
@@ -402,6 +413,9 @@ export const useAppStore = create<AppState>((set, get) => {
     setSelectedModel: (model: string) => set({ selectedModel: model }),
     setServerInfo: (info: ServerInfo | null) => set({ serverInfo: info }),
     setSavings: (data: SavingsData | null) => set({ savings: data }),
+
+    cachedConnectors: null,
+    setCachedConnectors: (list) => set({ cachedConnectors: list }),
 
     // ── Settings ───────────────────────────────────────────────────
 

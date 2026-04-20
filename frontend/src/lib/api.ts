@@ -344,6 +344,14 @@ export interface AgentTemplate {
   [key: string]: unknown;
 }
 
+export interface PersistedToolCall {
+  tool: string;
+  arguments: string;
+  result?: string;
+  success?: boolean;
+  latency?: number;
+}
+
 export interface AgentMessage {
   id: string;
   agent_id: string;
@@ -352,6 +360,7 @@ export interface AgentMessage {
   mode: 'immediate' | 'queued';
   status: 'pending' | 'delivered' | 'responded';
   created_at: number;
+  tool_calls?: PersistedToolCall[] | null;
 }
 
 export async function fetchManagedAgents(): Promise<ManagedAgent[]> {
@@ -570,6 +579,18 @@ export async function fetchAgentState(agentId: string): Promise<{
   return res.json();
 }
 
+export interface AgentToolCallStart {
+  tool: string;
+  arguments: string;
+}
+
+export interface AgentToolCallEnd {
+  tool: string;
+  success: boolean;
+  latency: number;
+  result?: string;
+}
+
 export async function sendAgentMessage(
   agentId: string,
   content: string,
@@ -577,6 +598,8 @@ export async function sendAgentMessage(
   callbacks?: {
     onProgress?: (label: string) => void;
     onContentDelta?: (delta: string, fullContent: string) => void;
+    onToolCallStart?: (info: AgentToolCallStart) => void;
+    onToolCallEnd?: (info: AgentToolCallEnd) => void;
     onDone?: (fullContent: string, usage?: Record<string, number>, telemetry?: Record<string, unknown>) => void;
   },
 ): Promise<AgentMessage> {
@@ -596,6 +619,7 @@ export async function sendAgentMessage(
     let buffer = '';
     let lastUsage: Record<string, number> | undefined;
     let lastTelemetry: Record<string, unknown> | undefined;
+    let currentEvent: string | undefined;
     try {
       while (true) {
         const { done, value } = await reader.read();
@@ -604,10 +628,52 @@ export async function sendAgentMessage(
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
         for (const line of lines) {
-          if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
+          if (line.startsWith('event: ')) {
+            currentEvent = line.slice(7).trim();
+            continue;
+          }
+          if (!line.startsWith('data: ')) {
+            if (line.trim() === '') currentEvent = undefined;
+            continue;
+          }
+          const data = line.slice(6);
+          if (data === '[DONE]') {
+            currentEvent = undefined;
+            continue;
+          }
+          const evName = currentEvent;
+          currentEvent = undefined;
+
+          if (evName === 'tool_call_start') {
+            try {
+              const parsed = JSON.parse(data);
+              callbacks?.onToolCallStart?.({
+                tool: parsed.tool,
+                arguments: parsed.arguments ?? '',
+              });
+            } catch {
+              /* skip */
+            }
+            continue;
+          }
+          if (evName === 'tool_call_end') {
+            try {
+              const parsed = JSON.parse(data);
+              callbacks?.onToolCallEnd?.({
+                tool: parsed.tool,
+                success: !!parsed.success,
+                latency: typeof parsed.latency === 'number' ? parsed.latency : 0,
+                result: parsed.result,
+              });
+            } catch {
+              /* skip */
+            }
+            continue;
+          }
+
           try {
-            const chunk = JSON.parse(line.slice(6));
-            // Check for tool progress events
+            const chunk = JSON.parse(data);
+            // Deep-research branch still uses tool_progress in a data chunk
             const toolProgress = chunk.choices?.[0]?.tool_progress;
             if (toolProgress) {
               callbacks?.onProgress?.(toolProgress);
@@ -617,10 +683,11 @@ export async function sendAgentMessage(
               fullContent += delta;
               callbacks?.onContentDelta?.(delta, fullContent);
             }
-            // Capture usage + telemetry from final chunk
             if (chunk.usage) lastUsage = chunk.usage;
             if (chunk.telemetry) lastTelemetry = chunk.telemetry;
-          } catch { /* skip malformed chunks */ }
+          } catch {
+            /* skip malformed chunks */
+          }
         }
       }
     } catch { /* stream ended */ }
@@ -783,4 +850,70 @@ export async function submitSavings(data: SavingsSubmission): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Memory
+// ---------------------------------------------------------------------------
+
+export interface MemorySearchResult {
+  content: string;
+  score: number;
+  metadata: Record<string, unknown>;
+}
+
+export interface MemoryStats {
+  entries: number;
+  backend: string;
+  [key: string]: unknown;
+}
+
+export interface MemoryConfig {
+  backend: string;
+  context_from_memory: boolean;
+  context_top_k: number;
+  context_min_score: number;
+  context_max_tokens: number;
+}
+
+export async function getMemoryStats(): Promise<MemoryStats> {
+  const res = await fetch(`${getBase()}/v1/memory/stats`);
+  if (!res.ok) throw new Error('Failed to fetch memory stats');
+  return res.json();
+}
+
+export async function searchMemory(query: string, topK: number = 5): Promise<MemorySearchResult[]> {
+  const res = await fetch(`${getBase()}/v1/memory/search`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, top_k: topK }),
+  });
+  if (!res.ok) throw new Error('Failed to search memory');
+  const data = await res.json();
+  return data.results;
+}
+
+export async function storeMemory(content: string, metadata?: Record<string, unknown>): Promise<void> {
+  const res = await fetch(`${getBase()}/v1/memory/store`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content, metadata }),
+  });
+  if (!res.ok) throw new Error('Failed to store memory');
+}
+
+export async function indexMemoryPath(path: string): Promise<{ chunks_indexed: number }> {
+  const res = await fetch(`${getBase()}/v1/memory/index`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  });
+  if (!res.ok) throw new Error('Failed to index path');
+  return res.json();
+}
+
+export async function getMemoryConfig(): Promise<MemoryConfig> {
+  const res = await fetch(`${getBase()}/v1/memory/config`);
+  if (!res.ok) throw new Error('Failed to fetch memory config');
+  return res.json();
 }

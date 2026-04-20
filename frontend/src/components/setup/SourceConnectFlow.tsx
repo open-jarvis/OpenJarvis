@@ -56,7 +56,7 @@ function SidebarItem({
         ) : state === 'skipped' ? (
           <SkipForward size={16} style={{ color: 'var(--color-text-tertiary)' }} />
         ) : state === 'error' ? (
-          <Circle size={16} style={{ color: '#ef4444' }} />
+          <Circle size={16} style={{ color: 'var(--color-error)' }} />
         ) : (
           <Circle size={16} style={{ color: 'var(--color-text-tertiary)' }} />
         )}
@@ -198,7 +198,7 @@ function OAuthPanel({
           className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium self-start transition-all"
           style={{
             background: 'var(--color-accent)',
-            color: 'white',
+            color: 'var(--color-on-accent)',
           }}
         >
           <ExternalLink size={14} />
@@ -249,7 +249,7 @@ function LocalPanel({
         className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium self-start transition-all"
         style={{
           background: 'var(--color-accent)',
-          color: 'white',
+          color: 'var(--color-on-accent)',
           cursor: isConnecting ? 'not-allowed' : 'pointer',
           opacity: isConnecting ? 0.7 : 1,
         }}
@@ -342,7 +342,7 @@ function StepByStepPanel({
           }}
         >
           <div style={{
-            color: '#7c3aed', fontSize: 11,
+            color: 'var(--color-accent-purple)', fontSize: 11,
             fontWeight: 600, marginBottom: 4,
           }}>
             STEP {i + 1}
@@ -359,7 +359,7 @@ function StepByStepPanel({
               target="_blank"
               rel="noopener noreferrer"
               style={{
-                color: '#60a5fa', fontSize: 12,
+                color: 'var(--color-accent)', fontSize: 12,
                 textDecoration: 'underline',
               }}
             >
@@ -414,8 +414,8 @@ function StepByStepPanel({
           style={{
             flex: 1, padding: 10,
             background: isConnecting || (fields.length > 0 && !allFilled)
-              ? '#444' : '#7c3aed',
-            color: 'white', border: 'none',
+              ? 'var(--color-disabled-bg)' : 'var(--color-accent-purple)',
+            color: 'var(--color-on-accent)', border: 'none',
             borderRadius: 6, fontSize: 13,
             cursor: 'pointer',
           }}
@@ -531,9 +531,9 @@ export function SourceConnectFlow({
                 <div
                   className="mt-3 px-4 py-3 rounded-lg text-sm"
                   style={{
-                    background: 'rgba(239,68,68,0.1)',
-                    border: '1px solid rgba(239,68,68,0.2)',
-                    color: '#ef4444',
+                    background: 'color-mix(in srgb, var(--color-error) 10%, transparent)',
+                    border: '1px solid color-mix(in srgb, var(--color-error) 20%, transparent)',
+                    color: 'var(--color-error)',
                   }}
                 >
                   {activeEntry.error}
@@ -593,7 +593,7 @@ export function SourceConnectFlow({
             <button
               onClick={onComplete}
               className="w-full py-3 px-4 rounded-xl font-semibold text-sm transition-all"
-              style={{ background: 'var(--color-accent)', color: 'white' }}
+              style={{ background: 'var(--color-accent)', color: 'var(--color-on-accent)' }}
             >
               Continue →
             </button>

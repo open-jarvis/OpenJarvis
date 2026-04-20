@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import textwrap
 import threading
 from typing import Any, Dict, List, Optional
 
@@ -109,25 +110,33 @@ class TelegramChannel(BaseChannel):
         try:
             import httpx
 
+            _TELEGRAM_MAX_LEN = 4096
             url = f"https://api.telegram.org/bot{self._token}/sendMessage"
             chat_id = conversation_id or channel
-            payload: Dict[str, Any] = {
-                "chat_id": chat_id,
-                "text": content,
-            }
-            if self._parse_mode:
-                payload["parse_mode"] = self._parse_mode
-
-            resp = httpx.post(url, json=payload, timeout=10.0)
-            if resp.status_code < 300:
-                self._publish_sent(channel, content, conversation_id)
-                return True
-            logger.warning(
-                "Telegram API returned status %d: %s",
-                resp.status_code,
-                resp.text,
+            chunks = textwrap.wrap(
+                content,
+                width=_TELEGRAM_MAX_LEN,
+                break_long_words=True,
+                replace_whitespace=False,
             )
-            return False
+            for chunk in chunks:
+                payload: Dict[str, Any] = {
+                    "chat_id": chat_id,
+                    "text": chunk,
+                }
+                if self._parse_mode:
+                    payload["parse_mode"] = self._parse_mode
+
+                resp = httpx.post(url, json=payload, timeout=10.0)
+                if resp.status_code >= 300:
+                    logger.warning(
+                        "Telegram API returned status %d: %s",
+                        resp.status_code,
+                        resp.text,
+                    )
+                    return False
+            self._publish_sent(channel, content, conversation_id)
+            return True
         except Exception:
             logger.debug("Telegram send failed", exc_info=True)
             return False
