@@ -182,6 +182,47 @@ class TestInjectionDetector:
         assert twitter_bot._detect_injection("unused", j) == "SAFE"
 
 
+class TestSinceIdPersistence:
+    """`_load_persisted_since_id` / `_save_persisted_since_id`."""
+
+    def test_roundtrip(self, tmp_path):
+        path = tmp_path / "since.txt"
+        assert twitter_bot._load_persisted_since_id(path) is None
+        twitter_bot._save_persisted_since_id("2046324801535664229", path=path)
+        assert twitter_bot._load_persisted_since_id(path) == "2046324801535664229"
+
+    def test_only_overwrites_with_higher_id(self, tmp_path):
+        """Out-of-order mentions (retweets/quotes with smaller ids) must
+        not regress the saved watermark."""
+        path = tmp_path / "since.txt"
+        twitter_bot._save_persisted_since_id("200", path=path)
+        twitter_bot._save_persisted_since_id("100", path=path)   # smaller → ignored
+        twitter_bot._save_persisted_since_id("150", path=path)   # smaller → ignored
+        assert twitter_bot._load_persisted_since_id(path) == "200"
+        twitter_bot._save_persisted_since_id("300", path=path)   # bigger → wins
+        assert twitter_bot._load_persisted_since_id(path) == "300"
+
+    def test_non_numeric_ignored(self, tmp_path):
+        path = tmp_path / "since.txt"
+        twitter_bot._save_persisted_since_id("not-a-number", path=path)
+        assert not path.exists()
+        twitter_bot._save_persisted_since_id("", path=path)
+        assert not path.exists()
+
+    def test_load_returns_none_for_garbage_file(self, tmp_path):
+        path = tmp_path / "since.txt"
+        path.write_text("not a number\n", encoding="utf-8")
+        assert twitter_bot._load_persisted_since_id(path) is None
+
+    def test_save_failure_does_not_raise(self, tmp_path):
+        """Disk full / permission errors must not kill the bot loop."""
+        bogus_parent = tmp_path / "blocker"
+        bogus_parent.write_text("i am a file, not a dir")
+        bogus_path = bogus_parent / "nested" / "since.txt"
+        # Must not raise
+        twitter_bot._save_persisted_since_id("123", path=bogus_path)
+
+
 class TestInjectionLog:
     """`_log_injection_attempt` — JSONL append-only."""
 

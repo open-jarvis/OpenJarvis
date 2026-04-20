@@ -648,27 +648,90 @@ def _index_docs(j) -> None:  # noqa: ANN001
     click.echo("Indexing complete.\n")
 
 
+# ---------------------------------------------------------------------------
+# Persistent `since_id` state
+# ---------------------------------------------------------------------------
+#
+# Across bot restarts we remember the id of the last mention we handled so
+# we never reply twice or file a duplicate GitHub issue. Without this, the
+# `newest - 1` seed (needed to catch mid-restart mentions) causes the most
+# recent mention to be re-processed on every boot. Twitter's own
+# duplicate-content filter blocks identical reply text, but there's no
+# equivalent for GitHub issues — that's the real motivation here.
+#
+# State file format: a single line with the numeric since_id. Atomic-writes
+# via tmp+rename so a crashed write can't corrupt the file.
+
+_SINCE_ID_STATE_PATH = Path.home() / ".openjarvis" / "twitter_since_id.txt"
+
+
+def _load_persisted_since_id(
+    path: Path = _SINCE_ID_STATE_PATH,
+) -> Optional[str]:
+    """Return the saved since_id string, or None if nothing valid is stored."""
+    try:
+        if not path.exists():
+            return None
+        value = path.read_text(encoding="utf-8").strip()
+    except Exception as exc:
+        click.echo(
+            f"     could not load since_id from {path}: {exc}",
+            err=True,
+        )
+        return None
+    return value if value and value.isdigit() else None
+
+
+def _save_persisted_since_id(
+    value: str,
+    *,
+    path: Path = _SINCE_ID_STATE_PATH,
+) -> None:
+    """Atomically write *value* to *path*, but only if it beats the
+    currently-stored value (mentions can come in out of numeric order
+    via retweets/quote-tweets, so we keep the max we've ever seen)."""
+    if not value or not str(value).isdigit():
+        return
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        current = _load_persisted_since_id(path)
+        if current and int(value) <= int(current):
+            return  # already have >= this id on disk
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(str(value), encoding="utf-8")
+        tmp.replace(path)
+    except Exception as exc:
+        click.echo(
+            f"     could not save since_id to {path}: {exc}",
+            err=True,
+        )
+
+
 def _seed_since_id_to_newest(channel) -> Optional[str]:
-    """Fetch the current newest mention and set ``_since_id`` so that
-    the subsequent poll includes everything from the current newest
-    onward.
+    """Initialize the channel's ``_since_id`` for the first poll.
 
-    Twitter's ``since_id`` is a strict ``>`` filter. Seeding to the
-    newest id exactly would skip the very tweet we seeded on — if a
-    mention arrives between bot-stop and bot-start, it becomes the
-    "newest at boot" and gets excluded. Seeding to ``newest - 1``
-    keeps the newest in the first poll's results.
+    Preference order:
 
-    Trade-off: if the bot had already replied to this mention before a
-    restart, it gets re-processed (duplicate reply/issue). For this
-    project that's acceptable — the bot is almost always DOWN (not
-    mid-work) during restart windows, and the alternative of skipping
-    fresh mentions is worse.
+    1. **Persisted state from a prior run** (``~/.openjarvis/twitter_since_id.txt``).
+       If present, seeds to that value directly. Twitter's ``since_id`` is
+       a strict ``>`` filter, so the last-seen tweet is correctly excluded
+       on the next poll — no duplicate replies, no duplicate GitHub issues.
 
-    Returns the *original* newest id (before decrement) for logging,
-    or ``None`` if the inbox is empty / call failed.
+    2. **First-ever boot** — no persisted state. Fall back to probing the
+       inbox and seeding to ``newest - 1`` so the current newest mention
+       IS included in the first poll. The alternative (seeding to
+       ``newest``) would silently skip any mention that arrived between
+       bot-stop and bot-start.
+
+    Returns the seeded value for logging, or ``None`` if we couldn't
+    determine one (empty inbox, failed API call, no persisted state).
     """
     import httpx
+
+    persisted = _load_persisted_since_id()
+    if persisted:
+        channel._since_id = persisted
+        return persisted
 
     try:
         resp = httpx.get(
@@ -842,12 +905,16 @@ def _run_live(
         click.echo("=" * 60)
         click.echo(f"[📨] mention {msg.message_id} from @{msg.sender}: {msg.content}")
 
+        # Persist progress FIRST — before any reply/issue write. Whether we
+        # succeed, fail, reject as injection, or ignore as spam, this
+        # mention is done for good. Marking it now guarantees a crash
+        # mid-reply doesn't cause us to re-process the tweet on restart.
+        # _save_persisted_since_id is a no-op if we already have a
+        # higher id on disk, so out-of-order mentions don't regress state.
+        _save_persisted_since_id(msg.message_id)
+
         # Defense-in-depth: reject prompt-injection attempts before the
-        # classifier or any tool call sees the text. since_id has
-        # already been advanced by the poll loop by the time this
-        # handler runs for the *next* mention, so returning early here
-        # simply drops the tweet — no reply, no classification, no
-        # write-path activation. Attempt is logged for later analysis.
+        # classifier or any tool call sees the text.
         if _detect_injection(msg.content, jarvis=j) == "MALICIOUS":
             click.echo(
                 "     [injection attempt detected — skipping reply]",
