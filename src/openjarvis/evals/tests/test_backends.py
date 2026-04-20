@@ -137,3 +137,61 @@ class TestJarvisAgentBackend:
         assert result["content"] == "The answer is 4."
         assert result["turns"] == 2
         assert len(result["tool_results"]) == 1
+
+    @patch("openjarvis.system.SystemBuilder")
+    def test_output_dir_isolates_sqlite_dbs(self, mock_builder_cls, tmp_path):
+        """When output_dir is set, traces.db and agents.db must live inside
+        it instead of the global ~/.openjarvis location. This is what stops
+        parallel eval processes from corrupting each other's DBs."""
+        from openjarvis.core.config import JarvisConfig
+
+        config = JarvisConfig()
+        original_traces_db = config.traces.db_path
+        original_agents_db = config.agent_manager.db_path
+
+        mock_builder = MagicMock()
+        mock_builder._config = config
+        mock_builder.engine.return_value = mock_builder
+        mock_builder.agent.return_value = mock_builder
+        mock_builder.tools.return_value = mock_builder
+        mock_builder.telemetry.return_value = mock_builder
+        mock_builder.traces.return_value = mock_builder
+        mock_builder.build.return_value = MagicMock()
+        mock_builder_cls.return_value = mock_builder
+
+        from openjarvis.evals.backends.jarvis_agent import JarvisAgentBackend
+
+        out = tmp_path / "qwen-9b" / "gaia"
+        JarvisAgentBackend(agent_name="orchestrator", output_dir=out)
+
+        assert config.traces.db_path == str(out / "traces.db")
+        assert config.agent_manager.db_path == str(out / "agents.db")
+        assert out.exists()
+        assert config.traces.db_path != original_traces_db
+        assert config.agent_manager.db_path != original_agents_db
+
+    @patch("openjarvis.system.SystemBuilder")
+    def test_no_output_dir_keeps_global_db_paths(self, mock_builder_cls):
+        """Production callers (no output_dir) must keep ~/.openjarvis paths."""
+        from openjarvis.core.config import JarvisConfig
+
+        config = JarvisConfig()
+        original_traces_db = config.traces.db_path
+        original_agents_db = config.agent_manager.db_path
+
+        mock_builder = MagicMock()
+        mock_builder._config = config
+        mock_builder.engine.return_value = mock_builder
+        mock_builder.agent.return_value = mock_builder
+        mock_builder.tools.return_value = mock_builder
+        mock_builder.telemetry.return_value = mock_builder
+        mock_builder.traces.return_value = mock_builder
+        mock_builder.build.return_value = MagicMock()
+        mock_builder_cls.return_value = mock_builder
+
+        from openjarvis.evals.backends.jarvis_agent import JarvisAgentBackend
+
+        JarvisAgentBackend(agent_name="orchestrator")
+
+        assert config.traces.db_path == original_traces_db
+        assert config.agent_manager.db_path == original_agents_db

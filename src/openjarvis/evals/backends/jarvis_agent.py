@@ -29,6 +29,7 @@ class JarvisAgentBackend(InferenceBackend):
         max_turns: Optional[int] = None,
         skills_enabled: bool = True,
         overlay_dir: Optional[Path] = None,
+        output_dir: Optional[Path] = None,
     ) -> None:
         from openjarvis.system import SystemBuilder
 
@@ -60,6 +61,17 @@ class JarvisAgentBackend(InferenceBackend):
         builder._config.skills.enabled = skills_enabled
         if overlay_dir is not None:
             builder._config.learning.skills.overlay_dir = str(overlay_dir)
+        # Eval-only DB isolation: when output_dir is given, point the trace
+        # and agents SQLite DBs into that folder instead of the global
+        # ~/.openjarvis location. Production code paths build SystemBuilder
+        # without output_dir and keep the shared default. This stops parallel
+        # eval runs from corrupting each other's traces.db ("database disk
+        # image is malformed").
+        if output_dir is not None:
+            output_dir = Path(output_dir)
+            output_dir.mkdir(parents=True, exist_ok=True)
+            builder._config.traces.db_path = str(output_dir / "traces.db")
+            builder._config.agent_manager.db_path = str(output_dir / "agents.db")
         self._system = builder.telemetry(telemetry).traces(True).build()
 
     def generate(

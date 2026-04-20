@@ -174,6 +174,7 @@ def _build_backend(
     gpu_metrics: bool = False,
     model: Optional[str] = None,
     max_turns: Optional[int] = None,
+    output_dir: Optional[Path] = None,
 ):
     """Construct the appropriate backend."""
     if backend_name == "jarvis-agent":
@@ -187,6 +188,7 @@ def _build_backend(
             gpu_metrics=gpu_metrics,
             model=model,
             max_turns=max_turns,
+            output_dir=output_dir,
         )
     else:
         from openjarvis.evals.backends.jarvis_direct import JarvisDirectBackend
@@ -665,6 +667,17 @@ def _run_single(config, console: Optional[Console] = None) -> object:
     if config.benchmark == "terminalbench-native":
         return _run_terminalbench_native(config, console)
 
+    # Per-eval DB isolation for the agent backend: drop traces.db / agents.db
+    # next to the run's JSONL output instead of the global ~/.openjarvis copy,
+    # so parallel eval processes can't corrupt each other's SQLite files.
+    eval_output_dir: Optional[Path] = None
+    if config.backend == "jarvis-agent":
+        if config.output_path:
+            eval_output_dir = Path(config.output_path).parent
+        else:
+            model_slug = config.model.replace("/", "-").replace(":", "-")
+            eval_output_dir = Path("results") / f"{config.benchmark}_{model_slug}"
+
     eval_backend = _build_backend(
         config.backend,
         config.engine_key,
@@ -674,6 +687,7 @@ def _run_single(config, console: Optional[Console] = None) -> object:
         gpu_metrics=getattr(config, "gpu_metrics", False),
         model=config.model,
         max_turns=getattr(config, "max_turns", None),
+        output_dir=eval_output_dir,
     )
     dataset = _build_dataset(config.benchmark)
     # Inject engine config for benchmarks that run their own simulation
@@ -781,6 +795,17 @@ def _run_agentic(
                 "Fix the issues above and retry."
             )
 
+    # Set up run directory FIRST so we can route the agent's SQLite DBs
+    # (traces.db, agents.db) into it — otherwise every parallel eval shares
+    # ~/.openjarvis/traces.db and corrupts it.
+    model_slug = config.model.replace("/", "-").replace(":", "-")
+    if config.output_path:
+        run_dir = _Path(config.output_path).parent
+    else:
+        run_dir = _Path("results")
+    run_dir = run_dir / f"agentic_{config.benchmark}_{model_slug}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
     # Build agent via SystemBuilder
     from openjarvis.system import SystemBuilder
 
@@ -793,6 +818,10 @@ def _run_agentic(
     tool_list = config.tools or []
     if tool_list:
         builder.tools(tool_list)
+    # Eval-only DB isolation (mirrors JarvisAgentBackend); production
+    # SystemBuilder callers do not touch these paths.
+    builder._config.traces.db_path = str(run_dir / "traces.db")
+    builder._config.agent_manager.db_path = str(run_dir / "agents.db")
     system = builder.telemetry(config.telemetry).traces(config.telemetry).build()
 
     # Build TelemetrySession (optional — only if energy monitoring available)
@@ -809,15 +838,6 @@ def _run_agentic(
             )
     except ImportError:
         pass
-
-    # Set up run directory
-    model_slug = config.model.replace("/", "-").replace(":", "-")
-    if config.output_path:
-        run_dir = _Path(config.output_path).parent
-    else:
-        run_dir = _Path("results")
-    run_dir = run_dir / f"agentic_{config.benchmark}_{model_slug}"
-    run_dir.mkdir(parents=True, exist_ok=True)
 
     # Build runner
     event_recorder = EventRecorder()
