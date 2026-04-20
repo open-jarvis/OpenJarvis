@@ -68,18 +68,14 @@ check_prereqs() {
         warn "GOOGLE_API_KEY not set — Gemini teacher experiments will fail"
     fi
 
-    # Check Ollama
-    if ! ollama list &>/dev/null; then
-        fail "Ollama not running. Start it first."
+    # Check student vLLM endpoint (VLLMStudentRunner, default localhost:8001).
+    # The old Ollama check here was dead — students run on vLLM now.
+    local vllm_host="${VLLM_HOST:-http://localhost:8001}"
+    if ! curl -fsS --max-time 3 "${vllm_host}/v1/models" >/dev/null 2>&1; then
+        fail "Student vLLM not reachable at ${vllm_host}. Start it first or set VLLM_HOST."
         exit 1
     fi
-
-    # Check student models
-    for model in qwen3.5:2b qwen3.5:9b qwen3.5:27b; do
-        if ! ollama list 2>/dev/null | grep -q "$model"; then
-            warn "Model $model not found in Ollama. Pull with: ollama pull $model"
-        fi
-    done
+    log "Student vLLM reachable at ${vllm_host}"
 
     # Check distillation init
     local oj_home="${OPENJARVIS_HOME:-$HOME/.openjarvis}"
