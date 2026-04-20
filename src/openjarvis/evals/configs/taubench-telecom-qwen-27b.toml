@@ -13,7 +13,7 @@ temperature = 0.0
 engine = "cloud"
 
 [run]
-max_workers = 8
+max_workers = 1
 output_dir = "results/neurips-2026/baselines/qwen-27b/taubench-telecom/"
 seed = 42
 
@@ -25,4 +25,5 @@ num_gpus = 4
 [[benchmarks]]
 name = "taubench"
 backend = "jarvis-direct"
+max_samples = 20
 split = "telecom"
