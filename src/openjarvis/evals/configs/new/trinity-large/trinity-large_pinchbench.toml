@@ -14,6 +14,7 @@ temperature = 0.0
 engine = "cloud"
 
 [run]
+trace_detail = true
 max_workers = 1
 output_dir = "/tmp/results/trinity-large/"
 seed = 42

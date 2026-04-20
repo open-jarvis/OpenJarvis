@@ -15,6 +15,7 @@ max_tokens = 16384
 engine = "cloud"
 
 [run]
+trace_detail = true
 max_workers = 1
 output_dir = "/tmp/results/lfm-12b/"
 seed = 42
