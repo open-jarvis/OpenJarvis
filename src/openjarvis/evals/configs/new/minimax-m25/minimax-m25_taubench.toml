@@ -34,3 +34,4 @@ active_params_b = 10.0
 name = "taubench"
 backend = "jarvis-direct"
 split = "airline,retail"
+max_turns = 30

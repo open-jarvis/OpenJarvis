@@ -1,12 +1,12 @@
-# pinchbench evaluation for gemma4-e4b
+# pinchbench evaluation for kimi-k25
 
 [meta]
-name = "pinchbench-gemma4-e4b-pod"
-description = "pinchbench on google/gemma-4-E4B-it (pod evaluation)"
+name = "pinchbench-kimi-k25-pod"
+description = "pinchbench on moonshotai/Kimi-K2.5 (pod evaluation)"
 
 [defaults]
 temperature = 0.6
-max_tokens = 16384
+max_tokens = 4096
 
 [judge]
 model = "claude-opus-4-5"
@@ -16,19 +16,20 @@ engine = "cloud"
 [run]
 trace_detail = true
 max_workers = 1
-output_dir = "/tmp/results/gemma4-e4b/"
+output_dir = "/tmp/results/kimi-k25/"
 seed = 42
+
 telemetry = true
 gpu_metrics = true
-
 [engine.vllm]
-host = "http://localhost:8008"
+host = "http://localhost:8000"
 
 [[models]]
-name = "google/gemma-4-E4B-it"
+name = "moonshotai/Kimi-K2.5"
 engine = "vllm"
 
-param_count_b = 8.0
+param_count_b = 1000.0
+active_params_b = 32.0
 [[benchmarks]]
 name = "pinchbench"
 backend = "jarvis-agent"

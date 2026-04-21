@@ -33,3 +33,4 @@ active_params_b = 3.6
 [[benchmarks]]
 name = "livecodebench"
 backend = "jarvis-direct"
+max_turns = 30

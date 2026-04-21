@@ -32,3 +32,4 @@ param_count_b = 2.0
 [[benchmarks]]
 name = "livecodebench"
 backend = "jarvis-direct"
+max_turns = 30

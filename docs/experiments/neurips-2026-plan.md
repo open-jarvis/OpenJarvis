@@ -177,24 +177,27 @@ Key comparisons:
   - [x] GAIA
   - [ ] TerminalBench
   - [x] ToolCall-15
-  - [ ] LiveCodeBench
-  - [ ] LiveResearchBench
+  - [x] LiveCodeBench
+  - [x] LiveResearchBench
+  - [x] DeepResearch
 - [ ] Qwen-27B
   - [x] PinchBench
   - [x] TauBench
   - [x] GAIA
   - [ ] TerminalBench
   - [x] ToolCall-15
-  - [ ] LiveCodeBench
+  - [x] LiveCodeBench
   - [ ] LiveResearchBench
+  - [ ] DeepResearch
 - [ ] Qwen-9B 
   - [x] PinchBench
   - [x] TauBench
   - [x] GAIA
   - [ ] TerminalBench
   - [x] ToolCall-15
-  - [ ] LiveCodeBench
+  - [x] LiveCodeBench
   - [ ] LiveResearchBench
+  - [x] DeepResearch
 - [ ] Qwen-2B
   - [x] PinchBench
   - [x] TauBench
@@ -203,6 +206,7 @@ Key comparisons:
   - [x] ToolCall-15
   - [x] LiveCodeBench
   - [x] LiveResearchBench
+  - [x] DeepResearch
 - [ ] Qwen-4B
   - [ ] PinchBench
   - [ ] TauBench
@@ -211,30 +215,34 @@ Key comparisons:
   - [ ] ToolCall-15
   - [ ] LiveCodeBench
   - [ ] LiveResearchBench
+  - [ ] DeepResearch
 - [ ] Trinity-Large
-  - [ ] PinchBench
-  - [ ] TauBench
-  - [ ] GAIA
+  - [x] PinchBench
+  - [x] TauBench
+  - [x] GAIA
   - [ ] TerminalBench
-  - [ ] ToolCall-15
-  - [ ] LiveCodeBench
-  - [ ] LiveResearchBench
+  - [x] ToolCall-15
+  - [x] LiveCodeBench
+  - [x] LiveResearchBench
+  - [x] DeepResearch
 - [ ] Nemotron-Nano-30B
   - [x] PinchBench
   - [x] TauBench
   - [x] GAIA
   - [ ] TerminalBench
   - [x] ToolCall-15
-  - [ ] LiveCodeBench
+  - [x] LiveCodeBench
   - [x] LiveResearchBench
+  - [x] DeepResearch
 - [ ] Nemotron-Nano-4B-FP8
   - [x] PinchBench
   - [x] TauBench
   - [x] GAIA
   - [ ] TerminalBench
   - [x] ToolCall-15
-  - [ ] LiveCodeBench
+  - [x] LiveCodeBench
   - [x] LiveResearchBench
+  - [x] DeepResearch
 - [ ] Kimi-K2.5
   - [ ] PinchBench
   - [ ] TauBench
@@ -243,30 +251,34 @@ Key comparisons:
   - [ ] ToolCall-15
   - [ ] LiveCodeBench
   - [ ] LiveResearchBench
+  - [ ] DeepResearch
 - [ ] MiniMax-M2.5
   - [x] PinchBench
   - [x] TauBench
-  - [ ] GAIA
+  - [x] GAIA
   - [ ] TerminalBench
   - [x] ToolCall-15
-  - [ ] LiveCodeBench
+  - [x] LiveCodeBench
   - [x] LiveResearchBench
+  - [x] DeepResearch
 - [ ] LFM-1.2B
-  - [ ] PinchBench
-  - [ ] TauBench
-  - [ ] GAIA
+  - [x] PinchBench
+  - [x] TauBench
+  - [x] GAIA
   - [ ] TerminalBench
   - [ ] ToolCall-15
-  - [ ] LiveCodeBench
+  - [x] LiveCodeBench
   - [ ] LiveResearchBench
-- [ ] Gemma-4-E4B
-  - [ ] PinchBench
-  - [ ] TauBench
-  - [ ] GAIA
+  - [x] DeepResearch
+- [ ] Gemma-4-E4B (has consistency issues in tool calls)
+  - [x] PinchBench
+  - [x] TauBench
+  - [x] GAIA
   - [ ] TerminalBench
-  - [ ] ToolCall-15
-  - [ ] LiveCodeBench
-  - [ ] LiveResearchBench
+  - [x] ToolCall-15
+  - [x] LiveCodeBench
+  - [x] LiveResearchBench
+  - [x] DeepResearch
 - [ ] Qwen-122B - m
   - [ ] PinchBench
   - [ ] TauBench
@@ -275,6 +287,7 @@ Key comparisons:
   - [ ] ToolCall-15
   - [ ] LiveCodeBench
   - [ ] LiveResearchBench
+  - [ ] DeepResearch
 - [ ] Qwen-35B - m
   - [ ] PinchBench
   - [ ] TauBench
@@ -283,6 +296,7 @@ Key comparisons:
   - [ ] ToolCall-15
   - [ ] LiveCodeBench
   - [ ] LiveResearchBench
+  - [ ] DeepResearch
 - [ ] Nemotron-Super - m
   - [ ] PinchBench
   - [ ] TauBench
@@ -291,6 +305,7 @@ Key comparisons:
   - [ ] ToolCall-15
   - [ ] LiveCodeBench
   - [ ] LiveResearchBench
+  - [ ] DeepResearch
 
 ### Phase 1d: Compile baseline results
 - [ ] Generate Pareto frontier plots (quality vs cost, vs energy, vs FLOPs)

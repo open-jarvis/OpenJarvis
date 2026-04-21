@@ -35,3 +35,4 @@ name = "deepresearch"
 backend = "jarvis-agent"
 agent = "monitor_operative"
 tools = ["web_search", "file_read", "file_write", "code_interpreter", "think"]
+max_turns = 60

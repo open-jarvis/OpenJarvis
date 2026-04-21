@@ -38,3 +38,4 @@ tools = [
     "code_interpreter", "browser_navigate", "image_generate",
     "calculator", "http_request", "pdf_extract",
 ]
+max_turns = 50

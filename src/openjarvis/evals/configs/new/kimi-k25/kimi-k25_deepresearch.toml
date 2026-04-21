@@ -1,23 +1,23 @@
-# deepresearch evaluation for trinity-large
+# deepresearch evaluation for kimi-k25
 
 [meta]
-name = "deepresearch-trinity-large-pod"
-description = "deepresearch on Trinity-Large (pod evaluation)"
+name = "deepresearch-kimi-k25-pod"
+description = "deepresearch on moonshotai/Kimi-K2.5 (pod evaluation)"
 
 [defaults]
 temperature = 0.6
-max_tokens = 16384
+max_tokens = 4096
 
 [judge]
 model = "gpt-4.1-mini"
 temperature = 0.0
-max_tokens = 16384
+max_tokens = 4096
 engine = "cloud"
 
 [run]
 trace_detail = true
 max_workers = 1
-output_dir = "/tmp/results/trinity-large/"
+output_dir = "/tmp/results/kimi-k25/"
 seed = 42
 
 telemetry = true
@@ -26,11 +26,11 @@ gpu_metrics = true
 host = "http://localhost:8000"
 
 [[models]]
-name = "arcee-ai/Trinity-Large-Thinking-FP8-Block"
+name = "moonshotai/Kimi-K2.5"
 engine = "vllm"
 
-param_count_b = 398.0
-active_params_b = 13.0
+param_count_b = 1000.0
+active_params_b = 32.0
 [[benchmarks]]
 name = "deepresearch"
 backend = "jarvis-agent"

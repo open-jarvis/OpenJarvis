@@ -32,3 +32,4 @@ param_count_b = 9.0
 [[benchmarks]]
 name = "toolcall15"
 backend = "jarvis-direct"
+max_turns = 20
