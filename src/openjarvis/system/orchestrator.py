@@ -208,16 +208,17 @@ class QueryOrchestrator:
 
         s.bus.subscribe(EventType.INFERENCE_END, _on_inference_end)
 
-        # Check trace_store (set at build time) instead of config.traces.enabled
-        # because the shared config singleton can be mutated by other SystemBuilder
-        # instances (e.g. the judge backend).
+        # Check if traces are enabled. Even if trace_store is None (e.g. due to
+        # initialization failure), we still create a TraceCollector so that
+        # trace data can be extracted programmatically (e.g. by eval backends).
+        # The collector will simply skip persisting if store is None.
         try:
-            if s.trace_store is not None:
+            if s.config.traces.enabled:
                 from openjarvis.traces.collector import TraceCollector
 
                 collector = TraceCollector(
                     ag,
-                    store=s.trace_store,
+                    store=s.trace_store,  # Can be None - collector handles it
                     bus=s.bus,
                 )
                 result = collector.run(query, context=ctx)

@@ -326,7 +326,8 @@ class EvalRunner:
 
             # Copy config file if available
             if self._config.config_path:
-                config_dest = output_path.parent / "run_config.toml"
+                config_source = Path(self._config.config_path)
+                config_dest = output_path.parent / config_source.name
                 shutil.copy2(self._config.config_path, config_dest)
                 LOGGER.info("Config copied to %s", config_dest)
 
@@ -867,6 +868,7 @@ class EvalRunner:
             "throughput_per_watt": result.throughput_per_watt,
             "mean_itl_ms": result.mean_itl_ms,
             "estimated_flops": result.estimated_flops,
+            "trace_data": result.trace_data,
         }
         try:
             line = json.dumps(record_dict, default=str)
@@ -1247,9 +1249,9 @@ def _result_to_trace_dict(result: EvalResult) -> Dict[str, Any]:
         "throughput_per_watt": result.throughput_per_watt,
         "mean_itl_ms": result.mean_itl_ms,
         "estimated_flops": result.estimated_flops,
+        # Always include trace_data for consistent output format, even if None/empty
+        "trace_data": result.trace_data,
     }
-    if result.trace_data is not None:
-        d["trace_data"] = result.trace_data
     return d
 
 
