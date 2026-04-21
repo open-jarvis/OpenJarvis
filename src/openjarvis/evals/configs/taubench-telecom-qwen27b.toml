@@ -1,4 +1,4 @@
-# TauBench V2 Telecom: Qwen3.5-27B-FP8 (vLLM, 1 GPU)
+# TauBench V2 Telecom: Qwen3.5-27B-FP8 (vLLM, TP=4)
 [meta]
 name = "taubench-telecom-qwen27b"
 description = "TauBench V2 Telecom domain on Qwen/Qwen3.5-27B-FP8"
@@ -20,7 +20,7 @@ seed = 42
 [[models]]
 name = "Qwen/Qwen3.5-27B-FP8"
 engine = "vllm"
-num_gpus = 1
+num_gpus = 4
 
 [[benchmarks]]
 name = "taubench"
