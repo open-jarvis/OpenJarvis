@@ -145,7 +145,7 @@ class TerminalBenchNativeDataset(DatasetProvider):
 
         metadata: Dict[str, Any] = {
             "task_id": task_id,
-            "task_dir": str(task_dir),
+            "task_dir": task_dir,  # Path, not string — needed by env and backend
             "category": category_val,
             "difficulty": task_data.get("difficulty"),
             "tags": task_data.get("tags"),
@@ -162,15 +162,10 @@ class TerminalBenchNativeDataset(DatasetProvider):
         )
 
     def create_task_env(self, record):
-        """Return a TerminalBenchTaskEnv for the given record."""
-        try:
-            from openjarvis.evals.execution.terminalbench_env import (
-                TerminalBenchTaskEnv,
-            )
-
-            return TerminalBenchTaskEnv(record.metadata)
-        except ImportError:
-            return None
+        # The TerminalBenchNativeBackend runs the full trial (Docker + agent +
+        # tests) via the terminal-bench Harness inside generate_full().
+        # No separate task environment is needed.
+        return None
 
     def verify_requirements(self):
         """Check that terminal-bench and docker are available."""

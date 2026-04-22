@@ -29,17 +29,24 @@ class TerminalBenchTaskEnv:
     # ------------------------------------------------------------------
 
     def __enter__(self) -> TerminalBenchTaskEnv:
+        from terminal_bench.handlers.trial_handler import Task, TaskPaths
         from terminal_bench.terminal.terminal import spin_up_terminal
 
         task = self._metadata.get("task")
         task_paths = self._metadata.get("task_paths")
         task_id = self._metadata.get("task_id", "unknown")
 
+        # Lazily construct Task and TaskPaths from task_dir when not pre-populated.
         if task is None or task_paths is None:
-            raise ValueError(
-                "Task metadata missing 'task' or 'task_paths'. "
-                "Use the 'terminalbench-native' dataset."
-            )
+            task_dir = self._metadata.get("task_dir")
+            if task_dir is None:
+                raise ValueError(
+                    "TerminalBenchTaskEnv requires 'task_dir' in record metadata."
+                )
+            task_paths = TaskPaths(Path(task_dir))
+            task = Task.from_yaml(task_paths.task_config_path)
+            self._metadata["task"] = task
+            self._metadata["task_paths"] = task_paths
 
         docker_image_prefix = f"tb__{task_id}".replace(".", "-")
         client_image_name = f"{docker_image_prefix}__client"
