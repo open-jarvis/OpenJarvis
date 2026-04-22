@@ -122,6 +122,9 @@ def _oj_result_to_tau2_msg(result: dict):
     content = result.get("content") or ""
     content = _strip_think_tags(content) if content else None
 
+    content = result.get("content") or ""
+    content = _strip_think_tags(content) if content else None
+
     return AssistantMessage(
         role="assistant",
         content=content or None,
@@ -212,6 +215,9 @@ class JarvisHalfDuplexAgent:
         # OpenAI SDK-based clients that only pass extra_body through.
         if "qwen" in self._model.lower():
             gen_kwargs["chat_template_kwargs"] = {
+                "enable_thinking": False,
+            }
+            gen_kwargs.setdefault("extra_body", {})["chat_template_kwargs"] = {
                 "enable_thinking": False,
             }
         result = self._engine.generate(oj_messages, **gen_kwargs)
