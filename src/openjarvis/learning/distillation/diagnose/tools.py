@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from openjarvis.core.types import Message
 from openjarvis.learning.distillation.diagnose.types import DiagnosticTool
 
 
@@ -278,7 +279,7 @@ def build_diagnostic_tools(
         if sample is None:
             return json.dumps({"error": f"Task {task_id} not found in benchmark"})
         response = teacher_engine.generate(
-            messages=[{"role": "user", "content": sample.query}],
+            messages=[Message(role="user", content=sample.query)],
             model=teacher_model,
             max_tokens=max_tokens,
         )
