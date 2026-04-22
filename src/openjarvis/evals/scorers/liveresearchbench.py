@@ -1,70 +1,164 @@
-"""LiveResearchBench (Salesforce) scorer — checklist-based evaluation.
+"""LiveResearchBench scorer — checklist-based LLM-as-judge scoring.
 
-Evaluates research reports using per-question checklists for coverage,
-plus LLM-as-judge for presentation quality and citation adequacy.
+For each task, LiveResearchBench provides a list of checklist items that a
+good response must cover. The scorer asks an LLM judge to evaluate each
+checklist item against the response, producing a per-item pass/fail.
+Final score = fraction of passed items (coverage).
 
-Reference: https://github.com/SalesforceAIResearch/LiveResearchBench
+Reference: https://arxiv.org/abs/2510.14240
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from openjarvis.evals.core.scorer import LLMJudgeScorer
 from openjarvis.evals.core.types import EvalRecord
 
 LOGGER = logging.getLogger(__name__)
 
-_COVERAGE_PROMPT = """\
-You are evaluating a research report against a checklist of required topics/points.
+# Tasks with coverage >= PASS_THRESHOLD are marked as correct
+PASS_THRESHOLD = 0.5
 
-**Research Question:**
+
+def _build_judge_prompt(
+    *,
+    question: str,
+    answer: str,
+    checklist: List[str],
+) -> str:
+    """Build a batched judge prompt that evaluates all checklist items at once."""
+    bullets = "\n".join(f"{i}. {item}" for i, item in enumerate(checklist, 1))
+    return f"""You are an expert evaluator scoring a deep-research report against a checklist.
+
+## Research Question
 {question}
 
-**Report:**
-{report}
+## Checklist Items
+{bullets}
 
-**Checklist items to verify (each should be covered in the report):**
-{checklist_items}
+## Report to Evaluate
+{answer}
 
-For each checklist item, determine if the report adequately covers it.
-Respond with a JSON array of objects, one per checklist item:
-[
-  {{"item": "<checklist item text>", "covered": true/false, "evidence": "<brief quote or reason>"}},
-  ...
-]
+## Instructions
+For each checklist item above, decide whether the report adequately covers it.
+A checklist item is COVERED if the report includes the required information or
+analysis in a clear, accurate, and substantive way. A checklist item is NOT
+COVERED if the report omits it, addresses it only superficially, or contains
+incorrect information.
 
-Then on the last line, provide the overall coverage score:
-coverage_score: <number of covered items>/<total items>"""
+Return your evaluation as JSON with this exact structure:
+```json
+{{
+  "judgments": [
+    {{"index": 1, "covered": true, "reason": "brief justification"}},
+    {{"index": 2, "covered": false, "reason": "brief justification"}}
+  ]
+}}
+```
 
-_QUALITY_PROMPT = """\
-You are evaluating the quality of a research report.
-
-**Research Question:**
-{question}
-
-**Report:**
-{report}
-
-Rate the report on these dimensions (each 1-5):
-
-1. **Presentation**: Is the report well-structured, readable, and professional?
-2. **Depth**: Does the report go beyond surface-level information?
-3. **Citation**: Does the report reference specific sources, data, or evidence?
-4. **Consistency**: Is the report internally consistent and free of contradictions?
-
-Respond in this exact format:
-presentation: <1-5>
-depth: <1-5>
-citation: <1-5>
-consistency: <1-5>
-reasoning: <brief explanation>"""
+Return one judgment per checklist item, indexed in the same order as above.
+Be rigorous: `covered: true` only if the report genuinely satisfies the item."""
 
 
-class LiveResearchBenchSFScorer(LLMJudgeScorer):
-    """Checklist + quality scorer for Salesforce LiveResearchBench."""
+def _parse_judge_response(raw: str, num_items: int) -> List[Dict[str, Any]]:
+    """Extract per-item judgments from the judge's raw response.
+
+    Returns one dict per checklist item ({index, covered, reason}). Missing
+    items default to ``covered=False``.
+    """
+    if not raw or not raw.strip():
+        return [
+            {"index": i + 1, "covered": False, "reason": "empty judge response"}
+            for i in range(num_items)
+        ]
+
+    judgments: Dict[int, Dict[str, Any]] = {}
+
+    # Collect JSON candidates: code blocks first, then balanced braces.
+    candidates: List[str] = []
+    for match in re.finditer(r"```(?:json)?\s*(.*?)\s*```", raw, re.DOTALL):
+        candidates.append(match.group(1))
+
+    depth = 0
+    current: List[str] = []
+    for char in raw:
+        if char == "{":
+            if depth == 0:
+                current = []
+            depth += 1
+        if depth > 0:
+            current.append(char)
+        if char == "}":
+            depth -= 1
+            if depth == 0 and current:
+                candidates.append("".join(current))
+
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(parsed, dict):
+            continue
+        items = parsed.get("judgments") or parsed.get("items") or []
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            try:
+                idx_int = int(item.get("index"))
+            except (ValueError, TypeError):
+                continue
+            covered_raw = item.get("covered")
+            if isinstance(covered_raw, bool):
+                covered = covered_raw
+            elif isinstance(covered_raw, str):
+                covered = covered_raw.strip().lower() in {
+                    "true",
+                    "yes",
+                    "covered",
+                    "1",
+                    "y",
+                }
+            else:
+                covered = False
+            judgments[idx_int] = {
+                "index": idx_int,
+                "covered": covered,
+                "reason": str(item.get("reason", "")),
+            }
+        if judgments:
+            break
+
+    if not judgments:
+        LOGGER.warning("Failed to parse judge response — marking all items uncovered")
+
+    # Fill gaps with covered=False so downstream code always sees N items.
+    return [
+        judgments.get(
+            i + 1,
+            {
+                "index": i + 1,
+                "covered": False,
+                "reason": "missing from judge output",
+            },
+        )
+        for i in range(num_items)
+    ]
+
+
+class LiveResearchBenchScorer(LLMJudgeScorer):
+    """Checklist-based LLM-as-judge scorer for LiveResearchBench.
+
+    For each sample, the judge evaluates each checklist item against the
+    model's report. Score = fraction covered. Tasks with score >=
+    ``PASS_THRESHOLD`` (default 0.5) are marked correct.
+    """
 
     scorer_id = "liveresearchbench"
 
@@ -73,94 +167,62 @@ class LiveResearchBenchSFScorer(LLMJudgeScorer):
         record: EvalRecord,
         model_answer: str,
     ) -> Tuple[Optional[bool], Dict[str, Any]]:
+        checklist: List[str] = list(record.metadata.get("checklist", []) or [])
+
         if not model_answer or not model_answer.strip():
-            return False, {"reason": "empty_response", "score": 0.0}
+            return False, {
+                "score": 0.0,
+                "coverage": 0.0,
+                "covered_count": 0,
+                "checklist_size": len(checklist),
+                "reason": "empty_response",
+            }
 
-        question = record.metadata.get("original_question", record.problem)
-        checklists = record.metadata.get("checklists", [])
-
-        meta: Dict[str, Any] = {}
-
-        # Phase 1: Checklist coverage (if available)
-        coverage_score = 0.0
-        if checklists:
-            try:
-                checklist_text = "\n".join(
-                    f"- {item}" for item in checklists
-                )
-                prompt = _COVERAGE_PROMPT.format(
-                    question=question,
-                    report=model_answer[:8000],  # Truncate long reports
-                    checklist_items=checklist_text,
-                )
-                raw = self._ask_judge(
-                    prompt, temperature=1.0, max_tokens=4096
-                )
-
-                # Parse coverage_score from last line
-                match = re.search(
-                    r"coverage_score:\s*(\d+)\s*/\s*(\d+)", raw
-                )
-                if match:
-                    covered = int(match.group(1))
-                    total = int(match.group(2))
-                    coverage_score = covered / total if total > 0 else 0.0
-                    meta["coverage_covered"] = covered
-                    meta["coverage_total"] = total
-                else:
-                    # Fallback: count "covered": true occurrences
-                    covered = raw.lower().count('"covered": true') + raw.lower().count('"covered":true')
-                    total = len(checklists)
-                    coverage_score = covered / total if total > 0 else 0.0
-                    meta["coverage_covered"] = covered
-                    meta["coverage_total"] = total
-
-                meta["coverage_score"] = coverage_score
-                meta["coverage_raw"] = raw[:500]
-            except Exception as exc:
-                LOGGER.warning(
-                    "Coverage scoring failed for %s: %s",
-                    record.record_id,
-                    exc,
-                )
-                meta["coverage_error"] = str(exc)
-
-        # Phase 2: Quality dimensions
-        quality_score = 0.0
-        try:
-            prompt = _QUALITY_PROMPT.format(
-                question=question,
-                report=model_answer[:8000],
-            )
-            raw = self._ask_judge(prompt, temperature=1.0, max_tokens=1024)
-
-            dims = {}
-            for dim in ["presentation", "depth", "citation", "consistency"]:
-                match = re.search(rf"{dim}:\s*(\d)", raw)
-                if match:
-                    dims[dim] = int(match.group(1))
-
-            if dims:
-                quality_score = sum(dims.values()) / (5 * len(dims))
-                meta["quality_dims"] = dims
-                meta["quality_score"] = quality_score
-            meta["quality_raw"] = raw[:500]
-        except Exception as exc:
+        if not checklist:
             LOGGER.warning(
-                "Quality scoring failed for %s: %s", record.record_id, exc
+                "No checklist attached to %s — scoring cannot produce a coverage number",
+                record.record_id,
             )
-            meta["quality_error"] = str(exc)
+            return None, {
+                "score": 0.0,
+                "coverage": 0.0,
+                "covered_count": 0,
+                "checklist_size": 0,
+                "reason": "no_checklist",
+            }
 
-        # Final score: weighted average of coverage and quality
-        if checklists:
-            final_score = 0.6 * coverage_score + 0.4 * quality_score
-        else:
-            final_score = quality_score
+        question = record.metadata.get("question") or record.problem
 
-        meta["final_score"] = final_score
-        is_correct = final_score >= 0.5
+        prompt = _build_judge_prompt(
+            question=question,
+            answer=model_answer,
+            checklist=checklist,
+        )
 
-        return is_correct, meta
+        try:
+            raw = self._ask_judge(prompt, temperature=0.0, max_tokens=4096)
+        except Exception as exc:
+            LOGGER.error("LLM judge call failed for %s: %s", record.record_id, exc)
+            return None, {
+                "score": 0.0,
+                "error": str(exc),
+                "checklist_size": len(checklist),
+            }
+
+        judgments = _parse_judge_response(raw, num_items=len(checklist))
+        covered_count = sum(1 for j in judgments if j["covered"])
+        coverage = covered_count / len(checklist)
+        is_correct = coverage >= PASS_THRESHOLD
+
+        metadata: Dict[str, Any] = {
+            "score": coverage,
+            "coverage": coverage,
+            "covered_count": covered_count,
+            "checklist_size": len(checklist),
+            "judgments": judgments,
+            "raw_judge_output": raw,
+        }
+        return is_correct, metadata
 
 
-__all__ = ["LiveResearchBenchSFScorer"]
+__all__ = ["LiveResearchBenchScorer"]

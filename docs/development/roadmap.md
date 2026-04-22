@@ -9,6 +9,7 @@ These are the areas where active development is happening and contributions are 
 - **Energy-aware routing** — using power consumption data from telemetry to optimize for energy efficiency alongside latency and quality
 - **Plugin ecosystem** — community-contributed engines, tools, and agents distributed as Python packages
 - **Federated memory** — memory backends that synchronize across devices
+- **Distillation:** Frontier-driven harness learning — a frontier model analyzes your traces and proposes config improvements. See [user guide](../user-guide/learning-distillation.md) and [architecture](../architecture/learning.md#distillation-frontier-driven-harness-learning).
 
 ---
 

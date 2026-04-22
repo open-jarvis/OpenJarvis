@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body,:root{
+  background:transparent !important;
+  background-color:transparent !important;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;
+  color:#fff;height:100%;overflow:hidden;
+}
+#container{
+  display:flex;flex-direction:column;
+  height:100%;padding:8px 12px;
+}
+#messages{
+  flex:1;overflow-y:auto;
+  display:flex;flex-direction:column;gap:6px;
+  margin-bottom:8px;padding:12px;
+  border-radius:16px;
+  background:rgba(30,30,30,0.88);
+  border:1px solid rgba(255,255,255,0.20);
+}
+#messages:empty{display:none}
+#messages::-webkit-scrollbar{width:6px}
+#messages::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.15);border-radius:3px}
+#messages::-webkit-scrollbar-track{background:transparent}
+.msg{
+  padding:8px 12px;border-radius:12px;
+  font-size:13px;line-height:1.55;max-width:90%;
+  white-space:pre-wrap;word-wrap:break-word;
+  -webkit-user-select:text;user-select:text;
+}
+.msg.user{
+  align-self:flex-end;
+  background:rgba(59,130,246,0.35);
+  color:rgba(255,255,255,0.95);
+}
+.msg.assistant{
+  align-self:flex-start;
+  background:rgba(255,255,255,0.20);
+  color:rgba(255,255,255,0.88);
+  white-space:normal;
+}
+.msg.assistant > p{margin:0 0 6px 0;white-space:pre-wrap}
+.msg.assistant > p:last-child{margin-bottom:0}
+.msg.assistant h1,.msg.assistant h2,.msg.assistant h3{
+  font-size:14px;font-weight:600;margin:6px 0 4px 0;
+}
+.msg.assistant ul,.msg.assistant ol{margin:2px 0 6px 18px;padding:0}
+.msg.assistant li{margin:1px 0}
+.msg.assistant a{color:#93c5fd;text-decoration:underline}
+.msg.assistant code{
+  background:rgba(0,0,0,0.35);
+  padding:1px 5px;border-radius:4px;
+  font-family:"SF Mono",Menlo,Monaco,monospace;
+  font-size:12px;
+}
+.msg.assistant pre{
+  background:rgba(0,0,0,0.40);
+  padding:8px 10px;border-radius:8px;
+  margin:4px 0;overflow-x:auto;
+  border:1px solid rgba(255,255,255,0.08);
+}
+.msg.assistant pre code{
+  background:transparent;padding:0;border-radius:0;
+  font-size:11.5px;line-height:1.4;white-space:pre;
+}
+.msg.assistant strong{font-weight:600;color:#fff}
+.msg.assistant em{font-style:italic}
+.msg.assistant del{opacity:0.6;text-decoration:line-through}
+
+/* Streaming caret — pulses at the end of the in-progress bubble */
+.caret{
+  display:inline-block;width:6px;height:13px;
+  vertical-align:text-bottom;margin-left:2px;
+  background:rgba(255,255,255,0.85);
+  animation:caret-blink 1s steps(1) infinite;
+}
+@keyframes caret-blink{50%{opacity:0}}
+
+/* Thinking dots — shown while waiting for the first token */
+.thinking{
+  display:inline-flex;gap:4px;align-items:center;padding:2px 0;
+}
+.thinking span{
+  width:6px;height:6px;border-radius:50%;
+  background:rgba(255,255,255,0.65);
+  animation:thinking-bounce 1.2s ease-in-out infinite;
+}
+.thinking span:nth-child(2){animation-delay:0.15s}
+.thinking span:nth-child(3){animation-delay:0.30s}
+@keyframes thinking-bounce{
+  0%,60%,100%{transform:translateY(0);opacity:0.4}
+  30%{transform:translateY(-4px);opacity:1}
+}
+#input-bar{
+  display:flex;align-items:center;gap:6px;
+  border-radius:16px;padding:6px 8px;
+  background:rgba(30,30,30,0.88);
+  border:1px solid rgba(255,255,255,0.20);
+  flex-shrink:0;
+}
+#model-wrap{
+  position:relative;flex-shrink:0;
+}
+#model-select{
+  background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.6);
+  border:none;border-radius:8px;padding:4px 22px 4px 8px;
+  font-size:11px;outline:none;cursor:pointer;
+  max-width:140px;
+  -webkit-appearance:none;appearance:none;
+}
+#model-select:hover{background:rgba(255,255,255,0.14);color:#fff}
+#model-wrap .arrow{
+  position:absolute;right:7px;top:50%;transform:translateY(-50%);
+  pointer-events:none;color:rgba(255,255,255,0.35);
+}
+#model-select option,#model-select optgroup{
+  background:#1e1e1e;color:#eee;
+}
+#input{
+  flex:1;background:transparent;border:none;outline:none;
+  color:#fff;font-size:14px;padding:6px 10px;
+}
+#input::placeholder{color:rgba(255,255,255,0.35)}
+.btn{
+  display:flex;align-items:center;justify-content:center;
+  width:30px;height:30px;border-radius:50%;border:none;
+  background:rgba(255,255,255,0.10);
+  color:rgba(255,255,255,0.6);cursor:pointer;
+  transition:background .15s,color .15s;flex-shrink:0;
+}
+.btn:hover{background:rgba(255,255,255,0.20);color:#fff}
+.btn:disabled{opacity:0.25;cursor:default}
+.btn:disabled:hover{background:rgba(255,255,255,0.10)}
+</style>
+</head>
+<body>
+<div id="container">
+  <div id="messages"></div>
+  <div id="input-bar">
+    <button id="new-btn" class="btn" title="New conversation">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+    </button>
+    <div id="model-wrap">
+      <select id="model-select"><option>loading...</option></select>
+      <svg class="arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <input id="input" type="text" placeholder="Ask Jarvis anything..." autofocus>
+    <button id="send-btn" class="btn" disabled title="Send">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+    </button>
+  </div>
+</div>
+<script type="application/json" id="saved-data">__SAVED_MESSAGES__</script>
+<script type="application/json" id="cloud-data">__CLOUD_MODELS__</script>
+<script>
+const input=document.getElementById('input');
+const sendBtn=document.getElementById('send-btn');
+const messagesEl=document.getElementById('messages');
+let streaming=false,abort=null,model='qwen3.5:4b';
+let convId='', convTitle='Overlay chat', convCreated=Date.now();
+let messages=[];
+
+function genId(){return Date.now().toString(36)+Math.random().toString(36).slice(2,8)}
+
+// Restore previous conversation
+try{
+  const raw=document.getElementById('saved-data').textContent.trim();
+  if(raw&&raw!=='__SAVED_PLACEHOLDER__'){
+    const saved=JSON.parse(raw);
+    if(saved.id){convId=saved.id;convTitle=saved.title||convTitle;convCreated=saved.createdAt||convCreated;messages=saved.messages||[]}
+    else if(Array.isArray(saved)){messages=saved}
+  }
+}catch{}
+if(!convId) convId=genId();
+if(messages.length) renderAll();
+
+// Build model dropdown: local (installed) + cloud (keyed)
+const modelSelect=document.getElementById('model-select');
+let cloudModels=[];
+try{
+  const cd=document.getElementById('cloud-data').textContent.trim();
+  if(cd&&cd!=='__CLOUD_PLACEHOLDER__') cloudModels=JSON.parse(cd);
+}catch{}
+
+fetch('/v1/models').then(r=>r.json()).then(d=>{
+  const local=(Array.isArray(d)?d:(d.data||d.models||[])).map(m=>m.id||m.name).filter(Boolean);
+  while(modelSelect.firstChild) modelSelect.removeChild(modelSelect.firstChild);
+  if(local.length){
+    const g=document.createElement('optgroup');g.label='Local';
+    local.forEach(id=>{const o=document.createElement('option');o.value=id;o.textContent=id;g.appendChild(o)});
+    modelSelect.appendChild(g);
+  }
+  if(cloudModels.length){
+    const g=document.createElement('optgroup');g.label='Cloud';
+    cloudModels.forEach(id=>{const o=document.createElement('option');o.value=id;o.textContent=id;g.appendChild(o)});
+    modelSelect.appendChild(g);
+  }
+  // Restore saved model or pick first available
+  const saved=messages.length&&messages[0].model;
+  if(saved&&modelSelect.querySelector('option[value="'+CSS.escape(saved)+'"]')){modelSelect.value=saved}
+  model=modelSelect.value||model;
+}).catch(()=>{});
+modelSelect.addEventListener('change',()=>{model=modelSelect.value});
+
+const SEND='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>';
+const STOP='<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+
+function renderAll(){
+  while(messagesEl.firstChild) messagesEl.removeChild(messagesEl.firstChild);
+  for(const m of messages) bubble(m.role,m.content);
+  scroll();
+}
+function bubble(role,text){
+  const d=document.createElement('div');
+  d.className='msg '+(role==='user'?'user':'assistant');
+  if(role==='assistant') setHtml(d, md(text||''));
+  else d.textContent=text;
+  messagesEl.appendChild(d);
+  return d;
+}
+function scroll(){messagesEl.scrollTop=messagesEl.scrollHeight}
+
+// Safe HTML injection helper. All incoming LLM/user text is escaped
+// via escHtml() before any markdown transformations, so the string
+// reaching this function only contains tags from our controlled
+// regex replacements. We use Range.createContextualFragment which is
+// the W3C-recommended way to construct a DocumentFragment from HTML.
+function setHtml(el,html){
+  while(el.firstChild) el.removeChild(el.firstChild);
+  const range=document.createRange();
+  range.selectNodeContents(el);
+  el.appendChild(range.createContextualFragment(html));
+}
+
+// --- Minimal markdown renderer (inline, no deps) ---
+//     Handles: fenced code, inline code, headings, bold, italic,
+//     strikethrough, links, ordered/unordered lists, paragraphs.
+function escHtml(s){
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+          .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function md(src){
+  if(!src)return '';
+  const blocks=[],inlines=[];
+  // 1. Extract fenced code blocks first so their contents aren't touched.
+  src=src.replace(/```(\w*)\n?([\s\S]*?)```/g,(_,lang,code)=>{
+    blocks.push({lang,code});
+    return '\u0000CB'+(blocks.length-1)+'\u0000';
+  });
+  // 2. Extract inline code (single-line backticks).
+  src=src.replace(/`([^`\n]+)`/g,(_,c)=>{
+    inlines.push(c);
+    return '\u0000IC'+(inlines.length-1)+'\u0000';
+  });
+  // 3. Escape everything else.
+  src=escHtml(src);
+  // 4. Headings.
+  src=src.replace(/^###\s+(.+)$/gm,'<h3>$1</h3>')
+         .replace(/^##\s+(.+)$/gm,'<h2>$1</h2>')
+         .replace(/^#\s+(.+)$/gm,'<h1>$1</h1>');
+  // 5. Bold / italic / strikethrough.
+  src=src.replace(/\*\*([^*\n]+)\*\*/g,'<strong>$1</strong>')
+         .replace(/__([^_\n]+)__/g,'<strong>$1</strong>')
+         .replace(/(^|[^*\w])\*([^*\n]+)\*(?!\*)/g,'$1<em>$2</em>')
+         .replace(/(^|[^_\w])_([^_\n]+)_(?!_)/g,'$1<em>$2</em>')
+         .replace(/~~([^~\n]+)~~/g,'<del>$1</del>');
+  // 6. Links — url is escaped above, so quotes are safe.
+  src=src.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+  // 7. Unordered + ordered lists.
+  src=src.replace(/(?:^[-*]\s+.+(?:\n|$))+/gm,block=>{
+    const items=block.trim().split('\n')
+      .map(l=>'<li>'+l.replace(/^[-*]\s+/,'')+'</li>').join('');
+    return '<ul>'+items+'</ul>';
+  });
+  src=src.replace(/(?:^\d+\.\s+.+(?:\n|$))+/gm,block=>{
+    const items=block.trim().split('\n')
+      .map(l=>'<li>'+l.replace(/^\d+\.\s+/,'')+'</li>').join('');
+    return '<ol>'+items+'</ol>';
+  });
+  // 8. Paragraphs: split on blank lines, wrap non-block chunks in <p>.
+  src=src.split(/\n{2,}/).map(chunk=>{
+    const t=chunk.trim();
+    if(!t)return '';
+    if(/^<(h\d|ul|ol|pre|blockquote)/.test(t))return t;
+    if(t.startsWith('\u0000CB'))return t;
+    return '<p>'+t.replace(/\n/g,'<br>')+'</p>';
+  }).join('');
+  // 9. Restore inline code.
+  src=src.replace(/\u0000IC(\d+)\u0000/g,(_,i)=>'<code>'+escHtml(inlines[+i])+'</code>');
+  // 10. Restore fenced code blocks.
+  src=src.replace(/\u0000CB(\d+)\u0000/g,(_,i)=>{
+    const b=blocks[+i];
+    const cls=b.lang?' class="lang-'+escHtml(b.lang)+'"':'';
+    return '<pre><code'+cls+'>'+escHtml(b.code)+'</code></pre>';
+  });
+  return src;
+}
+const THINKING='<span class="thinking"><span></span><span></span><span></span></span>';
+const CARET='<span class="caret"></span>';
+const CLOUD_PFX=['gpt-','o1-','o3-','o4-','claude-','gemini-','openrouter/','chatgpt-'];
+function save(){
+  const conv={id:convId,title:convTitle,createdAt:convCreated,updatedAt:Date.now(),model,
+    messages:messages.map((m,i)=>{
+      const o={id:convId+'_'+i,role:m.role,content:m.content,timestamp:m.timestamp||Date.now()};
+      if(m.usage)o.usage=m.usage;
+      if(m.telemetry)o.telemetry=m.telemetry;
+      return o;
+    })};
+  try{window.webkit.messageHandlers.overlay.postMessage('save:'+JSON.stringify(conv))}catch{}
+}
+
+input.addEventListener('input',()=>{sendBtn.disabled=!input.value.trim()||streaming});
+input.addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}
+});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){
+    if(streaming){abort&&abort.abort()}
+    else{try{window.webkit.messageHandlers.overlay.postMessage('hide')}catch{}}
+  }
+});
+sendBtn.addEventListener('click',()=>{if(streaming){abort&&abort.abort()}else send()});
+document.getElementById('new-btn').addEventListener('click',()=>{
+  convId=genId();convTitle='Overlay chat';convCreated=Date.now();
+  messages=[];
+  while(messagesEl.firstChild) messagesEl.removeChild(messagesEl.firstChild);
+  save();input.focus();
+});
+
+async function send(){
+  const text=input.value.trim();
+  if(!text||streaming)return;
+  input.value='';sendBtn.disabled=true;
+
+  messages.push({role:'user',content:text,timestamp:Date.now()});
+  if(messages.length===1) convTitle=text.slice(0,50)+(text.length>50?'...':'');
+  bubble('user',text);scroll();save();
+
+  streaming=true;abort=new AbortController();
+  setHtml(sendBtn,STOP);sendBtn.disabled=false;
+  const b=bubble('assistant','');
+  // Show thinking dots until the first token arrives.
+  setHtml(b,THINKING);
+  scroll();
+
+  let acc='',usage=null,complexity=null,ttft=0;
+  const t0=Date.now();
+  // Throttle markdown re-renders to ~30fps so tight streams don't
+  // rebuild the DOM on every single token.
+  let pending=false;
+  const render=()=>{
+    if(pending)return;
+    pending=true;
+    requestAnimationFrame(()=>{
+      pending=false;
+      setHtml(b, md(acc)+CARET);
+      scroll();
+    });
+  };
+  try{
+    const r=await fetch('/v1/chat/completions',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({model,messages,stream:true}),
+      signal:abort.signal
+    });
+    if(!r.ok)throw new Error(r.status);
+    const reader=r.body.getReader(),dec=new TextDecoder();
+    let buf='';
+    for(;;){
+      const{done,value}=await reader.read();
+      if(done)break;
+      buf+=dec.decode(value,{stream:true});
+      const lines=buf.split('\n');buf=lines.pop()||'';
+      for(const ln of lines){
+        if(!ln.startsWith('data: '))continue;
+        const d=ln.slice(6);if(d==='[DONE]')break;
+        try{
+          const p=JSON.parse(d);
+          if(p.usage)usage=p.usage;
+          if(p.complexity)complexity=p.complexity;
+          const c=p.choices?.[0]?.delta?.content;
+          if(c){if(!ttft)ttft=Date.now()-t0;acc+=c;render()}
+        }catch{}
+      }
+    }
+  }catch(e){
+    if(e.name!=='AbortError'){
+      acc='Could not get a response. Is the backend running?';
+      b.textContent=acc;
+    }
+  }finally{
+    streaming=false;abort=null;
+    setHtml(sendBtn,SEND);sendBtn.disabled=!input.value.trim();
+    input.focus();
+    // Final render without the caret.
+    if(acc) setHtml(b, md(acc));
+    else if(b.querySelector('.thinking')) b.textContent='';
+  }
+  if(acc){
+    const totalMs=Date.now()-t0;
+    const engine=CLOUD_PFX.some(p=>model.startsWith(p))?'cloud':'ollama';
+    const telem={engine,model_id:model,total_ms:totalMs,ttft_ms:ttft||undefined,
+      tokens_per_sec:usage?.completion_tokens?usage.completion_tokens/(totalMs/1000):undefined,
+      complexity_score:complexity?.score,complexity_tier:complexity?.tier,
+      suggested_max_tokens:complexity?.suggested_max_tokens};
+    messages.push({role:'assistant',content:acc,timestamp:Date.now(),usage:usage||undefined,telemetry:telem});
+    save();
+  }
+}
+
+window.addEventListener('focus',()=>input.focus());
+
+// --- Drag-to-move: click anywhere to drag, with threshold so
+//     clicks on inputs/buttons still work normally ---
+(function(){
+  let down=false,dragging=false,sx=0,sy=0;
+  const THRESH=3;
+  const INTERACTIVE='input,select,button,textarea,a,label,[contenteditable="true"],[role="button"]';
+  document.addEventListener('mousedown',e=>{
+    if(e.target.closest('select'))return;
+    down=true;dragging=false;sx=e.screenX;sy=e.screenY;
+  });
+  // macOS native select menus swallow the mouseup — reset on change too
+  document.getElementById('model-select').addEventListener('mousedown',()=>{down=false;dragging=false});
+  document.getElementById('model-select').addEventListener('change',()=>{down=false;dragging=false});
+  document.addEventListener('mousemove',e=>{
+    if(!down)return;
+    // If the mouse button is no longer pressed (e.g. the user released
+    // it over a native menu that swallowed mouseup), abort the drag.
+    if(e.buttons===0){down=false;dragging=false;return;}
+    const dx=e.screenX-sx,dy=e.screenY-sy;
+    if(!dragging){
+      if(Math.abs(dx)+Math.abs(dy)<THRESH)return;
+      dragging=true;
+    }
+    sx=e.screenX;sy=e.screenY;
+    try{window.webkit.messageHandlers.overlay.postMessage('drag:'+dx+','+dy)}catch{}
+  });
+  const reset=()=>{down=false;dragging=false};
+  document.addEventListener('mouseup',reset);
+  window.addEventListener('blur',reset);
+  document.addEventListener('mouseleave',reset);
+})();
+</script>
+</body>
+</html>

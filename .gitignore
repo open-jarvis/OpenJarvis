@@ -98,3 +98,16 @@ src/openjarvis/channels/whatsapp_baileys_bridge/node_modules/
 # Second Repos
 Inline/
 scratch/
+
+# ---------------------------------------------------------------------------
+# Distillation runtime artifacts (defense in depth — these should always live
+# in ~/.openjarvis/, never inside the source tree, but we ignore them here in
+# case OPENJARVIS_HOME is misconfigured during dev)
+# ---------------------------------------------------------------------------
+.openjarvis/
+learning.db
+**/learning/sessions/
+**/learning/pending_review/
+**/learning/benchmarks/
+**/teacher_traces/
+*.session.json

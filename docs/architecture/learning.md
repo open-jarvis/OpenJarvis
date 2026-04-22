@@ -553,3 +553,60 @@ metric can be improved without degrading another.
 The optimization framework has full Rust parity via the `openjarvis-learning`
 crate, with PyO3 bindings exposing `OptimizationStore` and `LLMOptimizer`
 to Python.
+
+---
+
+## Distillation (Frontier-Driven Harness Learning)
+
+The distillation subsystem uses a frontier closed-source model (the "teacher") as a meta-engineer for the local student's full harness — not just its weights. Instead of pushing knowledge into a small model's weights, we push a frontier model's engineering judgement into the surrounding configuration: prompts, routing, agent class, tool availability, and tool descriptions.
+
+### Where it lives
+
+`learning/distillation/` is the fifth subsystem within the Learning pillar, alongside `learning/routing/`, `learning/optimize/`, `learning/training/`, and `learning/intelligence/`.
+
+### Four-phase loop
+
+```
+Trigger → Diagnose → Plan → Execute → Record
+```
+
+1. **Diagnose** — TeacherAgent (frontier model with diagnostic tools) analyzes traces, runs student/teacher comparisons, identifies 2-5 failure clusters with evidence.
+2. **Plan** — LearningPlanner converts diagnosis into a typed LearningPlan with deterministic risk tier assignment and patch/replace downgrade.
+3. **Execute** — Per-edit loop: EditApplier validates + applies, BenchmarkGate scores, CheckpointStore commits or rolls back.
+4. **Record** — LearningSession persisted to SQLite + JSON artifact.
+
+### Key components
+
+| Component | Module | Purpose |
+|-----------|--------|---------|
+| `DistillationOrchestrator` | `orchestrator.py` | Top-level session driver |
+| `TeacherAgent` | `diagnose/teacher_agent.py` | Frontier model tool-calling loop |
+| `DiagnosisRunner` | `diagnose/runner.py` | Phase 1 orchestration |
+| `LearningPlanner` | `plan/planner.py` | Diagnosis → typed LearningPlan |
+| `EditApplier` + registry | `execute/base.py` | Abstract applier interface |
+| `BenchmarkGate` | `gate/benchmark_gate.py` | Benchmark-based accept/reject |
+| `CheckpointStore` | `checkpoint/store.py` | Git-backed config rollback |
+| `SessionStore` | `storage/session_store.py` | SQLite session persistence |
+
+### Relationship to existing subsystems
+
+| Existing | Relationship |
+|----------|-------------|
+| `LearningOrchestrator` | Sibling — stays untouched |
+| `LLMOptimizer` / `OptimizationStore` | Sibling — grid-search vs root-cause |
+| `LearnedRouterPolicy` | Reused — routing edits update it |
+| `TraceJudge` | Reused — benchmark scoring |
+| `PersonalBenchmarkSynthesizer` | Extended — auto-refresh, gold answers |
+| `TraceStore` | Reused — read-only access from diagnostic tools |
+
+### Risk tier system
+
+Every edit is assigned a tier from a deterministic lookup table:
+
+| Tier | Ops | Behavior |
+|------|-----|----------|
+| `auto` | Model routing/params, tool add/remove/description, agent params | Apply if gate passes |
+| `review` | System prompt edits, agent class, few-shot exemplars | Queue for user approval |
+| `manual` | LoRA fine-tuning (v2) | Never auto-apply |
+
+See [Distillation user guide](../user-guide/learning-distillation.md) for CLI usage and configuration.

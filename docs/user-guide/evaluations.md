@@ -14,6 +14,8 @@ The OpenJarvis evaluation framework (`openjarvis-evals`) measures model **correc
 
 ---
 
+> **Tip:** The distillation system uses this same eval infrastructure to gate edits against your personal benchmark. See [Learning & Distillation](learning-distillation.md).
+
 ## Installation
 
 The evaluation framework is a standalone package in the `evals/` directory. Install it alongside OpenJarvis:

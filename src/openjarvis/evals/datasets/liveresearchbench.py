@@ -1,20 +1,23 @@
-"""LiveResearchBench (Salesforce) dataset provider.
+"""LiveResearchBench dataset provider — Salesforce's checklist-based benchmark.
 
-80 expert-curated deep research tasks with per-question evaluation
-checklists across three domains: daily life, enterprise, and academia.
-543 checklist items total (grouped by question).
+Loads Salesforce/LiveResearchBench from HuggingFace. Each task has a research
+question and a set of checklist items used for fine-grained, coverage-based
+evaluation.
+
+Note: This is the actual LiveResearchBench by Salesforce (arxiv 2510.14240).
+The existing ``liveresearch`` module points at DeepResearchBench
+(Ayanami0730/deep_research_bench) despite its misleading class name.
 
 Reference: https://github.com/SalesforceAIResearch/LiveResearchBench
-HuggingFace: Salesforce/LiveResearchBench (gated — accept terms first)
+Paper:     https://arxiv.org/abs/2510.14240
+Dataset:   https://huggingface.co/datasets/Salesforce/LiveResearchBench
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import random
-import re
-from collections import defaultdict
-from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
 
 from openjarvis.evals.core.dataset import DatasetProvider
@@ -22,34 +25,59 @@ from openjarvis.evals.core.types import EvalRecord
 
 LOGGER = logging.getLogger(__name__)
 
-_HF_DATASET = "Salesforce/LiveResearchBench"
+HF_DATASET_ID = "Salesforce/LiveResearchBench"
+DEFAULT_HF_CONFIG = "question_with_checklist"
+DEFAULT_HF_SPLIT = "test"
 
 
-def _replace_date_placeholders(text: str) -> str:
-    """Replace dynamic date placeholders in queries."""
-    now = datetime.now()
-    text = text.replace("{{current_year}}", str(now.year))
-    text = text.replace("{{last_year}}", str(now.year - 1))
-    text = text.replace("{{current_date}}", now.strftime("%Y-%m-%d"))
-    text = text.replace("{{date}}", now.strftime("%Y-%m-%d"))
-    text = re.sub(r"\{current_year\}", str(now.year), text)
-    text = re.sub(r"\{last_year\}", str(now.year - 1), text)
-    return text
+def _parse_checklist(checklist: Any) -> List[str]:
+    """Parse the checklist field — may be a JSON string, list, or newline text."""
+    if isinstance(checklist, list):
+        return [str(item).strip() for item in checklist if str(item).strip()]
+    if not isinstance(checklist, str) or not checklist.strip():
+        return []
+    try:
+        parsed = json.loads(checklist)
+        if isinstance(parsed, list):
+            return [str(item).strip() for item in parsed if str(item).strip()]
+        if isinstance(parsed, str):
+            return [parsed.strip()] if parsed.strip() else []
+    except json.JSONDecodeError:
+        pass
+    # Fall back: treat as newline-separated items
+    return [line.strip() for line in checklist.splitlines() if line.strip()]
 
 
-class LiveResearchBenchSFDataset(DatasetProvider):
-    """Salesforce LiveResearchBench — 80 expert-curated research tasks.
+class LiveResearchBenchDataset(DatasetProvider):
+    """LiveResearchBench — Salesforce's expert-curated deep research benchmark.
 
-    The HuggingFace dataset has 543 rows (multiple checklist items per
-    question). We group by ``qid`` to produce one EvalRecord per unique
-    question, with all checklist items aggregated in metadata.
+    Loads tasks from HuggingFace with per-task checklists used for
+    coverage-based evaluation. Tasks span 7 domains (Science/Tech, Business,
+    Health, Law/Governance, Society/Culture, Education, Media).
     """
 
     dataset_id = "liveresearchbench"
-    dataset_name = "LiveResearchBench (Salesforce)"
+    dataset_name = "LiveResearchBench"
 
-    def __init__(self) -> None:
-        self._records: Optional[List[EvalRecord]] = None
+    def __init__(
+        self,
+        hf_config: Optional[str] = None,
+        hf_split: Optional[str] = None,
+    ) -> None:
+        self._hf_config = hf_config or DEFAULT_HF_CONFIG
+        self._hf_split = hf_split or DEFAULT_HF_SPLIT
+        self._records: List[EvalRecord] = []
+
+    def verify_requirements(self) -> List[str]:
+        issues: List[str] = []
+        try:
+            import datasets  # noqa: F401
+        except ImportError:
+            issues.append(
+                "The 'datasets' package is required for LiveResearchBench. "
+                "Install with: pip install datasets"
+            )
+        return issues
 
     def load(
         self,
@@ -58,122 +86,95 @@ class LiveResearchBenchSFDataset(DatasetProvider):
         split: Optional[str] = None,
         seed: Optional[int] = None,
     ) -> None:
-        try:
-            from datasets import load_dataset
-        except ImportError:
-            raise ImportError(
-                "datasets package required. Install with: pip install datasets"
-            )
+        from datasets import load_dataset
 
-        import os
-
-        hf_token = os.environ.get("HF_TOKEN") or os.environ.get(
-            "HUGGING_FACE_HUB_TOKEN"
-        )
-
-        # Try question_with_checklist first (has evaluation criteria)
-        hf_config = split or "question_with_checklist"
+        hf_split = split or self._hf_split
         LOGGER.info(
-            "Loading LiveResearchBench from HuggingFace (%s, config=%s)",
-            _HF_DATASET,
-            hf_config,
+            "Loading %s (config=%s, split=%s) from HuggingFace ...",
+            HF_DATASET_ID,
+            self._hf_config,
+            hf_split,
         )
+        ds = load_dataset(HF_DATASET_ID, self._hf_config, split=hf_split)
 
-        try:
-            ds = load_dataset(
-                _HF_DATASET, hf_config, split="test", token=hf_token
-            )
-        except Exception as exc:
-            raise RuntimeError(
-                f"Failed to load {_HF_DATASET}. This is a gated dataset — "
-                "visit https://huggingface.co/datasets/Salesforce/LiveResearchBench "
-                "to accept the terms, then set HF_TOKEN in your environment. "
-                f"Error: {exc}"
-            ) from exc
-
-        # Group rows by qid (multiple checklist items per question)
-        questions: Dict[str, Dict[str, Any]] = {}
-        checklists_by_qid: Dict[str, List[str]] = defaultdict(list)
-
+        # `question_with_checklist` has multiple rows per qid (one per
+        # checklist_id). Group by qid and fold all checklist items into a
+        # single record per question.
+        grouped: Dict[str, Dict[str, Any]] = {}
         for row in ds:
-            qid = str(row.get("qid", ""))
+            qid = str(row.get("qid", "") or "").strip()
             if not qid:
                 continue
-
-            if qid not in questions:
-                question = row.get("question", "") or row.get(
-                    "question_no_placeholder", ""
-                )
-                questions[qid] = {
+            question = row.get("question") or row.get("question_no_placeholder") or ""
+            if qid not in grouped:
+                grouped[qid] = {
+                    "qid": qid,
                     "question": question,
-                    "category": row.get("category", ""),
+                    "category": row.get("category", "") or "",
+                    "checklist": [],
                 }
-
-            checklist = row.get("checklist", "") or row.get(
-                "checklist_no_placeholder", ""
+            cl_items = _parse_checklist(
+                row.get("checklist") or row.get("checklist_no_placeholder")
             )
-            if checklist:
-                checklists_by_qid[qid].append(checklist)
+            grouped[qid]["checklist"].extend(cl_items)
 
-        # Build EvalRecords
-        records: List[EvalRecord] = []
-        for qid, info in questions.items():
-            question = info["question"]
-            if not question:
-                continue
-
-            question = _replace_date_placeholders(question)
-
-            problem = (
-                "You are a research assistant. Please conduct thorough "
-                "research on the following question and write a "
-                "comprehensive report with citations.\n\n"
-                f"{question}"
-            )
-
-            metadata: Dict[str, Any] = {
-                "qid": qid,
-                "original_question": question,
-                "category": info.get("category", ""),
-                "checklists": checklists_by_qid.get(qid, []),
-            }
-
-            records.append(
-                EvalRecord(
-                    record_id=f"lrb-{qid}",
-                    problem=problem,
-                    reference="",
-                    category="liveresearchbench",
-                    metadata=metadata,
-                )
+        records = list(grouped.values())
+        if not records:
+            raise RuntimeError(
+                f"LiveResearchBench: no records found in {HF_DATASET_ID} "
+                f"(config={self._hf_config}, split={hf_split})"
             )
 
         if seed is not None:
-            rng = random.Random(seed)
-            rng.shuffle(records)
-
+            random.Random(seed).shuffle(records)
         if max_samples is not None:
             records = records[:max_samples]
 
-        self._records = records
-        total_checklists = sum(
-            len(r.metadata.get("checklists", [])) for r in records
-        )
+        self._records = []
+        for rec in records:
+            question = (rec.get("question") or "").strip()
+            if not question:
+                LOGGER.warning("Skipping %s: empty question", rec.get("qid"))
+                continue
+
+            research_prompt = (
+                "You are a deep research assistant. Conduct thorough research "
+                "on the following task and produce a comprehensive, "
+                "well-structured, citation-grounded report that addresses "
+                "every aspect of the request.\n\n"
+                f"## Research Task\n\n{question}"
+            )
+
+            self._records.append(
+                EvalRecord(
+                    record_id=f"liveresearchbench-{rec['qid']}",
+                    problem=research_prompt,
+                    reference="",  # checklist-based; no single reference answer
+                    category="liveresearchbench",
+                    subject=rec.get("category") or "",
+                    metadata={
+                        "qid": rec["qid"],
+                        "question": question,
+                        "checklist": rec["checklist"],
+                        "hf_category": rec.get("category", ""),
+                    },
+                )
+            )
+
         LOGGER.info(
-            "LiveResearchBench: loaded %d tasks (%d checklist items)",
+            "LiveResearchBench: loaded %d tasks (avg %.1f checklist items/task)",
             len(self._records),
-            total_checklists,
+            (
+                sum(len(r.metadata.get("checklist", [])) for r in self._records)
+                / max(1, len(self._records))
+            ),
         )
 
     def iter_records(self) -> Iterable[EvalRecord]:
-        if self._records is None:
-            raise RuntimeError("Call .load() before iterating")
         return iter(self._records)
 
     def size(self) -> int:
-        if self._records is None:
-            raise RuntimeError("Call .load() before size()")
         return len(self._records)
 
 
-__all__ = ["LiveResearchBenchSFDataset"]
+__all__ = ["LiveResearchBenchDataset"]

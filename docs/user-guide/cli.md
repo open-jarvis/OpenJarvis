@@ -431,3 +431,101 @@ curl http://localhost:8000/v1/chat/completions \
 ```
 
 When an agent is configured (e.g., `--agent orchestrator`), non-streaming requests are routed through the agent with access to all registered tools. For tool-capable agents (`orchestrator`, `react`, `openhands`), all registered tools are automatically loaded and made available.
+
+---
+
+## `jarvis learning`
+
+Frontier-driven harness learning (distillation). Manages learning sessions, reviews pending edits, and controls the benchmark gate.
+
+### `jarvis learning init`
+
+Initialize the distillation checkpoint repo and directory layout.
+
+```bash
+jarvis learning init
+```
+
+### `jarvis learning run`
+
+Run an on-demand learning session.
+
+```bash
+jarvis learning run
+jarvis learning run --autonomy auto    # auto-apply all edits
+jarvis learning run --autonomy manual  # dry-run, everything goes to review
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--autonomy` | `tiered` | `auto`, `tiered`, or `manual` |
+
+### `jarvis learning history`
+
+List past learning sessions.
+
+```bash
+jarvis learning history
+jarvis learning history --limit 5
+```
+
+### `jarvis learning show`
+
+Show details of a learning session (diagnosis, plan, outcomes, cost).
+
+```bash
+jarvis learning show <session-id>
+```
+
+### `jarvis learning review`
+
+List all pending edits awaiting approval.
+
+```bash
+jarvis learning review
+```
+
+### `jarvis learning approve`
+
+Approve a pending edit (still goes through the benchmark gate).
+
+```bash
+jarvis learning approve <edit-id>
+```
+
+### `jarvis learning reject`
+
+Reject a pending edit.
+
+```bash
+jarvis learning reject <edit-id>
+jarvis learning reject <edit-id> --reason "too aggressive"
+```
+
+### `jarvis learning rollback`
+
+Rollback a session's committed edits (creates revert commits).
+
+```bash
+jarvis learning rollback <session-id>
+jarvis learning rollback --last
+```
+
+### `jarvis learning benchmark`
+
+Personal benchmark management.
+
+```bash
+jarvis learning benchmark show       # current stats
+jarvis learning benchmark refresh    # manual refresh
+```
+
+### `jarvis learning daemon`
+
+Background learning daemon.
+
+```bash
+jarvis learning daemon start
+jarvis learning daemon stop
+jarvis learning daemon status
+```

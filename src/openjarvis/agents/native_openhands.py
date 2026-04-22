@@ -12,6 +12,10 @@ import re
 from typing import Any, List, Optional
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
+from openjarvis.agents.prompt_loader import (
+    load_few_shot_exemplars,
+    load_system_prompt_override,
+)
 from openjarvis.core.events import EventBus
 from openjarvis.core.registry import AgentRegistry
 from openjarvis.core.types import Message, Role, ToolCall, ToolResult
@@ -220,7 +224,10 @@ class NativeOpenHandsAgent(ToolUsingAgent):
         self._emit_turn_start(input)
 
         tool_descriptions = build_tool_descriptions(self._tools)
-        system_prompt = OPENHANDS_SYSTEM_PROMPT.format(
+        prompt_template = (
+            load_system_prompt_override("native_openhands") or OPENHANDS_SYSTEM_PROMPT
+        )
+        system_prompt = prompt_template.format(
             tool_descriptions=tool_descriptions,
         )
 
@@ -276,6 +283,13 @@ class NativeOpenHandsAgent(ToolUsingAgent):
                 )
 
         messages = self._build_messages(input, context, system_prompt=system_prompt)
+
+        # Inject few-shot exemplars before the user input
+        for ex in load_few_shot_exemplars("native_openhands"):
+            if ex.get("input") and ex.get("output"):
+                messages.insert(-1, Message(role=Role.USER, content=ex["input"]))
+                messages.insert(-1, Message(role=Role.ASSISTANT, content=ex["output"]))
+
         messages = self._truncate_if_needed(messages)
 
         all_tool_results: list[ToolResult] = []

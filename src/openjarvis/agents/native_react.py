@@ -10,6 +10,10 @@ import re
 from typing import Any, List, Optional
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
+from openjarvis.agents.prompt_loader import (
+    load_few_shot_exemplars,
+    load_system_prompt_override,
+)
 from openjarvis.core.events import EventBus
 from openjarvis.core.registry import AgentRegistry
 from openjarvis.core.types import Message, Role, ToolCall, ToolResult, _message_to_dict
@@ -131,10 +135,8 @@ class NativeReActAgent(ToolUsingAgent):
 
         # Build system prompt with rich tool descriptions
         tool_desc = build_tool_descriptions(self._tools)
-        # Plan 2B I3: render the optimized few-shot examples as a section
-        # that the model sees BEFORE the tool descriptions.  When no
-        # examples are present, this is an empty string and the rendered
-        # prompt is unchanged.
+        # Plan 2B I3: render optimized few-shot skill examples as a section
+        # before the tool descriptions. Empty string when not present.
         if self._skill_few_shot_examples:
             skill_examples_block = (
                 "## Skill Examples\n\n"
@@ -143,12 +145,28 @@ class NativeReActAgent(ToolUsingAgent):
             )
         else:
             skill_examples_block = ""
-        system_prompt = REACT_SYSTEM_PROMPT.format(
-            tool_descriptions=tool_desc,
-            skill_examples=skill_examples_block,
+        # Respect $OPENJARVIS_HOME override for the base template (M2+ work).
+        prompt_template = (
+            load_system_prompt_override("native_react") or REACT_SYSTEM_PROMPT
         )
+        # External overrides may not include the {skill_examples} slot.
+        try:
+            system_prompt = prompt_template.format(
+                tool_descriptions=tool_desc,
+                skill_examples=skill_examples_block,
+            )
+        except KeyError:
+            system_prompt = prompt_template.format(tool_descriptions=tool_desc)
+            if skill_examples_block:
+                system_prompt = system_prompt + "\n\n" + skill_examples_block
 
         messages = self._build_messages(input, context, system_prompt=system_prompt)
+
+        # Inject few-shot exemplars before the user input
+        for ex in load_few_shot_exemplars("native_react"):
+            if ex.get("input") and ex.get("output"):
+                messages.insert(-1, Message(role=Role.USER, content=ex["input"]))
+                messages.insert(-1, Message(role=Role.ASSISTANT, content=ex["output"]))
 
         all_tool_results: list[ToolResult] = []
         turns = 0

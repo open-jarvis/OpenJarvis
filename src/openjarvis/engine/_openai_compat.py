@@ -29,7 +29,10 @@ class _OpenAICompatibleEngine(InferenceEngine):
     _api_prefix: str = "/v1"
 
     def __init__(self, host: str | None = None, *, timeout: float = 600.0) -> None:
-        self._host = (host or self._default_host).rstrip("/")
+        import os
+
+        env_key = f"{self.engine_id.upper()}_HOST"
+        self._host = (host or os.environ.get(env_key) or self._default_host).rstrip("/")
         self._client = httpx.Client(base_url=self._host, timeout=timeout)
 
     # -- InferenceEngine interface ------------------------------------------
