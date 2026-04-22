@@ -239,7 +239,7 @@ def _normalize_response(parsed: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-class LiveResearchBenchScorer(LLMJudgeScorer):
+class DeepResearchBenchScorer(LLMJudgeScorer):
     """LLM-as-judge scorer for DeepResearchBench deep research tasks.
 
     Evaluates research reports across four dimensions:
@@ -247,7 +247,7 @@ class LiveResearchBenchScorer(LLMJudgeScorer):
     Uses task-specific criteria when available from the benchmark data.
     """
 
-    scorer_id = "liveresearch"
+    scorer_id = "deepresearch"
 
     def score(
         self,
@@ -313,4 +313,4 @@ class LiveResearchBenchScorer(LLMJudgeScorer):
         return is_correct, metadata
 
 
-__all__ = ["LiveResearchBenchScorer"]
+__all__ = ["DeepResearchBenchScorer"]

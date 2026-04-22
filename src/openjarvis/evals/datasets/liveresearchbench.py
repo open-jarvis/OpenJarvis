@@ -37,7 +37,7 @@ def _replace_date_placeholders(text: str) -> str:
     return text
 
 
-class LiveResearchBenchSFDataset(DatasetProvider):
+class LiveResearchBenchDataset(DatasetProvider):
     """Salesforce LiveResearchBench — 80 expert-curated research tasks.
 
     The HuggingFace dataset has 543 rows (multiple checklist items per
@@ -176,4 +176,4 @@ class LiveResearchBenchSFDataset(DatasetProvider):
         return len(self._records)
 
 
-__all__ = ["LiveResearchBenchSFDataset"]
+__all__ = ["LiveResearchBenchDataset"]

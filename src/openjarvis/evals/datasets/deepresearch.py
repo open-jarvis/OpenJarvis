@@ -22,8 +22,8 @@ from openjarvis.evals.core.types import EvalRecord
 
 LOGGER = logging.getLogger(__name__)
 
-LIVERESEARCH_REPO = "https://github.com/Ayanami0730/deep_research_bench.git"
-CACHE_DIR = Path.home() / ".cache" / "liveresearch_bench"
+DEEPRESEARCH_REPO = "https://github.com/Ayanami0730/deep_research_bench.git"
+CACHE_DIR = Path.home() / ".cache" / "deepresearch_bench"
 
 
 def _load_jsonl(path: Path) -> List[Dict[str, Any]]:
@@ -49,14 +49,14 @@ def _build_criteria_index(
     return index
 
 
-class LiveResearchBenchDataset(DatasetProvider):
+class DeepResearchBenchDataset(DatasetProvider):
     """DeepResearchBench — deep research with 100 expert-curated tasks.
 
     Clones Ayanami0730/deep_research_bench from GitHub (or uses a local
     path) and parses query + criteria JSONL files into EvalRecords.
     """
 
-    dataset_id = "liveresearch"
+    dataset_id = "deepresearch"
     dataset_name = "DeepResearchBench"
 
     def __init__(self, path: Optional[str] = None) -> None:
@@ -82,7 +82,7 @@ class LiveResearchBenchDataset(DatasetProvider):
             return self._local_path
 
         if not self._repo_dir.exists():
-            LOGGER.info("Cloning DeepResearchBench from %s ...", LIVERESEARCH_REPO)
+            LOGGER.info("Cloning DeepResearchBench from %s ...", DEEPRESEARCH_REPO)
             self._repo_dir.parent.mkdir(parents=True, exist_ok=True)
             subprocess.run(
                 [
@@ -90,7 +90,7 @@ class LiveResearchBenchDataset(DatasetProvider):
                     "clone",
                     "--depth",
                     "1",
-                    LIVERESEARCH_REPO,
+                    DEEPRESEARCH_REPO,
                     str(self._repo_dir),
                 ],
                 check=True,
@@ -170,7 +170,7 @@ class LiveResearchBenchDataset(DatasetProvider):
 
             self._records.append(
                 EvalRecord(
-                    record_id=f"liveresearch-{q_id or len(self._records)}",
+                    record_id=f"deepresearch-{q_id or len(self._records)}",
                     problem=research_prompt,
                     reference="",  # No single reference answer; rubric-based
                     category="agentic",
@@ -188,4 +188,4 @@ class LiveResearchBenchDataset(DatasetProvider):
         return len(self._records)
 
 
-__all__ = ["LiveResearchBenchDataset"]
+__all__ = ["DeepResearchBenchDataset"]

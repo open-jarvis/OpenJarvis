@@ -343,15 +343,15 @@ def _build_dataset(benchmark: str, subset: str | None = None):
 
         return LiveCodeBenchDataset()
     elif benchmark == "deepresearch":
-        from openjarvis.evals.datasets.liveresearch import LiveResearchBenchDataset
+        from openjarvis.evals.datasets.deepresearch import DeepResearchBenchDataset
 
-        return LiveResearchBenchDataset(path=subset)
+        return DeepResearchBenchDataset(path=subset)
     elif benchmark == "liveresearchbench":
         from openjarvis.evals.datasets.liveresearchbench import (
-            LiveResearchBenchSFDataset,
+            LiveResearchBenchDataset,
         )
 
-        return LiveResearchBenchSFDataset()
+        return LiveResearchBenchDataset()
     elif benchmark == "toolcall15":
         from openjarvis.evals.datasets.toolcall15 import ToolCall15Dataset
 
@@ -501,15 +501,15 @@ def _build_scorer(benchmark: str, judge_backend, judge_model: str):
 
         return LiveCodeBenchScorer(judge_backend, judge_model)
     elif benchmark == "deepresearch":
-        from openjarvis.evals.scorers.liveresearch import LiveResearchBenchScorer
+        from openjarvis.evals.scorers.deepresearch import DeepResearchBenchScorer
 
-        return LiveResearchBenchScorer(judge_backend, judge_model)
+        return DeepResearchBenchScorer(judge_backend, judge_model)
     elif benchmark == "liveresearchbench":
         from openjarvis.evals.scorers.liveresearchbench import (
-            LiveResearchBenchSFScorer,
+            LiveResearchBenchScorer,
         )
 
-        return LiveResearchBenchSFScorer(judge_backend, judge_model)
+        return LiveResearchBenchScorer(judge_backend, judge_model)
     elif benchmark == "toolcall15":
         from openjarvis.evals.scorers.toolcall15 import ToolCall15Scorer
 

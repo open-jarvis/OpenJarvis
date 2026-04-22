@@ -57,6 +57,7 @@ KEEP_COLUMNS = [
     "estimated_flops",
     "scoring_metadata",
     "error",
+    "trace_data",  # Include trace data for analysis
 ]
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -79,7 +80,7 @@ def _clean_row(row: dict[str, Any]) -> dict[str, Any]:
         out[col] = val
     # Ensure string columns never have None (causes schema mismatch across splits)
     for col in ("error", "model_answer", "reference", "problem", "scoring_metadata",
-                "record_id", "benchmark", "model", "backend"):
+                "record_id", "benchmark", "model", "backend", "trace_data"):
         if out.get(col) is None:
             out[col] = ""
     return out
@@ -145,6 +146,7 @@ def publish_file(path: Path, repo_id: str, token: str | None = None, dry_run: bo
         "estimated_flops": Value("float64"),
         "scoring_metadata": Value("string"),
         "error": Value("string"),
+        "trace_data": Value("string"),  # JSON-serialized trace data
     })
     ds = Dataset.from_list(cleaned, features=features)
     ds.push_to_hub(

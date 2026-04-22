@@ -63,7 +63,7 @@ consistency: <1-5>
 reasoning: <brief explanation>"""
 
 
-class LiveResearchBenchSFScorer(LLMJudgeScorer):
+class LiveResearchBenchScorer(LLMJudgeScorer):
     """Checklist + quality scorer for Salesforce LiveResearchBench."""
 
     scorer_id = "liveresearchbench"
@@ -163,4 +163,4 @@ class LiveResearchBenchSFScorer(LLMJudgeScorer):
         return is_correct, meta
 
 
-__all__ = ["LiveResearchBenchSFScorer"]
+__all__ = ["LiveResearchBenchScorer"]
