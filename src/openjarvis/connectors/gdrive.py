@@ -31,7 +31,7 @@ from openjarvis.tools._stubs import ToolSpec
 # ---------------------------------------------------------------------------
 
 _GDRIVE_API_BASE = "https://www.googleapis.com/drive/v3"
-_GDRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
+_GDRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
 _DEFAULT_CREDENTIALS_PATH = str(DEFAULT_CONFIG_DIR / "connectors" / "gdrive.json")
 
 # Map from Google Workspace MIME types to export MIME types
@@ -161,7 +161,7 @@ class GDriveConnector(BaseConnector):
         delete_tokens(self._credentials_path)
 
     def auth_url(self) -> str:
-        """Return a Google OAuth consent URL requesting ``drive.readonly`` scope."""
+        """Return a Google OAuth consent URL requesting ``drive`` scope."""
         tokens = load_tokens(self._credentials_path)
         client_id = ""
         if tokens:

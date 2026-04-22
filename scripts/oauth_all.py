@@ -111,7 +111,7 @@ def do_google() -> None:
     print("\n=== Google OAuth (Drive, Calendar, Contacts, Gmail, Tasks) ===")
     scopes = [
         "openid", "email", "profile",
-        "https://www.googleapis.com/auth/drive.readonly",
+        "https://www.googleapis.com/auth/drive",
         "https://www.googleapis.com/auth/calendar.readonly",
         "https://www.googleapis.com/auth/contacts.readonly",
         "https://www.googleapis.com/auth/gmail.readonly",
