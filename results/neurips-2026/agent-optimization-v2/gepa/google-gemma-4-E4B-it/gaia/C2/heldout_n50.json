@@ -1,0 +1,14 @@
+{
+  "result_json": "results/neurips-2026/agent-optimization-v2/gepa/google-gemma-4-E4B-it/gaia/C2/result.json",
+  "optimizer": "GEPA",
+  "model": "google/gemma-4-E4B-it",
+  "benchmark": "gaia",
+  "max_samples": 50,
+  "judge_model": "gpt-5-mini-2025-08-07",
+  "seed": 42,
+  "optimized_accuracy": 0.04,
+  "optimized_elapsed_seconds": 639.6119542401284,
+  "seed_accuracy": 0.13043478260869565,
+  "seed_elapsed_seconds": 947.4024854013696,
+  "lift_pp": -9.043478260869565
+}
