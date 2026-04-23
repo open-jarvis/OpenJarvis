@@ -1,0 +1,51 @@
+{"timestamp": 1776975737.4400039, "query": "Read the document in summary_source.txt and write a concise 3-paragraph summary to summary_output.tx", "score": 1.0, "candidate_hash": 79243}
+{"timestamp": 1776975770.2649446, "query": "You are an executive assistant preparing the daily briefing. Review all files in the research/ folde", "score": 0.0, "candidate_hash": 79243}
+{"timestamp": 1776975905.7464013, "query": "Create a competitive landscape analysis for the **enterprise observability and APM (Application Perf", "score": 1.0, "candidate_hash": 79243}
+{"timestamp": 1776975939.509072, "query": "I have a research report about OpenClaw agent use cases in my workspace as `openclaw_report.pdf`. I ", "score": 0.0, "candidate_hash": 79243}
+{"timestamp": 1776976014.172529, "query": "Generate an image of a friendly robot sitting in a cozy coffee shop, reading a book. Save it as \"rob", "score": 0.0, "candidate_hash": 79243}
+{"timestamp": 1776976373.3547318, "query": "Find 5 upcoming tech conferences and create events.md with name, date, location, and website for eac", "score": 1.0, "candidate_hash": 79243}
+{"timestamp": 1776976390.1490111, "query": "Create a project structure with: src/ directory, src/main.py with hello world, README.md with projec", "score": 1.0, "candidate_hash": 79243}
+{"timestamp": 1776976421.570312, "query": "Read config.json, extract the API endpoint, create a Python script to call it, and document the proc", "score": 1.0, "candidate_hash": 79243}
+{"timestamp": 1776976545.0602634, "query": "I have a blog post in `ai_blog.txt` that sounds way too robotic and AI-generated. First, install the", "score": 1.0, "candidate_hash": 79243}
+{"timestamp": 1776976579.3002727, "query": "You do not have access to real calendars. Simulate creating a calendar event by writing an ICS (iCal", "score": 1.0, "candidate_hash": 79243}
+{"timestamp": 1776976597.1210482, "query": "I need to update my configuration files for production deployment. Please make the following changes", "score": 1.0, "candidate_hash": 79243}
+{"timestamp": 1776976618.702402, "query": "You have access to a collection of emails in the `emails/` folder in your workspace (12 email files ", "score": 0.0, "candidate_hash": 79243}
+{"timestamp": 1776976644.99072, "query": "Create a basic Python project structure for a library called \"datautils\". The project should include", "score": 1.0, "candidate_hash": 79243}
+{"timestamp": 1776976708.3109262, "query": "You are helping triage an overflowing email inbox. The emails have been provided to you in the `inbo", "score": 0.0, "candidate_hash": 79243}
+{"timestamp": 1776976951.307526, "query": "Fetch the top 3 trending prediction markets from Polymarket (polymarket.com) right now. For each mar", "score": 0.0, "candidate_hash": 79243}
+{"timestamp": 1776976964.1066568, "query": "Create a project structure with: src/ directory, src/main.py with hello world, README.md with projec", "score": 1.0, "candidate_hash": 79243}
+{"timestamp": 1776977012.9251487, "query": "You have access to a collection of emails in the `emails/` folder in your workspace (12 email files ", "score": 0.0, "candidate_hash": 79243}
+{"timestamp": 1776977391.7961278, "query": "Find 5 upcoming tech conferences and create events.md with name, date, location, and website for eac", "score": 0.0, "candidate_hash": 79243}
+{"timestamp": 1776977520.9377987, "query": "You are helping triage an overflowing email inbox. The emails have been provided to you in the `inbo", "score": 0.0, "candidate_hash": 79243}
+{"timestamp": 1776977585.75535, "query": "I have a blog post in `ai_blog.txt` that sounds way too robotic and AI-generated. First, install the", "score": 1.0, "candidate_hash": 79243}
+{"timestamp": 1776977666.9108949, "query": "Fetch the top 3 trending prediction markets from Polymarket (polymarket.com) right now. For each mar", "score": 0.0, "candidate_hash": 79243}
+{"timestamp": 1776977688.5416803, "query": "You do not have access to real calendars. Simulate creating a calendar event by writing an ICS (iCal", "score": 1.0, "candidate_hash": 79243}
+{"timestamp": 1776977709.069496, "query": "I need to update my configuration files for production deployment. Please make the following changes", "score": 1.0, "candidate_hash": 79243}
+{"timestamp": 1776977714.2758014, "query": "Read config.json, extract the API endpoint, create a Python script to call it, and document the proc", "score": 1.0, "candidate_hash": 79243}
+{"timestamp": 1776977737.5402815, "query": "Create a basic Python project structure for a library called \"datautils\". The project should include", "score": 1.0, "candidate_hash": 79243}
+{"timestamp": 1776977888.497303, "query": "Generate an image of a friendly robot sitting in a cozy coffee shop, reading a book. Save it as \"rob", "score": 0.0, "candidate_hash": 79243}
+{"timestamp": 1776977908.3705804, "query": "I have a research report about OpenClaw agent use cases in my workspace as `openclaw_report.pdf`. I ", "score": 0.0, "candidate_hash": 79243}
+{"timestamp": 1776977922.0519862, "query": "Create a project structure with: src/ directory, src/main.py with hello world, README.md with projec", "score": 1.0, "candidate_hash": 79243}
+{"timestamp": 1776977984.3236814, "query": "Generate an image of a friendly robot sitting in a cozy coffee shop, reading a book. Save it as \"rob", "score": 0.0, "candidate_hash": 79243}
+{"timestamp": 1776978139.1469338, "query": "I have a blog post in `ai_blog.txt` that sounds way too robotic and AI-generated. First, install the", "score": 1.0, "candidate_hash": 79243}
+{"timestamp": 1776978158.9997153, "query": "Create a basic Python project structure for a library called \"datautils\". The project should include", "score": 1.0, "candidate_hash": 79243}
+{"timestamp": 1776978194.9188342, "query": "Read config.json, extract the API endpoint, create a Python script to call it, and document the proc", "score": 1.0, "candidate_hash": 79243}
+{"timestamp": 1776978533.8426182, "query": "Fetch the top 3 trending prediction markets from Polymarket (polymarket.com) right now. For each mar", "score": 0.0, "candidate_hash": 79243}
+{"timestamp": 1776978555.0357366, "query": "You do not have access to real calendars. Simulate creating a calendar event by writing an ICS (iCal", "score": 1.0, "candidate_hash": 79243}
+{"timestamp": 1776978604.7233427, "query": "You are helping triage an overflowing email inbox. The emails have been provided to you in the `inbo", "score": 0.0, "candidate_hash": 79243}
+{"timestamp": 1776978672.4871469, "query": "I have a research report about OpenClaw agent use cases in my workspace as `openclaw_report.pdf`. I ", "score": 0.0, "candidate_hash": 79243}
+{"timestamp": 1776978706.8062952, "query": "I need to update my configuration files for production deployment. Please make the following changes", "score": 1.0, "candidate_hash": 79243}
+{"timestamp": 1776978728.0487955, "query": "You have access to a collection of emails in the `emails/` folder in your workspace (12 email files ", "score": 0.0, "candidate_hash": 79243}
+{"timestamp": 1776978874.6252673, "query": "Find 5 upcoming tech conferences and create events.md with name, date, location, and website for eac", "score": 0.0, "candidate_hash": 79243}
+{"timestamp": 1776978898.5796275, "query": "Create a basic Python project structure for a library called \"datautils\". The project should include", "score": 1.0, "candidate_hash": 79243}
+{"timestamp": 1776978919.9836795, "query": "You have access to a collection of emails in the `emails/` folder in your workspace (12 email files ", "score": 0.0, "candidate_hash": 79243}
+{"timestamp": 1776978926.1394646, "query": "You are helping triage an overflowing email inbox. The emails have been provided to you in the `inbo", "score": 0.0, "candidate_hash": 79243}
+{"timestamp": 1776978963.2653944, "query": "I have a research report about OpenClaw agent use cases in my workspace as `openclaw_report.pdf`. I ", "score": 0.0, "candidate_hash": 79243}
+{"timestamp": 1776978974.5105214, "query": "Read config.json, extract the API endpoint, create a Python script to call it, and document the proc", "score": 1.0, "candidate_hash": 79243}
+{"timestamp": 1776978975.0535967, "query": "I need to update my configuration files for production deployment. Please make the following changes", "score": 1.0, "candidate_hash": 79243}
+{"timestamp": 1776978999.535614, "query": "You do not have access to real calendars. Simulate creating a calendar event by writing an ICS (iCal", "score": 1.0, "candidate_hash": 79243}
+{"timestamp": 1776979000.439428, "query": "Generate an image of a friendly robot sitting in a cozy coffee shop, reading a book. Save it as \"rob", "score": 0.0, "candidate_hash": 79243}
+{"timestamp": 1776979036.4422154, "query": "I have a blog post in `ai_blog.txt` that sounds way too robotic and AI-generated. First, install the", "score": 1.0, "candidate_hash": 79243}
+{"timestamp": 1776979046.0155234, "query": "Create a project structure with: src/ directory, src/main.py with hello world, README.md with projec", "score": 1.0, "candidate_hash": 79243}
+{"timestamp": 1776979319.9668112, "query": "Fetch the top 3 trending prediction markets from Polymarket (polymarket.com) right now. For each mar", "score": 0.0, "candidate_hash": 79243}
+{"timestamp": 1776979378.3075845, "query": "Find 5 upcoming tech conferences and create events.md with name, date, location, and website for eac", "score": 1.0, "candidate_hash": 79243}
