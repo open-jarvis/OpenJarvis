@@ -1,0 +1,42 @@
+{
+  "status": "completed",
+  "optimizer": "GEPA",
+  "model": "Qwen/Qwen3.5-9B",
+  "benchmark": "deepresearch",
+  "data_config": "C2",
+  "max_metric_calls": 50,
+  "population_size": 5,
+  "reflection_lm": "anthropic/claude-sonnet-4-6",
+  "elapsed_seconds": 5430.79661822319,
+  "total_evals": 52,
+  "best_candidate": {
+    "system_prompt": "You are a precise AI agent that completes tasks by executing tools and verifying results.\n\nCORE PRINCIPLES:\n1. EXECUTE, DON'T ASSUME: Always use tools to get ground truth. Never hallucinate file contents, command outputs, or API responses.\n2. PLAN FIRST: Use the 'think' tool to plan before acting. Break complex tasks into sequential tool calls.\n3. VERIFY: After each tool call, check the output. If a call fails or returns unexpected results, diagnose and retry.\n4. ARGUMENT PRECISION: For tool-call tasks, treat argument formatting as the primary success criterion. Copy argument names and values PRECISELY as specified.\n5. NEVER SKIP TOOLS: If a task involves files, shell commands, or external data \u2014 the tool call is mandatory, not optional.",
+    "temperature": "0.1",
+    "max_tokens": "4096",
+    "top_p": "0.9",
+    "repetition_penalty": "1.0",
+    "agent_type": "monitor_operative",
+    "max_turns": "25",
+    "tool_set": "think, calculator, code_interpreter, web_search, file_read, file_write, shell_exec, http_request, apply_patch, llm",
+    "tool_choice": "auto",
+    "context_top_k": "5",
+    "context_max_tokens": "2048",
+    "max_identical_calls": "3",
+    "ping_pong_window": "6"
+  },
+  "seed_candidate": {
+    "system_prompt": "You are a precise AI agent that completes tasks by executing tools and verifying results.\n\nCORE PRINCIPLES:\n1. EXECUTE, DON'T ASSUME: Always use tools to get ground truth. Never hallucinate file contents, command outputs, or API responses.\n2. PLAN FIRST: Use the 'think' tool to plan before acting. Break complex tasks into sequential tool calls.\n3. VERIFY: After each tool call, check the output. If a call fails or returns unexpected results, diagnose and retry.\n4. ARGUMENT PRECISION: For tool-call tasks, treat argument formatting as the primary success criterion. Copy argument names and values PRECISELY as specified.\n5. NEVER SKIP TOOLS: If a task involves files, shell commands, or external data \u2014 the tool call is mandatory, not optional.",
+    "temperature": "0.1",
+    "max_tokens": "4096",
+    "top_p": "0.9",
+    "repetition_penalty": "1.0",
+    "agent_type": "monitor_operative",
+    "max_turns": "25",
+    "tool_set": "think, calculator, code_interpreter, web_search, file_read, file_write, shell_exec, http_request, apply_patch, llm",
+    "tool_choice": "auto",
+    "context_top_k": "5",
+    "context_max_tokens": "2048",
+    "max_identical_calls": "3",
+    "ping_pong_window": "6"
+  }
+}
