@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Outlet, useNavigate } from 'react-router';
+import { Outlet, useLocation, useNavigate } from 'react-router';
 import { Sidebar } from './Sidebar/Sidebar';
 import { SystemPulse } from './SystemPulse';
 import { useAppStore } from '../lib/store';
@@ -8,10 +8,15 @@ import { checkHealth } from '../lib/api';
 export function Layout() {
   const sidebarOpen = useAppStore((s) => s.sidebarOpen);
   const [apiReachable, setApiReachable] = useState<boolean | null>(null);
+  const location = useLocation();
+  const isPersonalCockpit = location.pathname === '/jarvis-personal';
 
   useEffect(() => {
     const check = () => checkHealth().then(setApiReachable);
     check();
+    if (isPersonalCockpit) {
+      return;
+    }
     const interval = setInterval(check, 30000);
     const onFocus = () => check();
     window.addEventListener('focus', onFocus);
@@ -19,7 +24,7 @@ export function Layout() {
       clearInterval(interval);
       window.removeEventListener('focus', onFocus);
     };
-  }, []);
+  }, [isPersonalCockpit]);
 
   const navigate = useNavigate();
 
