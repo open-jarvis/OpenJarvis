@@ -1,0 +1,14 @@
+{
+  "result_json": "results/neurips-2026/agent-optimization-v2/gepa/google-gemma-4-E4B-it/deepresearch/C2/result.json",
+  "optimizer": "GEPA",
+  "model": "google/gemma-4-E4B-it",
+  "benchmark": "deepresearch",
+  "max_samples": 20,
+  "judge_model": "gpt-5-mini-2025-08-07",
+  "seed": 42,
+  "optimized_accuracy": 0.0,
+  "optimized_elapsed_seconds": 88.39498197752982,
+  "seed_accuracy": 0.05,
+  "seed_elapsed_seconds": 158.43299716338515,
+  "lift_pp": -5.0
+}
