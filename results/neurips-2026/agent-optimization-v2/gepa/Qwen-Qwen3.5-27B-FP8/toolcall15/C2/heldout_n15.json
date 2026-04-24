@@ -1,0 +1,14 @@
+{
+  "result_json": "results/neurips-2026/agent-optimization-v2/gepa/Qwen-Qwen3.5-27B-FP8/toolcall15/C2/result.json",
+  "optimizer": "GEPA",
+  "model": "Qwen/Qwen3.5-27B-FP8",
+  "benchmark": "toolcall15",
+  "max_samples": 15,
+  "judge_model": "gpt-5-mini-2025-08-07",
+  "seed": 42,
+  "optimized_accuracy": 0.0,
+  "optimized_elapsed_seconds": 157.38749571330845,
+  "seed_accuracy": 0.0,
+  "seed_elapsed_seconds": 158.55950863845646,
+  "lift_pp": 0.0
+}
