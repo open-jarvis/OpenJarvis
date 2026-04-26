@@ -45,7 +45,7 @@ dev = [
     "ruff>=0.4",
     "pre-commit>=3.0",
 ]
-inference-mlx = ["mlx-lm>=0.19; sys_platform == 'darwin'"]
+inference-mlx = ["mlx-lm>=0.31.1; sys_platform == 'darwin'"]
 inference-vllm = ["vllm>=0.16.0"]
 inference-cloud = [
     "openai>=1.30",
