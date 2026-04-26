@@ -181,7 +181,15 @@ def create_app(
 
     from fastapi.middleware.cors import CORSMiddleware
 
-    _origins = cors_origins if cors_origins is not None else ["*"]
+    _origins = (
+        cors_origins
+        if cors_origins is not None
+        else [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "tauri://localhost",
+        ]
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_origins,
