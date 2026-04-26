@@ -109,6 +109,3 @@ db_path = "~/.openjarvis/traces.db"
 host = "0.0.0.0"
 port = 8000
 agent = "native_openhands"
-
-[security]
-enabled = false                           # Disable for eval (no PII scanning overhead)
