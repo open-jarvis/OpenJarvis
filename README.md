@@ -69,13 +69,13 @@ uv run jarvis init
 # 2. Start Ollama and pull a model
 curl -fsSL https://ollama.com/install.sh | sh
 ollama serve &
-ollama pull qwen3:8b
+ollama pull qwen3.5:4b   # CPU-friendly default; use qwen3.5:9b or larger if you have a GPU
 
 # 3. Ask a question
 uv run jarvis ask "What is the capital of France?"
 ```
 
-`jarvis init` auto-detects your hardware and recommends the best engine. Run `uv run jarvis doctor` at any time to diagnose issues.
+`jarvis init` auto-detects your hardware and recommends the best engine and model size. Run `uv run jarvis doctor` at any time to diagnose issues.
 
 ## Starter Configs
 

@@ -14,7 +14,7 @@ OpenJarvis is a modular AI assistant framework. Here's what developers build wit
 === "Chat with Any Model"
 
     ```bash
-    jarvis ask "Explain quantum entanglement" -m qwen3:8b
+    jarvis ask "Explain quantum entanglement" -m qwen3.5:4b   # use qwen3.5:9b or larger on GPU
     ```
 
 === "Agent + Tools"
