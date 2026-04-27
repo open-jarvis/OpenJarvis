@@ -64,6 +64,7 @@ You also need a local inference backend: [Ollama](https://ollama.com), [vLLM](ht
 git clone https://github.com/open-jarvis/OpenJarvis.git
 cd OpenJarvis
 uv sync
+uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml   # required for memory + security features
 uv run jarvis init
 
 # 2. Start Ollama and pull a model
@@ -82,8 +83,10 @@ uv run jarvis ask "What is the capital of France?"
 Install any preset with one command:
 
 ```bash
-jarvis init --preset morning-digest-mac   # or any preset below
+uv run jarvis init --preset morning-digest-mac   # or any preset below
 ```
+
+> Prefix every `jarvis ...` invocation with `uv run`, or activate the venv first (`source .venv/bin/activate`) so plain `jarvis ...` works for the rest of your shell session.
 
 | Preset | Use Case | What it does |
 |--------|----------|-------------|
@@ -97,14 +100,14 @@ jarvis init --preset morning-digest-mac   # or any preset below
 
 ```bash
 # Example: Morning Digest on Mac
-jarvis init --preset morning-digest-mac
-jarvis connect gdrive          # one OAuth flow covers Gmail, Calendar, Tasks
-jarvis digest --fresh           # generate and play your first briefing
+uv run jarvis init --preset morning-digest-mac
+uv run jarvis connect gdrive          # one OAuth flow covers Gmail, Calendar, Tasks
+uv run jarvis digest --fresh          # generate and play your first briefing
 
 # Example: Deep Research
-jarvis init --preset deep-research
-jarvis memory index ./docs/    # index your documents
-jarvis ask "Summarize all emails about Project X"
+uv run jarvis init --preset deep-research
+uv run jarvis memory index ./docs/    # requires the Rust extension — see Setup above
+uv run jarvis ask "Summarize all emails about Project X"
 ```
 
 ### Skills
