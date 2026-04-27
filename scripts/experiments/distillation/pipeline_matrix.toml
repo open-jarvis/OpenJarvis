@@ -1,0 +1,170 @@
+# Distillation pipeline matrix — the SINGLE source of truth for which
+# applications (student models) and experiments (benchmarks) the pipeline
+# runs against, plus the per-benchmark settings used to render configs.
+#
+# Every script in scripts/experiments/distillation/ reads from this file.
+# To add a model, add an [[applications]] block. To add a benchmark, add an
+# [[experiments]] block. Nothing else needs to change.
+
+[paths]
+configs_dir          = "src/openjarvis/evals/configs"
+distilled_configs_dir = "src/openjarvis/evals/configs/distillation/m2"
+baseline_results_dir = "results/neurips-2026/baselines"
+distilled_results_dir = "results/neurips-2026/distilled"
+comparison_dir       = "results/neurips-2026/distillation-m2"
+
+[runner]
+# Per-size OPENJARVIS_CONFIG override files. The runner sets
+# OPENJARVIS_CONFIG=<distilled_oj_config_dir>/config-<size>.toml when running
+# a distilled config, and =<baseline_oj_config_dir>/config-baseline-<size>.toml
+# for a baseline. Leave empty to skip the override (use default config).
+oj_config_dir        = "/scratch/user/jonsaadfalcon/openjarvis-m2"
+distilled_oj_template = "config-{size}.toml"
+baseline_oj_template = "config-baseline-{size}.toml"
+python_bin           = ".venv/bin/python"
+evals_module         = "openjarvis.evals"
+
+# ── Applications (student models) ────────────────────────────────────────────
+# Each application is one (size, slug, hf_name, vllm_port) row.
+
+[[applications]]
+size      = "2b"
+slug      = "qwen-2b"
+hf_name   = "Qwen/Qwen3.5-2B"
+engine    = "vllm"
+num_gpus  = 1
+vllm_port = 8000
+
+[[applications]]
+size      = "9b"
+slug      = "qwen-9b"
+hf_name   = "Qwen/Qwen3.5-9B"
+engine    = "vllm"
+num_gpus  = 1
+vllm_port = 8001
+
+[[applications]]
+size      = "27b"
+slug      = "qwen-27b"
+hf_name   = "Qwen/Qwen3.5-27B-FP8"
+engine    = "vllm"
+num_gpus  = 1
+vllm_port = 8002
+
+# ── Experiments (benchmarks) ─────────────────────────────────────────────────
+# Each experiment is one benchmark row. `is_agent=true` means the agent layer
+# runs and consensus edits actually apply; `is_control=true` pins the distilled
+# values to the baseline (used for direct/coding/reasoning controls).
+#
+# `benchmark_name` defaults to `name` but can differ (e.g. taubench-telecom is
+# the taubench benchmark with split=telecom).
+#
+# `priority` controls run order: lower numbers run first. Agent benchmarks are
+# typically priority=1 (highest signal), controls priority=2.
+
+[[experiments]]
+name           = "toolcall15"
+backend        = "jarvis-direct"
+baseline_temp  = 0.0
+max_tokens     = 4096
+judge_model    = "gpt-5-mini-2025-08-07"
+judge_engine   = "cloud"
+is_agent       = false
+is_control     = true
+priority       = 2
+
+[[experiments]]
+name           = "pinchbench"
+backend        = "jarvis-agent"
+agent          = "native_openhands"
+baseline_temp  = 0.6
+max_tokens     = 8192
+judge_model    = "claude-opus-4-5"
+judge_engine   = "cloud"
+is_agent       = true
+is_control     = false
+priority       = 1
+baseline_tools = [
+  "think", "file_read", "file_write", "web_search", "shell_exec",
+  "code_interpreter", "browser_navigate", "image_generate",
+  "calculator", "http_request", "pdf_extract",
+]
+
+[[experiments]]
+name              = "taubench"
+backend           = "jarvis-direct"
+baseline_temp     = 0.7
+max_tokens        = 4096
+max_samples       = 20
+judge_model       = "gpt-5-mini-2025-08-07"
+judge_engine      = "cloud"
+is_agent          = false
+is_control        = false
+priority          = 2
+extra_benchmark_fields = { split = "airline,retail" }
+
+[[experiments]]
+name              = "taubench-telecom"
+benchmark_name    = "taubench"
+backend           = "jarvis-direct"
+baseline_temp     = 0.7
+max_tokens        = 4096
+max_samples       = 20
+judge_model       = "gpt-5-mini-2025-08-07"
+judge_engine      = "cloud"
+is_agent          = false
+is_control        = false
+priority          = 2
+extra_benchmark_fields = { split = "telecom" }
+
+[[experiments]]
+name           = "gaia"
+backend        = "jarvis-agent"
+agent          = "monitor_operative"
+baseline_temp  = 0.6
+max_tokens     = 8192
+max_samples    = 50
+judge_model    = "gpt-5-mini-2025-08-07"
+judge_engine   = "cloud"
+is_agent       = true
+is_control     = false
+priority       = 1
+baseline_tools = ["think", "calculator", "code_interpreter", "web_search", "file_read"]
+
+[[experiments]]
+name           = "liveresearch"
+backend        = "jarvis-agent"
+agent          = "monitor_operative"
+baseline_temp  = 0.6
+max_tokens     = 16384
+max_samples    = 50
+judge_model    = "gpt-5-mini-2025-08-07"
+judge_engine   = "cloud"
+is_agent       = true
+is_control     = false
+priority       = 1
+baseline_tools = ["web_search", "file_read", "file_write", "code_interpreter", "think"]
+
+[[experiments]]
+name           = "liveresearchbench"
+backend        = "jarvis-direct"
+baseline_temp  = 0.0
+max_tokens     = 8192
+max_samples    = 50
+judge_model    = "gpt-5-mini-2025-08-07"
+judge_engine   = "cloud"
+is_agent       = false
+is_control     = true
+priority       = 3   # newest benchmark, no baseline yet — runs last
+
+[[experiments]]
+name           = "livecodebench"
+backend        = "jarvis-direct"
+baseline_temp  = 0.0
+max_tokens     = 4096
+max_samples    = 20
+judge_model    = "gpt-5-mini-2025-08-07"
+judge_engine   = "cloud"
+is_agent       = false
+is_control     = true
+priority       = 2
