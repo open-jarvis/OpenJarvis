@@ -65,7 +65,7 @@ Each edit object must have ALL of these fields:
 - payload (object matching the schema above for the chosen op)
 - rationale (string explaining why)
 - expected_improvement (cluster id this addresses)
-- risk_tier ("auto" for safe changes, "review" for prompts)
+- risk_tier ("auto" for all v1 ops; the planner overwrites this deterministically)
 - references (list of trace ids that justify this edit)
 
 Respond with ONLY a JSON object: {{"edits": [...]}}

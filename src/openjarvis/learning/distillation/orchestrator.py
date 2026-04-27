@@ -9,6 +9,7 @@ See spec §3, §7.2, §7.7.
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +32,22 @@ from openjarvis.learning.distillation.pending_queue import PendingQueue
 from openjarvis.learning.distillation.plan.planner import LearningPlanner
 
 logger = logging.getLogger(__name__)
+
+_SLUG_RE = re.compile(r"[^A-Za-z0-9_-]+")
+
+
+def _slugify_session_prefix(experiment: str | None, config_name: str) -> str:
+    """Build a filesystem-safe session prefix from optional experiment + config name.
+
+    Replaces runs of non-[A-Za-z0-9_-] with a single dash, joins parts with `__`,
+    and caps total length at 120 chars to stay well under filesystem limits.
+    """
+    parts = [p for p in (experiment, config_name) if p]
+    raw = "__".join(parts)
+    cleaned = _SLUG_RE.sub("-", raw).strip("-")
+    if len(cleaned) > 120:
+        cleaned = cleaned[:120].rstrip("-")
+    return cleaned or "session"
 
 
 class DistillationOrchestrator:
@@ -86,7 +103,21 @@ class DistillationOrchestrator:
         Returns the completed LearningSession.
         """
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-        session_id = f"session-{ts}_{uuid.uuid4().hex[:8]}"
+        short_uuid = uuid.uuid4().hex[:8]
+
+        # If trigger metadata supplies config_name (and optionally experiment),
+        # prefix the session directory so `ls sessions/` is self-documenting and
+        # multiple runs of the same config sort adjacent. Falls back to the
+        # legacy "session-{ts}_{uuid}" form when metadata is absent.
+        meta = getattr(trigger, "metadata", {}) or {}
+        config_name = meta.get("config_name")
+        experiment = meta.get("experiment")
+        if config_name:
+            slug = _slugify_session_prefix(experiment, config_name)
+            session_id = f"{slug}__{ts}_{short_uuid}"
+        else:
+            session_id = f"session-{ts}_{short_uuid}"
+
         session_dir = self._home / "learning" / "sessions" / session_id
         session_dir.mkdir(parents=True, exist_ok=True)
 

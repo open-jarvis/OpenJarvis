@@ -22,12 +22,12 @@ TIER_TABLE: dict[EditOp, EditRiskTier] = {
     # Intelligence — safe, reversible
     EditOp.SET_MODEL_FOR_QUERY_CLASS: EditRiskTier.AUTO,
     EditOp.SET_MODEL_PARAM: EditRiskTier.AUTO,
-    # Agent — params are safe, prompts and class need review
-    EditOp.PATCH_SYSTEM_PROMPT: EditRiskTier.REVIEW,
-    EditOp.REPLACE_SYSTEM_PROMPT: EditRiskTier.REVIEW,
-    EditOp.SET_AGENT_CLASS: EditRiskTier.REVIEW,
+    # Agent
+    EditOp.PATCH_SYSTEM_PROMPT: EditRiskTier.AUTO,
+    EditOp.REPLACE_SYSTEM_PROMPT: EditRiskTier.AUTO,
+    EditOp.SET_AGENT_CLASS: EditRiskTier.AUTO,
     EditOp.SET_AGENT_PARAM: EditRiskTier.AUTO,
-    EditOp.EDIT_FEW_SHOT_EXEMPLARS: EditRiskTier.REVIEW,
+    EditOp.EDIT_FEW_SHOT_EXEMPLARS: EditRiskTier.AUTO,
     # Tools — all safe, reversible
     EditOp.ADD_TOOL_TO_AGENT: EditRiskTier.AUTO,
     EditOp.REMOVE_TOOL_FROM_AGENT: EditRiskTier.AUTO,

@@ -1,0 +1,20 @@
+{
+  "_comment": "Snapshot of the M1 tally that produced the original consensus. Pass to 1_gather_consensus_edits.py via --tallies-file to reproduce the M1 consensus without needing the original ~/.openjarvis/learning/sessions directory. Once the real sessions directory is available, run the tallier without --tallies-file to refresh.",
+  "n_sessions": null,
+  "n_edits": 1131,
+  "source": "m1 sessions snapshot",
+  "tallies": [
+    {"op": "set_agent_param", "target": "agents.temperature", "value": 0.2, "votes": 84, "sample_session_ids": []},
+    {"op": "set_agent_param", "target": "agents.temperature", "value": 0.4, "votes": 30, "sample_session_ids": []},
+    {"op": "set_agent_param", "target": "agents.temperature", "value": 0.6, "votes": 12, "sample_session_ids": []},
+    {"op": "set_agent_param", "target": "agents.temperature", "value": 0.7, "votes": 8,  "sample_session_ids": []},
+
+    {"op": "set_agent_param", "target": "agents.max_turns",   "value": 15,  "votes": 56, "sample_session_ids": []},
+    {"op": "set_agent_param", "target": "agents.max_turns",   "value": 25,  "votes": 49, "sample_session_ids": []},
+    {"op": "set_agent_param", "target": "agents.max_turns",   "value": 10,  "votes": 12, "sample_session_ids": []},
+    {"op": "set_agent_param", "target": "agents.max_turns",   "value": 30,  "votes": 8,  "sample_session_ids": []},
+
+    {"op": "remove_tool_from_agent", "target": "agents.tools", "value": "shell_exec",   "votes": 13, "sample_session_ids": []},
+    {"op": "remove_tool_from_agent", "target": "agents.tools", "value": "http_request", "votes": 6,  "sample_session_ids": []}
+  ]
+}

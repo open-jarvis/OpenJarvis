@@ -216,7 +216,11 @@ orch = DistillationOrchestrator(
     max_cost_usd=max_cost,
     max_tool_calls=max_tools,
 )
-session = orch.run(OnDemandTrigger())
+session = orch.run(OnDemandTrigger(metadata={
+    "config_name": "${config_name}",
+    "experiment": "${experiment_name}",
+    "config_path": "${config_file}",
+}))
 
 # Save results
 result = {

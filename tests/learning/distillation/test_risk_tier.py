@@ -45,24 +45,24 @@ class TestAssignTier:
 
         assert assign_tier(EditOp.SET_AGENT_PARAM) == EditRiskTier.AUTO
 
-    def test_prompt_ops_are_review(self) -> None:
+    def test_prompt_ops_are_auto(self) -> None:
         from openjarvis.learning.distillation.models import EditOp, EditRiskTier
         from openjarvis.learning.distillation.plan.risk_tier import assign_tier
 
-        assert assign_tier(EditOp.PATCH_SYSTEM_PROMPT) == EditRiskTier.REVIEW
-        assert assign_tier(EditOp.REPLACE_SYSTEM_PROMPT) == EditRiskTier.REVIEW
+        assert assign_tier(EditOp.PATCH_SYSTEM_PROMPT) == EditRiskTier.AUTO
+        assert assign_tier(EditOp.REPLACE_SYSTEM_PROMPT) == EditRiskTier.AUTO
 
-    def test_agent_class_is_review(self) -> None:
+    def test_agent_class_is_auto(self) -> None:
         from openjarvis.learning.distillation.models import EditOp, EditRiskTier
         from openjarvis.learning.distillation.plan.risk_tier import assign_tier
 
-        assert assign_tier(EditOp.SET_AGENT_CLASS) == EditRiskTier.REVIEW
+        assert assign_tier(EditOp.SET_AGENT_CLASS) == EditRiskTier.AUTO
 
-    def test_few_shot_is_review(self) -> None:
+    def test_few_shot_is_auto(self) -> None:
         from openjarvis.learning.distillation.models import EditOp, EditRiskTier
         from openjarvis.learning.distillation.plan.risk_tier import assign_tier
 
-        assert assign_tier(EditOp.EDIT_FEW_SHOT_EXEMPLARS) == EditRiskTier.REVIEW
+        assert assign_tier(EditOp.EDIT_FEW_SHOT_EXEMPLARS) == EditRiskTier.AUTO
 
     def test_lora_is_manual(self) -> None:
         from openjarvis.learning.distillation.models import EditOp, EditRiskTier
@@ -83,19 +83,19 @@ class TestAssignTiers:
         )
         from openjarvis.learning.distillation.plan.risk_tier import assign_tiers
 
-        # Teacher incorrectly sets AUTO for a prompt edit
+        # Teacher incorrectly sets AUTO for a LoRA edit (canonical tier is MANUAL)
         edit = Edit(
             id="edit-001",
-            pillar=EditPillar.AGENT,
-            op=EditOp.PATCH_SYSTEM_PROMPT,
-            target="agents.simple.system_prompt",
-            payload={"diff": "--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new"},
-            rationale="Improve prompt",
+            pillar=EditPillar.ENGINE,
+            op=EditOp.LORA_FINETUNE,
+            target="learning.lora.simple",
+            payload={},
+            rationale="Fine-tune for domain",
             expected_improvement="cluster-001",
-            risk_tier=EditRiskTier.AUTO,  # Wrong — should be REVIEW
+            risk_tier=EditRiskTier.AUTO,  # Wrong — should be MANUAL
         )
         result = assign_tiers([edit])
-        assert result[0].risk_tier == EditRiskTier.REVIEW
+        assert result[0].risk_tier == EditRiskTier.MANUAL
 
     def test_preserves_correct_tier(self) -> None:
         from openjarvis.learning.distillation.models import (
