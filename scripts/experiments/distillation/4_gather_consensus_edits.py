@@ -16,7 +16,15 @@ Inputs (one of):
 
 Output:
     <out>/consensus_edits.json   Final consensus edits (read by apply step).
-    <out>/raw_tallies.json       Full per-(op, target, value) vote counts.
+                                 Includes a ``deferred_to_m3`` block listing
+                                 free-text ops (prompt patches, few-shot
+                                 exemplars, tool descriptions) that cannot be
+                                 merged by majority voting and are recorded
+                                 verbatim for the M3 hill-climber to consume
+                                 as candidate seeds.
+    <out>/raw_tallies.json       Full per-(op, target, value) vote counts plus
+                                 an ``audit_tallies`` section for the deferred
+                                 free-text ops.
     <out>/raw_edits.jsonl        One row per edit found (audit trail).
 
 Why this exists: the consensus values used by m2 used to be hard-coded in
@@ -97,8 +105,55 @@ def edit_to_key(edit: dict) -> EditKey | None:
             return None
         return EditKey(op=op, target=f"{target}.{param}", value=json.dumps(value))
 
-    # Skip prompt-patch ops and lora — value space is open-ended.
+    if op == "set_agent_class":
+        # Applier reads payload["new_class"]; target is the agent name.
+        new_class = payload.get("new_class")
+        if new_class is None:
+            return None
+        return EditKey(op=op, target=target, value=json.dumps(new_class))
+
+    if op == "set_model_for_query_class":
+        # Applier reads payload["query_class"] and payload["model"]; bucket as
+        # (op, target=query_class, value=model) so the consensus row reads as
+        # "for query class X, the consensus model is Y."
+        query_class = payload.get("query_class")
+        model = payload.get("model")
+        if query_class is None or model is None:
+            return None
+        return EditKey(op=op, target=str(query_class), value=json.dumps(model))
+
+    # Free-text ops (prompt patches, few-shot, tool descriptions) and lora are
+    # handled by edit_to_audit_key / lora_finetune is excluded entirely.
     return None
+
+
+# Free-text ops that we record verbatim instead of merging by majority vote.
+# M3 hill-climber consumes these as candidate seeds.
+DEFERRED_OPS: tuple[str, ...] = (
+    "patch_system_prompt",
+    "replace_system_prompt",
+    "edit_few_shot_exemplars",
+    "edit_tool_description",
+)
+
+
+def edit_to_audit_key(edit: dict) -> EditKey | None:
+    """Reduce a free-text edit to an audit key for exact-payload tallying.
+
+    Returns None for ops not in DEFERRED_OPS. The value is the full payload
+    JSON-serialised with sorted keys so identical payloads collapse onto a
+    single row regardless of dict ordering.
+    """
+    op = edit.get("op")
+    if op not in DEFERRED_OPS:
+        return None
+    target = edit.get("target", "")
+    payload = edit.get("payload") or {}
+    try:
+        value = json.dumps(payload, sort_keys=True)
+    except TypeError:
+        value = repr(payload)
+    return EditKey(op=op, target=target, value=value)
 
 
 def walk_plans(sessions_root: Path) -> list[tuple[str, dict]]:
@@ -136,6 +191,31 @@ def tally_edits(edits: list[tuple[str, dict]]) -> dict[tuple[str, str, str], Tal
         t = tallies.setdefault(
             key.as_tuple(),
             Tally(op=key.op, target=key.target, value=value),
+        )
+        t.votes += 1
+        if len(t.sample_session_ids) < 5:
+            t.sample_session_ids.append(session_id)
+    return tallies
+
+
+def audit_tally_edits(
+    edits: list[tuple[str, dict]],
+) -> dict[tuple[str, str, str], Tally]:
+    """Tally exact-payload occurrences for free-text ops in DEFERRED_OPS."""
+    tallies: dict[tuple[str, str, str], Tally] = {}
+    for session_id, edit in edits:
+        key = edit_to_audit_key(edit)
+        if key is None:
+            continue
+        # Decode payload back to a dict for downstream consumers; fall back to
+        # the raw string if it isn't JSON for any reason.
+        try:
+            payload: Any = json.loads(key.value)
+        except (json.JSONDecodeError, TypeError):
+            payload = key.value
+        t = tallies.setdefault(
+            key.as_tuple(),
+            Tally(op=key.op, target=key.target, value=payload),
         )
         t.votes += 1
         if len(t.sample_session_ids) < 5:
@@ -202,6 +282,36 @@ def pick_consensus(
         "add_tools": consensus_tools["add_tool_to_agent"],
         "remove_tools": consensus_tools["remove_tool_from_agent"],
     }
+
+
+def build_deferred_to_m3(
+    audit_tallies: dict[tuple[str, str, str], Tally],
+) -> dict[str, list[dict]]:
+    """Group audit-tally rows by op into the deferred_to_m3 block.
+
+    No min_votes / min_majority filtering — singletons are kept so the M3
+    hill-climber can decide what's worth pursuing. Rows are sorted by votes
+    descending within each op.
+    """
+    by_op: dict[str, list[dict]] = {op: [] for op in DEFERRED_OPS}
+    by_group_total: dict[tuple[str, str], int] = defaultdict(int)
+    for t in audit_tallies.values():
+        by_group_total[(t.op, t.target)] += t.votes
+    for t in audit_tallies.values():
+        if t.op not in by_op:
+            continue
+        by_op[t.op].append(
+            {
+                "target": t.target,
+                "payload": t.value,
+                "votes": t.votes,
+                "total_votes_in_group": by_group_total[(t.op, t.target)],
+                "sample_session_ids": list(t.sample_session_ids),
+            }
+        )
+    for op, rows in by_op.items():
+        rows.sort(key=lambda r: (-r["votes"], r["target"]))
+    return by_op
 
 
 # ── I/O helpers ──────────────────────────────────────────────────────────────
@@ -286,7 +396,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.tallies_file:
         tallies_doc = json.loads(args.tallies_file.read_text())
         tallies = deserialise_tallies(tallies_doc.get("tallies", tallies_doc))
-        n_edits = sum(t.votes for t in tallies.values())
+        audit_tallies = deserialise_tallies(tallies_doc.get("audit_tallies", []))
+        n_edits = sum(t.votes for t in tallies.values()) + sum(
+            t.votes for t in audit_tallies.values()
+        )
         n_sessions = tallies_doc.get("n_sessions")
         source = str(args.tallies_file)
         print(f"Loaded {len(tallies)} distinct edits ({n_edits} votes) from {source}")
@@ -300,6 +413,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         write_raw_edits(edits, out_dir / "raw_edits.jsonl")
         tallies = tally_edits(edits)
+        audit_tallies = audit_tally_edits(edits)
         source = str(args.sessions_root)
 
     raw_tallies_path = out_dir / "raw_tallies.json"
@@ -310,6 +424,7 @@ def main(argv: list[str] | None = None) -> int:
                 "n_edits": n_edits,
                 "source": source,
                 "tallies": serialise_tallies(tallies),
+                "audit_tallies": serialise_tallies(audit_tallies),
             },
             indent=2,
         )
@@ -320,6 +435,7 @@ def main(argv: list[str] | None = None) -> int:
         min_votes=args.min_votes,
         min_majority=args.min_majority,
     )
+    consensus["deferred_to_m3"] = build_deferred_to_m3(audit_tallies)
     consensus_doc = {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "source": source,
@@ -354,6 +470,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Tools to add ({len(consensus['add_tools'])}):")
         for t in consensus["add_tools"]:
             print(f"  {t['tool_name']:20} ({t['votes']} votes)")
+    deferred = consensus["deferred_to_m3"]
+    print(
+        f"Deferred to M3: {len(deferred['patch_system_prompt'])} prompt patches / "
+        f"{len(deferred['replace_system_prompt'])} replace_prompts / "
+        f"{len(deferred['edit_few_shot_exemplars'])} few_shot / "
+        f"{len(deferred['edit_tool_description'])} tool_descs"
+    )
     return 0
 
 

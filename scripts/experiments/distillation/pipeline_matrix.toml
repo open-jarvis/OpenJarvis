@@ -18,7 +18,7 @@ comparison_dir       = "results/neurips-2026/distillation-m2"
 # OPENJARVIS_CONFIG=<distilled_oj_config_dir>/config-<size>.toml when running
 # a distilled config, and =<baseline_oj_config_dir>/config-baseline-<size>.toml
 # for a baseline. Leave empty to skip the override (use default config).
-oj_config_dir        = "/scratch/user/jonsaadfalcon/openjarvis-m2"
+oj_config_dir        = ""  # absolute path to per-size OPENJARVIS_CONFIG dir, or "" to skip
 distilled_oj_template = "config-{size}.toml"
 baseline_oj_template = "config-baseline-{size}.toml"
 python_bin           = ".venv/bin/python"
