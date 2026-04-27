@@ -25,7 +25,9 @@ from openjarvis.core.types import Message, Role
 from openjarvis.engine.cloud import CloudEngine
 from openjarvis.traces.store import TraceStore
 
-HOME = Path(os.environ.get("OPENJARVIS_HOME", "/scratch/user/jonsaadfalcon/openjarvis-m1"))
+HOME = Path(
+    os.environ.get("OPENJARVIS_HOME", "/scratch/user/jonsaadfalcon/openjarvis-m1")
+)
 DB = HOME / "traces.db"
 LOG = HOME / "a1_feedback_log.jsonl"
 MODEL = "claude-sonnet-4-6"
@@ -132,15 +134,19 @@ def main() -> int:
     conn.row_factory = sqlite3.Row
 
     # Pull all traces that need scoring
-    rows = list(conn.execute(
-        "SELECT trace_id, query, result, agent, model FROM traces "
-        "WHERE feedback IS NULL"
-    ))
+    rows = list(
+        conn.execute(
+            "SELECT trace_id, query, result, agent, model FROM traces "
+            "WHERE feedback IS NULL"
+        )
+    )
     already_scored = conn.execute(
         "SELECT COUNT(*) FROM traces WHERE feedback IS NOT NULL"
     ).fetchone()[0]
 
-    print(f"traces.db: {conn.execute('SELECT COUNT(*) FROM traces').fetchone()[0]} total")
+    print(
+        f"traces.db: {conn.execute('SELECT COUNT(*) FROM traces').fetchone()[0]} total"
+    )
     print(f"  already scored: {already_scored}")
     print(f"  to judge: {len(rows)}")
     print(f"parallelism: {MAX_WORKERS} workers")
@@ -156,13 +162,18 @@ def main() -> int:
     log_fp = open(LOG, "a", encoding="utf-8")
 
     # Write a header line marking this run
-    log_fp.write(json.dumps({
-        "_run_started": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-        "model": MODEL,
-        "workers": MAX_WORKERS,
-        "to_judge": len(rows),
-        "already_scored": already_scored,
-    }) + "\n")
+    log_fp.write(
+        json.dumps(
+            {
+                "_run_started": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                "model": MODEL,
+                "workers": MAX_WORKERS,
+                "to_judge": len(rows),
+                "already_scored": already_scored,
+            }
+        )
+        + "\n"
+    )
     log_fp.flush()
 
     total_cost = 0.0
@@ -208,7 +219,9 @@ def main() -> int:
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         futures = [
-            pool.submit(judge_one, ce, r["trace_id"], r["query"] or "", r["result"] or "")
+            pool.submit(
+                judge_one, ce, r["trace_id"], r["query"] or "", r["result"] or ""
+            )
             for r in rows
         ]
         for fut in as_completed(futures):
@@ -218,15 +231,21 @@ def main() -> int:
     log_fp.close()
 
     elapsed = time.time() - t_start
-    print(f"\n{'='*60}")
-    print(f"A1 COMPLETE in {elapsed:.1f}s ({elapsed/60:.1f}min)")
+    print(f"\n{'=' * 60}")
+    print(f"A1 COMPLETE in {elapsed:.1f}s ({elapsed / 60:.1f}min)")
     print(f"Total cost: ${total_cost:.4f}")
     print(f"Errors: {errors}/{len(rows)}")
-    print(f"Score distribution:")
+    print("Score distribution:")
     for k in sorted(score_counts.keys(), key=lambda x: (x is None, x)):
         v = score_counts[k]
         pct = 100 * v / len(rows)
-        label = {0.2: "failure", 0.4: "poor", 0.6: "partial", 0.8: "clean", None: "ERROR"}.get(k, "?")
+        label = {
+            0.2: "failure",
+            0.4: "poor",
+            0.6: "partial",
+            0.8: "clean",
+            None: "ERROR",
+        }.get(k, "?")
         print(f"  {k} ({label}): {v} ({pct:.1f}%)")
 
     # Verify by re-counting from DB
@@ -236,7 +255,7 @@ def main() -> int:
     above_gate = conn.execute(
         "SELECT COUNT(*) FROM traces WHERE feedback >= 0.7"
     ).fetchone()[0]
-    print(f"\nPost-A1 DB state:")
+    print("\nPost-A1 DB state:")
     print(f"  traces with feedback: {with_fb}")
     print(f"  traces passing 0.7 gate (eligible for personal benchmark): {above_gate}")
     return 0 if errors == 0 else 2

@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
-"""Generate all distillation experiment TOML configs.
+"""Generate all distillation ablation TOML configs.
 
-Produces configs for 7 experiment axes × multiple settings.
-Run: python scripts/experiments/generate_distillation_configs.py
+Produces configs for 7 ablation axes × multiple settings (exp1a-teacher,
+exp1b-budget, exp1c-student, exp2a-gate, exp2b-autonomy, exp3a-iterative,
+exp3b-transfer). Outputs land in src/openjarvis/evals/configs/distillation/
+and are consumed by run_ablations.sh.
+
+This is the M2 ablation sweep — separate from the linear M1 pipeline
+(steps 1-7 in the parent directory).
+
+Run: python scripts/experiments/distillation/ablation/generate_configs.py
 """
 
 from __future__ import annotations
@@ -41,8 +48,8 @@ TEACHERS = {
 # Served via vLLM on this H100 node. 27B uses the FP8 weights that fit on a
 # single H100; 2B and 9B use standard FP16.
 STUDENTS = {
-    "2b":  {"model": "Qwen/Qwen3.5-2B",      "engine": "vllm", "port": 8000},
-    "9b":  {"model": "Qwen/Qwen3.5-9B",      "engine": "vllm", "port": 8001},
+    "2b": {"model": "Qwen/Qwen3.5-2B", "engine": "vllm", "port": 8000},
+    "9b": {"model": "Qwen/Qwen3.5-9B", "engine": "vllm", "port": 8001},
     "27b": {"model": "Qwen/Qwen3.5-27B-FP8", "engine": "vllm", "port": 8002},
 }
 

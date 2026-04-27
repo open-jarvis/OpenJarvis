@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
-"""Run eval configs across the (application × experiment) matrix.
+"""Shared eval-runner library used by steps 1 and 6 of the pipeline.
 
-Replaces m2_run_distilled_evals.sh with a single Python entry point that:
+Reads pipeline_matrix.toml as the source of truth for what to run. Works in
+two modes — `baseline` and `distilled` — selecting the config dir and
+OPENJARVIS_CONFIG override accordingly. Resumable (skips cells whose
+summary.json already reports scored_samples > 0; override with --force).
+Runs in priority order (lower number first, so agent benchmarks come before
+controls). Checks vLLM health for every size in the plan.
 
-  * reads pipeline_matrix.toml as the source of truth for what to run
-  * works in two modes — `baseline` (default) and `distilled` — selecting the
-    config dir and OPENJARVIS_CONFIG override accordingly
-  * is resumable: skips any (app, experiment) whose summary.json already
-    reports scored_samples > 0 (override with --force)
-  * runs in priority order (lower priority number first, so agent benchmarks
-    are exercised before controls)
-  * checks vLLM health for any size we're about to run
+Day-to-day you should call the numbered wrappers, not this file:
 
-Usage:
-    python 3_run_evals.py                                  # all distilled
-    python 3_run_evals.py --mode baseline                  # all baselines
-    python 3_run_evals.py --apps 9b --experiments gaia     # one cell
-    python 3_run_evals.py --mode distilled --force         # rerun completed
+    python 1_run_baseline_eval.py [--apps ...] [--experiments ...] [--force]
+    python 6_run_distilled_eval.py [--apps ...] [--experiments ...] [--force]
+
+Direct invocation also works:
+
+    python _eval_runner.py --mode baseline
+    python _eval_runner.py --mode distilled --apps 9b --experiments gaia
 """
 
 from __future__ import annotations
@@ -51,11 +51,24 @@ def _color(code: str, msg: str) -> str:
     return f"\033[{code}m{msg}\033[0m" if sys.stdout.isatty() else msg
 
 
-def log(msg: str) -> None: print(_color("0;34", "[run]"), msg)
-def ok(msg: str) -> None: print(_color("0;32", "[ OK ]"), msg)
-def warn(msg: str) -> None: print(_color("1;33", "[WARN]"), msg)
-def fail(msg: str) -> None: print(_color("0;31", "[FAIL]"), msg)
-def skip(msg: str) -> None: print(_color("1;33", "[SKIP]"), msg)
+def log(msg: str) -> None:
+    print(_color("0;34", "[run]"), msg)
+
+
+def ok(msg: str) -> None:
+    print(_color("0;32", "[ OK ]"), msg)
+
+
+def warn(msg: str) -> None:
+    print(_color("1;33", "[WARN]"), msg)
+
+
+def fail(msg: str) -> None:
+    print(_color("0;31", "[FAIL]"), msg)
+
+
+def skip(msg: str) -> None:
+    print(_color("1;33", "[SKIP]"), msg)
 
 
 # ── Plan rows ───────────────────────────────────────────────────────────────
@@ -109,23 +122,31 @@ def build_plan(
 
     plan: list[PlanRow] = []
     for app in matrix["applications"]:
-        if app_filter and app["size"] not in app_filter and app["slug"] not in app_filter:
+        if (
+            app_filter
+            and app["size"] not in app_filter
+            and app["slug"] not in app_filter
+        ):
             continue
         for exp in matrix["experiments"]:
             if exp_filter and exp["name"] not in exp_filter:
                 continue
             cfg = configs_dir / f"{exp['name']}-{app['slug']}{config_suffix}.toml"
             sp = expected_summary_path(
-                results_root=results_root, app=app, exp=exp,
-            )
-            plan.append(PlanRow(
+                results_root=results_root,
                 app=app,
                 exp=exp,
-                config_path=cfg,
-                summary_path=sp,
-                label=f"{mode.upper()} {exp['name']}-{app['slug']}",
-                priority=int(exp.get("priority", 99)),
-            ))
+            )
+            plan.append(
+                PlanRow(
+                    app=app,
+                    exp=exp,
+                    config_path=cfg,
+                    summary_path=sp,
+                    label=f"{mode.upper()} {exp['name']}-{app['slug']}",
+                    priority=int(exp.get("priority", 99)),
+                )
+            )
     plan.sort(key=lambda r: (r.priority, r.app["size"], r.exp["name"]))
     return plan
 
@@ -176,7 +197,8 @@ def run_row(*, row: PlanRow, runner_cfg: dict, mode: str, force: bool) -> bool:
         runner_cfg.get(
             "distilled_oj_template" if mode == "distilled" else "baseline_oj_template",
             "",
-        ) or ""
+        )
+        or ""
     ).strip()
     if oj_dir and template:
         oj_path = Path(oj_dir) / template.format(size=row.app["size"])
@@ -184,7 +206,9 @@ def run_row(*, row: PlanRow, runner_cfg: dict, mode: str, force: bool) -> bool:
             env["OPENJARVIS_CONFIG"] = str(oj_path)
             log(f"OPENJARVIS_CONFIG → {oj_path.name}")
         else:
-            warn(f"OPENJARVIS_CONFIG override missing: {oj_path} — running without override")
+            warn(
+                f"OPENJARVIS_CONFIG override missing: {oj_path} — running without override"
+            )
 
     python_bin = runner_cfg.get("python_bin", ".venv/bin/python")
     if not Path(python_bin).exists():
@@ -218,23 +242,36 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--matrix", type=Path, default=DEFAULT_MATRIX)
     p.add_argument(
-        "--mode", choices=["baseline", "distilled"], default="distilled",
+        "--mode",
+        choices=["baseline", "distilled"],
+        default="distilled",
         help="Which config dir + results dir to use (default: distilled)",
     )
     p.add_argument(
-        "--apps", default="all",
+        "--apps",
+        default="all",
         help="Comma-separated application sizes/slugs to run, or 'all'",
     )
     p.add_argument(
-        "--experiments", default="all",
+        "--experiments",
+        default="all",
         help="Comma-separated experiment names to run, or 'all'",
     )
-    p.add_argument("--force", action="store_true",
-                   help="Re-run cells whose summary.json reports completion.")
-    p.add_argument("--skip-vllm-check", action="store_true",
-                   help="Skip the vLLM health probe (e.g. for dry runs).")
-    p.add_argument("--dry-run", action="store_true",
-                   help="Print the plan and exit; do not invoke any evals.")
+    p.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-run cells whose summary.json reports completion.",
+    )
+    p.add_argument(
+        "--skip-vllm-check",
+        action="store_true",
+        help="Skip the vLLM health probe (e.g. for dry runs).",
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the plan and exit; do not invoke any evals.",
+    )
     args = p.parse_args(argv)
 
     matrix = tomllib.loads(args.matrix.read_text())
@@ -249,15 +286,19 @@ def main(argv: list[str] | None = None) -> int:
         warn("Plan is empty (no rows match the filters).")
         return 0
 
-    log(f"Mode: {args.mode}  apps={args.apps}  experiments={args.experiments}  "
-        f"force={args.force}  rows={len(plan)}")
+    log(
+        f"Mode: {args.mode}  apps={args.apps}  experiments={args.experiments}  "
+        f"force={args.force}  rows={len(plan)}"
+    )
     print()
     print(f"{'pri':>3}  {'application':12} {'experiment':22} {'config':50}")
     print("-" * 95)
     for row in plan:
         marker = "✓" if is_complete(row.summary_path) else " "
-        print(f"{row.priority:>3}  {row.app['slug']:12} {row.exp['name']:22} "
-              f"{row.config_path.name:50} {marker}")
+        print(
+            f"{row.priority:>3}  {row.app['slug']:12} {row.exp['name']:22} "
+            f"{row.config_path.name:50} {marker}"
+        )
     print()
 
     if args.dry_run:
@@ -266,7 +307,9 @@ def main(argv: list[str] | None = None) -> int:
     if not args.skip_vllm_check:
         apps_in_plan = {row.app["slug"]: row.app for row in plan}.values()
         if not check_vllm(apps_in_plan):
-            fail("vLLM health check failed; aborting. Pass --skip-vllm-check to bypass.")
+            fail(
+                "vLLM health check failed; aborting. Pass --skip-vllm-check to bypass."
+            )
             return 1
 
     t_start = time.time()
@@ -277,8 +320,10 @@ def main(argv: list[str] | None = None) -> int:
     elapsed = time.time() - t_start
 
     print()
-    log(f"Done: {n_ok}/{len(plan)} rows complete in {elapsed:.0f}s "
-        f"({elapsed / 60:.1f}m)")
+    log(
+        f"Done: {n_ok}/{len(plan)} rows complete in {elapsed:.0f}s "
+        f"({elapsed / 60:.1f}m)"
+    )
     return 0 if n_ok == len(plan) else 2
 
 

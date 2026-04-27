@@ -11,15 +11,14 @@
 #   - Traces seeded with feedback (run A1 blocker first)
 #   - jarvis learning init already run
 #
-# Usage:
-#   bash scripts/experiments/run_distillation_experiments.sh               # Run all
-#   bash scripts/experiments/run_distillation_experiments.sh exp1a         # Run Phase 1a only
-#   bash scripts/experiments/run_distillation_experiments.sh exp1a opus    # Single config
+# Usage (from repo root):
+#   bash scripts/experiments/distillation/ablation/run_ablations.sh               # Run all
+#   bash scripts/experiments/distillation/ablation/run_ablations.sh exp1a         # Run Phase 1a only
+#   bash scripts/experiments/distillation/ablation/run_ablations.sh exp1a opus    # Single config
 #
 #   # Point at an eval run's isolated traces.db (see commit b70b9a3):
-#   bash scripts/experiments/run_distillation_experiments.sh \
+#   bash scripts/experiments/distillation/ablation/run_ablations.sh \
 #       --traces-db results/agentic_gaia_qwen3.5-9b/traces.db exp1a
-#   # or: TRACES_DB=results/.../traces.db bash scripts/.../run_distillation_experiments.sh exp1a
 # ──────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail

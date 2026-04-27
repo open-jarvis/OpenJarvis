@@ -7,7 +7,7 @@ is a clone of the baseline with the consensus edits applied:
 
   - set_agent_param(temperature)  → [defaults].temperature
   - set_agent_param(max_turns)    → recorded in the comment (applied at runtime
-                                    via OPENJARVIS_CONFIG; see 3_run_evals.py)
+                                    via OPENJARVIS_CONFIG; see _eval_runner.py)
   - remove_tool_from_agent        → drop from [[benchmarks]].tools
   - add_tool_to_agent             → append to [[benchmarks]].tools
 
@@ -31,7 +31,6 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any
 
 # tomllib is stdlib on 3.11+. On older runtimes, install tomli.
 try:
@@ -43,7 +42,12 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
 DEFAULT_MATRIX = HERE / "pipeline_matrix.toml"
 DEFAULT_CONSENSUS = (
-    REPO_ROOT / "results" / "neurips-2026" / "distillation-m2" / "consensus" / "consensus_edits.json"
+    REPO_ROOT
+    / "results"
+    / "neurips-2026"
+    / "distillation-m2"
+    / "consensus"
+    / "consensus_edits.json"
 )
 
 
@@ -196,16 +200,16 @@ def make_distilled_config(
             changes.append(
                 f"max_turns→{consensus_max_turns} (via OPENJARVIS_CONFIG; set by run_evals)"
             )
-    change_str = "; ".join(changes) if changes else "CONTROL (no consensus edits applied)"
+    change_str = (
+        "; ".join(changes) if changes else "CONTROL (no consensus edits applied)"
+    )
 
     out_path = (
         REPO_ROOT
         / paths["distilled_configs_dir"]
         / f"{exp['name']}-{app['slug']}-distilled.toml"
     )
-    output_dir = (
-        f"{paths['distilled_results_dir']}/{app['slug']}/{exp['name']}/"
-    )
+    output_dir = f"{paths['distilled_results_dir']}/{app['slug']}/{exp['name']}/"
     content = render_config(
         comment=f"DISTILLED: {exp['name']} × {app['hf_name']} — {change_str}",
         meta_name=f"{exp['name']}-{app['slug']}-distilled",
@@ -247,7 +251,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if not args.consensus.exists():
         print(f"ERROR: consensus file not found: {args.consensus}", file=sys.stderr)
-        print("       Run 1_gather_consensus_edits.py first.", file=sys.stderr)
+        print("       Run 4_gather_consensus_edits.py first.", file=sys.stderr)
         return 1
 
     matrix = tomllib.loads(args.matrix.read_text())

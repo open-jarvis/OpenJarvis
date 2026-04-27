@@ -1,31 +1,42 @@
 #!/usr/bin/env bash
-# End-to-end distillation pipeline. Each step is a standalone script — you can
-# run any one of them directly. This wrapper just runs them in order.
+# End-to-end distillation pipeline. Each numbered script is standalone — you
+# can run any one of them directly. This wrapper just runs them in order.
 #
 # Steps (numeric prefix = run order):
-#   1_gather_consensus_edits.py    → consensus_edits.json
-#   2_apply_consensus_edits.py     → distilled TOML configs
-#   3_run_evals.py --mode baseline → baseline summaries
-#   3_run_evals.py --mode distilled → distilled summaries
-#   4_compare_results.py           → comparison.json
+#   1_run_baseline_eval.py          → results/<run>/{summary.json, traces.db}
+#   2_seed_feedback.py              → updates traces.db with judge feedback
+#   3_run_teacher.py                → ~/.openjarvis/learning/sessions/*/plan.json
+#   4_gather_consensus_edits.py     → consensus_edits.json
+#   5_apply_consensus_edits.py      → distilled TOML configs
+#   6_run_distilled_eval.py         → results/<run>/{summary.json, traces.db}
+#   7_compare_results.py            → comparison.json
+#
+# Prerequisite (one-time):
+#   jarvis learning init
 #
 # Usage:
-#   bash run_pipeline.sh                                 # full pipeline
-#   bash run_pipeline.sh --skip-baseline                 # baseline already run
+#   bash run_pipeline.sh                                  # full pipeline
+#   bash run_pipeline.sh --skip-baseline                  # baseline already run
+#   bash run_pipeline.sh --skip-baseline --skip-teacher   # plan.json files exist
+#   bash run_pipeline.sh --skip-distilled                 # stop before distilled eval
 #   bash run_pipeline.sh --tallies-file data/m1_vote_tallies.json
-#                                                        # use M1 snapshot
+#                                                         # use M1 vote snapshot
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON="${PYTHON:-python3}"
 
 SKIP_BASELINE=0
+SKIP_FEEDBACK=0
+SKIP_TEACHER=0
 SKIP_DISTILLED=0
 TALLIES_FILE=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --skip-baseline)  SKIP_BASELINE=1; shift ;;
+        --skip-feedback)  SKIP_FEEDBACK=1; shift ;;
+        --skip-teacher)   SKIP_TEACHER=1; shift ;;
         --skip-distilled) SKIP_DISTILLED=1; shift ;;
         --tallies-file)   TALLIES_FILE="$2"; shift 2 ;;
         -h|--help)
@@ -35,35 +46,45 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-echo "═══ 1/5  Gathering consensus edits ═══"
-if [[ -n "$TALLIES_FILE" ]]; then
-    "$PYTHON" "$HERE/1_gather_consensus_edits.py" --tallies-file "$TALLIES_FILE"
-else
-    "$PYTHON" "$HERE/1_gather_consensus_edits.py"
-fi
-
-echo
-echo "═══ 2/5  Applying consensus edits → distilled configs ═══"
-"$PYTHON" "$HERE/2_apply_consensus_edits.py"
+step() { echo; echo "═══ $1 ═══"; }
 
 if [[ "$SKIP_BASELINE" -eq 0 ]]; then
-    echo
-    echo "═══ 3/5  Running baseline evals ═══"
-    "$PYTHON" "$HERE/3_run_evals.py" --mode baseline
+    step "1/7  Running baseline evals"
+    "$PYTHON" "$HERE/1_run_baseline_eval.py"
 else
-    echo
-    echo "═══ 3/5  Skipping baseline evals (--skip-baseline) ═══"
+    step "1/7  Skipping baseline evals (--skip-baseline)"
 fi
+
+if [[ "$SKIP_FEEDBACK" -eq 0 ]]; then
+    step "2/7  Seeding feedback on baseline traces"
+    "$PYTHON" "$HERE/2_seed_feedback.py"
+else
+    step "2/7  Skipping feedback seeding (--skip-feedback)"
+fi
+
+if [[ "$SKIP_TEACHER" -eq 0 ]]; then
+    step "3/7  Running M1 teacher (producing plan.json files)"
+    "$PYTHON" "$HERE/3_run_teacher.py"
+else
+    step "3/7  Skipping M1 teacher (--skip-teacher)"
+fi
+
+step "4/7  Gathering consensus edits"
+if [[ -n "$TALLIES_FILE" ]]; then
+    "$PYTHON" "$HERE/4_gather_consensus_edits.py" --tallies-file "$TALLIES_FILE"
+else
+    "$PYTHON" "$HERE/4_gather_consensus_edits.py"
+fi
+
+step "5/7  Applying consensus edits → distilled configs"
+"$PYTHON" "$HERE/5_apply_consensus_edits.py"
 
 if [[ "$SKIP_DISTILLED" -eq 0 ]]; then
-    echo
-    echo "═══ 4/5  Running distilled evals ═══"
-    "$PYTHON" "$HERE/3_run_evals.py" --mode distilled
+    step "6/7  Running distilled evals"
+    "$PYTHON" "$HERE/6_run_distilled_eval.py"
 else
-    echo
-    echo "═══ 4/5  Skipping distilled evals (--skip-distilled) ═══"
+    step "6/7  Skipping distilled evals (--skip-distilled)"
 fi
 
-echo
-echo "═══ 5/5  Comparing results ═══"
-"$PYTHON" "$HERE/4_compare_results.py"
+step "7/7  Comparing baseline vs distilled"
+"$PYTHON" "$HERE/7_compare_results.py"

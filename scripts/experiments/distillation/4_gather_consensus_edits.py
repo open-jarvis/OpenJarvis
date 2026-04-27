@@ -174,24 +174,28 @@ def pick_consensus(
         if op in consensus_tools:
             for t in group:
                 if t.votes >= min_votes:
-                    consensus_tools[op].append({
-                        "target": target,
-                        "tool_name": t.value,
-                        "votes": t.votes,
-                        "total_votes_in_group": total,
-                    })
+                    consensus_tools[op].append(
+                        {
+                            "target": target,
+                            "tool_name": t.value,
+                            "votes": t.votes,
+                            "total_votes_in_group": total,
+                        }
+                    )
         else:
             winner = max(group, key=lambda t: t.votes)
             share = winner.votes / total if total else 0.0
             if winner.votes >= min_votes and share >= min_majority:
-                consensus_scalar.append({
-                    "op": op,
-                    "target": target,
-                    "value": winner.value,
-                    "votes": winner.votes,
-                    "total_votes_in_group": total,
-                    "majority_share": round(share, 3),
-                })
+                consensus_scalar.append(
+                    {
+                        "op": op,
+                        "target": target,
+                        "value": winner.value,
+                        "votes": winner.votes,
+                        "total_votes_in_group": total,
+                        "majority_share": round(share, 3),
+                    }
+                )
 
     return {
         "scalar_edits": consensus_scalar,
@@ -299,15 +303,22 @@ def main(argv: list[str] | None = None) -> int:
         source = str(args.sessions_root)
 
     raw_tallies_path = out_dir / "raw_tallies.json"
-    raw_tallies_path.write_text(json.dumps({
-        "n_sessions": n_sessions,
-        "n_edits": n_edits,
-        "source": source,
-        "tallies": serialise_tallies(tallies),
-    }, indent=2))
+    raw_tallies_path.write_text(
+        json.dumps(
+            {
+                "n_sessions": n_sessions,
+                "n_edits": n_edits,
+                "source": source,
+                "tallies": serialise_tallies(tallies),
+            },
+            indent=2,
+        )
+    )
 
     consensus = pick_consensus(
-        tallies, min_votes=args.min_votes, min_majority=args.min_majority,
+        tallies,
+        min_votes=args.min_votes,
+        min_majority=args.min_majority,
     )
     consensus_doc = {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -330,9 +341,11 @@ def main(argv: list[str] | None = None) -> int:
     print()
     print(f"Scalar consensus edits ({len(consensus['scalar_edits'])}):")
     for e in consensus["scalar_edits"]:
-        print(f"  {e['op']:20} {e['target']:30} = {e['value']!r:10}  "
-              f"({e['votes']}/{e['total_votes_in_group']} votes, "
-              f"{e['majority_share']:.0%} share)")
+        print(
+            f"  {e['op']:20} {e['target']:30} = {e['value']!r:10}  "
+            f"({e['votes']}/{e['total_votes_in_group']} votes, "
+            f"{e['majority_share']:.0%} share)"
+        )
     if consensus["remove_tools"]:
         print(f"Tools to remove ({len(consensus['remove_tools'])}):")
         for t in consensus["remove_tools"]:

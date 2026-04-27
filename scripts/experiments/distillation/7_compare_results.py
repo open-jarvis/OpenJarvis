@@ -1,17 +1,13 @@
 #!/usr/bin/env python3
 """Compare distilled vs baseline eval results across the matrix.
 
-Reads ``*.summary.json`` files written by 3_run_evals.py from both the
-baseline and distilled results trees, computes per-cell deltas, splits agent
-vs direct benchmarks, and writes a JSON summary.
-
-Replaces m2_collect_results.py — the Step 1 baseline numbers that script
-hard-coded are no longer needed because 3_run_evals.py with --mode baseline
-writes the same files we'd otherwise read from a Step 1 snapshot.
+Reads ``*.summary.json`` files written by the eval runner (steps 1 and 6)
+from both the baseline and distilled results trees, computes per-cell
+deltas, splits agent vs direct benchmarks, and writes a JSON summary.
 
 Usage:
-    python 4_compare_results.py
-    python 4_compare_results.py --baseline-results path/to/old/baselines
+    python 7_compare_results.py
+    python 7_compare_results.py --baseline-results path/to/old/baselines
 """
 
 from __future__ import annotations
@@ -82,15 +78,21 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--matrix", type=Path, default=DEFAULT_MATRIX)
     p.add_argument(
-        "--baseline-results", type=Path, default=None,
+        "--baseline-results",
+        type=Path,
+        default=None,
         help="Override the baseline results dir (default: from matrix).",
     )
     p.add_argument(
-        "--distilled-results", type=Path, default=None,
+        "--distilled-results",
+        type=Path,
+        default=None,
         help="Override the distilled results dir (default: from matrix).",
     )
     p.add_argument(
-        "--out", type=Path, default=None,
+        "--out",
+        type=Path,
+        default=None,
         help="JSON output path (default: <comparison_dir>/comparison.json).",
     )
     args = p.parse_args(argv)
@@ -98,10 +100,10 @@ def main(argv: list[str] | None = None) -> int:
     matrix = tomllib.loads(args.matrix.read_text())
     paths = matrix["paths"]
     baseline_root = args.baseline_results or (REPO_ROOT / paths["baseline_results_dir"])
-    distilled_root = args.distilled_results or (REPO_ROOT / paths["distilled_results_dir"])
-    out_path = args.out or (
-        REPO_ROOT / paths["comparison_dir"] / "comparison.json"
+    distilled_root = args.distilled_results or (
+        REPO_ROOT / paths["distilled_results_dir"]
     )
+    out_path = args.out or (REPO_ROOT / paths["comparison_dir"] / "comparison.json")
 
     apps = matrix["applications"]
     exps = matrix["experiments"]
@@ -120,24 +122,34 @@ def main(argv: list[str] | None = None) -> int:
     for app in apps:
         for exp in exps:
             b_path = expected_summary_path(results_root=baseline_root, app=app, exp=exp)
-            d_path = expected_summary_path(results_root=distilled_root, app=app, exp=exp)
+            d_path = expected_summary_path(
+                results_root=distilled_root, app=app, exp=exp
+            )
             baseline = load_accuracy(b_path)
             distilled = load_accuracy(d_path)
-            delta = (distilled - baseline) if (baseline is not None and distilled is not None) else None
+            delta = (
+                (distilled - baseline)
+                if (baseline is not None and distilled is not None)
+                else None
+            )
             kind = "agent" if exp.get("is_agent") else "direct"
-            rows.append({
-                "app": app["slug"],
-                "experiment": exp["name"],
-                "is_agent": bool(exp.get("is_agent")),
-                "is_control": bool(exp.get("is_control")),
-                "baseline": baseline,
-                "distilled": distilled,
-                "delta": delta,
-                "baseline_path": str(b_path),
-                "distilled_path": str(d_path),
-            })
-            print(f"{app['slug']:10} {exp['name']:22} {fmt_pct(baseline):>10} "
-                  f"{fmt_pct(distilled):>10} {fmt_delta(delta):>10}  {kind:<6}")
+            rows.append(
+                {
+                    "app": app["slug"],
+                    "experiment": exp["name"],
+                    "is_agent": bool(exp.get("is_agent")),
+                    "is_control": bool(exp.get("is_control")),
+                    "baseline": baseline,
+                    "distilled": distilled,
+                    "delta": delta,
+                    "baseline_path": str(b_path),
+                    "distilled_path": str(d_path),
+                }
+            )
+            print(
+                f"{app['slug']:10} {exp['name']:22} {fmt_pct(baseline):>10} "
+                f"{fmt_pct(distilled):>10} {fmt_delta(delta):>10}  {kind:<6}"
+            )
         print()
 
     # ── Aggregate by kind ────────────────────────────────────────────────────
@@ -145,8 +157,11 @@ def main(argv: list[str] | None = None) -> int:
     print("Aggregate deltas")
     print("=" * 100)
     for label, predicate in [
-        ("agent (distilled effect expected)", lambda r: r["is_agent"] and not r["is_control"]),
-        ("direct controls",                   lambda r: not r["is_agent"] or r["is_control"]),
+        (
+            "agent (distilled effect expected)",
+            lambda r: r["is_agent"] and not r["is_control"],
+        ),
+        ("direct controls", lambda r: not r["is_agent"] or r["is_control"]),
     ]:
         deltas = [r["delta"] for r in rows if r["delta"] is not None and predicate(r)]
         if deltas:
@@ -164,11 +179,17 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  distilled runs complete: {n_distilled}/{n_total}")
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps({
-        "baseline_results_dir": str(baseline_root),
-        "distilled_results_dir": str(distilled_root),
-        "rows": rows,
-    }, indent=2, default=str))
+    out_path.write_text(
+        json.dumps(
+            {
+                "baseline_results_dir": str(baseline_root),
+                "distilled_results_dir": str(distilled_root),
+                "rows": rows,
+            },
+            indent=2,
+            default=str,
+        )
+    )
     print()
     print(f"Full data → {out_path}")
     return 0

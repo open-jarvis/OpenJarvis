@@ -164,6 +164,10 @@ select = ["E", "F", "I", "W"]
 [tool.ruff.lint.per-file-ignores]
 "src/openjarvis/evals/datasets/*.py" = ["E501"]
 "src/openjarvis/evals/scorers/*.py" = ["E501"]
+# Distillation experiment scripts: TOML/log/prompt template strings make
+# strict 88-col enforcement a poor fit. Line semantics matter more than
+# wrapping.
+"scripts/experiments/distillation/**/*.py" = ["E501"]
 
 [dependency-groups]
 dev = [
