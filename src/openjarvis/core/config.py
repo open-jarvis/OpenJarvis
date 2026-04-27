@@ -764,7 +764,7 @@ class StorageConfig:
     default_backend: str = "sqlite"
     db_path: str = str(DEFAULT_CONFIG_DIR / "memory.db")
     context_top_k: int = 5
-    context_min_score: float = 0.1
+    context_min_score: float = 0.0
     context_max_tokens: int = 2048
     chunk_size: int = 512
     chunk_overlap: int = 64
