@@ -36,8 +36,12 @@ try:
 except ModuleNotFoundError:  # pragma: no cover
     import tomli as tomllib  # type: ignore[import-not-found,no-redef]
 
-from openjarvis.core.types import Message, Role
-from openjarvis.engine.cloud import CloudEngine
+# Local sibling helper for OPENJARVIS_HOME shadowing.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _overrides import prepare_override_home  # noqa: E402
+
+from openjarvis.core.types import Message, Role  # noqa: E402
+from openjarvis.engine.cloud import CloudEngine  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -145,26 +149,36 @@ EDIT GRAMMAR — return JSON with "op" and the parameter fields at top level:
 
 Valid ops and their parameter fields:
 
+KNOBS (numeric / enum):
 1. set_temperature: "value" (float, 0.0..1.0)
 2. set_max_turns:   "value" (int, 1..100)
 3. set_max_tokens:  "value" (int, 512..32768)
 4. add_tool:        "tool_name" (string; must be in AVAILABLE_TOOLS, not already active)
 5. remove_tool:     "tool_name" (string; must be in current tools)
-6. noop:            (no params; propose only if you believe no further edit will help)
+
+FREE-TEXT (full-replacement; no diff/patch):
+6. set_system_prompt: "value" (string; full system prompt for the active agent)
+7. set_few_shot:      "value" (list of {"input": "...", "output": "..."} dicts; full replacement)
+8. set_tool_description: "tool_name" (string), "value" (string; full replacement description)
+
+9. noop: (no params; propose only if you believe no further edit will help)
 
 CONCRETE EXAMPLES:
   {"op": "set_temperature", "value": 0.3, "rationale": "Reduce loop risk."}
-  {"op": "set_max_turns", "value": 20, "rationale": "More turns for research tasks."}
   {"op": "add_tool", "tool_name": "pdf_extract", "rationale": "Tasks require PDF reading."}
   {"op": "remove_tool", "tool_name": "shell_exec", "rationale": "Tool is broken in this env."}
+  {"op": "set_system_prompt", "value": "You are a focused research agent.\\nUse one tool at a time and verify each result before continuing.", "rationale": "Current default is too verbose; tighter persona may reduce loops."}
+  {"op": "set_few_shot", "value": [{"input": "What is 2+2?", "output": "Use the calculator tool. Result: 4."}], "rationale": "Show explicit tool-call pattern."}
+  {"op": "set_tool_description", "tool_name": "web_search", "value": "Search the public web; results may be hours stale.", "rationale": "Make staleness explicit so the agent doesn't trust as live data."}
   {"op": "noop", "rationale": "Current config seems optimal."}
 
 EXPLORATION BIAS:
-  The config space has 5 distinct axes: temperature, max_turns, max_tokens,
-  tool additions (add_tool), tool removals (remove_tool). Before proposing a
-  second edit on an axis you've already tried, consider whether an untried
-  axis might reveal a larger gain. Tool-list edits (add/remove) often matter
-  more than numeric hyperparameters on benchmarks where the agent uses tools.
+  The config space has 8 axes: temperature, max_turns, max_tokens, add_tool,
+  remove_tool, system_prompt, few_shot, tool_description. Tool-list and
+  free-text edits often outperform numeric tweaks on agentic benchmarks.
+  Free-text edits are FULL REPLACEMENTS — write the complete prompt or full
+  exemplar list, not a patch. Before proposing a second edit on an axis you
+  already tried, consider whether an untried axis might reveal a larger gain.
 
 Return ONLY the JSON object, no preamble, no code fences."""
 
@@ -200,6 +214,23 @@ def build_user_prompt(
 
     unused_tools = [t for t in available_tools if t not in current_config["tools"]]
 
+    # Summarize free-text overrides so the proposer doesn't blindly stack
+    # duplicate edits on the same axis. Show length / count, not the full
+    # text — keeps the user prompt small even after many free-text rounds.
+    ov_lines: list[str] = []
+    for agent_name, text in (current_config.get("system_prompts") or {}).items():
+        snippet = (text or "")[:80].replace("\n", " ")
+        ov_lines.append(
+            f"  system_prompt[{agent_name}] = ({len(text)} chars) {snippet!r}..."
+        )
+    for agent_name, fs in (current_config.get("few_shots") or {}).items():
+        ov_lines.append(f"  few_shot[{agent_name}] = {len(fs)} exemplars")
+    for tool, desc in (current_config.get("tool_descriptions") or {}).items():
+        ov_lines.append(f"  tool_description[{tool}] = {desc[:80]!r}")
+    overrides_block = (
+        "\n".join(ov_lines) if ov_lines else "  (none — agent uses hardcoded defaults)"
+    )
+
     return f"""\
 TARGET:
   student: {student}  (vLLM-served Qwen3.5)
@@ -211,6 +242,9 @@ CURRENT CONFIG:
   max_turns   = {current_config["max_turns"]}
   max_tokens  = {current_config["max_tokens"]}
   tools       = {current_config["tools"]}
+
+CURRENT FREE-TEXT OVERRIDES:
+{overrides_block}
 
 TOOLS NOT CURRENTLY ACTIVE (available to add):
   {unused_tools}
@@ -240,7 +274,9 @@ def call_proposer(
             Message(role=Role.USER, content=user),
         ],
         model=model,
-        max_tokens=600,
+        # Free-text ops (system_prompt, few_shot) can return multi-KB JSON;
+        # 4096 keeps headroom without inflating cost on knob-only rounds.
+        max_tokens=4096,
         temperature=0.3,
     )
     content = (resp.get("content") or "").strip()
@@ -275,8 +311,13 @@ class Config:
     tool_descriptions: dict[str, str] = field(default_factory=dict)
 
 
-def apply_edit(cfg: Config, edit: dict) -> Config:
-    """Apply an edit. Tolerant of both flat and nested (params) forms."""
+def apply_edit(cfg: Config, edit: dict, *, default_agent: str | None = None) -> Config:
+    """Apply an edit. Tolerant of both flat and nested (params) forms.
+
+    ``default_agent`` is used as the target for ``set_system_prompt`` /
+    ``set_few_shot`` when the edit omits an explicit ``"agent"`` field — the
+    benchmark's primary agent.
+    """
     op = edit["op"]
     # Merge top-level edit fields with params for flat-or-nested tolerance
     p = {
@@ -288,6 +329,9 @@ def apply_edit(cfg: Config, edit: dict) -> Config:
         max_turns=cfg.max_turns,
         max_tokens=cfg.max_tokens,
         tools=list(cfg.tools),
+        system_prompts=dict(cfg.system_prompts),
+        few_shots={k: list(v) for k, v in cfg.few_shots.items()},
+        tool_descriptions=dict(cfg.tool_descriptions),
     )
     if op == "noop":
         return new
@@ -304,9 +348,54 @@ def apply_edit(cfg: Config, edit: dict) -> Config:
     elif op == "remove_tool":
         tool = p["tool_name"]
         new.tools = [t for t in new.tools if t != tool]
+    elif op == "set_system_prompt":
+        agent = p.get("agent") or default_agent
+        if not agent:
+            raise ValueError("set_system_prompt: missing 'agent' and no default")
+        new.system_prompts[agent] = str(p["value"])
+    elif op == "set_few_shot":
+        agent = p.get("agent") or default_agent
+        if not agent:
+            raise ValueError("set_few_shot: missing 'agent' and no default")
+        items = p["value"]
+        if not isinstance(items, list):
+            raise ValueError("set_few_shot: 'value' must be a list of dicts")
+        new.few_shots[agent] = list(items)
+    elif op == "set_tool_description":
+        tool = p["tool_name"]
+        new.tool_descriptions[tool] = str(p["value"])
     else:
         raise ValueError(f"unknown edit op: {op}")
     return new
+
+
+def _render_override_blocks(cfg: Config) -> str:
+    """Render [benchmarks.overrides.*] blocks for non-empty free-text fields.
+
+    Returns an empty string when no overrides are set. Uses ``json.dumps``
+    for proper TOML basic-string escaping (TOML and JSON share \\n / \\" /
+    \\\\ escape conventions for basic strings), so multi-line prompts and
+    quoted text serialize safely.
+    """
+    parts: list[str] = []
+    if cfg.system_prompts:
+        parts.append("\n[benchmarks.overrides.system_prompt]")
+        for agent, text in cfg.system_prompts.items():
+            parts.append(f"{agent} = {json.dumps(text)}")
+    if cfg.few_shots:
+        parts.append("\n[benchmarks.overrides.few_shot]")
+        for agent, items in cfg.few_shots.items():
+            kvs_lines: list[str] = ["["]
+            for item in items:
+                pairs = ", ".join(f"{k} = {json.dumps(v)}" for k, v in item.items())
+                kvs_lines.append(f"  {{ {pairs} }},")
+            kvs_lines.append("]")
+            parts.append(f"{agent} = " + "\n".join(kvs_lines))
+    if cfg.tool_descriptions:
+        parts.append("\n[benchmarks.overrides.tool_descriptions]")
+        for tool, desc in cfg.tool_descriptions.items():
+            parts.append(f"{tool} = {json.dumps(desc)}")
+    return "\n".join(parts) + "\n" if parts else ""
 
 
 def write_eval_toml(
@@ -352,6 +441,7 @@ backend = "{bench_spec["backend"]}"
 max_samples = {k_samples}
 tools = {tools_str}
 """
+    toml += _render_override_blocks(cfg)
     path = output_dir / "eval.toml"
     output_dir.mkdir(parents=True, exist_ok=True)
     path.write_text(toml)
@@ -375,15 +465,29 @@ host = "http://localhost:{port}"
 
 
 def run_eval(eval_toml: Path, oj_config: Path) -> tuple[float, int, int]:
-    """Run one eval. Returns (accuracy_pct, scored, total)."""
+    """Run one eval. Returns (accuracy_pct, scored, total).
+
+    Materializes a temp OPENJARVIS_HOME from any [[benchmarks]].overrides
+    in eval_toml so the agent loaders see this round's free-text edits.
+    """
+    import shutil as _shutil
+
     env = {**os.environ, "OPENJARVIS_CONFIG": str(oj_config)}
-    result = subprocess.run(
-        [".venv/bin/python", "-m", "openjarvis.evals", "run", "-c", str(eval_toml)],
-        capture_output=True,
-        text=True,
-        env=env,
-        timeout=7200,
-    )
+    override_home = prepare_override_home(eval_toml)
+    if override_home is not None:
+        env["OPENJARVIS_HOME"] = str(override_home)
+        print(f"[m3] OPENJARVIS_HOME → {override_home} (per-round overrides)")
+    try:
+        result = subprocess.run(
+            [".venv/bin/python", "-m", "openjarvis.evals", "run", "-c", str(eval_toml)],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=7200,
+        )
+    finally:
+        if override_home is not None:
+            _shutil.rmtree(override_home, ignore_errors=True)
     # Find the summary.json
     out_dir = eval_toml.parent
     sums = list(out_dir.glob("**/*.summary.json"))
@@ -644,7 +748,11 @@ def hill_climb(args) -> dict:
 
         # Apply and evaluate subsample
         try:
-            candidate = apply_edit(Config(**state["current_config"]), edit)
+            candidate = apply_edit(
+                Config(**state["current_config"]),
+                edit,
+                default_agent=bench_spec.get("agent"),
+            )
         except Exception as e:
             print(f"[m3] apply_edit failed: {e}. Recording as malformed edit.")
             # Record as a rejected malformed edit so teacher won't repeat

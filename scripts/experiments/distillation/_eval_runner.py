@@ -27,7 +27,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -39,6 +38,10 @@ try:
     import tomllib  # type: ignore[import-not-found]
 except ModuleNotFoundError:  # pragma: no cover
     import tomli as tomllib  # type: ignore[import-not-found,no-redef]
+
+# Local sibling — kept relative to this script's directory.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _overrides import prepare_override_home  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
@@ -180,59 +183,6 @@ def is_complete(summary_path: Path) -> bool:
     return int(d.get("scored_samples", 0)) > 0
 
 
-# ── Per-row OPENJARVIS_HOME shadowing for TOML-resident overrides ────────────
-
-
-def _render_tool_descriptions_toml(descs: dict[str, str]) -> str:
-    """Match the tiny single-line parser in tools/description_loader.py."""
-    lines: list[str] = []
-    for tool, desc in descs.items():
-        single_line = " ".join(str(desc).split())
-        lines.append(f"[{tool}]")
-        lines.append(f'description = "{single_line}"')
-        lines.append("")
-    return "\n".join(lines)
-
-
-def _prepare_override_home(row: PlanRow) -> Path | None:
-    """Materialize a temp ``OPENJARVIS_HOME`` for a row's TOML overrides.
-
-    Reads ``[[benchmarks]].overrides`` from the row's config and writes
-    ``agents/<name>/system_prompt.md``, ``agents/<name>/few_shot.json``, and
-    ``tools/descriptions.toml`` into a fresh tempdir so the eval subprocess
-    sees those overrides and nothing from the user's real ``~/.openjarvis``.
-
-    Returns the tempdir path, or ``None`` when the config has no overrides
-    (caller leaves env alone). Caller is responsible for cleanup.
-    """
-    try:
-        cfg = tomllib.loads(row.config_path.read_text())
-    except (OSError, tomllib.TOMLDecodeError):
-        return None
-    benches = cfg.get("benchmarks") or []
-    if not benches:
-        return None
-    overrides = benches[0].get("overrides") or {}
-    if not overrides:
-        return None
-
-    home = Path(tempfile.mkdtemp(prefix="oj-eval-home-"))
-    for agent_name, prompt in (overrides.get("system_prompt") or {}).items():
-        p = home / "agents" / agent_name / "system_prompt.md"
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(str(prompt), encoding="utf-8")
-    for agent_name, fs in (overrides.get("few_shot") or {}).items():
-        p = home / "agents" / agent_name / "few_shot.json"
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(fs, indent=2), encoding="utf-8")
-    descs = overrides.get("tool_descriptions") or {}
-    if descs:
-        p = home / "tools" / "descriptions.toml"
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(_render_tool_descriptions_toml(descs), encoding="utf-8")
-    return home
-
-
 # ── Per-row execution ────────────────────────────────────────────────────────
 
 
@@ -273,7 +223,7 @@ def run_row(*, row: PlanRow, runner_cfg: dict, mode: str, force: bool) -> bool:
     # hermetic OPENJARVIS_HOME so the TOML is the only source of truth.
     override_home: Path | None = None
     if mode == "distilled":
-        override_home = _prepare_override_home(row)
+        override_home = prepare_override_home(row.config_path)
         if override_home is not None:
             env["OPENJARVIS_HOME"] = str(override_home)
             log(f"OPENJARVIS_HOME → {override_home} (TOML overrides)")
