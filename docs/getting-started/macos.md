@@ -45,8 +45,10 @@ On a fresh Mac, you need Apple's developer command line tools before anything el
 xcode-select --install
 ```
 
-A GUI prompt will appear — accept and let it finish. If the tools are already installed
-the command exits with `error: command line tools are already installed`, which is fine.
+A GUI installer will pop up — accept and let it finish. If the tools are already
+installed the command instead prints
+`xcode-select: error: command line tools are already installed, use "Software Update" to install updates`
+and exits non-zero, which is fine — you can move on.
 
 !!! note "Homebrew will ask too"
     Step 1's Homebrew installer also requests the Command Line Tools if it doesn't see
