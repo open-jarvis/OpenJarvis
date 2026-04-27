@@ -28,11 +28,18 @@ import re
 import subprocess
 import sys
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
+try:
+    import tomllib  # type: ignore[import-not-found]
+except ModuleNotFoundError:  # pragma: no cover
+    import tomli as tomllib  # type: ignore[import-not-found,no-redef]
 
 from openjarvis.core.types import Message, Role
 from openjarvis.engine.cloud import CloudEngine
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Config & constants
@@ -259,6 +266,13 @@ class Config:
     max_turns: int
     max_tokens: int
     tools: list[str]
+    # Free-text overrides emitted under [[benchmarks]].overrides in the
+    # distilled TOML. Today's proposer grammar doesn't produce these, but the
+    # plumbing carries them end-to-end so a future grammar extension lands
+    # without writer changes.
+    system_prompts: dict[str, str] = field(default_factory=dict)
+    few_shots: dict[str, list] = field(default_factory=dict)
+    tool_descriptions: dict[str, str] = field(default_factory=dict)
 
 
 def apply_edit(cfg: Config, edit: dict) -> Config:
@@ -411,6 +425,101 @@ def load_sample_queries(bench: str, n: int = 3) -> list[str]:
     except Exception as e:
         print(f"[m3] WARNING: could not load samples for {bench}: {e}")
         return []
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Write-back: M3 winner → distilled TOML
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _resolve_distilled_toml(
+    *, student_size: str, benchmark: str, repo_root: Path = REPO_ROOT
+) -> Path | None:
+    """Find the m2 distilled TOML for a (student size, benchmark) target.
+
+    Looks up the application slug via pipeline_matrix.toml so we don't
+    hardcode the qwen-* prefix. Returns None when the matrix or the TOML
+    is missing.
+    """
+    matrix_path = repo_root / "scripts/experiments/distillation/pipeline_matrix.toml"
+    if not matrix_path.exists():
+        return None
+    matrix = tomllib.loads(matrix_path.read_text())
+    app = next(
+        (a for a in matrix.get("applications", []) if a.get("size") == student_size),
+        None,
+    )
+    if app is None:
+        return None
+    distilled_dir = repo_root / matrix["paths"]["distilled_configs_dir"]
+    return distilled_dir / f"{benchmark}-{app['slug']}-distilled.toml"
+
+
+def _write_winner_to_distilled_toml(
+    *,
+    student_size: str,
+    benchmark: str,
+    cfg: Config,
+    repo_root: Path = REPO_ROOT,
+) -> Path | None:
+    """Write hill-climb winner back into the matching distilled TOML.
+
+    Updates ``[defaults].temperature`` / ``.max_tokens`` and
+    ``[[benchmarks]].tools`` in place, and (when any free-text override is
+    set on ``cfg``) writes ``[benchmarks.overrides.system_prompt]`` /
+    ``[...].few_shot`` / ``[...].tool_descriptions`` blocks. Step 6 picks
+    these up via the eval-runner's OPENJARVIS_HOME shadow.
+
+    Uses tomlkit to preserve the existing TOML's comments and formatting.
+    Returns the TOML path on success, None when the file is missing.
+    """
+    import tomlkit
+
+    toml_path = _resolve_distilled_toml(
+        student_size=student_size, benchmark=benchmark, repo_root=repo_root
+    )
+    if toml_path is None or not toml_path.exists():
+        return None
+
+    doc = tomlkit.parse(toml_path.read_text())
+
+    if "defaults" in doc:
+        doc["defaults"]["temperature"] = float(cfg.temperature)
+        doc["defaults"]["max_tokens"] = int(cfg.max_tokens)
+
+    benches = doc.get("benchmarks")
+    if benches and len(benches) > 0:
+        bench = benches[0]
+        if "tools" in bench or cfg.tools:
+            tools_arr = tomlkit.array()
+            for t in cfg.tools:
+                tools_arr.append(t)
+            bench["tools"] = tools_arr
+
+        has_overrides = bool(
+            cfg.system_prompts or cfg.few_shots or cfg.tool_descriptions
+        )
+        if has_overrides:
+            ov = bench.get("overrides") or tomlkit.table()
+            if cfg.system_prompts:
+                sp = ov.get("system_prompt") or tomlkit.table()
+                for agent, text in cfg.system_prompts.items():
+                    sp[agent] = text
+                ov["system_prompt"] = sp
+            if cfg.few_shots:
+                fs = ov.get("few_shot") or tomlkit.table()
+                for agent, items in cfg.few_shots.items():
+                    fs[agent] = items
+                ov["few_shot"] = fs
+            if cfg.tool_descriptions:
+                td = ov.get("tool_descriptions") or tomlkit.table()
+                for tool, desc in cfg.tool_descriptions.items():
+                    td[tool] = desc
+                ov["tool_descriptions"] = td
+            bench["overrides"] = ov
+
+    toml_path.write_text(tomlkit.dumps(doc))
+    return toml_path
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -639,6 +748,27 @@ def hill_climb(args) -> dict:
     print(f"[m3] Δ vs baseline = {final_acc - state['baseline_score']:+.1f}")
     print(f"[m3] state: {state_path}")
 
+    # Write-back: persist the winning config into the m2 distilled TOML so
+    # the next `6_run_distilled_eval.py` run picks it up.
+    if not getattr(args, "no_write_back", False):
+        try:
+            written = _write_winner_to_distilled_toml(
+                student_size=args.student,
+                benchmark=args.benchmark,
+                cfg=Config(**state["current_config"]),
+            )
+            if written is None:
+                print(
+                    "[m3] write-back skipped: no matching distilled TOML "
+                    "(run 5_apply_consensus_edits.py first, or use --no-write-back)"
+                )
+            else:
+                print(f"[m3] write-back → {written}")
+                state["write_back_path"] = str(written)
+                save()
+        except Exception as e:
+            print(f"[m3] write-back FAILED: {e}")
+
     return state
 
 
@@ -671,6 +801,14 @@ def main() -> int:
     ap.add_argument("--out-dir", default="results/neurips-2026/distillation-m3")
     ap.add_argument(
         "--fresh", action="store_true", help="Overwrite existing state and start fresh"
+    )
+    ap.add_argument(
+        "--no-write-back",
+        action="store_true",
+        help=(
+            "Don't write the winning config back into the m2 distilled TOML. "
+            "Default: write back so the next step-6 run uses M3's winner."
+        ),
     )
     args = ap.parse_args()
 
