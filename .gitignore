@@ -112,3 +112,6 @@ learning.db
 **/learning/benchmarks/
 **/teacher_traces/
 *.session.json
+
+# Generated distilled eval configs (output of apply_consensus_edits.py)
+src/openjarvis/evals/configs/distillation/m2/
