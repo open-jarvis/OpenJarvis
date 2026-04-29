@@ -845,7 +845,14 @@ class ServerConfig:
             "http://localhost:5173",
             "http://127.0.0.1:3000",
             "http://127.0.0.1:5173",
+            # Tauri 2 production webview origins.
+            # macOS / Linux / iOS use the custom scheme; Windows /
+            # Android use http(s)://tauri.localhost. All three must
+            # be allowed so the desktop app's chat-completions stream
+            # is not blocked by CORS in production builds.
             "tauri://localhost",
+            "http://tauri.localhost",
+            "https://tauri.localhost",
         ]
     )
 
