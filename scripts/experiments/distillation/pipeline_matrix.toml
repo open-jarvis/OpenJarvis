@@ -8,17 +8,23 @@
 
 [paths]
 configs_dir          = "src/openjarvis/evals/configs"
-distilled_configs_dir = "src/openjarvis/evals/configs/distillation/m2"
+# Active distilled configs live per-(family, bench) at
+# /matx/u/aspark/.openjarvis/experiments/<family>/<bench>/new_configs/distilled.toml.
+# This dir holds runner-compat symlinks (<bench>-<slug>-distilled.toml) that
+# resolve to those per-cell files. Inactive student configs (qwen-2b, qwen-27b)
+# remain in src/openjarvis/evals/configs/distillation/m2/ — not run by the matrix.
+distilled_configs_dir = "/matx/u/aspark/.openjarvis/experiments_configs/m2"
 baseline_results_dir = "results/neurips-2026/baselines"
 distilled_results_dir = "results/neurips-2026/distilled"
 comparison_dir       = "results/neurips-2026/distillation-m2"
+experiments_root     = "/matx/u/aspark/.openjarvis/experiments"
 
 [runner]
 # Per-size OPENJARVIS_CONFIG override files. The runner sets
 # OPENJARVIS_CONFIG=<distilled_oj_config_dir>/config-<size>.toml when running
 # a distilled config, and =<baseline_oj_config_dir>/config-baseline-<size>.toml
 # for a baseline. Leave empty to skip the override (use default config).
-oj_config_dir        = "/matx/u/aspark/openjarvis"  # absolute path to per-size OPENJARVIS_CONFIG dir, or "" to skip
+oj_config_dir        = "/matx/u/aspark/.openjarvis/oj_configs"  # absolute path to per-size OPENJARVIS_CONFIG dir, or "" to skip
 distilled_oj_template = "config-{size}.toml"
 baseline_oj_template = "config-baseline-{size}.toml"
 python_bin           = ".venv/bin/python"
