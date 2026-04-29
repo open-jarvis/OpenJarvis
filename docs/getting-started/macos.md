@@ -22,6 +22,7 @@ elsewhere — and is suitable for both Apple Silicon and Intel Macs.
 
 | Tool | Purpose |
 |------|---------|
+| Xcode Command Line Tools | Apple's compiler toolchain — required by Homebrew, Rust, and `git` |
 | Homebrew | macOS package manager — installs everything else |
 | uv | Python version and dependency manager |
 | Git | Clones the OpenJarvis repo |
@@ -34,6 +35,27 @@ elsewhere — and is suitable for both Apple Silicon and Intel Macs.
 ---
 
 ## Step-by-Step Installation
+
+### Step 0 — Install Xcode Command Line Tools
+
+On a fresh Mac, you need Apple's developer command line tools before anything else
+(`git`, `cc`, build headers). Install them with:
+
+```bash
+xcode-select --install
+```
+
+A GUI installer will pop up — accept and let it finish. If the tools are already
+installed the command instead prints
+`xcode-select: error: command line tools are already installed, use "Software Update" to install updates`
+and exits non-zero, which is fine — you can move on.
+
+!!! note "Homebrew will ask too"
+    Step 1's Homebrew installer also requests the Command Line Tools if it doesn't see
+    them. Running `xcode-select --install` upfront avoids the second prompt and confirms
+    the tools landed correctly.
+
+---
 
 ### Step 1 — Install Homebrew
 

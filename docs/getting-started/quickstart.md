@@ -7,6 +7,11 @@ search:
 
 # Quick Start
 
+!!! tip "Running `jarvis` commands"
+    Every `jarvis ...` example below assumes you have either activated the project venv
+    (`source .venv/bin/activate`) or are prefixing each command with `uv run`. A bare
+    `jarvis init --preset ...` from a fresh clone will fail with `command not found`.
+
 ## What You Can Build
 
 OpenJarvis is a modular AI assistant framework. Here's what developers build with it:
@@ -29,6 +34,13 @@ OpenJarvis is a modular AI assistant framework. Here's what developers build wit
     jarvis memory index ./docs/
     jarvis ask "How do I configure the engine?"
     ```
+
+    !!! warning "Requires the Rust extension"
+        `jarvis memory index` and `jarvis memory search` import `openjarvis_rust`. If you
+        skipped the `uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml`
+        step in [Installation](installation.md), these commands fail with
+        `ModuleNotFoundError: No module named 'openjarvis_rust'`. Build the extension
+        once and any preset (including `deep-research`) will work.
 
 === "5-Line Python SDK"
 
