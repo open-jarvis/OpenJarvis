@@ -176,6 +176,22 @@ def _run_agent(
     if capability_policy is not None:
         agent_kwargs["capability_policy"] = capability_policy
 
+    # Wire the SystemPromptBuilder so SOUL.md / MEMORY.md / USER.md persona
+    # files actually reach the model. Only passed to agents whose __init__
+    # accepts a `prompt_builder` kwarg (BaseAgent does; agents that override
+    # __init__ without forwarding it, e.g. OrchestratorAgent, opt out
+    # automatically and keep their existing system-prompt machinery).
+    import inspect as _inspect
+
+    if "prompt_builder" in _inspect.signature(agent_cls.__init__).parameters:
+        from openjarvis.prompt.builder import SystemPromptBuilder
+
+        agent_kwargs["prompt_builder"] = SystemPromptBuilder(
+            agent_template=config.agent.default_system_prompt or "",
+            memory_files_config=config.memory_files,
+            system_prompt_config=config.system_prompt,
+        )
+
     agent = agent_cls(engine, model_name, **agent_kwargs)
     ctx = AgentContext()
 
