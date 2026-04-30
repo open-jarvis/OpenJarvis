@@ -3,13 +3,17 @@ and engine recommendation."""
 
 from __future__ import annotations
 
+import sys
 from unittest.mock import patch
+
+import pytest
 
 from openjarvis.core.config import (
     GpuInfo,
     _detect_amd_gpu,
     _detect_apple_gpu,
     _detect_nvidia_gpu,
+    _total_ram_gb,
     recommend_engine,
 )
 
@@ -73,6 +77,31 @@ class TestDetectHardware:
         assert _detect_nvidia_gpu() is None
         assert _detect_amd_gpu() is None
         assert _detect_apple_gpu() is None
+
+
+# ---------------------------------------------------------------------------
+# RAM detection
+# ---------------------------------------------------------------------------
+
+
+class TestTotalRamGb:
+    """Tests for _total_ram_gb() across platforms."""
+
+    @pytest.mark.skipif(sys.platform != "win32", reason="Requires Windows")
+    def test_total_ram_gb_windows(self):
+        """On Windows, GlobalMemoryStatusEx must return a positive RAM value."""
+        ram = _total_ram_gb()
+        assert ram > 0, f"Expected > 0 GB on Windows, got {ram}"
+
+    @pytest.mark.skipif(sys.platform != "darwin", reason="Requires macOS")
+    def test_total_ram_gb_darwin(self):
+        ram = _total_ram_gb()
+        assert ram > 0, f"Expected > 0 GB on macOS, got {ram}"
+
+    @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Requires Linux")
+    def test_total_ram_gb_linux(self):
+        ram = _total_ram_gb()
+        assert ram > 0, f"Expected > 0 GB on Linux, got {ram}"
 
 
 # ---------------------------------------------------------------------------
