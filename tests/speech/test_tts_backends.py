@@ -121,6 +121,32 @@ def test_kokoro_available_voices_includes_mandarin_and_english():
         assert v in voices, f"Existing voice {v} dropped from catalog"
 
 
+def test_kokoro_missing_chinese_deps_gives_actionable_error(monkeypatch):
+    """When Mandarin G2P deps are missing, the user must see an install hint
+    pointing at ``misaki[zh]`` rather than a raw ``ordered_set`` ImportError."""
+    import sys
+    import types
+
+    import pytest
+
+    from openjarvis.speech.kokoro_tts import KokoroTTSBackend
+
+    class FakeKPipeline:
+        def __init__(self, lang_code):
+            # Mimic what happens inside Kokoro when misaki.zh can't import.
+            raise ImportError("No module named 'ordered_set'")
+
+    fake_kokoro = types.SimpleNamespace(KPipeline=FakeKPipeline)
+    monkeypatch.setitem(sys.modules, "kokoro", fake_kokoro)
+
+    backend = KokoroTTSBackend()
+    with pytest.raises(RuntimeError) as exc_info:
+        backend._ensure_pipeline("z")
+    msg = str(exc_info.value)
+    assert "misaki[zh]" in msg
+    assert "lang_code='z'" in msg or "lang_code=\"z\"" in msg
+
+
 def test_kokoro_pipeline_cached_per_language(monkeypatch):
     """Each lang_code instantiates one pipeline; same lang reuses the cache."""
     import sys

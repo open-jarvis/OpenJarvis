@@ -73,7 +73,29 @@ class KokoroTTSBackend(TTSBackend):
             raise RuntimeError(
                 "kokoro package not installed. Install with: pip install kokoro"
             ) from exc
-        pipeline = KPipeline(lang_code=lang_code)
+        try:
+            pipeline = KPipeline(lang_code=lang_code)
+        except ImportError as exc:
+            # Kokoro loads language-specific G2P resources at init time and
+            # several languages need extra dependencies that aren't pulled in
+            # by the base ``kokoro`` package. The known cases:
+            #   z (Mandarin) → misaki.zh (jieba / pypinyin / ordered-set)
+            #   j (Japanese) → misaki.ja (fugashi / unidic-lite)
+            # Translate the cryptic ``ordered_set``/``fugashi`` ImportError
+            # into a one-line install hint so the user isn't left guessing.
+            hints = {
+                "z": 'pip install "misaki[zh]"',
+                "j": 'pip install "misaki[ja]"',
+                "k": 'pip install "misaki[ko]"',
+            }
+            hint = hints.get(
+                lang_code,
+                f'extra phoneme deps for lang_code="{lang_code}" (see Kokoro docs)',
+            )
+            raise RuntimeError(
+                f"Kokoro lang_code={lang_code!r} requires extra dependencies. "
+                f"Try: {hint}. Original error: {exc}"
+            ) from exc
         self._pipelines[lang_code] = pipeline
         return pipeline
 
