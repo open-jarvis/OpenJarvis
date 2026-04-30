@@ -212,7 +212,39 @@ class TestAskAgentOption:
         )
         assert result.exit_code != 0
 
-    def test_no_agent_uses_direct_mode(self, runner, mock_setup):
+    def test_no_agent_flag_falls_back_to_config_default_agent(
+        self, runner, mock_setup
+    ):
+        """When --agent is omitted, ``config.agent.default_agent`` is used.
+
+        The default ``JarvisConfig`` sets ``default_agent = "simple"``, so
+        ``jarvis ask "..."`` should route through SimpleAgent rather than
+        the direct-to-engine path. Without this fallback, persona settings
+        (``default_system_prompt`` and SOUL.md/MEMORY.md/USER.md) would be
+        silently bypassed.
+        """
+        result = runner.invoke(cli, ["ask", "Hello"])
+        assert result.exit_code == 0
+        assert "Hello from engine" in result.output
+
+    def test_explicit_empty_agent_opts_out_of_agent_mode(
+        self, runner, mock_setup
+    ):
+        """``--agent ""`` is the explicit opt-out: use direct-to-engine."""
+        result = runner.invoke(cli, ["ask", "--agent", "", "Hello"])
+        assert result.exit_code == 0
+        assert "Hello from engine" in result.output
+
+    def test_no_agent_with_blank_config_default_uses_direct_mode(
+        self, runner, mock_setup, monkeypatch
+    ):
+        """When config's ``default_agent`` is blank and --agent is omitted,
+        the original direct-to-engine path is preserved."""
+        from openjarvis.core.config import JarvisConfig
+
+        cfg = JarvisConfig()
+        cfg.agent.default_agent = ""
+        monkeypatch.setattr(_ask_mod, "load_config", lambda *a, **kw: cfg)
         result = runner.invoke(cli, ["ask", "Hello"])
         assert result.exit_code == 0
         assert "Hello from engine" in result.output
