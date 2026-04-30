@@ -86,7 +86,10 @@ class SystemPromptBuilder:
         path = Path(path_str).expanduser()
         if not path.exists():
             return ""
-        content = path.read_text()
+        # Always read as UTF-8. On Windows, ``read_text()`` falls back to the
+        # system code page (e.g. cp950 for zh-TW, cp932 for ja) and raises
+        # ``UnicodeDecodeError`` on any non-ASCII persona content.
+        content = path.read_text(encoding="utf-8")
         if len(content) <= max_chars:
             return content
         return self._truncate(content, max_chars)
