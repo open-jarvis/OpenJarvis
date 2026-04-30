@@ -32,6 +32,15 @@ def _mock_engine_response():
 
 def _patch_ask(monkeypatch, tmp_path, *, engine_result=None, no_engine=False):
     """Set up common mocks for ask tests."""
+    # Re-register SimpleAgent after the autouse `_clean_registries` conftest
+    # fixture clears it. ``JarvisConfig().agent.default_agent`` defaults to
+    # ``"simple"``, so ``jarvis ask "..."`` (no --agent) routes through it.
+    from openjarvis.agents.simple import SimpleAgent
+    from openjarvis.core.registry import AgentRegistry
+
+    if not AgentRegistry.contains("simple"):
+        AgentRegistry.register_value("simple", SimpleAgent)
+
     cfg = JarvisConfig()
     cfg.telemetry.db_path = str(tmp_path / "telemetry.db")
 
