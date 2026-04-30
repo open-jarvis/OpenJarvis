@@ -119,6 +119,15 @@ except ImportError:
 
 def main() -> None:
     """Entry point registered as ``jarvis`` console script."""
+    import sys
+
+    if sys.platform == "win32":
+        for _stream in (sys.stdout, sys.stderr):
+            if hasattr(_stream, "reconfigure"):
+                try:
+                    _stream.reconfigure(encoding="utf-8", errors="replace")
+                except (AttributeError, OSError):
+                    pass
     cli()
 
 
