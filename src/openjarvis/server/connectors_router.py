@@ -108,12 +108,12 @@ def create_connectors_router():
         try:
             from openjarvis.connectors.store import KnowledgeStore
 
-            store = KnowledgeStore()
-            rows = store._conn.execute(
-                "SELECT COUNT(*) FROM knowledge_chunks WHERE source = ?",
-                (connector_id,),
-            ).fetchone()
-            chunks = rows[0] if rows else 0
+            with KnowledgeStore() as store:
+                rows = store._conn.execute(
+                    "SELECT COUNT(*) FROM knowledge_chunks WHERE source = ?",
+                    (connector_id,),
+                ).fetchone()
+                chunks = rows[0] if rows else 0
         except Exception:
             pass
 
@@ -260,10 +260,10 @@ def create_connectors_router():
                     from openjarvis.connectors.store import KnowledgeStore
                     from openjarvis.connectors.sync_engine import SyncEngine
 
-                    store = KnowledgeStore()
-                    pipeline = IngestionPipeline(store)
-                    engine = SyncEngine(pipeline)
-                    engine.sync(instance)
+                    with KnowledgeStore() as store:
+                        pipeline = IngestionPipeline(store)
+                        engine = SyncEngine(pipeline)
+                        engine.sync(instance)
                     logger.info(
                         "Auto-ingested %s after connect",
                         connector_id,
@@ -479,10 +479,10 @@ def create_connectors_router():
                 from openjarvis.connectors.store import KnowledgeStore
                 from openjarvis.connectors.sync_engine import SyncEngine
 
-                store = KnowledgeStore()
-                pipeline = IngestionPipeline(store=store)
-                engine = SyncEngine(pipeline=pipeline)
-                engine.sync(inst)
+                with KnowledgeStore() as store:
+                    pipeline = IngestionPipeline(store=store)
+                    engine = SyncEngine(pipeline=pipeline)
+                    engine.sync(inst)
                 logger.info("Sync completed for %s", connector_id)
                 _sync_state[connector_id] = {"state": "complete", "error": None}
             except Exception as exc:
