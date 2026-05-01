@@ -2,13 +2,52 @@
 
 from __future__ import annotations
 
+import io
+import sys
 from pathlib import Path
 from unittest import mock
 
 from click.testing import CliRunner
 
 import openjarvis
-from openjarvis.cli import cli
+from openjarvis.cli import cli, main
+
+
+class TestMainEntryPoint:
+    """Tests for the ``jarvis`` console script entry point."""
+
+    def test_windows_reconfigures_stdout_to_utf8(self) -> None:
+        """On Windows, main() must reconfigure stdout/stderr to UTF-8 so that
+        CJK characters in CLI output don't trigger UnicodeEncodeError under
+        legacy code pages (cp950, cp932, cp949)."""
+        stdout_mock = mock.MagicMock(spec=io.TextIOWrapper)
+        stderr_mock = mock.MagicMock(spec=io.TextIOWrapper)
+        with (
+            mock.patch.object(sys, "platform", "win32"),
+            mock.patch.object(sys, "stdout", stdout_mock),
+            mock.patch.object(sys, "stderr", stderr_mock),
+            mock.patch("openjarvis.cli.cli") as cli_mock,
+        ):
+            main()
+        stdout_mock.reconfigure.assert_called_once_with(
+            encoding="utf-8", errors="replace"
+        )
+        stderr_mock.reconfigure.assert_called_once_with(
+            encoding="utf-8", errors="replace"
+        )
+        cli_mock.assert_called_once()
+
+    def test_non_windows_does_not_reconfigure(self) -> None:
+        """On non-Windows platforms, stdout/stderr are left untouched."""
+        stdout_mock = mock.MagicMock(spec=io.TextIOWrapper)
+        with (
+            mock.patch.object(sys, "platform", "linux"),
+            mock.patch.object(sys, "stdout", stdout_mock),
+            mock.patch("openjarvis.cli.cli") as cli_mock,
+        ):
+            main()
+        stdout_mock.reconfigure.assert_not_called()
+        cli_mock.assert_called_once()
 
 
 class TestCLI:

@@ -178,13 +178,34 @@ def _total_ram_gb() -> float:
         if platform.system() == "Darwin":
             raw = _run_cmd(["sysctl", "-n", "hw.memsize"])
             return round(int(raw) / (1024**3), 1) if raw else 0.0
+        if platform.system() == "Windows":
+            import ctypes
+
+            class _MemoryStatusEx(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("sullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+
+            stat = _MemoryStatusEx()
+            stat.dwLength = ctypes.sizeof(_MemoryStatusEx)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
+                return round(stat.ullTotalPhys / (1024**3), 1)
+            return 0.0
         meminfo = Path("/proc/meminfo")
         if meminfo.exists():
             for line in meminfo.read_text().splitlines():
                 if line.startswith("MemTotal"):
                     kb = int(line.split()[1])
                     return round(kb / (1024**2), 1)
-    except (OSError, ValueError):
+    except (OSError, ValueError, AttributeError):
         pass
     return 0.0
 
