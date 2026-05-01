@@ -354,7 +354,11 @@ def _print_profile(
     "--agent",
     "agent_name",
     default=None,
-    help="Agent to use (simple, orchestrator).",
+    help=(
+        "Agent to use (simple, orchestrator, ...). "
+        "When omitted, falls back to ``agent.default_agent`` from config. "
+        "Pass ``--agent ''`` to force direct-to-engine mode (no agent)."
+    ),
 )
 @click.option(
     "--tools",
@@ -389,6 +393,16 @@ def ask(
 
     # Load config
     config = load_config()
+
+    # Honor `agent.default_agent` from config when --agent was not explicitly
+    # passed. Pass `--agent ""` to opt out and use direct-to-engine mode.
+    # Without this fallback, `[agent].default_system_prompt` and the
+    # SOUL.md / MEMORY.md / USER.md persona system are silently bypassed for
+    # the most common command (`jarvis ask "..."`).
+    if agent_name is None:
+        configured_default = (config.agent.default_agent or "").strip()
+        if configured_default:
+            agent_name = configured_default
 
     # Track whether the user explicitly set --max-tokens
     user_set_max_tokens = max_tokens is not None
@@ -500,8 +514,8 @@ def ask(
             model_name,
         )
 
-    # Agent mode
-    if agent_name is not None:
+    # Agent mode (treat empty-string `--agent ""` as explicit opt-out)
+    if agent_name:
         parsed_tools = resolve_tool_names(
             tool_names,
             getattr(config.tools, "enabled", None),
