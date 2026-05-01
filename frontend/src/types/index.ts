@@ -133,6 +133,77 @@ export interface ServerInfo {
   engine: string;
 }
 
+export interface PersonalCockpitRecord {
+  [key: string]: unknown;
+}
+
+export interface PersonalCockpitFileHealth {
+  exists: boolean;
+  path: string;
+  modified_at: string;
+}
+
+export interface PersonalCockpitSnapshot {
+  meta: {
+    generated_at: string;
+    personal_root: string;
+    voice_runtime: string;
+  };
+  general_state: {
+    status: string;
+    live_status: string;
+    paused: boolean;
+    active_until: string;
+    updated_at: string;
+    age_seconds: number | null;
+    turn_count: number;
+    last_transcription: string;
+    last_response: string;
+    pending_validation?: PersonalCockpitRecord | null;
+    last_validated_action?: PersonalCockpitRecord | null;
+  };
+  voice_live: {
+    config_status: string;
+    wake_word: string;
+    vad: string;
+    stt: string;
+    tts: string;
+    commands: string[];
+    last_updated_at: string;
+  };
+  latest_transcription: string;
+  latest_response: string;
+  pending_validation?: PersonalCockpitRecord | null;
+  last_live_brief?: PersonalCockpitRecord | null;
+  yahoo_targeted_move?: PersonalCockpitRecord | null;
+  yahoo_dynamic_candidate?: PersonalCockpitRecord | null;
+  yahoo_dynamic_result?: PersonalCockpitRecord | null;
+  session_history: Array<{
+    timestamp: string;
+    intent: string;
+    user: string;
+    assistant: string;
+  }>;
+  recent_actions: Array<Record<string, unknown>>;
+  connectors: Array<{
+    name: string;
+    status: string;
+    services: Record<string, string>;
+    updated_at: string;
+    details: PersonalCockpitRecord;
+  }>;
+  alerts: Array<{
+    level: string;
+    title: string;
+    detail: string;
+  }>;
+  continuity: Array<{
+    heading: string;
+    summary: string;
+  }>;
+  file_health: Record<string, PersonalCockpitFileHealth>;
+}
+
 // --- Log Types ---
 
 export interface LogEntry {
