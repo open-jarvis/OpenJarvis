@@ -4,14 +4,13 @@
 # PILLAR 1: Intelligence — The Model
 # ═══════════════════════════════════════════════════════════════
 [intelligence]
-default_model = "zai-org/GLM-4.7-Flash"   # HuggingFace model ID
-fallback_model = "glm-4.7-flash"          # Catalog alias fallback
-preferred_engine = "vllm"                 # MoE model, vLLM is best for A100s
-provider = "local"                        # Running locally on this machine
-quantization = "none"                     # Full precision, we have 640GB VRAM
-# Generation defaults for eval
-temperature = 0.0                         # Deterministic for reproducibility
-max_tokens = 2048                         # Standard eval output length
+default_model = "gemma3:4b"              # Ollama model ID
+fallback_model = "gemma3:4b"             # Catalog alias fallback
+preferred_engine = "ollama"              # Using Ollama on local machine
+provider = "local"                       # Running locally on this machine
+quantization = "none"
+temperature = 0.7
+max_tokens = 2048
 top_p = 0.9
 top_k = 40
 repetition_penalty = 1.0
@@ -40,7 +39,7 @@ enabled = true
 # PILLAR 4: Engine — The Inference Runtime
 # ═══════════════════════════════════════════════════════════════
 [engine]
-default = "vllm"
+default = "ollama"
 
 [engine.vllm]
 host = "http://localhost:8001"            # vLLM serving port

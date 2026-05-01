@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Jarvis AI</title>
+
+  <!-- Markdown + Syntax highlighting -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d1117;
+      --surface:   #161b22;
+      --border:    #30363d;
+      --muted:     #8b949e;
+      --text:      #e6edf3;
+      --blue:      #58a6ff;
+      --purple:    #bc8cff;
+      --green:     #3fb950;
+      --user-bg:   #1f6feb;
+      --danger:    #f85149;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ──────────────────────────────────────────── */
+    #sidebar {
+      width: 240px;
+      min-width: 240px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      padding: 12px;
+      gap: 8px;
+    }
+
+    .sidebar-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 4px 12px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 4px;
+    }
+
+    .logo-icon {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, var(--blue), var(--purple));
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px; font-weight: 800; color: var(--bg);
+    }
+
+    .sidebar-logo span { font-weight: 600; font-size: 16px; }
+
+    #new-chat {
+      background: linear-gradient(135deg, var(--blue), var(--purple));
+      color: var(--bg);
+      border: none;
+      border-radius: 8px;
+      padding: 9px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex; align-items: center; gap: 8px;
+      transition: opacity 0.15s;
+    }
+    #new-chat:hover { opacity: 0.85; }
+
+    .sidebar-section { font-size: 11px; color: var(--muted); padding: 4px 4px 2px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+    /* Model selector */
+    .model-select-wrap { position: relative; }
+    #model-select {
+      width: 100%;
+      background: #21262d;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      padding: 8px 12px;
+      font-size: 13px;
+      cursor: pointer;
+      outline: none;
+      appearance: none;
+    }
+    #model-select:focus { border-color: var(--blue); }
+    .model-select-wrap::after {
+      content: '▾';
+      position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+      pointer-events: none; color: var(--muted); font-size: 12px;
+    }
+
+    .status-row {
+      display: flex; align-items: center; gap: 6px;
+      padding: 4px 4px;
+      font-size: 12px; color: var(--muted);
+    }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+    .status-dot.loading { background: #e3b341; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+    #clear-chat {
+      margin-top: auto;
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--muted);
+      padding: 8px 12px;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex; align-items: center; gap: 8px;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    #clear-chat:hover { border-color: var(--danger); color: var(--danger); }
+
+    /* ── Main area ────────────────────────────────────────── */
+    #main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #chat {
+      flex: 1;
+      overflow-y: auto;
+      padding: 28px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      scroll-behavior: smooth;
+    }
+
+    /* ── Messages ─────────────────────────────────────────── */
+    .turn {
+      padding: 16px 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      position: relative;
+      max-width: 860px;
+      width: 100%;
+      margin: 0 auto;
+      animation: fadeIn 0.2s ease;
+    }
+    @keyframes fadeIn { from { opacity:0; transform: translateY(4px); } to { opacity:1; transform: translateY(0); } }
+
+    .turn-header {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 13px; font-weight: 600; margin-bottom: 6px;
+    }
+
+    .avatar {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700; flex-shrink: 0;
+    }
+    .turn.user   .avatar { background: linear-gradient(135deg, #238636, #2ea043); color: #fff; }
+    .turn.jarvis .avatar { background: linear-gradient(135deg, var(--blue), var(--purple)); color: var(--bg); }
+
+    .turn.user { background: rgba(31,111,235,0.06); }
+
+    .bubble {
+      font-size: 15px;
+      line-height: 1.7;
+      padding-left: 38px;
+    }
+
+    /* User bubbles: plain text */
+    .turn.user .bubble { white-space: pre-wrap; word-break: break-word; }
+
+    /* User image */
+    .bubble img.chat-img {
+      display: block;
+      max-width: 380px; max-height: 280px;
+      border-radius: 10px;
+      margin-bottom: 8px;
+      object-fit: contain;
+      border: 1px solid var(--border);
+    }
+
+    /* ── Markdown rendering ───────────────────────────────── */
+    .md h1,.md h2,.md h3,.md h4 { margin: 1em 0 0.4em; font-weight: 700; line-height: 1.3; }
+    .md h1 { font-size: 1.4em; }
+    .md h2 { font-size: 1.2em; }
+    .md h3 { font-size: 1.05em; }
+    .md p  { margin: 0.55em 0; }
+    .md ul,.md ol { margin: 0.5em 0 0.5em 1.4em; }
+    .md li { margin: 0.2em 0; }
+    .md strong { font-weight: 700; }
+    .md em { font-style: italic; }
+    .md a  { color: var(--blue); text-decoration: none; }
+    .md a:hover { text-decoration: underline; }
+    .md blockquote {
+      border-left: 3px solid var(--border);
+      padding-left: 14px; margin: 0.6em 0;
+      color: var(--muted);
+    }
+    .md hr { border: none; border-top: 1px solid var(--border); margin: 1em 0; }
+    .md table { border-collapse: collapse; width: 100%; margin: 0.6em 0; font-size: 14px; }
+    .md th,.md td { border: 1px solid var(--border); padding: 6px 12px; text-align: left; }
+    .md th { background: #21262d; font-weight: 600; }
+
+    /* Inline code */
+    .md code:not(pre code) {
+      background: #21262d;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-family: 'Cascadia Code', 'Consolas', monospace;
+      font-size: 0.88em;
+      color: #f0883e;
+    }
+
+    /* Code blocks */
+    .code-block {
+      margin: 0.7em 0;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      background: #0d1117;
+    }
+    .code-header {
+      background: #21262d;
+      padding: 6px 14px;
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 12px; color: var(--muted);
+      border-bottom: 1px solid var(--border);
+    }
+    .code-lang { font-weight: 600; color: var(--blue); }
+    .copy-code {
+      background: none; border: none;
+      color: var(--muted); font-size: 12px;
+      cursor: pointer; padding: 2px 8px;
+      border-radius: 4px;
+      transition: background 0.15s, color 0.15s;
+      display: flex; align-items: center; gap: 4px;
+    }
+    .copy-code:hover { background: #30363d; color: var(--text); }
+    .copy-code.copied { color: var(--green); }
+    .code-block pre { margin: 0 !important; border-radius: 0 !important; border: none !important; }
+    .code-block pre code { padding: 14px 16px !important; font-size: 13px !important; background: transparent !important; }
+
+    /* Artifact button */
+    .open-artifact {
+      display: inline-flex; align-items: center; gap: 6px;
+      margin-top: 8px;
+      background: #21262d;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 5px 12px;
+      font-size: 12px; color: var(--blue);
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .open-artifact:hover { border-color: var(--blue); }
+
+    /* Actions row (copy message etc.) */
+    .turn-actions {
+      padding-left: 38px;
+      margin-top: 4px;
+      display: flex; gap: 6px;
+      opacity: 0;
+      transition: opacity 0.15s;
+    }
+    .turn:hover .turn-actions { opacity: 1; }
+
+    .action-btn {
+      background: none; border: 1px solid transparent;
+      border-radius: 6px; padding: 3px 8px;
+      color: var(--muted); font-size: 12px;
+      cursor: pointer;
+      display: flex; align-items: center; gap: 4px;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .action-btn:hover { border-color: var(--border); color: var(--text); }
+    .action-btn.copied { color: var(--green); }
+
+    /* Typing indicator */
+    .typing { display: flex; gap: 4px; align-items: center; padding: 4px 0; }
+    .typing span {
+      width: 7px; height: 7px;
+      border-radius: 50%; background: var(--muted);
+      animation: bounce 1.2s infinite;
+    }
+    .typing span:nth-child(2) { animation-delay: 0.2s; }
+    .typing span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-6px)} }
+
+    /* Welcome */
+    .welcome {
+      margin: auto; text-align: center; color: var(--muted);
+      padding: 40px 20px;
+    }
+    .welcome .big { font-size: 52px; margin-bottom: 14px; }
+    .welcome h2  { font-size: 22px; color: var(--text); font-weight: 600; margin-bottom: 8px; }
+    .welcome p   { font-size: 14px; }
+    .welcome .chips { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 18px; }
+    .chip {
+      background: #21262d; border: 1px solid var(--border);
+      border-radius: 20px; padding: 6px 14px;
+      font-size: 13px; cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .chip:hover { border-color: var(--blue); }
+
+    /* ── Footer ───────────────────────────────────────────── */
+    footer {
+      background: var(--bg);
+      padding: 10px 28px 16px;
+      max-width: 860px; width: 100%; margin: 0 auto;
+    }
+
+    #image-preview-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+    .preview-thumb { position: relative; width: 56px; height: 56px; }
+    .preview-thumb img { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); }
+    .preview-thumb button {
+      position: absolute; top: -6px; right: -6px;
+      background: var(--danger); border: none; border-radius: 50%;
+      width: 17px; height: 17px; font-size: 10px; color: #fff;
+      cursor: pointer; line-height: 17px; text-align: center; padding: 0;
+    }
+
+    .input-wrap {
+      background: #21262d;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      display: flex; flex-direction: column;
+      transition: border-color 0.15s;
+    }
+    .input-wrap:focus-within { border-color: var(--blue); }
+
+    #input {
+      background: transparent; border: none;
+      padding: 14px 16px 4px;
+      font-size: 15px; color: var(--text);
+      outline: none; resize: none;
+      min-height: 52px; max-height: 200px;
+      font-family: inherit; width: 100%;
+    }
+    #input::placeholder { color: #484f58; }
+
+    .input-toolbar {
+      display: flex; align-items: center;
+      padding: 6px 10px 10px;
+      gap: 6px;
+    }
+
+    #img-btn {
+      background: none; border: 1px solid var(--border);
+      border-radius: 8px; width: 34px; height: 34px;
+      cursor: pointer; color: var(--muted);
+      display: flex; align-items: center; justify-content: center;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    #img-btn:hover { border-color: var(--blue); color: var(--blue); }
+    #img-btn svg { width: 16px; height: 16px; fill: currentColor; }
+
+    .input-hint { font-size: 11px; color: #484f58; margin-left: auto; }
+
+    #send {
+      background: linear-gradient(135deg, var(--blue), var(--purple));
+      border: none; border-radius: 8px;
+      width: 34px; height: 34px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    #send:hover  { opacity: 0.85; transform: scale(1.05); }
+    #send:active { transform: scale(0.97); }
+    #send:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+    #send svg { width: 16px; height: 16px; fill: var(--bg); }
+
+    /* ── Artifact panel ───────────────────────────────────── */
+    #artifact-panel {
+      width: 420px; min-width: 420px;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      display: none;
+      flex-direction: column;
+    }
+    #artifact-panel.open { display: flex; }
+
+    .artifact-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 10px;
+      font-size: 13px; font-weight: 600;
+    }
+    .artifact-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    #close-artifact {
+      background: none; border: none;
+      color: var(--muted); font-size: 16px;
+      cursor: pointer; padding: 2px 6px;
+      border-radius: 4px;
+      transition: color 0.15s;
+    }
+    #close-artifact:hover { color: var(--text); }
+
+    #artifact-content { flex: 1; overflow: hidden; }
+    #artifact-content iframe {
+      width: 100%; height: 100%;
+      border: none; background: #fff;
+    }
+    #artifact-content pre {
+      height: 100%; overflow: auto;
+      margin: 0; border-radius: 0; border: none;
+    }
+
+    /* Drag highlight */
+    body.drag-over #chat { outline: 2px dashed var(--blue); outline-offset: -10px; }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<!-- ── Sidebar ── -->
+<nav id="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-icon">J</div>
+    <span>Jarvis AI</span>
+  </div>
+
+  <button id="new-chat">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+    Ny samtale
+  </button>
+
+  <div class="sidebar-section">Modell</div>
+  <div class="model-select-wrap">
+    <select id="model-select">
+      <option value="gemma3:4b">gemma3:4b (aktiv)</option>
+      <option value="gemma4:latest">gemma4 ✓</option>
+    </select>
+  </div>
+
+  <div class="status-row">
+    <div class="status-dot" id="status-dot"></div>
+    <span id="status-text">Ollama kjører</span>
+  </div>
+
+  <button id="clear-chat">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+    Tøm samtale
+  </button>
+</nav>
+
+<!-- ── Main ── -->
+<div id="main">
+  <div id="chat">
+    <div class="welcome" id="welcome">
+      <div class="big">🤖</div>
+      <h2>Hei! Jeg er Jarvis.</h2>
+      <p>Drevet av Gemma via Ollama — lokalt på din PC</p>
+      <div class="chips">
+        <div class="chip" data-msg="Forklar hva kvantedatamaskiner er">Forklar kvantedatamaskiner</div>
+        <div class="chip" data-msg="Skriv et Python-skript som henter data fra en API">Python API-skript</div>
+        <div class="chip" data-msg="Hjelp meg å lage en enkel HTML-nettside">Lag en HTML-nettside</div>
+        <div class="chip" data-msg="Hva er de beste tipsene for å lære seg programmering?">Lære programmering</div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <div id="image-preview-bar"></div>
+    <div class="input-wrap">
+      <textarea id="input" placeholder="Skriv en melding... (Enter = send, Shift+Enter = linjeskift)" rows="1"></textarea>
+      <div class="input-toolbar">
+        <button id="img-btn" title="Last opp bilde">
+          <svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+        </button>
+        <span class="input-hint">Shift+Enter for ny linje</span>
+        <button id="send">
+          <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+        </button>
+      </div>
+    </div>
+  </footer>
+</div>
+
+<!-- ── Artifact panel ── -->
+<div id="artifact-panel">
+  <div class="artifact-header">
+    <span>⚡</span>
+    <span class="artifact-title" id="artifact-title">Artefakt</span>
+    <button id="close-artifact">✕</button>
+  </div>
+  <div id="artifact-content"></div>
+</div>
+
+<input type="file" id="file-input" accept="image/*" multiple style="display:none" />
+
+<script>
+// ── Config ────────────────────────────────────────────────────
+const OLLAMA  = 'http://localhost:11434/api/chat';
+let   MODEL   = 'gemma3:4b';
+
+// ── DOM refs ──────────────────────────────────────────────────
+const chat          = document.getElementById('chat');
+const input         = document.getElementById('input');
+const sendBtn       = document.getElementById('send');
+const imgBtn        = document.getElementById('img-btn');
+const fileInput     = document.getElementById('file-input');
+const previewBar    = document.getElementById('image-preview-bar');
+const modelSelect   = document.getElementById('model-select');
+const newChatBtn    = document.getElementById('new-chat');
+const clearChatBtn  = document.getElementById('clear-chat');
+const statusDot     = document.getElementById('status-dot');
+const statusText    = document.getElementById('status-text');
+const artifactPanel = document.getElementById('artifact-panel');
+const artifactTitle = document.getElementById('artifact-title');
+const artifactContent = document.getElementById('artifact-content');
+const closeArtifact = document.getElementById('close-artifact');
+
+let welcomeEl    = document.getElementById('welcome');
+let history      = [];
+let pendingImages = [];
+let isResponding = false;
+
+// ── Marked config ─────────────────────────────────────────────
+marked.setOptions({ breaks: true, gfm: true });
+
+// Custom renderer for code blocks
+const renderer = new marked.Renderer();
+renderer.code = (code, lang) => {
+  const language = lang || 'plaintext';
+  let highlighted;
+  try {
+    highlighted = hljs.highlight(code, { language, ignoreIllegals: true }).value;
+  } catch {
+    highlighted = escHtml(code);
+  }
+  const isHtml = language === 'html';
+  const artifactBtn = isHtml
+    ? `<button class="open-artifact" data-code="${encodeURIComponent(code)}" data-lang="${language}">⚡ Åpne som artefakt</button>`
+    : '';
+  return `
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-lang">${language}</span>
+        <button class="copy-code" data-code="${encodeURIComponent(code)}">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+          Kopier
+        </button>
+      </div>
+      <pre><code class="hljs">${highlighted}</code></pre>
+    </div>
+    ${artifactBtn}
+  `;
+};
+marked.use({ renderer });
+
+// ── Check Ollama status ───────────────────────────────────────
+async function checkStatus() {
+  try {
+    const res = await fetch('http://localhost:11434/api/tags');
+    const data = await res.json();
+    const models = data.models.map(m => m.name);
+    statusDot.className = 'status-dot';
+    statusText.textContent = 'Ollama kjører';
+
+    // Update model dropdown with available models
+    const gemma4Available = models.some(m => m.startsWith('gemma4'));
+    const opt = modelSelect.querySelector('option[value="gemma4"]');
+    if (gemma4Available) {
+      opt.textContent = 'gemma4 ✓';
+      opt.disabled = false;
+    }
+  } catch {
+    statusDot.className = 'status-dot loading';
+    statusText.textContent = 'Ollama ikke funnet';
+  }
+}
+checkStatus();
+setInterval(checkStatus, 10000);
+
+// ── Model switch ──────────────────────────────────────────────
+modelSelect.addEventListener('change', () => {
+  MODEL = modelSelect.value;
+});
+
+// ── New / Clear chat ──────────────────────────────────────────
+function resetChat() {
+  history = [];
+  pendingImages = [];
+  renderPreviewBar();
+  chat.innerHTML = '';
+  welcomeEl = document.createElement('div');
+  welcomeEl.className = 'welcome';
+  welcomeEl.id = 'welcome';
+  welcomeEl.innerHTML = `
+    <div class="big">🤖</div>
+    <h2>Hei! Jeg er Jarvis.</h2>
+    <p>Drevet av Gemma via Ollama — lokalt på din PC</p>
+    <div class="chips">
+      <div class="chip" data-msg="Forklar hva kvantedatamaskiner er">Forklar kvantedatamaskiner</div>
+      <div class="chip" data-msg="Skriv et Python-skript som henter data fra en API">Python API-skript</div>
+      <div class="chip" data-msg="Hjelp meg å lage en enkel HTML-nettside">Lag en HTML-nettside</div>
+      <div class="chip" data-msg="Hva er de beste tipsene for å lære seg programmering?">Lære programmering</div>
+    </div>
+  `;
+  chat.appendChild(welcomeEl);
+  bindChips();
+  artifactPanel.classList.remove('open');
+}
+
+newChatBtn.addEventListener('click', resetChat);
+clearChatBtn.addEventListener('click', resetChat);
+
+// ── Suggestion chips ──────────────────────────────────────────
+function bindChips() {
+  document.querySelectorAll('.chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      input.value = chip.dataset.msg;
+      sendMessage();
+    });
+  });
+}
+bindChips();
+
+// ── Image handling ────────────────────────────────────────────
+imgBtn.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', () => { [...fileInput.files].forEach(addImageFile); fileInput.value = ''; });
+
+document.addEventListener('dragover', e => { e.preventDefault(); document.body.classList.add('drag-over'); });
+document.addEventListener('dragleave', e => { if (!e.relatedTarget) document.body.classList.remove('drag-over'); });
+document.addEventListener('drop', e => {
+  e.preventDefault(); document.body.classList.remove('drag-over');
+  [...e.dataTransfer.files].filter(f => f.type.startsWith('image/')).forEach(addImageFile);
+});
+document.addEventListener('paste', e => {
+  [...e.clipboardData.items].filter(i => i.type.startsWith('image/')).forEach(i => addImageFile(i.getAsFile()));
+});
+
+function addImageFile(file) {
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const dataUrl = ev.target.result;
+    const base64  = dataUrl.split(',')[1];
+    const id      = Date.now() + Math.random();
+    pendingImages.push({ id, dataUrl, base64 });
+    renderPreviewBar();
+  };
+  reader.readAsDataURL(file);
+}
+
+function renderPreviewBar() {
+  previewBar.innerHTML = '';
+  pendingImages.forEach(img => {
+    const wrap = document.createElement('div');
+    wrap.className = 'preview-thumb';
+    wrap.innerHTML = `<img src="${img.dataUrl}" /><button data-id="${img.id}">✕</button>`;
+    wrap.querySelector('button').addEventListener('click', () => {
+      pendingImages = pendingImages.filter(i => i.id !== img.id);
+      renderPreviewBar();
+    });
+    previewBar.appendChild(wrap);
+  });
+}
+
+// ── Textarea auto-resize ──────────────────────────────────────
+input.addEventListener('input', () => {
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 200) + 'px';
+});
+input.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+});
+sendBtn.addEventListener('click', sendMessage);
+
+// ── Artifact panel ────────────────────────────────────────────
+closeArtifact.addEventListener('click', () => artifactPanel.classList.remove('open'));
+
+function openArtifact(code, lang, title) {
+  artifactPanel.classList.add('open');
+  artifactTitle.textContent = title || lang;
+  artifactContent.innerHTML = '';
+  if (lang === 'html') {
+    const iframe = document.createElement('iframe');
+    iframe.sandbox = 'allow-scripts';
+    artifactContent.appendChild(iframe);
+    iframe.contentDocument.open();
+    iframe.contentDocument.write(code);
+    iframe.contentDocument.close();
+  } else {
+    const pre  = document.createElement('pre');
+    const code_ = document.createElement('code');
+    code_.textContent = code;
+    pre.appendChild(code_);
+    artifactContent.appendChild(pre);
+    hljs.highlightElement(code_);
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────────
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function removeWelcome() {
+  if (welcomeEl) { welcomeEl.remove(); welcomeEl = null; }
+}
+
+function addTurn(role) {
+  removeWelcome();
+  const turn = document.createElement('div');
+  turn.className = `turn ${role}`;
+  const label = role === 'user' ? 'Du' : 'J';
+  const name  = role === 'user' ? 'Du' : 'Jarvis';
+  turn.innerHTML = `
+    <div class="turn-header">
+      <div class="avatar">${label}</div>
+      <span>${name}</span>
+    </div>
+    <div class="bubble ${role === 'jarvis' ? 'md' : ''}"></div>
+    <div class="turn-actions"></div>
+  `;
+  chat.appendChild(turn);
+  chat.scrollTop = chat.scrollHeight;
+  return turn;
+}
+
+function addCopyBtn(turn, getText) {
+  const actions = turn.querySelector('.turn-actions');
+  const btn = document.createElement('button');
+  btn.className = 'action-btn';
+  btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg> Kopier`;
+  btn.addEventListener('click', async () => {
+    await navigator.clipboard.writeText(getText());
+    btn.textContent = '✓ Kopiert';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg> Kopier`; btn.classList.remove('copied'); }, 2000);
+  });
+  actions.appendChild(btn);
+}
+
+function bindCodeActions(turn) {
+  turn.querySelectorAll('.copy-code').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const code = decodeURIComponent(btn.dataset.code);
+      await navigator.clipboard.writeText(code);
+      btn.textContent = '✓ Kopiert';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg> Kopier`; btn.classList.remove('copied'); }, 2000);
+    });
+  });
+  turn.querySelectorAll('.open-artifact').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const code = decodeURIComponent(btn.dataset.code);
+      const lang = btn.dataset.lang;
+      openArtifact(code, lang, lang.toUpperCase());
+    });
+  });
+}
+
+// ── Send ──────────────────────────────────────────────────────
+async function sendMessage() {
+  if (isResponding) return;
+  const text   = input.value.trim();
+  const images = [...pendingImages];
+  if (!text && images.length === 0) return;
+
+  input.value = ''; input.style.height = 'auto';
+  pendingImages = []; renderPreviewBar();
+  sendBtn.disabled = true; isResponding = true;
+
+  // User turn
+  const userTurn = addTurn('user');
+  const userBubble = userTurn.querySelector('.bubble');
+  const imgHtml = images.map(i => `<img class="chat-img" src="${i.dataUrl}" />`).join('');
+  userBubble.innerHTML = imgHtml + escHtml(text);
+  addCopyBtn(userTurn, () => text);
+
+  const userMsg = {
+    role: 'user',
+    content: text || 'Hva ser du i dette bildet?',
+    ...(images.length > 0 && { images: images.map(i => i.base64) })
+  };
+  history.push(userMsg);
+
+  // Jarvis turn
+  const jarvisTurn = addTurn('jarvis');
+  const bubble = jarvisTurn.querySelector('.bubble');
+  bubble.innerHTML = '<div class="typing"><span></span><span></span><span></span></div>';
+
+  let fullText = '';
+
+  try {
+    const res = await fetch(OLLAMA, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: MODEL, messages: history, stream: true })
+    });
+
+    bubble.innerHTML = '';
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      decoder.decode(value).split('\n').filter(Boolean).forEach(line => {
+        try {
+          const chunk = JSON.parse(line).message?.content || '';
+          fullText += chunk;
+          bubble.innerHTML = marked.parse(fullText);
+          chat.scrollTop = chat.scrollHeight;
+        } catch {}
+      });
+    }
+
+    // Final render + bind actions
+    bubble.innerHTML = marked.parse(fullText);
+    bindCodeActions(jarvisTurn);
+    addCopyBtn(jarvisTurn, () => fullText);
+    history.push({ role: 'assistant', content: fullText });
+
+  } catch {
+    bubble.innerHTML = '<em style="color:var(--danger)">Feil: Kunne ikke koble til Ollama. Er den startet?</em>';
+  }
+
+  sendBtn.disabled = false; isResponding = false;
+  chat.scrollTop = chat.scrollHeight;
+  input.focus();
+}
+</script>
+</body>
+</html>
