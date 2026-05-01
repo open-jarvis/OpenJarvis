@@ -202,6 +202,7 @@ class MorningDigestAgent(ToolUsingAgent):
         tts_text = re.sub(r"\*{1,2}([^*]+)\*{1,2}", r"\1", tts_text)
         tts_text = tts_text.strip()
 
+        output_dir = str(Path.home() / ".openjarvis" / "digests")
         tts_call = ToolCall(
             id="digest-tts-1",
             name="text_to_speech",
@@ -211,6 +212,7 @@ class MorningDigestAgent(ToolUsingAgent):
                     "voice_id": self._voice_id,
                     "backend": self._tts_backend,
                     "speed": self._voice_speed,
+                    "output_dir": output_dir,
                 }
             ),
         )
