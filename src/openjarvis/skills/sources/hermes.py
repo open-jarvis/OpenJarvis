@@ -37,10 +37,25 @@ class HermesResolver(SourceResolver):
     def sync(self) -> None:
         """Clone or pull the Hermes repo into the cache directory."""
         if self._cache_root.exists() and (self._cache_root / ".git").exists():
-            subprocess.run(
-                ["git", "-C", str(self._cache_root), "pull", "--ff-only"],
-                check=True,
-            )
+            try:
+                subprocess.run(
+                    ["git", "-C", str(self._cache_root), "pull", "--ff-only"],
+                    check=True,
+                )
+            except subprocess.CalledProcessError:
+                default_branch = self._resolve_default_branch()
+                subprocess.run(
+                    [
+                        "git",
+                        "-C",
+                        str(self._cache_root),
+                        "pull",
+                        "--ff-only",
+                        "origin",
+                        default_branch,
+                    ],
+                    check=True,
+                )
         else:
             self._cache_root.parent.mkdir(parents=True, exist_ok=True)
             subprocess.run(
@@ -125,6 +140,28 @@ class HermesResolver(SourceResolver):
             return result.stdout.strip()
         except subprocess.CalledProcessError:
             return ""
+
+    def _resolve_default_branch(self) -> str:
+        """Return the remote default branch, falling back to ``main``."""
+        try:
+            result = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(self._cache_root),
+                    "symbolic-ref",
+                    "refs/remotes/origin/HEAD",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            ref = result.stdout.strip()
+            if ref.startswith("refs/remotes/origin/"):
+                return ref.rsplit("/", 1)[-1]
+        except subprocess.CalledProcessError:
+            pass
+        return "main"
 
 
 __all__ = ["HermesResolver", "HERMES_REPO_URL"]

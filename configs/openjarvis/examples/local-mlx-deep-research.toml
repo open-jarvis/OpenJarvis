@@ -1,0 +1,26 @@
+# Local MLX Deep Research — indexed local docs + web search
+
+[engine]
+default = "mlx"
+
+[engine.mlx]
+host = "http://127.0.0.1:11435"
+
+[intelligence]
+default_model = "mlx-community/Qwen3.5-9B-MLX-4bit"
+temperature = 0.2
+max_tokens = 3072
+
+[agent]
+default_agent = "deep_research"
+max_turns = 8
+context_from_memory = true
+
+[tools]
+enabled = ["web_search", "retrieval", "memory_search", "memory_retrieve", "think", "file_read"]
+
+[tools.storage]
+default_backend = "sqlite"
+
+[traces]
+enabled = true

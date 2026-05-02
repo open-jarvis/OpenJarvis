@@ -180,6 +180,21 @@ function formatSchedule(type?: string, value?: string): string {
   return type || 'Manual';
 }
 
+function getAgentSchedule(agent: ManagedAgent): { type?: string; value?: string } {
+  return {
+    type: agent.schedule_type || (agent.config?.schedule_type as string | undefined),
+    value: agent.schedule_value || (agent.config?.schedule_value as string | undefined),
+  };
+}
+
+function getAgentBudget(agent: ManagedAgent): number | undefined {
+  return agent.budget ?? (agent.config?.budget as number | undefined);
+}
+
+function getAgentLearningEnabled(agent: ManagedAgent): boolean {
+  return agent.learning_enabled ?? !!agent.config?.learning_enabled;
+}
+
 // ---------------------------------------------------------------------------
 // Launch Wizard
 // ---------------------------------------------------------------------------
@@ -1201,6 +1216,7 @@ function AgentCard({
   const canPause = agent.status === 'running' || agent.status === 'idle';
   const canResume = agent.status === 'paused';
   const canRecover = agent.status === 'error' || agent.status === 'stalled' || agent.status === 'needs_attention';
+  const schedule = getAgentSchedule(agent);
 
   return (
     <div
@@ -1223,7 +1239,7 @@ function AgentCard({
 
       {/* Row 2: Schedule + last run */}
       <div className="text-xs mb-2 flex items-center gap-3" style={{ color: 'var(--color-text-tertiary)' }}>
-        <span>{formatSchedule(agent.schedule_type, agent.schedule_value)}</span>
+        <span>{formatSchedule(schedule.type, schedule.value)}</span>
         <span>·</span>
         <span>Last run: {formatRelativeTime(agent.last_run_at)}</span>
       </div>
@@ -1394,6 +1410,9 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
   const [changingModel, setChangingModel] = useState(false);
   const [models, setModels] = useState<string[]>([]);
   const currentModel = (agent.config?.model as string) || '(default)';
+  const schedule = getAgentSchedule(agent);
+  const budget = getAgentBudget(agent);
+  const learningEnabled = getAgentLearningEnabled(agent);
 
   // Model availability status: 'available' | 'unavailable' | 'unknown'
   const [modelAvailable, setModelAvailable] = useState<'available' | 'unavailable' | 'unknown'>('unknown');
@@ -1524,10 +1543,10 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
       </span>
     )],
     ['Agent Type', <span key="at">{agent.agent_type}</span>],
-    ['Schedule', <span key="sc">{formatSchedule(agent.schedule_type, agent.schedule_value)}</span>],
+    ['Schedule', <span key="sc">{formatSchedule(schedule.type, schedule.value)}</span>],
     ['Last Run', <span key="lr">{formatRelativeTime(agent.last_run_at)}</span>],
-    ['Budget', <span key="bg">{agent.budget ? formatCost(agent.budget) : 'Unlimited'}</span>],
-    ['Learning', <span key="le">{agent.learning_enabled ? 'Enabled' : 'Disabled'}</span>],
+    ['Budget', <span key="bg">{budget ? formatCost(budget) : 'Unlimited'}</span>],
+    ['Learning', <span key="le">{learningEnabled ? 'Enabled' : 'Disabled'}</span>],
   ];
 
   return (

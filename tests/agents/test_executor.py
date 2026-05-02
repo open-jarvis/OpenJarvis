@@ -139,6 +139,18 @@ class TestExecutorBasic:
         # Agent should still be running (first tick owns it)
         assert manager.get_agent(agent["id"])["status"] == "running"
 
+    def test_execute_tick_can_use_existing_guard(self, executor, manager):
+        agent = manager.create_agent(name="test", agent_type="monitor_operative")
+        manager.start_tick(agent["id"])
+
+        rv = AgentResult(content="result")
+        with patch.object(executor, "_invoke_agent", return_value=rv):
+            executor.execute_tick(agent["id"], assume_started=True)
+
+        updated = manager.get_agent(agent["id"])
+        assert updated["status"] == "idle"
+        assert updated["total_runs"] == 1
+
 
 def test_finalize_tick_reads_agent_result_metadata(tmp_path):
     """_finalize_tick() accumulates cost/tokens from AgentResult.metadata."""

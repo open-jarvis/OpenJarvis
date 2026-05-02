@@ -2,12 +2,22 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import os
+import re
+import socket
+import subprocess
+import time
 import uuid
+from pathlib import Path
 from typing import Any
+from urllib.error import URLError
+from urllib.request import urlopen
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from openjarvis.core.types import Message, Role
 from openjarvis.server.models import (
@@ -27,6 +37,39 @@ from openjarvis.server.models import (
 router = APIRouter()
 
 
+class CloudKeyRequest(BaseModel):
+    """Cloud API key update request from the local console."""
+
+    key_name: str
+    key_value: str = ""
+
+
+_ALLOWED_CLOUD_KEYS = {
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+    "OPENROUTER_API_KEY",
+    "MINIMAX_API_KEY",
+}
+
+
+def _cloud_keys_path() -> Path:
+    return Path.home() / ".openjarvis" / "cloud-keys.env"
+
+
+def _read_cloud_keys(path: Path) -> dict[str, str]:
+    keys: dict[str, str] = {}
+    if not path.exists():
+        return keys
+    for raw_line in path.read_text().splitlines():
+        line = raw_line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            keys[key.strip()] = value.strip()
+    return keys
+
+
 def _to_messages(chat_messages) -> list[Message]:
     """Convert Pydantic ChatMessage objects to core Message objects."""
     messages = []
@@ -41,6 +84,251 @@ def _to_messages(chat_messages) -> list[Message]:
             )
         )
     return messages
+
+
+def _component(
+    component_id: str,
+    label: str,
+    status: str,
+    detail: str,
+    *,
+    action: str = "",
+    group: str = "runtime",
+    critical: bool = False,
+) -> dict[str, Any]:
+    return {
+        "id": component_id,
+        "label": label,
+        "status": status,
+        "detail": detail,
+        "action": action,
+        "group": group,
+        "critical": critical,
+    }
+
+
+def _http_json(url: str, *, timeout: float = 1.5) -> tuple[bool, Any, str]:
+    try:
+        with urlopen(url, timeout=timeout) as response:
+            body = response.read().decode("utf-8", errors="replace")
+        return True, json.loads(body), ""
+    except (OSError, URLError, json.JSONDecodeError) as exc:
+        return False, None, str(exc)
+
+
+def _port_listening(host: str, port: int, *, timeout: float = 0.5) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _run_command(cmd: list[str], *, cwd: Path | None = None, timeout: float = 6.0) -> tuple[int, str]:
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=str(cwd) if cwd else None,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+        return result.returncode, result.stdout
+    except subprocess.TimeoutExpired as exc:
+        output = exc.stdout if isinstance(exc.stdout, str) else ""
+        return 124, output + f"\nTimed out after {timeout:.0f}s"
+    except OSError as exc:
+        return 127, str(exc)
+
+
+def _read_latest_openclaw_report(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {
+            "exists": False,
+            "path": str(path),
+            "modified_at": None,
+            "age_seconds": None,
+            "security": {"critical": 0, "warn": 0, "info": 0},
+            "highlights": [],
+        }
+
+    stat = path.stat()
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        text = ""
+
+    security = {"critical": 0, "warn": 0, "info": 0}
+    for line in text.splitlines():
+        stripped = line.strip().lower()
+        if stripped.startswith("summary:") and any(word in stripped for word in ("critical", "warn", "info")):
+            for number, name in re.findall(r"(\d+)\s+(critical|warn|info)", stripped):
+                security[name] = int(number)
+
+    highlights: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(("CRITICAL ", "WARN ")):
+            highlights.append(stripped)
+        if len(highlights) >= 4:
+            break
+
+    return {
+        "exists": True,
+        "path": str(path),
+        "modified_at": stat.st_mtime,
+        "age_seconds": max(0, int(time.time() - stat.st_mtime)),
+        "security": security,
+        "highlights": highlights,
+    }
+
+
+def _atop_python(atop_root: Path) -> str:
+    candidates = [
+        os.environ.get("ATOP_DEV_PYTHON", ""),
+        str(atop_root / ".venv" / "bin" / "python"),
+        "/opt/homebrew/bin/python3",
+        "python3",
+    ]
+    for candidate in candidates:
+        if not candidate:
+            continue
+        if candidate == "python3" or Path(candidate).exists():
+            return candidate
+    return "python3"
+
+
+def _load_atop_agent_performance(atop_root: Path) -> dict[str, Any]:
+    """Read ATOP_Dev's own agent scorecards without mutating its ledger."""
+    result: dict[str, Any] = {
+        "project_id": "atop_dev",
+        "project_name": "ATOP_Dev",
+        "root": str(atop_root),
+        "status": "unavailable",
+        "summary": {
+            "agents": 0,
+            "healthy": 0,
+            "attention": 0,
+            "no_data": 0,
+            "runs_last_24h": 0,
+            "avg_success_rate": 0.0,
+        },
+        "agents": [],
+        "error": "",
+    }
+    if not atop_root.exists():
+        result["error"] = f"ATOP_Dev root missing: {atop_root}"
+        return result
+
+    python_bin = _atop_python(atop_root)
+    code, output = _run_command(
+        [python_bin, "-m", "atop_agent_manager", "list", "--format", "json"],
+        cwd=atop_root,
+        timeout=8.0,
+    )
+    if code != 0:
+        result["error"] = output.strip()[:800]
+        return result
+
+    try:
+        profiles = json.loads(output)
+    except json.JSONDecodeError as exc:
+        result["error"] = f"ATOP_Dev agent list returned invalid JSON: {exc}"
+        return result
+
+    agents: list[dict[str, Any]] = []
+    for profile in profiles if isinstance(profiles, list) else []:
+        agent_id = profile.get("agent_id") if isinstance(profile, dict) else ""
+        if not agent_id:
+            continue
+        score_code, score_output = _run_command(
+            [
+                python_bin,
+                "-m",
+                "atop_agent_manager",
+                "scorecard",
+                str(agent_id),
+                "--format",
+                "json",
+            ],
+            cwd=atop_root,
+            timeout=8.0,
+        )
+        if score_code != 0:
+            agents.append(
+                {
+                    "agent_id": agent_id,
+                    "display_name": profile.get("display_name", agent_id),
+                    "scorecard_status": "unavailable",
+                    "catalog_status": profile.get("status", ""),
+                    "stage": profile.get("stage", ""),
+                    "runs_last_24h": 0,
+                    "success_rate_last_20_runs": 0.0,
+                    "median_duration_ms_last_20_runs": 0,
+                    "last_run_status": "",
+                    "last_run_started_at": "",
+                    "latest_artifact_path": "",
+                    "latest_failure_status": "scorecard_error",
+                }
+            )
+            continue
+
+        try:
+            scorecard = json.loads(score_output)
+        except json.JSONDecodeError:
+            continue
+
+        catalog = scorecard.get("catalog", {})
+        run_summary = scorecard.get("run_summary", {})
+        latest_failure = run_summary.get("latest_failure", {})
+        agents.append(
+            {
+                "agent_id": agent_id,
+                "display_name": catalog.get(
+                    "display_name",
+                    profile.get("display_name", agent_id),
+                ),
+                "scorecard_status": scorecard.get("scorecard_status", "unknown"),
+                "catalog_status": catalog.get("status", profile.get("status", "")),
+                "stage": catalog.get("stage", profile.get("stage", "")),
+                "runs_last_24h": int(run_summary.get("runs_last_24h", 0) or 0),
+                "success_rate_last_20_runs": float(
+                    run_summary.get("success_rate_last_20_runs", 0.0) or 0.0
+                ),
+                "median_duration_ms_last_20_runs": int(
+                    run_summary.get("median_duration_ms_last_20_runs", 0) or 0
+                ),
+                "last_run_status": run_summary.get("last_run_status", ""),
+                "last_run_started_at": run_summary.get("last_run_started_at", ""),
+                "latest_artifact_path": run_summary.get("latest_artifact_path", ""),
+                "latest_failure_status": latest_failure.get("status", "")
+                if isinstance(latest_failure, dict)
+                else "",
+            }
+        )
+
+    rates = [a["success_rate_last_20_runs"] for a in agents]
+    healthy = sum(1 for a in agents if a["scorecard_status"] == "healthy")
+    no_data = sum(1 for a in agents if a["scorecard_status"] == "no_data")
+    attention = sum(
+        1
+        for a in agents
+        if a["scorecard_status"] not in {"healthy", "no_data"}
+    )
+    result["agents"] = agents
+    result["summary"] = {
+        "agents": len(agents),
+        "healthy": healthy,
+        "attention": attention,
+        "no_data": no_data,
+        "runs_last_24h": sum(a["runs_last_24h"] for a in agents),
+        "avg_success_rate": round(sum(rates) / len(rates), 4) if rates else 0.0,
+    }
+    result["status"] = "healthy" if attention == 0 else "attention"
+    return result
 
 
 @router.post("/v1/chat/completions")
@@ -307,6 +595,7 @@ async def _handle_stream(
     """Stream response using SSE format."""
     from openjarvis.server.cloud_router import (
         is_cloud_model,
+        list_local_models,
         stream_cloud,
         stream_local,
     )
@@ -364,12 +653,20 @@ async def _handle_stream(
                         model, messages, req.temperature, req.max_tokens
                     )
                 else:
-                    token_iter = engine.stream(
-                        messages,
-                        model=model,
-                        temperature=req.temperature,
-                        max_tokens=req.max_tokens,
-                    )
+                    # If the selected model is installed in Ollama, route it
+                    # to Ollama directly. This prevents the default MLX engine
+                    # from receiving Ollama model IDs such as qwen3.5:latest.
+                    if model in await list_local_models():
+                        token_iter = stream_local(
+                            model, messages, req.temperature, req.max_tokens
+                        )
+                    else:
+                        token_iter = engine.stream(
+                            messages,
+                            model=model,
+                            temperature=req.temperature,
+                            max_tokens=req.max_tokens,
+                        )
             async for token in token_iter:
                 chunk = ChatCompletionChunk(
                     id=chunk_id,
@@ -593,6 +890,52 @@ async def reload_cloud_engine(request: Request):
     return {"status": "ok", "message": "Cloud engine reloaded"}
 
 
+@router.post("/v1/cloud/keys")
+async def save_cloud_key(payload: CloudKeyRequest, request: Request):
+    """Persist a cloud API key for the local OpenJarvis server.
+
+    Browser localStorage is not visible to the backend process. Store keys in
+    ~/.openjarvis/cloud-keys.env, the file read by cloud_router.py at request
+    time, and update the current process environment immediately.
+    """
+    key_name = payload.key_name.strip()
+    key_value = payload.key_value.strip()
+    if key_name not in _ALLOWED_CLOUD_KEYS:
+        raise HTTPException(status_code=400, detail=f"Unsupported key: {key_name}")
+
+    path = _cloud_keys_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    keys = _read_cloud_keys(path)
+    if key_value:
+        keys[key_name] = key_value
+        os.environ[key_name] = key_value
+    else:
+        keys.pop(key_name, None)
+        os.environ.pop(key_name, None)
+
+    content = "".join(f"{key}={value}\n" for key, value in sorted(keys.items()))
+    path.write_text(content)
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
+
+    # Rebuild the cloud engine map if possible. Direct cloud_router requests
+    # already read this file every call, so a reload failure should not block
+    # key persistence.
+    reload_status: dict[str, Any]
+    try:
+        reload_status = await reload_cloud_engine(request)
+    except Exception as exc:
+        reload_status = {"status": "error", "message": str(exc)}
+
+    return {
+        "status": "saved" if key_value else "removed",
+        "key_name": key_name,
+        "cloud_reload": reload_status,
+    }
+
+
 @router.get("/v1/savings")
 async def savings(request: Request):
     """Return savings summary compared to cloud providers.
@@ -671,15 +1014,292 @@ async def reset_telemetry():
 @router.get("/v1/info")
 async def server_info(request: Request):
     """Return server configuration: model, agent, engine."""
-    agent = getattr(request.app.state, "agent", None)
-    agent_id = getattr(agent, "agent_id", None) if agent else None
-    # Fall back to configured agent name if agent didn't instantiate
-    if agent_id is None:
-        agent_id = getattr(request.app.state, "agent_name", None)
+    configured_agent = getattr(request.app.state, "agent_name", None)
+    if configured_agent:
+        agent_id = configured_agent
+    else:
+        agent = getattr(request.app.state, "agent", None)
+        agent_id = getattr(agent, "agent_id", None) if agent else None
     return {
         "model": getattr(request.app.state, "model", ""),
         "agent": agent_id,
         "engine": getattr(request.app.state, "engine_name", ""),
+    }
+
+
+@router.get("/v1/openclaw/health")
+async def openclaw_health():
+    """Return a fast OpenClaw operations health snapshot for the dashboard."""
+    openjarvis_root = Path("/Users/paulsunny/Documents/OpenJarvis")
+    openclaw_root = Path("/Users/paulsunny/Documents/openclaw-workspace")
+    openclaw_home = Path("/Users/paulsunny/.openclaw")
+    atop_root = Path("/Users/paulsunny/Documents/ATOP_Dev")
+    report_path = Path("/Users/paulsunny/.openjarvis/reports/openclaw-management-latest.md")
+    ollama_host = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
+    local_model = os.environ.get("OPENJARVIS_LOCAL_MODEL", "gemma4-agent:e4b")
+    legacy_mlx_expected = os.environ.get("OPENJARVIS_LEGACY_MLX_EXPECTED", "0") == "1"
+
+    components: list[dict[str, Any]] = []
+    recommendations: list[str] = []
+
+    paths_ok = openjarvis_root.exists() and openclaw_root.exists() and openclaw_home.exists()
+    components.append(
+        _component(
+            "paths",
+            "Control Paths",
+            "pass" if paths_ok else "fail",
+            "OpenJarvis, OpenClaw workspace, and OpenClaw home are present."
+            if paths_ok
+            else "One or more required OpenJarvis/OpenClaw paths are missing.",
+            action="Restore the missing workspace/home path before running recovery.",
+            group="control-plane",
+            critical=True,
+        )
+    )
+
+    ok, tags, error = _http_json(f"{ollama_host}/api/tags")
+    model_names = [m.get("name") for m in tags.get("models", [])] if ok and isinstance(tags, dict) else []
+    components.append(
+        _component(
+            "ollama",
+            "Local LLM Server",
+            "pass" if ok else "fail",
+            f"Ollama API is reachable at {ollama_host}."
+            if ok
+            else f"Ollama API is not reachable at {ollama_host}: {error}",
+            action="Start Ollama or verify the local model service on port 11434.",
+            group="local-llm",
+            critical=True,
+        )
+    )
+    model_ok = local_model in model_names
+    components.append(
+        _component(
+            "local-model",
+            "Primary Local Model",
+            "pass" if model_ok else "fail",
+            f"{local_model} is available in Ollama."
+            if model_ok
+            else f"{local_model} is not listed by Ollama.",
+            action=f"Pull or recreate {local_model}, then rerun the health check.",
+            group="local-llm",
+            critical=True,
+        )
+    )
+
+    gateway_ok = _port_listening("127.0.0.1", 18789)
+    components.append(
+        _component(
+            "openclaw-gateway",
+            "OpenClaw Gateway",
+            "pass" if gateway_ok else "fail",
+            "Gateway is listening on 127.0.0.1:18789."
+            if gateway_ok
+            else "Gateway is not listening on 127.0.0.1:18789.",
+            action="Use OpenClaw's gateway restart path, then rerun gateway probes.",
+            group="openclaw",
+            critical=True,
+        )
+    )
+
+    runtime_script = openclaw_root / "scripts" / "openclaw_runtime_status_fast.sh"
+    if runtime_script.exists():
+        code, output = _run_command([str(runtime_script)], timeout=8.0)
+        runtime_ok = code == 0 and "gateway_state=running" in output and "port_18789=listening" in output
+        detail = "Runtime fast check confirms gateway_state=running and port_18789=listening."
+        if not runtime_ok:
+            detail = "Runtime fast check did not confirm the expected gateway state."
+        components.append(
+            _component(
+                "runtime-fast",
+                "Runtime Fast Check",
+                "pass" if runtime_ok else "warn",
+                detail,
+                action="Open the latest management report and inspect OpenClaw runtime output.",
+                group="openclaw",
+            )
+        )
+    else:
+        components.append(
+            _component(
+                "runtime-fast",
+                "Runtime Fast Check",
+                "warn",
+                "openclaw_runtime_status_fast.sh is missing.",
+                action="Restore OpenClaw runtime status script in the OpenClaw workspace.",
+                group="openclaw",
+            )
+        )
+
+    pi_config = Path.home() / ".pi" / "agent" / "models.json"
+    pi_ok = False
+    pi_detail = "Pi model config is missing."
+    if pi_config.exists():
+        try:
+            pi_data = json.loads(pi_config.read_text(encoding="utf-8"))
+            provider = pi_data.get("providers", {}).get("openjarvis-ollama", {})
+            models = provider.get("models", [])
+            pi_ok = (
+                provider.get("baseUrl") == "http://127.0.0.1:11434/v1"
+                and any(m.get("id") == local_model for m in models if isinstance(m, dict))
+            )
+            pi_detail = f"Pi is routed to openjarvis-ollama / {local_model}." if pi_ok else "Pi config exists but is not routed to the primary local model."
+        except (OSError, json.JSONDecodeError):
+            pi_detail = "Pi model config could not be parsed."
+    components.append(
+        _component(
+            "pi-routing",
+            "Pi Coding Agent Route",
+            "pass" if pi_ok else "warn",
+            pi_detail,
+            action=f"Point provider openjarvis-ollama to http://127.0.0.1:11434/v1 with {local_model}.",
+            group="coding-agent",
+        )
+    )
+
+    legacy_mlx_ok = _port_listening("127.0.0.1", 11435)
+    legacy_mlx_status = "pass" if legacy_mlx_ok or not legacy_mlx_expected else "warn"
+    if legacy_mlx_ok:
+        legacy_mlx_detail = "Legacy MLX endpoint is listening on 127.0.0.1:11435."
+    elif legacy_mlx_expected:
+        legacy_mlx_detail = "Legacy MLX endpoint is expected but is not listening on 127.0.0.1:11435."
+    else:
+        legacy_mlx_detail = "Legacy MLX endpoint is intentionally inactive. Ollama/Gemma4 is the primary local runtime."
+    components.append(
+        _component(
+            "legacy-mlx",
+            "Legacy MLX Endpoint",
+            legacy_mlx_status,
+            legacy_mlx_detail,
+            action="Set OPENJARVIS_LEGACY_MLX_EXPECTED=1 only if MLX is intentionally restored as a required runtime.",
+            group="legacy",
+        )
+    )
+
+    fatal_logs = ""
+    gateway_log = openclaw_home / "logs" / "gateway.err.log"
+    if gateway_log.exists():
+        try:
+            lines = gateway_log.read_text(encoding="utf-8", errors="replace").splitlines()[-200:]
+            fatal_logs = "\n".join(
+                line for line in lines if any(term in line.lower() for term in ("traceback", "fatal", "crash", "panic"))
+            )
+        except OSError:
+            fatal_logs = ""
+    components.append(
+        _component(
+            "fatal-logs",
+            "Recent Fatal Signals",
+            "pass" if not fatal_logs else "warn",
+            "No recent fatal/crash/panic/traceback signals in gateway stderr."
+            if not fatal_logs
+            else "Recent fatal-class signals were found in gateway stderr.",
+            action="Inspect OpenClaw gateway logs before restarting broad services.",
+            group="observability",
+        )
+    )
+
+    atop_agents = _load_atop_agent_performance(atop_root)
+    atop_summary = atop_agents.get("summary", {})
+    atop_status = atop_agents.get("status")
+    if atop_status == "healthy":
+        atop_component_status = "pass"
+        atop_detail = (
+            f"ATOP_Dev reports {atop_summary.get('healthy', 0)}/"
+            f"{atop_summary.get('agents', 0)} managed agents healthy, "
+            f"{atop_summary.get('runs_last_24h', 0)} run(s) in the last 24h."
+        )
+    elif atop_status == "attention":
+        atop_component_status = "warn"
+        atop_detail = (
+            f"ATOP_Dev has {atop_summary.get('attention', 0)} agent(s) needing "
+            f"attention across {atop_summary.get('agents', 0)} managed agents."
+        )
+    else:
+        atop_component_status = "warn"
+        atop_detail = atop_agents.get("error") or "ATOP_Dev agent scorecards are unavailable."
+    components.append(
+        _component(
+            "atop-dev-agents",
+            "ATOP_Dev Agent Performance",
+            atop_component_status,
+            atop_detail,
+            action="Open ATOP_Dev scorecards before changing schedules, models, or promotion status.",
+            group="project-agents",
+        )
+    )
+
+    latest_report = _read_latest_openclaw_report(report_path)
+    security = latest_report["security"]
+    if security["critical"] > 0:
+        components.append(
+            _component(
+                "security-audit",
+                "OpenClaw Security Audit",
+                "warn",
+                f"Latest report contains {security['critical']} critical security finding(s).",
+                action="Keep small local models sandboxed and web tools disabled for untrusted/tool-using OpenClaw work.",
+                group="safety",
+            )
+        )
+    elif latest_report["exists"]:
+        components.append(
+            _component(
+                "security-audit",
+                "OpenClaw Security Audit",
+                "pass",
+                "Latest report has no critical security findings.",
+                action="Continue using the report before recovery actions.",
+                group="safety",
+            )
+        )
+    else:
+        components.append(
+            _component(
+                "security-audit",
+                "OpenClaw Security Audit",
+                "warn",
+                "No management report exists yet.",
+                action="Run scripts/openclaw-management-check.sh to create the baseline report.",
+                group="safety",
+            )
+        )
+
+    failures = sum(1 for c in components if c["status"] == "fail")
+    warnings = sum(1 for c in components if c["status"] == "warn")
+    passes = sum(1 for c in components if c["status"] == "pass")
+    critical_failures = sum(1 for c in components if c["status"] == "fail" and c["critical"])
+    score = max(0, 100 - critical_failures * 30 - (failures - critical_failures) * 20 - warnings * 7)
+    status = "healthy" if failures == 0 and warnings <= 1 else "degraded"
+    if critical_failures:
+        status = "critical"
+
+    if critical_failures:
+        recommendations.append("Fix critical runtime failures first: paths, Ollama/Gemma4, or Gateway.")
+    if security["critical"] > 0:
+        recommendations.append("Keep OpenClaw tool-using sessions sandboxed when local small models are enabled.")
+    if not legacy_mlx_ok and legacy_mlx_expected:
+        recommendations.append("Restore MLX only if it is intentionally configured as a required runtime.")
+    if failures == 0:
+        recommendations.append("Use the fast health summary as the daily gate; run the full report before repair or restart work.")
+
+    return {
+        "status": status,
+        "score": score,
+        "generated_at": time.time(),
+        "summary": {"passes": passes, "warnings": warnings, "failures": failures},
+        "primary_local_llm": {"host": ollama_host, "model": local_model},
+        "paths": {
+            "openjarvis_root": str(openjarvis_root),
+            "openclaw_root": str(openclaw_root),
+            "openclaw_home": str(openclaw_home),
+        },
+        "components": components,
+        "recommendations": recommendations,
+        "latest_report": latest_report,
+        "project_agents": {
+            "atop_dev": atop_agents,
+        },
     }
 
 

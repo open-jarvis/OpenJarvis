@@ -1,4 +1,4 @@
-import type { ModelInfo, SavingsData, ServerInfo } from '../types';
+import type { ModelInfo, OpenClawHealth, SavingsData, ServerInfo } from '../types';
 
 // ---------------------------------------------------------------------------
 // Supabase config — safe to embed (RLS protects writes)
@@ -49,6 +49,13 @@ export const getBase = (): string => {
   if (settingsUrl) return settingsUrl;
   if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
   if (isTauri()) return _tauriApiBase || DESKTOP_API_FALLBACK;
+  if (typeof window !== 'undefined') {
+    const { origin, port, protocol } = window.location;
+    // Keep Vite dev proxy behavior, but avoid broken relative API paths when
+    // the production SPA is opened from a nested route such as /pauls.
+    if (import.meta.env.DEV && (port === '5173' || port === '5174')) return '';
+    if (protocol === 'http:' || protocol === 'https:') return origin;
+  }
   return '';
 };
 
@@ -104,6 +111,41 @@ export async function fetchRecommendedModel(): Promise<{ model: string; reason: 
   const res = await fetch(`${getBase()}/v1/recommended-model`);
   if (!res.ok) return { model: '', reason: 'Failed to fetch' };
   return res.json();
+}
+
+export async function saveCloudKey(keyName: string, keyValue: string): Promise<void> {
+  const res = await fetch(`${getBase()}/v1/cloud/keys`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key_name: keyName, key_value: keyValue }),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => res.statusText);
+    throw new Error(`Failed to save cloud key: ${detail}`);
+  }
+}
+
+const CLOUD_KEY_PROVIDERS = [
+  { prefixes: ['gpt-', 'o1-', 'o3-', 'o4-', 'chatgpt-'], storageKey: 'openjarvis-openai-key', envKey: 'OPENAI_API_KEY' },
+  { prefixes: ['claude-'], storageKey: 'openjarvis-anthropic-key', envKey: 'ANTHROPIC_API_KEY' },
+  { prefixes: ['gemini-'], storageKey: 'openjarvis-gemini-key', envKey: 'GEMINI_API_KEY' },
+  { prefixes: ['openrouter/'], storageKey: 'openjarvis-openrouter-key', envKey: 'OPENROUTER_API_KEY' },
+  { prefixes: ['MiniMax-'], storageKey: 'openjarvis-minimax-key', envKey: 'MINIMAX_API_KEY' },
+];
+
+export function cloudProviderForModel(model: string): { storageKey: string; envKey: string } | null {
+  return CLOUD_KEY_PROVIDERS.find((p) => p.prefixes.some((prefix) => model.startsWith(prefix))) || null;
+}
+
+export async function syncCloudKeyForModel(model: string): Promise<void> {
+  const provider = cloudProviderForModel(model);
+  if (!provider) return;
+  let keyValue = '';
+  try {
+    keyValue = localStorage.getItem(provider.storageKey) || '';
+  } catch {}
+  if (!keyValue) return;
+  await saveCloudKey(provider.envKey, keyValue);
 }
 
 export async function pullModel(modelName: string): Promise<void> {
@@ -180,6 +222,12 @@ export async function fetchSavings(): Promise<SavingsData> {
 export async function fetchServerInfo(): Promise<ServerInfo> {
   const res = await fetch(`${getBase()}/v1/info`);
   if (!res.ok) throw new Error(`Failed to fetch server info: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchOpenClawHealth(): Promise<OpenClawHealth> {
+  const res = await fetch(`${getBase()}/v1/openclaw/health`);
+  if (!res.ok) throw new Error(`Failed to fetch OpenClaw health: ${res.status}`);
   return res.json();
 }
 
@@ -305,6 +353,7 @@ export interface ManagedAgent {
   input_tokens?: number;
   output_tokens?: number;
   last_run_at?: number | null;
+  last_activity_at?: number | null;
   // Schedule
   schedule_type?: string;
   schedule_value?: string;

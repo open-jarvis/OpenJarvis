@@ -14,7 +14,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, get_args, get_origin
 
 try:
     import tomllib  # Python 3.11+
@@ -1479,6 +1479,16 @@ def _apply_toml_section(target: Any, section: Dict[str, Any]) -> None:
     """
     for key, value in section.items():
         if hasattr(target, key):
+            field_obj = None
+            field_type = None
+            if hasattr(target, "__dataclass_fields__"):
+                field_obj = target.__dataclass_fields__.get(key)
+                if field_obj is not None:
+                    field_type = field_obj.type
+                    if isinstance(field_type, str):
+                        import openjarvis.core.config as _cfg_mod
+
+                        field_type = eval(field_type, vars(_cfg_mod))  # noqa: S307
             if isinstance(value, dict):
                 nested = getattr(target, key)
                 if hasattr(nested, "__dataclass_fields__"):
@@ -1486,13 +1496,32 @@ def _apply_toml_section(target: Any, section: Dict[str, Any]) -> None:
                 else:
                     setattr(target, key, value)
             else:
+                # Handle TOML array-of-tables -> list[dataclass] fields.
+                if (
+                    isinstance(value, list)
+                    and field_type is not None
+                    and get_origin(field_type) in (list, List)
+                ):
+                    elem_types = get_args(field_type)
+                    elem_type = elem_types[0] if elem_types else None
+                    if elem_type is not None and hasattr(elem_type, "__dataclass_fields__"):
+                        converted = []
+                        for item in value:
+                            if isinstance(item, dict):
+                                elem = elem_type()
+                                _apply_toml_section(elem, item)
+                                converted.append(elem)
+                            else:
+                                converted.append(item)
+                        setattr(target, key, converted)
+                        continue
+
                 # Normalise TOML arrays → comma-separated string.
                 # Covers both real dataclass fields and backward-compat
                 # property setters (e.g. reward_weights, default_tools).
                 if isinstance(value, list):
                     is_str_field = False
                     if hasattr(target, "__dataclass_fields__"):
-                        field_obj = target.__dataclass_fields__.get(key)
                         if field_obj is not None and field_obj.type in ("str", str):
                             is_str_field = True
                         elif field_obj is None:
@@ -1572,6 +1601,7 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
             "intelligence",
             "learning",
             "agent",
+            "skills",
             "server",
             "telemetry",
             "traces",
