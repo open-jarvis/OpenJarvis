@@ -70,6 +70,10 @@ class SystemBuilder:
         self._traces = enabled
         return self
 
+    def max_turns(self, n: int) -> SystemBuilder:
+        self._config.agent.max_turns = n
+        return self
+
     def sandbox(self, enabled: bool) -> SystemBuilder:
         self._sandbox = enabled
         return self

@@ -21,6 +21,7 @@ class JarvisAgentBackend(InferenceBackend):
     def __init__(
         self,
         engine_key: Optional[str] = None,
+        engine_config: Optional[Dict[str, Any]] = None,
         agent_name: str = "orchestrator",
         tools: Optional[List[str]] = None,
         telemetry: bool = False,
@@ -40,6 +41,16 @@ class JarvisAgentBackend(InferenceBackend):
         builder = SystemBuilder()
         if engine_key:
             builder.engine(engine_key)
+
+        # Apply engine-specific config overrides from eval TOML
+        if engine_config and engine_key:
+            # Apply engine config to the builder's config
+            # For vllm: config.engine.vllm_host
+            # For ollama: config.engine.ollama_host, etc.
+            host_attr = f"{engine_key}_host"
+            if "host" in engine_config:
+                setattr(builder._config.engine, host_attr, engine_config["host"])
+
         if model:
             builder.model(model)
         builder.agent(agent_name)
