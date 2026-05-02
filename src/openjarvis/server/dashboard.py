@@ -426,7 +426,7 @@ setInterval(refresh, 5000);
 """
 
 
-@dashboard_router.get("/dashboard", response_class=HTMLResponse)
+@dashboard_router.get("/savings-dashboard", response_class=HTMLResponse)
 async def dashboard():
     """Serve the savings dashboard page."""
     return HTMLResponse(content=DASHBOARD_HTML)

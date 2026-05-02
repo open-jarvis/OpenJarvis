@@ -133,6 +133,87 @@ export interface ServerInfo {
   engine: string;
 }
 
+export type OpenClawComponentStatus = 'pass' | 'warn' | 'fail';
+
+export interface OpenClawHealthComponent {
+  id: string;
+  label: string;
+  status: OpenClawComponentStatus;
+  detail: string;
+  action: string;
+  group: string;
+  critical: boolean;
+}
+
+export interface OpenClawHealth {
+  status: 'healthy' | 'degraded' | 'critical';
+  score: number;
+  generated_at: number;
+  summary: {
+    passes: number;
+    warnings: number;
+    failures: number;
+  };
+  primary_local_llm: {
+    host: string;
+    model: string;
+  };
+  paths: {
+    openjarvis_root: string;
+    openclaw_root: string;
+    openclaw_home: string;
+  };
+  components: OpenClawHealthComponent[];
+  recommendations: string[];
+  latest_report: {
+    exists: boolean;
+    path: string;
+    modified_at: number | null;
+    age_seconds: number | null;
+    security: {
+      critical: number;
+      warn: number;
+      info: number;
+    };
+    highlights: string[];
+  };
+  project_agents?: {
+    atop_dev?: ProjectAgentPerformance;
+  };
+}
+
+export interface ProjectAgentPerformance {
+  project_id: string;
+  project_name: string;
+  root: string;
+  status: 'healthy' | 'attention' | 'unavailable';
+  summary: {
+    agents: number;
+    healthy: number;
+    attention: number;
+    no_data: number;
+    runs_last_24h: number;
+    avg_success_rate: number;
+  };
+  agents: ProjectAgentScorecard[];
+  error: string;
+}
+
+export interface ProjectAgentScorecard {
+  agent_id: string;
+  display_name: string;
+  scorecard_status: string;
+  catalog_status: string;
+  stage: string;
+  runs_last_24h: number;
+  success_rate_last_20_runs: number;
+  median_duration_ms_last_20_runs: number;
+  last_run_status: string;
+  last_run_started_at: string;
+  latest_artifact_path: string;
+  latest_failure_status: string;
+}
+
 // --- Log Types ---
 
 export interface LogEntry {

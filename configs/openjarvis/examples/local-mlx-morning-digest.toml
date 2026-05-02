@@ -1,0 +1,38 @@
+# Local MLX Morning Digest — connector auth required before use
+
+[engine]
+default = "mlx"
+
+[engine.mlx]
+host = "http://127.0.0.1:11435"
+
+[intelligence]
+default_model = "mlx-community/Qwen3.5-9B-MLX-4bit"
+temperature = 0.3
+max_tokens = 2048
+
+[agent]
+default_agent = "simple"
+
+[tools]
+enabled = ["digest_collect", "text_to_speech", "web_search", "file_read", "shell_exec"]
+
+[digest]
+enabled = false
+schedule = "0 7 * * *"
+timezone = "Asia/Seoul"
+persona = "jarvis"
+honorific = "sir"
+tts_backend = "cartesia"
+voice_id = "c8f7835e-28a3-4f0c-80d7-c1302ac62aae"
+voice_speed = 1.15
+sections = ["messages", "calendar", "world"]
+
+[digest.messages]
+sources = ["gmail", "google_tasks"]
+
+[digest.calendar]
+sources = ["gcalendar"]
+
+[digest.world]
+sources = ["hackernews", "news_rss"]

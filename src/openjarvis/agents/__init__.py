@@ -85,7 +85,13 @@ try:
 
     if AgentRegistry.contains("native_react") and not AgentRegistry.contains("react"):
         AgentRegistry.register_value("react", AgentRegistry.get("native_react"))
+    if AgentRegistry.contains("orchestrator"):
+        orchestrator_agent = AgentRegistry.get("orchestrator")
+        if not AgentRegistry.contains("jarvis"):
+            AgentRegistry.register_value("jarvis", orchestrator_agent)
+        if not AgentRegistry.contains("자비스"):
+            AgentRegistry.register_value("자비스", orchestrator_agent)
 except Exception as exc:
-    logger.debug("Registry alias 'react' creation skipped: %s", exc)
+    logger.debug("Registry alias creation skipped: %s", exc)
 
 __all__ = ["AgentContext", "AgentResult", "BaseAgent", "ToolUsingAgent"]

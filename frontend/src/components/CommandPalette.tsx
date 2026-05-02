@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Search, Cpu, X, Download, Loader2, Trash2, Check, Cloud, Key, Eye, EyeOff } from 'lucide-react';
 import { useAppStore } from '../lib/store';
-import { pullModel, deleteModel, fetchModels, preloadModel, isTauri } from '../lib/api';
+import { pullModel, deleteModel, fetchModels, preloadModel, isTauri, saveCloudKey } from '../lib/api';
 
 /** Popular models that users can download from the catalogue. */
 const CATALOGUE_MODELS = [
@@ -25,48 +25,22 @@ interface CloudProvider {
   envKey: string;
   storageKey: string;
   models: Array<{ id: string; desc: string }>;
+  customPlaceholder?: string;
 }
 
 const CLOUD_PROVIDERS: CloudProvider[] = [
-  {
-    name: 'OpenAI',
-    envKey: 'OPENAI_API_KEY',
-    storageKey: 'openjarvis-openai-key',
-    models: [
-      { id: 'gpt-4o', desc: 'GPT-4o — fast, multimodal' },
-      { id: 'gpt-4o-mini', desc: 'GPT-4o Mini — cheap, fast' },
-      { id: 'o3-mini', desc: 'o3-mini — reasoning' },
-    ],
-  },
-  {
-    name: 'Anthropic',
-    envKey: 'ANTHROPIC_API_KEY',
-    storageKey: 'openjarvis-anthropic-key',
-    models: [
-      { id: 'claude-sonnet-4-6', desc: 'Claude Sonnet 4.6 — balanced' },
-      { id: 'claude-opus-4-6', desc: 'Claude Opus 4.6 — most capable' },
-      { id: 'claude-haiku-4-5', desc: 'Claude Haiku 4.5 — fastest' },
-    ],
-  },
-  {
-    name: 'Google',
-    envKey: 'GEMINI_API_KEY',
-    storageKey: 'openjarvis-gemini-key',
-    models: [
-      { id: 'gemini-2.5-pro', desc: 'Gemini 2.5 Pro — flagship' },
-      { id: 'gemini-2.5-flash', desc: 'Gemini 2.5 Flash — fast' },
-      { id: 'gemini-3-pro', desc: 'Gemini 3 Pro — latest' },
-    ],
-  },
   {
     name: 'OpenRouter',
     envKey: 'OPENROUTER_API_KEY',
     storageKey: 'openjarvis-openrouter-key',
     models: [
-      { id: 'openrouter/auto', desc: 'Auto — best model for the task' },
-      { id: 'openrouter/anthropic/claude-sonnet-4', desc: 'Claude Sonnet 4 via OpenRouter' },
-      { id: 'openrouter/deepseek/deepseek-r1', desc: 'DeepSeek R1 via OpenRouter' },
+      { id: 'openrouter/moonshotai/kimi-k2.6', desc: 'Kimi K2.6 — primary cloud model' },
+      { id: 'openrouter/deepseek/deepseek-v4-pro', desc: 'DeepSeek V4 Pro — long-context reasoning' },
+      { id: 'openrouter/nvidia/nemotron-3-super-120b-a12b', desc: 'Nemotron 3 Super — agentic reasoning' },
+      { id: 'openrouter/google/gemini-3.1-flash-lite-preview', desc: 'Gemini 3.1 Flash Lite Preview — fast low-cost fallback' },
+      { id: 'openrouter/anthropic/claude-sonnet-4.6', desc: 'Claude Sonnet 4.6 — high-reliability fallback' },
     ],
+    customPlaceholder: 'openrouter/provider/model or provider/model',
   },
 ];
 
@@ -91,6 +65,7 @@ export function CommandPalette() {
   const [pullSuccess, setPullSuccess] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [customModel, setCustomModel] = useState('');
+  const [customCloudModels, setCustomCloudModels] = useState<Record<string, string>>({});
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
   const [apiKeys, setApiKeys] = useState<Record<string, string>>(() => {
     const keys: Record<string, string> = {};
@@ -106,6 +81,16 @@ export function CommandPalette() {
   const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen);
 
   const installedIds = new Set(models.map((m) => m.id));
+
+  useEffect(() => {
+    if (isTauri()) return;
+    for (const provider of CLOUD_PROVIDERS) {
+      const value = apiKeys[provider.storageKey];
+      if (value) {
+        saveCloudKey(provider.envKey, value).catch(() => {});
+      }
+    }
+  }, []);
 
   const filtered = tab === 'installed'
     ? (query
@@ -213,12 +198,21 @@ export function CommandPalette() {
     setStoredKey(provider.storageKey, value);
     setApiKeys((prev) => ({ ...prev, [provider.storageKey]: value }));
 
-    // Also save to Tauri backend so the server process picks up the key
+    // Also save to the backend so the server process can use the key.
     if (isTauri()) {
       try {
         const { invoke } = await import('@tauri-apps/api/core');
         await invoke('save_cloud_key', { keyName: provider.envKey, keyValue: value });
       } catch {}
+    } else {
+      try {
+        await saveCloudKey(provider.envKey, value);
+      } catch (e: any) {
+        useAppStore.getState().addLogEntry({
+          timestamp: Date.now(), level: 'error', category: 'model',
+          message: `Failed to save ${provider.name} API key to server: ${e?.message || e}`,
+        });
+      }
     }
 
     useAppStore.getState().addLogEntry({
@@ -228,6 +222,21 @@ export function CommandPalette() {
 
     // Refresh the model list so cloud models appear immediately.
     await refreshModels();
+  };
+
+  const normalizeCloudModel = (provider: CloudProvider, value: string): string => {
+    const model = value.trim();
+    if (!model) return '';
+    if (provider.envKey === 'OPENROUTER_API_KEY') {
+      return model.startsWith('openrouter/') ? model : `openrouter/${model}`;
+    }
+    return model;
+  };
+
+  const handleCustomCloudSelect = async (provider: CloudProvider) => {
+    const modelId = normalizeCloudModel(provider, customCloudModels[provider.storageKey] || '');
+    if (!modelId) return;
+    await handleSelect(modelId);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -458,7 +467,10 @@ export function CommandPalette() {
                         <input
                           type={isVisible ? 'text' : 'password'}
                           value={key}
-                          onChange={(e) => setApiKeys((prev) => ({ ...prev, [provider.storageKey]: e.target.value }))}
+                          onChange={(e) => {
+                            setStoredKey(provider.storageKey, e.target.value);
+                            setApiKeys((prev) => ({ ...prev, [provider.storageKey]: e.target.value }));
+                          }}
                           onBlur={() => handleSaveKey(provider, apiKeys[provider.storageKey] || '')}
                           placeholder={`${provider.envKey}`}
                           className="flex-1 text-xs px-2 py-1.5 bg-transparent outline-none font-mono"
@@ -486,33 +498,54 @@ export function CommandPalette() {
                     {hasKey && (
                       <div className="ml-5 flex flex-col gap-1">
                         {provider.models.map((model) => {
-                          const isActive = model.id === selectedModel;
-                          return (
+                            const isActive = model.id === selectedModel;
+                            return (
+                              <button
+                                key={model.id}
+                                onClick={() => handleSelect(model.id)}
+                                className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-left cursor-pointer transition-colors"
+                                style={{ background: isActive ? 'var(--color-accent-subtle)' : 'transparent' }}
+                                onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = 'var(--color-bg-secondary)'; }}
+                                onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
+                              >
+                                <Cloud size={12} style={{ color: isActive ? 'var(--color-accent)' : 'var(--color-text-tertiary)' }} />
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-xs truncate" style={{ color: isActive ? 'var(--color-accent)' : 'var(--color-text)', fontWeight: isActive ? 500 : 400 }}>
+                                    {model.id}
+                                  </div>
+                                  <div className="text-[10px] truncate" style={{ color: 'var(--color-text-tertiary)' }}>
+                                    {model.desc}
+                                  </div>
+                                </div>
+                                {isActive && (
+                                  <span className="text-[9px] px-1.5 py-0.5 rounded-full shrink-0" style={{ background: 'var(--color-accent-subtle)', color: 'var(--color-accent)' }}>
+                                    Active
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        {provider.customPlaceholder && (
+                          <div className="mt-2 flex gap-1.5">
+                            <input
+                              type="text"
+                              value={customCloudModels[provider.storageKey] || ''}
+                              onChange={(e) => setCustomCloudModels((prev) => ({ ...prev, [provider.storageKey]: e.target.value }))}
+                              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCustomCloudSelect(provider); } }}
+                              placeholder={provider.customPlaceholder}
+                              className="min-w-0 flex-1 rounded-lg px-2.5 py-1.5 text-xs outline-none"
+                              style={{ background: 'var(--color-bg-secondary)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }}
+                            />
                             <button
-                              key={model.id}
-                              onClick={() => handleSelect(model.id)}
-                              className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-left cursor-pointer transition-colors"
-                              style={{ background: isActive ? 'var(--color-accent-subtle)' : 'transparent' }}
-                              onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = 'var(--color-bg-secondary)'; }}
-                              onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
+                              onClick={() => handleCustomCloudSelect(provider)}
+                              disabled={!normalizeCloudModel(provider, customCloudModels[provider.storageKey] || '')}
+                              className="rounded-lg px-2.5 py-1.5 text-xs font-medium"
+                              style={{ background: 'var(--color-accent)', color: '#fff', opacity: normalizeCloudModel(provider, customCloudModels[provider.storageKey] || '') ? 1 : 0.5 }}
                             >
-                              <Cloud size={12} style={{ color: isActive ? 'var(--color-accent)' : 'var(--color-text-tertiary)' }} />
-                              <div className="flex-1 min-w-0">
-                                <div className="text-xs truncate" style={{ color: isActive ? 'var(--color-accent)' : 'var(--color-text)', fontWeight: isActive ? 500 : 400 }}>
-                                  {model.id}
-                                </div>
-                                <div className="text-[10px] truncate" style={{ color: 'var(--color-text-tertiary)' }}>
-                                  {model.desc}
-                                </div>
-                              </div>
-                              {isActive && (
-                                <span className="text-[9px] px-1.5 py-0.5 rounded-full shrink-0" style={{ background: 'var(--color-accent-subtle)', color: 'var(--color-accent)' }}>
-                                  Active
-                                </span>
-                              )}
+                              Use
                             </button>
-                          );
-                        })}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -536,7 +569,7 @@ export function CommandPalette() {
           ) : tab === 'catalogue' ? (
             <span>Models are downloaded from the Ollama registry</span>
           ) : (
-            <span>API keys are stored locally and never sent to OpenJarvis servers</span>
+            <span>API keys are stored on this device and synced to the local OpenJarvis runtime</span>
           )}
         </div>
       </div>

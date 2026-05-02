@@ -1420,7 +1420,7 @@ def create_agent_manager_router(
                     server_config,
                 )
                 executor.set_system(system)
-                executor.execute_tick(agent_id)
+                executor.execute_tick(agent_id, assume_started=True)
             except Exception as exc:
                 logger.error(
                     "Run-tick failed for agent %s: %s",
