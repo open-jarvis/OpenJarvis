@@ -40,6 +40,47 @@ class _CalcStub(BaseTool):
         return ToolResult(tool_name="calculator", content=str(val), success=True)
 
 
+class _FileReadStub(BaseTool):
+    tool_id = "file_read"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name="file_read",
+            description="Read a file.",
+            parameters={
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"],
+            },
+        )
+
+    def execute(self, **params) -> ToolResult:
+        path = params.get("path", "")
+        max_lines = params.get("max_lines")
+        if path == "rust/Cargo.toml":
+            content = '[workspace]\nmembers = ["a", "b", "c"]\n'
+            if max_lines is not None:
+                lines = content.splitlines(keepends=True)
+                content = "".join(lines[: int(max_lines)])
+            return ToolResult(
+                tool_name="file_read",
+                content=content,
+                success=True,
+            )
+        if path == "long.txt":
+            content = "line1\nline2\nline3\nline4\nline5\n"
+            if max_lines is not None:
+                lines = content.splitlines(keepends=True)
+                content = "".join(lines[: int(max_lines)])
+            return ToolResult(
+                tool_name="file_read",
+                content=content,
+                success=True,
+            )
+        return ToolResult(tool_name="file_read", content="", success=False)
+
+
 def _make_engine(content: str = "Final answer.") -> MagicMock:
     """Engine that returns plain content (no code block)."""
     engine = MagicMock()
@@ -371,6 +412,88 @@ class TestRLMSubLMWithTools:
         agent = RLMAgent(engine, "test-model", tools=[_CalcStub()])
         result = agent.run("Calculate")
         assert result.content == "The answer is 4."
+
+
+class TestRLMDirectToolBridge:
+    def test_root_repl_can_use_file_read_tool_directly(self):
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.generate.side_effect = [
+            {
+                "content": (
+                    "```python\n"
+                    'content = file_read("rust/Cargo.toml")\n'
+                    "print(content)\n"
+                    "FINAL('read ok')\n"
+                    "```"
+                ),
+                "usage": {
+                    "prompt_tokens": 5,
+                    "completion_tokens": 20,
+                    "total_tokens": 25,
+                },
+                "model": "test-model",
+                "finish_reason": "stop",
+            }
+        ]
+        agent = RLMAgent(engine, "test-model", tools=[_FileReadStub()])
+        result = agent.run("Read Cargo")
+        assert result.content == "read ok"
+        assert any(tr.tool_name == "file_read" for tr in result.tool_results)
+        assert any(
+            tr.tool_name == "rlm_repl" and "members" in tr.content
+            for tr in result.tool_results
+        )
+
+    def test_root_repl_can_use_bounded_read_helper(self):
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.generate.side_effect = [
+            {
+                "content": (
+                    "```python\n"
+                    'snippet = read_file("long.txt", max_lines=2)\n'
+                    "FINAL(snippet)\n"
+                    "```"
+                ),
+                "usage": {
+                    "prompt_tokens": 5,
+                    "completion_tokens": 20,
+                    "total_tokens": 25,
+                },
+                "model": "test-model",
+                "finish_reason": "stop",
+            }
+        ]
+        agent = RLMAgent(engine, "test-model", tools=[_FileReadStub()])
+        result = agent.run("Read file head")
+        assert result.content == "line1\nline2\n"
+        assert any(tr.tool_name == "file_read" for tr in result.tool_results)
+
+    def test_root_repl_can_use_file_chunk_helper(self):
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.generate.side_effect = [
+            {
+                "content": (
+                    "```python\n"
+                    'snippet = read_file_chunk("long.txt", 2, 4)\n'
+                    "FINAL(snippet)\n"
+                    "```"
+                ),
+                "usage": {
+                    "prompt_tokens": 5,
+                    "completion_tokens": 20,
+                    "total_tokens": 25,
+                },
+                "model": "test-model",
+                "finish_reason": "stop",
+            }
+        ]
+        agent = RLMAgent(engine, "test-model", tools=[_FileReadStub()])
+        result = agent.run("Read file chunk")
+        assert result.content == "line2\nline3\nline4\n"
+        assert any(tr.tool_name == "file_read" for tr in result.tool_results)
 
 
 class TestRLMBlockedCode:
