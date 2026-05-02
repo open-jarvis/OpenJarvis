@@ -183,8 +183,12 @@ class RLMRepl:
             elif not args:
                 params = {}
             else:
+                message = (
+                    f"{tool_name} expects keyword args or a single "
+                    f"{primary_arg!r} argument"
+                )
                 raise TypeError(
-                    f"{tool_name} expects keyword args or a single {primary_arg!r} argument"
+                    message
                 )
             return self._tool_call(tool_name, params)
 
