@@ -58,12 +58,15 @@ class RLMRepl:
         self,
         llm_query_fn: Optional[Callable[[str], str]] = None,
         llm_batch_fn: Optional[Callable[[List[str]], List[str]]] = None,
+        tool_call_fn: Optional[Callable[[str, Dict[str, Any]], str]] = None,
+        tool_arg_names: Optional[Dict[str, Optional[str]]] = None,
         *,
         max_output_chars: int = 10000,
     ) -> None:
         self._max_output_chars = max_output_chars
         self._terminated = False
         self._final_value: Any = None
+        self._tool_call_fn = tool_call_fn
 
         # Build namespace
         self._namespace: Dict[str, Any] = {}
@@ -89,6 +92,17 @@ class RLMRepl:
             self._namespace["llm_query"] = llm_query_fn
         if llm_batch_fn is not None:
             self._namespace["llm_batch"] = llm_batch_fn
+        if tool_call_fn is not None:
+            self._namespace["tool_call"] = self._tool_call
+
+            # Expose each tool as a direct Python helper (e.g.
+            # file_read(path="...")) so the model does not need to invent
+            # pseudo-tool syntax or fall back to blocked file I/O.
+            for tool_name, primary_arg in (tool_arg_names or {}).items():
+                self._namespace[tool_name] = self._make_tool_wrapper(
+                    tool_name,
+                    primary_arg,
+                )
 
     # ------------------------------------------------------------------
     # Termination helpers
@@ -128,6 +142,54 @@ class RLMRepl:
     # ------------------------------------------------------------------
     # Execution
     # ------------------------------------------------------------------
+
+    def _tool_call(self, tool_name: str, *args: Any, **kwargs: Any) -> str:
+        """Execute an injected OpenJarvis tool from within the REPL.
+
+        Supported forms:
+        - ``tool_call("file_read", {"path": "foo.txt"})``
+        - ``tool_call("file_read", path="foo.txt")``
+        """
+        if self._tool_call_fn is None:
+            raise RuntimeError("tool_call is not available in this REPL")
+
+        if args:
+            if len(args) != 1 or kwargs:
+                raise TypeError(
+                    "tool_call expects either a single dict argument or keyword args"
+                )
+            if not isinstance(args[0], dict):
+                raise TypeError("tool_call positional argument must be a dict")
+            params = dict(args[0])
+        else:
+            params = dict(kwargs)
+
+        return self._tool_call_fn(tool_name, params)
+
+    def _make_tool_wrapper(
+        self,
+        tool_name: str,
+        primary_arg: Optional[str],
+    ) -> Callable[..., str]:
+        """Return a Python helper that dispatches to ``tool_call``."""
+
+        def _wrapper(*args: Any, **kwargs: Any) -> str:
+            if kwargs:
+                params = dict(kwargs)
+            elif len(args) == 1 and primary_arg is not None:
+                params = {primary_arg: args[0]}
+            elif len(args) == 1 and isinstance(args[0], dict):
+                params = dict(args[0])
+            elif not args:
+                params = {}
+            else:
+                raise TypeError(
+                    f"{tool_name} expects keyword args or a single {primary_arg!r} argument"
+                )
+            return self._tool_call(tool_name, params)
+
+        _wrapper.__name__ = tool_name
+        return _wrapper
 
     def security_check(self, code: str) -> Optional[str]:
         """Check code for dangerous patterns. Returns error message or None."""
