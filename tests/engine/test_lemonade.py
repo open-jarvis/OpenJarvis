@@ -36,7 +36,10 @@ class TestLemonadeEngineBasics:
         EngineRegistry.register_value("lemonade", LemonadeEngine)
         assert EngineRegistry.get("lemonade") is LemonadeEngine
 
-    def test_env_var_overrides_default_host(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_env_var_overrides_default_host(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         monkeypatch.setenv("LEMONADE_HOST", "http://env-lemonade:17777")
         engine = LemonadeEngine()
         try:
