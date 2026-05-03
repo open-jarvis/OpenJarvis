@@ -15,6 +15,8 @@ from typing import Dict, Optional
 
 import tomllib
 
+# Map framework name -> env var that overrides its `path` field.
+# Must be kept in sync with the section keys in _third_party.toml.
 _PATH_ENV_VAR = {
     "hermes": "HERMES_AGENT_PATH",
     "openclaw": "OPENCLAW_PATH",
@@ -55,7 +57,7 @@ class ThirdPartyConfig:
 def _default_toml_path() -> Path:
     """Return the in-repo default location of `_third_party.toml`."""
     return (
-        Path(__file__).resolve().parents[2]
+        Path(__file__).resolve().parents[1]
         / "configs"
         / "framework_comparison"
         / "_third_party.toml"

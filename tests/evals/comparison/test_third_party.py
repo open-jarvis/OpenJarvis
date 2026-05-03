@@ -54,3 +54,14 @@ class TestLoadThirdPartyConfig:
         toml_path = tmp_path / "does_not_exist.toml"
         with pytest.raises(ThirdPartyNotFoundError, match="_third_party.toml"):
             load_third_party_config(toml_path)
+
+    def test_loads_default_path_with_no_args(self) -> None:
+        """Calling load_third_party_config() with no args reads the in-repo default."""
+        cfg = load_third_party_config()
+        assert "hermes" in cfg.entries
+        assert "openclaw" in cfg.entries
+        assert cfg.entries["hermes"].pinned_commit == "5d3be898a"
+        assert (
+            cfg.entries["openclaw"].pinned_commit
+            == "123ae82fca3009df7144fa8d41e1185cd63e61e1"
+        )
