@@ -54,3 +54,41 @@ Serena should act like a careful local file operator:
 - move only with approval
 - report exactly what changed
 - never delete in v1
+
+## Future integration: Webcam document capture
+
+Serena should later support a camera/document-capture workflow:
+
+1. Use an approved webcam or camera source.
+2. Look at a physical paper/document.
+3. Capture a readable image.
+4. Extract text using OCR or vision.
+5. Send extracted text into the Documents skill.
+6. Clean, classify, summarize, and extract fields.
+7. Export the result as Word/DOCX or PDF.
+8. Store the generated file through the Files skill.
+9. Organize it into an approved folder/root.
+10. Preserve capture artifacts and generated outputs.
+
+This should likely be implemented as a separate Camera/Vision/OCR skill that integrates with Documents and Files.
+
+Files skill responsibility:
+- store outputs
+- organize outputs
+- index outputs
+- back up outputs
+- protect originals
+- manage approved folders
+
+Documents skill responsibility:
+- clean extracted text
+- classify
+- summarize
+- extract fields
+- generate DOCX/PDF reports
+
+Camera/OCR skill responsibility:
+- capture image
+- validate readability
+- extract text
+- flag low-confidence or unreadable captures

@@ -48,6 +48,7 @@ from openjarvis.cli.voice_cmd import voice
 from openjarvis.cli.workflow_cmd import workflow
 from openjarvis.cli.wordpress_cmd import wordpress
 from openjarvis.cli.documents_cmd import documents
+from openjarvis.cli.files_cmd import files
 from openjarvis.learning.distillation.cli import learning_group
 
 
@@ -99,6 +100,7 @@ cli.add_command(agent, "agents")
 cli.add_command(workflow, "workflow")
 cli.add_command(wordpress, "wordpress")
 cli.add_command(documents, "documents")
+cli.add_command(files, "files")
 cli.add_command(skill, "skill")
 cli.add_command(start, "start")
 cli.add_command(stop, "stop")
