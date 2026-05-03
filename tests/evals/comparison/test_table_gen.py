@@ -184,3 +184,59 @@ class TestT2Builder:
         assert "\\begin{tabular}" in fragment
         assert "Latency" in fragment or "latency" in fragment
         assert "Energy" in fragment or "energy" in fragment
+
+
+class TestT3to7Builders:
+    """One smoke test per T3-T7 builder; each verifies tabular emission."""
+
+    @pytest.mark.parametrize(
+        "builder_name",
+        ["_build_t3", "_build_t4", "_build_t5", "_build_t6", "_build_t7"],
+    )
+    def test_builder_emits_tabular(self, builder_name: str) -> None:
+        import openjarvis.evals.comparison.table_gen as m
+
+        builder = getattr(m, builder_name)
+        rows = []
+        for fwk in ["hermes", "openjarvis"]:
+            for bench in ["gaia", "pinchbench"]:
+                for metric in [
+                    "accuracy",
+                    "latency_seconds",
+                    "energy_joules_per_query",
+                    "input_tokens_per_query",
+                    "output_tokens_per_query",
+                    "cost_usd_per_query",
+                ]:
+                    rows.append(
+                        {
+                            "framework": fwk,
+                            "framework_commit": "x",
+                            "model": "qwen-9b",
+                            "benchmark": bench,
+                            "metric_name": metric,
+                            "mean": 1.0,
+                            "std": 0.1,
+                            "n": 5,
+                            "source_path": "p",
+                        }
+                    )
+        frame = m.ResultsFrame(df=pl.DataFrame(rows))
+        fragment, _ = builder(frame)
+        assert "\\begin{tabular}" in fragment
+        assert "\\end{tabular}" in fragment
+
+
+class TestTableBuilderRegistry:
+    def test_registry_has_all_seven(self) -> None:
+        from openjarvis.evals.comparison.table_gen import _TABLE_BUILDERS
+
+        assert set(_TABLE_BUILDERS.keys()) == {
+            "T1",
+            "T2",
+            "T3",
+            "T4",
+            "T5",
+            "T6",
+            "T7",
+        }

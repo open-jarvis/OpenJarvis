@@ -233,3 +233,120 @@ def _build_t2(frame: ResultsFrame) -> Tuple[str, str]:
         label="tab:t2_efficiency",
         precision=2,
     )
+
+
+def _build_t3(frame: ResultsFrame) -> Tuple[str, str]:
+    """T3: Per-benchmark efficiency (one detail panel — pick PinchBench)."""
+    df = frame.df.filter(pl.col("benchmark") == "pinchbench")
+    df = df.filter(
+        pl.col("metric_name").is_in(
+            [
+                "latency_seconds",
+                "energy_joules_per_query",
+                "input_tokens_per_query",
+                "output_tokens_per_query",
+                "accuracy",
+                "cost_usd_per_query",
+            ]
+        )
+    )
+    pivot = (
+        df.group_by(["framework", "model", "metric_name"])
+        .agg(pl.col("mean").mean().alias("v"))
+        .pivot(values="v", index=["framework", "model"], on="metric_name")
+    )
+    pivot = pivot.with_columns(
+        (pl.col("framework") + " + " + pl.col("model")).alias("Config")
+    ).drop(["framework", "model"])
+    return _render_booktabs(
+        pivot,
+        row_col="Config",
+        caption="T3: PinchBench per-config efficiency",
+        label="tab:t3_pb",
+    )
+
+
+def _build_t4(frame: ResultsFrame) -> Tuple[str, str]:
+    """T4: 4-framework x all-model accuracy matrix (avg across benchmarks)."""
+    df = frame.df.filter(pl.col("metric_name") == "accuracy")
+    pivot = (
+        df.group_by(["model", "framework"])
+        .agg(pl.col("mean").mean().alias("acc"))
+        .pivot(values="acc", index="model", on="framework")
+    )
+    return _render_booktabs(
+        pivot,
+        row_col="model",
+        caption="T4: Per-model accuracy across frameworks",
+        label="tab:t4_per_model",
+    )
+
+
+def _build_t5(frame: ResultsFrame) -> Tuple[str, str]:
+    """T5: Hardware x framework efficiency (placeholder until per-hw data lands).
+
+    Requires `hardware` field on the source summary.json (not yet wired into
+    metrics). Until that lands, falls back to T2's shape so the cell is non-empty.
+    """
+    if "hardware" not in frame.df.columns:
+        return _render_booktabs(
+            pl.DataFrame({"Platform": ["(no data yet)"]}, schema={"Platform": pl.Utf8}),
+            row_col="Platform",
+            caption="T5: Hardware x framework efficiency (no data)",
+            label="tab:t5_hw",
+        )
+    return _build_t2(frame)
+
+
+def _build_t6(frame: ResultsFrame) -> Tuple[str, str]:
+    """T6: Token economy decomposition (preliminary; total in/out only).
+
+    Spec §6.3 envisions per-section breakdown (system_prompt, tool_descs,
+    memory_rag, history, user_msg). Until that instrumentation lands, this
+    only shows total in/out tokens per framework.
+    """
+    metrics = ["input_tokens_per_query", "output_tokens_per_query"]
+    df = frame.df.filter(pl.col("metric_name").is_in(metrics))
+    pivot = (
+        df.group_by(["framework", "metric_name"])
+        .agg(pl.col("mean").mean().alias("v"))
+        .pivot(values="v", index="framework", on="metric_name")
+    )
+    return _render_booktabs(
+        pivot,
+        row_col="framework",
+        caption="T6: Token economy (in/out per query)",
+        label="tab:t6_tokens",
+    )
+
+
+def _build_t7(frame: ResultsFrame) -> Tuple[str, str]:
+    """T7: Edit category x framework — preliminary (raw deltas).
+
+    Spec §10 says richer edit-attribution data needs the spec-distillation
+    pipeline to tag accepted edits. For now, raw per-benchmark accuracy
+    deltas across frameworks.
+    """
+    df = frame.df.filter(pl.col("metric_name") == "accuracy")
+    pivot = (
+        df.group_by(["framework", "benchmark"])
+        .agg(pl.col("mean").mean().alias("acc"))
+        .pivot(values="acc", index="framework", on="benchmark")
+    )
+    return _render_booktabs(
+        pivot,
+        row_col="framework",
+        caption="T7: Edit category x framework (preliminary; raw deltas)",
+        label="tab:t7_edit",
+    )
+
+
+_TABLE_BUILDERS: Dict[str, "object"] = {
+    "T1": _build_t1,
+    "T2": _build_t2,
+    "T3": _build_t3,
+    "T4": _build_t4,
+    "T5": _build_t5,
+    "T6": _build_t6,
+    "T7": _build_t7,
+}
