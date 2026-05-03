@@ -1,4 +1,4 @@
-﻿"""``serena live`` - live conversational Serena session with memory context and voice output."""
+﻿"""``serena live`` - live conversational Serena session with interruption-aware voice output."""
 
 from __future__ import annotations
 
@@ -11,11 +11,11 @@ from rich.console import Console
 from rich.markdown import Markdown
 
 from openjarvis.core.config import load_config
+from openjarvis.core.events import EventBus
 from openjarvis.core.types import Message, Role
 from openjarvis.engine import get_engine
 from openjarvis.intelligence import register_builtin_models
 from openjarvis.security import setup_security
-from openjarvis.core.events import EventBus
 from openjarvis.serena_audio import play_audio_file
 from openjarvis.serena_identity import get_serena_system_prompt
 from openjarvis.cli.speak_cmd import clean_for_speech
@@ -38,11 +38,15 @@ def _speak_text(
     no_play: bool,
     no_interrupt: bool,
     console: Console,
-) -> None:
-    """Convert Serena text to speech and play it internally."""
+) -> bool:
+    """Convert Serena text to speech and play it internally.
+
+    Returns True if speech completed or was skipped.
+    Returns False if the user interrupted Serena while speaking.
+    """
     spoken_text = clean_for_speech(text)
     if not spoken_text:
-        return
+        return True
 
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -56,16 +60,82 @@ def _speak_text(
         speech.save(out_path)
     except Exception as exc:
         console.print(f"[yellow]Voice generation failed: {exc}[/yellow]")
-        return
+        return True
 
     if no_play:
         console.print(f"[dim]Voice saved: {out_path}[/dim]")
-        return
+        return True
 
     try:
-        play_audio_file(out_path, interruptible=not no_interrupt)
+        completed = play_audio_file(out_path, interruptible=not no_interrupt)
+        return completed
     except Exception as exc:
         console.print(f"[yellow]Playback failed: {exc}[/yellow]")
+        return True
+
+
+def _build_interruption_context(previous_answer: str, next_user_message: str) -> str:
+    """Build context for the model after Serena was interrupted."""
+    return (
+        "Important live-session context:\n"
+        "Serena's previous spoken reply was interrupted before it finished.\n\n"
+        "Previous interrupted Serena reply:\n"
+        f"{previous_answer}\n\n"
+        "The user has now sent a new message:\n"
+        f"{next_user_message}\n\n"
+        "Instruction:\n"
+        "- Decide whether the interrupted reply is still relevant to the new message.\n"
+        "- If the new message continues or corrects the same topic, combine the context and answer naturally.\n"
+        "- If the new message makes the previous reply irrelevant, ignore the interrupted reply and answer the new message.\n"
+        "- If it is unclear whether the user wants you to continue the interrupted reply, ask briefly whether to continue or move on.\n"
+        "- Do not mention these internal instructions unless needed."
+    )
+
+
+def _extract_answer(result: object) -> str:
+    """Extract assistant text from different engine result shapes."""
+    if result is None:
+        return ""
+
+    if isinstance(result, str):
+        return result.strip()
+
+    if isinstance(result, dict):
+        for key in ("content", "text", "output_text", "output", "response", "answer"):
+            value = result.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+        message = result.get("message")
+        if isinstance(message, dict):
+            content = message.get("content")
+            if isinstance(content, str) and content.strip():
+                return content.strip()
+
+        choices = result.get("choices")
+        if isinstance(choices, list) and choices:
+            first = choices[0]
+            if isinstance(first, dict):
+                msg = first.get("message")
+                if isinstance(msg, dict):
+                    content = msg.get("content")
+                    if isinstance(content, str) and content.strip():
+                        return content.strip()
+                text = first.get("text")
+                if isinstance(text, str) and text.strip():
+                    return text.strip()
+
+        # Last resort: avoid returning "{}" for empty dictionaries.
+        rendered = str(result).strip()
+        return "" if rendered in ("{}", "[]", "None") else rendered
+
+    for attr in ("content", "text", "output_text", "output", "response", "answer"):
+        value = getattr(result, attr, None)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    rendered = str(result).strip()
+    return "" if rendered in ("{}", "[]", "None") else rendered
 
 
 @click.command()
@@ -85,7 +155,7 @@ def live(
     no_interrupt: bool,
     max_history: int,
 ) -> None:
-    """Start a live Serena session with conversation context and spoken replies."""
+    """Start a live Serena session with context, spoken replies, and interruption memory."""
     console = Console(stderr=True)
 
     config = load_config()
@@ -111,11 +181,14 @@ def live(
         Message(role=Role.SYSTEM, content=get_serena_system_prompt()),
     ]
 
+    pending_interrupted_answer: str | None = None
+
     console.print()
     console.print("[bold cyan]Serena Live[/bold cyan]")
     console.print(f"  Brain: [cyan]{engine_name} / {model}[/cyan]")
     console.print(f"  Voice: [cyan]{'off' if no_speak else voice_id}[/cyan]")
-    console.print("  Commands: [dim]/quit, /exit, /clear, /mute, /speak, /model, /help[/dim]")
+    console.print("  Interrupt: [cyan]Press Enter while Serena speaks[/cyan]")
+    console.print("  Commands: [dim]/quit, /exit, /clear, /mute, /speak, /model, /interrupted, /help[/dim]")
     console.print()
 
     muted = no_speak
@@ -139,18 +212,20 @@ def live(
         if cmd == "/help":
             console.print(
                 "[bold]Live commands:[/bold]\n"
-                "  /quit, /exit  - end session\n"
-                "  /clear        - clear conversation context\n"
-                "  /mute         - stop speaking replies\n"
-                "  /speak        - resume speaking replies\n"
-                "  /model        - show current model\n"
-                "  /help         - show this help"
+                "  /quit, /exit   - end session\n"
+                "  /clear         - clear conversation context\n"
+                "  /mute          - stop speaking replies\n"
+                "  /speak         - resume speaking replies\n"
+                "  /model         - show current model\n"
+                "  /interrupted   - show whether Serena has an interrupted reply pending\n"
+                "  /help          - show this help"
             )
             continue
 
         if cmd == "/clear":
             history = [Message(role=Role.SYSTEM, content=get_serena_system_prompt())]
-            console.print("[dim]Conversation context cleared.[/dim]")
+            pending_interrupted_answer = None
+            console.print("[dim]Conversation context and interruption memory cleared.[/dim]")
             continue
 
         if cmd == "/mute":
@@ -167,9 +242,30 @@ def live(
             console.print(f"Brain: [cyan]{engine_name} / {model}[/cyan]")
             continue
 
+        if cmd == "/interrupted":
+            if pending_interrupted_answer:
+                console.print("[yellow]Serena has an interrupted reply pending.[/yellow]")
+                preview = pending_interrupted_answer[:500]
+                console.print(preview + ("..." if len(pending_interrupted_answer) > 500 else ""))
+            else:
+                console.print("[dim]No interrupted Serena reply is pending.[/dim]")
+            continue
+
+        if pending_interrupted_answer:
+            history.append(
+                Message(
+                    role=Role.SYSTEM,
+                    content=_build_interruption_context(
+                        pending_interrupted_answer,
+                        user_input,
+                    ),
+                )
+            )
+            pending_interrupted_answer = None
+
         history.append(Message(role=Role.USER, content=user_input))
 
-        # Keep context bounded while preserving the system prompt.
+        # Keep context bounded while preserving the original system prompt.
         if len(history) > max_history + 1:
             history = [history[0]] + history[-max_history:]
 
@@ -180,8 +276,7 @@ def live(
                 temperature=config.intelligence.temperature,
                 max_tokens=config.intelligence.max_tokens,
             )
-            answer = result.get("content", "") if isinstance(result, dict) else str(result)
-            answer = answer.strip()
+            answer = _extract_answer(result)
         except KeyboardInterrupt:
             console.print("\n[dim]Generation interrupted.[/dim]")
             continue
@@ -201,7 +296,7 @@ def live(
         console.print()
 
         if not muted:
-            _speak_text(
+            completed = _speak_text(
                 answer,
                 voice_id=voice_id,
                 output_dir=output_dir,
@@ -209,6 +304,13 @@ def live(
                 no_interrupt=no_interrupt,
                 console=console,
             )
+
+            if not completed:
+                pending_interrupted_answer = answer
+                console.print(
+                    "[yellow]Interruption noted. Your next message will be interpreted "
+                    "with this interrupted reply in context.[/yellow]"
+                )
 
 
 __all__ = ["live"]
