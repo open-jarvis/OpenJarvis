@@ -26,6 +26,7 @@ from openjarvis.tools.serena_wordpress import (
     SerenaWordPressAssignTermsTool,
     SerenaWordPressPublishChecklistTool,
     SerenaWordPressFinalPublishTool,
+    SerenaWordPressSiteAuditTool,
     SerenaWordPressRollbackRestoreTool,
     SerenaWordPressRollbackListTool,
     SerenaWordPressSEOMetadataTool,
@@ -654,6 +655,23 @@ def final_publish(
         healthcare=healthcare,
         approved=approved,
         clinician_reviewed=clinician_reviewed,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("site-audit")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--limit", default=20, type=int, help="Max posts/pages per type to scan.")
+@click.option("--keyword", default="", help="Optional target keyword to check.")
+@click.option("--include-published/--drafts-only", default=True, help="Include published content or only drafts/pending/private.")
+def site_audit(site_key: str | None, limit: int, keyword: str, include_published: bool) -> None:
+    """Run Serena's WordPress monitoring/audit dashboard."""
+    console = Console()
+    result = SerenaWordPressSiteAuditTool().execute(
+        site_key=site_key,
+        limit=limit,
+        keyword=keyword,
+        include_published=include_published,
     )
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 

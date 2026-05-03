@@ -2610,6 +2610,255 @@ class SerenaWordPressFinalPublishTool(_WordPressBaseTool):
             return self._result(f"Failed to publish WordPress content: {exc}", success=False)
 
 
+def _seo_dir(site_key: str | None = None) -> Path:
+    cfg = _config(site_key)
+    site = cfg.get("site_key") or _site_key(site_key)
+    folder = Path(cfg.get("artifact_dir", "outputs/wordpress")) / "seo" / site
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def _audit_content_item(cfg: dict[str, Any], endpoint: str, item: dict[str, Any], keyword: str = "") -> dict[str, Any]:
+    title = _rendered(item.get("title"))
+    status = str(item.get("status") or "")
+    content = str((item.get("content") or {}).get("rendered") or "")
+    text = _rendered(content)
+    words = re.findall(r"\b\w+\b", text)
+    links = re.findall(r"<a\s+[^>]*href=[\"']([^\"']+)[\"']", content, flags=re.I)
+    headings = re.findall(r"<h([1-6])[^>]*>(.*?)</h\1>", content, flags=re.I | re.S)
+    featured_media_id = int(item.get("featured_media") or 0)
+    categories = item.get("categories") or []
+    tags = item.get("tags") or []
+
+    has_cta = any(
+        phrase.lower() in text.lower()
+        for phrase in [
+            cfg.get("primary_cta") or "",
+            "book",
+            "contact",
+            "consultation",
+            "call",
+            "learn more",
+            "get started",
+        ]
+        if phrase
+    )
+
+    keyword_hits = text.lower().count(keyword.lower()) if keyword else 0
+
+    issues: list[str] = []
+    if len(words) < 300:
+        issues.append("weak_content")
+    if not has_cta:
+        issues.append("missing_cta")
+    if not featured_media_id:
+        issues.append("missing_featured_image")
+    if not headings:
+        issues.append("missing_headings")
+    if not links:
+        issues.append("missing_links")
+    if endpoint == "posts" and not categories:
+        issues.append("missing_categories")
+    if endpoint == "posts" and not tags:
+        issues.append("missing_tags")
+    if keyword and keyword_hits == 0:
+        issues.append("missing_keyword")
+
+    healthcare_review_needed = cfg.get("site_key") == "drpiet"
+
+    return {
+        "id": item.get("id"),
+        "type": endpoint,
+        "title": title or "(untitled)",
+        "status": status,
+        "link": item.get("link") or "",
+        "word_count": len(words),
+        "headings": len(headings),
+        "links": len(links),
+        "featured_media_id": featured_media_id,
+        "categories": categories,
+        "tags": tags,
+        "cta_detected": has_cta,
+        "keyword_hits": keyword_hits,
+        "issues": issues,
+        "healthcare_review_needed": healthcare_review_needed,
+    }
+
+
+@ToolRegistry.register("serena_wordpress_site_audit")
+class SerenaWordPressSiteAuditTool(_WordPressBaseTool):
+    tool_id = "serena_wordpress_site_audit"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description=(
+                "Run Serena's WordPress site monitoring/audit dashboard for a configured site. "
+                "Reports drafts, weak content, missing CTAs, missing featured images, taxonomy gaps, "
+                "healthcare review warnings, rollback snapshots, and saved SEO artifacts."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "site_key": {"type": "string", "description": "Site key, e.g. drpiet or serena."},
+                    "limit": {"type": "integer", "description": "Max posts/pages per type to scan."},
+                    "keyword": {"type": "string", "description": "Optional target keyword to check."},
+                    "include_published": {"type": "boolean", "description": "Include published content in the scan."}
+                },
+            },
+            category="serena_wordpress",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
+        cfg = _config(site_key)
+        limit = int(params.get("limit") or 20)
+        keyword = str(params.get("keyword") or "").strip()
+        include_published = bool(params.get("include_published", True))
+
+        per_page = max(1, min(limit, 100))
+        statuses = "draft,pending,private,publish" if include_published else "draft,pending,private"
+
+        try:
+            posts = _request("GET", f"posts?per_page={per_page}&status={statuses}&context=edit", site_key=site_key)
+            pages = _request("GET", f"pages?per_page={per_page}&status={statuses}&context=edit", site_key=site_key)
+
+            post_items = posts if isinstance(posts, list) else []
+            page_items = pages if isinstance(pages, list) else []
+
+            audited = []
+            for item in post_items:
+                audited.append(_audit_content_item(cfg, "posts", item, keyword=keyword))
+            for item in page_items:
+                audited.append(_audit_content_item(cfg, "pages", item, keyword=keyword))
+
+            drafts = [x for x in audited if x["status"] in ("draft", "pending", "private")]
+            published = [x for x in audited if x["status"] == "publish"]
+            weak = [x for x in audited if "weak_content" in x["issues"]]
+            missing_cta = [x for x in audited if "missing_cta" in x["issues"]]
+            missing_featured = [x for x in audited if "missing_featured_image" in x["issues"]]
+            missing_taxonomy = [x for x in audited if "missing_categories" in x["issues"] or "missing_tags" in x["issues"]]
+            missing_links = [x for x in audited if "missing_links" in x["issues"]]
+            missing_keyword = [x for x in audited if "missing_keyword" in x["issues"]]
+
+            rollback_files = sorted(_rollback_dir(site_key).glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:10]
+            seo_files = sorted(_seo_dir(site_key).glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:10]
+
+            lines = [
+                "Serena WordPress site audit dashboard",
+                "",
+                f"- Site: {cfg.get('site_key')} ({cfg.get('site_url')})",
+                f"- Scanned posts: {len(post_items)}",
+                f"- Scanned pages: {len(page_items)}",
+                f"- Include published: {'yes' if include_published else 'no'}",
+                f"- Keyword: {keyword or 'not provided'}",
+                "",
+                "Summary:",
+                f"- Drafts/pending/private waiting for review: {len(drafts)}",
+                f"- Published items scanned: {len(published)}",
+                f"- Weak/short content items: {len(weak)}",
+                f"- Items missing CTA: {len(missing_cta)}",
+                f"- Items missing featured image: {len(missing_featured)}",
+                f"- Posts missing categories/tags: {len(missing_taxonomy)}",
+                f"- Items missing links: {len(missing_links)}",
+                f"- Items missing target keyword: {len(missing_keyword)}",
+                f"- Recent rollback snapshots: {len(rollback_files)}",
+                f"- Saved SEO artifacts: {len(seo_files)}",
+                "",
+                "Drafts waiting for review:",
+            ]
+
+            if drafts:
+                for x in drafts[:10]:
+                    lines.append(f"- {x['title']} | {x['type']} ID {x['id']} | {x['status']} | words {x['word_count']} | issues: {', '.join(x['issues']) or 'none'}")
+            else:
+                lines.append("- none")
+
+            lines.extend(["", "Published items missing featured images:"])
+            published_missing_featured = [x for x in missing_featured if x["status"] == "publish"]
+            if published_missing_featured:
+                for x in published_missing_featured[:10]:
+                    lines.append(f"- {x['title']} | {x['type']} ID {x['id']} | {x['link']}")
+            else:
+                lines.append("- none")
+
+            lines.extend(["", "Weak content / needs expansion:"])
+            if weak:
+                for x in weak[:10]:
+                    lines.append(f"- {x['title']} | {x['type']} ID {x['id']} | {x['word_count']} words | {x['status']}")
+            else:
+                lines.append("- none")
+
+            lines.extend(["", "Missing CTA:"])
+            if missing_cta:
+                for x in missing_cta[:10]:
+                    lines.append(f"- {x['title']} | {x['type']} ID {x['id']} | {x['status']}")
+            else:
+                lines.append("- none")
+
+            lines.extend(["", "Posts missing categories/tags:"])
+            if missing_taxonomy:
+                for x in missing_taxonomy[:10]:
+                    lines.append(f"- {x['title']} | post ID {x['id']} | categories {x['categories'] or 'none'} | tags {x['tags'] or 'none'}")
+            else:
+                lines.append("- none")
+
+            lines.extend(["", "Healthcare/compliance review:"])
+            if cfg.get("site_key") == "drpiet":
+                lines.append("- Dr Piet site detected: healthcare/compliance review should be assumed before publishing public medical/practice content.")
+                lines.append("- Serena must keep final publish gated behind explicit approval and clinician/practice review.")
+            else:
+                lines.append("- No default healthcare review requirement for this site unless content topic requires it.")
+
+            lines.extend(["", "Recent rollback snapshots:"])
+            if rollback_files:
+                for f in rollback_files:
+                    lines.append(f"- {f.name}")
+            else:
+                lines.append("- none")
+
+            lines.extend(["", "Saved SEO artifacts:"])
+            if seo_files:
+                for f in seo_files:
+                    lines.append(f"- {f.name}")
+            else:
+                lines.append("- none")
+
+            lines.extend([
+                "",
+                "Recommended operator actions:",
+                "- Review drafts waiting for approval.",
+                "- Expand weak content before publishing.",
+                "- Add CTAs and internal links where missing.",
+                "- Add featured images where missing.",
+                "- Add categories/tags to uncategorized posts.",
+                "- Keep rollback snapshots before updates.",
+                "- Use final-publish only after explicit approval.",
+            ])
+
+            return self._result(
+                "\n".join(lines),
+                metadata={
+                    "site_key": cfg.get("site_key"),
+                    "posts_scanned": len(post_items),
+                    "pages_scanned": len(page_items),
+                    "drafts": len(drafts),
+                    "published": len(published),
+                    "weak_content": len(weak),
+                    "missing_cta": len(missing_cta),
+                    "missing_featured_image": len(missing_featured),
+                    "missing_taxonomy": len(missing_taxonomy),
+                    "missing_links": len(missing_links),
+                    "missing_keyword": len(missing_keyword),
+                    "rollback_snapshots": len(rollback_files),
+                    "seo_artifacts": len(seo_files),
+                },
+            )
+        except Exception as exc:
+            return self._result(f"Failed to run WordPress site audit: {exc}", success=False)
+
+
 __all__ = [
     "SerenaWordPressStatusTool",
     "SerenaWordPressListPostsTool",
@@ -2629,6 +2878,7 @@ __all__ = [
     "SerenaWordPressAssignTermsTool",
     "SerenaWordPressPublishChecklistTool",
     "SerenaWordPressFinalPublishTool",
+    "SerenaWordPressSiteAuditTool",
     "SerenaWordPressRollbackRestoreTool",
     "SerenaWordPressRollbackListTool",
     "SerenaWordPressSEOMetadataTool",
