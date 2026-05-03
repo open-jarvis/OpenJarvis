@@ -19,7 +19,7 @@ from openjarvis.engine.openai_compat_engines import LemonadeEngine
 @pytest.fixture()
 def engine() -> LemonadeEngine:
     EngineRegistry.register_value("lemonade", LemonadeEngine)
-    return LemonadeEngine(host="http://testhost:8000")
+    return LemonadeEngine(host="http://testhost:13305")
 
 
 class TestLemonadeEngineBasics:
@@ -27,7 +27,7 @@ class TestLemonadeEngineBasics:
         assert LemonadeEngine.engine_id == "lemonade"
 
     def test_default_host(self) -> None:
-        assert LemonadeEngine._default_host == "http://localhost:8000"
+        assert LemonadeEngine._default_host == "http://localhost:13305"
 
     def test_api_prefix(self) -> None:
         assert LemonadeEngine._api_prefix == "/v1"
@@ -36,11 +36,19 @@ class TestLemonadeEngineBasics:
         EngineRegistry.register_value("lemonade", LemonadeEngine)
         assert EngineRegistry.get("lemonade") is LemonadeEngine
 
+    def test_env_var_overrides_default_host(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LEMONADE_HOST", "http://env-lemonade:17777")
+        engine = LemonadeEngine()
+        try:
+            assert engine._host == "http://env-lemonade:17777"
+        finally:
+            engine.close()
+
 
 class TestLemonadeGenerate:
     def test_generate_uses_v1_prefix(self, engine: LemonadeEngine) -> None:
         with respx.mock:
-            respx.post("http://testhost:8000/v1/chat/completions").mock(
+            respx.post("http://testhost:13305/v1/chat/completions").mock(
                 return_value=httpx.Response(
                     200,
                     json={
@@ -67,7 +75,7 @@ class TestLemonadeGenerate:
 
     def test_generate_connection_error(self, engine: LemonadeEngine) -> None:
         with respx.mock:
-            respx.post("http://testhost:8000/v1/chat/completions").mock(
+            respx.post("http://testhost:13305/v1/chat/completions").mock(
                 side_effect=httpx.ConnectError("refused")
             )
             with pytest.raises(EngineConnectionError):
@@ -80,14 +88,14 @@ class TestLemonadeGenerate:
 class TestLemonadeHealth:
     def test_health_true(self, engine: LemonadeEngine) -> None:
         with respx.mock:
-            respx.get("http://testhost:8000/v1/models").mock(
+            respx.get("http://testhost:13305/v1/models").mock(
                 return_value=httpx.Response(200, json={"data": []})
             )
             assert engine.health() is True
 
     def test_health_false(self, engine: LemonadeEngine) -> None:
         with respx.mock:
-            respx.get("http://testhost:8000/v1/models").mock(
+            respx.get("http://testhost:13305/v1/models").mock(
                 side_effect=httpx.ConnectError("refused")
             )
             assert engine.health() is False
@@ -96,7 +104,7 @@ class TestLemonadeHealth:
 class TestLemonadeListModels:
     def test_list_models_uses_v1_prefix(self, engine: LemonadeEngine) -> None:
         with respx.mock:
-            respx.get("http://testhost:8000/v1/models").mock(
+            respx.get("http://testhost:13305/v1/models").mock(
                 return_value=httpx.Response(
                     200,
                     json={
