@@ -34,6 +34,7 @@ from openjarvis.cli.pearl_cmd import pearl
 from openjarvis.cli.quickstart_cmd import quickstart
 from openjarvis.cli.registry_cmd import registry
 from openjarvis.cli.scan_cmd import scan
+from openjarvis.cli.say_cmd import say
 from openjarvis.cli.speak_cmd import speak
 from openjarvis.cli.scheduler_cmd import scheduler
 from openjarvis.cli.serve import serve
@@ -110,6 +111,7 @@ cli.add_command(tool, "tool")
 cli.add_command(registry, "registry")
 cli.add_command(config, "config")
 cli.add_command(scan, "scan")
+cli.add_command(say, "say")
 cli.add_command(speak, "speak")
 cli.add_command(connect, "connect")
 cli.add_command(digest, "digest")
