@@ -13,6 +13,7 @@ import base64
 from datetime import datetime
 import html
 import json
+import mimetypes
 import os
 import re
 from pathlib import Path
@@ -221,6 +222,48 @@ def _content_library_dir(site_key: str | None = None) -> Path:
 
 def _safe_content_filename(title: str, suffix: str = ".html") -> str:
     return _slugify(title) + suffix
+
+
+
+def _content_library_media_dir(site_key: str | None = None) -> Path:
+    """Return the approved local WordPress media folder for a site."""
+    folder = _content_library_dir(site_key) / "media"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def _assert_content_library_media_path(site_key: str | None, file_path: Path) -> Path:
+    """Ensure media uploads come from the approved local media folder."""
+    resolved = file_path.resolve()
+    media_dir = _content_library_media_dir(site_key).resolve()
+
+    try:
+        resolved.relative_to(media_dir)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"Media file must be inside Serena's approved WordPress media library for this site: {media_dir}"
+        ) from exc
+
+    if not resolved.exists() or not resolved.is_file():
+        raise RuntimeError(f"Media file not found: {resolved}")
+
+    return resolved
+
+
+def _copy_media_to_content_library(site_key: str | None, source_path: Path, title: str = "") -> str:
+    """Copy an existing local media file into Serena's approved media folder."""
+    if not source_path.exists() or not source_path.is_file():
+        raise RuntimeError(f"Source media file not found: {source_path}")
+
+    media_dir = _content_library_media_dir(site_key)
+    suffix = source_path.suffix.lower() or ".bin"
+    base = _slugify(title or source_path.stem)
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    target = media_dir / f"{timestamp}-{base}{suffix}"
+
+    target.write_bytes(source_path.read_bytes())
+    return str(target)
+
 
 
 def _write_content_library_file(
@@ -681,12 +724,20 @@ class SerenaWordPressUploadMediaTool(_WordPressBaseTool):
     def execute(self, **params: Any) -> ToolResult:
         site_key = str(params.get("site_key") or "").strip() or None
         # Trusted operator mode: media upload from approved local/content-library paths is allowed.
-        file_path = Path(str(params.get("path") or ""))
-        if not file_path.exists() or not file_path.is_file():
-            return self._result(f"Media file not found: {file_path}", success=False)
+        try:
+            file_path = _assert_content_library_media_path(site_key, Path(str(params.get("path") or "")))
+        except Exception as exc:
+            return self._result(f"Media upload blocked: {exc}", success=False)
 
         headers = _headers(site_key)
-        headers["Content-Disposition"] = f'attachment; filename="{file_path.name}"'
+        content_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+        headers.update(
+            {
+                "Content-Disposition": f'attachment; filename="{file_path.name}"',
+                "Content-Type": content_type,
+                "Accept": "application/json",
+            }
+        )
 
         try:
             data = file_path.read_bytes()
@@ -1078,6 +1129,8 @@ class SerenaWordPressInspectContentTool(_WordPressBaseTool):
             status = str(item.get("status") or "")
             link = str(item.get("link") or "")
             raw_content = str((item.get("content") or {}).get("rendered") or "")
+            featured_media_id = int(item.get("featured_media") or 0)
+            featured_media_status = "yes" if featured_media_id else "no"
             text_content = _rendered(raw_content)
             words = re.findall(r"\b\w+\b", text_content)
 
@@ -1161,8 +1214,10 @@ class SerenaWordPressInspectContentTool(_WordPressBaseTool):
                 f"- Word count: {len(words)}",
                 f"- Headings found: {len(headings)}",
                 f"- Links found: {len(links)}",
-                f"- Images found: {len(images)}",
-                f"- Images missing alt text: {len(missing_alt)}",
+                f"- Inline images found: {len(images)}",
+                f"- Inline images missing alt text: {len(missing_alt)}",
+                f"- Featured image assigned: {featured_media_status}",
+                f"- Featured media ID: {featured_media_id if featured_media_id else 'none'}",
                 f"- CTA detected: {'yes' if has_cta else 'no'}",
                 f"- Target keyword hits: {keyword_hits if keyword else 'not provided'}",
                 "",
@@ -1194,6 +1249,8 @@ class SerenaWordPressInspectContentTool(_WordPressBaseTool):
                     "links": len(links),
                     "images": len(images),
                     "missing_alt": len(missing_alt),
+                    "featured_media_id": featured_media_id,
+                    "featured_image_assigned": bool(featured_media_id),
                     "cta_detected": has_cta,
                     "keyword_hits": keyword_hits,
                 },
@@ -1572,6 +1629,109 @@ class SerenaWordPressBuildPageFromLibraryTool(_WordPressBaseTool):
         )
 
 
+@ToolRegistry.register("serena_wordpress_media_import")
+class SerenaWordPressMediaImportTool(_WordPressBaseTool):
+    tool_id = "serena_wordpress_media_import"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Copy a local media file into Serena's approved WordPress content-library media folder for a site.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "site_key": {"type": "string", "description": "Site key, e.g. drpiet or serena."},
+                    "source_path": {"type": "string", "description": "Existing local media file to copy into the approved media folder."},
+                    "title": {"type": "string", "description": "Optional media title/name."}
+                },
+                "required": ["source_path"],
+            },
+            category="serena_wordpress",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
+        source_path = Path(str(params.get("source_path") or ""))
+        title = str(params.get("title") or "").strip()
+
+        try:
+            target = _copy_media_to_content_library(site_key, source_path, title=title)
+            return self._result(
+                "Media imported into Serena WordPress content library\n\n"
+                f"- Site: {_config(site_key).get('site_key')} ({_config(site_key).get('site_url')})\n"
+                f"- Source: {source_path}\n"
+                f"- Approved media path: {target}",
+                metadata={"site_key": _config(site_key).get("site_key"), "path": target},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to import media: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_wordpress_set_featured_image")
+class SerenaWordPressSetFeaturedImageTool(_WordPressBaseTool):
+    tool_id = "serena_wordpress_set_featured_image"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Set a WordPress media item as the featured image for a post or page. Saves rollback snapshot first.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "site_key": {"type": "string", "description": "Site key, e.g. drpiet or serena."},
+                    "content_type": {"type": "string", "description": "posts or pages."},
+                    "content_id": {"type": "integer", "description": "WordPress post/page ID."},
+                    "media_id": {"type": "integer", "description": "WordPress media ID to use as featured image."}
+                },
+                "required": ["content_id", "media_id"],
+            },
+            category="serena_wordpress",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
+        content_type = str(params.get("content_type") or "pages").strip().lower()
+        content_id = int(params.get("content_id") or 0)
+        media_id = int(params.get("media_id") or 0)
+
+        if not content_id or not media_id:
+            return self._result("content_id and media_id are required.", success=False)
+
+        endpoint = "posts" if content_type == "posts" else "pages"
+
+        try:
+            snapshot_path = _snapshot_content(site_key, endpoint, content_id, "before-featured-image")
+            item = _request(
+                "POST",
+                f"{endpoint}/{content_id}",
+                site_key=site_key,
+                json={"featured_media": media_id},
+            )
+
+            if not isinstance(item, dict):
+                return self._result("Unexpected WordPress response while setting featured image.", success=False)
+
+            return self._result(
+                "Featured image assigned\n\n"
+                f"- Site: {_config(site_key).get('site_key')} ({_config(site_key).get('site_url')})\n"
+                f"- Type: {endpoint}\n"
+                f"- Content ID: {content_id}\n"
+                f"- Media ID: {media_id}\n"
+                f"- Rollback snapshot: {snapshot_path}",
+                metadata={
+                    "site_key": _config(site_key).get("site_key"),
+                    "content_type": endpoint,
+                    "content_id": content_id,
+                    "media_id": media_id,
+                    "rollback_snapshot": snapshot_path,
+                },
+            )
+        except Exception as exc:
+            return self._result(f"Failed to set featured image: {exc}", success=False)
+
+
 __all__ = [
     "SerenaWordPressStatusTool",
     "SerenaWordPressListPostsTool",
@@ -1587,6 +1747,8 @@ __all__ = [
     "SerenaWordPressInspectContentTool",
     "SerenaWordPressTrashContentTool",
     "SerenaWordPressBuildPageFromLibraryTool",
+    "SerenaWordPressSetFeaturedImageTool",
+    "SerenaWordPressMediaImportTool",
     "SerenaWordPressContentInspectTool",
     "SerenaWordPressContentListTool",
     "SerenaWordPressContentCreateTool",

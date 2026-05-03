@@ -22,6 +22,8 @@ from openjarvis.tools.serena_wordpress import (
     SerenaWordPressTrashContentTool,
     SerenaWordPressUpdateContentTool,
     SerenaWordPressUploadMediaTool,
+    SerenaWordPressSetFeaturedImageTool,
+    SerenaWordPressMediaImportTool,
 )
 
 
@@ -434,6 +436,42 @@ def content_update(site_key: str | None, file_path: str, content: str) -> None:
         console.print(f"- File: {target}")
     except Exception as exc:
         console.print(f"[red]Failed to update content-library file: {exc}[/red]")
+
+
+@wordpress.command("media-import")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--source", "source_path", required=True, help="Existing local media file to copy into Serena's approved media folder.")
+@click.option("--title", default="", help="Optional clean media title.")
+def media_import(site_key: str | None, source_path: str, title: str) -> None:
+    """Import media into Serena's approved local WordPress media folder."""
+    console = Console()
+
+    result = SerenaWordPressMediaImportTool().execute(
+        site_key=site_key,
+        source_path=source_path,
+        title=title,
+    )
+
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("featured-image")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--type", "content_type", default="pages", help="Content type: posts or pages.")
+@click.option("--id", "content_id", required=True, type=int, help="WordPress post/page ID.")
+@click.option("--media-id", required=True, type=int, help="WordPress media ID.")
+def featured_image(site_key: str | None, content_type: str, content_id: int, media_id: int) -> None:
+    """Set a WordPress media item as featured image for a post/page."""
+    console = Console()
+
+    result = SerenaWordPressSetFeaturedImageTool().execute(
+        site_key=site_key,
+        content_type=content_type,
+        content_id=content_id,
+        media_id=media_id,
+    )
+
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 
 __all__ = ["wordpress"]
