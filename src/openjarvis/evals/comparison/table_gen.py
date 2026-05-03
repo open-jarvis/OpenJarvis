@@ -162,3 +162,38 @@ def _render_booktabs(
         "\\end{document}\n"
     )
     return fragment, standalone
+
+
+T1_FRAMEWORKS_ORDER = [
+    "openclaw",
+    "hermes",
+    "openjarvis",
+    "openjarvis-distilled",
+]
+
+
+def _build_t1(frame: ResultsFrame) -> Tuple[str, str]:
+    """T1: Portability triangulation.
+
+    Rows: 4 frameworks (in T1_FRAMEWORKS_ORDER).
+    Cols: 8 benchmarks + Avg.
+    Cells: accuracy mean (across all models in cell, weighted equally).
+    """
+    df = frame.df.filter(pl.col("metric_name") == "accuracy")
+    pivot = (
+        df.group_by(["framework", "benchmark"])
+        .agg(pl.col("mean").mean().alias("acc"))
+        .pivot(values="acc", index="framework", on="benchmark")
+    )
+    bench_cols = [c for c in pivot.columns if c != "framework"]
+    if bench_cols:
+        pivot = pivot.with_columns(
+            pl.mean_horizontal(*[pl.col(c) for c in bench_cols]).alias("Avg")
+        )
+    return _render_booktabs(
+        pivot,
+        row_col="framework",
+        caption="T1: Portability triangulation across frameworks (accuracy)",
+        label="tab:t1_portability",
+        precision=2,
+    )

@@ -111,3 +111,35 @@ class TestRenderBooktabs:
             label="x",
         )
         assert "\\textit{--}" in fragment
+
+
+class TestT1Builder:
+    def test_t1_builds_from_synthetic_results(self) -> None:
+        from openjarvis.evals.comparison.table_gen import (
+            ResultsFrame,
+            _build_t1,
+        )
+
+        df = pl.DataFrame(
+            {
+                "framework": [
+                    "hermes",
+                    "openjarvis",
+                    "openclaw",
+                    "openjarvis-distilled",
+                ],
+                "framework_commit": ["a", "b", "c", "b"],
+                "model": ["qwen-9b"] * 4,
+                "benchmark": ["gaia"] * 4,
+                "metric_name": ["accuracy"] * 4,
+                "mean": [0.22, 0.40, 0.20, 0.55],
+                "std": [0.03] * 4,
+                "n": [5] * 4,
+                "source_path": ["x", "y", "z", "w"],
+            }
+        )
+        frame = ResultsFrame(df=df)
+        fragment, standalone = _build_t1(frame)
+        assert "\\begin{tabular}" in fragment
+        assert "0.22" in fragment or "22.00" in fragment
+        assert "openjarvis-distilled" in fragment.lower() or "OJ-distilled" in fragment
