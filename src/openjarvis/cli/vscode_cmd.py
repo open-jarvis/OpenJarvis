@@ -20,6 +20,12 @@ from openjarvis.tools.serena_vscode import (
     SerenaVSCodeSnapshotTool,
     SerenaVSCodeStatusTool,
     SerenaVSCodeWriteFileTool,
+    SerenaVSCodeTestReportTool,
+    SerenaVSCodeImplementPlanTool,
+    SerenaVSCodeTaskPlanTool,
+    SerenaVSCodeRestoreSnapshotTool,
+    SerenaVSCodeListSnapshotsTool,
+    SerenaVSCodeDiffFileTool,
 )
 
 
@@ -165,6 +171,81 @@ def run_check(root: str, check: str, module: str) -> None:
     """Run an approved safe local project check."""
     console = Console()
     result = SerenaVSCodeRunCheckTool().execute(root=root, check=check, module=module)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@vscode.command("diff-file")
+@click.option("--root", required=True, help="Approved root alias.")
+@click.option("--path", "file_path", required=True, help="Relative file path inside root.")
+@click.option("--max-lines", default=200, type=int, help="Maximum diff lines.")
+def diff_file(root: str, file_path: str, max_lines: int) -> None:
+    """Diff current file against latest Serena VS Code snapshot."""
+    console = Console()
+    result = SerenaVSCodeDiffFileTool().execute(root=root, path=file_path, max_lines=max_lines)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@vscode.command("list-snapshots")
+@click.option("--limit", default=50, type=int, help="Maximum snapshots to show.")
+@click.option("--path", "path_filter", default="", help="Optional path filter.")
+def list_snapshots(limit: int, path_filter: str) -> None:
+    """List Serena VS Code snapshots."""
+    console = Console()
+    result = SerenaVSCodeListSnapshotsTool().execute(limit=limit, path=path_filter)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@vscode.command("restore-snapshot")
+@click.option("--root", required=True, help="Approved root alias.")
+@click.option("--path", "file_path", required=True, help="Relative file path inside root.")
+@click.option("--snapshot", default="", help="Optional snapshot file path. Defaults to latest for file.")
+@click.option("--approved", is_flag=True, help="Required to restore snapshot.")
+def restore_snapshot(root: str, file_path: str, snapshot: str, approved: bool) -> None:
+    """Restore a file from a Serena VS Code snapshot with approval."""
+    console = Console()
+    result = SerenaVSCodeRestoreSnapshotTool().execute(
+        root=root,
+        path=file_path,
+        snapshot=snapshot,
+        approved=approved,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@vscode.command("task-plan")
+@click.option("--root", required=True, help="Approved root alias.")
+@click.option("--task", required=True, help="Developer task description.")
+@click.option("--limit", default=300, type=int, help="Maximum files to scan.")
+def task_plan(root: str, task: str, limit: int) -> None:
+    """Create a developer task plan without changing files."""
+    console = Console()
+    result = SerenaVSCodeTaskPlanTool().execute(root=root, task=task, limit=limit)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@vscode.command("implement-plan")
+@click.option("--root", required=True, help="Approved root alias.")
+@click.option("--operations-json", default="", help="JSON list of write/replace/mkdir operations.")
+@click.option("--operations-file", default="", help="Path to a JSON file containing write/replace/mkdir operations.")
+def implement_plan(root: str, operations_json: str, operations_file: str) -> None:
+    """Apply a small explicit implementation plan."""
+    console = Console()
+    result = SerenaVSCodeImplementPlanTool().execute(
+        root=root,
+        operations_json=operations_json,
+        operations_file=operations_file,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@vscode.command("test-report")
+@click.option("--root", required=True, help="Approved root alias.")
+@click.option("--checks", default="git-status", help="Comma-separated safe checks.")
+@click.option("--module", default="", help="Module for python-import check.")
+def test_report(root: str, checks: str, module: str) -> None:
+    """Run safe checks and create a developer test report."""
+    console = Console()
+    result = SerenaVSCodeTestReportTool().execute(root=root, checks=checks, module=module)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 

@@ -970,6 +970,621 @@ class SerenaVSCodeRunCheckTool(_VSCodeBaseTool):
             return self._result(f"Failed to run VS Code check: {exc}", success=False)
 
 
+def _snapshot_metadata_files() -> list[Path]:
+    folder = _vscode_root() / "snapshots"
+    return sorted(folder.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+
+
+def _load_snapshot_meta(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8-sig"))
+
+
+def _simple_line_diff(before: str, after: str, max_lines: int = 200) -> list[str]:
+    import difflib
+
+    before_lines = before.splitlines()
+    after_lines = after.splitlines()
+    diff = list(
+        difflib.unified_diff(
+            before_lines,
+            after_lines,
+            fromfile="snapshot",
+            tofile="current",
+            lineterm="",
+        )
+    )
+    return diff[:max_lines]
+
+
+def _latest_snapshot_for_target(target: Path) -> tuple[Path, dict[str, Any]] | None:
+    target_str = str(target)
+    for meta_path in _snapshot_metadata_files():
+        try:
+            meta = _load_snapshot_meta(meta_path)
+            if meta.get("source") == target_str:
+                snapshot_path = Path(str(meta.get("snapshot") or ""))
+                if snapshot_path.exists():
+                    return snapshot_path, meta
+        except Exception:
+            continue
+    return None
+
+
+@ToolRegistry.register("serena_vscode_diff_file")
+class SerenaVSCodeDiffFileTool(_VSCodeBaseTool):
+    tool_id = "serena_vscode_diff_file"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Show a safe text diff between the current file and its latest Serena VS Code snapshot.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"},
+                    "path": {"type": "string"},
+                    "max_lines": {"type": "integer"},
+                },
+                "required": ["root", "path"],
+            },
+            category="serena_vscode",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            key, root, root_path, target = _resolve_project_file(
+                str(params.get("root") or ""),
+                str(params.get("path") or ""),
+            )
+            max_lines = int(params.get("max_lines") or 200)
+
+            latest = _latest_snapshot_for_target(target)
+            if not latest:
+                return self._result(
+                    "No Serena VS Code snapshot found for this file.",
+                    success=False,
+                    metadata={"root": key, "path": str(target)},
+                )
+
+            snapshot_path, meta = latest
+
+            before = _read_text(snapshot_path, max_chars=MAX_READ_BYTES)
+            after = _read_text(target, max_chars=MAX_READ_BYTES)
+            diff_lines = _simple_line_diff(before, after, max_lines=max_lines)
+
+            report = {
+                "report_type": "serena_vscode_file_diff",
+                "created_at": _timestamp(),
+                "root": key,
+                "file": str(target),
+                "relative_path": str(target.relative_to(root_path)),
+                "snapshot": str(snapshot_path),
+                "snapshot_meta": meta,
+                "diff_lines": diff_lines,
+                "truncated": len(diff_lines) >= max_lines,
+            }
+
+            report_path = _save_report(target, report)
+
+            return self._result(
+                "Serena VS Code file diff\n\n"
+                f"- Root: {key}\n"
+                f"- File: {target.relative_to(root_path)}\n"
+                f"- Snapshot: {snapshot_path}\n"
+                f"- Diff lines shown: {len(diff_lines)}\n"
+                f"- Report: {report_path}\n\n"
+                "Diff:\n"
+                + ("\n".join(diff_lines) if diff_lines else "No text differences detected."),
+                metadata={**report, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to diff VS Code file: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_vscode_list_snapshots")
+class SerenaVSCodeListSnapshotsTool(_VSCodeBaseTool):
+    tool_id = "serena_vscode_list_snapshots"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="List Serena VS Code file snapshots.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer"},
+                    "path": {"type": "string"},
+                },
+            },
+            category="serena_vscode",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            limit = int(params.get("limit") or 50)
+            path_filter = str(params.get("path") or "").strip()
+
+            rows: list[dict[str, Any]] = []
+            for meta_path in _snapshot_metadata_files():
+                try:
+                    meta = _load_snapshot_meta(meta_path)
+                    source = str(meta.get("source") or "")
+                    snapshot = str(meta.get("snapshot") or "")
+                    if path_filter and path_filter.lower() not in source.lower() and path_filter.lower() not in snapshot.lower():
+                        continue
+                    rows.append(
+                        {
+                            "meta": str(meta_path),
+                            "source": source,
+                            "snapshot": snapshot,
+                            "reason": meta.get("reason", ""),
+                            "timestamp": meta.get("timestamp", ""),
+                            "size_bytes": meta.get("size_bytes", 0),
+                        }
+                    )
+                    if len(rows) >= limit:
+                        break
+                except Exception:
+                    continue
+
+            lines = [
+                "Serena VS Code snapshots",
+                "",
+                f"- Folder: {_vscode_root() / 'snapshots'}",
+                f"- Snapshots shown: {len(rows)}",
+                "",
+                "Snapshots:",
+            ]
+
+            if rows:
+                for row in rows:
+                    lines.append(
+                        f"- {Path(row['snapshot']).name} | reason={row['reason']} | source={row['source']}"
+                    )
+            else:
+                lines.append("- none")
+
+            return self._result("\n".join(lines), metadata={"snapshots": rows})
+        except Exception as exc:
+            return self._result(f"Failed to list VS Code snapshots: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_vscode_restore_snapshot")
+class SerenaVSCodeRestoreSnapshotTool(_VSCodeBaseTool):
+    tool_id = "serena_vscode_restore_snapshot"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Restore a file from the latest Serena VS Code snapshot or a provided snapshot path. Creates safety snapshot first.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"},
+                    "path": {"type": "string"},
+                    "snapshot": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                },
+                "required": ["root", "path", "approved"],
+            },
+            category="serena_vscode",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            approved = bool(params.get("approved", False))
+            if not approved:
+                return self._result(
+                    "Restore blocked. Restoring a snapshot changes a file and requires explicit approval.",
+                    success=False,
+                )
+
+            key, root, root_path, target = _resolve_project_file(
+                str(params.get("root") or ""),
+                str(params.get("path") or ""),
+            )
+
+            if _is_sensitive_path(target):
+                return self._result(
+                    "Restore blocked. Target path looks sensitive or production-related.",
+                    success=False,
+                    metadata={"root": key, "path": str(target)},
+                )
+
+            requested_snapshot = str(params.get("snapshot") or "").strip()
+
+            if requested_snapshot:
+                snapshot_path = Path(requested_snapshot)
+                if not snapshot_path.exists() or not snapshot_path.is_file():
+                    return self._result(f"Snapshot file not found: {snapshot_path}", success=False)
+            else:
+                latest = _latest_snapshot_for_target(target)
+                if not latest:
+                    return self._result(
+                        "Restore blocked. No snapshot found for this file.",
+                        success=False,
+                        metadata={"root": key, "path": str(target)},
+                    )
+                snapshot_path, _meta = latest
+
+            safety_snapshot = _snapshot_file(target, "before-restore")
+            shutil.copy2(snapshot_path, target)
+
+            return self._result(
+                "Serena VS Code snapshot restored\n\n"
+                f"- Root: {key}\n"
+                f"- File: {target.relative_to(root_path)}\n"
+                f"- Restored from: {snapshot_path}\n"
+                f"- Safety snapshot before restore: {safety_snapshot}",
+                metadata={
+                    "root": key,
+                    "path": str(target),
+                    "restored_from": str(snapshot_path),
+                    "safety_snapshot": str(safety_snapshot),
+                    "approved": True,
+                },
+            )
+        except Exception as exc:
+            return self._result(f"Failed to restore VS Code snapshot: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_vscode_task_plan")
+class SerenaVSCodeTaskPlanTool(_VSCodeBaseTool):
+    tool_id = "serena_vscode_task_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a developer task plan for an approved root without changing code.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"},
+                    "task": {"type": "string"},
+                    "limit": {"type": "integer"},
+                },
+                "required": ["root", "task"],
+            },
+            category="serena_vscode",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            key, root, path = _resolve_root(str(params.get("root") or ""))
+            task = str(params.get("task") or "").strip()
+            limit = int(params.get("limit") or 300)
+
+            if not task:
+                return self._result("Task description is required.", success=False)
+
+            project = _detect_project_type(path)
+            files = _collect_project_files(path, limit=limit)
+
+            likely_files = []
+            task_terms = [t for t in re.findall(r"[A-Za-z0-9_/-]+", task.lower()) if len(t) >= 4]
+
+            for file in files:
+                rel = str(file.relative_to(path))
+                lower_rel = rel.lower()
+                if any(term in lower_rel for term in task_terms):
+                    likely_files.append(rel)
+                elif _is_safe_read(file) and file.stat().st_size <= MAX_READ_BYTES:
+                    try:
+                        text = _read_text(file, max_chars=12000).lower()
+                        if any(term in text for term in task_terms):
+                            likely_files.append(rel)
+                    except Exception:
+                        pass
+
+                if len(likely_files) >= 30:
+                    break
+
+            plan = {
+                "report_type": "serena_vscode_task_plan",
+                "created_at": _timestamp(),
+                "root": key,
+                "path": str(path),
+                "task": task,
+                "project": project,
+                "likely_files": likely_files,
+                "steps": [
+                    "Inspect relevant files.",
+                    "Snapshot files before edits.",
+                    "Make the smallest safe change.",
+                    "Run safe checks/tests.",
+                    "Inspect diffs.",
+                    "Prepare developer summary.",
+                ],
+                "approval_required_for": [
+                    "publish",
+                    "deploy",
+                    "push",
+                    "delete files",
+                    "install/change dependencies",
+                    "secrets/credentials",
+                    "risky shell commands",
+                ],
+            }
+
+            report_path = _save_report(path, plan)
+
+            lines = [
+                "Serena VS Code developer task plan",
+                "",
+                f"- Root: {key}",
+                f"- Task: {task}",
+                f"- Detected languages: {', '.join(project['languages'])}",
+                f"- Likely relevant files: {len(likely_files)}",
+                f"- Plan report: {report_path}",
+                "",
+                "Likely relevant files:",
+            ]
+
+            if likely_files:
+                lines.extend(f"- {item}" for item in likely_files[:30])
+            else:
+                lines.append("- none found from deterministic search; inspect project structure manually.")
+
+            lines.extend([
+                "",
+                "Planned steps:",
+                "- Inspect relevant files.",
+                "- Snapshot files before edits.",
+                "- Make the smallest safe change.",
+                "- Run safe checks/tests.",
+                "- Inspect diffs.",
+                "- Prepare developer summary.",
+                "",
+                "Approval required for publish/deploy/push/destructive/risky actions only.",
+            ])
+
+            return self._result("\n".join(lines), metadata={**plan, "report_path": str(report_path)})
+        except Exception as exc:
+            return self._result(f"Failed to create VS Code task plan: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_vscode_implement_plan")
+class SerenaVSCodeImplementPlanTool(_VSCodeBaseTool):
+    tool_id = "serena_vscode_implement_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Apply a small explicit set of file writes/edits from a structured plan. Snapshots before modifications.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"},
+                    "operations_json": {"type": "string"},
+                    "operations_file": {"type": "string"},
+                },
+                "required": ["root"],
+            },
+            category="serena_vscode",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            key, root, root_path = _resolve_root(str(params.get("root") or ""))
+            operations_file = str(params.get("operations_file") or "").strip()
+            raw = str(params.get("operations_json") or "").strip()
+
+            if operations_file:
+                op_path = Path(operations_file)
+                if not op_path.exists() or not op_path.is_file():
+                    return self._result(f"operations_file not found: {op_path}", success=False)
+                raw = op_path.read_text(encoding="utf-8-sig").strip()
+
+            if not raw:
+                return self._result("operations_json or operations_file is required.", success=False)
+
+            try:
+                operations = json.loads(raw)
+            except Exception as exc:
+                return self._result(f"Invalid operations_json: {exc}", success=False)
+
+            if not isinstance(operations, list):
+                return self._result("operations_json must be a JSON list.", success=False)
+
+            applied: list[dict[str, Any]] = []
+            blocked: list[dict[str, Any]] = []
+
+            for op in operations:
+                if not isinstance(op, dict):
+                    blocked.append({"operation": op, "reason": "operation must be object"})
+                    continue
+
+                kind = str(op.get("op") or "").strip()
+                rel_path = str(op.get("path") or "").strip()
+
+                try:
+                    _key, _root, _root_path, target = _resolve_project_file(key, rel_path)
+
+                    if _is_sensitive_path(target):
+                        blocked.append({"operation": op, "reason": "sensitive/protected path"})
+                        continue
+
+                    if kind == "write":
+                        content = str(op.get("content") or "")
+                        overwrite = bool(op.get("overwrite", False))
+                        existed = target.exists()
+                        snapshot = ""
+
+                        if existed and not overwrite:
+                            blocked.append({"operation": op, "reason": "target exists and overwrite was false"})
+                            continue
+
+                        if existed:
+                            snapshot = str(_snapshot_file(target, "before-implement-write"))
+
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        target.write_text(content, encoding="utf-8")
+                        applied.append({"op": kind, "path": str(target), "existed": existed, "snapshot": snapshot})
+
+                    elif kind == "replace":
+                        old = str(op.get("old") or "")
+                        new = str(op.get("new") or "")
+                        replace_all = bool(op.get("replace_all", False))
+
+                        if not old:
+                            blocked.append({"operation": op, "reason": "old text required"})
+                            continue
+
+                        text = _read_text(target, max_chars=MAX_READ_BYTES)
+                        count = text.count(old)
+                        if count == 0:
+                            blocked.append({"operation": op, "reason": "old text not found"})
+                            continue
+
+                        snapshot = str(_snapshot_file(target, "before-implement-replace"))
+                        updated = text.replace(old, new) if replace_all else text.replace(old, new, 1)
+                        target.write_text(updated, encoding="utf-8")
+                        applied.append(
+                            {
+                                "op": kind,
+                                "path": str(target),
+                                "replacements": count if replace_all else 1,
+                                "snapshot": snapshot,
+                            }
+                        )
+
+                    elif kind == "mkdir":
+                        target.mkdir(parents=True, exist_ok=True)
+                        applied.append({"op": kind, "path": str(target)})
+
+                    else:
+                        blocked.append({"operation": op, "reason": f"unsupported op: {kind}"})
+
+                except Exception as exc:
+                    blocked.append({"operation": op, "reason": str(exc)})
+
+            report = {
+                "report_type": "serena_vscode_implement_plan",
+                "created_at": _timestamp(),
+                "root": key,
+                "operations_count": len(operations),
+                "applied": applied,
+                "blocked": blocked,
+            }
+
+            report_path = _save_report(root_path, report)
+
+            lines = [
+                "Serena VS Code implementation plan applied",
+                "",
+                f"- Root: {key}",
+                f"- Operations requested: {len(operations)}",
+                f"- Applied: {len(applied)}",
+                f"- Blocked: {len(blocked)}",
+                f"- Report: {report_path}",
+                "",
+                "Applied:",
+            ]
+
+            if applied:
+                for item in applied:
+                    lines.append(f"- {item['op']} | {item['path']} | snapshot={item.get('snapshot', '') or 'not needed'}")
+            else:
+                lines.append("- none")
+
+            lines.extend(["", "Blocked:"])
+            if blocked:
+                for item in blocked:
+                    lines.append(f"- {item.get('reason')}: {item.get('operation')}")
+            else:
+                lines.append("- none")
+
+            return self._result("\n".join(lines), metadata={**report, "report_path": str(report_path)})
+        except Exception as exc:
+            return self._result(f"Failed to implement VS Code plan: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_vscode_test_report")
+class SerenaVSCodeTestReportTool(_VSCodeBaseTool):
+    tool_id = "serena_vscode_test_report"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Run a set of safe checks and create a developer test report.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"},
+                    "checks": {"type": "string"},
+                    "module": {"type": "string"},
+                },
+                "required": ["root"],
+            },
+            category="serena_vscode",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            key, root, path = _resolve_root(str(params.get("root") or ""))
+            checks_raw = str(params.get("checks") or "git-status").strip()
+            module = str(params.get("module") or "").strip()
+
+            checks = [c.strip() for c in checks_raw.split(",") if c.strip()]
+            results = []
+
+            for check in checks:
+                result = SerenaVSCodeRunCheckTool().execute(root=key, check=check, module=module)
+                results.append(
+                    {
+                        "check": check,
+                        "success": result.success,
+                        "content": result.content[-5000:],
+                        "metadata": result.metadata,
+                    }
+                )
+
+            failed = [r for r in results if not r["success"] or r["metadata"].get("returncode", 0) not in (0, None)]
+
+            report = {
+                "report_type": "serena_vscode_test_report",
+                "created_at": _timestamp(),
+                "root": key,
+                "checks": checks,
+                "results": results,
+                "failed_count": len(failed),
+                "passed_count": len(results) - len(failed),
+            }
+
+            report_path = _save_report(path, report)
+
+            lines = [
+                "Serena VS Code test report",
+                "",
+                f"- Root: {key}",
+                f"- Checks run: {len(results)}",
+                f"- Passed: {len(results) - len(failed)}",
+                f"- Failed: {len(failed)}",
+                f"- Report: {report_path}",
+                "",
+                "Results:",
+            ]
+
+            for item in results:
+                returncode = item["metadata"].get("returncode", "n/a")
+                lines.append(f"- {item['check']} | success={item['success']} | returncode={returncode}")
+
+            if failed:
+                lines.extend(["", "Attention needed:"])
+                for item in failed:
+                    lines.append(f"- {item['check']} needs review.")
+
+            return self._result("\n".join(lines), metadata={**report, "report_path": str(report_path)})
+        except Exception as exc:
+            return self._result(f"Failed to create VS Code test report: {exc}", success=False)
+
+
 __all__ = [
     "SerenaVSCodeStatusTool",
     "SerenaVSCodeRootsTool",
@@ -984,4 +1599,10 @@ __all__ = [
     "SerenaVSCodeWriteFileTool",
     "SerenaVSCodeEditFileTool",
     "SerenaVSCodeRunCheckTool",
+    "SerenaVSCodeTestReportTool",
+    "SerenaVSCodeImplementPlanTool",
+    "SerenaVSCodeTaskPlanTool",
+    "SerenaVSCodeRestoreSnapshotTool",
+    "SerenaVSCodeListSnapshotsTool",
+    "SerenaVSCodeDiffFileTool",
 ]
