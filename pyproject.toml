@@ -77,6 +77,10 @@ server = [
     "pydantic>=2.0",
     "python-multipart>=0.0.9",
 ]
+auth-workos = [
+    "workos>=5.0",
+    "pyjwt[crypto]>=2.8",
+]
 openhands = ["openhands-sdk>=1.0; python_version >= '3.12'"]
 gpu-metrics = ["pynvml>=12.0"]
 energy-amd = ["amdsmi>=6.1"]
