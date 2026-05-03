@@ -259,12 +259,26 @@ def create_app(
     except Exception as exc:
         logger.debug("Security middleware init skipped: %s", exc)
 
-    # API key authentication middleware
-    if api_key:
+    # Authentication middleware — enabled when either a static API key
+    # is configured OR WORKOS_CLIENT_ID is set in the environment.
+    # Both auth modes coexist: see auth_middleware.AuthMiddleware.
+    import os as _os
+
+    workos_client_id = _os.environ.get("WORKOS_CLIENT_ID", "")
+    if api_key or workos_client_id:
         try:
             from openjarvis.server.auth_middleware import AuthMiddleware
 
-            app.add_middleware(AuthMiddleware, api_key=api_key)
+            app.add_middleware(
+                AuthMiddleware,
+                api_key=api_key,
+                workos_client_id=workos_client_id,
+            )
+            if workos_client_id:
+                logger.info(
+                    "WorkOS AuthKit JWT validation enabled (client_id=%s...)",
+                    workos_client_id[:16],
+                )
         except Exception as exc:
             logger.debug("Auth middleware init skipped: %s", exc)
 
