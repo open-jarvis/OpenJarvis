@@ -43,6 +43,7 @@ from openjarvis.cli.skill_cmd import skill
 from openjarvis.cli.telemetry_cmd import telemetry
 from openjarvis.cli.tool_cmd import tool
 from openjarvis.cli.vault_cmd import vault
+from openjarvis.cli.voice_cmd import voice
 from openjarvis.cli.workflow_cmd import workflow
 from openjarvis.learning.distillation.cli import learning_group
 
@@ -99,6 +100,7 @@ cli.add_command(stop, "stop")
 cli.add_command(restart, "restart")
 cli.add_command(status, "status")
 cli.add_command(vault, "vault")
+cli.add_command(voice, "voice")
 cli.add_command(add, "add")
 cli.add_command(operators, "operators")
 cli.add_command(eval_group, "eval")
