@@ -18,6 +18,8 @@ from openjarvis.tools.serena_documents import (
     SerenaDocumentsSnapshotsTool,
     SerenaDocumentsAuditTool,
     SerenaDocumentsPDFCheckTool,
+    SerenaDocumentsJSONReportTool,
+    SerenaDocumentsFieldsTool,
     SerenaDocumentsSnapshotTool,
     SerenaDocumentsLibraryTool,
     SerenaDocumentsImportTool,
@@ -160,6 +162,24 @@ def pdf_check(file_path: str) -> None:
     """Check whether a PDF has extractable text or needs OCR."""
     console = Console()
     result = SerenaDocumentsPDFCheckTool().execute(path=file_path)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@documents.command("fields")
+@click.option("--path", "file_path", required=True, help="Document path.")
+def fields(file_path: str) -> None:
+    """Extract practical structured fields from a document."""
+    console = Console()
+    result = SerenaDocumentsFieldsTool().execute(path=file_path)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@documents.command("json-report")
+@click.option("--path", "file_path", required=True, help="Document path.")
+def json_report(file_path: str) -> None:
+    """Create a structured JSON operator report for a document."""
+    console = Console()
+    result = SerenaDocumentsJSONReportTool().execute(path=file_path)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 

@@ -1244,6 +1244,293 @@ class SerenaDocumentsPDFCheckTool(_DocumentsBaseTool):
             return self._result(f"Failed to check PDF: {exc}", success=False)
 
 
+def _extract_structured_fields(path: Path, text: str) -> dict[str, Any]:
+    """Extract practical structured fields from document text using safe deterministic patterns."""
+    clean = re.sub(r"\s+", " ", text).strip()
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+
+    title = path.stem
+    if lines:
+        first = re.sub(r"^#+\s*", "", lines[0]).strip()
+        if first:
+            title = first[:160]
+
+    emails = sorted(set(re.findall(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", text)))
+
+    phones: list[str] = []
+    for match in re.findall(r"\+?\d[\d\s().-]{6,}\d", text):
+        cleaned = match.strip()
+        digits = re.sub(r"\D", "", cleaned)
+
+        # Reject common false positives such as dates and invoice fragments.
+        is_date_like = bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", cleaned))
+        is_year_code_like = bool(re.fullmatch(r"\d{4}-\d{3,}", cleaned))
+        has_phone_shape = cleaned.startswith("+") or bool(re.search(r"\d[\s().-]+\d", cleaned))
+
+        if 7 <= len(digits) <= 15 and has_phone_shape and not is_date_like and not is_year_code_like:
+            phones.append(cleaned)
+
+    phones = sorted(set(phones))
+
+    dates: list[str] = []
+    date_patterns = [
+        r"\b\d{4}-\d{2}-\d{2}\b",
+        r"\b\d{1,2}/\d{1,2}/\d{2,4}\b",
+        r"\b\d{1,2}-\d{1,2}-\d{2,4}\b",
+        r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b",
+        r"\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\s+\d{4}\b",
+    ]
+    for pattern in date_patterns:
+        dates.extend(re.findall(pattern, text, flags=re.I))
+    dates = sorted(set(dates))
+
+    amounts: list[str] = []
+    amount_patterns = [
+        r"\bR\s?\d[\d,\s]*(?:\.\d{2})?\b",
+        r"\bZAR\s?\d[\d,\s]*(?:\.\d{2})?\b",
+        r"\$\s?\d[\d,\s]*(?:\.\d{2})?\b",
+        r"\bEUR\s?\d[\d,\s]*(?:\.\d{2})?\b",
+        r"\bGBP\s?\d[\d,\s]*(?:\.\d{2})?\b",
+        r"\b\d[\d,\s]*(?:\.\d{2})?\s?(?:ZAR|USD|EUR|GBP|rand|rands|dollars|euros|pounds)\b",
+    ]
+    for pattern in amount_patterns:
+        amounts.extend(re.findall(pattern, text, flags=re.I))
+    amounts = sorted(set(x.strip() for x in amounts))
+
+    possible_ids: list[str] = []
+    id_labels = [
+        "ID", "Ref", "Reference", "Invoice", "Invoice Number", "Claim",
+        "Policy", "Member", "Membership", "Account", "Case", "File", "Patient"
+    ]
+    for line in lines:
+        for label in id_labels:
+            lower = line.lower()
+            if lower.startswith(label.lower()):
+                parts = re.split(r"[:#]", line, maxsplit=1)
+                if len(parts) == 2:
+                    value = parts[1].strip()
+                    if value:
+                        possible_ids.append(value)
+        for match in re.findall(r"\b[A-Z]{2,}-\d{3,}(?:-\d+)?\b", line):
+            possible_ids.append(match.strip())
+        for match in re.findall(r"\bINV-\d{4}-\d{3,}\b", line, flags=re.I):
+            possible_ids.append(match.strip())
+    possible_ids = sorted(set(possible_ids))
+
+    people_candidates = re.findall(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2}\b", text)
+    stop_people = {
+        "Medical Aid", "Billing Follow", "Billing Workflow", "Action Items",
+        "Test Patient", "Dr Piet", "Dr Piet Muller", "South Africa"
+    }
+    people = sorted(set(x for x in people_candidates if x not in stop_people))[:30]
+
+    organizations: list[str] = []
+    org_keywords = ["practice", "medical aid", "clinic", "hospital", "company", "department", "scheme", "healthcare"]
+    for line in lines:
+        if any(k in line.lower() for k in org_keywords):
+            organizations.append(line[:180])
+    organizations = sorted(set(organizations))[:20]
+
+    words = re.findall(r"\b[a-zA-Z][a-zA-Z-]{3,}\b", clean.lower())
+    stopwords = {
+        "this", "that", "with", "from", "have", "will", "should", "could", "would",
+        "document", "information", "details", "before", "after", "about", "into",
+        "their", "there", "where", "which", "what", "when", "then", "than", "also",
+        "only", "does", "make", "clear", "person", "workflow", "support"
+    }
+    freq: dict[str, int] = {}
+    for word in words:
+        if word not in stopwords:
+            freq[word] = freq.get(word, 0) + 1
+    keywords = [word for word, _ in sorted(freq.items(), key=lambda kv: (-kv[1], kv[0]))[:20]]
+
+    action_items: list[str] = []
+    in_action_section = False
+    for line in lines:
+        lower = line.lower().rstrip(":")
+        if lower in {"action items", "recommended next steps", "next steps", "to do", "todo"}:
+            in_action_section = True
+            continue
+
+        if in_action_section and (line.startswith("- ") or line.startswith("* ")):
+            action_items.append(line.lstrip("-* ").strip())
+            continue
+
+        if line.startswith("- ") or line.startswith("* "):
+            action_items.append(line.lstrip("-* ").strip())
+            continue
+
+        if any(line.lower().startswith(prefix) for prefix in ["review ", "check ", "confirm ", "collect ", "track ", "escalate ", "submit ", "prepare ", "contact "]):
+            action_items.append(line.strip())
+
+    action_items = [x for x in action_items if x][:30]
+
+    classification = _classify_document(path, text)
+    inspection = _inspect_document(path, text)
+
+    return {
+        "source": str(path),
+        "filename": path.name,
+        "title": title,
+        "document_type": classification["document_type"],
+        "confidence": classification["confidence"],
+        "sensitivity_flags": classification["sensitivity_flags"],
+        "word_count": inspection["word_count"],
+        "line_count": inspection["line_count"],
+        "dates": dates,
+        "emails": emails,
+        "phone_numbers": phones,
+        "amounts": amounts,
+        "possible_ids": possible_ids,
+        "people_candidates": people,
+        "organization_contexts": organizations,
+        "keywords": keywords,
+        "action_items": action_items,
+        "issues": inspection["issues"],
+        "recommendations": inspection["recommendations"],
+    }
+
+
+def _save_json_artifact(kind: str, source: Path, payload: dict[str, Any]) -> Path:
+    root = _documents_root()
+    out_dir = root / kind
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"{_timestamp()}-{_safe_slug(source.stem)}.json"
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return path
+
+
+@ToolRegistry.register("serena_documents_fields")
+class SerenaDocumentsFieldsTool(_DocumentsBaseTool):
+    tool_id = "serena_documents_fields"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Extract practical structured fields from a supported document.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Document path."}
+                },
+                "required": ["path"],
+            },
+            category="serena_documents",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            path = _resolve_path(str(params.get("path") or ""))
+            text = _extract_text(path)
+            fields = _extract_structured_fields(path, text)
+            out_path = _save_json_artifact("extracted", path, fields)
+
+            lines = [
+                "Serena document fields extracted",
+                "",
+                f"- Source: {path}",
+                f"- JSON output: {out_path}",
+                f"- Title: {fields['title']}",
+                f"- Type: {fields['document_type']} ({fields['confidence']})",
+                f"- Sensitivity flags: {', '.join(fields['sensitivity_flags']) or 'none'}",
+                f"- Word count: {fields['word_count']}",
+                "",
+                "Extracted fields:",
+                f"- Dates: {', '.join(fields['dates']) or 'none'}",
+                f"- Emails: {', '.join(fields['emails']) or 'none'}",
+                f"- Phone numbers: {', '.join(fields['phone_numbers']) or 'none'}",
+                f"- Amounts: {', '.join(fields['amounts']) or 'none'}",
+                f"- Possible IDs/references: {', '.join(fields['possible_ids']) or 'none'}",
+                f"- People candidates: {', '.join(fields['people_candidates']) or 'none'}",
+                f"- Keywords: {', '.join(fields['keywords'][:12]) or 'none'}",
+                "",
+                "Action items:",
+            ]
+
+            if fields["action_items"]:
+                lines.extend(f"- {item}" for item in fields["action_items"][:15])
+            else:
+                lines.append("- none")
+
+            return self._result(
+                "\n".join(lines),
+                metadata={"source": str(path), "json_output": str(out_path), **fields},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to extract document fields: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_documents_json_report")
+class SerenaDocumentsJSONReportTool(_DocumentsBaseTool):
+    tool_id = "serena_documents_json_report"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a structured JSON operator report for a supported document.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Document path."}
+                },
+                "required": ["path"],
+            },
+            category="serena_documents",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            path = _resolve_path(str(params.get("path") or ""))
+            text = _extract_text(path)
+            fields = _extract_structured_fields(path, text)
+            summary = _summarize_text(text, max_sentences=8)
+
+            payload = {
+                "report_type": "serena_document_operator_json_report",
+                "created_at": _timestamp(),
+                "summary": summary,
+                "fields": fields,
+                "operator_notes": [
+                    "Original document was not modified.",
+                    "Structured fields are pattern-based and should be reviewed for critical workflows.",
+                    "For healthcare/legal/financial documents, Serena summarizes and flags but does not make final professional decisions.",
+                ],
+            }
+
+            out_path = _save_json_artifact("reports", path, payload)
+
+            return self._result(
+                "Serena structured JSON document report created\n\n"
+                f"- Source: {path}\n"
+                f"- JSON report: {out_path}\n"
+                f"- Type: {fields['document_type']}\n"
+                f"- Sensitivity flags: {', '.join(fields['sensitivity_flags']) or 'none'}\n"
+                f"- Dates found: {len(fields['dates'])}\n"
+                f"- Emails found: {len(fields['emails'])}\n"
+                f"- Phone numbers found: {len(fields['phone_numbers'])}\n"
+                f"- Amounts found: {len(fields['amounts'])}\n"
+                f"- Action items found: {len(fields['action_items'])}",
+                metadata={
+                    "source": str(path),
+                    "json_report": str(out_path),
+                    "document_type": fields["document_type"],
+                    "sensitivity_flags": fields["sensitivity_flags"],
+                    "field_counts": {
+                        "dates": len(fields["dates"]),
+                        "emails": len(fields["emails"]),
+                        "phone_numbers": len(fields["phone_numbers"]),
+                        "amounts": len(fields["amounts"]),
+                        "possible_ids": len(fields["possible_ids"]),
+                        "action_items": len(fields["action_items"]),
+                    },
+                },
+            )
+        except Exception as exc:
+            return self._result(f"Failed to create structured JSON report: {exc}", success=False)
+
+
 __all__ = [
     "SerenaDocumentsStatusTool",
     "SerenaDocumentsIndexTool",
@@ -1256,6 +1543,8 @@ __all__ = [
     "SerenaDocumentsSnapshotsTool",
     "SerenaDocumentsAuditTool",
     "SerenaDocumentsPDFCheckTool",
+    "SerenaDocumentsJSONReportTool",
+    "SerenaDocumentsFieldsTool",
     "SerenaDocumentsSnapshotTool",
     "SerenaDocumentsLibraryTool",
     "SerenaDocumentsImportTool",
