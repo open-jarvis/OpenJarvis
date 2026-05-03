@@ -104,6 +104,12 @@ def listen(
     if seconds <= 0:
         raise click.ClickException("Recording duration must be greater than zero.")
 
+    device_arg = _resolve_input_device(device)
+    if device_arg is None:
+        raise click.ClickException(
+            "No microphone input device found. Plug in a microphone, then run: serena listen --list-devices"
+        )
+
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -111,10 +117,9 @@ def listen(
     wav_path = out_dir / f"serena-listen-{timestamp}.wav"
 
     console.print(f"[cyan]Listening for {seconds:.1f} seconds...[/cyan]")
-    console.print(f"[dim]Input device: {device_arg if device_arg is not None else 'auto/default'}[/dim]")
+    console.print(f"[dim]Input device: {device_arg}[/dim]")
 
     try:
-        device_arg = _resolve_input_device(device)
         audio = sd.rec(
             int(seconds * samplerate),
             samplerate=samplerate,
