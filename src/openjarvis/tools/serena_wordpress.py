@@ -10,6 +10,7 @@ drafts by default, explicit approval for publishing/live updates.
 from __future__ import annotations
 
 import base64
+from datetime import datetime
 import html
 import json
 import os
@@ -206,6 +207,42 @@ def _save_artifact(kind: str, data: dict[str, Any], content: str = "") -> str:
 
     return str(folder)
 
+
+
+def _snapshot_content(site_key: str | None, endpoint: str, content_id: int, reason: str) -> str:
+    """Save a rollback snapshot before update/trash operations."""
+    cfg = _config(site_key)
+    site = cfg.get("site_key") or _site_key(site_key)
+    out_dir = Path(cfg.get("artifact_dir", "outputs/wordpress")) / "rollback" / site
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    snapshot_path = out_dir / f"{timestamp}-{endpoint}-{content_id}-{_slugify(reason)}.json"
+
+    item = _request("GET", f"{endpoint}/{content_id}?context=edit", site_key=site_key)
+    if not isinstance(item, dict):
+        raise RuntimeError("Could not snapshot WordPress content before operation.")
+
+    content = str((item.get("content") or {}).get("rendered") or "")
+
+    snapshot = {
+        "snapshot_reason": reason,
+        "snapshot_timestamp": timestamp,
+        "site_key": site,
+        "site_url": cfg.get("site_url"),
+        "content_type": endpoint,
+        "content_id": content_id,
+        "title": _rendered(item.get("title")),
+        "status": item.get("status"),
+        "slug": item.get("slug"),
+        "link": item.get("link"),
+        "modified": item.get("modified") or item.get("modified_gmt"),
+        "content_rendered": content,
+        "raw": item,
+    }
+
+    snapshot_path.write_text(json.dumps(snapshot, indent=2), encoding="utf-8")
+    return str(snapshot_path)
 
 def _format_item(item: dict[str, Any]) -> str:
     title = _rendered(item.get("title"))
@@ -479,8 +516,9 @@ class SerenaWordPressUpdateContentTool(_WordPressBaseTool):
         approved = bool(params.get("approved", False))
         if not content_id:
             return self._result("content_id is required.", success=False)
-        if not approved:
-            return self._result("Updating WordPress content requires explicit approval. Confirm the exact change first.", success=False)
+        # Trusted operator mode:
+        # Updates are allowed without extra approval.
+        # Publishing still requires explicit approval.
 
         payload: dict[str, Any] = {}
         for key in ("title", "content", "status"):
@@ -491,12 +529,22 @@ class SerenaWordPressUpdateContentTool(_WordPressBaseTool):
         if not payload:
             return self._result("No update fields provided.", success=False)
 
+        if str(payload.get("status", "")).lower() == "publish" and not approved:
+            return self._result(
+                "Publishing requires explicit approval. Re-run with approved=true only after the user confirms publishing.",
+                success=False,
+            )
+
         endpoint = "pages" if content_type == "pages" else "posts"
         try:
+            snapshot_path = _snapshot_content(site_key, endpoint, content_id, "before-update")
             item = _request("POST", f"{endpoint}/{content_id}", site_key=site_key, json=payload)
             if isinstance(item, dict):
                 _save_artifact(endpoint, item, content=str(payload.get("content") or ""))
-                return self._result("WordPress content updated\n\n" + _format_item(item), metadata={"id": item.get("id")})
+                return self._result(
+                    "WordPress content updated\n\n" + _format_item(item) + f"\n\nRollback snapshot: {snapshot_path}",
+                    metadata={"id": item.get("id"), "rollback_snapshot": snapshot_path},
+                )
             return self._result("Unexpected WordPress response.", success=False)
         except Exception as exc:
             return self._result(f"Failed to update WordPress content: {exc}", success=False)
@@ -566,9 +614,7 @@ class SerenaWordPressUploadMediaTool(_WordPressBaseTool):
 
     def execute(self, **params: Any) -> ToolResult:
         site_key = str(params.get("site_key") or "").strip() or None
-        if not bool(params.get("approved", False)):
-            return self._result("Uploading public media requires explicit approval.", success=False)
-
+        # Trusted operator mode: media upload from approved local/content-library paths is allowed.
         file_path = Path(str(params.get("path") or ""))
         if not file_path.exists() or not file_path.is_file():
             return self._result(f"Media file not found: {file_path}", success=False)
@@ -1091,6 +1137,71 @@ class SerenaWordPressInspectContentTool(_WordPressBaseTool):
             return self._result(f"Failed to inspect WordPress content: {exc}", success=False)
 
 
+@ToolRegistry.register("serena_wordpress_trash_content")
+class SerenaWordPressTrashContentTool(_WordPressBaseTool):
+    tool_id = "serena_wordpress_trash_content"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description=(
+                "Move a WordPress post/page to trash in trusted operator mode. "
+                "This is soft-trash only, not permanent deletion. A rollback snapshot is saved first."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "site_key": {
+                        "type": "string",
+                        "description": "WordPress site key, e.g. drpiet or serena. Defaults to WORDPRESS_DEFAULT_SITE.",
+                    },
+                    "content_type": {
+                        "type": "string",
+                        "description": "Content type: posts or pages.",
+                    },
+                    "content_id": {
+                        "type": "integer",
+                        "description": "WordPress post/page ID.",
+                    },
+                },
+                "required": ["content_id"],
+            },
+            category="serena_wordpress",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
+        content_type = str(params.get("content_type") or "pages").strip().lower()
+        content_id = int(params.get("content_id") or 0)
+
+        if not content_id:
+            return self._result("content_id is required.", success=False)
+
+        endpoint = "posts" if content_type == "posts" else "pages"
+
+        try:
+            snapshot_path = _snapshot_content(site_key, endpoint, content_id, "before-trash")
+            item = _request("DELETE", f"{endpoint}/{content_id}?force=false", site_key=site_key)
+
+            return self._result(
+                "WordPress content moved to trash. Permanent deletion was not performed."
+                f"\n\n- Site: {_config(site_key).get('site_key')} ({_config(site_key).get('site_url')})"
+                f"\n- Type: {endpoint}"
+                f"\n- ID: {content_id}"
+                f"\n- Rollback snapshot: {snapshot_path}",
+                metadata={
+                    "site_key": _config(site_key).get("site_key"),
+                    "content_type": endpoint,
+                    "content_id": content_id,
+                    "rollback_snapshot": snapshot_path,
+                    "wordpress_response": item,
+                },
+            )
+        except Exception as exc:
+            return self._result(f"Failed to move WordPress content to trash: {exc}", success=False)
+
+
 __all__ = [
     "SerenaWordPressStatusTool",
     "SerenaWordPressListPostsTool",
@@ -1104,4 +1215,5 @@ __all__ = [
     "SerenaWordPressBuildPagePlanTool",
     "SerenaWordPressGetContentTool",
     "SerenaWordPressInspectContentTool",
+    "SerenaWordPressTrashContentTool",
 ]

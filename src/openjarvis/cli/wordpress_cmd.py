@@ -15,6 +15,9 @@ from openjarvis.tools.serena_wordpress import (
     SerenaWordPressListPostsTool,
     SerenaWordPressSearchTool,
     SerenaWordPressStatusTool,
+    SerenaWordPressTrashContentTool,
+    SerenaWordPressUpdateContentTool,
+    SerenaWordPressUploadMediaTool,
 )
 
 
@@ -209,6 +212,102 @@ def inspect_content(
         keyword=keyword,
         healthcare=healthcare,
     )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("update")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--type", "content_type", default="pages", help="Content type: posts or pages.")
+@click.option("--id", "content_id", required=True, type=int, help="WordPress post/page ID.")
+@click.option("--title", default="", help="Optional new title.")
+@click.option("--content", default="", help="Optional new content. HTML or plain text.")
+@click.option("--status", default="", help="Optional status. Publishing requires --approved.")
+@click.option("--approved", is_flag=True, help="Required only when status=publish.")
+def update_content(
+    site_key: str | None,
+    content_type: str,
+    content_id: int,
+    title: str,
+    content: str,
+    status: str,
+    approved: bool,
+) -> None:
+    """Update a WordPress post/page. Saves rollback snapshot first."""
+    console = Console()
+
+    result = SerenaWordPressUpdateContentTool().execute(
+        site_key=site_key,
+        content_type=content_type,
+        content_id=content_id,
+        title=title,
+        content=content,
+        status=status,
+        approved=approved,
+    )
+
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("media")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--path", "file_path", required=True, help="Local media file path.")
+@click.option("--title", default="", help="Optional media title.")
+@click.option("--alt-text", default="", help="Optional alt text.")
+def media(site_key: str | None, file_path: str, title: str, alt_text: str) -> None:
+    """Upload media to WordPress from a local/content-library path."""
+    console = Console()
+
+    result = SerenaWordPressUploadMediaTool().execute(
+        site_key=site_key,
+        path=file_path,
+        title=title,
+        alt_text=alt_text,
+    )
+
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("publish")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--type", "content_type", default="pages", help="Content type: posts or pages.")
+@click.option("--id", "content_id", required=True, type=int, help="WordPress post/page ID.")
+@click.option("--approved", is_flag=True, help="Required. Confirms explicit human approval to publish.")
+def publish(site_key: str | None, content_type: str, content_id: int, approved: bool) -> None:
+    """Publish an existing WordPress post/page only after explicit approval."""
+    console = Console()
+
+    if not approved:
+        console.print(
+            "[red]Publishing requires explicit approval. "
+            "Re-run with --approved only after the user confirms publishing.[/red]"
+        )
+        return
+
+    result = SerenaWordPressUpdateContentTool().execute(
+        site_key=site_key,
+        content_type=content_type,
+        content_id=content_id,
+        status="publish",
+        approved=True,
+    )
+
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("trash")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--type", "content_type", default="pages", help="Content type: posts or pages.")
+@click.option("--id", "content_id", required=True, type=int, help="WordPress post/page ID.")
+def trash(site_key: str | None, content_type: str, content_id: int) -> None:
+    """Move a WordPress post/page to trash. Soft-trash only."""
+    console = Console()
+
+    result = SerenaWordPressTrashContentTool().execute(
+        site_key=site_key,
+        content_type=content_type,
+        content_id=content_id,
+    )
+
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 
