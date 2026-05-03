@@ -13,7 +13,7 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
 import polars as pl
 from pydantic import BaseModel, ValidationError
@@ -111,3 +111,54 @@ def load_results(glob_pattern: str) -> ResultsFrame:
                 )
 
     return ResultsFrame(df=df, unloadable_count=unloadable)
+
+
+def _format_cell(value: Optional[float], precision: int = 2) -> str:
+    """Format a single numeric cell; em-dash for missing values."""
+    if value is None or (
+        isinstance(value, float) and value != value  # NaN check
+    ):
+        return r"\textit{--}"
+    if isinstance(value, float):
+        return f"{value:.{precision}f}"
+    return str(value)
+
+
+def _render_booktabs(
+    df: pl.DataFrame,
+    row_col: str,
+    caption: str,
+    label: str,
+    precision: int = 2,
+) -> Tuple[str, str]:
+    """Render a polars DataFrame as a (fragment, standalone) LaTeX tuple.
+
+    The first column is treated as the row label. All other columns are
+    numeric data cells, rendered with the given precision; None/NaN ->
+    em-dash.
+    """
+    cols = df.columns
+    data_cols = [c for c in cols if c != row_col]
+
+    lines: List[str] = []
+    lines.append(r"\begin{tabular}{l" + "r" * len(data_cols) + "}")
+    lines.append(r"\toprule")
+    lines.append(" & ".join([row_col] + data_cols) + r" \\")
+    lines.append(r"\midrule")
+    for row in df.iter_rows(named=True):
+        cells = [str(row[row_col])]
+        for c in data_cols:
+            cells.append(_format_cell(row[c], precision=precision))
+        lines.append(" & ".join(cells) + r" \\")
+    lines.append(r"\bottomrule")
+    lines.append(r"\end{tabular}")
+    fragment = "\n".join(lines)
+
+    standalone = (
+        "\\documentclass{standalone}\n"
+        "\\usepackage{booktabs}\n"
+        "\\begin{document}\n"
+        f"% caption: {caption}  label: {label}\n" + fragment + "\n"
+        "\\end{document}\n"
+    )
+    return fragment, standalone

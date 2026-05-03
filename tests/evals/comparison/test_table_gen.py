@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import polars as pl
 import pytest
 
 from openjarvis.evals.comparison.table_gen import (
@@ -67,3 +68,46 @@ class TestLoadResults:
         _write_summary(tmp_path / "b" / "summary.json", framework_commit="zzz999")
         with pytest.raises(MixedCommitError, match="abc123.*zzz999"):
             load_results(str(tmp_path / "**" / "summary.json"))
+
+
+class TestRenderBooktabs:
+    def test_emits_valid_tabular(self) -> None:
+        from openjarvis.evals.comparison.table_gen import _render_booktabs
+
+        df = pl.DataFrame(
+            {
+                "row": ["hermes", "openjarvis"],
+                "col1": [0.42, 0.55],
+                "col2": [0.30, 0.40],
+            }
+        )
+        fragment, standalone = _render_booktabs(
+            df,
+            row_col="row",
+            caption="Test caption",
+            label="tab:test",
+        )
+        assert "\\begin{tabular}" in fragment
+        assert "\\end{tabular}" in fragment
+        assert "hermes" in fragment and "openjarvis" in fragment
+        assert "0.42" in fragment
+        assert "\\documentclass{standalone}" in standalone
+        assert fragment in standalone
+
+    def test_missing_cell_renders_em_dash(self) -> None:
+        from openjarvis.evals.comparison.table_gen import _render_booktabs
+
+        df = pl.DataFrame(
+            {
+                "row": ["hermes", "openjarvis"],
+                "col1": [None, 0.55],
+            },
+            schema={"row": pl.Utf8, "col1": pl.Float64},
+        )
+        fragment, _ = _render_booktabs(
+            df,
+            row_col="row",
+            caption="x",
+            label="x",
+        )
+        assert "\\textit{--}" in fragment
