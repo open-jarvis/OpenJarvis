@@ -197,3 +197,39 @@ def _build_t1(frame: ResultsFrame) -> Tuple[str, str]:
         label="tab:t1_portability",
         precision=2,
     )
+
+
+T2_METRICS = [
+    ("latency_seconds", "Latency (s)"),
+    ("energy_joules_per_query", "Energy (J)"),
+    ("peak_power_w", "Power (W)"),
+    ("input_tokens_per_query", "In tok"),
+    ("output_tokens_per_query", "Out tok"),
+    ("cost_usd_per_query", "$/query"),
+]
+
+
+def _build_t2(frame: ResultsFrame) -> Tuple[str, str]:
+    """T2: Master efficiency comparison (mean across all benchmarks)."""
+    df = frame.df.filter(pl.col("metric_name").is_in([m for m, _ in T2_METRICS]))
+    pivot = (
+        df.group_by(["framework", "model", "metric_name"])
+        .agg(pl.col("mean").mean().alias("v"))
+        .pivot(values="v", index=["framework", "model"], on="metric_name")
+    )
+    rename_map = {m: lbl for m, lbl in T2_METRICS if m in pivot.columns}
+    pivot = pivot.rename(rename_map)
+    pivot = pivot.with_columns(
+        (pl.col("framework") + " + " + pl.col("model")).alias("Configuration")
+    ).drop(["framework", "model"])
+    ordered_cols = ["Configuration"] + [
+        lbl for _, lbl in T2_METRICS if lbl in pivot.columns
+    ]
+    pivot = pivot.select(ordered_cols)
+    return _render_booktabs(
+        pivot,
+        row_col="Configuration",
+        caption="T2: Master efficiency comparison (per-query averages)",
+        label="tab:t2_efficiency",
+        precision=2,
+    )

@@ -143,3 +143,44 @@ class TestT1Builder:
         assert "\\begin{tabular}" in fragment
         assert "0.22" in fragment or "22.00" in fragment
         assert "openjarvis-distilled" in fragment.lower() or "OJ-distilled" in fragment
+
+
+class TestT2Builder:
+    def test_t2_emits_efficiency_table(self) -> None:
+        from openjarvis.evals.comparison.table_gen import (
+            ResultsFrame,
+            _build_t2,
+        )
+
+        rows = []
+        for fwk, model in [
+            ("hermes", "qwen-9b"),
+            ("openjarvis", "qwen-9b"),
+            ("hermes", "claude-opus-46"),
+            ("openjarvis", "claude-opus-46"),
+        ]:
+            for metric, mean in [
+                ("latency_seconds", 5.0),
+                ("energy_joules_per_query", 100.0),
+                ("input_tokens_per_query", 1000),
+                ("output_tokens_per_query", 200),
+                ("cost_usd_per_query", 0.001),
+            ]:
+                rows.append(
+                    {
+                        "framework": fwk,
+                        "framework_commit": "x",
+                        "model": model,
+                        "benchmark": "gaia",
+                        "metric_name": metric,
+                        "mean": float(mean),
+                        "std": 0.1,
+                        "n": 5,
+                        "source_path": "p",
+                    }
+                )
+        frame = ResultsFrame(df=pl.DataFrame(rows))
+        fragment, _ = _build_t2(frame)
+        assert "\\begin{tabular}" in fragment
+        assert "Latency" in fragment or "latency" in fragment
+        assert "Energy" in fragment or "energy" in fragment
