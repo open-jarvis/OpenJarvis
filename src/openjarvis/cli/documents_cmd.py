@@ -19,6 +19,11 @@ from openjarvis.tools.serena_documents import (
     SerenaDocumentsAuditTool,
     SerenaDocumentsPDFCheckTool,
     SerenaDocumentsJSONReportTool,
+    SerenaDocumentsCleanupCandidatesTool,
+    SerenaDocumentsMoveTool,
+    SerenaDocumentsCopyTool,
+    SerenaDocumentsOrganizeTool,
+    SerenaDocumentsPlanOrganizeTool,
     SerenaDocumentsFieldsTool,
     SerenaDocumentsSnapshotTool,
     SerenaDocumentsLibraryTool,
@@ -180,6 +185,60 @@ def json_report(file_path: str) -> None:
     """Create a structured JSON operator report for a document."""
     console = Console()
     result = SerenaDocumentsJSONReportTool().execute(path=file_path)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@documents.command("plan-organize")
+@click.option("--folder", required=True, help="Folder to scan.")
+@click.option("--recursive/--no-recursive", default=True, help="Scan recursively.")
+@click.option("--limit", default=100, type=int, help="Maximum files to plan.")
+def plan_organize(folder: str, recursive: bool, limit: int) -> None:
+    """Plan document organization without moving or copying files."""
+    console = Console()
+    result = SerenaDocumentsPlanOrganizeTool().execute(folder=folder, recursive=recursive, limit=limit)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@documents.command("organize")
+@click.option("--folder", required=True, help="Folder to organize.")
+@click.option("--recursive/--no-recursive", default=True, help="Scan recursively.")
+@click.option("--limit", default=100, type=int, help="Maximum files to organize.")
+def organize(folder: str, recursive: bool, limit: int) -> None:
+    """Copy supported documents into Serena's controlled library by category."""
+    console = Console()
+    result = SerenaDocumentsOrganizeTool().execute(folder=folder, recursive=recursive, limit=limit)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@documents.command("copy")
+@click.option("--path", "file_path", required=True, help="Source document path.")
+@click.option("--target-folder", required=True, help="Target folder.")
+def copy_document(file_path: str, target_folder: str) -> None:
+    """Copy one document without modifying the original."""
+    console = Console()
+    result = SerenaDocumentsCopyTool().execute(path=file_path, target_folder=target_folder)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@documents.command("move")
+@click.option("--path", "file_path", required=True, help="Source document path.")
+@click.option("--target-folder", required=True, help="Target folder.")
+@click.option("--approved", is_flag=True, help="Required to move the original file.")
+def move_document(file_path: str, target_folder: str, approved: bool) -> None:
+    """Move one document only with explicit approval."""
+    console = Console()
+    result = SerenaDocumentsMoveTool().execute(path=file_path, target_folder=target_folder, approved=approved)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@documents.command("cleanup-candidates")
+@click.option("--folder", required=True, help="Folder to scan.")
+@click.option("--recursive/--no-recursive", default=True, help="Scan recursively.")
+@click.option("--limit", default=500, type=int, help="Maximum files to scan.")
+def cleanup_candidates(folder: str, recursive: bool, limit: int) -> None:
+    """Find cleanup candidates without deleting anything."""
+    console = Console()
+    result = SerenaDocumentsCleanupCandidatesTool().execute(folder=folder, recursive=recursive, limit=limit)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 

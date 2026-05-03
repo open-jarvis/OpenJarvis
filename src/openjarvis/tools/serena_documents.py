@@ -1531,6 +1531,478 @@ class SerenaDocumentsJSONReportTool(_DocumentsBaseTool):
             return self._result(f"Failed to create structured JSON report: {exc}", success=False)
 
 
+def _suggest_document_category(path: Path, text: str) -> str:
+    classification = _classify_document(path, text)
+    doc_type = classification["document_type"]
+
+    mapping = {
+        "clinical_or_health": "healthcare",
+        "financial_or_billing": "billing-finance",
+        "legal_or_compliance": "legal-compliance",
+        "marketing_or_content": "marketing-content",
+        "technical_or_project": "technical-projects",
+        "cv_or_profile": "profiles-cvs",
+        "general_document": "general",
+    }
+
+    return mapping.get(doc_type, "general")
+
+
+def _safe_unique_target(folder: Path, filename: str) -> Path:
+    target = folder / filename
+    if not target.exists():
+        return target
+
+    stem = target.stem
+    suffix = target.suffix
+    counter = 2
+
+    while True:
+        candidate = folder / f"{stem}-{counter}{suffix}"
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
+@ToolRegistry.register("serena_documents_plan_organize")
+class SerenaDocumentsPlanOrganizeTool(_DocumentsBaseTool):
+    tool_id = "serena_documents_plan_organize"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Plan how Serena would organize supported documents into categories without moving/copying files.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "folder": {"type": "string", "description": "Folder to scan."},
+                    "recursive": {"type": "boolean", "description": "Scan recursively."},
+                    "limit": {"type": "integer", "description": "Maximum files to plan."},
+                },
+                "required": ["folder"],
+            },
+            category="serena_documents",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            folder = _resolve_path(str(params.get("folder") or ""))
+            recursive = bool(params.get("recursive", True))
+            limit = int(params.get("limit") or 100)
+
+            if not folder.is_dir():
+                return self._result(f"Not a folder: {folder}", success=False)
+
+            pattern = "**/*" if recursive else "*"
+            files = [
+                p for p in folder.glob(pattern)
+                if p.is_file()
+                and p.suffix.lower() in SUPPORTED_SUFFIXES
+            ][:limit]
+
+            plan: list[dict[str, Any]] = []
+
+            for file in files:
+                try:
+                    text = _extract_text(file)
+                    classification = _classify_document(file, text)
+                    inspection = _inspect_document(file, text)
+                    category = _suggest_document_category(file, text)
+                    target_folder = _documents_root() / "library" / category
+                    target_name = f"{_safe_slug(file.stem)}{file.suffix.lower()}"
+
+                    plan.append(
+                        {
+                            "source": str(file),
+                            "target_folder": str(target_folder),
+                            "target_name": target_name,
+                            "category": category,
+                            "document_type": classification["document_type"],
+                            "sensitivity_flags": classification["sensitivity_flags"],
+                            "word_count": inspection["word_count"],
+                            "issues": inspection["issues"],
+                        }
+                    )
+                except Exception as exc:
+                    plan.append(
+                        {
+                            "source": str(file),
+                            "target_folder": "",
+                            "target_name": "",
+                            "category": "needs-review",
+                            "document_type": "unreadable",
+                            "sensitivity_flags": [],
+                            "word_count": 0,
+                            "issues": [f"extraction_failed: {exc}"],
+                        }
+                    )
+
+            lines = [
+                "Serena document organize plan",
+                "",
+                f"- Source folder: {folder}",
+                f"- Recursive: {'yes' if recursive else 'no'}",
+                f"- Supported documents planned: {len(plan)}",
+                "",
+                "Plan:",
+            ]
+
+            if not plan:
+                lines.append("- none")
+            else:
+                for item in plan:
+                    flags = ", ".join(item["sensitivity_flags"]) or "none"
+                    lines.append(
+                        f"- {Path(item['source']).name} -> {item['category']} | "
+                        f"type {item['document_type']} | flags {flags} | issues {', '.join(item['issues']) or 'none'}"
+                    )
+
+            lines.extend([
+                "",
+                "Operator note:",
+                "- This is a plan only. No files were moved or copied.",
+                "- Use documents organize to copy into Serena's controlled library.",
+                "- Use documents move only with explicit approval.",
+            ])
+
+            report_path = _save_json_artifact(
+                "reports",
+                folder,
+                {
+                    "report_type": "serena_documents_organize_plan",
+                    "created_at": _timestamp(),
+                    "source_folder": str(folder),
+                    "recursive": recursive,
+                    "plan": plan,
+                },
+            )
+
+            return self._result(
+                "\n".join(lines) + f"\n\nOrganize plan JSON saved: {report_path}",
+                metadata={"source_folder": str(folder), "planned": len(plan), "plan_report": str(report_path), "plan": plan},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to plan document organization: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_documents_organize")
+class SerenaDocumentsOrganizeTool(_DocumentsBaseTool):
+    tool_id = "serena_documents_organize"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Copy supported documents into Serena's controlled library by detected category. Originals are preserved.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "folder": {"type": "string", "description": "Folder to organize."},
+                    "recursive": {"type": "boolean", "description": "Scan recursively."},
+                    "limit": {"type": "integer", "description": "Maximum files to organize."},
+                },
+                "required": ["folder"],
+            },
+            category="serena_documents",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            folder = _resolve_path(str(params.get("folder") or ""))
+            recursive = bool(params.get("recursive", True))
+            limit = int(params.get("limit") or 100)
+
+            if not folder.is_dir():
+                return self._result(f"Not a folder: {folder}", success=False)
+
+            pattern = "**/*" if recursive else "*"
+            files = [
+                p for p in folder.glob(pattern)
+                if p.is_file()
+                and p.suffix.lower() in SUPPORTED_SUFFIXES
+            ][:limit]
+
+            copied: list[dict[str, Any]] = []
+            skipped: list[dict[str, str]] = []
+
+            for file in files:
+                try:
+                    text = _extract_text(file)
+                    category = _suggest_document_category(file, text)
+                    target_folder = _library_dir(category)
+                    target = _safe_unique_target(target_folder, f"{_safe_slug(file.stem)}{file.suffix.lower()}")
+
+                    shutil.copy2(file, target)
+
+                    fields = _extract_structured_fields(target, text)
+                    meta_path = target.with_suffix(target.suffix + ".json")
+                    meta = {
+                        "source": str(file),
+                        "library_path": str(target),
+                        "category": category,
+                        "organized_at": _timestamp(),
+                        "original_preserved": True,
+                        "fields": fields,
+                    }
+                    meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+                    copied.append(
+                        {
+                            "source": str(file),
+                            "target": str(target),
+                            "metadata": str(meta_path),
+                            "category": category,
+                            "document_type": fields["document_type"],
+                            "sensitivity_flags": fields["sensitivity_flags"],
+                        }
+                    )
+                except Exception as exc:
+                    skipped.append({"source": str(file), "error": str(exc)})
+
+            lines = [
+                "Serena documents organized into controlled library",
+                "",
+                f"- Source folder: {folder}",
+                f"- Recursive: {'yes' if recursive else 'no'}",
+                f"- Copied: {len(copied)}",
+                f"- Skipped: {len(skipped)}",
+                f"- Originals preserved: yes",
+                "",
+                "Copied documents:",
+            ]
+
+            if copied:
+                for item in copied:
+                    flags = ", ".join(item["sensitivity_flags"]) or "none"
+                    lines.append(f"- {Path(item['source']).name} -> {item['category']} | {item['target']} | flags {flags}")
+            else:
+                lines.append("- none")
+
+            lines.extend(["", "Skipped documents:"])
+            if skipped:
+                for item in skipped:
+                    lines.append(f"- {item['source']}: {item['error']}")
+            else:
+                lines.append("- none")
+
+            return self._result(
+                "\n".join(lines),
+                metadata={"source_folder": str(folder), "copied": copied, "skipped": skipped},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to organize documents: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_documents_copy")
+class SerenaDocumentsCopyTool(_DocumentsBaseTool):
+    tool_id = "serena_documents_copy"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Copy one document to a target folder without modifying the original.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Source document path."},
+                    "target_folder": {"type": "string", "description": "Target folder."},
+                },
+                "required": ["path", "target_folder"],
+            },
+            category="serena_documents",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            source = _resolve_path(str(params.get("path") or ""))
+            target_folder = Path(str(params.get("target_folder") or ""))
+            target_folder.mkdir(parents=True, exist_ok=True)
+
+            if not source.is_file():
+                return self._result(f"Not a file: {source}", success=False)
+
+            target = _safe_unique_target(target_folder, source.name)
+            shutil.copy2(source, target)
+
+            return self._result(
+                "Serena document copied\n\n"
+                f"- Source: {source}\n"
+                f"- Target: {target}\n"
+                f"- Original preserved: yes",
+                metadata={"source": str(source), "target": str(target), "original_preserved": True},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to copy document: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_documents_move")
+class SerenaDocumentsMoveTool(_DocumentsBaseTool):
+    tool_id = "serena_documents_move"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Move one document to a target folder only with explicit approval. Creates snapshot first.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Source document path."},
+                    "target_folder": {"type": "string", "description": "Target folder."},
+                    "approved": {"type": "boolean", "description": "Required to move the original file."},
+                },
+                "required": ["path", "target_folder", "approved"],
+            },
+            category="serena_documents",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            source = _resolve_path(str(params.get("path") or ""))
+            target_folder = Path(str(params.get("target_folder") or ""))
+            approved = bool(params.get("approved", False))
+
+            if not approved:
+                return self._result(
+                    "Document move blocked. Moving an original file requires explicit approval.",
+                    success=False,
+                    metadata={"source": str(source), "approved": False},
+                )
+
+            if not source.is_file():
+                return self._result(f"Not a file: {source}", success=False)
+
+            target_folder.mkdir(parents=True, exist_ok=True)
+            snapshot = _snapshot_document(source, "before-move")
+            target = _safe_unique_target(target_folder, source.name)
+
+            shutil.move(str(source), str(target))
+
+            return self._result(
+                "Serena document moved with approval\n\n"
+                f"- Source: {source}\n"
+                f"- Target: {target}\n"
+                f"- Snapshot before move: {snapshot}",
+                metadata={"source": str(source), "target": str(target), "snapshot": str(snapshot), "approved": True},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to move document: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_documents_cleanup_candidates")
+class SerenaDocumentsCleanupCandidatesTool(_DocumentsBaseTool):
+    tool_id = "serena_documents_cleanup_candidates"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Find likely duplicate, empty, unsupported, or cleanup-candidate documents without deleting anything.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "folder": {"type": "string", "description": "Folder to scan."},
+                    "recursive": {"type": "boolean", "description": "Scan recursively."},
+                    "limit": {"type": "integer", "description": "Maximum files to scan."},
+                },
+                "required": ["folder"],
+            },
+            category="serena_documents",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            folder = _resolve_path(str(params.get("folder") or ""))
+            recursive = bool(params.get("recursive", True))
+            limit = int(params.get("limit") or 500)
+
+            if not folder.is_dir():
+                return self._result(f"Not a folder: {folder}", success=False)
+
+            pattern = "**/*" if recursive else "*"
+            files = [p for p in folder.glob(pattern) if p.is_file()][:limit]
+
+            by_name_size: dict[tuple[str, int], list[Path]] = {}
+            unsupported: list[Path] = []
+            empty: list[Path] = []
+
+            for file in files:
+                size = file.stat().st_size
+                by_name_size.setdefault((file.name.lower(), size), []).append(file)
+
+                if size == 0:
+                    empty.append(file)
+
+                if file.suffix.lower() not in SUPPORTED_SUFFIXES and not file.name.endswith(".json"):
+                    unsupported.append(file)
+
+            duplicates = [group for group in by_name_size.values() if len(group) > 1]
+
+            lines = [
+                "Serena document cleanup candidates",
+                "",
+                f"- Folder: {folder}",
+                f"- Recursive: {'yes' if recursive else 'no'}",
+                f"- Files scanned: {len(files)}",
+                f"- Duplicate groups: {len(duplicates)}",
+                f"- Empty files: {len(empty)}",
+                f"- Unsupported files: {len(unsupported)}",
+                "",
+                "Duplicate candidates:",
+            ]
+
+            if duplicates:
+                for group in duplicates[:20]:
+                    lines.append("- group:")
+                    for item in group:
+                        lines.append(f"  - {item}")
+            else:
+                lines.append("- none")
+
+            lines.extend(["", "Empty files:"])
+            lines.extend(f"- {p}" for p in empty[:20]) if empty else lines.append("- none")
+
+            lines.extend(["", "Unsupported files:"])
+            lines.extend(f"- {p} | {p.suffix.lower()}" for p in unsupported[:20]) if unsupported else lines.append("- none")
+
+            lines.extend([
+                "",
+                "Operator note:",
+                "- No files were deleted.",
+                "- Deletion/permanent cleanup is not part of Documents v1.",
+                "- Use copy/organize first; use move only with explicit approval.",
+            ])
+
+            report_path = _save_json_artifact(
+                "reports",
+                folder,
+                {
+                    "report_type": "serena_documents_cleanup_candidates",
+                    "created_at": _timestamp(),
+                    "folder": str(folder),
+                    "duplicates": [[str(p) for p in group] for group in duplicates],
+                    "empty": [str(p) for p in empty],
+                    "unsupported": [str(p) for p in unsupported],
+                },
+            )
+
+            return self._result(
+                "\n".join(lines) + f"\n\nCleanup candidate report saved: {report_path}",
+                metadata={
+                    "folder": str(folder),
+                    "files_scanned": len(files),
+                    "duplicate_groups": len(duplicates),
+                    "empty_files": len(empty),
+                    "unsupported_files": len(unsupported),
+                    "report": str(report_path),
+                },
+            )
+        except Exception as exc:
+            return self._result(f"Failed to find cleanup candidates: {exc}", success=False)
+
+
 __all__ = [
     "SerenaDocumentsStatusTool",
     "SerenaDocumentsIndexTool",
@@ -1544,6 +2016,11 @@ __all__ = [
     "SerenaDocumentsAuditTool",
     "SerenaDocumentsPDFCheckTool",
     "SerenaDocumentsJSONReportTool",
+    "SerenaDocumentsCleanupCandidatesTool",
+    "SerenaDocumentsMoveTool",
+    "SerenaDocumentsCopyTool",
+    "SerenaDocumentsOrganizeTool",
+    "SerenaDocumentsPlanOrganizeTool",
     "SerenaDocumentsFieldsTool",
     "SerenaDocumentsSnapshotTool",
     "SerenaDocumentsLibraryTool",
