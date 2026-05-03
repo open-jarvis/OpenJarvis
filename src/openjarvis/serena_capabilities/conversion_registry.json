@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "Serena Skill Conversion Registry",
   "version": "0.1.0",
   "status_values": [
@@ -18,50 +18,84 @@
           "legacy_file": "13-wordpress.js",
           "new_skill_path": "src/openjarvis/skills/serena/content-marketing/wordpress",
           "native_tool_file": "src/openjarvis/tools/serena_wordpress.py",
-          "status": "pending",
-          "research_required": ["github", "mrfreetools", "official_docs"]
+          "status": "tested",
+          "research_required": [
+            "github",
+            "mrfreetools",
+            "official_docs"
+          ],
+          "tested": true,
+          "native_tool_complete": true,
+          "legacy_deleted": true,
+          "notes": [
+            "Converted to native OpenJarvis Serena WordPress website-builder skill.",
+            "Multi-site support added for drpiet and serena.",
+            "Status command tested against drpiet.co.za and serena.co.za.",
+            "Draft post creation tested on drpiet.co.za: ID 641.",
+            "Draft page creation tested on drpiet.co.za: ID 642.",
+            "Publishing remains approval-gated."
+          ]
         },
         {
           "legacy_file": "67-documents.js",
           "new_skill_path": "src/openjarvis/skills/serena/development-infrastructure/documents",
           "native_tool_file": "src/openjarvis/tools/serena_documents.py",
           "status": "pending",
-          "research_required": ["github", "mrfreetools", "official_docs"]
+          "research_required": [
+            "github",
+            "mrfreetools",
+            "official_docs"
+          ]
         },
         {
           "legacy_file": "63-files.js",
           "new_skill_path": "src/openjarvis/skills/serena/development-infrastructure/files",
           "native_tool_file": "src/openjarvis/tools/serena_files.py",
           "status": "pending",
-          "research_required": ["github", "mrfreetools"]
+          "research_required": [
+            "github",
+            "mrfreetools"
+          ]
         },
         {
           "legacy_file": "41-vscode.js",
           "new_skill_path": "src/openjarvis/skills/serena/development-infrastructure/vscode",
           "native_tool_file": "src/openjarvis/tools/serena_vscode.py",
           "status": "pending",
-          "research_required": ["github", "official_docs"]
+          "research_required": [
+            "github",
+            "official_docs"
+          ]
         },
         {
           "legacy_file": "83-vscode-builder.js",
           "new_skill_path": "src/openjarvis/skills/serena/development-infrastructure/vscode-builder",
           "native_tool_file": "src/openjarvis/tools/serena_vscode_builder.py",
           "status": "pending",
-          "research_required": ["github", "official_docs"]
+          "research_required": [
+            "github",
+            "official_docs"
+          ]
         },
         {
           "legacy_file": "64-github.js",
           "new_skill_path": "src/openjarvis/skills/serena/development-infrastructure/github",
           "native_tool_file": "src/openjarvis/tools/serena_github.py",
           "status": "pending",
-          "research_required": ["github", "official_docs"]
+          "research_required": [
+            "github",
+            "official_docs"
+          ]
         },
         {
           "legacy_file": "47-health-monitor.js",
           "new_skill_path": "src/openjarvis/skills/serena/development-infrastructure/health-monitor",
           "native_tool_file": "src/openjarvis/tools/serena_health.py",
           "status": "pending",
-          "research_required": ["github", "mrfreetools"]
+          "research_required": [
+            "github",
+            "mrfreetools"
+          ]
         }
       ]
     }
