@@ -86,6 +86,20 @@ class TestRecommendModelGpu:
         # available = 288 GB → tier fallback qwen3.5:27b, valid for vllm
         assert result == "qwen3.5:27b"
 
+    def test_amd_lemonade_picks_qwen36_35b_a3b(self) -> None:
+        hw = HardwareInfo(
+            platform="linux",
+            ram_gb=64.0,
+            gpu=GpuInfo(
+                vendor="amd",
+                name="Radeon RX 7900 XTX",
+                vram_gb=24.0,
+                count=1,
+            ),
+        )
+        result = recommend_model(hw, "lemonade")
+        assert result == "Qwen3.6-35B-A3B-GGUF"
+
 
 class TestRecommendModelEdgeCases:
     """Edge cases."""
