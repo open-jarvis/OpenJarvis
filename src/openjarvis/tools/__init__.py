@@ -147,3 +147,4 @@ __all__ = ["BaseTool", "ToolExecutor", "ToolSpec"]
 import openjarvis.tools.serena_wordpress  # noqa: F401
 import openjarvis.tools.serena_documents  # noqa: F401
 import openjarvis.tools.serena_files  # noqa: F401
+import openjarvis.tools.serena_vscode  # noqa: F401
