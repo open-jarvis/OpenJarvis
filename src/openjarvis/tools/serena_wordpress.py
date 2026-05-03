@@ -2319,6 +2319,297 @@ class SerenaWordPressPublishChecklistTool(_WordPressBaseTool):
             return self._result(f"Failed to run publish checklist: {exc}", success=False)
 
 
+def _rollback_dir(site_key: str | None = None) -> Path:
+    cfg = _config(site_key)
+    site = cfg.get("site_key") or _site_key(site_key)
+    folder = Path(cfg.get("artifact_dir", "outputs/wordpress")) / "rollback" / site
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+@ToolRegistry.register("serena_wordpress_rollback_list")
+class SerenaWordPressRollbackListTool(_WordPressBaseTool):
+    tool_id = "serena_wordpress_rollback_list"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="List local Serena WordPress rollback snapshots for a site.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "site_key": {"type": "string", "description": "Site key, e.g. drpiet or serena."},
+                    "limit": {"type": "integer", "description": "Maximum snapshots to show."},
+                },
+            },
+            category="serena_wordpress",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
+        limit = int(params.get("limit") or 20)
+        folder = _rollback_dir(site_key)
+
+        files = sorted(folder.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:limit]
+
+        lines = [
+            "Serena WordPress rollback snapshots",
+            "",
+            f"- Site: {_config(site_key).get('site_key')} ({_config(site_key).get('site_url')})",
+            f"- Folder: {folder}",
+            "",
+        ]
+
+        if not files:
+            lines.append("No rollback snapshots found.")
+            return self._result("\n".join(lines), metadata={"folder": str(folder), "count": 0})
+
+        for file in files:
+            try:
+                data = json.loads(file.read_text(encoding="utf-8"))
+                lines.append(
+                    f"- {file.name} | {data.get('content_type')} ID {data.get('content_id')} | "
+                    f"{data.get('snapshot_reason')} | {data.get('title') or '(untitled)'}"
+                )
+            except Exception:
+                lines.append(f"- {file.name}")
+
+        return self._result("\n".join(lines), metadata={"folder": str(folder), "count": len(files)})
+
+
+@ToolRegistry.register("serena_wordpress_rollback_restore")
+class SerenaWordPressRollbackRestoreTool(_WordPressBaseTool):
+    tool_id = "serena_wordpress_rollback_restore"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description=(
+                "Restore WordPress content from a local Serena rollback snapshot. "
+                "Creates a new safety snapshot before restoring."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "site_key": {"type": "string", "description": "Site key, e.g. drpiet or serena."},
+                    "snapshot_path": {"type": "string", "description": "Path to rollback JSON snapshot."},
+                    "restore_title": {"type": "boolean", "description": "Restore title from snapshot."},
+                    "restore_content": {"type": "boolean", "description": "Restore rendered content from snapshot."},
+                    "restore_status": {"type": "boolean", "description": "Restore previous status from snapshot. Publishing still requires approved=true."},
+                    "approved": {"type": "boolean", "description": "Required only if restore_status would publish content."},
+                },
+                "required": ["snapshot_path"],
+            },
+            category="serena_wordpress",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
+        snapshot_path = Path(str(params.get("snapshot_path") or ""))
+        restore_title = bool(params.get("restore_title", True))
+        restore_content = bool(params.get("restore_content", True))
+        restore_status = bool(params.get("restore_status", False))
+        approved = bool(params.get("approved", False))
+
+        try:
+            snapshot_file = snapshot_path.resolve()
+            rollback_root = _rollback_dir(site_key).resolve()
+            snapshot_file.relative_to(rollback_root)
+        except Exception as exc:
+            return self._result(
+                f"Rollback restore blocked: snapshot must be inside Serena rollback folder for this site: {_rollback_dir(site_key)}",
+                success=False,
+            )
+
+        if not snapshot_file.exists() or not snapshot_file.is_file():
+            return self._result(f"Rollback snapshot not found: {snapshot_file}", success=False)
+
+        try:
+            data = json.loads(snapshot_file.read_text(encoding="utf-8"))
+        except Exception as exc:
+            return self._result(f"Could not read rollback snapshot: {exc}", success=False)
+
+        endpoint = str(data.get("content_type") or "pages")
+        content_id = int(data.get("content_id") or 0)
+
+        if endpoint not in ("posts", "pages"):
+            return self._result(f"Unsupported snapshot content type: {endpoint}", success=False)
+        if not content_id:
+            return self._result("Snapshot does not contain a valid content_id.", success=False)
+
+        payload: dict[str, Any] = {}
+
+        if restore_title and data.get("title"):
+            payload["title"] = data.get("title")
+
+        if restore_content:
+            payload["content"] = data.get("content_rendered") or ""
+
+        if restore_status and data.get("status"):
+            if str(data.get("status")).lower() == "publish" and not approved:
+                return self._result(
+                    "Rollback would restore published status. Re-run with approved=true only after explicit approval.",
+                    success=False,
+                )
+            payload["status"] = data.get("status")
+
+        if not payload:
+            return self._result("No restore fields selected.", success=False)
+
+        try:
+            safety_snapshot = _snapshot_content(site_key, endpoint, content_id, "before-rollback-restore")
+            item = _request("POST", f"{endpoint}/{content_id}", site_key=site_key, json=payload)
+
+            if not isinstance(item, dict):
+                return self._result("Unexpected WordPress response during rollback restore.", success=False)
+
+            return self._result(
+                "WordPress rollback restored\n\n"
+                f"- Site: {_config(site_key).get('site_key')} ({_config(site_key).get('site_url')})\n"
+                f"- Type: {endpoint}\n"
+                f"- Content ID: {content_id}\n"
+                f"- Restored title: {'yes' if restore_title else 'no'}\n"
+                f"- Restored content: {'yes' if restore_content else 'no'}\n"
+                f"- Restored status: {'yes' if restore_status else 'no'}\n"
+                f"- Source rollback: {snapshot_file}\n"
+                f"- Safety snapshot before restore: {safety_snapshot}\n"
+                f"- Current status: {item.get('status')}\n"
+                f"- Link: {item.get('link') or ''}",
+                metadata={
+                    "site_key": _config(site_key).get("site_key"),
+                    "content_type": endpoint,
+                    "content_id": content_id,
+                    "source_snapshot": str(snapshot_file),
+                    "safety_snapshot": safety_snapshot,
+                    "status": item.get("status"),
+                    "link": item.get("link"),
+                },
+            )
+        except Exception as exc:
+            return self._result(f"Failed to restore rollback snapshot: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_wordpress_final_publish")
+class SerenaWordPressFinalPublishTool(_WordPressBaseTool):
+    tool_id = "serena_wordpress_final_publish"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description=(
+                "Run final checklist and publish a WordPress post/page only with explicit approval. "
+                "Creates rollback snapshot before publishing."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "site_key": {"type": "string", "description": "Site key, e.g. drpiet or serena."},
+                    "content_type": {"type": "string", "description": "posts or pages."},
+                    "content_id": {"type": "integer", "description": "WordPress post/page ID."},
+                    "keyword": {"type": "string", "description": "Target SEO keyword."},
+                    "healthcare": {"type": "boolean", "description": "Whether healthcare/compliance review is required."},
+                    "approved": {"type": "boolean", "description": "Required. Confirms explicit approval to publish."},
+                    "clinician_reviewed": {"type": "boolean", "description": "Required for healthcare content."},
+                },
+                "required": ["content_id", "approved"],
+            },
+            category="serena_wordpress",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
+        content_type = str(params.get("content_type") or "pages").strip().lower()
+        content_id = int(params.get("content_id") or 0)
+        keyword = str(params.get("keyword") or "").strip()
+        healthcare = bool(params.get("healthcare", True))
+        approved = bool(params.get("approved", False))
+        clinician_reviewed = bool(params.get("clinician_reviewed", False))
+
+        if not content_id:
+            return self._result("content_id is required.", success=False)
+
+        if not approved:
+            return self._result(
+                "Publishing blocked. Explicit approval is required before Serena can publish.",
+                success=False,
+            )
+
+        if healthcare and not clinician_reviewed:
+            return self._result(
+                "Publishing blocked. Healthcare content requires Dr Piet/clinician review before publishing.",
+                success=False,
+            )
+
+        checklist = SerenaWordPressPublishChecklistTool().execute(
+            site_key=site_key,
+            content_type=content_type,
+            content_id=content_id,
+            keyword=keyword,
+            healthcare=healthcare,
+        )
+
+        # The checklist intentionally fails healthcare readiness unless reviewed.
+        # Here clinician_reviewed overrides the healthcare-only blocker, but we still report the checklist.
+        if not checklist.success:
+            return checklist
+
+        endpoint = "posts" if content_type == "posts" else "pages"
+
+        try:
+            snapshot_path = _snapshot_content(site_key, endpoint, content_id, "before-final-publish")
+            item = _request(
+                "POST",
+                f"{endpoint}/{content_id}",
+                site_key=site_key,
+                json={"status": "publish"},
+            )
+
+            if not isinstance(item, dict):
+                return self._result("Unexpected WordPress response while publishing.", success=False)
+
+            post_publish_inspection = SerenaWordPressInspectContentTool().execute(
+                site_key=site_key,
+                content_type=endpoint,
+                content_id=content_id,
+                keyword=keyword,
+                healthcare=healthcare,
+            )
+
+            output = [
+                "WordPress content published with explicit approval",
+                "",
+                f"- Site: {_config(site_key).get('site_key')} ({_config(site_key).get('site_url')})",
+                f"- Type: {endpoint}",
+                f"- Content ID: {content_id}",
+                f"- Status: {item.get('status')}",
+                f"- Link: {item.get('link') or ''}",
+                f"- Rollback snapshot before publish: {snapshot_path}",
+                "",
+                "Pre-publish checklist:",
+                checklist.content,
+            ]
+
+            if post_publish_inspection:
+                output.extend(["", "Post-publish inspection:", post_publish_inspection.content])
+
+            return self._result(
+                "\n".join(output),
+                metadata={
+                    "site_key": _config(site_key).get("site_key"),
+                    "content_type": endpoint,
+                    "content_id": content_id,
+                    "status": item.get("status"),
+                    "link": item.get("link"),
+                    "rollback_snapshot": snapshot_path,
+                },
+            )
+        except Exception as exc:
+            return self._result(f"Failed to publish WordPress content: {exc}", success=False)
+
+
 __all__ = [
     "SerenaWordPressStatusTool",
     "SerenaWordPressListPostsTool",
@@ -2337,6 +2628,9 @@ __all__ = [
     "SerenaWordPressSetFeaturedImageTool",
     "SerenaWordPressAssignTermsTool",
     "SerenaWordPressPublishChecklistTool",
+    "SerenaWordPressFinalPublishTool",
+    "SerenaWordPressRollbackRestoreTool",
+    "SerenaWordPressRollbackListTool",
     "SerenaWordPressSEOMetadataTool",
     "SerenaWordPressCreateTagTool",
     "SerenaWordPressCreateCategoryTool",

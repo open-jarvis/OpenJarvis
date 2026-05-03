@@ -25,6 +25,9 @@ from openjarvis.tools.serena_wordpress import (
     SerenaWordPressSetFeaturedImageTool,
     SerenaWordPressAssignTermsTool,
     SerenaWordPressPublishChecklistTool,
+    SerenaWordPressFinalPublishTool,
+    SerenaWordPressRollbackRestoreTool,
+    SerenaWordPressRollbackListTool,
     SerenaWordPressSEOMetadataTool,
     SerenaWordPressCreateTagTool,
     SerenaWordPressCreateCategoryTool,
@@ -583,6 +586,75 @@ def publish_checklist(site_key: str | None, content_type: str, content_id: int, 
         healthcare=healthcare,
     )
 
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("rollback-list")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--limit", default=20, type=int, help="Maximum rollback snapshots to show.")
+def rollback_list(site_key: str | None, limit: int) -> None:
+    """List Serena WordPress rollback snapshots."""
+    console = Console()
+    result = SerenaWordPressRollbackListTool().execute(site_key=site_key, limit=limit)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("rollback-restore")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--snapshot", "snapshot_path", required=True, help="Rollback JSON snapshot path.")
+@click.option("--restore-title/--no-restore-title", default=True, help="Restore title from snapshot.")
+@click.option("--restore-content/--no-restore-content", default=True, help="Restore content from snapshot.")
+@click.option("--restore-status/--no-restore-status", default=False, help="Restore status from snapshot. Publishing needs --approved.")
+@click.option("--approved", is_flag=True, help="Required only if restoring published status.")
+def rollback_restore(
+    site_key: str | None,
+    snapshot_path: str,
+    restore_title: bool,
+    restore_content: bool,
+    restore_status: bool,
+    approved: bool,
+) -> None:
+    """Restore WordPress content from a Serena rollback snapshot."""
+    console = Console()
+    result = SerenaWordPressRollbackRestoreTool().execute(
+        site_key=site_key,
+        snapshot_path=snapshot_path,
+        restore_title=restore_title,
+        restore_content=restore_content,
+        restore_status=restore_status,
+        approved=approved,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("final-publish")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--type", "content_type", default="pages", help="Content type: posts or pages.")
+@click.option("--id", "content_id", required=True, type=int, help="WordPress post/page ID.")
+@click.option("--keyword", default="", help="Target SEO keyword.")
+@click.option("--healthcare/--no-healthcare", default=True, help="Whether healthcare compliance review is needed.")
+@click.option("--approved", is_flag=True, help="Required. Confirms explicit approval to publish.")
+@click.option("--clinician-reviewed", is_flag=True, help="Required for healthcare content.")
+def final_publish(
+    site_key: str | None,
+    content_type: str,
+    content_id: int,
+    keyword: str,
+    healthcare: bool,
+    approved: bool,
+    clinician_reviewed: bool,
+) -> None:
+    """Run final checklist and publish only with explicit approval."""
+    console = Console()
+    result = SerenaWordPressFinalPublishTool().execute(
+        site_key=site_key,
+        content_type=content_type,
+        content_id=content_id,
+        keyword=keyword,
+        healthcare=healthcare,
+        approved=approved,
+        clinician_reviewed=clinician_reviewed,
+    )
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 
