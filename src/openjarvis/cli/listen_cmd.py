@@ -14,6 +14,34 @@ from rich.table import Table
 from openjarvis.speech.openai_whisper import OpenAIWhisperBackend
 
 
+def _get_first_input_device_index() -> int | None:
+    """Return the first available input device index, or None."""
+    devices = sd.query_devices()
+    for idx, dev in enumerate(devices):
+        if int(dev.get("max_input_channels", 0)) > 0:
+            return idx
+    return None
+
+
+def _resolve_input_device(device: str | None) -> int | str | None:
+    """Resolve requested/default microphone device.
+
+    If Windows has no default input device, sounddevice may report -1.
+    In that case, Serena falls back to the first available input device.
+    """
+    if device:
+        return int(device) if str(device).isdigit() else device
+
+    try:
+        default_input, _ = sd.default.device
+        if default_input is not None and int(default_input) >= 0:
+            return int(default_input)
+    except Exception:
+        pass
+
+    return _get_first_input_device_index()
+
+
 def _print_audio_devices(console: Console) -> None:
     """Print available input and output audio devices."""
     devices = sd.query_devices()
@@ -83,9 +111,10 @@ def listen(
     wav_path = out_dir / f"serena-listen-{timestamp}.wav"
 
     console.print(f"[cyan]Listening for {seconds:.1f} seconds...[/cyan]")
+    console.print(f"[dim]Input device: {device_arg if device_arg is not None else 'auto/default'}[/dim]")
 
     try:
-        device_arg = int(device) if device and str(device).isdigit() else device
+        device_arg = _resolve_input_device(device)
         audio = sd.rec(
             int(seconds * samplerate),
             samplerate=samplerate,
