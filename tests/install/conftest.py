@@ -11,12 +11,13 @@ import pytest
 def tmp_openjarvis_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point ``DEFAULT_CONFIG_DIR`` at a tmpdir for isolated tests.
 
-    Yields the directory; teardown is automatic via tmp_path.
+    Returns the directory; teardown is automatic via tmp_path.
     """
     home = tmp_path / ".openjarvis"
     home.mkdir()
     (home / ".state").mkdir()
     (home / ".state" / "models").mkdir()
+    (home / ".scripts").mkdir()
     monkeypatch.setattr("openjarvis.core.config.DEFAULT_CONFIG_DIR", home)
     monkeypatch.setattr(
         "openjarvis.core.config.DEFAULT_CONFIG_PATH", home / "config.toml"
