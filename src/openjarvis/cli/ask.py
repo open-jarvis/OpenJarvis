@@ -16,6 +16,7 @@ from openjarvis.cli.hints import hint_no_engine
 from openjarvis.core.config import load_config
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import Message, Role
+from openjarvis.serena_identity import get_serena_system_prompt
 from openjarvis.engine import (
     EngineConnectionError,
     discover_engines,
@@ -178,6 +179,14 @@ def _run_agent(
 
     agent = agent_cls(engine, model_name, **agent_kwargs)
     ctx = AgentContext()
+
+    # Serena identity injection. This keeps user-facing identity as Serena
+    # even though internal package names may still be openjarvis.
+    try:
+        if not any(m.role == Role.SYSTEM for m in ctx.conversation.messages):
+            ctx.conversation.add(Message(role=Role.SYSTEM, content=get_serena_system_prompt()))
+    except Exception:
+        pass
 
     # Inject memory context into conversation if available
     if config.agent.context_from_memory:
@@ -381,7 +390,7 @@ def ask(
     tool_names: str | None,
     enable_profile: bool,
 ) -> None:
-    """Ask Jarvis a question."""
+    """Ask Serena a question."""
     console = Console(stderr=True)
     query_text = " ".join(query)
 
@@ -389,6 +398,14 @@ def ask(
 
     # Load config
     config = load_config()
+
+    # Serena default: use the configured/default agent so the Serena
+    # system prompt, memory context, and tool policy are always applied.
+    if not agent_name:
+        try:
+            agent_name = config.agent.default_agent or "simple"
+        except Exception:
+            agent_name = "simple"
 
     # Track whether the user explicitly set --max-tokens
     user_set_max_tokens = max_tokens is not None
@@ -438,7 +455,7 @@ def ask(
             "  [cyan]llama-server -m <gguf>[/cyan] — start llama.cpp\n\n"
             "Or set OPENAI_API_KEY / ANTHROPIC_API_KEY for cloud inference.\n\n"
             "[dim]To use a remote engine:[/dim]\n"
-            "  [cyan]jarvis config set engine.ollama.host http://<remote-ip>:11434[/cyan]\n"
+            "  [cyan]serena config set engine.ollama.host http://<remote-ip>:11434[/cyan]\n"
             "  [dim]or[/dim] [cyan]export OLLAMA_HOST=http://<remote-ip>:11434[/cyan]"
         )
         sys.exit(1)

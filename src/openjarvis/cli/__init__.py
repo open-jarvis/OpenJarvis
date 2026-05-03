@@ -1,4 +1,4 @@
-"""Command-line interface for OpenJarvis (Click-based)."""
+"""Command-line interface for Serena (Click-based)."""
 
 from __future__ import annotations
 
@@ -45,10 +45,10 @@ from openjarvis.learning.distillation.cli import learning_group
 
 
 @click.group(
-    help="OpenJarvis — modular AI assistant backend",
+    help="Serena - Dr Piet Muller local AI assistant and operator",
     invoke_without_command=True,
 )
-@click.version_option(version=openjarvis.__version__, prog_name="jarvis")
+@click.version_option(version=openjarvis.__version__, prog_name="serena")
 @click.option("--verbose", is_flag=True, default=False, help="Enable debug logging")
 @click.option("--quiet", is_flag=True, default=False, help="Suppress non-error output")
 @click.pass_context
@@ -67,7 +67,7 @@ def cli(ctx: click.Context, verbose: bool, quiet: bool) -> None:
 
         check_for_updates(ctx.invoked_subcommand)
 
-    # First-run guard — routes bare `jarvis` to chat or init.
+    # First-run guard - routes bare serena to chat or init.
     if ctx.invoked_subcommand is None:
         from openjarvis.cli._first_run import check_and_route
 
@@ -133,7 +133,7 @@ except ImportError:
 
 
 def main() -> None:
-    """Entry point registered as ``jarvis`` console script."""
+    """Entry point registered as the Serena console script."""
     cli()
 
 

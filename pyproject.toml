@@ -145,6 +145,7 @@ Issues = "https://github.com/open-jarvis/OpenJarvis/issues"
 
 [project.scripts]
 jarvis = "openjarvis.cli:main"
+serena = "openjarvis.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/openjarvis"]
