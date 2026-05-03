@@ -28,6 +28,10 @@ from openjarvis.tools.serena_wordpress import (
     SerenaWordPressFinalPublishTool,
     SerenaWordPressSiteAuditTool,
     SerenaWordPressListMenusTool,
+    SerenaWordPressAddMenuItemTool,
+    SerenaWordPressRemoveMenuItemTool,
+    SerenaWordPressMenuSnapshotListTool,
+    SerenaWordPressMenuItemsTool,
     SerenaWordPressAddLinkTool,
     SerenaWordPressSuggestLinksTool,
     SerenaWordPressLinkMapTool,
@@ -734,6 +738,62 @@ def list_menus(site_key: str | None) -> None:
     """Inspect WordPress menus/navigation endpoints."""
     console = Console()
     result = SerenaWordPressListMenusTool().execute(site_key=site_key)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("menu-items")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--menu", required=True, help="Menu ID, menu name, or menu location, e.g. primary or footer_menu.")
+def menu_items(site_key: str | None, menu: str) -> None:
+    """List WordPress menu items if item-level REST support is available."""
+    console = Console()
+    result = SerenaWordPressMenuItemsTool().execute(site_key=site_key, menu=menu)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("add-menu-item")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--menu", required=True, help="Menu ID, menu name, or menu location, e.g. primary or footer_menu.")
+@click.option("--title", required=True, help="Menu item label.")
+@click.option("--url", required=True, help="Menu item URL.")
+@click.option("--parent", default=0, type=int, help="Optional parent menu item ID.")
+@click.option("--position", default=0, type=int, help="Optional menu order position.")
+def add_menu_item(site_key: str | None, menu: str, title: str, url: str, parent: int, position: int) -> None:
+    """Add a custom URL menu item if REST menu writes are available."""
+    console = Console()
+    result = SerenaWordPressAddMenuItemTool().execute(
+        site_key=site_key,
+        menu=menu,
+        title=title,
+        url=url,
+        parent=parent,
+        position=position,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("menu-snapshots")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--limit", default=20, type=int, help="Maximum snapshots to show.")
+def menu_snapshots(site_key: str | None, limit: int) -> None:
+    """List Serena WordPress menu snapshots."""
+    console = Console()
+    result = SerenaWordPressMenuSnapshotListTool().execute(site_key=site_key, limit=limit)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("remove-menu-item")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--menu", required=True, help="Menu ID, menu name, or menu location, e.g. primary or footer_menu.")
+@click.option("--menu-item-id", required=True, type=int, help="Menu item ID to remove.")
+def remove_menu_item(site_key: str | None, menu: str, menu_item_id: int) -> None:
+    """Remove/trash a WordPress menu item after saving a menu snapshot."""
+    console = Console()
+    result = SerenaWordPressRemoveMenuItemTool().execute(
+        site_key=site_key,
+        menu=menu,
+        menu_item_id=menu_item_id,
+    )
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 

@@ -3295,6 +3295,417 @@ class SerenaWordPressListMenusTool(_WordPressBaseTool):
         )
 
 
+def _get_menu_id_by_location_or_name(site_key: str | None, menu: str) -> int:
+    """Resolve a menu ID from location name, menu name, or numeric string."""
+    menu = str(menu or "").strip()
+
+    if not menu:
+        raise RuntimeError("Menu name/location/id is required.")
+
+    if menu.isdigit():
+        return int(menu)
+
+    # Try menu locations first.
+    try:
+        locations = _request("GET", "menu-locations", site_key=site_key)
+        if isinstance(locations, dict):
+            loc = locations.get(menu)
+            if isinstance(loc, dict) and loc.get("menu"):
+                return int(loc["menu"])
+    except Exception:
+        pass
+
+    # Try menu list by name.
+    menus = _request("GET", "menus", site_key=site_key)
+    if isinstance(menus, list):
+        for item in menus:
+            name = str(item.get("name") or "").strip().lower()
+            slug = str(item.get("slug") or "").strip().lower()
+            if menu.lower() in (name, slug):
+                return int(item["id"])
+
+    raise RuntimeError(f"Could not resolve WordPress menu: {menu}")
+
+
+@ToolRegistry.register("serena_wordpress_menu_items")
+class SerenaWordPressMenuItemsTool(_WordPressBaseTool):
+    tool_id = "serena_wordpress_menu_items"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="List WordPress menu items for a menu/location if REST menu-items are available.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "site_key": {"type": "string", "description": "Site key, e.g. drpiet or serena."},
+                    "menu": {"type": "string", "description": "Menu ID, menu name, or menu location such as primary or footer_menu."},
+                },
+                "required": ["menu"],
+            },
+            category="serena_wordpress",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
+        cfg = _config(site_key)
+        menu = str(params.get("menu") or "").strip()
+
+        try:
+            menu_id = _get_menu_id_by_location_or_name(site_key, menu)
+
+            endpoints = [
+                f"menu-items?menus={menu_id}&per_page=100",
+                f"menus/{menu_id}/items",
+            ]
+
+            found_data = None
+            found_endpoint = ""
+            errors = []
+
+            for endpoint in endpoints:
+                try:
+                    data = _request("GET", endpoint, site_key=site_key)
+                    if isinstance(data, list):
+                        found_data = data
+                        found_endpoint = endpoint
+                        break
+                    errors.append((endpoint, f"Unexpected response type: {type(data).__name__}"))
+                except Exception as exc:
+                    errors.append((endpoint, str(exc)))
+
+            lines = [
+                "Serena WordPress menu items",
+                "",
+                f"- Site: {cfg.get('site_key')} ({cfg.get('site_url')})",
+                f"- Requested menu: {menu}",
+                f"- Resolved menu ID: {menu_id}",
+                "",
+            ]
+
+            if found_data is None:
+                lines.append("Menu items could not be listed through available REST endpoints.")
+                lines.append("")
+                lines.append("Endpoint errors:")
+                for endpoint, error in errors:
+                    lines.append(f"- {endpoint}: {error}")
+                lines.append("")
+                lines.append("Operator note:")
+                lines.append("- Serena can inspect menu names/locations, but this site may require MCP/browser admin workflow for item-level menu edits.")
+                return self._result(
+                    "\n".join(lines),
+                    metadata={"site_key": cfg.get("site_key"), "menu_id": menu_id, "items_found": False, "errors": errors},
+                )
+
+            lines.append(f"- REST endpoint: {found_endpoint}")
+            lines.append(f"- Items found: {len(found_data)}")
+            lines.append("")
+            lines.append("Menu items:")
+
+            if not found_data:
+                lines.append("- none")
+            else:
+                for item in found_data:
+                    title = item.get("title")
+                    if isinstance(title, dict):
+                        title = title.get("rendered") or title.get("raw")
+                    lines.append(
+                        f"- {title or item.get('name') or '(untitled)'} | ID {item.get('id')} | "
+                        f"type {item.get('type') or item.get('object')} | url {item.get('url') or item.get('link') or ''} | parent {item.get('parent') or item.get('menu_item_parent') or 0}"
+                    )
+
+            return self._result(
+                "\n".join(lines),
+                metadata={
+                    "site_key": cfg.get("site_key"),
+                    "menu_id": menu_id,
+                    "endpoint": found_endpoint,
+                    "count": len(found_data),
+                },
+            )
+
+        except Exception as exc:
+            return self._result(f"Failed to list WordPress menu items: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_wordpress_add_menu_item")
+class SerenaWordPressAddMenuItemTool(_WordPressBaseTool):
+    tool_id = "serena_wordpress_add_menu_item"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description=(
+                "Add a custom URL menu item to a WordPress menu if REST menu-items write support is available. "
+                "Menu writes are operator-level actions and should be logged."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "site_key": {"type": "string", "description": "Site key, e.g. drpiet or serena."},
+                    "menu": {"type": "string", "description": "Menu ID, menu name, or menu location such as primary or footer_menu."},
+                    "title": {"type": "string", "description": "Menu item label."},
+                    "url": {"type": "string", "description": "Menu item URL."},
+                    "parent": {"type": "integer", "description": "Optional parent menu item ID."},
+                    "position": {"type": "integer", "description": "Optional menu order position."},
+                },
+                "required": ["menu", "title", "url"],
+            },
+            category="serena_wordpress",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
+        cfg = _config(site_key)
+        menu = str(params.get("menu") or "").strip()
+        title = str(params.get("title") or "").strip()
+        url = str(params.get("url") or "").strip()
+        parent = int(params.get("parent") or 0)
+        position = int(params.get("position") or 0)
+
+        if not menu or not title or not url:
+            return self._result("menu, title, and url are required.", success=False)
+
+        try:
+            menu_id = _get_menu_id_by_location_or_name(site_key, menu)
+
+            payload: dict[str, Any] = {
+                "title": title,
+                "url": url,
+                "menus": menu_id,
+                "type": "custom",
+                "status": "publish",
+            }
+
+            if parent:
+                payload["parent"] = parent
+            if position:
+                payload["menu_order"] = position
+
+            menu_snapshot = _snapshot_menu(site_key, menu_id, "before-add-menu-item")
+
+            try:
+                item = _request("POST", "menu-items", site_key=site_key, json=payload)
+            except Exception as exc:
+                return self._result(
+                    "WordPress menu item write failed through REST.\n\n"
+                    f"- Site: {cfg.get('site_key')} ({cfg.get('site_url')})\n"
+                    f"- Menu: {menu}\n"
+                    f"- Resolved menu ID: {menu_id}\n"
+                    f"- Title: {title}\n"
+                    f"- URL: {url}\n\n"
+                    "Fallback required:\n"
+                    "- Use WordPress admin/browser automation or MCP sidecar for menu writes on this site.\n"
+                    f"- REST error: {exc}",
+                    success=False,
+                    metadata={
+                        "site_key": cfg.get("site_key"),
+                        "menu_id": menu_id,
+                        "rest_write_supported": False,
+                        "error": str(exc),
+                    },
+                )
+
+            if not isinstance(item, dict):
+                return self._result("Unexpected WordPress response while creating menu item.", success=False)
+
+            return self._result(
+                "WordPress menu item added\n\n"
+                f"- Site: {cfg.get('site_key')} ({cfg.get('site_url')})\n"
+                f"- Menu: {menu}\n"
+                f"- Resolved menu ID: {menu_id}\n"
+                f"- Menu item ID: {item.get('id')}\n"
+                f"- Title: {title}\n"
+                f"- URL: {url}\n"
+                f"- Menu snapshot: {menu_snapshot}",
+                metadata={
+                    "site_key": cfg.get("site_key"),
+                    "menu_id": menu_id,
+                    "menu_item_id": item.get("id"),
+                    "title": title,
+                    "url": url,
+                    "menu_snapshot": menu_snapshot,
+                    "rest_write_supported": True,
+                },
+            )
+
+        except Exception as exc:
+            return self._result(f"Failed to add WordPress menu item: {exc}", success=False)
+
+
+def _menu_snapshot_dir(site_key: str | None = None) -> Path:
+    cfg = _config(site_key)
+    site = cfg.get("site_key") or _site_key(site_key)
+    folder = Path(cfg.get("artifact_dir", "outputs/wordpress")) / "menu-snapshots" / site
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def _snapshot_menu(site_key: str | None, menu_id: int, reason: str) -> str:
+    """Save menu item state before menu writes."""
+    cfg = _config(site_key)
+    out_dir = _menu_snapshot_dir(site_key)
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    path = out_dir / f"{timestamp}-menu-{menu_id}-{_slugify(reason)}.json"
+
+    data = None
+    errors = []
+
+    for endpoint in [f"menu-items?menus={menu_id}&per_page=100", f"menus/{menu_id}/items"]:
+        try:
+            data = _request("GET", endpoint, site_key=site_key)
+            if isinstance(data, list):
+                break
+        except Exception as exc:
+            errors.append({"endpoint": endpoint, "error": str(exc)})
+
+    snapshot = {
+        "snapshot_reason": reason,
+        "snapshot_timestamp": timestamp,
+        "site_key": cfg.get("site_key"),
+        "site_url": cfg.get("site_url"),
+        "menu_id": menu_id,
+        "items": data if isinstance(data, list) else [],
+        "errors": errors,
+    }
+
+    path.write_text(json.dumps(snapshot, indent=2), encoding="utf-8")
+    return str(path)
+
+
+@ToolRegistry.register("serena_wordpress_menu_snapshot_list")
+class SerenaWordPressMenuSnapshotListTool(_WordPressBaseTool):
+    tool_id = "serena_wordpress_menu_snapshot_list"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="List Serena WordPress menu snapshots for a site.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "site_key": {"type": "string", "description": "Site key, e.g. drpiet or serena."},
+                    "limit": {"type": "integer", "description": "Maximum snapshots to show."}
+                },
+            },
+            category="serena_wordpress",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
+        limit = int(params.get("limit") or 20)
+        folder = _menu_snapshot_dir(site_key)
+        files = sorted(folder.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:limit]
+
+        lines = [
+            "Serena WordPress menu snapshots",
+            "",
+            f"- Site: {_config(site_key).get('site_key')} ({_config(site_key).get('site_url')})",
+            f"- Folder: {folder}",
+            "",
+        ]
+
+        if not files:
+            lines.append("No menu snapshots found.")
+        else:
+            for file in files:
+                lines.append(f"- {file.name}")
+
+        return self._result("\n".join(lines), metadata={"folder": str(folder), "count": len(files)})
+
+
+@ToolRegistry.register("serena_wordpress_remove_menu_item")
+class SerenaWordPressRemoveMenuItemTool(_WordPressBaseTool):
+    tool_id = "serena_wordpress_remove_menu_item"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description=(
+                "Remove/trash a WordPress menu item if REST write support is available. "
+                "Creates a menu snapshot first. This does not permanently delete content pages/posts."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "site_key": {"type": "string", "description": "Site key, e.g. drpiet or serena."},
+                    "menu": {"type": "string", "description": "Menu ID, menu name, or location."},
+                    "menu_item_id": {"type": "integer", "description": "Menu item ID to remove."}
+                },
+                "required": ["menu", "menu_item_id"],
+            },
+            category="serena_wordpress",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
+        cfg = _config(site_key)
+        menu = str(params.get("menu") or "").strip()
+        menu_item_id = int(params.get("menu_item_id") or 0)
+
+        if not menu or not menu_item_id:
+            return self._result("menu and menu_item_id are required.", success=False)
+
+        try:
+            menu_id = _get_menu_id_by_location_or_name(site_key, menu)
+            snapshot_path = _snapshot_menu(site_key, menu_id, "before-remove-menu-item")
+
+            delete_error = ""
+            try:
+                item = _request("DELETE", f"menu-items/{menu_item_id}?force=false", site_key=site_key)
+            except Exception as exc:
+                delete_error = str(exc)
+                try:
+                    # Some firewalls block raw DELETE requests. WordPress REST supports method override.
+                    item = _request("POST", f"menu-items/{menu_item_id}?_method=DELETE&force=true", site_key=site_key, json={})
+                except Exception as override_exc:
+                    return self._result(
+                        "WordPress menu item removal failed through REST.\n\n"
+                        f"- Site: {cfg.get('site_key')} ({cfg.get('site_url')})\n"
+                        f"- Menu: {menu}\n"
+                        f"- Resolved menu ID: {menu_id}\n"
+                        f"- Menu item ID: {menu_item_id}\n"
+                        f"- Menu snapshot: {snapshot_path}\n\n"
+                        "Fallback required:\n"
+                        "- Use WordPress admin/browser automation or MCP sidecar for menu item removal.\n"
+                        f"- DELETE error: {delete_error}\n"
+                        f"- POST _method=DELETE force=true error: {override_exc}",
+                        success=False,
+                        metadata={
+                            "site_key": cfg.get("site_key"),
+                            "menu_id": menu_id,
+                            "menu_item_id": menu_item_id,
+                            "menu_snapshot": snapshot_path,
+                            "rest_write_supported": False,
+                            "delete_error": delete_error,
+                            "override_error": str(override_exc),
+                        },
+                    )
+
+            return self._result(
+                "WordPress menu item removed or moved to trash\n\n"
+                f"- Site: {cfg.get('site_key')} ({cfg.get('site_url')})\n"
+                f"- Menu: {menu}\n"
+                f"- Resolved menu ID: {menu_id}\n"
+                f"- Menu item ID: {menu_item_id}\n"
+                f"- Menu snapshot: {snapshot_path}",
+                metadata={
+                    "site_key": cfg.get("site_key"),
+                    "menu_id": menu_id,
+                    "menu_item_id": menu_item_id,
+                    "menu_snapshot": snapshot_path,
+                    "wordpress_response": item,
+                },
+            )
+
+        except Exception as exc:
+            return self._result(f"Failed to remove WordPress menu item: {exc}", success=False)
+
+
 __all__ = [
     "SerenaWordPressStatusTool",
     "SerenaWordPressListPostsTool",
@@ -3316,6 +3727,10 @@ __all__ = [
     "SerenaWordPressFinalPublishTool",
     "SerenaWordPressSiteAuditTool",
     "SerenaWordPressListMenusTool",
+    "SerenaWordPressAddMenuItemTool",
+    "SerenaWordPressRemoveMenuItemTool",
+    "SerenaWordPressMenuSnapshotListTool",
+    "SerenaWordPressMenuItemsTool",
     "SerenaWordPressAddLinkTool",
     "SerenaWordPressSuggestLinksTool",
     "SerenaWordPressLinkMapTool",
