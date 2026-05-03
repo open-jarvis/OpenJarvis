@@ -1,0 +1,27 @@
+{
+  "legacy_file": "legacy\\serena-skills\\63-files.js",
+  "line_count": 99,
+  "character_count": 3900,
+  "function_names": [],
+  "dependencies": [
+    "../helpers/logger"
+  ],
+  "status": "inspected",
+  "target_native_skill": "Serena Files Full Operator v1",
+  "target_workflow": [
+    "inspect local file system status",
+    "index folders",
+    "search files by name/content",
+    "read safe text files",
+    "create folders",
+    "copy files",
+    "move files with approval",
+    "snapshot files before risky actions",
+    "audit folders",
+    "find cleanup candidates",
+    "plan backups",
+    "create controlled local backups",
+    "protect originals",
+    "never permanently delete in v1"
+  ]
+}
