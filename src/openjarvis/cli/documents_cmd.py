@@ -17,6 +17,7 @@ from openjarvis.tools.serena_documents import (
     SerenaDocumentsSummarizeTool,
     SerenaDocumentsSnapshotsTool,
     SerenaDocumentsAuditTool,
+    SerenaDocumentsPDFCheckTool,
     SerenaDocumentsSnapshotTool,
     SerenaDocumentsLibraryTool,
     SerenaDocumentsImportTool,
@@ -150,6 +151,15 @@ def audit(folder: str, recursive: bool, limit: int) -> None:
     """Run Serena's document library audit dashboard."""
     console = Console()
     result = SerenaDocumentsAuditTool().execute(folder=folder, recursive=recursive, limit=limit)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@documents.command("pdf-check")
+@click.option("--path", "file_path", required=True, help="PDF path.")
+def pdf_check(file_path: str) -> None:
+    """Check whether a PDF has extractable text or needs OCR."""
+    console = Console()
+    result = SerenaDocumentsPDFCheckTool().execute(path=file_path)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 

@@ -24,12 +24,17 @@ try:
 except Exception:  # pragma: no cover
     DocxDocument = None
 
+try:
+    from pypdf import PdfReader
+except Exception:  # pragma: no cover
+    PdfReader = None
+
 from openjarvis.tools._stubs import BaseTool, ToolResult, ToolSpec
 from openjarvis.core.registry import ToolRegistry
 
 
 SUPPORTED_TEXT_SUFFIXES = {".txt", ".md", ".rtf"}
-SUPPORTED_DOC_SUFFIXES = {".docx"}
+SUPPORTED_DOC_SUFFIXES = {".docx", ".pdf"}
 SUPPORTED_SUFFIXES = SUPPORTED_TEXT_SUFFIXES | SUPPORTED_DOC_SUFFIXES
 
 
@@ -81,18 +86,87 @@ def _strip_rtf(text: str) -> str:
 def _extract_docx(path: Path) -> str:
     if DocxDocument is None:
         raise RuntimeError("python-docx is not installed. Run: uv add python-docx")
-    doc = DocxDocument(str(path))
+
+    try:
+        doc = DocxDocument(str(path))
+    except Exception as exc:
+        raise RuntimeError(f"Could not open DOCX file. It may be corrupt, encrypted, or not a valid DOCX: {exc}") from exc
+
     parts: list[str] = []
+
     for para in doc.paragraphs:
         text = para.text.strip()
         if text:
             parts.append(text)
-    for table in doc.tables:
+
+    for table_index, table in enumerate(doc.tables, start=1):
+        parts.append(f"[Table {table_index}]")
         for row in table.rows:
             cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
             if cells:
                 parts.append(" | ".join(cells))
-    return "\n".join(parts).strip()
+
+    extracted = "\n".join(parts).strip()
+
+    if not extracted:
+        raise RuntimeError(
+            "DOCX opened but no readable text was extracted. It may contain only images, shapes, or scanned content."
+        )
+
+    return extracted
+
+
+def _extract_pdf(path: Path) -> str:
+    if PdfReader is None:
+        raise RuntimeError("pypdf is not installed. Run: uv add pypdf")
+
+    try:
+        reader = PdfReader(str(path))
+    except Exception as exc:
+        raise RuntimeError(f"Could not open PDF. It may be corrupt, encrypted, or password protected: {exc}") from exc
+
+    if getattr(reader, "is_encrypted", False):
+        try:
+            reader.decrypt("")
+        except Exception as exc:
+            raise RuntimeError(f"PDF is encrypted/password protected and could not be decrypted: {exc}") from exc
+
+    page_texts: list[str] = []
+
+    for index, page in enumerate(reader.pages, start=1):
+        parts: list[str] = []
+
+        try:
+            text = page.extract_text() or ""
+            if text.strip():
+                parts.append(text.strip())
+        except Exception as exc:
+            parts.append(f"[Page {index}: text extraction failed: {exc}]")
+
+        # Fallback: some PDFs contain useful text only in annotations/forms.
+        try:
+            annotations = page.get("/Annots") or []
+            for annotation_ref in annotations:
+                annotation = annotation_ref.get_object()
+                contents = annotation.get("/Contents")
+                if contents:
+                    value = str(contents).strip()
+                    if value:
+                        parts.append(f"[Annotation] {value}")
+        except Exception:
+            pass
+
+        if parts:
+            page_texts.append(f"[Page {index}]\n" + "\n".join(parts))
+
+    extracted = "\n\n".join(page_texts).strip()
+
+    if not extracted:
+        raise RuntimeError(
+            "PDF opened but no readable text was extracted. This is likely a scanned/image-only PDF and needs OCR."
+        )
+
+    return extracted
 
 
 def _extract_text(path: Path) -> str:
@@ -103,6 +177,8 @@ def _extract_text(path: Path) -> str:
         return _strip_rtf(_read_text_like(path))
     if suffix == ".docx":
         return _extract_docx(path)
+    if suffix == ".pdf":
+        return _extract_pdf(path)
     raise RuntimeError(f"Unsupported document type for v1 extraction: {suffix}")
 
 
@@ -171,9 +247,20 @@ def _inspect_document(path: Path, text: str) -> dict[str, Any]:
     issues = []
     recommendations = []
 
+    suffix = path.suffix.lower()
+
     if not text.strip():
         issues.append("no_readable_text")
         recommendations.append("Use OCR or a different extraction path if this is scanned/image-based.")
+
+    if suffix == ".pdf" and words < 20:
+        issues.append("possible_scanned_pdf_or_ocr_needed")
+        recommendations.append("PDF has very little extractable text. It may be scanned/image-only and need OCR.")
+
+    if suffix == ".docx" and words < 20:
+        issues.append("possible_empty_or_image_based_docx")
+        recommendations.append("DOCX has very little extractable text. It may contain mostly images, shapes, or non-body text.")
+
     if words < 50:
         issues.append("very_short_text")
         recommendations.append("Confirm the document extracted correctly; it may be empty, scanned, or incomplete.")
@@ -235,8 +322,9 @@ class SerenaDocumentsStatusTool(_DocumentsBaseTool):
         return self._result(
             "Serena Documents status\n\n"
             "- Status: active\n"
-            "- Supported v1 formats: .txt, .md, .rtf, .docx\n"
-            "- PDF/OCR/Google Drive: planned next layers\n"
+            "- Supported v1 formats: .txt, .md, .rtf, .docx, .pdf\n"
+            "- PDF text extraction: active\n"
+            "- OCR/Google Drive: planned next layers\n"
             f"- Output root: {root}\n"
             f"- Reports: {root / 'reports'}\n"
             f"- Extracted text: {root / 'extracted'}\n"
@@ -497,9 +585,23 @@ class SerenaDocumentsInspectTool(_DocumentsBaseTool):
     def execute(self, **params: Any) -> ToolResult:
         try:
             path = _resolve_path(str(params.get("path") or ""))
-            text = _extract_text(path)
+
+            try:
+                text = _extract_text(path)
+                extraction_error = ""
+            except Exception as extract_exc:
+                text = ""
+                extraction_error = str(extract_exc)
+
             inspection = _inspect_document(path, text)
             classification = _classify_document(path, text)
+
+            if extraction_error:
+                inspection["issues"].append("text_extraction_failed")
+                if path.suffix.lower() == ".pdf":
+                    inspection["issues"].append("pdf_ocr_or_password_check_needed")
+                    inspection["recommendations"].append("Run pdf-check. If no text is extractable, use OCR before summarizing.")
+                inspection["recommendations"].append(f"Extraction error: {extraction_error}")
 
             lines = [
                 "Serena document inspection",
@@ -520,7 +622,7 @@ class SerenaDocumentsInspectTool(_DocumentsBaseTool):
             lines.append("Recommendations:")
             lines.extend(f"- {rec}" for rec in inspection["recommendations"] or ["No major recommendations."])
 
-            return self._result("\n".join(lines), metadata={**inspection, **classification})
+            return self._result("\n".join(lines), metadata={**inspection, **classification, "extraction_error": extraction_error})
         except Exception as exc:
             return self._result(f"Failed to inspect document: {exc}", success=False)
 
@@ -1052,6 +1154,96 @@ class SerenaDocumentsAuditTool(_DocumentsBaseTool):
             return self._result(f"Failed to run document audit: {exc}", success=False)
 
 
+@ToolRegistry.register("serena_documents_pdf_check")
+class SerenaDocumentsPDFCheckTool(_DocumentsBaseTool):
+    tool_id = "serena_documents_pdf_check"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Check a PDF for readable text extraction and flag likely scanned/OCR-needed PDFs.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "PDF path."}
+                },
+                "required": ["path"],
+            },
+            category="serena_documents",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            path = _resolve_path(str(params.get("path") or ""))
+
+            if path.suffix.lower() != ".pdf":
+                return self._result(f"Not a PDF file: {path}", success=False)
+
+            if PdfReader is None:
+                return self._result("pypdf is not installed. Run: uv add pypdf", success=False)
+
+            reader = PdfReader(str(path))
+            encrypted = bool(getattr(reader, "is_encrypted", False))
+            pages = len(reader.pages)
+
+            extracted_pages = 0
+            failed_pages = 0
+            total_words = 0
+
+            if encrypted:
+                try:
+                    reader.decrypt("")
+                except Exception:
+                    pass
+
+            for page in reader.pages:
+                try:
+                    text = page.extract_text() or ""
+                    words = _word_count(text)
+                    total_words += words
+                    if words > 0:
+                        extracted_pages += 1
+                except Exception:
+                    failed_pages += 1
+
+            likely_scanned = total_words < 20 or extracted_pages == 0
+
+            lines = [
+                "Serena PDF extraction check",
+                "",
+                f"- Source: {path}",
+                f"- Pages: {pages}",
+                f"- Encrypted: {'yes' if encrypted else 'no'}",
+                f"- Pages with extractable text: {extracted_pages}",
+                f"- Failed pages: {failed_pages}",
+                f"- Extracted word count estimate: {total_words}",
+                f"- Likely scanned/OCR-needed: {'yes' if likely_scanned else 'no'}",
+                "",
+                "Recommendation:",
+            ]
+
+            if likely_scanned:
+                lines.append("- Use the future OCR layer for this PDF, or convert it with OCR before summarizing.")
+            else:
+                lines.append("- PDF has extractable text and can be summarized/reported by Serena Documents.")
+
+            return self._result(
+                "\n".join(lines),
+                metadata={
+                    "source": str(path),
+                    "pages": pages,
+                    "encrypted": encrypted,
+                    "pages_with_text": extracted_pages,
+                    "failed_pages": failed_pages,
+                    "word_count_estimate": total_words,
+                    "likely_scanned": likely_scanned,
+                },
+            )
+        except Exception as exc:
+            return self._result(f"Failed to check PDF: {exc}", success=False)
+
+
 __all__ = [
     "SerenaDocumentsStatusTool",
     "SerenaDocumentsIndexTool",
@@ -1063,6 +1255,7 @@ __all__ = [
     "SerenaDocumentsReportTool",
     "SerenaDocumentsSnapshotsTool",
     "SerenaDocumentsAuditTool",
+    "SerenaDocumentsPDFCheckTool",
     "SerenaDocumentsSnapshotTool",
     "SerenaDocumentsLibraryTool",
     "SerenaDocumentsImportTool",
