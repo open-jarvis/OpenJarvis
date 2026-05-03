@@ -142,3 +142,7 @@ except ImportError:
     pass
 
 __all__ = ["BaseTool", "ToolExecutor", "ToolSpec"]
+
+# Serena native WordPress tools
+import openjarvis.tools.serena_wordpress  # noqa: F401
+
