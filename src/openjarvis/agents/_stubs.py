@@ -72,6 +72,9 @@ class BaseAgent(ABC):
         self._model = model
         self._bus = bus
         self._prompt_builder = prompt_builder
+        self._total_prompt_tokens: int = 0
+        self._total_completion_tokens: int = 0
+        self._total_cost_usd: float = 0.0
 
         # Three-tier resolution: explicit arg > config > class default > hardcoded
         if temperature is not None and max_tokens is not None:
@@ -183,8 +186,12 @@ class BaseAgent(ABC):
             **extra_kwargs,
         )
 
+        usage = result.get("usage", {})
+        self._total_prompt_tokens += usage.get("prompt_tokens", 0)
+        self._total_completion_tokens += usage.get("completion_tokens", 0)
+        self._total_cost_usd += result.get("cost_usd", 0.0)
+
         if self._bus and not getattr(self._engine, "_publishes_events", False):
-            usage = result.get("usage", {})
             self._bus.publish(
                 EventType.INFERENCE_END,
                 {

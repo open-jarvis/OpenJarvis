@@ -20,6 +20,7 @@ class JarvisDirectBackend(InferenceBackend):
     def __init__(
         self,
         engine_key: Optional[str] = None,
+        engine_config: Optional[Dict[str, Any]] = None,
         telemetry: bool = False,
         gpu_metrics: bool = False,
     ) -> None:
@@ -31,11 +32,22 @@ class JarvisDirectBackend(InferenceBackend):
         builder = SystemBuilder()
         if engine_key:
             builder.engine(engine_key)
+
+        # Apply engine-specific config overrides from eval TOML
+        if engine_config and engine_key:
+            # Apply engine config to the builder's config
+            # For vllm: config.engine.vllm_host
+            # For ollama: config.engine.ollama_host, etc.
+            host_attr = f"{engine_key}_host"
+            if "host" in engine_config:
+                setattr(builder._config.engine, host_attr, engine_config["host"])
+
         # Propagate gpu_metrics to the runtime config so SystemBuilder
         # creates an EnergyMonitor / GpuMonitor for the InstrumentedEngine.
         if gpu_metrics:
             builder._config.telemetry.gpu_metrics = True
-        self._system = builder.telemetry(telemetry).traces(telemetry).build()
+        # Always enable traces to collect trace_data for eval analysis
+        self._system = builder.telemetry(telemetry).traces(True).build()
 
     def generate(
         self,
@@ -80,6 +92,34 @@ class JarvisDirectBackend(InferenceBackend):
         )
         elapsed = time.monotonic() - t0
 
+        # Extract trace data from the TraceCollector if available
+        trace_data = None
+        collector = getattr(self._system, "trace_collector", None)
+        if collector is not None:
+            trace = getattr(collector, "last_trace", None)
+            if trace is not None:
+                trace_data = {
+                    "trace_id": trace.trace_id,
+                    "steps": [
+                        {
+                            "step_type": (
+                                step.step_type.value
+                                if hasattr(step.step_type, "value")
+                                else step.step_type
+                            ),
+                            "timestamp": step.timestamp,
+                            "duration_seconds": step.duration_seconds,
+                            "input": step.input,
+                            "output": step.output,
+                            "metadata": step.metadata,
+                        }
+                        for step in trace.steps
+                    ],
+                    "messages": trace.messages,
+                    "total_tokens": trace.total_tokens,
+                    "total_latency_seconds": trace.total_latency_seconds,
+                }
+
         usage = result.get("usage", {})
         telemetry_data = result.get("_telemetry", {})
         return {
@@ -93,6 +133,7 @@ class JarvisDirectBackend(InferenceBackend):
             "power_watts": telemetry_data.get("power_watts", 0.0),
             "gpu_utilization_pct": telemetry_data.get("gpu_utilization_pct", 0.0),
             "throughput_tok_per_sec": telemetry_data.get("throughput_tok_per_sec", 0.0),
+            "trace_data": trace_data,
         }
 
     def close(self) -> None:

@@ -88,8 +88,10 @@ class _OpenAICompatibleEngine(InferenceEngine):
         estimated_prompt = estimate_prompt_tokens(messages)
         prompt_tokens = max(reported_prompt, estimated_prompt)
         completion_tokens = usage.get("completion_tokens", 0)
+        # Handle reasoning models (DeepSeek R1, etc.) that put output in "reasoning" field
+        message_content = choice["message"].get("content") or choice["message"].get("reasoning") or ""
         result: Dict[str, Any] = {
-            "content": choice["message"].get("content") or "",
+            "content": message_content,
             "usage": {
                 "prompt_tokens": prompt_tokens,
                 "prompt_tokens_evaluated": reported_prompt or prompt_tokens,

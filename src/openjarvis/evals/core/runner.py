@@ -18,6 +18,7 @@ import json
 import logging
 import math
 import re
+import shutil
 import statistics
 import time
 from collections import defaultdict
@@ -149,29 +150,107 @@ class EvalRunner:
                 LOGGER.debug("Task env thread-safety probe failed: %s", exc)
 
         records = list(self._dataset.iter_records())
+        all_records = records  # Keep reference to all records for summary computation
+
+        # --- Resume logic: check for existing results and skip completed samples ---
+        output_path = self._resolve_output_path()
+        resuming = False
+        original_record_count = len(records)
+
+        if output_path and output_path.exists():
+            completed_ids = set()
+            try:
+                with open(output_path) as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            try:
+                                record_dict = json.loads(line)
+                                if record_dict.get("record_id"):
+                                    completed_ids.add(record_dict["record_id"])
+                            except json.JSONDecodeError:
+                                continue
+
+                if completed_ids:
+                    # Load existing results into memory for summary computation
+                    with open(output_path) as f:
+                        for line in f:
+                            line = line.strip()
+                            if line:
+                                try:
+                                    record_dict = json.loads(line)
+                                    # Convert dict back to EvalResult
+                                    result = EvalResult(
+                                        record_id=record_dict.get("record_id", ""),
+                                        model_answer=record_dict.get("model_answer", ""),
+                                        problem=record_dict.get("problem", ""),
+                                        reference=record_dict.get("reference", ""),
+                                        is_correct=record_dict.get("is_correct"),
+                                        score=record_dict.get("score"),
+                                        latency_seconds=record_dict.get("latency_seconds", 0.0),
+                                        prompt_tokens=record_dict.get("prompt_tokens", 0),
+                                        completion_tokens=record_dict.get("completion_tokens", 0),
+                                        cost_usd=record_dict.get("cost_usd", 0.0),
+                                        error=record_dict.get("error"),
+                                        scoring_metadata=record_dict.get("scoring_metadata"),
+                                        ttft=record_dict.get("ttft", 0.0),
+                                        energy_joules=record_dict.get("energy_joules", 0.0),
+                                        power_watts=record_dict.get("power_watts", 0.0),
+                                        gpu_utilization_pct=record_dict.get("gpu_utilization_pct", 0.0),
+                                        throughput_tok_per_sec=record_dict.get("throughput_tok_per_sec", 0.0),
+                                        mfu_pct=record_dict.get("mfu_pct", 0.0),
+                                        mbu_pct=record_dict.get("mbu_pct", 0.0),
+                                        ipw=record_dict.get("ipw", 0.0),
+                                        ipj=record_dict.get("ipj", 0.0),
+                                        energy_per_output_token_joules=record_dict.get("energy_per_output_token_joules", 0.0),
+                                        throughput_per_watt=record_dict.get("throughput_per_watt", 0.0),
+                                        mean_itl_ms=record_dict.get("mean_itl_ms", 0.0),
+                                        estimated_flops=record_dict.get("estimated_flops", 0.0),
+                                        trace_data=record_dict.get("trace_data"),
+                                    )
+                                    self._results.append(result)
+                                except (json.JSONDecodeError, KeyError, TypeError):
+                                    continue
+
+                    # Filter records to exclude already-completed samples (but keep all_records intact)
+                    records = [r for r in records if r.record_id not in completed_ids]
+                    skipped = original_record_count - len(records)
+                    LOGGER.info(
+                        "Resume mode: found %d completed sample(s) in existing results. "
+                        "Skipping already-processed samples. %d remaining to process.",
+                        skipped,
+                        len(records),
+                    )
+                    resuming = True
+            except Exception as exc:
+                LOGGER.warning("Failed to read existing results for resume: %s", exc)
+                resuming = False
+
         LOGGER.info(
-            "Running %s: %d samples, backend=%s, model=%s, workers=%d, episode_mode=%s",
+            "Running %s: %d samples, backend=%s, model=%s, workers=%d, episode_mode=%s%s",
             cfg.benchmark,
             len(records),
             cfg.backend,
             cfg.model,
             cfg.max_workers,
             cfg.episode_mode,
+            " (resume mode)" if resuming else "",
         )
 
-        # --- Warmup phase (discard results) ---
-        warmup_count = cfg.warmup_samples
-        if warmup_count > 0 and records:
-            warmup_records = records[:warmup_count]
-            for rec in warmup_records:
-                self._process_one(rec)
-            LOGGER.info("Warmup complete: %d samples discarded", len(warmup_records))
+        # --- Warmup phase (discard results) - skip if resuming ---
+        if not resuming:
+            warmup_count = cfg.warmup_samples
+            if warmup_count > 0 and records:
+                warmup_records = records[:warmup_count]
+                for rec in warmup_records:
+                    self._process_one(rec)
+                LOGGER.info("Warmup complete: %d samples discarded", len(warmup_records))
 
         # Open output file for incremental JSONL writing
-        output_path = self._resolve_output_path()
         if output_path:
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            self._output_file = open(output_path, "w")
+            # Use append mode to preserve existing results when resuming
+            self._output_file = open(output_path, "a")
 
         # Notify trackers of run start
         for tracker in self._trackers:
@@ -184,7 +263,8 @@ class EvalRunner:
                     exc,
                 )
 
-        total = len(records)
+        # Use original record count for progress tracking (includes completed + remaining)
+        total = original_record_count
         try:
             if cfg.episode_mode:
                 self._run_episode_mode(records, progress_callback, total)
@@ -214,7 +294,7 @@ class EvalRunner:
                 self._output_file = None
 
         ended_at = time.time()
-        summary = self._compute_summary(records, started_at, ended_at)
+        summary = self._compute_summary(all_records, started_at, ended_at)
 
         # Notify trackers of summary and run end
         for tracker in self._trackers:
@@ -243,6 +323,13 @@ class EvalRunner:
                 json.dump(_summary_to_dict(summary), f, indent=2)
             LOGGER.info("Results written to %s", output_path)
             LOGGER.info("Summary written to %s", summary_path)
+
+            # Copy config file if available
+            if self._config.config_path:
+                config_source = Path(self._config.config_path)
+                config_dest = output_path.parent / config_source.name
+                shutil.copy2(self._config.config_path, config_dest)
+                LOGGER.info("Config copied to %s", config_dest)
 
             # Write per-trace data
             traces_dir = self._write_traces(output_path)
@@ -285,6 +372,8 @@ class EvalRunner:
                 task_env = self._dataset.create_task_env(record)
                 ctx = task_env if task_env is not None else nullcontext()
                 with ctx:
+                    if hasattr(self._backend, "set_current_record"):
+                        self._backend.set_current_record(record)
                     full = self._backend.generate_full(
                         record.problem,
                         **gen_kwargs,
@@ -321,6 +410,8 @@ class EvalRunner:
                         content,
                     )
             else:
+                if hasattr(self._backend, "set_current_record"):
+                    self._backend.set_current_record(record)
                 full = self._backend.generate_full(
                     record.problem,
                     **gen_kwargs,
@@ -392,6 +483,8 @@ class EvalRunner:
             return EvalResult(
                 record_id=record.record_id,
                 model_answer=content,
+                problem=record.problem,
+                reference=record.reference,
                 is_correct=is_correct,
                 score=1.0 if is_correct else (0.0 if is_correct is not None else None),
                 latency_seconds=latency,
@@ -419,6 +512,8 @@ class EvalRunner:
             return EvalResult(
                 record_id=record.record_id,
                 model_answer="",
+                problem=record.problem,
+                reference=record.reference,
                 error=str(exc),
             )
 
@@ -687,6 +782,8 @@ class EvalRunner:
             return EvalResult(
                 record_id=record.record_id,
                 model_answer="\n---\n".join(all_responses),
+                problem=record.problem,
+                reference=record.reference,
                 is_correct=is_correct,
                 score=1.0 if is_correct else (0.0 if is_correct is not None else None),
                 latency_seconds=total_latency,
@@ -705,6 +802,8 @@ class EvalRunner:
             return EvalResult(
                 record_id=record.record_id,
                 model_answer="",
+                problem=record.problem,
+                reference=record.reference,
                 error=str(exc),
                 scoring_metadata={"interactive": True, "error": str(exc)},
             )
@@ -745,6 +844,8 @@ class EvalRunner:
             "benchmark": self._config.benchmark,
             "model": self._config.model,
             "backend": self._config.backend,
+            "problem": result.problem,
+            "reference": result.reference,
             "model_answer": result.model_answer,
             "is_correct": result.is_correct,
             "score": result.score,
@@ -767,6 +868,7 @@ class EvalRunner:
             "throughput_per_watt": result.throughput_per_watt,
             "mean_itl_ms": result.mean_itl_ms,
             "estimated_flops": result.estimated_flops,
+            "trace_data": result.trace_data,
         }
         try:
             line = json.dumps(record_dict, default=str)
@@ -1147,9 +1249,9 @@ def _result_to_trace_dict(result: EvalResult) -> Dict[str, Any]:
         "throughput_per_watt": result.throughput_per_watt,
         "mean_itl_ms": result.mean_itl_ms,
         "estimated_flops": result.estimated_flops,
+        # Always include trace_data for consistent output format, even if None/empty
+        "trace_data": result.trace_data,
     }
-    if result.trace_data is not None:
-        d["trace_data"] = result.trace_data
     return d
 
 

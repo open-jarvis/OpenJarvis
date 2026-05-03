@@ -627,36 +627,37 @@ class CloudEngine(InferenceEngine):
                 "GEMINI_API_KEY or GOOGLE_API_KEY and install "
                 "openjarvis[inference-google]"
             )
-        # Build contents from messages, converting tool roles for Gemini
+        # Build contents from messages using native genai types for SDK v1+
+        from google.genai import types as _gt
+
         system_text = ""
-        contents: List[Dict[str, Any]] = []
+        contents: List[Any] = []
         for m in messages:
             if m.role.value == "system":
                 system_text = m.content
             elif m.role.value == "tool":
-                # Gemini expects function responses as role="user" with
-                # function_response parts
-                fn_resp_part = {
-                    "function_response": {
-                        "name": m.name or "unknown",
-                        "response": {"result": m.content},
-                    }
-                }
-                # Merge consecutive tool results into a single user message
+                # Gemini expects function responses as role="user"
+                fn_part = _gt.Part(
+                    function_response=_gt.FunctionResponse(
+                        name=m.name or "unknown",
+                        response={"result": m.content},
+                    )
+                )
+                # Merge consecutive tool results into a single user Content
                 if (
                     contents
-                    and contents[-1]["role"] == "user"
-                    and contents[-1]["parts"]
-                    and "function_response" in contents[-1]["parts"][-1]
+                    and contents[-1].role == "user"
+                    and contents[-1].parts
+                    and contents[-1].parts[-1].function_response is not None
                 ):
-                    contents[-1]["parts"].append(fn_resp_part)
+                    contents[-1].parts.append(fn_part)
                 else:
-                    contents.append({"role": "user", "parts": [fn_resp_part]})
+                    contents.append(_gt.Content(role="user", parts=[fn_part]))
             elif m.role.value == "assistant" and m.tool_calls:
                 # Convert assistant tool_calls to function_call parts
-                parts: List[Dict[str, Any]] = []
+                parts: List[Any] = []
                 if m.content:
-                    parts.append({"text": m.content})
+                    parts.append(_gt.Part(text=m.content))
                 for tc in m.tool_calls:
                     args = tc.arguments
                     if isinstance(args, str):
@@ -664,22 +665,25 @@ class CloudEngine(InferenceEngine):
                             args = json.loads(args)
                         except (json.JSONDecodeError, TypeError):
                             args = {"input": args}
-                    fc_part: Dict[str, Any] = {
-                        "function_call": {
-                            "name": tc.name,
-                            "args": args if isinstance(args, dict) else {},
-                        }
+                    fc_part_kwargs: Dict[str, Any] = {
+                        "function_call": _gt.FunctionCall(
+                            name=tc.name,
+                            args=args if isinstance(args, dict) else {},
+                        )
                     }
-                    # Replay thought_signature for Gemini reasoning models
                     sig = self._thought_sigs.get(tc.id)
                     if sig is not None:
-                        fc_part["thought_signature"] = sig
-                    parts.append(fc_part)
-                contents.append({"role": "model", "parts": parts})
+                        fc_part_kwargs["thought_signature"] = sig
+                    parts.append(_gt.Part(**fc_part_kwargs))
+                contents.append(_gt.Content(role="model", parts=parts))
             elif m.role.value == "assistant":
-                contents.append({"role": "model", "parts": [{"text": m.content}]})
+                contents.append(
+                    _gt.Content(role="model", parts=[_gt.Part(text=m.content or "")])
+                )
             else:
-                contents.append({"role": "user", "parts": [{"text": m.content}]})
+                contents.append(
+                    _gt.Content(role="user", parts=[_gt.Part(text=m.content or "")])
+                )
 
         from google.genai import types as genai_types
 
@@ -727,13 +731,16 @@ class CloudEngine(InferenceEngine):
                     tc_dict: Dict[str, Any] = {
                         "id": f"google_{fc.name}",
                         "name": fc.name,
-                        "arguments": json.dumps(fc_args),
+                        "arguments": json.dumps(fc_args, default=str),
                     }
                     # Preserve thought_signature for Gemini reasoning models
                     sig = getattr(part, "thought_signature", None)
                     if sig is not None:
-                        tc_dict["thought_signature"] = sig
+                        # Keep raw bytes in _thought_sigs for replay; store
+                        # base64 string in tc_dict for JSON serialization
                         self._thought_sigs[tc_dict["id"]] = sig
+                        import base64
+                        tc_dict["thought_signature"] = base64.b64encode(sig).decode() if isinstance(sig, bytes) else str(sig)
                     tool_calls.append(tc_dict)
                 elif hasattr(part, "text") and part.text:
                     text_parts.append(part.text)
