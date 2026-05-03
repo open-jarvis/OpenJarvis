@@ -1,0 +1,15 @@
+# Foreign-framework paths + pinned commits.
+# Override paths via env vars: HERMES_AGENT_PATH, OPENCLAW_PATH.
+# Bypass commit-pin enforcement with JARVIS_ALLOW_COMMIT_DRIFT=1.
+
+[hermes]
+path = "/home/ubuntu/lambda-stanford/jonsf/scratch_v7/hermes-agent"
+pinned_commit = "5d3be898a"
+runner_script = "src/openjarvis/evals/backends/external/_runners/hermes_runner.py"
+python_executable = ""
+
+[openclaw]
+path = "/home/ubuntu/lambda-stanford/jonsf/openclaw"
+pinned_commit = "123ae82fca3009df7144fa8d41e1185cd63e61e1"
+runner_script = "src/openjarvis/evals/backends/external/_runners/openclaw_runner.mjs"
+node_executable = ""
