@@ -8,12 +8,16 @@ Env vars (``HERMES_AGENT_PATH``, ``OPENCLAW_PATH``) override the default path.
 
 from __future__ import annotations
 
+import logging
 import os
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Optional
 
 import tomllib
+
+LOGGER = logging.getLogger(__name__)
 
 # Map framework name -> env var that overrides its `path` field.
 # Must be kept in sync with the section keys in _third_party.toml.
@@ -94,3 +98,45 @@ def load_third_party_config(toml_path: Optional[Path] = None) -> ThirdPartyConfi
             node_executable=body.get("node_executable", ""),
         )
     return ThirdPartyConfig(entries=entries)
+
+
+def verify_commit_pin(entry: ThirdPartyEntry) -> None:
+    """Verify the entry's path is at the pinned commit.
+
+    Raises:
+        ThirdPartyNotFoundError: if the path doesn't exist or isn't a git repo.
+        CommitDriftError: if HEAD doesn't match pinned_commit, unless
+            ``JARVIS_ALLOW_COMMIT_DRIFT=1`` is set (then logs a warning).
+    """
+    if not entry.path.exists():
+        env_var = _PATH_ENV_VAR.get(entry.name, "<env var>")
+        raise ThirdPartyNotFoundError(
+            f"{entry.name} path does not exist: {entry.path}. "
+            f"Set {env_var} or update _third_party.toml."
+        )
+
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(entry.path), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError as e:
+        raise ThirdPartyNotFoundError(
+            f"{entry.name} path is not a git repo: {entry.path} ({e.stderr.strip()})"
+        ) from e
+
+    actual = result.stdout.strip()
+    pinned = entry.pinned_commit.strip()
+    # Allow short-hash matches (e.g. pinned "abc123" matches actual "abc123def...")
+    if not actual.startswith(pinned) and not pinned.startswith(actual):
+        msg = (
+            f"{entry.name} commit drift: pinned={pinned}, actual={actual}. "
+            f"Either reset the repo to the pinned commit or update _third_party.toml. "
+            f"To bypass for this run, set JARVIS_ALLOW_COMMIT_DRIFT=1."
+        )
+        if os.environ.get("JARVIS_ALLOW_COMMIT_DRIFT") == "1":
+            LOGGER.warning(msg)
+            return
+        raise CommitDriftError(msg)
