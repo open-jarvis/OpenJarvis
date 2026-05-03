@@ -1131,6 +1131,8 @@ class SerenaWordPressInspectContentTool(_WordPressBaseTool):
             raw_content = str((item.get("content") or {}).get("rendered") or "")
             featured_media_id = int(item.get("featured_media") or 0)
             featured_media_status = "yes" if featured_media_id else "no"
+            category_ids = item.get("categories") or []
+            tag_ids = item.get("tags") or []
             text_content = _rendered(raw_content)
             words = re.findall(r"\b\w+\b", text_content)
 
@@ -1187,6 +1189,12 @@ class SerenaWordPressInspectContentTool(_WordPressBaseTool):
                 findings.append(f"Target keyword '{keyword}' not found in visible text.")
             if status == "publish":
                 recommendations.append("This content is live. Require approval before changing it.")
+            if endpoint == "posts":
+                if not category_ids:
+                    recommendations.append("No categories assigned. Add an appropriate category before publishing.")
+                if not tag_ids:
+                    recommendations.append("No tags assigned. Add relevant tags before publishing.")
+
             if healthcare:
                 recommendations.append("Healthcare/medical content requires clinician review before publishing.")
                 recommendations.append("Avoid unsupported clinical claims, guaranteed outcomes, or patient-specific advice.")
@@ -1218,6 +1226,8 @@ class SerenaWordPressInspectContentTool(_WordPressBaseTool):
                 f"- Inline images missing alt text: {len(missing_alt)}",
                 f"- Featured image assigned: {featured_media_status}",
                 f"- Featured media ID: {featured_media_id if featured_media_id else 'none'}",
+                f"- Category IDs: {category_ids if category_ids else 'none'}",
+                f"- Tag IDs: {tag_ids if tag_ids else 'none'}",
                 f"- CTA detected: {'yes' if has_cta else 'no'}",
                 f"- Target keyword hits: {keyword_hits if keyword else 'not provided'}",
                 "",
@@ -1251,6 +1261,8 @@ class SerenaWordPressInspectContentTool(_WordPressBaseTool):
                     "missing_alt": len(missing_alt),
                     "featured_media_id": featured_media_id,
                     "featured_image_assigned": bool(featured_media_id),
+                    "category_ids": category_ids,
+                    "tag_ids": tag_ids,
                     "cta_detected": has_cta,
                     "keyword_hits": keyword_hits,
                 },
@@ -1732,6 +1744,272 @@ class SerenaWordPressSetFeaturedImageTool(_WordPressBaseTool):
             return self._result(f"Failed to set featured image: {exc}", success=False)
 
 
+def _find_or_create_term(site_key: str | None, taxonomy: str, name: str) -> int:
+    """Find or create a WordPress category/tag and return its ID."""
+    name = str(name or "").strip()
+    if not name:
+        raise RuntimeError("Term name is required.")
+
+    endpoint = "categories" if taxonomy == "categories" else "tags"
+    results = _request("GET", f"{endpoint}?search={quote(name)}&per_page=20", site_key=site_key)
+
+    if isinstance(results, list):
+        for item in results:
+            if str(item.get("name", "")).strip().lower() == name.lower():
+                return int(item["id"])
+
+    created = _request("POST", endpoint, site_key=site_key, json={"name": name, "slug": _slugify(name)})
+    if not isinstance(created, dict) or not created.get("id"):
+        raise RuntimeError(f"Could not create WordPress {taxonomy[:-1]}: {name}")
+
+    return int(created["id"])
+
+
+@ToolRegistry.register("serena_wordpress_list_categories")
+class SerenaWordPressListCategoriesTool(_WordPressBaseTool):
+    tool_id = "serena_wordpress_list_categories"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="List WordPress categories for a configured site.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "site_key": {"type": "string", "description": "Site key, e.g. drpiet or serena."},
+                    "limit": {"type": "integer", "description": "Maximum categories to list."},
+                    "search": {"type": "string", "description": "Optional search query."}
+                },
+            },
+            category="serena_wordpress",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
+        limit = int(params.get("limit") or 20)
+        search = str(params.get("search") or "").strip()
+
+        query = f"categories?per_page={max(1, min(limit, 100))}"
+        if search:
+            query += f"&search={quote(search)}"
+
+        try:
+            items = _request("GET", query, site_key=site_key)
+            lines = ["WordPress categories", ""]
+            if isinstance(items, list) and items:
+                for item in items:
+                    lines.append(f"- {item.get('name')} | ID {item.get('id')} | slug {item.get('slug')} | count {item.get('count')}")
+            else:
+                lines.append("No categories found.")
+
+            return self._result("\n".join(lines), metadata={"count": len(items) if isinstance(items, list) else 0})
+        except Exception as exc:
+            return self._result(f"Failed to list WordPress categories: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_wordpress_list_tags")
+class SerenaWordPressListTagsTool(_WordPressBaseTool):
+    tool_id = "serena_wordpress_list_tags"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="List WordPress tags for a configured site.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "site_key": {"type": "string", "description": "Site key, e.g. drpiet or serena."},
+                    "limit": {"type": "integer", "description": "Maximum tags to list."},
+                    "search": {"type": "string", "description": "Optional search query."}
+                },
+            },
+            category="serena_wordpress",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
+        limit = int(params.get("limit") or 20)
+        search = str(params.get("search") or "").strip()
+
+        query = f"tags?per_page={max(1, min(limit, 100))}"
+        if search:
+            query += f"&search={quote(search)}"
+
+        try:
+            items = _request("GET", query, site_key=site_key)
+            lines = ["WordPress tags", ""]
+            if isinstance(items, list) and items:
+                for item in items:
+                    lines.append(f"- {item.get('name')} | ID {item.get('id')} | slug {item.get('slug')} | count {item.get('count')}")
+            else:
+                lines.append("No tags found.")
+
+            return self._result("\n".join(lines), metadata={"count": len(items) if isinstance(items, list) else 0})
+        except Exception as exc:
+            return self._result(f"Failed to list WordPress tags: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_wordpress_create_category")
+class SerenaWordPressCreateCategoryTool(_WordPressBaseTool):
+    tool_id = "serena_wordpress_create_category"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create or find a WordPress category by name and return its ID.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "site_key": {"type": "string", "description": "Site key, e.g. drpiet or serena."},
+                    "name": {"type": "string", "description": "Category name."}
+                },
+                "required": ["name"],
+            },
+            category="serena_wordpress",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
+        name = str(params.get("name") or "").strip()
+
+        try:
+            term_id = _find_or_create_term(site_key, "categories", name)
+            return self._result(
+                "WordPress category ready\n\n"
+                f"- Site: {_config(site_key).get('site_key')} ({_config(site_key).get('site_url')})\n"
+                f"- Category: {name}\n"
+                f"- ID: {term_id}",
+                metadata={"site_key": _config(site_key).get("site_key"), "category_id": term_id, "name": name},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to create/find WordPress category: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_wordpress_create_tag")
+class SerenaWordPressCreateTagTool(_WordPressBaseTool):
+    tool_id = "serena_wordpress_create_tag"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create or find a WordPress tag by name and return its ID.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "site_key": {"type": "string", "description": "Site key, e.g. drpiet or serena."},
+                    "name": {"type": "string", "description": "Tag name."}
+                },
+                "required": ["name"],
+            },
+            category="serena_wordpress",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
+        name = str(params.get("name") or "").strip()
+
+        try:
+            term_id = _find_or_create_term(site_key, "tags", name)
+            return self._result(
+                "WordPress tag ready\n\n"
+                f"- Site: {_config(site_key).get('site_key')} ({_config(site_key).get('site_url')})\n"
+                f"- Tag: {name}\n"
+                f"- ID: {term_id}",
+                metadata={"site_key": _config(site_key).get("site_key"), "tag_id": term_id, "name": name},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to create/find WordPress tag: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_wordpress_assign_terms")
+class SerenaWordPressAssignTermsTool(_WordPressBaseTool):
+    tool_id = "serena_wordpress_assign_terms"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description=(
+                "Assign WordPress categories and tags to a post/page. Saves a rollback snapshot first. "
+                "Categories/tags are standard for posts; pages depend on site support."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "site_key": {"type": "string", "description": "Site key, e.g. drpiet or serena."},
+                    "content_type": {"type": "string", "description": "posts or pages."},
+                    "content_id": {"type": "integer", "description": "WordPress post/page ID."},
+                    "categories": {"type": "array", "items": {"type": "string"}, "description": "Category names to find/create and assign."},
+                    "tags": {"type": "array", "items": {"type": "string"}, "description": "Tag names to find/create and assign."}
+                },
+                "required": ["content_id"],
+            },
+            category="serena_wordpress",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
+        content_type = str(params.get("content_type") or "posts").strip().lower()
+        content_id = int(params.get("content_id") or 0)
+        category_names = params.get("categories") or []
+        tag_names = params.get("tags") or []
+
+        if isinstance(category_names, str):
+            category_names = [x.strip() for x in category_names.split(",") if x.strip()]
+        if isinstance(tag_names, str):
+            tag_names = [x.strip() for x in tag_names.split(",") if x.strip()]
+
+        if not content_id:
+            return self._result("content_id is required.", success=False)
+
+        endpoint = "posts" if content_type == "posts" else "pages"
+
+        try:
+            category_ids = [_find_or_create_term(site_key, "categories", name) for name in category_names]
+            tag_ids = [_find_or_create_term(site_key, "tags", name) for name in tag_names]
+
+            payload: dict[str, Any] = {}
+            if category_ids:
+                payload["categories"] = category_ids
+            if tag_ids:
+                payload["tags"] = tag_ids
+
+            if not payload:
+                return self._result("No categories or tags provided.", success=False)
+
+            snapshot_path = _snapshot_content(site_key, endpoint, content_id, "before-taxonomy-update")
+            item = _request("POST", f"{endpoint}/{content_id}", site_key=site_key, json=payload)
+
+            if not isinstance(item, dict):
+                return self._result("Unexpected WordPress response while assigning categories/tags.", success=False)
+
+            return self._result(
+                "WordPress categories/tags assigned\n\n"
+                f"- Site: {_config(site_key).get('site_key')} ({_config(site_key).get('site_url')})\n"
+                f"- Type: {endpoint}\n"
+                f"- Content ID: {content_id}\n"
+                f"- Categories: {', '.join(category_names) if category_names else 'none'}\n"
+                f"- Category IDs: {category_ids if category_ids else 'none'}\n"
+                f"- Tags: {', '.join(tag_names) if tag_names else 'none'}\n"
+                f"- Tag IDs: {tag_ids if tag_ids else 'none'}\n"
+                f"- Rollback snapshot: {snapshot_path}",
+                metadata={
+                    "site_key": _config(site_key).get("site_key"),
+                    "content_type": endpoint,
+                    "content_id": content_id,
+                    "category_ids": category_ids,
+                    "tag_ids": tag_ids,
+                    "rollback_snapshot": snapshot_path,
+                },
+            )
+        except Exception as exc:
+            return self._result(f"Failed to assign WordPress categories/tags: {exc}", success=False)
+
+
 __all__ = [
     "SerenaWordPressStatusTool",
     "SerenaWordPressListPostsTool",
@@ -1748,6 +2026,11 @@ __all__ = [
     "SerenaWordPressTrashContentTool",
     "SerenaWordPressBuildPageFromLibraryTool",
     "SerenaWordPressSetFeaturedImageTool",
+    "SerenaWordPressAssignTermsTool",
+    "SerenaWordPressCreateTagTool",
+    "SerenaWordPressCreateCategoryTool",
+    "SerenaWordPressListTagsTool",
+    "SerenaWordPressListCategoriesTool",
     "SerenaWordPressMediaImportTool",
     "SerenaWordPressContentInspectTool",
     "SerenaWordPressContentListTool",

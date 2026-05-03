@@ -23,6 +23,11 @@ from openjarvis.tools.serena_wordpress import (
     SerenaWordPressUpdateContentTool,
     SerenaWordPressUploadMediaTool,
     SerenaWordPressSetFeaturedImageTool,
+    SerenaWordPressAssignTermsTool,
+    SerenaWordPressCreateTagTool,
+    SerenaWordPressCreateCategoryTool,
+    SerenaWordPressListTagsTool,
+    SerenaWordPressListCategoriesTool,
     SerenaWordPressMediaImportTool,
 )
 
@@ -471,6 +476,67 @@ def featured_image(site_key: str | None, content_type: str, content_id: int, med
         media_id=media_id,
     )
 
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("list-categories")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--limit", default=20, type=int, help="Maximum categories to show.")
+@click.option("--search", default="", help="Optional search query.")
+def list_categories(site_key: str | None, limit: int, search: str) -> None:
+    """List WordPress categories."""
+    console = Console()
+    result = SerenaWordPressListCategoriesTool().execute(site_key=site_key, limit=limit, search=search)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("list-tags")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--limit", default=20, type=int, help="Maximum tags to show.")
+@click.option("--search", default="", help="Optional search query.")
+def list_tags(site_key: str | None, limit: int, search: str) -> None:
+    """List WordPress tags."""
+    console = Console()
+    result = SerenaWordPressListTagsTool().execute(site_key=site_key, limit=limit, search=search)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("category")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--name", required=True, help="Category name to find/create.")
+def category(site_key: str | None, name: str) -> None:
+    """Find or create a WordPress category."""
+    console = Console()
+    result = SerenaWordPressCreateCategoryTool().execute(site_key=site_key, name=name)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("tag")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--name", required=True, help="Tag name to find/create.")
+def tag(site_key: str | None, name: str) -> None:
+    """Find or create a WordPress tag."""
+    console = Console()
+    result = SerenaWordPressCreateTagTool().execute(site_key=site_key, name=name)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("assign-terms")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--type", "content_type", default="posts", help="Content type: posts or pages.")
+@click.option("--id", "content_id", required=True, type=int, help="WordPress post/page ID.")
+@click.option("--categories", default="", help="Comma-separated category names.")
+@click.option("--tags", default="", help="Comma-separated tag names.")
+def assign_terms(site_key: str | None, content_type: str, content_id: int, categories: str, tags: str) -> None:
+    """Assign WordPress categories/tags to a post/page and save rollback snapshot."""
+    console = Console()
+    result = SerenaWordPressAssignTermsTool().execute(
+        site_key=site_key,
+        content_type=content_type,
+        content_id=content_id,
+        categories=categories,
+        tags=tags,
+    )
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 
