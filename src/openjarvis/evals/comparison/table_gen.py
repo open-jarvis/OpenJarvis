@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import click
 import polars as pl
 from pydantic import BaseModel, ValidationError
 
@@ -350,3 +351,54 @@ _TABLE_BUILDERS: Dict[str, "object"] = {
     "T6": _build_t6,
     "T7": _build_t7,
 }
+
+
+def _table_gen_default_output_dir() -> Path:
+    return Path("experiments/framework_comparison/tables")
+
+
+@click.command()
+@click.option(
+    "--results-glob",
+    required=True,
+    help='Glob, e.g. "results/neurips-2026/comparison/**/summary.json"',
+)
+@click.option(
+    "--tables",
+    default="T1,T2,T3,T4,T5,T6,T7",
+    help="Comma-separated list of table names to build",
+)
+@click.option(
+    "--output-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="Output directory (default: experiments/framework_comparison/tables/)",
+)
+def main(results_glob: str, tables: str, output_dir: Optional[Path]) -> None:
+    """Build LaTeX tables from framework-comparison evaluation results."""
+    out = output_dir or _table_gen_default_output_dir()
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "preview").mkdir(parents=True, exist_ok=True)
+
+    frame = load_results(results_glob)
+    click.echo(
+        f"Loaded {len(frame.df)} metric rows; {frame.unloadable_count} files skipped."
+    )
+
+    requested = [t.strip() for t in tables.split(",") if t.strip()]
+    for name in requested:
+        if name not in _TABLE_BUILDERS:
+            click.echo(f"  ! unknown table {name}; skipping")
+            continue
+        try:
+            fragment, standalone = _TABLE_BUILDERS[name](frame)
+        except Exception as e:
+            click.echo(f"  ! {name} build failed: {e}")
+            continue
+        (out / f"{name}.tex").write_text(fragment + "\n")
+        (out / "preview" / f"{name}_preview.tex").write_text(standalone)
+        click.echo(f"  ✓ {name} → {out}/{name}.tex (+ preview)")
+
+
+if __name__ == "__main__":
+    main()

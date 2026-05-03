@@ -240,3 +240,33 @@ class TestTableBuilderRegistry:
             "T6",
             "T7",
         }
+
+
+class TestTableGenCLI:
+    def test_cli_writes_fragment_and_preview(self, tmp_path: Path) -> None:
+        from click.testing import CliRunner
+
+        from openjarvis.evals.comparison.table_gen import main
+
+        results_dir = tmp_path / "results"
+        results_dir.mkdir()
+        summary = results_dir / "summary.json"
+        _write_summary(summary)
+
+        out_dir = tmp_path / "tables"
+        runner = CliRunner()
+        result = runner.invoke(
+            main,
+            [
+                "--results-glob",
+                str(results_dir / "**" / "summary.json"),
+                "--tables",
+                "T1",
+                "--output-dir",
+                str(out_dir),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert (out_dir / "T1.tex").exists()
+        assert (out_dir / "preview" / "T1_preview.tex").exists()
+        assert "\\begin{tabular}" in (out_dir / "T1.tex").read_text()
