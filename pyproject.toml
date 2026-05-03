@@ -152,6 +152,7 @@ markers = [
     "macos15: requires macOS 15+ (Sequoia) for Apple FM",
     "slow: long-running test",
     "live_channel: requires real channel credentials (env vars)",
+    "live_external: requires HERMES_AGENT_PATH and OPENCLAW_PATH; spawns real foreign-framework subprocesses",
 ]
 
 [tool.ruff]
