@@ -249,20 +249,23 @@ _MODEL_TIERS = [
     (64, "qwen3.5:27b"),
 ]
 _MODEL_TIER_FALLBACK = "qwen3.5:27b"
+_LEMONADE_DEFAULT_MODEL = "Qwen3.6-35B-A3B-GGUF"
 
 
 def recommend_model(hw: HardwareInfo, engine: str) -> str:
-    """Suggest the best Qwen3.5 model that fits the detected hardware.
+    """Suggest a default model for the selected engine and hardware.
 
-    Uses an explicit tier table mapping available memory to model size.
-    Falls back to scanning the full catalog if the tiered model is not
-    compatible with the selected engine.
+    For Lemonade, prefer the validated Qwen3.6 35B A3B GGUF default.
+    For other local engines, use the generic Qwen3.5 tier mapping.
     """
     from openjarvis.intelligence.model_catalog import BUILTIN_MODELS
 
     available_gb = _available_memory_gb(hw)
     if available_gb <= 0:
         return ""
+
+    if engine == "lemonade":
+        return _LEMONADE_DEFAULT_MODEL
 
     # Build a lookup for quick engine-compatibility checks
     catalog = {spec.model_id: spec for spec in BUILTIN_MODELS}
@@ -391,7 +394,7 @@ class GemmaCppEngineConfig:
 class LemonadeEngineConfig:
     """Per-engine config for Lemonade."""
 
-    host: str = "http://localhost:8000"
+    host: str = "http://localhost:13305"
 
 
 @dataclass

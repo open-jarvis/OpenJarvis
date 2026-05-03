@@ -32,7 +32,7 @@ _OPENAI_COMPAT_ENGINES = [
     ("nexa", "http://testhost:18181", NexaEngine),
     ("uzu", "http://testhost:8000", UzuEngine),
     ("apple_fm", "http://testhost:8079", AppleFmEngine),
-    ("lemonade", "http://testhost:8000", LemonadeEngine),
+    ("lemonade", "http://testhost:13305", LemonadeEngine),
 ]
 
 
