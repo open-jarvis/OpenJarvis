@@ -111,3 +111,8 @@ learning.db
 **/learning/benchmarks/
 **/teacher_traces/
 *.session.json
+# Serena generated runtime outputs
+outputs/
+*.mp3
+*.wav
+*.m4a
