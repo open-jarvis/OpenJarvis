@@ -17,9 +17,7 @@ def tmp_openjarvis_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
     home.mkdir()
     (home / ".state").mkdir()
     (home / ".state" / "models").mkdir()
-    monkeypatch.setattr(
-        "openjarvis.core.config.DEFAULT_CONFIG_DIR", home
-    )
+    monkeypatch.setattr("openjarvis.core.config.DEFAULT_CONFIG_DIR", home)
     monkeypatch.setattr(
         "openjarvis.core.config.DEFAULT_CONFIG_PATH", home / "config.toml"
     )
