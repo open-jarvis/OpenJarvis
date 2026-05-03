@@ -1,0 +1,51 @@
+# Render Blueprint for the OpenJarvis FastAPI server.
+# Deploys src/openjarvis/server/app.py via deploy/docker/Dockerfile.
+# Apply at: https://dashboard.render.com/blueprint/new?repo=https://github.com/open-jarvis/OpenJarvis
+services:
+  - type: web
+    name: openjarvis-server
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./deploy/docker/Dockerfile
+    dockerContext: .
+    # Override the Dockerfile CMD so the server binds to Render's injected $PORT.
+    # The Dockerfile entrypoint is "jarvis", so we pass `serve` plus its flags.
+    dockerCommand: serve --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # Force the cloud engine path. The free Render plan has no GPU and the
+      # bundled Rust extension/local backends (Ollama/vLLM) cannot run here, so
+      # OpenJarvis must route inference to a hosted provider. Set at least one
+      # of the *_API_KEY values below — the serve CLI auto-detects them and
+      # wraps the engine in MultiEngine.
+      - key: OPENJARVIS_ENGINE
+        value: cloud
+
+      # Auth for the OpenJarvis API itself. Required because the server refuses
+      # to bind to a non-loopback host without an API key (check_bind_safety).
+      - key: OPENJARVIS_API_KEY
+        generateValue: true
+
+      # Cloud inference providers — set at least one in the Dashboard.
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+
+      # Optional channel/webhook secrets — leave blank unless you wire them up.
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
+      - key: WHATSAPP_APP_SECRET
+        sync: false
+
+      # CORS — relax for browser clients hitting the API directly.
+      - key: OPENJARVIS_CORS_ORIGINS
+        value: "*"
