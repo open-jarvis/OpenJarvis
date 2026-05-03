@@ -1,0 +1,17 @@
+{
+  "name": "openjarvis-leaderboard",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "encore run",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "encore.dev": "^1.46.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "vitest": "^2.1.0"
+  }
+}
