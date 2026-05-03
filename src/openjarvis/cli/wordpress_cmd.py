@@ -9,6 +9,11 @@ from openjarvis.tools.serena_wordpress import (
     SerenaWordPressBuildPagePlanTool,
     SerenaWordPressCreateDraftTool,
     SerenaWordPressCreatePageTool,
+    SerenaWordPressGetContentTool,
+    SerenaWordPressInspectContentTool,
+    SerenaWordPressListPagesTool,
+    SerenaWordPressListPostsTool,
+    SerenaWordPressSearchTool,
     SerenaWordPressStatusTool,
 )
 
@@ -114,6 +119,97 @@ def page(
         console.print(result.content)
     else:
         console.print(f"[red]{result.content}[/red]")
+
+
+@wordpress.command("list-posts")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--limit", default=10, type=int, help="Number of posts to list.")
+@click.option("--status", default="any", help="Post status filter.")
+@click.option("--search", default="", help="Optional search query.")
+def list_posts(site_key: str | None, limit: int, status: str, search: str) -> None:
+    """List WordPress posts."""
+    console = Console()
+    result = SerenaWordPressListPostsTool().execute(
+        site_key=site_key,
+        limit=limit,
+        status=status,
+        search=search,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("list-pages")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--limit", default=10, type=int, help="Number of pages to list.")
+@click.option("--status", default="any", help="Page status filter.")
+@click.option("--search", default="", help="Optional search query.")
+def list_pages(site_key: str | None, limit: int, status: str, search: str) -> None:
+    """List WordPress pages."""
+    console = Console()
+    result = SerenaWordPressListPagesTool().execute(
+        site_key=site_key,
+        limit=limit,
+        status=status,
+        search=search,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("search")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--query", required=True, help="Search query.")
+@click.option("--limit", default=5, type=int, help="Max results per content type.")
+def search(site_key: str | None, query: str, limit: int) -> None:
+    """Search WordPress posts and pages."""
+    console = Console()
+    result = SerenaWordPressSearchTool().execute(
+        site_key=site_key,
+        query=query,
+        limit=limit,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("get")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--type", "content_type", default="pages", help="Content type: posts or pages.")
+@click.option("--id", "content_id", required=True, type=int, help="WordPress post/page ID.")
+@click.option("--include-content", is_flag=True, help="Include rendered HTML content.")
+def get_content(site_key: str | None, content_type: str, content_id: int, include_content: bool) -> None:
+    """Get a WordPress post/page by ID."""
+    console = Console()
+    result = SerenaWordPressGetContentTool().execute(
+        site_key=site_key,
+        content_type=content_type,
+        content_id=content_id,
+        include_content=include_content,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("inspect")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--type", "content_type", default="pages", help="Content type: posts or pages.")
+@click.option("--id", "content_id", required=True, type=int, help="WordPress post/page ID.")
+@click.option("--keyword", default="", help="Optional target SEO keyword.")
+@click.option("--healthcare/--no-healthcare", default=True, help="Whether healthcare compliance review is needed.")
+def inspect_content(
+    site_key: str | None,
+    content_type: str,
+    content_id: int,
+    keyword: str,
+    healthcare: bool,
+) -> None:
+    """Inspect a WordPress post/page like a developer/operator."""
+    console = Console()
+    result = SerenaWordPressInspectContentTool().execute(
+        site_key=site_key,
+        content_type=content_type,
+        content_id=content_id,
+        keyword=keyword,
+        healthcare=healthcare,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 
 __all__ = ["wordpress"]

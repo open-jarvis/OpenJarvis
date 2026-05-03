@@ -326,6 +326,7 @@ class SerenaWordPressListPagesTool(SerenaWordPressListPostsTool):
         )
 
     def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
         limit = int(params.get("limit") or 10)
         status = str(params.get("status") or "any")
         search = str(params.get("search") or "").strip()
@@ -811,6 +812,285 @@ class SerenaWordPressBuildPagePlanTool(_WordPressBaseTool):
         )
 
 
+@ToolRegistry.register("serena_wordpress_get_content")
+class SerenaWordPressGetContentTool(_WordPressBaseTool):
+    tool_id = "serena_wordpress_get_content"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Get a WordPress post or page by ID, including rendered title, status, link, excerpt, and optional content.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "site_key": {
+                        "type": "string",
+                        "description": "WordPress site key, e.g. drpiet or serena. Defaults to WORDPRESS_DEFAULT_SITE.",
+                    },
+                    "content_type": {
+                        "type": "string",
+                        "description": "Content type: posts or pages.",
+                    },
+                    "content_id": {
+                        "type": "integer",
+                        "description": "WordPress post/page ID.",
+                    },
+                    "include_content": {
+                        "type": "boolean",
+                        "description": "Include rendered HTML content in the output.",
+                    },
+                },
+                "required": ["content_id"],
+            },
+            category="serena_wordpress",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
+        content_type = str(params.get("content_type") or "pages").strip().lower()
+        content_id = int(params.get("content_id") or 0)
+        include_content = bool(params.get("include_content", False))
+
+        if not content_id:
+            return self._result("content_id is required.", success=False)
+
+        endpoint = "posts" if content_type == "posts" else "pages"
+
+        try:
+            item = _request("GET", f"{endpoint}/{content_id}?context=edit", site_key=site_key)
+            if not isinstance(item, dict):
+                return self._result("Unexpected WordPress response.", success=False)
+
+            title = _rendered(item.get("title"))
+            excerpt = _rendered(item.get("excerpt"))
+            content = str((item.get("content") or {}).get("rendered") or "")
+
+            lines = [
+                "WordPress content",
+                "",
+                f"- Site: {_config(site_key).get('site_key')} ({_config(site_key).get('site_url')})",
+                f"- Type: {endpoint}",
+                f"- ID: {item.get('id')}",
+                f"- Title: {title or '(untitled)'}",
+                f"- Status: {item.get('status')}",
+                f"- Link: {item.get('link') or ''}",
+                f"- Slug: {item.get('slug') or ''}",
+                f"- Modified: {item.get('modified') or item.get('modified_gmt') or ''}",
+                "",
+                "Excerpt:",
+                excerpt or "(none)",
+            ]
+
+            if include_content:
+                lines.extend(["", "Rendered content:", content or "(empty)"])
+
+            return self._result(
+                "\n".join(lines),
+                metadata={
+                    "site_key": _config(site_key).get("site_key"),
+                    "content_type": endpoint,
+                    "content_id": item.get("id"),
+                    "status": item.get("status"),
+                    "link": item.get("link"),
+                    "slug": item.get("slug"),
+                    "title": title,
+                },
+            )
+
+        except Exception as exc:
+            return self._result(f"Failed to get WordPress content: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_wordpress_inspect_content")
+class SerenaWordPressInspectContentTool(_WordPressBaseTool):
+    tool_id = "serena_wordpress_inspect_content"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description=(
+                "Inspect a WordPress post or page like a developer/operator. Checks content completeness, SEO basics, "
+                "UX structure, CTA presence, links, media, healthcare compliance, status, and next actions."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "site_key": {
+                        "type": "string",
+                        "description": "WordPress site key, e.g. drpiet or serena. Defaults to WORDPRESS_DEFAULT_SITE.",
+                    },
+                    "content_type": {
+                        "type": "string",
+                        "description": "Content type: posts or pages.",
+                    },
+                    "content_id": {
+                        "type": "integer",
+                        "description": "WordPress post/page ID.",
+                    },
+                    "keyword": {
+                        "type": "string",
+                        "description": "Optional target SEO keyword.",
+                    },
+                    "healthcare": {
+                        "type": "boolean",
+                        "description": "Whether healthcare/medical compliance review is needed.",
+                    },
+                },
+                "required": ["content_id"],
+            },
+            category="serena_wordpress",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
+        cfg = _config(site_key)
+        content_type = str(params.get("content_type") or "pages").strip().lower()
+        content_id = int(params.get("content_id") or 0)
+        keyword = str(params.get("keyword") or "").strip().lower()
+        healthcare = bool(params.get("healthcare", True))
+
+        if not content_id:
+            return self._result("content_id is required.", success=False)
+
+        endpoint = "posts" if content_type == "posts" else "pages"
+
+        try:
+            item = _request("GET", f"{endpoint}/{content_id}?context=edit", site_key=site_key)
+            if not isinstance(item, dict):
+                return self._result("Unexpected WordPress response.", success=False)
+
+            title = _rendered(item.get("title"))
+            slug = str(item.get("slug") or "")
+            status = str(item.get("status") or "")
+            link = str(item.get("link") or "")
+            raw_content = str((item.get("content") or {}).get("rendered") or "")
+            text_content = _rendered(raw_content)
+            words = re.findall(r"\b\w+\b", text_content)
+
+            headings = re.findall(r"<h([1-6])[^>]*>(.*?)</h\1>", raw_content, flags=re.I | re.S)
+            links = re.findall(r"<a\s+[^>]*href=[\"']([^\"']+)[\"']", raw_content, flags=re.I)
+            images = re.findall(r"<img\s+[^>]*>", raw_content, flags=re.I)
+            missing_alt = [img for img in images if "alt=" not in img.lower() or 'alt=""' in img.lower() or "alt=''" in img.lower()]
+
+            keyword_hits = text_content.lower().count(keyword) if keyword else 0
+            has_cta = any(
+                phrase.lower() in text_content.lower()
+                for phrase in [
+                    cfg.get("primary_cta") or "",
+                    "book",
+                    "contact",
+                    "consultation",
+                    "call",
+                    "learn more",
+                    "get started",
+                ]
+                if phrase
+            )
+
+            findings = []
+            recommendations = []
+
+            if not title:
+                findings.append("Missing title.")
+            elif len(title) < 25:
+                recommendations.append("Consider a clearer, longer SEO-friendly title.")
+            elif len(title) > 70:
+                recommendations.append("Title may be too long for search snippets.")
+
+            if not slug:
+                findings.append("Missing slug.")
+            if len(words) < 250:
+                recommendations.append("Content is short for a complete page/post. Expand if this is intended as a full public page.")
+            if not headings:
+                findings.append("No visible heading structure found.")
+            else:
+                h_levels = [h[0] for h in headings]
+                if "1" not in h_levels:
+                    recommendations.append("No H1 detected in rendered content. Confirm theme supplies H1 or add one.")
+                if "2" not in h_levels:
+                    recommendations.append("No H2 sections detected. Add section headings for readability and SEO.")
+
+            if not has_cta:
+                findings.append("No clear call-to-action detected.")
+            if not links:
+                recommendations.append("No internal/external links detected. Add relevant internal links where useful.")
+            if images and missing_alt:
+                findings.append(f"{len(missing_alt)} image(s) may be missing useful alt text.")
+            if keyword and keyword_hits == 0:
+                findings.append(f"Target keyword '{keyword}' not found in visible text.")
+            if status == "publish":
+                recommendations.append("This content is live. Require approval before changing it.")
+            if healthcare:
+                recommendations.append("Healthcare/medical content requires clinician review before publishing.")
+                recommendations.append("Avoid unsupported clinical claims, guaranteed outcomes, or patient-specific advice.")
+
+            if not findings:
+                findings.append("No critical developer/operator issues found in the lightweight inspection.")
+
+            if not recommendations:
+                recommendations.append("No major recommendations from the lightweight inspection.")
+
+            lines = [
+                "WordPress developer/operator inspection",
+                "",
+                "Content identity:",
+                f"- Site: {cfg.get('site_key')} ({cfg.get('site_url')})",
+                f"- Type: {endpoint}",
+                f"- ID: {item.get('id')}",
+                f"- Title: {title or '(untitled)'}",
+                f"- Status: {status}",
+                f"- Link: {link}",
+                f"- Slug: {slug}",
+                f"- Modified: {item.get('modified') or item.get('modified_gmt') or ''}",
+                "",
+                "Developer checks:",
+                f"- Word count: {len(words)}",
+                f"- Headings found: {len(headings)}",
+                f"- Links found: {len(links)}",
+                f"- Images found: {len(images)}",
+                f"- Images missing alt text: {len(missing_alt)}",
+                f"- CTA detected: {'yes' if has_cta else 'no'}",
+                f"- Target keyword hits: {keyword_hits if keyword else 'not provided'}",
+                "",
+                "Findings:",
+            ]
+
+            lines.extend(f"- {item}" for item in findings)
+            lines.append("")
+            lines.append("Recommendations:")
+            lines.extend(f"- {item}" for item in recommendations)
+
+            lines.extend([
+                "",
+                "Next action:",
+                "- If this is a draft, revise based on findings before publishing.",
+                "- If this is live, ask for explicit approval before changing it.",
+                "- Save a rollback snapshot before any update.",
+            ])
+
+            return self._result(
+                "\n".join(lines),
+                metadata={
+                    "site_key": cfg.get("site_key"),
+                    "content_type": endpoint,
+                    "content_id": item.get("id"),
+                    "status": status,
+                    "word_count": len(words),
+                    "headings": len(headings),
+                    "links": len(links),
+                    "images": len(images),
+                    "missing_alt": len(missing_alt),
+                    "cta_detected": has_cta,
+                    "keyword_hits": keyword_hits,
+                },
+            )
+
+        except Exception as exc:
+            return self._result(f"Failed to inspect WordPress content: {exc}", success=False)
+
+
 __all__ = [
     "SerenaWordPressStatusTool",
     "SerenaWordPressListPostsTool",
@@ -822,4 +1102,6 @@ __all__ = [
     "SerenaWordPressUploadMediaTool",
     "SerenaWordPressAuditContentTool",
     "SerenaWordPressBuildPagePlanTool",
+    "SerenaWordPressGetContentTool",
+    "SerenaWordPressInspectContentTool",
 ]
