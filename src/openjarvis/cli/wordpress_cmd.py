@@ -24,6 +24,8 @@ from openjarvis.tools.serena_wordpress import (
     SerenaWordPressUploadMediaTool,
     SerenaWordPressSetFeaturedImageTool,
     SerenaWordPressAssignTermsTool,
+    SerenaWordPressPublishChecklistTool,
+    SerenaWordPressSEOMetadataTool,
     SerenaWordPressCreateTagTool,
     SerenaWordPressCreateCategoryTool,
     SerenaWordPressListTagsTool,
@@ -537,6 +539,50 @@ def assign_terms(site_key: str | None, content_type: str, content_id: int, categ
         categories=categories,
         tags=tags,
     )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("seo")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--type", "content_type", default="pages", help="Content type: posts or pages.")
+@click.option("--id", "content_id", required=True, type=int, help="WordPress post/page ID.")
+@click.option("--seo-title", required=True, help="SEO title.")
+@click.option("--meta-description", required=True, help="Meta description.")
+@click.option("--focus-keyword", default="", help="Focus keyword.")
+def seo(site_key: str | None, content_type: str, content_id: int, seo_title: str, meta_description: str, focus_keyword: str) -> None:
+    """Prepare and attempt to set SEO metadata for WordPress content."""
+    console = Console()
+
+    result = SerenaWordPressSEOMetadataTool().execute(
+        site_key=site_key,
+        content_type=content_type,
+        content_id=content_id,
+        seo_title=seo_title,
+        meta_description=meta_description,
+        focus_keyword=focus_keyword,
+    )
+
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("publish-checklist")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--type", "content_type", default="pages", help="Content type: posts or pages.")
+@click.option("--id", "content_id", required=True, type=int, help="WordPress post/page ID.")
+@click.option("--keyword", default="", help="Target SEO keyword.")
+@click.option("--healthcare/--no-healthcare", default=True, help="Whether healthcare compliance review is needed.")
+def publish_checklist(site_key: str | None, content_type: str, content_id: int, keyword: str, healthcare: bool) -> None:
+    """Run Serena's final pre-publish checklist without publishing."""
+    console = Console()
+
+    result = SerenaWordPressPublishChecklistTool().execute(
+        site_key=site_key,
+        content_type=content_type,
+        content_id=content_id,
+        keyword=keyword,
+        healthcare=healthcare,
+    )
+
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 

@@ -2010,6 +2010,315 @@ class SerenaWordPressAssignTermsTool(_WordPressBaseTool):
             return self._result(f"Failed to assign WordPress categories/tags: {exc}", success=False)
 
 
+def _seo_artifact_dir(site_key: str | None = None) -> Path:
+    cfg = _config(site_key)
+    site = cfg.get("site_key") or _site_key(site_key)
+    out_dir = Path(cfg.get("artifact_dir", "outputs/wordpress")) / "seo" / site
+    out_dir.mkdir(parents=True, exist_ok=True)
+    return out_dir
+
+
+def _save_seo_artifact(site_key: str | None, content_type: str, content_id: int, payload: dict[str, Any]) -> str:
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    out_dir = _seo_artifact_dir(site_key)
+    path = out_dir / f"{timestamp}-{content_type}-{content_id}-seo.json"
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return str(path)
+
+
+@ToolRegistry.register("serena_wordpress_seo_metadata")
+class SerenaWordPressSEOMetadataTool(_WordPressBaseTool):
+    tool_id = "serena_wordpress_seo_metadata"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description=(
+                "Prepare and attempt to set SEO metadata for a WordPress post/page. "
+                "Saves SEO metadata locally even if the WordPress site does not expose SEO meta fields through REST."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "site_key": {"type": "string", "description": "Site key, e.g. drpiet or serena."},
+                    "content_type": {"type": "string", "description": "posts or pages."},
+                    "content_id": {"type": "integer", "description": "WordPress post/page ID."},
+                    "seo_title": {"type": "string", "description": "SEO title."},
+                    "meta_description": {"type": "string", "description": "Meta description."},
+                    "focus_keyword": {"type": "string", "description": "Focus keyword."}
+                },
+                "required": ["content_id", "seo_title", "meta_description"],
+            },
+            category="serena_wordpress",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
+        cfg = _config(site_key)
+        content_type = str(params.get("content_type") or "pages").strip().lower()
+        content_id = int(params.get("content_id") or 0)
+        seo_title = str(params.get("seo_title") or "").strip()
+        meta_description = str(params.get("meta_description") or "").strip()
+        focus_keyword = str(params.get("focus_keyword") or "").strip()
+
+        if not content_id:
+            return self._result("content_id is required.", success=False)
+        if not seo_title or not meta_description:
+            return self._result("seo_title and meta_description are required.", success=False)
+
+        endpoint = "posts" if content_type == "posts" else "pages"
+
+        seo_payload = {
+            "site_key": cfg.get("site_key"),
+            "site_url": cfg.get("site_url"),
+            "content_type": endpoint,
+            "content_id": content_id,
+            "seo_title": seo_title,
+            "meta_description": meta_description,
+            "focus_keyword": focus_keyword,
+            "created_at": datetime.now().strftime("%Y%m%d-%H%M%S"),
+            "common_plugin_meta_keys": {
+                "yoast": {
+                    "_yoast_wpseo_title": seo_title,
+                    "_yoast_wpseo_metadesc": meta_description,
+                    "_yoast_wpseo_focuskw": focus_keyword,
+                },
+                "rank_math": {
+                    "rank_math_title": seo_title,
+                    "rank_math_description": meta_description,
+                    "rank_math_focus_keyword": focus_keyword,
+                },
+            },
+        }
+
+        seo_artifact = _save_seo_artifact(site_key, endpoint, content_id, seo_payload)
+
+        # Try REST meta update. Many WP installs block SEO plugin meta unless registered in REST.
+        rest_attempted = True
+        rest_success = False
+        rest_error = ""
+
+        try:
+            snapshot_path = _snapshot_content(site_key, endpoint, content_id, "before-seo-metadata")
+            meta = {
+                "_yoast_wpseo_title": seo_title,
+                "_yoast_wpseo_metadesc": meta_description,
+                "_yoast_wpseo_focuskw": focus_keyword,
+                "rank_math_title": seo_title,
+                "rank_math_description": meta_description,
+                "rank_math_focus_keyword": focus_keyword,
+            }
+            item = _request("POST", f"{endpoint}/{content_id}", site_key=site_key, json={"meta": meta})
+            rest_success = isinstance(item, dict)
+        except Exception as exc:
+            snapshot_path = ""
+            rest_error = str(exc)
+
+        lines = [
+            "WordPress SEO metadata prepared",
+            "",
+            f"- Site: {cfg.get('site_key')} ({cfg.get('site_url')})",
+            f"- Type: {endpoint}",
+            f"- Content ID: {content_id}",
+            f"- SEO title: {seo_title}",
+            f"- Meta description: {meta_description}",
+            f"- Focus keyword: {focus_keyword or 'not provided'}",
+            f"- Local SEO artifact: {seo_artifact}",
+            "",
+            "REST update:",
+            f"- Attempted: {'yes' if rest_attempted else 'no'}",
+            f"- Success: {'yes' if rest_success else 'no'}",
+        ]
+
+        if snapshot_path:
+            lines.append(f"- Rollback snapshot: {snapshot_path}")
+
+        if rest_error:
+            lines.extend([
+                "",
+                "REST note:",
+                "- WordPress accepted the saved local SEO artifact, but the REST meta update failed.",
+                "- This usually means the SEO plugin meta fields are not exposed to the WordPress REST API.",
+                f"- Error: {rest_error}",
+                "- Serena can still use the saved SEO artifact as the source of truth for manual/MCP/browser SEO entry later.",
+            ])
+
+        return self._result(
+            "\n".join(lines),
+            metadata={
+                "site_key": cfg.get("site_key"),
+                "content_type": endpoint,
+                "content_id": content_id,
+                "seo_artifact": seo_artifact,
+                "rest_success": rest_success,
+                "rest_error": rest_error,
+            },
+        )
+
+
+@ToolRegistry.register("serena_wordpress_publish_checklist")
+class SerenaWordPressPublishChecklistTool(_WordPressBaseTool):
+    tool_id = "serena_wordpress_publish_checklist"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description=(
+                "Run Serena's final pre-publish checklist for a WordPress post/page. "
+                "This does not publish. It inspects content, SEO, media, taxonomy, CTA, compliance, and approval readiness."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "site_key": {"type": "string", "description": "Site key, e.g. drpiet or serena."},
+                    "content_type": {"type": "string", "description": "posts or pages."},
+                    "content_id": {"type": "integer", "description": "WordPress post/page ID."},
+                    "keyword": {"type": "string", "description": "Target SEO keyword."},
+                    "healthcare": {"type": "boolean", "description": "Whether healthcare/compliance review is required."}
+                },
+                "required": ["content_id"],
+            },
+            category="serena_wordpress",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
+        cfg = _config(site_key)
+        content_type = str(params.get("content_type") or "pages").strip().lower()
+        content_id = int(params.get("content_id") or 0)
+        keyword = str(params.get("keyword") or "").strip()
+        healthcare = bool(params.get("healthcare", True))
+
+        if not content_id:
+            return self._result("content_id is required.", success=False)
+
+        endpoint = "posts" if content_type == "posts" else "pages"
+
+        try:
+            item = _request("GET", f"{endpoint}/{content_id}?context=edit", site_key=site_key)
+            if not isinstance(item, dict):
+                return self._result("Unexpected WordPress response.", success=False)
+
+            title = _rendered(item.get("title"))
+            status = str(item.get("status") or "")
+            slug = str(item.get("slug") or "")
+            link = str(item.get("link") or "")
+            raw_content = str((item.get("content") or {}).get("rendered") or "")
+            text_content = _rendered(raw_content)
+            words = re.findall(r"\b\w+\b", text_content)
+            headings = re.findall(r"<h([1-6])[^>]*>(.*?)</h\1>", raw_content, flags=re.I | re.S)
+            links = re.findall(r"<a\s+[^>]*href=[\"']([^\"']+)[\"']", raw_content, flags=re.I)
+            images = re.findall(r"<img\s+[^>]*>", raw_content, flags=re.I)
+            missing_alt = [img for img in images if "alt=" not in img.lower() or 'alt=""' in img.lower() or "alt=''" in img.lower()]
+            featured_media_id = int(item.get("featured_media") or 0)
+            category_ids = item.get("categories") or []
+            tag_ids = item.get("tags") or []
+            keyword_hits = text_content.lower().count(keyword.lower()) if keyword else 0
+            has_cta = any(
+                phrase.lower() in text_content.lower()
+                for phrase in [
+                    cfg.get("primary_cta") or "",
+                    "book",
+                    "contact",
+                    "consultation",
+                    "call",
+                    "learn more",
+                    "get started",
+                ]
+                if phrase
+            )
+
+            checks: list[tuple[str, bool, str]] = []
+
+            checks.append(("Title present", bool(title), "Add a clear title."))
+            checks.append(("Slug present", bool(slug), "Add a clean slug."))
+            checks.append(("Status is draft before approval", status == "draft", "Content should normally be draft before final approval."))
+            checks.append(("Minimum content depth", len(words) >= 500, "Expand content to at least 500 words for a full public page where appropriate."))
+            checks.append(("Heading structure", bool(headings) and any(h[0] == "2" for h in headings), "Add H2 section headings."))
+            checks.append(("CTA present", has_cta, "Add a clear CTA."))
+            checks.append(("Internal/external links present", bool(links), "Add useful internal links."))
+            checks.append(("Keyword present", (keyword_hits > 0 if keyword else True), "Add the target keyword naturally."))
+            checks.append(("Featured image assigned", bool(featured_media_id), "Assign a featured image."))
+            checks.append(("Inline image alt text clean", len(missing_alt) == 0, "Add alt text to inline images."))
+            if endpoint == "posts":
+                checks.append(("Post category assigned", bool(category_ids), "Assign a category."))
+                checks.append(("Post tags assigned", bool(tag_ids), "Assign relevant tags."))
+            if healthcare:
+                checks.append(("Healthcare review required", False, "Dr Piet/clinician review is required before publishing healthcare content."))
+
+            passed = [c for c in checks if c[1]]
+            failed = [c for c in checks if not c[1]]
+
+            ready_to_publish = len(failed) == 0
+
+            lines = [
+                "Serena final WordPress publish checklist",
+                "",
+                "Content identity:",
+                f"- Site: {cfg.get('site_key')} ({cfg.get('site_url')})",
+                f"- Type: {endpoint}",
+                f"- ID: {content_id}",
+                f"- Title: {title or '(untitled)'}",
+                f"- Status: {status}",
+                f"- Link: {link}",
+                f"- Slug: {slug}",
+                "",
+                "Quality signals:",
+                f"- Word count: {len(words)}",
+                f"- Headings: {len(headings)}",
+                f"- Links: {len(links)}",
+                f"- Featured media ID: {featured_media_id if featured_media_id else 'none'}",
+                f"- Category IDs: {category_ids if category_ids else 'none'}",
+                f"- Tag IDs: {tag_ids if tag_ids else 'none'}",
+                f"- Keyword hits: {keyword_hits if keyword else 'not provided'}",
+                f"- CTA detected: {'yes' if has_cta else 'no'}",
+                "",
+                "Passed checks:",
+            ]
+
+            lines.extend(f"- {name}" for name, _, _ in passed)
+            if not passed:
+                lines.append("- none")
+
+            lines.extend(["", "Needs attention before publishing:"])
+            if failed:
+                for name, _, fix in failed:
+                    lines.append(f"- {name}: {fix}")
+            else:
+                lines.append("- none")
+
+            lines.extend([
+                "",
+                "Publish decision:",
+                f"- Ready to publish automatically: {'yes' if ready_to_publish else 'no'}",
+                "- Publishing still requires explicit approval using --approved.",
+            ])
+
+            if healthcare:
+                lines.append("- Healthcare/compliance review is mandatory before public publishing.")
+
+            return self._result(
+                "\n".join(lines),
+                metadata={
+                    "site_key": cfg.get("site_key"),
+                    "content_type": endpoint,
+                    "content_id": content_id,
+                    "ready_to_publish": ready_to_publish,
+                    "passed_checks": len(passed),
+                    "failed_checks": len(failed),
+                    "word_count": len(words),
+                    "featured_media_id": featured_media_id,
+                    "category_ids": category_ids,
+                    "tag_ids": tag_ids,
+                },
+            )
+
+        except Exception as exc:
+            return self._result(f"Failed to run publish checklist: {exc}", success=False)
+
+
 __all__ = [
     "SerenaWordPressStatusTool",
     "SerenaWordPressListPostsTool",
@@ -2027,6 +2336,8 @@ __all__ = [
     "SerenaWordPressBuildPageFromLibraryTool",
     "SerenaWordPressSetFeaturedImageTool",
     "SerenaWordPressAssignTermsTool",
+    "SerenaWordPressPublishChecklistTool",
+    "SerenaWordPressSEOMetadataTool",
     "SerenaWordPressCreateTagTool",
     "SerenaWordPressCreateCategoryTool",
     "SerenaWordPressListTagsTool",
