@@ -7,6 +7,10 @@ from rich.console import Console
 
 from openjarvis.tools.serena_wordpress import (
     SerenaWordPressBuildPagePlanTool,
+    SerenaWordPressContentListTool,
+    SerenaWordPressContentInspectTool,
+    SerenaWordPressContentCreateTool,
+    SerenaWordPressBuildPageFromLibraryTool,
     SerenaWordPressCreateDraftTool,
     SerenaWordPressCreatePageTool,
     SerenaWordPressGetContentTool,
@@ -309,6 +313,127 @@ def trash(site_key: str | None, content_type: str, content_id: int) -> None:
     )
 
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("content-create")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--title", required=True, help="Content/page title.")
+@click.option("--topic", default="", help="Main topic. Defaults to title.")
+@click.option("--type", "content_type", default="page", help="Content type: page or post.")
+@click.option("--audience", default="website visitors", help="Target audience.")
+@click.option("--goal", default="", help="Conversion goal.")
+@click.option("--healthcare/--no-healthcare", default=True, help="Whether healthcare compliance language is needed.")
+@click.option("--content", default="", help="Optional explicit HTML content. If omitted, Serena creates a starter page.")
+def content_create(
+    site_key: str | None,
+    title: str,
+    topic: str,
+    content_type: str,
+    audience: str,
+    goal: str,
+    healthcare: bool,
+    content: str,
+) -> None:
+    """Create a local WordPress content-library HTML file."""
+    console = Console()
+
+    result = SerenaWordPressContentCreateTool().execute(
+        site_key=site_key,
+        title=title,
+        topic=topic,
+        content_type=content_type,
+        audience=audience,
+        goal=goal,
+        healthcare=healthcare,
+        content=content,
+    )
+
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("content-list")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--limit", default=20, type=int, help="Maximum files to show.")
+def content_list(site_key: str | None, limit: int) -> None:
+    """List local WordPress content-library files."""
+    console = Console()
+
+    result = SerenaWordPressContentListTool().execute(
+        site_key=site_key,
+        limit=limit,
+    )
+
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("content-inspect")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--path", "file_path", required=True, help="Path to HTML file inside the approved content library.")
+@click.option("--keyword", default="", help="Optional target SEO keyword.")
+@click.option("--healthcare/--no-healthcare", default=True, help="Whether healthcare compliance review is needed.")
+def content_inspect(site_key: str | None, file_path: str, keyword: str, healthcare: bool) -> None:
+    """Inspect a local WordPress content-library HTML file."""
+    console = Console()
+
+    result = SerenaWordPressContentInspectTool().execute(
+        site_key=site_key,
+        path=file_path,
+        keyword=keyword,
+        healthcare=healthcare,
+    )
+
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("build-page")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--path", "file_path", required=True, help="Path to HTML file inside the approved content library.")
+@click.option("--title", required=True, help="WordPress page title.")
+@click.option("--slug", default="", help="Optional page slug.")
+@click.option("--keyword", default="", help="Optional target SEO keyword.")
+@click.option("--healthcare/--no-healthcare", default=True, help="Whether healthcare compliance review is needed.")
+def build_page(
+    site_key: str | None,
+    file_path: str,
+    title: str,
+    slug: str,
+    keyword: str,
+    healthcare: bool,
+) -> None:
+    """Create a WordPress draft page from a content-library file and inspect it."""
+    console = Console()
+
+    result = SerenaWordPressBuildPageFromLibraryTool().execute(
+        site_key=site_key,
+        path=file_path,
+        title=title,
+        slug=slug,
+        keyword=keyword,
+        healthcare=healthcare,
+    )
+
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("content-update")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--path", "file_path", required=True, help="Path to HTML file inside the approved content library.")
+@click.option("--content", required=True, help="Updated HTML content to write to the local content-library file.")
+def content_update(site_key: str | None, file_path: str, content: str) -> None:
+    """Update a local WordPress content-library HTML file."""
+    from pathlib import Path as _Path
+    from openjarvis.tools.serena_wordpress import _assert_content_library_path
+
+    console = Console()
+
+    try:
+        target = _assert_content_library_path(site_key, _Path(file_path))
+        target.write_text(content, encoding="utf-8")
+        console.print("[green]WordPress content-library file updated[/green]")
+        console.print()
+        console.print(f"- File: {target}")
+    except Exception as exc:
+        console.print(f"[red]Failed to update content-library file: {exc}[/red]")
 
 
 __all__ = ["wordpress"]

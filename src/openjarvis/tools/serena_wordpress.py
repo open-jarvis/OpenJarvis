@@ -209,6 +209,72 @@ def _save_artifact(kind: str, data: dict[str, Any], content: str = "") -> str:
 
 
 
+
+def _content_library_dir(site_key: str | None = None) -> Path:
+    """Return the approved local WordPress content-library folder for a site."""
+    cfg = _config(site_key)
+    site = cfg.get("site_key") or _site_key(site_key)
+    path = Path(cfg.get("artifact_dir", "outputs/wordpress")) / "content-library" / site
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _safe_content_filename(title: str, suffix: str = ".html") -> str:
+    return _slugify(title) + suffix
+
+
+def _write_content_library_file(
+    site_key: str | None,
+    title: str,
+    content: str,
+    content_type: str = "page",
+    topic: str = "",
+    seo_title: str = "",
+    meta_description: str = "",
+) -> str:
+    """Store generated website content locally before upload/build."""
+    out_dir = _content_library_dir(site_key)
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    filename = f"{timestamp}-{_safe_content_filename(title)}"
+    html_path = out_dir / filename
+    meta_path = out_dir / filename.replace(".html", ".json")
+
+    html_path.write_text(content, encoding="utf-8")
+
+    metadata = {
+        "site_key": _config(site_key).get("site_key"),
+        "site_url": _config(site_key).get("site_url"),
+        "title": title,
+        "topic": topic,
+        "content_type": content_type,
+        "seo_title": seo_title,
+        "meta_description": meta_description,
+        "created_at": timestamp,
+        "source": "serena_wordpress_content_library",
+        "html_file": str(html_path),
+    }
+
+    meta_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    return str(html_path)
+
+
+def _assert_content_library_path(site_key: str | None, file_path: Path) -> Path:
+    """Ensure uploads/builds come from the approved local content library."""
+    resolved = file_path.resolve()
+    library = _content_library_dir(site_key).resolve()
+
+    try:
+        resolved.relative_to(library)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"File must be inside the approved WordPress content library for this site: {library}"
+        ) from exc
+
+    if not resolved.exists() or not resolved.is_file():
+        raise RuntimeError(f"Content-library file not found: {resolved}")
+
+    return resolved
+
 def _snapshot_content(site_key: str | None, endpoint: str, content_id: int, reason: str) -> str:
     """Save a rollback snapshot before update/trash operations."""
     cfg = _config(site_key)
@@ -1202,6 +1268,310 @@ class SerenaWordPressTrashContentTool(_WordPressBaseTool):
             return self._result(f"Failed to move WordPress content to trash: {exc}", success=False)
 
 
+@ToolRegistry.register("serena_wordpress_content_create")
+class SerenaWordPressContentCreateTool(_WordPressBaseTool):
+    tool_id = "serena_wordpress_content_create"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description=(
+                "Create and store WordPress-ready website content in Serena's approved local content library. "
+                "Use this before creating or updating WordPress from generated content."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "site_key": {"type": "string", "description": "Site key, e.g. drpiet or serena."},
+                    "title": {"type": "string", "description": "Content/page title."},
+                    "topic": {"type": "string", "description": "Main topic."},
+                    "content_type": {"type": "string", "description": "page or post."},
+                    "audience": {"type": "string", "description": "Target audience."},
+                    "goal": {"type": "string", "description": "Conversion goal."},
+                    "healthcare": {"type": "boolean", "description": "Add healthcare compliance language."},
+                    "content": {"type": "string", "description": "Optional explicit HTML content. If omitted, Serena generates a structured starter page."}
+                },
+                "required": ["title"],
+            },
+            category="serena_wordpress",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
+        cfg = _config(site_key)
+
+        title = str(params.get("title") or "").strip()
+        topic = str(params.get("topic") or title).strip()
+        content_type = str(params.get("content_type") or "page").strip().lower()
+        audience = str(params.get("audience") or "website visitors").strip()
+        goal = str(params.get("goal") or cfg.get("primary_cta") or "Book your consultation").strip()
+        healthcare = bool(params.get("healthcare", True))
+        explicit_content = str(params.get("content") or "").strip()
+
+        if not title:
+            return self._result("Title is required.", success=False)
+
+        seo_title = f"{title} | Dr Piet Muller" if cfg.get("site_key") == "drpiet" else title
+        meta_description = f"Learn about {topic} and the next steps available through {cfg.get('site_url') or 'the website'}."
+
+        if explicit_content:
+            html_content = explicit_content
+        else:
+            compliance = ""
+            if healthcare:
+                compliance = (
+                    "<h2>Important note</h2>"
+                    "<p>This content is for education and should be reviewed by Dr Piet or a qualified clinician before publishing.</p>"
+                )
+
+            html_content = f"""<h1>{html.escape(title)}</h1>
+<p>This page is prepared for {html.escape(audience)} with the goal: {html.escape(goal)}.</p>
+
+<h2>Overview</h2>
+<p>{html.escape(topic)} is introduced here in clear, practical language.</p>
+
+<h2>How this helps</h2>
+<p>This section explains the service, benefit, or resource without overpromising outcomes.</p>
+
+<h2>Next steps</h2>
+<p>{html.escape(goal)}</p>
+{compliance}
+"""
+
+        file_path = _write_content_library_file(
+            site_key=site_key,
+            title=title,
+            content=html_content,
+            content_type=content_type,
+            topic=topic,
+            seo_title=seo_title,
+            meta_description=meta_description,
+        )
+
+        return self._result(
+            "WordPress content-library file created\n\n"
+            f"- Site: {cfg.get('site_key')} ({cfg.get('site_url')})\n"
+            f"- Title: {title}\n"
+            f"- Type: {content_type}\n"
+            f"- File: {file_path}\n"
+            f"- SEO title: {seo_title}\n"
+            f"- Meta description: {meta_description}",
+            metadata={
+                "site_key": cfg.get("site_key"),
+                "title": title,
+                "content_type": content_type,
+                "file": file_path,
+                "seo_title": seo_title,
+                "meta_description": meta_description,
+            },
+        )
+
+
+@ToolRegistry.register("serena_wordpress_content_list")
+class SerenaWordPressContentListTool(_WordPressBaseTool):
+    tool_id = "serena_wordpress_content_list"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="List stored WordPress content-library files for a site.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "site_key": {"type": "string", "description": "Site key, e.g. drpiet or serena."},
+                    "limit": {"type": "integer", "description": "Maximum files to show."}
+                },
+            },
+            category="serena_wordpress",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
+        limit = int(params.get("limit") or 20)
+        folder = _content_library_dir(site_key)
+
+        files = sorted(folder.glob("*.html"), key=lambda p: p.stat().st_mtime, reverse=True)[:limit]
+
+        if not files:
+            return self._result(f"No content-library files found in {folder}", metadata={"folder": str(folder), "count": 0})
+
+        lines = ["WordPress content-library files", "", f"Folder: {folder}", ""]
+        for file in files:
+            lines.append(f"- {file.name}")
+
+        return self._result("\n".join(lines), metadata={"folder": str(folder), "count": len(files)})
+
+
+@ToolRegistry.register("serena_wordpress_content_inspect")
+class SerenaWordPressContentInspectTool(_WordPressBaseTool):
+    tool_id = "serena_wordpress_content_inspect"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Inspect a local WordPress content-library HTML file before upload/build.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "site_key": {"type": "string", "description": "Site key, e.g. drpiet or serena."},
+                    "path": {"type": "string", "description": "Path to HTML file inside approved content library."},
+                    "keyword": {"type": "string", "description": "Optional target keyword."},
+                    "healthcare": {"type": "boolean", "description": "Whether healthcare review is required."}
+                },
+                "required": ["path"],
+            },
+            category="serena_wordpress",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
+        keyword = str(params.get("keyword") or "").strip().lower()
+        healthcare = bool(params.get("healthcare", True))
+
+        try:
+            file_path = _assert_content_library_path(site_key, Path(str(params.get("path") or "")))
+            raw_content = file_path.read_text(encoding="utf-8")
+        except Exception as exc:
+            return self._result(f"Failed to inspect content-library file: {exc}", success=False)
+
+        text_content = _rendered(raw_content)
+        words = re.findall(r"\b\w+\b", text_content)
+        headings = re.findall(r"<h([1-6])[^>]*>(.*?)</h\1>", raw_content, flags=re.I | re.S)
+        links = re.findall(r"<a\s+[^>]*href=[\"']([^\"']+)[\"']", raw_content, flags=re.I)
+        images = re.findall(r"<img\s+[^>]*>", raw_content, flags=re.I)
+        keyword_hits = text_content.lower().count(keyword) if keyword else 0
+        has_cta = any(x in text_content.lower() for x in ["book", "contact", "consultation", "learn more", "get started"])
+
+        findings = []
+        recommendations = []
+
+        if len(words) < 250:
+            recommendations.append("Content is short for a complete public page. Expand before publishing.")
+        if not headings:
+            findings.append("No heading structure found.")
+        if not has_cta:
+            findings.append("No clear CTA detected.")
+        if not links:
+            recommendations.append("No links detected. Add internal links where useful.")
+        if images:
+            missing_alt = [img for img in images if "alt=" not in img.lower() or 'alt=""' in img.lower() or "alt=''" in img.lower()]
+            if missing_alt:
+                findings.append(f"{len(missing_alt)} image(s) may be missing useful alt text.")
+        if keyword and keyword_hits == 0:
+            findings.append(f"Target keyword '{keyword}' not found.")
+        if healthcare:
+            recommendations.append("Healthcare content should be reviewed by Dr Piet/clinician before publishing.")
+
+        if not findings:
+            findings.append("No critical content-library issues found.")
+
+        lines = [
+            "WordPress local content inspection",
+            "",
+            f"- File: {file_path}",
+            f"- Word count: {len(words)}",
+            f"- Headings found: {len(headings)}",
+            f"- Links found: {len(links)}",
+            f"- Images found: {len(images)}",
+            f"- CTA detected: {'yes' if has_cta else 'no'}",
+            f"- Target keyword hits: {keyword_hits if keyword else 'not provided'}",
+            "",
+            "Findings:",
+        ]
+        lines.extend(f"- {item}" for item in findings)
+        lines.append("")
+        lines.append("Recommendations:")
+        lines.extend(f"- {item}" for item in recommendations or ["No major recommendations."])
+
+        return self._result("\n".join(lines), metadata={"file": str(file_path), "word_count": len(words)})
+
+
+@ToolRegistry.register("serena_wordpress_build_page_from_library")
+class SerenaWordPressBuildPageFromLibraryTool(_WordPressBaseTool):
+    tool_id = "serena_wordpress_build_page_from_library"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a WordPress draft page from an approved local content-library HTML file, then inspect the draft.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "site_key": {"type": "string", "description": "Site key, e.g. drpiet or serena."},
+                    "path": {"type": "string", "description": "Path to HTML file inside approved content library."},
+                    "title": {"type": "string", "description": "Page title."},
+                    "slug": {"type": "string", "description": "Optional page slug."},
+                    "keyword": {"type": "string", "description": "Optional target keyword."},
+                    "healthcare": {"type": "boolean", "description": "Whether healthcare review is required."}
+                },
+                "required": ["path", "title"],
+            },
+            category="serena_wordpress",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
+        title = str(params.get("title") or "").strip()
+        slug = str(params.get("slug") or "").strip()
+        keyword = str(params.get("keyword") or "").strip()
+        healthcare = bool(params.get("healthcare", True))
+
+        if not title:
+            return self._result("Title is required.", success=False)
+
+        try:
+            file_path = _assert_content_library_path(site_key, Path(str(params.get("path") or "")))
+            content = file_path.read_text(encoding="utf-8")
+        except Exception as exc:
+            return self._result(f"Failed to build page from content-library file: {exc}", success=False)
+
+        create_result = SerenaWordPressCreatePageTool().execute(
+            site_key=site_key,
+            title=title,
+            content=content,
+            slug=slug,
+            status="draft",
+            approved=False,
+        )
+
+        if not create_result.success:
+            return create_result
+
+        page_id = create_result.metadata.get("id")
+        inspect_result = None
+        if page_id:
+            inspect_result = SerenaWordPressInspectContentTool().execute(
+                site_key=site_key,
+                content_type="pages",
+                content_id=int(page_id),
+                keyword=keyword,
+                healthcare=healthcare,
+            )
+
+        output = [
+            "WordPress draft page built from content library",
+            "",
+            create_result.content,
+        ]
+
+        if inspect_result:
+            output.extend(["", "Post-build developer inspection:", "", inspect_result.content])
+
+        return self._result(
+            "\n".join(output),
+            metadata={
+                "site_key": _config(site_key).get("site_key"),
+                "source_file": str(file_path),
+                "page_id": page_id,
+                "inspection_success": bool(inspect_result and inspect_result.success),
+            },
+        )
+
+
 __all__ = [
     "SerenaWordPressStatusTool",
     "SerenaWordPressListPostsTool",
@@ -1216,4 +1586,8 @@ __all__ = [
     "SerenaWordPressGetContentTool",
     "SerenaWordPressInspectContentTool",
     "SerenaWordPressTrashContentTool",
+    "SerenaWordPressBuildPageFromLibraryTool",
+    "SerenaWordPressContentInspectTool",
+    "SerenaWordPressContentListTool",
+    "SerenaWordPressContentCreateTool",
 ]
