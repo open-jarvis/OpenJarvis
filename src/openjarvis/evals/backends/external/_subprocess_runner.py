@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import subprocess
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -146,16 +148,152 @@ def run_one_shot(
     )
 
 
-# Energy sampler: stub for now; Task 5 fills in the real implementation.
-class _NullSampler:
+_SAMPLE_HZ = 10.0
+_SAMPLE_INTERVAL = 1.0 / _SAMPLE_HZ
+
+
+class _Sampler:
+    """Base class for energy samplers running on a background thread."""
+
+    method: str = "unavailable"
+
+    def __init__(self) -> None:
+        self._samples: List[EnergySample] = []
+        self._stop_event = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+        self._t0 = time.monotonic()
+
+    def _read_watts(self) -> float:  # pragma: no cover (subclass override)
+        raise NotImplementedError
+
+    def _loop(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                w = self._read_watts()
+                self._samples.append(
+                    EnergySample(timestamp=time.monotonic() - self._t0, watts=w)
+                )
+            except Exception as e:  # never crash the sampler
+                LOGGER.debug("sampler_read_failed: %s", e)
+            self._stop_event.wait(_SAMPLE_INTERVAL)
+
+    def start(self) -> None:
+        self._t0 = time.monotonic()
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> List[EnergySample]:
+        self._stop_event.set()
+        if self._thread is not None:
+            self._thread.join(timeout=2.0)
+        return list(self._samples)
+
+
+class _NullSampler(_Sampler):
     method = "unavailable"
+
+    def start(self) -> None:
+        pass  # nothing to do
 
     def stop(self) -> List[EnergySample]:
         return []
 
 
-def _start_sampler() -> "_NullSampler":
-    """Return a started energy sampler. Task 5 replaces with the real chain."""
+def _try_start_nvml() -> Optional[_Sampler]:
+    try:
+        import pynvml  # type: ignore
+
+        pynvml.nvmlInit()
+        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+
+        class _NvmlSampler(_Sampler):
+            method = "nvml"
+
+            def _read_watts(self) -> float:
+                return pynvml.nvmlDeviceGetPowerUsage(handle) / 1000.0
+
+        s = _NvmlSampler()
+        s.start()
+        return s
+    except Exception as e:
+        LOGGER.debug("nvml_unavailable: %s", e)
+        return None
+
+
+def _try_start_powermetrics() -> Optional[_Sampler]:
+    """macOS only - requires sudo or appropriate plist permissions."""
+    if shutil.which("powermetrics") is None:
+        return None
+    # NOTE: real powermetrics integration is non-trivial (parse XML over stdout).
+    # Apple-hardware support is a follow-up; documented in CHANGELOG.
+    return None
+
+
+def _try_start_rocm_smi() -> Optional[_Sampler]:
+    if shutil.which("rocm-smi") is None:
+        return None
+
+    class _RocmSampler(_Sampler):
+        method = "rocm_smi"
+
+        def _read_watts(self) -> float:
+            out = subprocess.run(
+                ["rocm-smi", "--showpower", "--csv"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+            # Parse "card0,15.5W" style; first number after a comma
+            for line in out.splitlines():
+                parts = [p.strip() for p in line.split(",")]
+                for p in parts[1:]:
+                    if "W" in p:
+                        return float(p.replace("W", ""))
+            return 0.0
+
+    s = _RocmSampler()
+    s.start()
+    return s
+
+
+def _try_start_rapl() -> Optional[_Sampler]:
+    rapl_path = Path("/sys/class/powercap/intel-rapl:0/energy_uj")
+    if not rapl_path.exists():
+        return None
+
+    class _RaplSampler(_Sampler):
+        method = "rapl"
+
+        def __init__(self) -> None:
+            super().__init__()
+            self._last_uj = int(rapl_path.read_text().strip())
+            self._last_t = time.monotonic()
+
+        def _read_watts(self) -> float:
+            now_uj = int(rapl_path.read_text().strip())
+            now_t = time.monotonic()
+            d_uj = now_uj - self._last_uj
+            d_t = now_t - self._last_t
+            self._last_uj = now_uj
+            self._last_t = now_t
+            return (d_uj * 1e-6) / d_t if d_t > 0 else 0.0
+
+    s = _RaplSampler()
+    s.start()
+    return s
+
+
+def _start_sampler() -> _Sampler:
+    """Return a started sampler from the fallback chain, or the null sampler."""
+    for try_fn in (
+        _try_start_nvml,
+        _try_start_powermetrics,
+        _try_start_rocm_smi,
+        _try_start_rapl,
+    ):
+        s = try_fn()
+        if s is not None:
+            return s
     return _NullSampler()
 
 

@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from openjarvis.evals.backends.external._subprocess_runner import (
     EnergySample,
     SubprocessResult,
@@ -145,3 +147,21 @@ class TestRunOneShot:
                 output_json_path=output_json,
             )
         assert result.error == "invalid_runner_output"
+
+
+class TestEnergySampler:
+    def test_fallback_chain_reaches_unavailable(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When all samplers fail to initialize, return the null sampler."""
+        from openjarvis.evals.backends.external import _subprocess_runner as m
+
+        # Force every probe to fail
+        monkeypatch.setattr(m, "_try_start_nvml", lambda: None)
+        monkeypatch.setattr(m, "_try_start_powermetrics", lambda: None)
+        monkeypatch.setattr(m, "_try_start_rocm_smi", lambda: None)
+        monkeypatch.setattr(m, "_try_start_rapl", lambda: None)
+
+        sampler = m._start_sampler()
+        assert sampler.method == "unavailable"
+        assert sampler.stop() == []
