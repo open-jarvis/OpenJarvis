@@ -31,6 +31,8 @@ dependencies = [
     "openai>=1.30",
     "python-telegram-bot>=22.6",
     "rich>=13",
+    "sounddevice>=0.5.5",
+    "soundfile>=0.13.1",
     "tomli>=2.0; python_version < '3.11'",
     "tomlkit>=0.12",
 ]

@@ -24,6 +24,7 @@ from openjarvis.cli.eval_cmd import eval_group
 from openjarvis.cli.feedback_cmd import feedback_group
 from openjarvis.cli.gateway_cmd import gateway
 from openjarvis.cli.host_cmd import host
+from openjarvis.cli.listen_cmd import listen
 from openjarvis.cli.init_cmd import init
 from openjarvis.cli.memory_cmd import memory
 from openjarvis.cli.mine_cmd import mine
@@ -102,6 +103,7 @@ cli.add_command(add, "add")
 cli.add_command(operators, "operators")
 cli.add_command(eval_group, "eval")
 cli.add_command(host, "host")
+cli.add_command(listen, "listen")
 cli.add_command(quickstart, "quickstart")
 cli.add_command(optimize_group, "optimize")
 cli.add_command(feedback_group, "feedback")
