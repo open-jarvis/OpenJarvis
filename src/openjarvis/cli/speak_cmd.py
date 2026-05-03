@@ -10,6 +10,7 @@ import click
 from rich.console import Console
 
 from openjarvis.speech.openai_tts import OpenAITTSBackend
+from openjarvis.serena_audio import play_audio_file
 
 
 def clean_for_speech(text: str) -> str:
@@ -45,7 +46,8 @@ def clean_for_speech(text: str) -> str:
 @click.option("--voice", "voice_id", default="nova", help="OpenAI TTS voice to use.")
 @click.option("--output-dir", default="outputs/voice", help="Folder for generated audio.")
 @click.option("--no-play", is_flag=True, help="Generate audio but do not play it.")
-def speak(text: tuple[str, ...], voice_id: str, output_dir: str, no_play: bool) -> None:
+@click.option("--no-interrupt", is_flag=True, help="Disable Enter-to-interrupt during playback.")
+def speak(text: tuple[str, ...], voice_id: str, output_dir: str, no_play: bool, no_interrupt: bool) -> None:
     """Speak text using Serena's OpenAI TTS voice."""
     console = Console(stderr=True)
 
@@ -72,10 +74,8 @@ def speak(text: tuple[str, ...], voice_id: str, output_dir: str, no_play: bool) 
 
     if not no_play:
         try:
-            import os
-
-            os.startfile(str(out_path.resolve()))  # type: ignore[attr-defined]
             console.print("[green]Playing through Windows default audio output.[/green]")
+            play_audio_file(out_path, interruptible=not no_interrupt)
         except Exception as exc:
             console.print(f"[yellow]Audio saved but playback failed: {exc}[/yellow]")
 

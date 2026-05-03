@@ -16,6 +16,7 @@ from openjarvis.cli.listen_cmd import _resolve_input_device
 from openjarvis.cli.speak_cmd import clean_for_speech
 from openjarvis.speech.openai_tts import OpenAITTSBackend
 from openjarvis.speech.openai_whisper import OpenAIWhisperBackend
+from openjarvis.serena_audio import play_audio_file
 
 
 def _record_audio(
@@ -102,7 +103,7 @@ def _ask_serena(question: str) -> str:
     return answer
 
 
-def _speak_answer(answer: str, *, voice_id: str, output_dir: str, no_play: bool, console: Console) -> Path:
+def _speak_answer(answer: str, *, voice_id: str, output_dir: str, no_play: bool, no_interrupt: bool, console: Console) -> Path:
     """Generate TTS audio for Serena's answer and optionally play it."""
     spoken_text = clean_for_speech(answer)
 
@@ -123,10 +124,8 @@ def _speak_answer(answer: str, *, voice_id: str, output_dir: str, no_play: bool,
 
     if not no_play:
         try:
-            import os
-
-            os.startfile(str(out_path.resolve()))  # type: ignore[attr-defined]
             console.print("[green]Playing through Windows default audio output.[/green]")
+            play_audio_file(out_path, interruptible=not no_interrupt)
         except Exception as exc:
             console.print(f"[yellow]Audio saved but playback failed: {exc}[/yellow]")
 
@@ -141,6 +140,7 @@ def _speak_answer(answer: str, *, voice_id: str, output_dir: str, no_play: bool,
 @click.option("--voice", "voice_id", default="nova", help="OpenAI TTS voice to use.")
 @click.option("--output-dir", default="outputs/voice", help="Folder for generated audio.")
 @click.option("--no-play", is_flag=True, help="Generate audio but do not play it.")
+@click.option("--no-interrupt", is_flag=True, help="Disable Enter-to-interrupt during playback.")
 def voice(
     seconds: float,
     samplerate: int,
@@ -149,6 +149,7 @@ def voice(
     voice_id: str,
     output_dir: str,
     no_play: bool,
+    no_interrupt: bool,
 ) -> None:
     """Listen, transcribe, ask Serena, and speak the answer."""
     console = Console(stderr=True)
@@ -181,6 +182,7 @@ def voice(
         voice_id=voice_id,
         output_dir=output_dir,
         no_play=no_play,
+        no_interrupt=no_interrupt,
         console=console,
     )
 
