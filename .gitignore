@@ -116,3 +116,8 @@ outputs/
 *.mp3
 *.wav
 *.m4a
+# Serena generated runtime outputs
+outputs/
+*.mp3
+*.wav
+*.m4a
