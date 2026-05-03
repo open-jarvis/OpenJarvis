@@ -85,3 +85,17 @@ def test_empty_string_treated_as_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     p = _bootstrap.detect_cloud_keys()
     assert p is not None
     assert p.provider == "anthropic"
+
+
+def test_cloud_provider_repr_redacts_api_key() -> None:
+    """Default repr must NOT expose the api_key (logging safety)."""
+    p = _bootstrap.CloudProvider(
+        provider="openrouter",
+        env_var="OPENROUTER_API_KEY",
+        api_key="sk-or-secret-do-not-leak",
+    )
+    r = repr(p)
+    assert "sk-or-secret-do-not-leak" not in r
+    assert "openrouter" in r
+    assert "OPENROUTER_API_KEY" in r
+    assert "redacted" in r.lower() or "***" in r

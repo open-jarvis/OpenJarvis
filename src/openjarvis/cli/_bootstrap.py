@@ -32,6 +32,12 @@ class CloudProvider:
     env_var: str
     api_key: str
 
+    def __repr__(self) -> str:
+        return (
+            f"CloudProvider(provider={self.provider!r}, "
+            f"env_var={self.env_var!r}, api_key='***redacted***')"
+        )
+
 
 def detect_cloud_keys() -> Optional[CloudProvider]:
     """Return the first matching cloud provider per precedence order, else None.
