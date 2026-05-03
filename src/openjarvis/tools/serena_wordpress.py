@@ -2859,6 +2859,442 @@ class SerenaWordPressSiteAuditTool(_WordPressBaseTool):
             return self._result(f"Failed to run WordPress site audit: {exc}", success=False)
 
 
+def _collect_linkable_content(site_key: str | None, limit: int = 50) -> list[dict[str, Any]]:
+    """Collect posts/pages that can be used for internal-link suggestions."""
+    per_page = max(1, min(limit, 100))
+    results: list[dict[str, Any]] = []
+
+    for endpoint in ("pages", "posts"):
+        try:
+            items = _request(
+                "GET",
+                f"{endpoint}?per_page={per_page}&status=publish,draft,pending,private&context=edit",
+                site_key=site_key,
+            )
+            if isinstance(items, list):
+                for item in items:
+                    title = _rendered(item.get("title"))
+                    content = str((item.get("content") or {}).get("rendered") or "")
+                    text = _rendered(content)
+                    results.append(
+                        {
+                            "id": item.get("id"),
+                            "type": endpoint,
+                            "title": title or "(untitled)",
+                            "status": item.get("status"),
+                            "link": item.get("link") or "",
+                            "slug": item.get("slug") or "",
+                            "word_count": len(re.findall(r"\b\w+\b", text)),
+                            "excerpt": text[:220].strip(),
+                        }
+                    )
+        except Exception:
+            continue
+
+    return results
+
+
+@ToolRegistry.register("serena_wordpress_link_map")
+class SerenaWordPressLinkMapTool(_WordPressBaseTool):
+    tool_id = "serena_wordpress_link_map"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Build a WordPress internal-link map by scanning posts/pages and reporting link coverage.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "site_key": {"type": "string", "description": "Site key, e.g. drpiet or serena."},
+                    "limit": {"type": "integer", "description": "Max posts/pages per type to scan."},
+                },
+            },
+            category="serena_wordpress",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
+        cfg = _config(site_key)
+        limit = int(params.get("limit") or 50)
+
+        try:
+            items = _collect_linkable_content(site_key, limit=limit)
+
+            no_links = []
+            outbound_map = []
+
+            for item in items:
+                endpoint = item["type"]
+                content_item = _request("GET", f"{endpoint}/{item['id']}?context=edit", site_key=site_key)
+                raw = str((content_item.get("content") or {}).get("rendered") or "") if isinstance(content_item, dict) else ""
+                links = re.findall(r"<a\s+[^>]*href=[\"']([^\"']+)[\"']", raw, flags=re.I)
+                internal = [x for x in links if cfg.get("site_url") and str(x).startswith(str(cfg.get("site_url")))]
+                external = [x for x in links if x not in internal]
+
+                if not links:
+                    no_links.append(item)
+
+                outbound_map.append(
+                    {
+                        **item,
+                        "total_links": len(links),
+                        "internal_links": len(internal),
+                        "external_links": len(external),
+                    }
+                )
+
+            lines = [
+                "Serena WordPress internal-link map",
+                "",
+                f"- Site: {cfg.get('site_key')} ({cfg.get('site_url')})",
+                f"- Items scanned: {len(items)}",
+                f"- Items with no links: {len(no_links)}",
+                "",
+                "Items with weakest link coverage:",
+            ]
+
+            weakest = sorted(outbound_map, key=lambda x: (x["total_links"], x["word_count"]))[:15]
+            if weakest:
+                for item in weakest:
+                    lines.append(
+                        f"- {item['title']} | {item['type']} ID {item['id']} | "
+                        f"{item['status']} | links {item['total_links']} | words {item['word_count']}"
+                    )
+            else:
+                lines.append("- none")
+
+            lines.extend(["", "Operator recommendations:"])
+            lines.append("- Add links from service pages to booking/contact pages.")
+            lines.append("- Add links from blog/resource posts to relevant service pages.")
+            lines.append("- Add links from high-value published pages to new draft service pages when approved.")
+            lines.append("- Avoid over-linking; keep links useful and context-specific.")
+
+            return self._result(
+                "\n".join(lines),
+                metadata={
+                    "site_key": cfg.get("site_key"),
+                    "items_scanned": len(items),
+                    "items_with_no_links": len(no_links),
+                    "weakest": weakest,
+                },
+            )
+
+        except Exception as exc:
+            return self._result(f"Failed to build WordPress link map: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_wordpress_suggest_links")
+class SerenaWordPressSuggestLinksTool(_WordPressBaseTool):
+    tool_id = "serena_wordpress_suggest_links"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Suggest internal links for a WordPress post/page based on site content and configured business URLs.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "site_key": {"type": "string", "description": "Site key, e.g. drpiet or serena."},
+                    "content_type": {"type": "string", "description": "posts or pages."},
+                    "content_id": {"type": "integer", "description": "WordPress post/page ID."},
+                    "limit": {"type": "integer", "description": "Maximum suggestions."},
+                },
+                "required": ["content_id"],
+            },
+            category="serena_wordpress",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
+        cfg = _config(site_key)
+        content_type = str(params.get("content_type") or "pages").strip().lower()
+        content_id = int(params.get("content_id") or 0)
+        limit = int(params.get("limit") or 10)
+
+        if not content_id:
+            return self._result("content_id is required.", success=False)
+
+        endpoint = "posts" if content_type == "posts" else "pages"
+
+        try:
+            item = _request("GET", f"{endpoint}/{content_id}?context=edit", site_key=site_key)
+            if not isinstance(item, dict):
+                return self._result("Unexpected WordPress response.", success=False)
+
+            title = _rendered(item.get("title"))
+            raw = str((item.get("content") or {}).get("rendered") or "")
+            text = _rendered(raw).lower()
+
+            candidates = _collect_linkable_content(site_key, limit=60)
+            suggestions: list[dict[str, Any]] = []
+
+            for candidate in candidates:
+                if int(candidate.get("id") or 0) == content_id and candidate.get("type") == endpoint:
+                    continue
+
+                score = 0
+                candidate_title = str(candidate.get("title") or "").lower()
+                words = [w for w in re.findall(r"\b\w{4,}\b", candidate_title) if w not in ("page", "post", "with", "from")]
+                for word in words:
+                    if word in text:
+                        score += 2
+
+                if "billing" in text and "billing" in candidate_title:
+                    score += 5
+                if "medical aid" in text and ("medical" in candidate_title or "aid" in candidate_title):
+                    score += 5
+                if "book" in candidate_title or "contact" in candidate_title or "consultation" in candidate_title:
+                    score += 3
+
+                if score > 0:
+                    suggestions.append({**candidate, "score": score})
+
+            suggestions = sorted(suggestions, key=lambda x: x["score"], reverse=True)[:limit]
+
+            business_links = []
+            for label, url in [
+                ("Booking", cfg.get("booking_url")),
+                ("Membership", cfg.get("membership_url")),
+                ("Lead magnet", cfg.get("lead_magnet_url")),
+                ("Corporate wellness", cfg.get("corporate_wellness_url")),
+            ]:
+                if url:
+                    business_links.append((label, url))
+
+            lines = [
+                "Serena WordPress internal-link suggestions",
+                "",
+                f"- Site: {cfg.get('site_key')} ({cfg.get('site_url')})",
+                f"- Source: {title or '(untitled)'} | {endpoint} ID {content_id}",
+                "",
+                "Business/CTA links:",
+            ]
+
+            if business_links:
+                for label, url in business_links:
+                    lines.append(f"- {label}: {url}")
+            else:
+                lines.append("- none configured")
+
+            lines.extend(["", "Suggested internal content links:"])
+
+            if suggestions:
+                for s_item in suggestions:
+                    lines.append(
+                        f"- {s_item['title']} | {s_item['type']} ID {s_item['id']} | "
+                        f"score {s_item['score']} | {s_item['link']}"
+                    )
+            else:
+                lines.append("- No strong internal content suggestions found.")
+
+            lines.extend(["", "Recommended next action:"])
+            lines.append("- Add the strongest relevant link naturally in the body copy.")
+            lines.append("- Keep CTA links clear and avoid stuffing links.")
+
+            return self._result(
+                "\n".join(lines),
+                metadata={
+                    "site_key": cfg.get("site_key"),
+                    "content_type": endpoint,
+                    "content_id": content_id,
+                    "suggestions": suggestions,
+                    "business_links": business_links,
+                },
+            )
+
+        except Exception as exc:
+            return self._result(f"Failed to suggest WordPress internal links: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_wordpress_add_link")
+class SerenaWordPressAddLinkTool(_WordPressBaseTool):
+    tool_id = "serena_wordpress_add_link"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Append or insert an internal/CTA link into a WordPress post/page. Saves rollback snapshot first.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "site_key": {"type": "string", "description": "Site key, e.g. drpiet or serena."},
+                    "content_type": {"type": "string", "description": "posts or pages."},
+                    "content_id": {"type": "integer", "description": "WordPress post/page ID."},
+                    "text": {"type": "string", "description": "Anchor text."},
+                    "url": {"type": "string", "description": "URL to link to."},
+                    "placement": {"type": "string", "description": "append or prepend. Defaults to append."}
+                },
+                "required": ["content_id", "text", "url"],
+            },
+            category="serena_wordpress",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
+        content_type = str(params.get("content_type") or "pages").strip().lower()
+        content_id = int(params.get("content_id") or 0)
+        text = str(params.get("text") or "").strip()
+        url = str(params.get("url") or "").strip()
+        placement = str(params.get("placement") or "append").strip().lower()
+
+        if not content_id or not text or not url:
+            return self._result("content_id, text, and url are required.", success=False)
+
+        endpoint = "posts" if content_type == "posts" else "pages"
+
+        try:
+            item = _request("GET", f"{endpoint}/{content_id}?context=edit", site_key=site_key)
+            if not isinstance(item, dict):
+                return self._result("Unexpected WordPress response.", success=False)
+
+            raw = str((item.get("content") or {}).get("rendered") or "")
+
+            if url in raw:
+                return self._result(
+                    "Link already appears in the content. No update performed.",
+                    metadata={"content_id": content_id, "url": url, "already_present": True},
+                )
+
+            safe_text = html.escape(text)
+            safe_url = html.escape(url, quote=True)
+            link_block = f"<p><a href=\"{safe_url}\">{safe_text}</a></p>"
+
+            if placement == "prepend":
+                updated = link_block + "\n\n" + raw
+            else:
+                updated = raw.rstrip() + "\n\n" + link_block
+
+            snapshot_path = _snapshot_content(site_key, endpoint, content_id, "before-add-link")
+            updated_item = _request(
+                "POST",
+                f"{endpoint}/{content_id}",
+                site_key=site_key,
+                json={"content": updated},
+            )
+
+            if not isinstance(updated_item, dict):
+                return self._result("Unexpected WordPress response while adding link.", success=False)
+
+            return self._result(
+                "WordPress link added\n\n"
+                f"- Site: {_config(site_key).get('site_key')} ({_config(site_key).get('site_url')})\n"
+                f"- Type: {endpoint}\n"
+                f"- Content ID: {content_id}\n"
+                f"- Link text: {text}\n"
+                f"- URL: {url}\n"
+                f"- Placement: {placement}\n"
+                f"- Rollback snapshot: {snapshot_path}",
+                metadata={
+                    "site_key": _config(site_key).get("site_key"),
+                    "content_type": endpoint,
+                    "content_id": content_id,
+                    "url": url,
+                    "rollback_snapshot": snapshot_path,
+                },
+            )
+
+        except Exception as exc:
+            return self._result(f"Failed to add WordPress link: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_wordpress_list_menus")
+class SerenaWordPressListMenusTool(_WordPressBaseTool):
+    tool_id = "serena_wordpress_list_menus"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description=(
+                "Attempt to list WordPress menus through common REST endpoints. "
+                "If unavailable, Serena reports that MCP/browser fallback is required."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "site_key": {"type": "string", "description": "Site key, e.g. drpiet or serena."}
+                },
+            },
+            category="serena_wordpress",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        site_key = str(params.get("site_key") or "").strip() or None
+        cfg = _config(site_key)
+
+        endpoints = [
+            "menus",
+            "menu-locations",
+            "wp_navigation",
+        ]
+
+        results = []
+        errors = []
+
+        for endpoint in endpoints:
+            try:
+                data = _request("GET", endpoint, site_key=site_key)
+                results.append((endpoint, data))
+            except Exception as exc:
+                errors.append((endpoint, str(exc)))
+
+        lines = [
+            "Serena WordPress menu inspection",
+            "",
+            f"- Site: {cfg.get('site_key')} ({cfg.get('site_url')})",
+            "",
+        ]
+
+        if results:
+            lines.append("REST menu/navigation endpoints found:")
+            for endpoint, data in results:
+                lines.append(f"- Endpoint: {endpoint}")
+                if isinstance(data, list):
+                    if not data:
+                        lines.append("  - No items returned.")
+                    for item in data[:20]:
+                        if isinstance(item, dict):
+                            lines.append(
+                                f"  - {item.get('name') or item.get('title') or item.get('slug') or item.get('id')}"
+                            )
+                        else:
+                            lines.append(f"  - {item}")
+                elif isinstance(data, dict):
+                    for key, value in list(data.items())[:20]:
+                        lines.append(f"  - {key}: {value}")
+                else:
+                    lines.append(f"  - {data}")
+        else:
+            lines.append("No menu/navigation REST endpoints were available through the current WordPress API.")
+
+        lines.extend(["", "Endpoint errors / notes:"])
+        if errors:
+            for endpoint, error in errors:
+                lines.append(f"- {endpoint}: {error}")
+        else:
+            lines.append("- none")
+
+        lines.extend([
+            "",
+            "Operator note:",
+            "- WordPress menus are not always exposed through the default REST API.",
+            "- If menu endpoints are unavailable, Serena should use MCP/browser admin workflow for menu writes.",
+            "- Native internal-link mapping and body-link updates are available now.",
+        ])
+
+        return self._result(
+            "\n".join(lines),
+            metadata={
+                "site_key": cfg.get("site_key"),
+                "results_found": len(results),
+                "errors": errors,
+            },
+        )
+
+
 __all__ = [
     "SerenaWordPressStatusTool",
     "SerenaWordPressListPostsTool",
@@ -2879,6 +3315,10 @@ __all__ = [
     "SerenaWordPressPublishChecklistTool",
     "SerenaWordPressFinalPublishTool",
     "SerenaWordPressSiteAuditTool",
+    "SerenaWordPressListMenusTool",
+    "SerenaWordPressAddLinkTool",
+    "SerenaWordPressSuggestLinksTool",
+    "SerenaWordPressLinkMapTool",
     "SerenaWordPressRollbackRestoreTool",
     "SerenaWordPressRollbackListTool",
     "SerenaWordPressSEOMetadataTool",

@@ -27,6 +27,10 @@ from openjarvis.tools.serena_wordpress import (
     SerenaWordPressPublishChecklistTool,
     SerenaWordPressFinalPublishTool,
     SerenaWordPressSiteAuditTool,
+    SerenaWordPressListMenusTool,
+    SerenaWordPressAddLinkTool,
+    SerenaWordPressSuggestLinksTool,
+    SerenaWordPressLinkMapTool,
     SerenaWordPressRollbackRestoreTool,
     SerenaWordPressRollbackListTool,
     SerenaWordPressSEOMetadataTool,
@@ -673,6 +677,63 @@ def site_audit(site_key: str | None, limit: int, keyword: str, include_published
         keyword=keyword,
         include_published=include_published,
     )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("link-map")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--limit", default=50, type=int, help="Max posts/pages per type to scan.")
+def link_map(site_key: str | None, limit: int) -> None:
+    """Build Serena's WordPress internal-link map."""
+    console = Console()
+    result = SerenaWordPressLinkMapTool().execute(site_key=site_key, limit=limit)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("suggest-links")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--type", "content_type", default="pages", help="Content type: posts or pages.")
+@click.option("--id", "content_id", required=True, type=int, help="WordPress post/page ID.")
+@click.option("--limit", default=10, type=int, help="Maximum suggestions.")
+def suggest_links(site_key: str | None, content_type: str, content_id: int, limit: int) -> None:
+    """Suggest internal links for a WordPress post/page."""
+    console = Console()
+    result = SerenaWordPressSuggestLinksTool().execute(
+        site_key=site_key,
+        content_type=content_type,
+        content_id=content_id,
+        limit=limit,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("add-link")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+@click.option("--type", "content_type", default="pages", help="Content type: posts or pages.")
+@click.option("--id", "content_id", required=True, type=int, help="WordPress post/page ID.")
+@click.option("--text", required=True, help="Anchor text.")
+@click.option("--url", required=True, help="Link URL.")
+@click.option("--placement", default="append", help="append or prepend.")
+def add_link(site_key: str | None, content_type: str, content_id: int, text: str, url: str, placement: str) -> None:
+    """Add a link to a WordPress post/page and save rollback snapshot."""
+    console = Console()
+    result = SerenaWordPressAddLinkTool().execute(
+        site_key=site_key,
+        content_type=content_type,
+        content_id=content_id,
+        text=text,
+        url=url,
+        placement=placement,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@wordpress.command("list-menus")
+@click.option("--site", "site_key", default=None, help="WordPress site key, e.g. drpiet or serena.")
+def list_menus(site_key: str | None) -> None:
+    """Inspect WordPress menus/navigation endpoints."""
+    console = Console()
+    result = SerenaWordPressListMenusTool().execute(site_key=site_key)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 
