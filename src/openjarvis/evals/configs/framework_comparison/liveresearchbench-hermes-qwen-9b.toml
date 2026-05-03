@@ -1,0 +1,47 @@
+# Jinja-style template for framework-comparison configs.
+# Substitution variables (all required):
+#   liveresearchbench      e.g. "gaia"
+#   hermes      one of: openjarvis, hermes, openclaw, openjarvis-distilled
+#   hermes   backend id: jarvis-agent | hermes | openclaw
+#   Qwen3.5-9B   e.g. "Qwen3.5-9B"
+#   Qwen/Qwen3.5-9B       e.g. "Qwen/Qwen3.5-9B"
+#   qwen-9b     filename-safe slug, e.g. "qwen-9b"
+#   vllm         e.g. "vllm" | "cloud"
+#   1       int, default 1
+#   ["think", "web_search"]          TOML list literal
+#   50    int
+#   0.6    float
+#   8192     int
+#   gpt-5-mini-2025-08-07    LLM judge id
+
+[meta]
+name = "liveresearchbench-hermes-qwen-9b"
+description = "liveresearchbench on hermes + Qwen3.5-9B"
+framework = "hermes"
+framework_id = "hermes"
+
+[defaults]
+temperature = 0.6
+max_tokens = 8192
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+max_tokens = 4096
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/comparison/hermes/qwen-9b/liveresearchbench/"
+seed = 42
+
+[[models]]
+name = "Qwen/Qwen3.5-9B"
+engine = "vllm"
+num_gpus = 1
+
+[[benchmarks]]
+name = "liveresearchbench"
+backend = "hermes"
+max_samples = 50
+tools = ["think", "web_search"]

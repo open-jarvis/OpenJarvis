@@ -1,0 +1,47 @@
+# Jinja-style template for framework-comparison configs.
+# Substitution variables (all required):
+#   toolcall15      e.g. "gaia"
+#   openclaw      one of: openjarvis, hermes, openclaw, openjarvis-distilled
+#   openclaw   backend id: jarvis-agent | hermes | openclaw
+#   Claude Opus 4.6   e.g. "Qwen3.5-9B"
+#   claude-opus-4-6       e.g. "Qwen/Qwen3.5-9B"
+#   claude-opus-46     filename-safe slug, e.g. "qwen-9b"
+#   cloud         e.g. "vllm" | "cloud"
+#   0       int, default 1
+#   ["think", "calculator"]          TOML list literal
+#   15    int
+#   0.0    float
+#   8192     int
+#   gpt-5-mini-2025-08-07    LLM judge id
+
+[meta]
+name = "toolcall15-openclaw-claude-opus-46"
+description = "toolcall15 on openclaw + Claude Opus 4.6"
+framework = "openclaw"
+framework_id = "openclaw"
+
+[defaults]
+temperature = 0.0
+max_tokens = 8192
+
+[judge]
+model = "gpt-5-mini-2025-08-07"
+temperature = 0.0
+max_tokens = 4096
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/neurips-2026/comparison/openclaw/claude-opus-46/toolcall15/"
+seed = 42
+
+[[models]]
+name = "claude-opus-4-6"
+engine = "cloud"
+num_gpus = 0
+
+[[benchmarks]]
+name = "toolcall15"
+backend = "openclaw"
+max_samples = 15
+tools = ["think", "calculator"]
