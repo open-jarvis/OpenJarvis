@@ -15,6 +15,10 @@ from openjarvis.tools.serena_github import (
     SerenaGitHubSafetyCheckTool,
     SerenaGitHubStatusTool,
     SerenaGitHubFinalCheckTool,
+    SerenaGitHubPushApprovedTool,
+    SerenaGitHubPushCheckTool,
+    SerenaGitHubCommitLocalTool,
+    SerenaGitHubStagePlanTool,
     SerenaGitHubReleaseNotesTool,
     SerenaGitHubFeatureRequestTool,
     SerenaGitHubBugReportTool,
@@ -192,6 +196,52 @@ def final_check(root: str) -> None:
     """Run final Serena GitHub local safety check."""
     console = Console()
     result = SerenaGitHubFinalCheckTool().execute(root=root)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@github.command("stage-plan")
+@click.option("--root", required=True, help="Approved root alias.")
+@click.option("--files", default="", help="Comma-separated files to stage. Empty means infer from current changes.")
+def stage_plan(root: str, files: str) -> None:
+    """Create a staging plan without staging files."""
+    console = Console()
+    result = SerenaGitHubStagePlanTool().execute(root=root, files=files)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@github.command("commit-local")
+@click.option("--root", required=True, help="Approved root alias.")
+@click.option("--message", required=True, help="Commit message.")
+@click.option("--files", default="", help="Comma-separated files to stage. Empty means infer from current changes.")
+@click.option("--approved", is_flag=True, help="Required to create the local commit.")
+def commit_local(root: str, message: str, files: str, approved: bool) -> None:
+    """Create a local commit with approval. Does not push."""
+    console = Console()
+    result = SerenaGitHubCommitLocalTool().execute(
+        root=root,
+        message=message,
+        files=files,
+        approved=approved,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@github.command("push-check")
+@click.option("--root", required=True, help="Approved root alias.")
+def push_check(root: str) -> None:
+    """Check push readiness without pushing."""
+    console = Console()
+    result = SerenaGitHubPushCheckTool().execute(root=root)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@github.command("push-approved")
+@click.option("--root", required=True, help="Approved root alias.")
+@click.option("--approved", is_flag=True, help="Approval flag. Push is still blocked in v1.")
+def push_approved(root: str, approved: bool) -> None:
+    """Deliberately blocked push command for GitHub v1."""
+    console = Console()
+    result = SerenaGitHubPushApprovedTool().execute(root=root, approved=approved)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 

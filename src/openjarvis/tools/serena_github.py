@@ -1148,6 +1148,380 @@ class SerenaGitHubFinalCheckTool(_GitHubBaseTool):
             return self._result(f"Failed to run GitHub final check: {exc}", success=False)
 
 
+def _parse_file_list(raw: str) -> list[str]:
+    items: list[str] = []
+    for part in str(raw or "").replace("\n", ",").split(","):
+        item = part.strip().strip('"').strip("'")
+        if item:
+            items.append(item)
+    return items
+
+
+def _validate_git_relative_file(path: str) -> str:
+    value = str(path or "").replace("\\", "/").strip()
+    if not value:
+        raise RuntimeError("Empty file path is not allowed.")
+    if value.startswith("/") or value.startswith("../") or "/../" in value or value == "..":
+        raise RuntimeError(f"Unsafe file path: {path}")
+    lowered = value.lower()
+    blocked = [".env", "secret", "secrets", "credential", "credentials", "password", "token"]
+    if any(item in lowered for item in blocked):
+        raise RuntimeError(f"Refusing to stage sensitive-looking file path: {path}")
+    return value
+
+
+@ToolRegistry.register("serena_github_stage_plan")
+class SerenaGitHubStagePlanTool(_GitHubBaseTool):
+    tool_id = "serena_github_stage_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a staging plan without staging files.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"},
+                    "files": {"type": "string"},
+                },
+                "required": ["root"],
+            },
+            category="serena_github",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            key, root, path = _resolve_root(str(params.get("root") or ""))
+            files_raw = str(params.get("files") or "").strip()
+
+            if not _is_git_repo(path):
+                return self._result(f"Approved root is not a Git repository: {path}", success=False)
+
+            summary = _changes_summary(key, path)
+
+            if files_raw:
+                requested_files = [_validate_git_relative_file(item) for item in _parse_file_list(files_raw)]
+            else:
+                combined = []
+                for source in [summary.get("diff_name_only") or "", summary.get("staged_name_only") or ""]:
+                    combined.extend(line.strip() for line in source.splitlines() if line.strip())
+
+                # Include untracked paths from git status short.
+                for line in (summary.get("status") or "").splitlines():
+                    if line.startswith("?? "):
+                        combined.append(line[3:].strip())
+
+                requested_files = sorted(set(_validate_git_relative_file(item) for item in combined if item.strip()))
+
+            payload = {
+                "report_type": "serena_github_stage_plan",
+                "created_at": _timestamp(),
+                "root": key,
+                "path": str(path),
+                "branch": summary.get("branch"),
+                "requested_files": requested_files,
+                "status": summary.get("status"),
+                "diff_stat": summary.get("diff_stat"),
+                "stage_performed": False,
+                "commit_performed": False,
+                "push_performed": False,
+            }
+            report_path = _save_json("plans", f"{key}-stage-plan", payload)
+
+            return self._result(
+                "Serena GitHub stage plan\n\n"
+                f"- Root: {key}\n"
+                f"- Branch: {summary.get('branch') or 'unknown'}\n"
+                f"- Files proposed for staging: {len(requested_files)}\n"
+                f"- Report: {report_path}\n"
+                "- Stage performed: no\n"
+                "- Commit performed: no\n"
+                "- Push performed: no\n\n"
+                "Proposed files:\n"
+                + ("\n".join(f"- {item}" for item in requested_files) if requested_files else "- none")
+                + "\n\nStatus:\n"
+                + (summary.get("status") or "clean"),
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to create stage plan: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_github_commit_local")
+class SerenaGitHubCommitLocalTool(_GitHubBaseTool):
+    tool_id = "serena_github_commit_local"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Stage selected files and create a local commit only when explicitly approved. Does not push.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"},
+                    "message": {"type": "string"},
+                    "files": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                },
+                "required": ["root", "message"],
+            },
+            category="serena_github",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            key, root, path = _resolve_root(str(params.get("root") or ""))
+            message = str(params.get("message") or "").strip()
+            files_raw = str(params.get("files") or "").strip()
+            approved = bool(params.get("approved", False))
+
+            if not approved:
+                return self._result(
+                    "Local commit blocked. Creating a commit changes repository history and requires --approved.\n\n"
+                    "- Stage performed: no\n"
+                    "- Commit performed: no\n"
+                    "- Push performed: no",
+                    success=False,
+                    metadata={
+                        "root": key,
+                        "approved": False,
+                        "stage_performed": False,
+                        "commit_performed": False,
+                        "push_performed": False,
+                    },
+                )
+
+            if not message:
+                return self._result("Commit blocked. Commit message is required.", success=False)
+
+            if not _is_git_repo(path):
+                return self._result(f"Approved root is not a Git repository: {path}", success=False)
+
+            if files_raw:
+                files = [_validate_git_relative_file(item) for item in _parse_file_list(files_raw)]
+            else:
+                summary = _changes_summary(key, path)
+                files = []
+                for source in [summary.get("diff_name_only") or "", summary.get("staged_name_only") or ""]:
+                    files.extend(line.strip() for line in source.splitlines() if line.strip())
+                for line in (summary.get("status") or "").splitlines():
+                    if line.startswith("?? "):
+                        files.append(line[3:].strip())
+                files = sorted(set(_validate_git_relative_file(item) for item in files if item.strip()))
+
+            if not files:
+                return self._result("Commit blocked. No files selected for staging.", success=False)
+
+            safety = SerenaGitHubSafetyCheckTool().execute(root=key)
+            if not safety.success:
+                return self._result("Commit blocked. Safety check failed.\n\n" + safety.content, success=False)
+
+            stage_result = _run_git(path, ["add", "--"] + files)
+            if stage_result["returncode"] != 0:
+                return self._result(
+                    "Commit blocked. git add failed.\n\n"
+                    f"{stage_result['output']}",
+                    success=False,
+                    metadata={"stage_result": stage_result, "files": files},
+                )
+
+            commit_result = _run_git(path, ["commit", "-m", message], timeout=120)
+            commit_success = commit_result["returncode"] == 0
+
+            after_summary = _changes_summary(key, path)
+
+            payload = {
+                "report_type": "serena_github_commit_local",
+                "created_at": _timestamp(),
+                "root": key,
+                "path": str(path),
+                "message": message,
+                "files": files,
+                "approved": approved,
+                "stage_result": stage_result,
+                "commit_result": commit_result,
+                "commit_success": commit_success,
+                "after_summary": after_summary,
+                "stage_performed": True,
+                "commit_performed": commit_success,
+                "push_performed": False,
+                "remote_writes_performed": False,
+            }
+            report_path = _save_json("reports", f"{key}-commit-local", payload)
+
+            if commit_success:
+                return self._result(
+                    "Serena GitHub local commit created\n\n"
+                    f"- Root: {key}\n"
+                    f"- Message: {message}\n"
+                    f"- Files staged: {len(files)}\n"
+                    f"- Report: {report_path}\n"
+                    "- Stage performed: yes\n"
+                    "- Commit performed: yes\n"
+                    "- Push performed: no\n"
+                    "- Remote writes performed: no\n\n"
+                    "Commit output:\n"
+                    f"{commit_result['output']}",
+                    metadata={**payload, "report_path": str(report_path)},
+                )
+
+            return self._result(
+                "Serena GitHub local commit failed\n\n"
+                f"- Root: {key}\n"
+                f"- Files staged: {len(files)}\n"
+                f"- Report: {report_path}\n"
+                "- Stage performed: yes\n"
+                "- Commit performed: no\n"
+                "- Push performed: no\n\n"
+                "Git output:\n"
+                f"{commit_result['output']}",
+                success=False,
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to create local Git commit: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_github_push_check")
+class SerenaGitHubPushCheckTool(_GitHubBaseTool):
+    tool_id = "serena_github_push_check"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Check push readiness without pushing.",
+            parameters={
+                "type": "object",
+                "properties": {"root": {"type": "string"}},
+                "required": ["root"],
+            },
+            category="serena_github",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            key, root, path = _resolve_root(str(params.get("root") or ""))
+
+            if not _is_git_repo(path):
+                return self._result(f"Approved root is not a Git repository: {path}", success=False)
+
+            branch = _run_git(path, ["branch", "--show-current"])
+            remotes = _run_git(path, ["remote", "-v"])
+            status = _run_git(path, ["status", "--short", "--branch"])
+            upstream = _run_git(path, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
+
+            issues: list[str] = []
+            recommendations: list[str] = []
+
+            if not branch["output"]:
+                issues.append("Current branch could not be detected.")
+            if not remotes["output"]:
+                issues.append("No remotes detected.")
+            if status["output"] and "\n" in status["output"]:
+                recommendations.append("Local changes are present. Commit or intentionally leave them before pushing.")
+            if upstream["returncode"] != 0:
+                recommendations.append("No upstream tracking branch detected or upstream could not be resolved.")
+
+            payload = {
+                "report_type": "serena_github_push_check",
+                "created_at": _timestamp(),
+                "root": key,
+                "path": str(path),
+                "branch": branch["output"],
+                "remotes": remotes["output"],
+                "status": status["output"],
+                "upstream": upstream["output"],
+                "issues": issues,
+                "recommendations": recommendations,
+                "push_performed": False,
+                "push_allowed_v1": False,
+            }
+            report_path = _save_json("reports", f"{key}-push-check", payload)
+
+            lines = [
+                "Serena GitHub push check",
+                "",
+                f"- Root: {key}",
+                f"- Branch: {branch['output'] or 'unknown'}",
+                f"- Upstream: {upstream['output'] or 'unknown'}",
+                f"- Report: {report_path}",
+                "- Push performed: no",
+                "- Push allowed in v1: no",
+                "",
+                "Issues:",
+            ]
+            lines.extend(f"- {issue}" for issue in issues) if issues else lines.append("- none")
+            lines.extend(["", "Recommendations:"])
+            lines.extend(f"- {rec}" for rec in recommendations) if recommendations else lines.append("- No immediate recommendations.")
+            lines.extend([
+                "",
+                "Policy:",
+                "- Serena GitHub v1 can inspect, plan, draft, and create local commits.",
+                "- Remote push is deferred to a future explicit approval-gated GitHub v2 layer.",
+            ])
+
+            return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+        except Exception as exc:
+            return self._result(f"Failed to run push check: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_github_push_approved")
+class SerenaGitHubPushApprovedTool(_GitHubBaseTool):
+    tool_id = "serena_github_push_approved"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked push command for GitHub v1.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                },
+                "required": ["root"],
+            },
+            category="serena_github",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            key, root, path = _resolve_root(str(params.get("root") or ""))
+            approved = bool(params.get("approved", False))
+
+            payload = {
+                "report_type": "serena_github_push_approved_blocked",
+                "created_at": _timestamp(),
+                "root": key,
+                "path": str(path),
+                "approved_flag_received": approved,
+                "push_performed": False,
+                "remote_writes_performed": False,
+                "blocked_reason": "GitHub v1 deliberately blocks remote pushes. Use future GitHub v2 approval-gated remote layer.",
+            }
+            report_path = _save_json("reports", f"{key}-push-blocked", payload)
+
+            return self._result(
+                "GitHub push blocked by Serena GitHub v1 policy\n\n"
+                f"- Root: {key}\n"
+                f"- Approved flag received: {'yes' if approved else 'no'}\n"
+                f"- Report: {report_path}\n"
+                "- Push performed: no\n"
+                "- Remote writes performed: no\n\n"
+                "Reason:\n"
+                "- Serena GitHub v1 is allowed to inspect, plan, draft, and create local commits only.\n"
+                "- Remote push is intentionally deferred to a future explicit approval-gated GitHub v2 layer.",
+                success=False,
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to evaluate push approval: {exc}", success=False)
+
+
 __all__ = [
     "SerenaGitHubStatusTool",
     "SerenaGitHubRepoInfoTool",
@@ -1157,6 +1531,10 @@ __all__ = [
     "SerenaGitHubChangesTool",
     "SerenaGitHubSafetyCheckTool",
     "SerenaGitHubFinalCheckTool",
+    "SerenaGitHubPushApprovedTool",
+    "SerenaGitHubPushCheckTool",
+    "SerenaGitHubCommitLocalTool",
+    "SerenaGitHubStagePlanTool",
     "SerenaGitHubReleaseNotesTool",
     "SerenaGitHubFeatureRequestTool",
     "SerenaGitHubBugReportTool",
