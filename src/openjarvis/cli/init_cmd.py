@@ -11,11 +11,13 @@ from rich.console import Console
 from rich.markup import escape
 from rich.panel import Panel
 
+from openjarvis.cli._bootstrap import detect_cloud_keys
 from openjarvis.cli.model import find_model_spec, hf_download, ollama_pull
 from openjarvis.cli.scan_cmd import PrivacyScanner
 from openjarvis.core.config import (
     DEFAULT_CONFIG_DIR,
     DEFAULT_CONFIG_PATH,
+    _available_memory_gb,
     detect_hardware,
     estimated_download_gb,
     generate_default_toml,
@@ -286,7 +288,7 @@ def _do_download(engine: str, model: str, spec, console: Console) -> None:
     is_flag=True,
     default=False,
     hidden=True,
-    help="Suppress launch-chat prompt; called by the bare-jarvis first-run guard.",
+    help="Run init non-interactively; called by the bare-jarvis first-run guard.",
 )
 def init(
     force: bool,
@@ -303,15 +305,13 @@ def init(
     """Detect hardware and generate ~/.openjarvis/config.toml."""
     console = Console()
 
-    # Cloud auto-detect — propose cloud as the default if a key is in env.
-    from openjarvis.cli._bootstrap import detect_cloud_keys
-
+    # Cloud auto-detect — inform user if a key is in env.
     detected_cloud = detect_cloud_keys()
     if detected_cloud is not None:
         console.print(
             f"[cyan]Detected cloud key in env:[/cyan] {detected_cloud.env_var} "
             f"(provider: {detected_cloud.provider}). "
-            "Cloud will be proposed as the default; press Enter to accept."
+            f"Cloud inference is available via this key."
         )
 
     if DEFAULT_CONFIG_PATH.exists() and not force:
@@ -368,53 +368,57 @@ def init(
     # Resolve engine: explicit flag > interactive selection > auto-detect
     if engine is None and config is None:
         recommended = recommend_engine(hw)
-        console.print()
-        console.print("[bold]Detecting running inference engines...[/bold]")
-        running = _detect_running_engines()
-        if running:
-            console.print(f"  Found running: [green]{', '.join(running)}[/green]")
+        # Bare-jarvis cold path: use the recommended engine non-interactively.
+        if from_bare_jarvis:
+            engine = recommended
         else:
-            console.print("  No running engines detected.")
+            console.print()
+            console.print("[bold]Detecting running inference engines...[/bold]")
+            running = _detect_running_engines()
+            if running:
+                console.print(f"  Found running: [green]{', '.join(running)}[/green]")
+            else:
+                console.print("  No running engines detected.")
 
-        # Build choices: show running engines first, then recommended, then rest
-        seen: set[str] = set()
-        choices: list[str] = []
-        for r in running:
-            if r not in seen:
-                choices.append(r)
-                seen.add(r)
-        if recommended not in seen:
-            choices.append(recommended)
-            seen.add(recommended)
-        for e in _SUPPORTED_ENGINES:
-            if e not in seen:
-                choices.append(e)
-                seen.add(e)
+            # Build choices: show running engines first, then recommended, then rest
+            seen: set[str] = set()
+            choices: list[str] = []
+            for r in running:
+                if r not in seen:
+                    choices.append(r)
+                    seen.add(r)
+            if recommended not in seen:
+                choices.append(recommended)
+                seen.add(recommended)
+            for e in _SUPPORTED_ENGINES:
+                if e not in seen:
+                    choices.append(e)
+                    seen.add(e)
 
-        # Default: first running engine, or hardware recommendation
-        default = running[0] if running else recommended
+            # Default: first running engine, or hardware recommendation
+            default = running[0] if running else recommended
 
-        labels = []
-        for c in choices:
-            parts = [c]
-            if c in running:
-                parts.append("running")
-            if c == recommended:
-                parts.append("recommended")
-            labels.append(
-                f"  {c}" + (f"  ({', '.join(parts[1:])})" if len(parts) > 1 else "")
+            labels = []
+            for c in choices:
+                parts = [c]
+                if c in running:
+                    parts.append("running")
+                if c == recommended:
+                    parts.append("recommended")
+                labels.append(
+                    f"  {c}" + (f"  ({', '.join(parts[1:])})" if len(parts) > 1 else "")
+                )
+
+            console.print()
+            console.print("[bold]Available engines:[/bold]")
+            for label in labels:
+                console.print(label)
+
+            engine = click.prompt(
+                "\nSelect inference engine",
+                type=click.Choice(choices, case_sensitive=False),
+                default=default,
             )
-
-        console.print()
-        console.print("[bold]Available engines:[/bold]")
-        for label in labels:
-            console.print(label)
-
-        engine = click.prompt(
-            "\nSelect inference engine",
-            type=click.Choice(choices, case_sensitive=False),
-            default=default,
-        )
 
     # Probe remote host if specified
     if host:
@@ -524,8 +528,6 @@ sources = ["hackernews", "news_rss"]
     else:
         spec = find_model_spec(model)
         size_gb = estimated_download_gb(spec.parameter_count_b) if spec else 0
-        from openjarvis.core.config import _available_memory_gb
-
         avail = _available_memory_gb(hw)
         console.print(
             f"\n  [bold]Recommended model:[/bold] {model} (~{size_gb:.1f} GB)"

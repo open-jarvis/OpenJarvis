@@ -52,3 +52,19 @@ def test_init_proposes_cloud_when_key_in_env(
     )
     assert result.exit_code == 0, result.output
     assert "anthropic" in result.output.lower() or "cloud" in result.output.lower()
+
+
+def test_init_from_bare_jarvis_skips_engine_prompt(
+    tmp_openjarvis_home: Path, monkeypatch
+) -> None:
+    """--from-bare-jarvis must not hang on the engine-selection prompt
+    even when --engine is not provided."""
+    _clear_keys(monkeypatch)
+    runner = CliRunner()
+    # Note: NO --engine flag passed. Without the gating fix this would hang.
+    result = runner.invoke(
+        init,
+        ["--from-bare-jarvis", "--no-download", "--no-scan"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
