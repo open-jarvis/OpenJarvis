@@ -120,6 +120,68 @@ Be a rigorous evaluator. Reserve scores of 9-10 for genuinely excellent work.
 A score of 5 represents adequate but unremarkable quality."""
 
 
+
+# Optional permissive JSON parser (json5 if available; fallback otherwise).
+try:
+    import json5 as _json5  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover - json5 is optional
+    _json5 = None
+
+
+def _escape_newlines_inside_strings(text: str) -> str:
+    """Escape literal CR/LF/TAB inside double-quoted JSON string spans.
+
+    Walks the text tracking whether we are inside a double-quoted string,
+    respecting backslash escapes. Outside strings the text is left untouched.
+    """
+    out: List[str] = []
+    in_string = False
+    escape_next = False
+    for ch in text:
+        if in_string:
+            if escape_next:
+                out.append(ch)
+                escape_next = False
+                continue
+            if ch == "\\":
+                out.append(ch)
+                escape_next = True
+                continue
+            if ch == "\"":
+                out.append(ch)
+                in_string = False
+                continue
+            if ch == "\n":
+                out.append("\\n")
+                continue
+            if ch == "\r":
+                out.append("\\r")
+                continue
+            if ch == "\t":
+                out.append("\\t")
+                continue
+            out.append(ch)
+        else:
+            if ch == "\"":
+                in_string = True
+            out.append(ch)
+    return "".join(out)
+
+
+def _safe_json_loads(text: str) -> Any:
+    """Permissive JSON: strict json -> json5 (if installed) -> tolerant fallback."""
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    if _json5 is not None:
+        try:
+            return _json5.loads(text)
+        except Exception:  # noqa: BLE001
+            pass
+    return json.loads(_escape_newlines_inside_strings(text))
+
+
 def _parse_judge_response(raw: str) -> Dict[str, Any]:
     """Parse LLM judge response, extracting dimension scores.
 
@@ -136,49 +198,62 @@ def _parse_judge_response(raw: str) -> Dict[str, Any]:
     code_block = re.search(r"```json\s*(.*?)\s*```", raw, re.DOTALL)
     if code_block:
         try:
-            parsed = json.loads(code_block.group(1))
+            parsed = _safe_json_loads(code_block.group(1))
             if isinstance(parsed, dict):
                 return _normalize_response(parsed)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, ValueError):
             pass
 
     # Try balanced braces extraction
     candidates: List[str] = []
     depth = 0
     current: List[str] = []
+    in_str = False
+    esc = False
     for char in raw:
+        if in_str:
+            current.append(char)
+            if esc:
+                esc = False
+            elif char == "\\":
+                esc = True
+            elif char == "\"":
+                in_str = False
+            continue
         if char == "{":
             if depth == 0:
                 current = []
             depth += 1
         if depth > 0:
             current.append(char)
-        if char == "}":
+        if char == "\"" and depth > 0:
+            in_str = True
+        elif char == "}":
             depth -= 1
             if depth == 0 and current:
                 candidates.append("".join(current))
 
     for candidate in reversed(candidates):
         try:
-            parsed = json.loads(candidate)
+            parsed = _safe_json_loads(candidate)
             if isinstance(parsed, dict) and "scores" in parsed:
                 return _normalize_response(parsed)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, ValueError):
             continue
 
     for candidate in reversed(candidates):
         try:
-            parsed = json.loads(candidate)
+            parsed = _safe_json_loads(candidate)
             if isinstance(parsed, dict):
                 return _normalize_response(parsed)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, ValueError):
             continue
 
     # Regex fallback: look for individual dimension scores
     scores: Dict[str, float] = {}
     for dim in DIMENSIONS:
         match = re.search(
-            rf"{dim}[:\s]*([\d.]+)",
+            rf'"?{dim}"?\s*[:=]\s*([\d.]+)',
             raw,
             re.IGNORECASE,
         )
@@ -237,6 +312,48 @@ def _normalize_response(parsed: Dict[str, Any]) -> Dict[str, Any]:
             break
 
     return result
+
+
+def rescore_from_metadata(scoring_metadata, dimension_weights=None):
+    """Re-derive (is_correct, updated_metadata) from a stored ``raw_judge_output``.
+
+    Returns ``None`` if no raw judge output is present or no scores can be
+    parsed. Used by the ``evals reparse-judge`` CLI to fix records that
+    failed under the old, stricter parser.
+    """
+    raw = scoring_metadata.get("raw_judge_output")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+
+    parsed = _parse_judge_response(raw)
+    scores = parsed.get("scores") or {}
+    if not scores:
+        return None
+
+    weights = dimension_weights or scoring_metadata.get("dimension_weights")
+    if not isinstance(weights, dict) or not weights:
+        weights = DEFAULT_WEIGHTS
+
+    weighted_total = 0.0
+    total_weight = 0.0
+    for dim in DIMENSIONS:
+        dim_score = float(scores.get(dim, 0.0))
+        dim_weight = float(weights.get(dim, DEFAULT_WEIGHTS.get(dim, 0.25)))
+        weighted_total += dim_score * dim_weight
+        total_weight += dim_weight
+
+    if total_weight > 0:
+        weighted_total /= total_weight
+    normalized = weighted_total / 10.0
+    is_correct = normalized >= 0.5
+
+    new_meta = dict(scoring_metadata)
+    new_meta["score"] = normalized
+    new_meta["dimension_scores"] = scores
+    new_meta["dimension_weights"] = weights
+    new_meta["weighted_total_0_10"] = weighted_total
+    new_meta["notes"] = parsed.get("notes", new_meta.get("notes", ""))
+    return is_correct, new_meta
 
 
 class LiveResearchBenchScorer(LLMJudgeScorer):
@@ -313,4 +430,4 @@ class LiveResearchBenchScorer(LLMJudgeScorer):
         return is_correct, metadata
 
 
-__all__ = ["LiveResearchBenchScorer"]
+__all__ = ["LiveResearchBenchScorer", "rescore_from_metadata"]

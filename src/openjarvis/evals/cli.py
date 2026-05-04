@@ -1426,6 +1426,154 @@ def summarize(jsonl_path):
     console.print(f"[cyan]Errors:[/cyan]    {len(errors)}")
 
 
+@main.command("reparse-judge")
+@click.option(
+    "--jsonl",
+    "jsonl_path",
+    required=True,
+    type=click.Path(exists=True),
+    help="Path to a results JSONL produced by an LLM-judge benchmark.",
+)
+@click.option(
+    "--out",
+    "out_path",
+    default=None,
+    type=click.Path(),
+    help=(
+        "Output JSONL path. Defaults to <jsonl>.reparsed when "
+        "--in-place is not set."
+    ),
+)
+@click.option(
+    "--in-place",
+    is_flag=True,
+    default=False,
+    help="Overwrite the input JSONL (creates <jsonl>.bak first).",
+)
+@click.option(
+    "--summary-out",
+    default=None,
+    type=click.Path(),
+    help="Output summary JSON path. Defaults to <out>.summary.json.",
+)
+def reparse_judge(jsonl_path, out_path, in_place, summary_out):
+    """Re-parse stored judge output and recover records that failed.
+
+    Reads each record raw_judge_output, runs it through the (fixed) parser,
+    and updates records whose old score was 0/None when a new score is
+    recoverable. Writes a summary.json with the recomputed accuracy + the
+    continuous-score fields, and prints a diff.
+    """
+    import json as _json
+    import shutil
+    import statistics
+    from pathlib import Path as _Path
+
+    from openjarvis.evals.scorers.liveresearch import rescore_from_metadata
+
+    in_path = _Path(jsonl_path)
+    if in_place:
+        backup = in_path.with_suffix(in_path.suffix + ".bak")
+        if not backup.exists():
+            shutil.copy2(in_path, backup)
+        target = in_path
+    else:
+        if out_path is None:
+            target = in_path.with_suffix(in_path.suffix + ".reparsed")
+        else:
+            target = _Path(out_path)
+
+    records = []
+    with open(in_path) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                records.append(_json.loads(line))
+
+    n_rescored = 0
+    old_scores = []
+    new_scores = []
+    for rec in records:
+        sm = rec.get("scoring_metadata") or {}
+        old_score = rec.get("score")
+        old_scores.append(old_score)
+        attempt = old_score is None or (
+            isinstance(old_score, (int, float)) and float(old_score) <= 0.0
+        )
+        new_score = old_score
+        if attempt:
+            res = rescore_from_metadata(sm)
+            if res is not None:
+                new_correct, new_meta = res
+                if new_meta.get("score", 0.0) > 0:
+                    rec["scoring_metadata"] = new_meta
+                    rec["is_correct"] = bool(new_correct)
+                    rec["score"] = float(new_meta["score"])
+                    new_score = rec["score"]
+                    n_rescored += 1
+        new_scores.append(new_score)
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with open(target, "w") as f:
+        for rec in records:
+            f.write(_json.dumps(rec, default=str) + chr(10))
+
+    cont = [float(s) for s in new_scores if s is not None]
+    scored = [r for r in records if r.get("is_correct") is not None]
+    correct = [r for r in scored if r.get("is_correct")]
+    accuracy = len(correct) / len(scored) if scored else 0.0
+    summary = {
+        "benchmark": records[0].get("benchmark", "?") if records else "?",
+        "model": records[0].get("model", "?") if records else "?",
+        "total_samples": len(records),
+        "scored_samples": len(scored),
+        "correct": len(correct),
+        "accuracy": round(accuracy, 4),
+        "mean_continuous_score": (round(sum(cont) / len(cont), 6) if cont else None),
+        "median_continuous_score": (
+            round(statistics.median(cont), 6) if cont else None
+        ),
+        "pct_above_0.5": (
+            round(sum(1 for v in cont if v > 0.5) / len(cont), 6) if cont else None
+        ),
+        "pct_above_0.7": (
+            round(sum(1 for v in cont if v > 0.7) / len(cont), 6) if cont else None
+        ),
+        "pct_above_0.8": (
+            round(sum(1 for v in cont if v > 0.8) / len(cont), 6) if cont else None
+        ),
+        "pct_above_0.9": (
+            round(sum(1 for v in cont if v > 0.9) / len(cont), 6) if cont else None
+        ),
+        "reparse_records_recovered": n_rescored,
+    }
+    if summary_out is None:
+        summary_path = target.with_suffix(target.suffix + ".summary.json")
+    else:
+        summary_path = _Path(summary_out)
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(summary_path, "w") as f:
+        _json.dump(summary, f, indent=2)
+
+    old_cont = [float(s) for s in old_scores if s is not None]
+    old_acc = (
+        sum(1 for s in old_cont if s >= 0.5) / len(old_cont) if old_cont else 0.0
+    )
+    old_mean = sum(old_cont) / len(old_cont) if old_cont else 0.0
+    new_mean = sum(cont) / len(cont) if cont else 0.0
+    mean_shift = new_mean - old_mean
+    acc_shift = accuracy - old_acc
+
+    console = Console()
+    console.print(f"[cyan]Input:[/cyan]    {in_path}")
+    console.print(f"[cyan]Output:[/cyan]   {target}")
+    console.print(f"[cyan]Summary:[/cyan]  {summary_path}")
+    console.print(
+        f"[bold green]{n_rescored}[/bold green] records re-scored, "
+        f"mean shift {mean_shift:+.4f}, accuracy shift {acc_shift:+.2%}"
+    )
+
+
 @main.command("list")
 def list_cmd():
     """List available benchmarks and backends."""

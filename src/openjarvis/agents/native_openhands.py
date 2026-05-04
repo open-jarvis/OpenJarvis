@@ -251,36 +251,26 @@ class NativeOpenHandsAgent(ToolUsingAgent):
             direct_messages = self._truncate_if_needed(direct_messages)
             try:
                 result = self._generate(direct_messages)
-                content = self._strip_think_tags(result.get("content", ""))
-                usage = result.get("usage", {})
-                self._emit_turn_end(turns=1)
-                return AgentResult(
-                    content=content,
-                    tool_results=[],
-                    turns=1,
-                    metadata={
-                        "prompt_tokens": usage.get("prompt_tokens", 0),
-                        "completion_tokens": usage.get("completion_tokens", 0),
-                        "total_tokens": usage.get("total_tokens", 0),
-                    },
-                )
-            except Exception as exc:
-                error_str = str(exc)
-                if "400" in error_str:
-                    error_msg = (
-                        "The input is too long for the "
-                        "model's context window. "
-                        "Please try a shorter message."
-                    )
-                else:
-                    error_msg = "The model returned an error: " + error_str
+            except Exception:
+                # Propagate to the eval runner / server bridge so the failure
+                # is recorded as an error instead of a fake "input too long"
+                # answer that silently scores as 0%. Telemetry boundary is
+                # still emitted before re-raising.
                 self._emit_turn_end(turns=1, error=True)
-                return AgentResult(
-                    content=error_msg,
-                    tool_results=[],
-                    turns=1,
-                    metadata={"error": True},
-                )
+                raise
+            content = self._strip_think_tags(result.get("content", ""))
+            usage = result.get("usage", {})
+            self._emit_turn_end(turns=1)
+            return AgentResult(
+                content=content,
+                tool_results=[],
+                turns=1,
+                metadata={
+                    "prompt_tokens": usage.get("prompt_tokens", 0),
+                    "completion_tokens": usage.get("completion_tokens", 0),
+                    "total_tokens": usage.get("total_tokens", 0),
+                },
+            )
 
         messages = self._build_messages(input, context, system_prompt=system_prompt)
 
@@ -314,22 +304,11 @@ class NativeOpenHandsAgent(ToolUsingAgent):
 
             try:
                 result = self._generate(messages, **gen_kwargs)
-            except Exception as exc:
-                error_str = str(exc)
-                if "400" in error_str:
-                    error_msg = (
-                        "The input is too long for the model's context window. "
-                        "Please try a shorter message."
-                    )
-                else:
-                    error_msg = f"The model returned an error: {error_str}"
+            except Exception:
+                # Propagate so the eval runner records a real error rather
+                # than a fake "input too long" string that silently scores 0.
                 self._emit_turn_end(turns=turns, error=True)
-                return AgentResult(
-                    content=error_msg,
-                    tool_results=all_tool_results,
-                    turns=turns,
-                    metadata={"error": True},
-                )
+                raise
 
             # Accumulate usage from this generate call
             usage = result.get("usage", {})

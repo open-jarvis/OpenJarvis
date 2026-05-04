@@ -187,6 +187,12 @@ def load_eval_config(path: str | Path) -> EvalSuiteConfig:
             logger.warning("Unknown benchmark name: '%s'", bench_name)
 
         tools_raw = b.get("tools", [])
+        record_ids_raw = b.get("record_ids")
+        record_ids = (
+            [str(r) for r in record_ids_raw]
+            if isinstance(record_ids_raw, list) and record_ids_raw
+            else None
+        )
         benchmarks.append(
             BenchmarkConfig(
                 name=bench_name,
@@ -199,6 +205,7 @@ def load_eval_config(path: str | Path) -> EvalSuiteConfig:
                 temperature=float(b["temperature"]) if "temperature" in b else None,
                 max_tokens=int(b["max_tokens"]) if "max_tokens" in b else None,
                 subset=b.get("subset"),
+                record_ids=record_ids,
             )
         )
 
@@ -298,6 +305,7 @@ def expand_suite(suite: EvalSuiteConfig) -> List[RunConfig]:
                     sheets_worksheet=suite.run.sheets_worksheet,
                     sheets_credentials_path=suite.run.sheets_credentials_path,
                     max_turns=suite.run.max_turns,
+                    record_ids=bench.record_ids,
                 )
             )
 

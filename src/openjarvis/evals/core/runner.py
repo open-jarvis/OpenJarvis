@@ -53,6 +53,27 @@ LOGGER = logging.getLogger(__name__)
 _THINK_TAG_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 
+def _extract_continuous_score(scoring_meta, is_correct):
+    """Pull continuous score (0.0-1.0) from scoring_meta, falling back to binary.
+
+    Many scorers (LLM-judge, rubric, coverage) write a continuous ``score``
+    into ``scoring_meta``; we surface that instead of binarising. Any value
+    outside [0.0, 1.0] is clamped or rejected. When no continuous score is
+    available we fall back to 1.0/0.0 from ``is_correct``.
+    """
+    if isinstance(scoring_meta, dict):
+        cand = scoring_meta.get("score")
+        if isinstance(cand, (int, float)) and not isinstance(cand, bool):
+            v = float(cand)
+            if v != v or v == float("inf") or v == float("-inf"):
+                pass
+            else:
+                return max(0.0, min(1.0, v))
+    if is_correct is None:
+        return None
+    return 1.0 if is_correct else 0.0
+
+
 def _strip_think_tags(text: str) -> str:
     """Remove <think>...</think> blocks from model output."""
     return _THINK_TAG_RE.sub("", text).strip()
@@ -149,6 +170,18 @@ class EvalRunner:
                 LOGGER.debug("Task env thread-safety probe failed: %s", exc)
 
         records = list(self._dataset.iter_records())
+        if cfg.record_ids:
+            wanted = set(cfg.record_ids)
+            before = len(records)
+            records = [r for r in records if r.record_id in wanted]
+            LOGGER.info(
+                "Filtering %s to %d/%d records via record_ids "
+                "(first 3: %s)",
+                cfg.benchmark,
+                len(records),
+                before,
+                ", ".join(sorted(wanted)[:3]),
+            )
         LOGGER.info(
             "Running %s: %d samples, backend=%s, model=%s, workers=%d, episode_mode=%s",
             cfg.benchmark,
@@ -389,11 +422,13 @@ class EvalRunner:
             throughput_per_w = _telem.get("throughput_per_watt", 0.0)
             mean_itl = _telem.get("mean_itl_ms", 0.0)
 
+            # Prefer continuous score from scoring_meta when scorer provides it.
+            score_val = _extract_continuous_score(scoring_meta, is_correct)
             return EvalResult(
                 record_id=record.record_id,
                 model_answer=content,
                 is_correct=is_correct,
-                score=1.0 if is_correct else (0.0 if is_correct is not None else None),
+                score=score_val,
                 latency_seconds=latency,
                 prompt_tokens=usage.get("prompt_tokens", 0),
                 completion_tokens=usage.get("completion_tokens", 0),
@@ -684,11 +719,12 @@ class EvalRunner:
                 msg for msg in messages if msg.get("role") != "system"
             ]
 
+            score_val = _extract_continuous_score(scoring_meta, is_correct)
             return EvalResult(
                 record_id=record.record_id,
                 model_answer="\n---\n".join(all_responses),
                 is_correct=is_correct,
-                score=1.0 if is_correct else (0.0 if is_correct is not None else None),
+                score=score_val,
                 latency_seconds=total_latency,
                 prompt_tokens=total_prompt_tokens,
                 completion_tokens=total_completion_tokens,
@@ -852,6 +888,26 @@ class EvalRunner:
 
         accuracy = len(correct) / len(scored) if scored else 0.0
 
+        # Continuous-score reporting: skip None (errored) entries; clamp values
+        # outside [0,1] are already handled in _extract_continuous_score.
+        cont_scores = [
+            float(r.score) for r in results if r.score is not None
+        ]
+        if cont_scores:
+            mean_cont = sum(cont_scores) / len(cont_scores)
+            median_cont = statistics.median(cont_scores)
+            pct_above_05 = sum(1 for v in cont_scores if v > 0.5) / len(cont_scores)
+            pct_above_07 = sum(1 for v in cont_scores if v > 0.7) / len(cont_scores)
+            pct_above_08 = sum(1 for v in cont_scores if v > 0.8) / len(cont_scores)
+            pct_above_09 = sum(1 for v in cont_scores if v > 0.9) / len(cont_scores)
+        else:
+            mean_cont = None
+            median_cont = None
+            pct_above_05 = None
+            pct_above_07 = None
+            pct_above_08 = None
+            pct_above_09 = None
+
         # Compute MetricStats for each metric
         accuracy_vals = [1.0 if r.is_correct else 0.0 for r in scored]
         latency_vals = [r.latency_seconds for r in results if r.latency_seconds > 0]
@@ -944,6 +1000,24 @@ class EvalRunner:
             efficiency=efficiency_dict,
             normalized_statistics=normalized_stats,
             normalized_efficiency=normalized_eff,
+            mean_continuous_score=(
+                round(mean_cont, 6) if mean_cont is not None else None
+            ),
+            median_continuous_score=(
+                round(median_cont, 6) if median_cont is not None else None
+            ),
+            pct_above_0_5=(
+                round(pct_above_05, 6) if pct_above_05 is not None else None
+            ),
+            pct_above_0_7=(
+                round(pct_above_07, 6) if pct_above_07 is not None else None
+            ),
+            pct_above_0_8=(
+                round(pct_above_08, 6) if pct_above_08 is not None else None
+            ),
+            pct_above_0_9=(
+                round(pct_above_09, 6) if pct_above_09 is not None else None
+            ),
         )
 
 
@@ -1101,6 +1175,12 @@ def _summary_to_dict(s: RunSummary) -> Dict[str, Any]:
         "efficiency": s.efficiency,
         "normalized_statistics": s.normalized_statistics,
         "normalized_efficiency": s.normalized_efficiency,
+        "mean_continuous_score": s.mean_continuous_score,
+        "median_continuous_score": s.median_continuous_score,
+        "pct_above_0.5": s.pct_above_0_5,
+        "pct_above_0.7": s.pct_above_0_7,
+        "pct_above_0.8": s.pct_above_0_8,
+        "pct_above_0.9": s.pct_above_0_9,
         "telemetry_summary": {
             "total_energy_joules": s.total_energy_joules,
             "avg_power_watts": s.avg_power_watts,

@@ -89,6 +89,11 @@ class RunConfig:
     # running thinking/reasoning models that consume turns on intermediate
     # reasoning before producing tool calls.
     max_turns: Optional[int] = None
+    # Filter dataset records by id. When set, only records whose record_id
+    # appears in this list are processed. Used for surgical re-runs of
+    # specific records (e.g. recovering silent-fake records without
+    # re-running the entire benchmark).
+    record_ids: Optional[List[str]] = None
 
 
 @dataclass(slots=True)
@@ -152,6 +157,14 @@ class RunSummary:
     efficiency: Optional[Dict[str, Any]] = None
     normalized_statistics: Optional[Dict[str, Any]] = None
     normalized_efficiency: Optional[Dict[str, Any]] = None
+    # Continuous-score reporting (added alongside binary accuracy so frontier
+    # models do not saturate the metric on rubric-judge benchmarks).
+    mean_continuous_score: Optional[float] = None
+    median_continuous_score: Optional[float] = None
+    pct_above_0_5: Optional[float] = None
+    pct_above_0_7: Optional[float] = None
+    pct_above_0_8: Optional[float] = None
+    pct_above_0_9: Optional[float] = None
     # Internal fields set by the runner after construction
     _output_path: Optional[Path] = None
     _traces_dir: Optional[Path] = None
@@ -243,6 +256,7 @@ class BenchmarkConfig:
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
     subset: Optional[str] = None
+    record_ids: Optional[List[str]] = None
 
 
 @dataclass(slots=True)
