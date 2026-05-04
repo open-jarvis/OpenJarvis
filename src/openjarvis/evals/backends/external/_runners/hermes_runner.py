@@ -6,10 +6,10 @@ Invoked as:
         --api-mode <mode> --output-json <path> [--workspace <path>] \\
         [--max-iterations 90] [--system-prompt <s>]
 
-Imports `hermes_agent.AIAgent` from the path in `HERMES_AGENT_PATH` env
-var (set by the calling backend). Writes a JSON dict matching the
-`_RunnerOutput` schema in `_subprocess_runner.py` to `--output-json`
-before exiting.
+Imports `AIAgent` from `run_agent` (the top-level module Hermes ships
+at the path indicated by `HERMES_AGENT_PATH`, set by the calling
+backend). Writes a JSON dict matching the `_RunnerOutput` schema in
+`_subprocess_runner.py` to `--output-json` before exiting.
 """
 
 from __future__ import annotations
@@ -76,6 +76,23 @@ def main() -> int:
         if args.system_prompt:
             kwargs["system_message"] = args.system_prompt
         result = agent.run_conversation(args.task, **kwargs)
+
+        # Validate that Hermes returned the expected keys; if not, capture
+        # what we actually got so debugging isn't a guessing game.
+        if not isinstance(result, dict):
+            output["error"] = (
+                f"hermes_returned_non_dict: type={type(result).__name__}, "
+                f"value={str(result)[:200]}"
+            )
+            args.output_json.write_text(json.dumps(output))
+            return 0
+        expected_keys = {"final_response", "messages"}
+        if not (expected_keys & set(result.keys())):
+            output["error"] = (
+                f"hermes_returned_unexpected_shape: keys={list(result.keys())}"
+            )
+            args.output_json.write_text(json.dumps(output))
+            return 0
 
         # Hermes returns {"final_response": str, "messages": [dict, ...]}.
         # Extract usage by summing per-turn assistant message usage if
