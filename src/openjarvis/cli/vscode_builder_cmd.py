@@ -13,6 +13,7 @@ from openjarvis.tools.serena_vscode_builder import (
     SerenaVSCodeBuilderScaffoldTool,
     SerenaVSCodeBuilderBuildWordPressSectionTool,
     SerenaVSCodeBuilderBuildReactComponentTool,
+    SerenaVSCodeBuilderInspectBuildTool,
     SerenaVSCodeBuilderBuildSectionTool,
     SerenaVSCodeBuilderPlanTool,
 )
@@ -154,6 +155,21 @@ def build_react_component(root: str, target_path: str, name: str, title: str, su
         cta_text=cta_text,
         cta_url=cta_url,
         overwrite=overwrite,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@vscode_builder.command("inspect-build")
+@click.option("--root", required=True, help="Approved root alias.")
+@click.option("--target-path", required=True, help="Relative build folder.")
+@click.option("--limit", default=100, type=int, help="Maximum files to inspect.")
+def inspect_build(root: str, target_path: str, limit: int) -> None:
+    """Inspect generated build files."""
+    console = Console()
+    result = SerenaVSCodeBuilderInspectBuildTool().execute(
+        root=root,
+        target_path=target_path,
+        limit=limit,
     )
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 

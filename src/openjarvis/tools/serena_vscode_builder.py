@@ -862,12 +862,171 @@ class SerenaVSCodeBuilderBuildReactComponentTool(_BuilderBaseTool):
             return self._result(f"Failed to build React component: {exc}", success=False)
 
 
+@ToolRegistry.register("serena_vscode_builder_inspect_build")
+class SerenaVSCodeBuilderInspectBuildTool(_BuilderBaseTool):
+    tool_id = "serena_vscode_builder_inspect_build"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Inspect generated build files under an approved root.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"},
+                    "target_path": {"type": "string"},
+                    "limit": {"type": "integer"},
+                },
+                "required": ["root", "target_path"],
+            },
+            category="serena_vscode_builder",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            key, root, root_path, target = _resolve_project_path(
+                str(params.get("root") or ""),
+                str(params.get("target_path") or ""),
+            )
+            limit = int(params.get("limit") or 100)
+
+            if not target.exists():
+                return self._result(f"Build target does not exist: {target}", success=False)
+            if not target.is_dir():
+                return self._result(f"Build target is not a folder: {target}", success=False)
+
+            files = [p for p in target.rglob("*") if p.is_file()][:limit]
+            suffix_counts: dict[str, int] = {}
+            total_bytes = 0
+
+            expected_docs = False
+            expected_source = False
+            expected_styles = False
+            wordpress_ready = False
+            react_ready = False
+
+            inspected_files: list[dict[str, Any]] = []
+
+            for file in files:
+                suffix = file.suffix.lower() or "(none)"
+                suffix_counts[suffix] = suffix_counts.get(suffix, 0) + 1
+                size = file.stat().st_size
+                total_bytes += size
+
+                rel = str(file.relative_to(root_path))
+
+                if file.name.lower() == "readme.md":
+                    expected_docs = True
+                if suffix in {".py", ".ts", ".tsx", ".js", ".jsx", ".html"}:
+                    expected_source = True
+                if suffix == ".css":
+                    expected_styles = True
+                if file.name.lower().endswith(".wordpress.html"):
+                    wordpress_ready = True
+                if suffix == ".tsx":
+                    react_ready = True
+
+                preview = ""
+                if suffix in {".md", ".txt", ".html", ".css", ".py", ".ts", ".tsx", ".js", ".jsx", ".json"}:
+                    try:
+                        preview = file.read_text(encoding="utf-8-sig", errors="replace")[:800]
+                    except Exception:
+                        preview = ""
+
+                inspected_files.append(
+                    {
+                        "relative_path": rel,
+                        "size_bytes": size,
+                        "suffix": suffix,
+                        "preview": preview,
+                    }
+                )
+
+            issues: list[str] = []
+            recommendations: list[str] = []
+
+            if not files:
+                issues.append("No files found in generated build folder.")
+            if not expected_docs:
+                recommendations.append("Add README.md documentation for the generated build.")
+            if not expected_source:
+                recommendations.append("No source/section/component file detected.")
+            if total_bytes == 0:
+                issues.append("Generated files appear empty.")
+            if wordpress_ready:
+                recommendations.append("WordPress-ready HTML detected. Review with WordPress checklist before publishing.")
+            if react_ready:
+                recommendations.append("React/TSX component detected. Review framework conventions and styling before integration.")
+
+            report = {
+                "report_type": "serena_vscode_builder_inspect_build",
+                "created_at": _timestamp(),
+                "root": key,
+                "target": str(target),
+                "relative_target": str(target.relative_to(root_path)),
+                "files_found": len(files),
+                "total_bytes": total_bytes,
+                "suffix_counts": suffix_counts,
+                "wordpress_ready": wordpress_ready,
+                "react_ready": react_ready,
+                "has_docs": expected_docs,
+                "has_source": expected_source,
+                "has_styles": expected_styles,
+                "issues": issues,
+                "recommendations": recommendations,
+                "files": inspected_files,
+                "publish_deploy_push_performed": False,
+            }
+            report_path = _save_json("reports", target.name + "-inspection", report)
+
+            lines = [
+                "Serena VS Code Builder build inspection",
+                "",
+                f"- Root: {key}",
+                f"- Target: {target.relative_to(root_path)}",
+                f"- Files found: {len(files)}",
+                f"- Total size: {total_bytes} bytes",
+                f"- WordPress-ready: {'yes' if wordpress_ready else 'no'}",
+                f"- React/TSX detected: {'yes' if react_ready else 'no'}",
+                f"- README detected: {'yes' if expected_docs else 'no'}",
+                f"- Source/section/component detected: {'yes' if expected_source else 'no'}",
+                f"- Report: {report_path}",
+                "- Publish/deploy/push performed: no",
+                "",
+                "File types:",
+            ]
+
+            if suffix_counts:
+                lines.extend(f"- {suffix}: {count}" for suffix, count in sorted(suffix_counts.items()))
+            else:
+                lines.append("- none")
+
+            lines.extend(["", "Files:"])
+            if inspected_files:
+                for item in inspected_files[:60]:
+                    lines.append(f"- {item['relative_path']} | {item['suffix']} | {item['size_bytes']} bytes")
+            else:
+                lines.append("- none")
+
+            lines.extend(["", "Issues:"])
+            lines.extend(f"- {issue}" for issue in issues) if issues else lines.append("- none")
+
+            lines.extend(["", "Recommendations:"])
+            lines.extend(f"- {rec}" for rec in recommendations) if recommendations else lines.append("- No immediate recommendations.")
+
+            return self._result("\n".join(lines), metadata={**report, "report_path": str(report_path)})
+        except Exception as exc:
+            return self._result(f"Failed to inspect builder output: {exc}", success=False)
+
+
 __all__ = [
     "SerenaVSCodeBuilderStatusTool",
     "SerenaVSCodeBuilderTemplatesTool",
     "SerenaVSCodeBuilderScaffoldTool",
     "SerenaVSCodeBuilderBuildWordPressSectionTool",
     "SerenaVSCodeBuilderBuildReactComponentTool",
+    "SerenaVSCodeBuilderInspectBuildTool",
     "SerenaVSCodeBuilderBuildSectionTool",
     "SerenaVSCodeBuilderPlanTool",
     "SerenaVSCodeBuilderFinalCheckTool",
