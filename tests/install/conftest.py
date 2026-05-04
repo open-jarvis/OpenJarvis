@@ -24,5 +24,7 @@ def tmp_openjarvis_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
     # Also patch init_cmd's module-level bindings (imported with ``from ... import``).
     monkeypatch.setattr("openjarvis.cli.init_cmd.DEFAULT_CONFIG_DIR", home)
     monkeypatch.setattr("openjarvis.cli.init_cmd.DEFAULT_CONFIG_PATH", config_path)
+    # Patch doctor_cmd's module-level bindings.
+    monkeypatch.setattr("openjarvis.cli.doctor_cmd.DEFAULT_CONFIG_PATH", config_path)
     monkeypatch.setenv("HOME", str(tmp_path))
     return home
