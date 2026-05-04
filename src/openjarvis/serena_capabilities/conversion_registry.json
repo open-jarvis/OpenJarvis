@@ -363,6 +363,90 @@
           ]
         }
       ]
+    },
+    "batch-2-cloud-workspace": {
+      "name": "Batch 2 Cloud Workspace",
+      "status": "active",
+      "description": "Cloud workspace, Google integrations, OCR/capture, calendar, CRM, compliance, and reporting foundations.",
+      "skills": [
+        {
+          "legacy_file": "03-gdrive.js",
+          "status": "complete_v1",
+          "name": "Google Drive",
+          "tested": true,
+          "native_tool_complete": true,
+          "completion_level": "gdrive_full_operator_v1",
+          "capabilities": [
+            "status",
+            "env_check_secret_safe",
+            "root_info_secret_safe",
+            "operation_plan",
+            "connect_check",
+            "list_files_and_folders",
+            "broad_drive_search",
+            "create_or_reuse_folder_path",
+            "upload_local_file",
+            "download_drive_file",
+            "file_info",
+            "share_link_existing_permissions",
+            "save_text_to_drive",
+            "save_serena_output_to_drive",
+            "folder_audit",
+            "blocked_delete",
+            "blocked_trash",
+            "blocked_permanent_delete",
+            "local_reports",
+            "approved_root_folder",
+            "secret_non_exposure"
+          ],
+          "notes": [
+            "Converted from legacy Serena JavaScript Google Drive skill to native OpenJarvis/Serena Google Drive operator skill.",
+            "Tested env-check with no secret value exposure.",
+            "Tested connect-check against configured Drive root.",
+            "Tested list, mkdir, and search.",
+            "Tested upload, save-text, file-info, share-link, and download.",
+            "Patched search to broad visible-Drive search so nested files are discoverable.",
+            "Tested save-output and audit.",
+            "Tested blocked-delete and confirmed delete, trash, and permanent delete are blocked in v1.",
+            "Google Drive Full Operator v1 complete."
+          ]
+        },
+        {
+          "legacy_file": "08-google-docs.js",
+          "status": "pending",
+          "name": "Google Docs"
+        },
+        {
+          "legacy_file": "37-ocr.js",
+          "status": "pending",
+          "name": "OCR"
+        },
+        {
+          "legacy_file": "04-calendar.js",
+          "status": "pending",
+          "name": "Google Calendar"
+        },
+        {
+          "legacy_file": "01-crm.js",
+          "status": "pending",
+          "name": "CRM"
+        },
+        {
+          "legacy_file": "25-compliance.js",
+          "status": "pending",
+          "name": "Compliance"
+        },
+        {
+          "legacy_file": "02-reporting.js",
+          "status": "pending",
+          "name": "Reporting"
+        },
+        {
+          "legacy_file": "12-analytics.js",
+          "status": "pending",
+          "name": "Analytics"
+        }
+      ]
     }
   }
 }
