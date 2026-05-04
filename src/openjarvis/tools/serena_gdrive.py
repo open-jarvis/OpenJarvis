@@ -1113,6 +1113,270 @@ class SerenaGDriveSaveTextTool(_GDriveBaseTool):
             return self._result(f"Failed to save text to Google Drive: {exc}", success=False)
 
 
+def _safe_serena_output_file(path_value: str) -> Path:
+    path = Path(str(path_value or "")).expanduser()
+
+    if not path.exists():
+        raise RuntimeError(f"Output file does not exist: {path}")
+    if not path.is_file():
+        raise RuntimeError(f"Output path is not a file: {path}")
+
+    resolved = path.resolve()
+    allowed_roots = [
+        Path("outputs").resolve(),
+        Path("reports").resolve(),
+        Path("conversion-workspace").resolve(),
+    ]
+
+    if not any(str(resolved).lower().startswith(str(root).lower()) for root in allowed_roots if root.exists()):
+        raise RuntimeError(
+            "save-output only allows files from outputs, reports, or conversion-workspace."
+        )
+
+    lowered = str(path).lower()
+    blocked = [".env", "secret", "secrets", "credential", "credentials", "password", "token"]
+    if any(item in lowered for item in blocked):
+        raise RuntimeError(f"Refusing to save sensitive-looking output path: {path}")
+
+    return path
+
+
+@ToolRegistry.register("serena_gdrive_save_output")
+class SerenaGDriveSaveOutputTool(_GDriveBaseTool):
+    tool_id = "serena_gdrive_save_output"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Save an existing Serena-generated output file into Google Drive.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "local_path": {"type": "string"},
+                    "drive_folder": {"type": "string"},
+                    "name": {"type": "string"},
+                },
+                "required": ["local_path"],
+            },
+            category="serena_gdrive",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            local_path = _safe_serena_output_file(str(params.get("local_path") or ""))
+            drive_folder = str(params.get("drive_folder") or "Serena/Outputs").strip()
+            name = str(params.get("name") or "").strip() or local_path.name
+
+            result = SerenaGDriveUploadTool().execute(
+                local_path=str(local_path),
+                drive_folder=drive_folder,
+                name=name,
+            )
+
+            payload = {
+                "report_type": "serena_gdrive_save_output",
+                "created_at": _timestamp(),
+                "local_path": str(local_path),
+                "drive_folder": drive_folder,
+                "name": name,
+                "upload_success": result.success,
+                "upload_result": result.metadata,
+                "changes_made": result.success,
+                "delete_performed": False,
+                "secret_values_exposed": False,
+            }
+            report_path = _save_json("reports", f"save-output-{name}", payload)
+
+            if result.success:
+                return self._result(
+                    "Serena Google Drive output saved\n\n"
+                    f"- Local output: {local_path}\n"
+                    f"- Drive folder: {drive_folder}\n"
+                    f"- Drive name: {name}\n"
+                    f"- Report: {report_path}\n"
+                    "- Upload performed: yes\n"
+                    "- Changes made: yes\n"
+                    "- Delete performed: no\n"
+                    "- Secret values exposed: no\n\n"
+                    "Upload result:\n"
+                    f"{result.content}",
+                    metadata={**payload, "report_path": str(report_path)},
+                )
+
+            return self._result(
+                "Serena Google Drive output save failed\n\n"
+                f"- Local output: {local_path}\n"
+                f"- Drive folder: {drive_folder}\n"
+                f"- Report: {report_path}\n"
+                "- Upload performed: no\n"
+                "- Changes made: no\n"
+                "- Delete performed: no\n\n"
+                f"{result.content}",
+                success=False,
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to save Serena output to Google Drive: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_gdrive_audit")
+class SerenaGDriveAuditTool(_GDriveBaseTool):
+    tool_id = "serena_gdrive_audit"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Audit a Google Drive folder and write a local report.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "folder_id": {"type": "string"},
+                    "limit": {"type": "integer"},
+                },
+            },
+            category="serena_gdrive",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            service = _get_drive_service()
+            folder_id = str(params.get("folder_id") or "").strip() or _drive_root_folder_id()
+            limit = int(params.get("limit") or 100)
+
+            query = f"'{folder_id}' in parents and trashed = false"
+
+            result = service.files().list(
+                q=query,
+                fields=_drive_file_fields(),
+                pageSize=limit,
+                orderBy="folder,name",
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+            ).execute()
+
+            files = result.get("files", [])
+            folders = [item for item in files if item.get("mimeType") == "application/vnd.google-apps.folder"]
+            normal_files = [item for item in files if item.get("mimeType") != "application/vnd.google-apps.folder"]
+
+            total_size = 0
+            missing_size = 0
+            for item in normal_files:
+                try:
+                    total_size += int(item.get("size") or 0)
+                except Exception:
+                    missing_size += 1
+
+            duplicate_names: dict[str, list[dict[str, Any]]] = {}
+            for item in files:
+                duplicate_names.setdefault(item.get("name", ""), []).append(item)
+            duplicates = {
+                name: items for name, items in duplicate_names.items()
+                if name and len(items) > 1
+            }
+
+            payload = {
+                "report_type": "serena_gdrive_audit",
+                "created_at": _timestamp(),
+                "folder_id_length": len(folder_id),
+                "item_count": len(files),
+                "folder_count": len(folders),
+                "file_count": len(normal_files),
+                "total_file_size_bytes": total_size,
+                "files_with_missing_size": missing_size,
+                "duplicate_name_groups": duplicates,
+                "items": files,
+                "changes_made": False,
+                "delete_performed": False,
+            }
+            report_path = _save_json("audits", "drive-folder-audit", payload)
+
+            lines = [
+                "Serena Google Drive folder audit",
+                "",
+                f"- Items scanned: {len(files)}",
+                f"- Folders: {len(folders)}",
+                f"- Files: {len(normal_files)}",
+                f"- Total file size bytes: {total_size}",
+                f"- Duplicate name groups: {len(duplicates)}",
+                f"- Report: {report_path}",
+                "- Changes made: no",
+                "- Delete performed: no",
+                "",
+                "Items:",
+            ]
+
+            if files:
+                for item in files[:50]:
+                    kind = "folder" if item.get("mimeType") == "application/vnd.google-apps.folder" else "file"
+                    link = item.get("webViewLink") or ""
+                    lines.append(f"- {item.get('name')} | {kind} | id={item.get('id')} | link={link}")
+                if len(files) > 50:
+                    lines.append(f"... plus {len(files) - 50} more")
+            else:
+                lines.append("- none")
+
+            return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+        except Exception as exc:
+            return self._result(f"Failed to audit Google Drive folder: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_gdrive_blocked_delete")
+class SerenaGDriveBlockedDeleteTool(_GDriveBaseTool):
+    tool_id = "serena_gdrive_blocked_delete"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked Google Drive delete command for v1 safety.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "file_id": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["file_id"],
+            },
+            category="serena_gdrive",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        file_id = str(params.get("file_id") or "").strip()
+        reason = str(params.get("reason") or "Delete requested.").strip()
+
+        payload = {
+            "report_type": "serena_gdrive_blocked_delete",
+            "created_at": _timestamp(),
+            "file_id_present": bool(file_id),
+            "file_id_length": len(file_id),
+            "reason": reason,
+            "delete_performed": False,
+            "trash_performed": False,
+            "permanent_delete_performed": False,
+            "changes_made": False,
+            "blocked_reason": "Google Drive delete/permanent removal is blocked in v1.",
+        }
+        report_path = _save_json("reports", "blocked-delete", payload)
+
+        return self._result(
+            "Google Drive delete blocked by Serena Google Drive v1 policy\n\n"
+            f"- File ID provided: {'yes' if file_id else 'no'}\n"
+            f"- Reason: {reason}\n"
+            f"- Report: {report_path}\n"
+            "- Delete performed: no\n"
+            "- Trash performed: no\n"
+            "- Permanent delete performed: no\n"
+            "- Changes made: no\n\n"
+            "Policy:\n"
+            "- Serena Google Drive v1 may inspect, create folders, upload, download, save text, save outputs, return links, and audit.\n"
+            "- Delete/permanent removal is intentionally blocked in v1.",
+            success=False,
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
 __all__ = [
     "SerenaGDriveStatusTool",
     "SerenaGDriveEnvCheckTool",
@@ -1120,6 +1384,9 @@ __all__ = [
     "SerenaGDrivePlanTool",
     "SerenaGDriveMkdirTool",
     "SerenaGDriveSaveTextTool",
+    "SerenaGDriveBlockedDeleteTool",
+    "SerenaGDriveAuditTool",
+    "SerenaGDriveSaveOutputTool",
     "SerenaGDriveDownloadTool",
     "SerenaGDriveUploadTool",
     "SerenaGDriveShareLinkTool",

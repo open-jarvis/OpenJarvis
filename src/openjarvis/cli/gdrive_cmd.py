@@ -12,6 +12,9 @@ from openjarvis.tools.serena_gdrive import (
     SerenaGDriveRootInfoTool,
     SerenaGDriveStatusTool,
     SerenaGDriveSaveTextTool,
+    SerenaGDriveBlockedDeleteTool,
+    SerenaGDriveAuditTool,
+    SerenaGDriveSaveOutputTool,
     SerenaGDriveDownloadTool,
     SerenaGDriveUploadTool,
     SerenaGDriveShareLinkTool,
@@ -161,6 +164,41 @@ def save_text(name: str, content: str, drive_folder: str) -> None:
         content=content,
         drive_folder=drive_folder,
     )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@gdrive.command("save-output")
+@click.option("--local-path", required=True, help="Serena output/report file path to save.")
+@click.option("--drive-folder", default="Serena/Outputs", help="Drive folder path under configured root.")
+@click.option("--name", default="", help="Optional Drive filename.")
+def save_output(local_path: str, drive_folder: str, name: str) -> None:
+    """Save a Serena output/report file to Google Drive."""
+    console = Console()
+    result = SerenaGDriveSaveOutputTool().execute(
+        local_path=local_path,
+        drive_folder=drive_folder,
+        name=name,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@gdrive.command("audit")
+@click.option("--folder-id", default="", help="Optional Drive folder ID. Defaults to configured root.")
+@click.option("--limit", default=100, type=int, help="Maximum items to audit.")
+def audit(folder_id: str, limit: int) -> None:
+    """Audit a Google Drive folder."""
+    console = Console()
+    result = SerenaGDriveAuditTool().execute(folder_id=folder_id, limit=limit)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@gdrive.command("blocked-delete")
+@click.option("--file-id", required=True, help="Google Drive file ID.")
+@click.option("--reason", default="Delete requested.", help="Reason for attempted delete.")
+def blocked_delete(file_id: str, reason: str) -> None:
+    """Deliberately blocked Google Drive delete command for v1."""
+    console = Console()
+    result = SerenaGDriveBlockedDeleteTool().execute(file_id=file_id, reason=reason)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 
