@@ -11,6 +11,11 @@ from openjarvis.tools.serena_google_docs import (
     SerenaGoogleDocsEnvCheckTool,
     SerenaGoogleDocsPlanTool,
     SerenaGoogleDocsStatusTool,
+    SerenaGoogleDocsLinkTool,
+    SerenaGoogleDocsUpdateTitleTool,
+    SerenaGoogleDocsAppendTool,
+    SerenaGoogleDocsReadTool,
+    SerenaGoogleDocsCreateTool,
 )
 
 
@@ -57,6 +62,73 @@ def plan(goal: str, operation: str, title: str, drive_folder: str) -> None:
         title=title,
         drive_folder=drive_folder,
     )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@google_docs.command("create")
+@click.option("--title", required=True, help="Document title.")
+@click.option("--content", required=True, help="Document content.")
+@click.option("--drive-folder", default="", help="Drive folder path under configured root.")
+@click.option("--doc-type", default="document", help="document, note, or report.")
+def create(title: str, content: str, drive_folder: str, doc_type: str) -> None:
+    """Create a professional Google Doc."""
+    console = Console()
+    result = SerenaGoogleDocsCreateTool().execute(
+        title=title,
+        content=content,
+        drive_folder=drive_folder,
+        doc_type=doc_type,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@google_docs.command("read")
+@click.option("--document-id", required=True, help="Google Doc document ID.")
+@click.option("--preview-chars", default=2000, type=int, help="Maximum preview chars.")
+def read(document_id: str, preview_chars: int) -> None:
+    """Read Google Doc text."""
+    console = Console()
+    result = SerenaGoogleDocsReadTool().execute(
+        document_id=document_id,
+        preview_chars=preview_chars,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@google_docs.command("append")
+@click.option("--document-id", required=True, help="Google Doc document ID.")
+@click.option("--content", required=True, help="Content to append.")
+@click.option("--heading", default="", help="Optional heading.")
+def append(document_id: str, content: str, heading: str) -> None:
+    """Append content to a Google Doc."""
+    console = Console()
+    result = SerenaGoogleDocsAppendTool().execute(
+        document_id=document_id,
+        content=content,
+        heading=heading,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@google_docs.command("update-title")
+@click.option("--document-id", required=True, help="Google Doc document ID.")
+@click.option("--title", required=True, help="New document title.")
+def update_title(document_id: str, title: str) -> None:
+    """Update Google Doc title."""
+    console = Console()
+    result = SerenaGoogleDocsUpdateTitleTool().execute(
+        document_id=document_id,
+        title=title,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@google_docs.command("link")
+@click.option("--document-id", required=True, help="Google Doc document ID.")
+def link(document_id: str) -> None:
+    """Return existing Google Doc link without changing permissions."""
+    console = Console()
+    result = SerenaGoogleDocsLinkTool().execute(document_id=document_id)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 

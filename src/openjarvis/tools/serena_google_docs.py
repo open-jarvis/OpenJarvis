@@ -351,9 +351,545 @@ class SerenaGoogleDocsPlanTool(_GoogleDocsBaseTool):
         )
 
 
+def _drive_file_fields() -> str:
+    return "id,name,mimeType,parents,webViewLink,webContentLink,createdTime,modifiedTime,size"
+
+
+def _escape_drive_query(value: str) -> str:
+    return str(value or "").replace("\\", "\\\\").replace("'", "\\'")
+
+
+def _safe_drive_name(value: str) -> str:
+    value = str(value or "").strip()
+    if not value:
+        raise RuntimeError("Drive name/path is required.")
+    blocked = ["/", "\\", ".."]
+    if any(item in value for item in blocked):
+        raise RuntimeError(f"Unsafe Drive name: {value}")
+    return value
+
+
+def _find_child_folder(service: Any, parent_id: str, name: str) -> dict[str, Any] | None:
+    safe_name = _escape_drive_query(name)
+    query = (
+        f"'{parent_id}' in parents and "
+        "mimeType = 'application/vnd.google-apps.folder' and "
+        "trashed = false and "
+        f"name = '{safe_name}'"
+    )
+    result = service.files().list(
+        q=query,
+        fields="files(id,name,mimeType,parents,webViewLink,createdTime,modifiedTime)",
+        pageSize=10,
+        supportsAllDrives=True,
+        includeItemsFromAllDrives=True,
+    ).execute()
+    files = result.get("files", [])
+    return files[0] if files else None
+
+
+def _ensure_drive_folder_path(service: Any, folder_path: str) -> dict[str, Any]:
+    root_id = _drive_root_folder_id()
+    parts = [
+        _safe_drive_name(part)
+        for part in str(folder_path or "").replace("\\", "/").split("/")
+        if part.strip()
+    ]
+
+    current_id = root_id
+    created: list[dict[str, Any]] = []
+    existing: list[dict[str, Any]] = []
+
+    for part in parts:
+        found = _find_child_folder(service, current_id, part)
+        if found:
+            existing.append(found)
+            current_id = found["id"]
+            continue
+
+        metadata = {
+            "name": part,
+            "mimeType": "application/vnd.google-apps.folder",
+            "parents": [current_id],
+        }
+        folder = service.files().create(
+            body=metadata,
+            fields="id,name,mimeType,parents,webViewLink,createdTime,modifiedTime",
+            supportsAllDrives=True,
+        ).execute()
+        created.append(folder)
+        current_id = folder["id"]
+
+    return {
+        "folder_id": current_id,
+        "path": folder_path,
+        "created": created,
+        "existing": existing,
+        "changed": bool(created),
+    }
+
+
+def _get_doc_link(drive_service: Any, document_id: str) -> str:
+    info = drive_service.files().get(
+        fileId=document_id,
+        fields="id,name,mimeType,webViewLink",
+        supportsAllDrives=True,
+    ).execute()
+    return info.get("webViewLink", "")
+
+
+def _extract_google_doc_text(doc: dict[str, Any]) -> str:
+    parts: list[str] = []
+
+    for item in doc.get("body", {}).get("content", []):
+        paragraph = item.get("paragraph")
+        if not paragraph:
+            continue
+
+        text_parts = []
+        for element in paragraph.get("elements", []):
+            run = element.get("textRun")
+            if run and run.get("content"):
+                text_parts.append(run["content"])
+
+        if text_parts:
+            parts.append("".join(text_parts))
+
+    return "".join(parts).strip()
+
+
+def _document_end_index(doc: dict[str, Any]) -> int:
+    content = doc.get("body", {}).get("content", [])
+    if not content:
+        return 1
+    return int(content[-1].get("endIndex", 1))
+
+
+def _professional_content(title: str, content: str, doc_type: str = "document") -> str:
+    title = str(title or "Serena Document").strip()
+    content = str(content or "").strip()
+    doc_type = str(doc_type or "document").strip().lower()
+
+    if not content:
+        content = "Prepared by Serena."
+
+    header = f"{title}\n\n"
+    meta = "Prepared by Serena\n\n"
+
+    if doc_type in {"note", "notes"}:
+        body = f"## Notes\n\n{content}\n\n## Next Actions\n\n- Review\n- Confirm\n- File or share as needed\n"
+    elif doc_type in {"report", "professional-report"}:
+        body = f"## Executive Summary\n\n{content}\n\n## Key Points\n\n- Review the summary above.\n- Confirm required actions.\n\n## Next Actions\n\n- Assign owner\n- Confirm deadline\n- Save final version\n"
+    else:
+        body = f"{content}\n"
+
+    return header + meta + body
+
+
+@ToolRegistry.register("serena_google_docs_create")
+class SerenaGoogleDocsCreateTool(_GoogleDocsBaseTool):
+    tool_id = "serena_google_docs_create"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a professional Google Doc and optionally move it into a Drive folder.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "content": {"type": "string"},
+                    "drive_folder": {"type": "string"},
+                    "doc_type": {"type": "string"},
+                },
+                "required": ["title", "content"],
+            },
+            category="serena_google_docs",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            docs_service = _get_docs_service()
+            drive_service = _get_drive_service()
+
+            title = str(params.get("title") or "").strip()
+            content = str(params.get("content") or "").strip()
+            drive_folder = str(params.get("drive_folder") or "").strip()
+            doc_type = str(params.get("doc_type") or "document").strip()
+
+            if not title:
+                return self._result("Document title is required.", success=False)
+
+            doc = docs_service.documents().create(body={"title": title}).execute()
+            document_id = doc["documentId"]
+
+            body_text = _professional_content(title=title, content=content, doc_type=doc_type)
+
+            docs_service.documents().batchUpdate(
+                documentId=document_id,
+                body={
+                    "requests": [
+                        {
+                            "insertText": {
+                                "location": {"index": 1},
+                                "text": body_text,
+                            }
+                        }
+                    ]
+                },
+            ).execute()
+
+            folder_result = None
+            if drive_folder:
+                folder_result = _ensure_drive_folder_path(drive_service, drive_folder)
+                current = drive_service.files().get(
+                    fileId=document_id,
+                    fields="parents",
+                    supportsAllDrives=True,
+                ).execute()
+                previous_parents = ",".join(current.get("parents", []))
+                drive_service.files().update(
+                    fileId=document_id,
+                    addParents=folder_result["folder_id"],
+                    removeParents=previous_parents,
+                    fields=_drive_file_fields(),
+                    supportsAllDrives=True,
+                ).execute()
+
+            link = _get_doc_link(drive_service, document_id)
+
+            payload = {
+                "report_type": "serena_google_docs_create",
+                "created_at": _timestamp(),
+                "title": title,
+                "document_id": document_id,
+                "link": link,
+                "drive_folder": drive_folder,
+                "doc_type": doc_type,
+                "folder_result": folder_result,
+                "changes_made": True,
+                "document_created": True,
+                "delete_performed": False,
+                "secret_values_exposed": False,
+            }
+            report_path = _save_json("reports", f"create-{title}", payload)
+
+            return self._result(
+                "Serena Google Doc created\n\n"
+                f"- Title: {title}\n"
+                f"- Document ID: {document_id}\n"
+                f"- Drive folder: {drive_folder or 'default Drive location'}\n"
+                f"- Link: {link}\n"
+                f"- Report: {report_path}\n"
+                "- Document created: yes\n"
+                "- Changes made: yes\n"
+                "- Delete performed: no\n"
+                "- Secret values exposed: no",
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to create Google Doc: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_google_docs_read")
+class SerenaGoogleDocsReadTool(_GoogleDocsBaseTool):
+    tool_id = "serena_google_docs_read"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Read Google Doc text content.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "document_id": {"type": "string"},
+                    "preview_chars": {"type": "integer"},
+                },
+                "required": ["document_id"],
+            },
+            category="serena_google_docs",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            docs_service = _get_docs_service()
+            drive_service = _get_drive_service()
+
+            document_id = str(params.get("document_id") or "").strip()
+            preview_chars = int(params.get("preview_chars") or 2000)
+
+            if not document_id:
+                return self._result("Document ID is required.", success=False)
+
+            doc = docs_service.documents().get(documentId=document_id).execute()
+            text = _extract_google_doc_text(doc)
+            link = _get_doc_link(drive_service, document_id)
+
+            payload = {
+                "report_type": "serena_google_docs_read",
+                "created_at": _timestamp(),
+                "document_id": document_id,
+                "title": doc.get("title"),
+                "link": link,
+                "text_length": len(text),
+                "preview_chars": preview_chars,
+                "changes_made": False,
+                "delete_performed": False,
+            }
+            report_path = _save_json("reports", f"read-{doc.get('title', document_id)}", payload)
+
+            preview = text[:preview_chars]
+
+            return self._result(
+                "Serena Google Doc read\n\n"
+                f"- Title: {doc.get('title', 'unknown')}\n"
+                f"- Document ID: {document_id}\n"
+                f"- Text length: {len(text)}\n"
+                f"- Link: {link}\n"
+                f"- Report: {report_path}\n"
+                "- Changes made: no\n"
+                "- Delete performed: no\n\n"
+                "Preview:\n"
+                f"{preview}",
+                metadata={**payload, "report_path": str(report_path), "preview": preview},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to read Google Doc: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_google_docs_append")
+class SerenaGoogleDocsAppendTool(_GoogleDocsBaseTool):
+    tool_id = "serena_google_docs_append"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Append content to a Google Doc.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "document_id": {"type": "string"},
+                    "content": {"type": "string"},
+                    "heading": {"type": "string"},
+                },
+                "required": ["document_id", "content"],
+            },
+            category="serena_google_docs",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            docs_service = _get_docs_service()
+            drive_service = _get_drive_service()
+
+            document_id = str(params.get("document_id") or "").strip()
+            content = str(params.get("content") or "").strip()
+            heading = str(params.get("heading") or "").strip()
+
+            if not document_id:
+                return self._result("Document ID is required.", success=False)
+            if not content:
+                return self._result("Append content is required.", success=False)
+
+            doc = docs_service.documents().get(documentId=document_id).execute()
+            end_index = max(_document_end_index(doc) - 1, 1)
+
+            append_text = "\n\n"
+            if heading:
+                append_text += f"{heading}\n\n"
+            append_text += content.strip() + "\n"
+
+            docs_service.documents().batchUpdate(
+                documentId=document_id,
+                body={
+                    "requests": [
+                        {
+                            "insertText": {
+                                "location": {"index": end_index},
+                                "text": append_text,
+                            }
+                        }
+                    ]
+                },
+            ).execute()
+
+            link = _get_doc_link(drive_service, document_id)
+
+            payload = {
+                "report_type": "serena_google_docs_append",
+                "created_at": _timestamp(),
+                "document_id": document_id,
+                "title": doc.get("title"),
+                "heading": heading,
+                "content_length": len(content),
+                "link": link,
+                "changes_made": True,
+                "append_performed": True,
+                "delete_performed": False,
+            }
+            report_path = _save_json("reports", f"append-{doc.get('title', document_id)}", payload)
+
+            return self._result(
+                "Serena Google Doc appended\n\n"
+                f"- Title: {doc.get('title', 'unknown')}\n"
+                f"- Document ID: {document_id}\n"
+                f"- Heading: {heading or 'none'}\n"
+                f"- Link: {link}\n"
+                f"- Report: {report_path}\n"
+                "- Append performed: yes\n"
+                "- Changes made: yes\n"
+                "- Delete performed: no",
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to append Google Doc: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_google_docs_update_title")
+class SerenaGoogleDocsUpdateTitleTool(_GoogleDocsBaseTool):
+    tool_id = "serena_google_docs_update_title"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Update a Google Doc title using Drive metadata.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "document_id": {"type": "string"},
+                    "title": {"type": "string"},
+                },
+                "required": ["document_id", "title"],
+            },
+            category="serena_google_docs",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            drive_service = _get_drive_service()
+
+            document_id = str(params.get("document_id") or "").strip()
+            title = str(params.get("title") or "").strip()
+
+            if not document_id:
+                return self._result("Document ID is required.", success=False)
+            if not title:
+                return self._result("New title is required.", success=False)
+
+            before = drive_service.files().get(
+                fileId=document_id,
+                fields="id,name,mimeType,webViewLink",
+                supportsAllDrives=True,
+            ).execute()
+
+            updated = drive_service.files().update(
+                fileId=document_id,
+                body={"name": title},
+                fields="id,name,mimeType,webViewLink,modifiedTime",
+                supportsAllDrives=True,
+            ).execute()
+
+            payload = {
+                "report_type": "serena_google_docs_update_title",
+                "created_at": _timestamp(),
+                "document_id": document_id,
+                "old_title": before.get("name"),
+                "new_title": updated.get("name"),
+                "link": updated.get("webViewLink"),
+                "changes_made": True,
+                "title_updated": True,
+                "delete_performed": False,
+            }
+            report_path = _save_json("reports", f"update-title-{title}", payload)
+
+            return self._result(
+                "Serena Google Doc title updated\n\n"
+                f"- Old title: {before.get('name', 'unknown')}\n"
+                f"- New title: {updated.get('name', title)}\n"
+                f"- Document ID: {document_id}\n"
+                f"- Link: {updated.get('webViewLink', '')}\n"
+                f"- Report: {report_path}\n"
+                "- Title updated: yes\n"
+                "- Changes made: yes\n"
+                "- Delete performed: no",
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to update Google Doc title: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_google_docs_link")
+class SerenaGoogleDocsLinkTool(_GoogleDocsBaseTool):
+    tool_id = "serena_google_docs_link"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Return existing Google Doc Drive link without changing permissions.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "document_id": {"type": "string"},
+                },
+                "required": ["document_id"],
+            },
+            category="serena_google_docs",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            drive_service = _get_drive_service()
+
+            document_id = str(params.get("document_id") or "").strip()
+            if not document_id:
+                return self._result("Document ID is required.", success=False)
+
+            info = drive_service.files().get(
+                fileId=document_id,
+                fields="id,name,mimeType,webViewLink,modifiedTime",
+                supportsAllDrives=True,
+            ).execute()
+
+            payload = {
+                "report_type": "serena_google_docs_link",
+                "created_at": _timestamp(),
+                "document_id": document_id,
+                "title": info.get("name"),
+                "link": info.get("webViewLink"),
+                "permissions_changed": False,
+                "changes_made": False,
+                "delete_performed": False,
+            }
+            report_path = _save_json("reports", f"link-{info.get('name', document_id)}", payload)
+
+            return self._result(
+                "Serena Google Doc link\n\n"
+                f"- Title: {info.get('name', 'unknown')}\n"
+                f"- Document ID: {document_id}\n"
+                f"- Link: {info.get('webViewLink', '')}\n"
+                f"- Report: {report_path}\n"
+                "- Permissions changed: no\n"
+                "- Changes made: no\n"
+                "- Delete performed: no",
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to get Google Doc link: {exc}", success=False)
+
+
 __all__ = [
     "SerenaGoogleDocsStatusTool",
     "SerenaGoogleDocsEnvCheckTool",
     "SerenaGoogleDocsConnectCheckTool",
     "SerenaGoogleDocsPlanTool",
+    "SerenaGoogleDocsLinkTool",
+    "SerenaGoogleDocsUpdateTitleTool",
+    "SerenaGoogleDocsAppendTool",
+    "SerenaGoogleDocsReadTool",
+    "SerenaGoogleDocsCreateTool",
 ]
