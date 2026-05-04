@@ -1768,6 +1768,250 @@ class SerenaGoogleCalendarBlockedBulkDeleteTool(_GoogleCalendarBaseTool):
         )
 
 
+def _brief_from_events(title: str, events: list[dict[str, Any]], report_path: Path) -> str:
+    lines = [
+        title,
+        "",
+        f"- Events found: {len(events)}",
+        f"- Report: {report_path}",
+        "- Changes made: no",
+        "- Delete performed: no",
+        "",
+        "Schedule:",
+    ]
+
+    if events:
+        for event in events:
+            lines.append(_format_event_line(event))
+    else:
+        lines.append("- none")
+
+    lines.extend([
+        "",
+        "Assistant notes:",
+    ])
+
+    if not events:
+        lines.append("- Calendar is clear in this range.")
+    else:
+        lines.append("- Review appointment titles, timing, attendees, and locations before the day starts.")
+        lines.append("- Check whether any events need Google Meet links, prep notes, or follow-up reminders.")
+
+    return "\n".join(lines)
+
+
+@ToolRegistry.register("serena_google_calendar_daily_brief")
+class SerenaGoogleCalendarDailyBriefTool(_GoogleCalendarBaseTool):
+    tool_id = "serena_google_calendar_daily_brief"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a daily Google Calendar brief.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "date": {"type": "string"},
+                    "limit": {"type": "integer"},
+                },
+            },
+            category="serena_google_calendar",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        date_text = str(params.get("date") or "today").strip()
+        limit = int(params.get("limit") or 50)
+
+        try:
+            time_min, time_max = _date_range(date_text, days=1)
+            events = _list_events(time_min, time_max, limit=limit)
+
+            payload = {
+                "report_type": "serena_google_calendar_daily_brief",
+                "created_at": _timestamp(),
+                "calendar_id": _calendar_id(),
+                "date": date_text,
+                "time_min": time_min,
+                "time_max": time_max,
+                "events": [_event_summary(item) for item in events],
+                "changes_made": False,
+                "delete_performed": False,
+                "secret_values_exposed": False,
+            }
+            report_path = _save_json("reports", f"daily-brief-{date_text}", payload)
+
+            return self._result(
+                _brief_from_events("Serena Google Calendar daily brief", events, report_path),
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(
+                "Serena Google Calendar daily brief failed safely\n\n"
+                f"- Date: {date_text}\n"
+                f"- Error: {exc}\n"
+                "- Changes made: no\n"
+                "- Delete performed: no\n\n"
+                "Note:\n"
+                "- If this says invalid_scope, Dr Piet still needs to approve the Calendar-scoped Google token.",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_google_calendar_weekly_brief")
+class SerenaGoogleCalendarWeeklyBriefTool(_GoogleCalendarBaseTool):
+    tool_id = "serena_google_calendar_weekly_brief"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a weekly Google Calendar brief.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "date": {"type": "string"},
+                    "limit": {"type": "integer"},
+                },
+            },
+            category="serena_google_calendar",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        date_text = str(params.get("date") or "this week").strip()
+        limit = int(params.get("limit") or 100)
+
+        try:
+            time_min, time_max = _date_range(date_text, days=7)
+            events = _list_events(time_min, time_max, limit=limit)
+
+            payload = {
+                "report_type": "serena_google_calendar_weekly_brief",
+                "created_at": _timestamp(),
+                "calendar_id": _calendar_id(),
+                "date": date_text,
+                "time_min": time_min,
+                "time_max": time_max,
+                "events": [_event_summary(item) for item in events],
+                "changes_made": False,
+                "delete_performed": False,
+                "secret_values_exposed": False,
+            }
+            report_path = _save_json("reports", f"weekly-brief-{date_text}", payload)
+
+            return self._result(
+                _brief_from_events("Serena Google Calendar weekly brief", events, report_path),
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(
+                "Serena Google Calendar weekly brief failed safely\n\n"
+                f"- Date: {date_text}\n"
+                f"- Error: {exc}\n"
+                "- Changes made: no\n"
+                "- Delete performed: no\n\n"
+                "Note:\n"
+                "- If this says invalid_scope, Dr Piet still needs to approve the Calendar-scoped Google token.",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_google_calendar_audit")
+class SerenaGoogleCalendarAuditTool(_GoogleCalendarBaseTool):
+    tool_id = "serena_google_calendar_audit"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Audit Google Calendar operator configuration, connection, and safety posture.",
+            parameters={"type": "object", "properties": {}},
+            category="serena_google_calendar",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        env = _env_report()
+        policy = _safety_policy()
+        connected = False
+        connection_error = ""
+        calendar_summary = ""
+        calendar_timezone = ""
+        access_role = ""
+
+        try:
+            service = _get_calendar_service()
+            calendar = service.calendars().get(calendarId=_calendar_id()).execute()
+            connected = True
+            calendar_summary = calendar.get("summary") or ""
+            calendar_timezone = calendar.get("timeZone") or ""
+            access_role = calendar.get("accessRole") or ""
+        except Exception as exc:
+            connection_error = str(exc)
+
+        issues = []
+        recommendations = []
+
+        if not env["configured"]:
+            issues.append("Google Calendar env is not fully configured.")
+        if not connected:
+            issues.append("Google Calendar API connection is not currently available.")
+            if "invalid_scope" in connection_error:
+                recommendations.append("Dr Piet must approve a new Google refresh token with Calendar scopes.")
+        if _calendar_id() == "primary":
+            recommendations.append("Using primary calendar. Set GOOGLE_CALENDAR_ID later if a specific Dr Piet calendar must be targeted.")
+
+        payload = {
+            "report_type": "serena_google_calendar_audit",
+            "created_at": _timestamp(),
+            "env": env,
+            "calendar_id": _calendar_id(),
+            "timezone": _default_timezone(),
+            "connected": connected,
+            "connection_error": connection_error,
+            "calendar_summary": calendar_summary,
+            "calendar_timezone": calendar_timezone,
+            "access_role": access_role,
+            "policy": policy,
+            "issues": issues,
+            "recommendations": recommendations,
+            "changes_made": False,
+            "delete_performed": False,
+            "secret_values_exposed": False,
+        }
+        report_path = _save_json("reports", "audit", payload)
+
+        lines = [
+            "Serena Google Calendar audit",
+            "",
+            f"- Configured: {'yes' if env['configured'] else 'no'}",
+            f"- Connected: {'yes' if connected else 'no'}",
+            f"- Calendar ID: {_calendar_id()}",
+            f"- Calendar summary: {calendar_summary or 'unknown'}",
+            f"- Calendar timezone: {calendar_timezone or _default_timezone()}",
+            f"- Access role: {access_role or 'unknown'}",
+            f"- Report: {report_path}",
+            "- Changes made: no",
+            "- Delete performed: no",
+            "- Secret values exposed: no",
+            "",
+            "Issues:",
+        ]
+
+        lines.extend(f"- {item}" for item in issues) if issues else lines.append("- none")
+
+        lines.extend(["", "Recommendations:"])
+        lines.extend(f"- {item}" for item in recommendations) if recommendations else lines.append("- No immediate recommendations.")
+
+        lines.extend(["", "Blocked safety operations:"])
+        for item in policy["blocked"]:
+            lines.append(f"- {item}")
+
+        if connection_error:
+            lines.extend(["", "Connection error:", f"- {connection_error}"])
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
 __all__ = [
     "SerenaGoogleCalendarStatusTool",
     "SerenaGoogleCalendarEnvCheckTool",
@@ -1776,6 +2020,9 @@ __all__ = [
     "SerenaGoogleCalendarAvailabilityTool",
     "SerenaGoogleCalendarRecurringTool",
     "SerenaGoogleCalendarBlockedBulkDeleteTool",
+    "SerenaGoogleCalendarAuditTool",
+    "SerenaGoogleCalendarWeeklyBriefTool",
+    "SerenaGoogleCalendarDailyBriefTool",
     "SerenaGoogleCalendarCancelTool",
     "SerenaGoogleCalendarAddAttendeeTool",
     "SerenaGoogleCalendarUpdateTool",

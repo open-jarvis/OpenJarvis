@@ -11,6 +11,9 @@ from openjarvis.tools.serena_google_calendar import (
     SerenaGoogleCalendarEnvCheckTool,
     SerenaGoogleCalendarPlanTool,
     SerenaGoogleCalendarStatusTool,
+    SerenaGoogleCalendarAuditTool,
+    SerenaGoogleCalendarWeeklyBriefTool,
+    SerenaGoogleCalendarDailyBriefTool,
     SerenaGoogleCalendarBlockedBulkDeleteTool,
     SerenaGoogleCalendarCancelTool,
     SerenaGoogleCalendarAddAttendeeTool,
@@ -289,6 +292,34 @@ def blocked_bulk_delete(reason: str) -> None:
     """Deliberately blocked bulk calendar delete command."""
     console = Console()
     result = SerenaGoogleCalendarBlockedBulkDeleteTool().execute(reason=reason)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@calendar.command("daily-brief")
+@click.option("--date", default="today", help="Date: today, tomorrow, or YYYY-MM-DD.")
+@click.option("--limit", default=50, type=int, help="Maximum events.")
+def daily_brief(date: str, limit: int) -> None:
+    """Create a daily calendar brief."""
+    console = Console()
+    result = SerenaGoogleCalendarDailyBriefTool().execute(date=date, limit=limit)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@calendar.command("weekly-brief")
+@click.option("--date", default="this week", help="Week start reference: this week or YYYY-MM-DD.")
+@click.option("--limit", default=100, type=int, help="Maximum events.")
+def weekly_brief(date: str, limit: int) -> None:
+    """Create a weekly calendar brief."""
+    console = Console()
+    result = SerenaGoogleCalendarWeeklyBriefTool().execute(date=date, limit=limit)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@calendar.command("audit")
+def audit() -> None:
+    """Audit Google Calendar operator status and safety."""
+    console = Console()
+    result = SerenaGoogleCalendarAuditTool().execute()
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 
