@@ -183,6 +183,16 @@ def _seed_memory_files() -> None:
 # CLI command — invoked by install.sh, hidden from `jarvis --help`
 # ---------------------------------------------------------------------------
 
+# Default model picked at install time when a cloud key is detected via
+# --prefer-cloud-when-available.  These IDs will rot as new model versions
+# ship; bump them when sub-project A's release notes track new defaults.
+_CLOUD_PROVIDER_DEFAULT_MODELS: dict[str, str] = {
+    "openrouter": "anthropic/claude-opus-4-6",
+    "anthropic": "claude-opus-4-6",
+    "openai": "gpt-5",
+    "google": "gemini-3-pro",
+}
+
 
 @click.command("_bootstrap", hidden=True)
 @click.option(
@@ -226,13 +236,9 @@ def bootstrap_cmd(
         cloud = detect_cloud_keys()
         if cloud is not None:
             chosen_engine = "cloud"
-            # Pick a sensible default model for the detected provider.
-            chosen_model = {
-                "openrouter": "anthropic/claude-opus-4-6",
-                "anthropic": "claude-opus-4-6",
-                "openai": "gpt-5",
-                "google": "gemini-3-pro",
-            }.get(cloud.provider, chosen_model)
+            chosen_model = _CLOUD_PROVIDER_DEFAULT_MODELS.get(
+                cloud.provider, chosen_model
+            )
 
     write_initial_config(
         hardware=hw,
