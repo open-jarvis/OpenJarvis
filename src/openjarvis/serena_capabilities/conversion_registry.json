@@ -237,10 +237,43 @@
           "legacy_file": "83-vscode-builder.js",
           "new_skill_path": "src/openjarvis/skills/serena/development-infrastructure/vscode-builder",
           "native_tool_file": "src/openjarvis/tools/serena_vscode_builder.py",
-          "status": "pending",
+          "status": "complete_v1",
           "research_required": [
             "github",
             "official_docs"
+          ],
+          "tested": true,
+          "native_tool_complete": true,
+          "completion_level": "vscode_builder_full_operator_v1",
+          "capabilities": [
+            "status",
+            "templates",
+            "build_plan",
+            "feature_scaffold",
+            "website_section_generation",
+            "wordpress_ready_section_generation",
+            "react_component_generation",
+            "readme_generation",
+            "build_inspection",
+            "builder_final_check",
+            "approved_roots_only",
+            "local_only_generation",
+            "reports_saved_locally",
+            "publish_deploy_push_blocked",
+            "wordpress_ready_not_published",
+            "integration_with_vscode_operator"
+          ],
+          "notes": [
+            "Converted from legacy Serena JavaScript VS Code Builder skill to native OpenJarvis/Serena VS Code Builder skill.",
+            "Legacy skill had no meaningful detected functions, so native v1 was built from the Serena operator standard.",
+            "Tested builder status, templates, and final-check.",
+            "Tested plan and scaffold workflow with generated source, test, and README files.",
+            "Tested polished HTML/CSS website section generation.",
+            "Tested WordPress-ready HTML block generation without publishing.",
+            "Tested React/TSX component generation with README documentation.",
+            "Tested inspect-build against scaffold, website section, WordPress-ready section, and React component outputs.",
+            "Final-check passed and confirmed publish/deploy/push was not performed.",
+            "VS Code Builder Full Operator v1 complete."
           ]
         },
         {
