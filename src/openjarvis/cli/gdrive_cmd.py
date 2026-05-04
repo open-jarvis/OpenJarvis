@@ -11,6 +11,11 @@ from openjarvis.tools.serena_gdrive import (
     SerenaGDrivePlanTool,
     SerenaGDriveRootInfoTool,
     SerenaGDriveStatusTool,
+    SerenaGDriveSaveTextTool,
+    SerenaGDriveDownloadTool,
+    SerenaGDriveUploadTool,
+    SerenaGDriveShareLinkTool,
+    SerenaGDriveFileInfoTool,
     SerenaGDriveMkdirTool,
     SerenaGDriveSearchTool,
     SerenaGDriveListTool,
@@ -98,6 +103,64 @@ def mkdir(folder_path: str) -> None:
     """Create/find a Google Drive folder path."""
     console = Console()
     result = SerenaGDriveMkdirTool().execute(folder_path=folder_path)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@gdrive.command("file-info")
+@click.option("--file-id", required=True, help="Google Drive file/folder ID.")
+def file_info(file_id: str) -> None:
+    """Inspect Google Drive file/folder metadata."""
+    console = Console()
+    result = SerenaGDriveFileInfoTool().execute(file_id=file_id)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@gdrive.command("share-link")
+@click.option("--file-id", required=True, help="Google Drive file/folder ID.")
+def share_link(file_id: str) -> None:
+    """Return the existing Google Drive web link without changing permissions."""
+    console = Console()
+    result = SerenaGDriveShareLinkTool().execute(file_id=file_id)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@gdrive.command("upload")
+@click.option("--local-path", required=True, help="Local file path to upload.")
+@click.option("--drive-folder", default="", help="Drive folder path under configured root.")
+@click.option("--name", default="", help="Optional Drive filename.")
+def upload(local_path: str, drive_folder: str, name: str) -> None:
+    """Upload a local file to Google Drive."""
+    console = Console()
+    result = SerenaGDriveUploadTool().execute(
+        local_path=local_path,
+        drive_folder=drive_folder,
+        name=name,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@gdrive.command("download")
+@click.option("--file-id", required=True, help="Google Drive file ID.")
+@click.option("--name", default="", help="Optional local filename.")
+def download(file_id: str, name: str) -> None:
+    """Download a Google Drive file to local outputs/gdrive/downloads."""
+    console = Console()
+    result = SerenaGDriveDownloadTool().execute(file_id=file_id, name=name)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@gdrive.command("save-text")
+@click.option("--name", required=True, help="Drive file name.")
+@click.option("--content", required=True, help="Text content to save.")
+@click.option("--drive-folder", default="", help="Drive folder path under configured root.")
+def save_text(name: str, content: str, drive_folder: str) -> None:
+    """Save text content as a file in Google Drive."""
+    console = Console()
+    result = SerenaGDriveSaveTextTool().execute(
+        name=name,
+        content=content,
+        drive_folder=drive_folder,
+    )
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 

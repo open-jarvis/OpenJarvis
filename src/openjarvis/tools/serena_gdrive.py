@@ -446,6 +446,8 @@ class SerenaGDriveConnectCheckTool(_GDriveBaseTool):
                 "root_folder": root,
                 "secret_values_exposed": False,
                 "changes_made": False,
+                "search_scope": "broad_visible_drive",
+                "note": "Broad visible-Drive search is used so nested Drive files can be found.",
             }
             report_path = _save_json("reports", "connect-check", payload)
 
@@ -571,8 +573,11 @@ class SerenaGDriveSearchTool(_GDriveBaseTool):
                 return self._result("Search query is required.", success=False)
 
             safe_query = _escape_drive_query(query_text)
+
+            # Google Drive does not support simple recursive folder search with one parent query.
+            # Use a broad visible-Drive search for v1 so nested files are discoverable.
             query = (
-                f"'{root_id}' in parents and trashed = false and "
+                "trashed = false and "
                 f"(name contains '{safe_query}' or fullText contains '{safe_query}')"
             )
 
@@ -675,12 +680,450 @@ class SerenaGDriveMkdirTool(_GDriveBaseTool):
             return self._result(f"Failed to create/find Google Drive folder: {exc}", success=False)
 
 
+def _media_imports() -> tuple[Any, Any]:
+    try:
+        from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
+        return MediaFileUpload, MediaIoBaseDownload
+    except Exception as exc:
+        raise RuntimeError(
+            "Google API media helpers are not available. "
+            "Install google-api-python-client if missing."
+        ) from exc
+
+
+def _safe_local_file(path_value: str) -> Path:
+    path = Path(str(path_value or "")).expanduser()
+
+    if not path.exists():
+        raise RuntimeError(f"Local file does not exist: {path}")
+    if not path.is_file():
+        raise RuntimeError(f"Local path is not a file: {path}")
+
+    lowered = str(path).lower()
+    blocked = [".env", "secret", "secrets", "credential", "credentials", "password", "token"]
+
+    if any(item in lowered for item in blocked):
+        raise RuntimeError(f"Refusing to upload sensitive-looking local file path: {path}")
+
+    return path
+
+
+def _safe_output_download_path(filename: str) -> Path:
+    name = Path(str(filename or "")).name.strip()
+
+    if not name:
+        raise RuntimeError("Download filename is required.")
+
+    lowered = name.lower()
+    blocked_names = [".env", "secrets", "credentials", "token", "password"]
+    if any(item in lowered for item in blocked_names):
+        raise RuntimeError(f"Refusing unsafe download filename: {name}")
+
+    folder = _gdrive_root() / "downloads"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / name
+
+
+def _guess_mime_type(path: Path) -> str:
+    import mimetypes
+
+    guessed, _ = mimetypes.guess_type(str(path))
+    return guessed or "application/octet-stream"
+
+
+def _get_drive_file(service: Any, file_id: str) -> dict[str, Any]:
+    file_id = str(file_id or "").strip()
+    if not file_id:
+        raise RuntimeError("Drive file ID is required.")
+
+    return service.files().get(
+        fileId=file_id,
+        fields="id,name,mimeType,parents,webViewLink,webContentLink,createdTime,modifiedTime,size,owners(emailAddress,displayName),shared",
+        supportsAllDrives=True,
+    ).execute()
+
+
+@ToolRegistry.register("serena_gdrive_file_info")
+class SerenaGDriveFileInfoTool(_GDriveBaseTool):
+    tool_id = "serena_gdrive_file_info"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Inspect Google Drive file/folder metadata.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "file_id": {"type": "string"},
+                },
+                "required": ["file_id"],
+            },
+            category="serena_gdrive",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            service = _get_drive_service()
+            file_id = str(params.get("file_id") or "").strip()
+            info = _get_drive_file(service, file_id)
+
+            payload = {
+                "report_type": "serena_gdrive_file_info",
+                "created_at": _timestamp(),
+                "file": info,
+                "changes_made": False,
+                "secret_values_exposed": False,
+            }
+            report_path = _save_json("reports", f"file-info-{info.get('name', file_id)}", payload)
+
+            return self._result(
+                "Serena Google Drive file info\n\n"
+                f"- Name: {info.get('name', 'unknown')}\n"
+                f"- ID: {info.get('id', file_id)}\n"
+                f"- MIME type: {info.get('mimeType', 'unknown')}\n"
+                f"- Size: {info.get('size', 'unknown')}\n"
+                f"- Modified: {info.get('modifiedTime', 'unknown')}\n"
+                f"- Link: {info.get('webViewLink', '')}\n"
+                f"- Report: {report_path}\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to inspect Google Drive file: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_gdrive_share_link")
+class SerenaGDriveShareLinkTool(_GDriveBaseTool):
+    tool_id = "serena_gdrive_share_link"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Return the Google Drive web link for a file/folder without changing permissions.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "file_id": {"type": "string"},
+                },
+                "required": ["file_id"],
+            },
+            category="serena_gdrive",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            service = _get_drive_service()
+            file_id = str(params.get("file_id") or "").strip()
+            info = _get_drive_file(service, file_id)
+
+            payload = {
+                "report_type": "serena_gdrive_share_link",
+                "created_at": _timestamp(),
+                "file_id": file_id,
+                "name": info.get("name"),
+                "webViewLink": info.get("webViewLink"),
+                "permissions_changed": False,
+                "changes_made": False,
+            }
+            report_path = _save_json("reports", f"share-link-{info.get('name', file_id)}", payload)
+
+            return self._result(
+                "Serena Google Drive link\n\n"
+                f"- Name: {info.get('name', 'unknown')}\n"
+                f"- Link: {info.get('webViewLink', '')}\n"
+                f"- Report: {report_path}\n"
+                "- Permissions changed: no\n"
+                "- Changes made: no\n\n"
+                "Note:\n"
+                "- This returns the existing Drive link. It does not make the file public.",
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to get Google Drive link: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_gdrive_upload")
+class SerenaGDriveUploadTool(_GDriveBaseTool):
+    tool_id = "serena_gdrive_upload"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Upload a safe local file into a folder under the configured Google Drive root.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "local_path": {"type": "string"},
+                    "drive_folder": {"type": "string"},
+                    "name": {"type": "string"},
+                },
+                "required": ["local_path"],
+            },
+            category="serena_gdrive",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            service = _get_drive_service()
+            MediaFileUpload, _ = _media_imports()
+
+            local_path = _safe_local_file(str(params.get("local_path") or ""))
+            drive_folder = str(params.get("drive_folder") or "").strip()
+            name = str(params.get("name") or "").strip() or local_path.name
+
+            if drive_folder:
+                folder = _ensure_drive_folder_path(service, drive_folder)
+                parent_id = folder["folder_id"]
+                folder_created = folder["created"]
+                folder_existing = folder["existing"]
+            else:
+                parent_id = _drive_root_folder_id()
+                folder_created = []
+                folder_existing = []
+
+            media = MediaFileUpload(str(local_path), mimetype=_guess_mime_type(local_path), resumable=True)
+            metadata = {
+                "name": name,
+                "parents": [parent_id],
+            }
+
+            uploaded = service.files().create(
+                body=metadata,
+                media_body=media,
+                fields="id,name,mimeType,parents,webViewLink,webContentLink,createdTime,modifiedTime,size",
+                supportsAllDrives=True,
+            ).execute()
+
+            payload = {
+                "report_type": "serena_gdrive_upload",
+                "created_at": _timestamp(),
+                "local_path": str(local_path),
+                "drive_folder": drive_folder,
+                "uploaded": uploaded,
+                "folder_created": folder_created,
+                "folder_existing": folder_existing,
+                "changes_made": True,
+                "upload_performed": True,
+                "delete_performed": False,
+                "secret_values_exposed": False,
+            }
+            report_path = _save_json("reports", f"upload-{name}", payload)
+
+            return self._result(
+                "Serena Google Drive upload complete\n\n"
+                f"- Local file: {local_path}\n"
+                f"- Drive name: {uploaded.get('name', name)}\n"
+                f"- Drive file ID: {uploaded.get('id')}\n"
+                f"- Drive folder: {drive_folder or 'configured root'}\n"
+                f"- Link: {uploaded.get('webViewLink', '')}\n"
+                f"- New folders created: {len(folder_created)}\n"
+                f"- Report: {report_path}\n"
+                "- Upload performed: yes\n"
+                "- Changes made: yes\n"
+                "- Delete performed: no\n"
+                "- Secret values exposed: no",
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to upload file to Google Drive: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_gdrive_download")
+class SerenaGDriveDownloadTool(_GDriveBaseTool):
+    tool_id = "serena_gdrive_download"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Download a Google Drive file to Serena's local Drive downloads folder.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "file_id": {"type": "string"},
+                    "name": {"type": "string"},
+                },
+                "required": ["file_id"],
+            },
+            category="serena_gdrive",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            import io
+
+            service = _get_drive_service()
+            _, MediaIoBaseDownload = _media_imports()
+
+            file_id = str(params.get("file_id") or "").strip()
+            info = _get_drive_file(service, file_id)
+
+            if info.get("mimeType", "").startswith("application/vnd.google-apps."):
+                return self._result(
+                    "Download blocked for native Google Workspace file.\n\n"
+                    f"- Name: {info.get('name', 'unknown')}\n"
+                    f"- MIME type: {info.get('mimeType')}\n"
+                    "- Use a future export command for Google Docs/Sheets/Slides.",
+                    success=False,
+                )
+
+            filename = str(params.get("name") or "").strip() or info.get("name") or f"{file_id}.bin"
+            output_path = _safe_output_download_path(filename)
+
+            request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
+            fh = io.FileIO(output_path, "wb")
+            downloader = MediaIoBaseDownload(fh, request)
+
+            done = False
+            progress = 0
+            while not done:
+                status, done = downloader.next_chunk()
+                if status:
+                    progress = int(status.progress() * 100)
+
+            fh.close()
+
+            payload = {
+                "report_type": "serena_gdrive_download",
+                "created_at": _timestamp(),
+                "file": info,
+                "output_path": str(output_path),
+                "download_performed": True,
+                "changes_made": True,
+                "local_file_created": True,
+                "delete_performed": False,
+                "progress": progress,
+            }
+            report_path = _save_json("reports", f"download-{filename}", payload)
+
+            return self._result(
+                "Serena Google Drive download complete\n\n"
+                f"- Drive file: {info.get('name', file_id)}\n"
+                f"- Local output: {output_path}\n"
+                f"- Progress: {progress}%\n"
+                f"- Report: {report_path}\n"
+                "- Download performed: yes\n"
+                "- Local file created: yes\n"
+                "- Delete performed: no",
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to download Google Drive file: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_gdrive_save_text")
+class SerenaGDriveSaveTextTool(_GDriveBaseTool):
+    tool_id = "serena_gdrive_save_text"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Save text content as a file in Google Drive under the configured root.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "content": {"type": "string"},
+                    "drive_folder": {"type": "string"},
+                },
+                "required": ["name", "content"],
+            },
+            category="serena_gdrive",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            service = _get_drive_service()
+            MediaFileUpload, _ = _media_imports()
+
+            name = str(params.get("name") or "").strip()
+            content = str(params.get("content") or "")
+            drive_folder = str(params.get("drive_folder") or "").strip()
+
+            if not name:
+                return self._result("File name is required.", success=False)
+
+            safe_name = Path(name).name
+            if not safe_name.lower().endswith((".txt", ".md", ".json", ".csv")):
+                safe_name = safe_name + ".txt"
+
+            staging_folder = _gdrive_root() / "uploads"
+            staging_folder.mkdir(parents=True, exist_ok=True)
+            local_stage = staging_folder / f"{_timestamp()}-{_safe_slug(safe_name)}"
+            local_stage.write_text(content, encoding="utf-8")
+
+            if drive_folder:
+                folder = _ensure_drive_folder_path(service, drive_folder)
+                parent_id = folder["folder_id"]
+                folder_created = folder["created"]
+                folder_existing = folder["existing"]
+            else:
+                parent_id = _drive_root_folder_id()
+                folder_created = []
+                folder_existing = []
+
+            media = MediaFileUpload(str(local_stage), mimetype="text/plain", resumable=True)
+            metadata = {
+                "name": safe_name,
+                "parents": [parent_id],
+            }
+
+            uploaded = service.files().create(
+                body=metadata,
+                media_body=media,
+                fields="id,name,mimeType,parents,webViewLink,webContentLink,createdTime,modifiedTime,size",
+                supportsAllDrives=True,
+            ).execute()
+
+            payload = {
+                "report_type": "serena_gdrive_save_text",
+                "created_at": _timestamp(),
+                "name": safe_name,
+                "drive_folder": drive_folder,
+                "local_stage": str(local_stage),
+                "uploaded": uploaded,
+                "folder_created": folder_created,
+                "folder_existing": folder_existing,
+                "upload_performed": True,
+                "changes_made": True,
+                "delete_performed": False,
+                "secret_values_exposed": False,
+            }
+            report_path = _save_json("reports", f"save-text-{safe_name}", payload)
+
+            return self._result(
+                "Serena Google Drive text saved\n\n"
+                f"- Name: {uploaded.get('name', safe_name)}\n"
+                f"- Drive folder: {drive_folder or 'configured root'}\n"
+                f"- Drive file ID: {uploaded.get('id')}\n"
+                f"- Link: {uploaded.get('webViewLink', '')}\n"
+                f"- Report: {report_path}\n"
+                "- Upload performed: yes\n"
+                "- Changes made: yes\n"
+                "- Delete performed: no\n"
+                "- Secret values exposed: no",
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to save text to Google Drive: {exc}", success=False)
+
+
 __all__ = [
     "SerenaGDriveStatusTool",
     "SerenaGDriveEnvCheckTool",
     "SerenaGDriveRootInfoTool",
     "SerenaGDrivePlanTool",
     "SerenaGDriveMkdirTool",
+    "SerenaGDriveSaveTextTool",
+    "SerenaGDriveDownloadTool",
+    "SerenaGDriveUploadTool",
+    "SerenaGDriveShareLinkTool",
+    "SerenaGDriveFileInfoTool",
     "SerenaGDriveSearchTool",
     "SerenaGDriveListTool",
     "SerenaGDriveConnectCheckTool",
