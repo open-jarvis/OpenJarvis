@@ -16,7 +16,7 @@ engine = "cloud"
 
 [run]
 max_workers = 1
-output_dir = "results/pinchbench-gemini-31-pro/"
+output_dir = "results/neurips-2026/baselines/gemini-31-pro/pinchbench/"
 seed = 42
 
 [[models]]
@@ -25,6 +25,7 @@ engine = "cloud"
 
 [[benchmarks]]
 name = "pinchbench"
+max_samples = 23
 backend = "jarvis-agent"
 agent = "native_openhands"
 tools = [
