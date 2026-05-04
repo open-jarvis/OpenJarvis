@@ -12,6 +12,10 @@ from openjarvis.tools.serena_ocr import (
     SerenaOCRPlanTool,
     SerenaOCRSafetyPolicyTool,
     SerenaOCRStatusTool,
+    SerenaOCRDescribeCaptureTool,
+    SerenaOCRCaptureDocTool,
+    SerenaOCRCaptureTool,
+    SerenaOCRCamerasTool,
     SerenaOCRExtractPDFTool,
     SerenaOCRExtractImageTool,
     SerenaOCRReadabilityTool,
@@ -102,6 +106,44 @@ def extract_pdf(path: str, max_pages: int) -> None:
     """Extract embedded text from a PDF."""
     console = Console()
     result = SerenaOCRExtractPDFTool().execute(path=path, max_pages=max_pages)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@ocr.command("cameras")
+@click.option("--max-indexes", default=8, type=int, help="Maximum camera indexes to probe.")
+def cameras(max_indexes: int) -> None:
+    """List usable OCR/live vision cameras."""
+    console = Console()
+    result = SerenaOCRCamerasTool().execute(max_indexes=max_indexes)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@ocr.command("capture")
+@click.option("--camera-index", default=0, type=int, help="Camera index.")
+@click.option("--name", default="webcam-capture", help="Capture name.")
+def capture(camera_index: int, name: str) -> None:
+    """Capture one explicit webcam frame."""
+    console = Console()
+    result = SerenaOCRCaptureTool().execute(camera_index=camera_index, name=name)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@ocr.command("capture-doc")
+@click.option("--camera-index", default=0, type=int, help="Camera index.")
+@click.option("--name", default="webcam-document", help="Capture name.")
+def capture_doc(camera_index: int, name: str) -> None:
+    """Capture one webcam document frame and OCR it."""
+    console = Console()
+    result = SerenaOCRCaptureDocTool().execute(camera_index=camera_index, name=name)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@ocr.command("describe-capture")
+@click.option("--path", required=True, help="Capture/image path.")
+def describe_capture(path: str) -> None:
+    """Describe a saved capture/image for OCR suitability."""
+    console = Console()
+    result = SerenaOCRDescribeCaptureTool().execute(path=path)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 

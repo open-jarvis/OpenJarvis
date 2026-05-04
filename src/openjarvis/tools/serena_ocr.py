@@ -1080,6 +1080,393 @@ class SerenaOCRExtractPDFTool(_OCRBaseTool):
             return self._result(f"Failed to extract text from PDF: {exc}", success=False)
 
 
+def _capture_frame(camera_index: int = 0, name: str = "capture", warmup_frames: int = 5) -> dict[str, Any]:
+    cv2_check = _module_check("cv2")
+    if cv2_check["returncode"] != 0:
+        raise RuntimeError("OpenCV/cv2 is not available. Cannot capture webcam frame.")
+
+    output_path = _ocr_root() / "captures" / f"{_timestamp()}-{_safe_slug(name)}.jpg"
+
+    probe_code = (
+        "import cv2\n"
+        "import json\n"
+        "import sys\n"
+        "from pathlib import Path\n"
+        f"camera_index = {int(camera_index)}\n"
+        f"output_path = {str(output_path)!r}\n"
+        f"warmup_frames = {int(warmup_frames)}\n"
+        "backends = [('DSHOW', cv2.CAP_DSHOW), ('MSMF', cv2.CAP_MSMF), ('ANY', cv2.CAP_ANY)]\n"
+        "last_error = ''\n"
+        "for backend_name, backend in backends:\n"
+        "    cap = cv2.VideoCapture(camera_index, backend)\n"
+        "    opened = bool(cap.isOpened())\n"
+        "    if not opened:\n"
+        "        cap.release()\n"
+        "        last_error = f'camera {camera_index} could not open with backend {backend_name}'\n"
+        "        continue\n"
+        "    frame = None\n"
+        "    ok = False\n"
+        "    for _ in range(max(warmup_frames, 1)):\n"
+        "        ok, frame = cap.read()\n"
+        "    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)\n"
+        "    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)\n"
+        "    fps = float(cap.get(cv2.CAP_PROP_FPS) or 0)\n"
+        "    cap.release()\n"
+        "    if ok and frame is not None:\n"
+        "        Path(output_path).parent.mkdir(parents=True, exist_ok=True)\n"
+        "        saved = cv2.imwrite(output_path, frame)\n"
+        "        print(json.dumps({'success': bool(saved), 'camera_index': camera_index, 'backend': backend_name, 'output_path': output_path, 'width': width, 'height': height, 'fps': fps, 'camera_released': True}))\n"
+        "        sys.exit(0)\n"
+        "    last_error = f'camera {camera_index} opened with {backend_name}, but no frame was read'\n"
+        "print(json.dumps({'success': False, 'camera_index': camera_index, 'output_path': output_path, 'error': last_error or 'No usable camera frame detected.', 'camera_released': True}))\n"
+        "sys.exit(2)\n"
+    )
+
+    result = _run([sys.executable, "-c", probe_code], timeout=30)
+
+    try:
+        parsed = json.loads((result.get("stdout") or "").strip())
+    except Exception:
+        parsed = {
+            "success": False,
+            "camera_index": camera_index,
+            "output_path": str(output_path),
+            "error": result.get("output") or "Camera capture failed.",
+            "camera_released": True,
+        }
+
+    if not parsed.get("success"):
+        raise RuntimeError(parsed.get("error") or "Camera capture failed.")
+
+    return parsed
+
+
+def _describe_capture(path: Path) -> dict[str, Any]:
+    stats = _load_image_stats(path)
+    description_parts: list[str] = []
+
+    if stats["readability"] == "good":
+        description_parts.append("The capture appears suitable for OCR.")
+    elif stats["readability"] == "usable":
+        description_parts.append("The capture may be usable for OCR, but quality could improve.")
+    else:
+        description_parts.append("The capture quality may be poor for OCR.")
+
+    if stats["mean_brightness"] > 250:
+        description_parts.append("The frame is very bright; check for glare or washed-out text.")
+    elif stats["mean_brightness"] < 70:
+        description_parts.append("The frame may be too dark.")
+
+    if stats["contrast"] < 12:
+        description_parts.append("The frame has low contrast; darker text or better lighting may help.")
+
+    if max(stats["width"], stats["height"]) < 900:
+        description_parts.append("The frame resolution is low; move closer or use a higher camera resolution.")
+
+    return {
+        "path": str(path),
+        "stats": stats,
+        "description": " ".join(description_parts),
+    }
+
+
+@ToolRegistry.register("serena_ocr_cameras")
+class SerenaOCRCamerasTool(_OCRBaseTool):
+    tool_id = "serena_ocr_cameras"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="List usable cameras for OCR/live vision.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "max_indexes": {"type": "integer"},
+                },
+            },
+            category="serena_ocr",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        max_indexes = int(params.get("max_indexes") or 8)
+        status = _camera_probe(max_indexes=max_indexes)
+
+        payload = {
+            "report_type": "serena_ocr_cameras",
+            "created_at": _timestamp(),
+            "camera_status": status,
+            "changes_made": False,
+            "camera_left_open": False,
+        }
+        report_path = _save_json("reports", "cameras", payload)
+
+        lines = [
+            "Serena OCR cameras",
+            "",
+            f"- OpenCV available: {'yes' if status.get('opencv_available') else 'no'}",
+            f"- Usable cameras: {len(status.get('usable_cameras', []))}",
+            f"- Report: {report_path}",
+            "- Changes made: no",
+            "- Camera left open: no",
+            "",
+            "Cameras:",
+        ]
+
+        cameras = status.get("cameras") or []
+        if cameras:
+            for cam in cameras:
+                lines.append(
+                    f"- index={cam.get('index')} | backend={cam.get('backend', '')} | "
+                    f"opened={cam.get('opened')} | frame_read={cam.get('frame_read')} | "
+                    f"{cam.get('width')}x{cam.get('height')} | fps={cam.get('fps')}"
+                )
+        else:
+            lines.append("- none")
+
+        lines.extend(["", "Recommendations:"])
+        lines.extend(f"- {item}" for item in status.get("recommendations", [])) if status.get("recommendations") else lines.append("- No immediate recommendations.")
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+@ToolRegistry.register("serena_ocr_capture")
+class SerenaOCRCaptureTool(_OCRBaseTool):
+    tool_id = "serena_ocr_capture"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Capture one explicit webcam frame and save it locally.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "camera_index": {"type": "integer"},
+                    "name": {"type": "string"},
+                },
+            },
+            category="serena_ocr",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        camera_index = int(params.get("camera_index") or 0)
+        name = str(params.get("name") or "webcam-capture").strip()
+
+        try:
+            capture = _capture_frame(camera_index=camera_index, name=name)
+            path = Path(capture["output_path"])
+            desc = _describe_capture(path)
+
+            payload = {
+                "report_type": "serena_ocr_capture",
+                "created_at": _timestamp(),
+                "capture": capture,
+                "description": desc,
+                "camera_opened_by_command": True,
+                "camera_released": True,
+                "changes_made": True,
+                "delete_performed": False,
+            }
+            report_path = _save_json("reports", f"capture-{name}", payload)
+
+            return self._result(
+                "Serena OCR webcam capture complete\n\n"
+                f"- Camera index: {camera_index}\n"
+                f"- Backend: {capture.get('backend')}\n"
+                f"- Capture file: {path}\n"
+                f"- Dimensions: {desc['stats']['width']}x{desc['stats']['height']}\n"
+                f"- Readability: {desc['stats']['readability']} ({desc['stats']['readability_score']}/100)\n"
+                f"- Report: {report_path}\n"
+                "- Camera opened by explicit command: yes\n"
+                "- Camera released: yes\n"
+                "- Changes made: yes\n"
+                "- Delete performed: no\n\n"
+                "Description:\n"
+                f"{desc['description']}",
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            payload = {
+                "report_type": "serena_ocr_capture_failed",
+                "created_at": _timestamp(),
+                "camera_index": camera_index,
+                "error": str(exc),
+                "camera_released": True,
+                "changes_made": False,
+                "delete_performed": False,
+            }
+            report_path = _save_json("reports", f"capture-failed-{name}", payload)
+
+            return self._result(
+                "Serena OCR webcam capture failed safely\n\n"
+                f"- Camera index: {camera_index}\n"
+                f"- Error: {exc}\n"
+                f"- Report: {report_path}\n"
+                "- Camera released: yes\n"
+                "- Changes made: no\n"
+                "- Delete performed: no\n\n"
+                "Plug-and-play note:\n"
+                "- On Dr Piet's PC, plug in the webcam, allow Windows camera permissions, then run `serena ocr cameras --max-indexes 8`.",
+                success=False,
+                metadata={**payload, "report_path": str(report_path)},
+            )
+
+
+@ToolRegistry.register("serena_ocr_capture_doc")
+class SerenaOCRCaptureDocTool(_OCRBaseTool):
+    tool_id = "serena_ocr_capture_doc"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Capture one webcam frame intended as a document and attempt OCR extraction.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "camera_index": {"type": "integer"},
+                    "name": {"type": "string"},
+                },
+            },
+            category="serena_ocr",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        camera_index = int(params.get("camera_index") or 0)
+        name = str(params.get("name") or "webcam-document").strip()
+
+        try:
+            capture = _capture_frame(camera_index=camera_index, name=name)
+            path = Path(capture["output_path"])
+            desc = _describe_capture(path)
+            ocr = _ocr_image_text(path)
+            text_path = _write_extracted_text(path.stem, ocr["text"])
+
+            payload = {
+                "report_type": "serena_ocr_capture_doc",
+                "created_at": _timestamp(),
+                "capture": capture,
+                "description": desc,
+                "ocr": {
+                    "text_length": ocr["text_length"],
+                    "engine": ocr["engine"],
+                },
+                "text_path": str(text_path),
+                "camera_opened_by_command": True,
+                "camera_released": True,
+                "ocr_performed": True,
+                "changes_made": True,
+                "delete_performed": False,
+            }
+            report_path = _save_json("reports", f"capture-doc-{name}", payload)
+
+            preview = ocr["text"][:2000] if ocr["text"] else ""
+
+            return self._result(
+                "Serena OCR document capture complete\n\n"
+                f"- Camera index: {camera_index}\n"
+                f"- Backend: {capture.get('backend')}\n"
+                f"- Capture file: {path}\n"
+                f"- Readability: {desc['stats']['readability']} ({desc['stats']['readability_score']}/100)\n"
+                f"- Text length: {ocr['text_length']}\n"
+                f"- Extracted text file: {text_path}\n"
+                f"- Report: {report_path}\n"
+                "- Camera opened by explicit command: yes\n"
+                "- Camera released: yes\n"
+                "- OCR performed: yes\n"
+                "- Changes made: yes\n"
+                "- Delete performed: no\n\n"
+                "Preview:\n"
+                f"{preview or '[no text detected]'}",
+                metadata={**payload, "report_path": str(report_path), "preview": preview},
+            )
+        except Exception as exc:
+            payload = {
+                "report_type": "serena_ocr_capture_doc_failed",
+                "created_at": _timestamp(),
+                "camera_index": camera_index,
+                "error": str(exc),
+                "camera_released": True,
+                "ocr_performed": False,
+                "changes_made": False,
+                "delete_performed": False,
+            }
+            report_path = _save_json("reports", f"capture-doc-failed-{name}", payload)
+
+            return self._result(
+                "Serena OCR document capture failed safely\n\n"
+                f"- Camera index: {camera_index}\n"
+                f"- Error: {exc}\n"
+                f"- Report: {report_path}\n"
+                "- Camera released: yes\n"
+                "- OCR performed: no\n"
+                "- Changes made: no\n"
+                "- Delete performed: no\n\n"
+                "Plug-and-play note:\n"
+                "- On Dr Piet's PC, plug in the webcam, allow Windows camera permissions, then run `serena ocr capture-doc --camera-index 0`.",
+                success=False,
+                metadata={**payload, "report_path": str(report_path)},
+            )
+
+
+@ToolRegistry.register("serena_ocr_describe_capture")
+class SerenaOCRDescribeCaptureTool(_OCRBaseTool):
+    tool_id = "serena_ocr_describe_capture"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Describe a saved capture/image for OCR suitability.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                },
+                "required": ["path"],
+            },
+            category="serena_ocr",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            path = _safe_image_path(str(params.get("path") or ""))
+            if path.suffix.lower() == ".pdf":
+                return self._result("describe-capture expects an image file, not a PDF.", success=False)
+
+            desc = _describe_capture(path)
+
+            payload = {
+                "report_type": "serena_ocr_describe_capture",
+                "created_at": _timestamp(),
+                "path": str(path),
+                "description": desc,
+                "changes_made": False,
+                "delete_performed": False,
+            }
+            report_path = _save_json("reports", f"describe-capture-{path.name}", payload)
+
+            stats = desc["stats"]
+
+            return self._result(
+                "Serena OCR capture description\n\n"
+                f"- Path: {path}\n"
+                f"- Dimensions: {stats['width']}x{stats['height']}\n"
+                f"- Brightness: {stats['mean_brightness']}\n"
+                f"- Contrast: {stats['contrast']}\n"
+                f"- Readability: {stats['readability']} ({stats['readability_score']}/100)\n"
+                f"- Report: {report_path}\n"
+                "- Changes made: no\n"
+                "- Delete performed: no\n\n"
+                "Description:\n"
+                f"{desc['description']}",
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to describe capture: {exc}", success=False)
+
+
 __all__ = [
     "SerenaOCRStatusTool",
     "SerenaOCREnginesTool",
@@ -1087,6 +1474,10 @@ __all__ = [
     "SerenaOCRPlanTool",
     "SerenaOCRSafetyPolicyTool",
     "SerenaOCRExtractPDFTool",
+    "SerenaOCRDescribeCaptureTool",
+    "SerenaOCRCaptureDocTool",
+    "SerenaOCRCaptureTool",
+    "SerenaOCRCamerasTool",
     "SerenaOCRExtractImageTool",
     "SerenaOCRReadabilityTool",
     "SerenaOCRInspectImageTool",
