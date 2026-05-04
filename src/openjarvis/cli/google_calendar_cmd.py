@@ -11,6 +11,11 @@ from openjarvis.tools.serena_google_calendar import (
     SerenaGoogleCalendarEnvCheckTool,
     SerenaGoogleCalendarPlanTool,
     SerenaGoogleCalendarStatusTool,
+    SerenaGoogleCalendarRecurringTool,
+    SerenaGoogleCalendarMeetTool,
+    SerenaGoogleCalendarReminderTool,
+    SerenaGoogleCalendarAppointmentTool,
+    SerenaGoogleCalendarCreateTool,
     SerenaGoogleCalendarAvailabilityTool,
     SerenaGoogleCalendarEventInfoTool,
     SerenaGoogleCalendarSearchTool,
@@ -121,6 +126,109 @@ def availability(date: str, days: int, work_start_hour: int, work_end_hour: int,
         work_start_hour=work_start_hour,
         work_end_hour=work_end_hour,
         slot_minutes=slot_minutes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@calendar.command("create")
+@click.option("--title", required=True, help="Event title.")
+@click.option("--start", required=True, help="Start datetime, e.g. 2026-05-05T10:00.")
+@click.option("--end", required=True, help="End datetime, e.g. 2026-05-05T10:30.")
+@click.option("--description", default="", help="Event description.")
+@click.option("--location", default="", help="Event location.")
+@click.option("--attendees", default="", help="Comma-separated attendee emails.")
+def create(title: str, start: str, end: str, description: str, location: str, attendees: str) -> None:
+    """Create a Google Calendar event."""
+    console = Console()
+    result = SerenaGoogleCalendarCreateTool().execute(
+        title=title,
+        start=start,
+        end=end,
+        description=description,
+        location=location,
+        attendees=attendees,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@calendar.command("appointment")
+@click.option("--patient", required=True, help="Patient/client name.")
+@click.option("--start", required=True, help="Start datetime.")
+@click.option("--end", required=True, help="End datetime.")
+@click.option("--reason", default="Consultation appointment", help="Appointment reason.")
+@click.option("--location", default="", help="Appointment location.")
+@click.option("--attendees", default="", help="Comma-separated attendee emails.")
+@click.option("--add-meet", is_flag=True, help="Add Google Meet link.")
+def appointment(patient: str, start: str, end: str, reason: str, location: str, attendees: str, add_meet: bool) -> None:
+    """Create a structured appointment."""
+    console = Console()
+    result = SerenaGoogleCalendarAppointmentTool().execute(
+        patient=patient,
+        start=start,
+        end=end,
+        reason=reason,
+        location=location,
+        attendees=attendees,
+        add_meet=add_meet,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@calendar.command("reminder")
+@click.option("--title", required=True, help="Reminder title.")
+@click.option("--start", required=True, help="Reminder start datetime.")
+@click.option("--minutes", default=15, type=int, help="Reminder event duration.")
+@click.option("--description", default="Reminder created by Serena.", help="Reminder description.")
+def reminder(title: str, start: str, minutes: int, description: str) -> None:
+    """Create a calendar reminder/follow-up."""
+    console = Console()
+    result = SerenaGoogleCalendarReminderTool().execute(
+        title=title,
+        start=start,
+        minutes=minutes,
+        description=description,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@calendar.command("meet")
+@click.option("--title", required=True, help="Event title.")
+@click.option("--start", required=True, help="Start datetime.")
+@click.option("--end", required=True, help="End datetime.")
+@click.option("--description", default="Google Meet event created by Serena.", help="Event description.")
+@click.option("--attendees", default="", help="Comma-separated attendee emails.")
+def meet(title: str, start: str, end: str, description: str, attendees: str) -> None:
+    """Create a Google Meet calendar event."""
+    console = Console()
+    result = SerenaGoogleCalendarMeetTool().execute(
+        title=title,
+        start=start,
+        end=end,
+        description=description,
+        attendees=attendees,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@calendar.command("recurring")
+@click.option("--title", required=True, help="Event title.")
+@click.option("--start", required=True, help="Start datetime.")
+@click.option("--end", required=True, help="End datetime.")
+@click.option("--rrule", required=True, help="Recurrence rule, e.g. FREQ=WEEKLY;COUNT=4.")
+@click.option("--description", default="Recurring event created by Serena.", help="Event description.")
+@click.option("--location", default="", help="Event location.")
+@click.option("--attendees", default="", help="Comma-separated attendee emails.")
+def recurring(title: str, start: str, end: str, rrule: str, description: str, location: str, attendees: str) -> None:
+    """Create a recurring calendar event."""
+    console = Console()
+    result = SerenaGoogleCalendarRecurringTool().execute(
+        title=title,
+        start=start,
+        end=end,
+        rrule=rrule,
+        description=description,
+        location=location,
+        attendees=attendees,
     )
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 

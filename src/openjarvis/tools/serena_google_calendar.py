@@ -856,12 +856,516 @@ class SerenaGoogleCalendarAvailabilityTool(_GoogleCalendarBaseTool):
             )
 
 
+def _parse_attendees(attendees: str | None = None) -> list[dict[str, str]]:
+    raw = str(attendees or "").strip()
+    if not raw:
+        return []
+    return [{"email": item.strip()} for item in raw.split(",") if item.strip()]
+
+
+def _parse_local_datetime(value: str, timezone_name: str | None = None) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        raise RuntimeError("Datetime value is required.")
+
+    # Accept ISO-like local values: YYYY-MM-DDTHH:MM or YYYY-MM-DD HH:MM
+    raw = raw.replace(" ", "T")
+
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except Exception:
+        raise RuntimeError(f"Could not parse datetime: {value}. Use YYYY-MM-DDTHH:MM.")
+
+    if parsed.tzinfo is not None:
+        return parsed.isoformat()
+
+    return parsed.isoformat()
+
+
+def _event_datetime(value: str, timezone_name: str | None = None) -> dict[str, str]:
+    return {
+        "dateTime": _parse_local_datetime(value, timezone_name),
+        "timeZone": timezone_name or _default_timezone(),
+    }
+
+
+def _create_calendar_event(
+    title: str,
+    start: str,
+    end: str,
+    description: str = "",
+    location: str = "",
+    attendees: str = "",
+    add_meet: bool = False,
+    recurrence: list[str] | None = None,
+    reminders_minutes: int | None = None,
+) -> dict[str, Any]:
+    service = _get_calendar_service()
+
+    body: dict[str, Any] = {
+        "summary": title,
+        "description": description,
+        "location": location,
+        "start": _event_datetime(start),
+        "end": _event_datetime(end),
+        "attendees": _parse_attendees(attendees),
+    }
+
+    if recurrence:
+        body["recurrence"] = recurrence
+
+    if reminders_minutes is not None:
+        body["reminders"] = {
+            "useDefault": False,
+            "overrides": [
+                {"method": "popup", "minutes": int(reminders_minutes)},
+            ],
+        }
+
+    conference_data_version = 0
+    if add_meet:
+        conference_data_version = 1
+        body["conferenceData"] = {
+            "createRequest": {
+                "requestId": f"serena-{_timestamp()}-{_safe_slug(title)}",
+                "conferenceSolutionKey": {"type": "hangoutsMeet"},
+            }
+        }
+
+    event = service.events().insert(
+        calendarId=_calendar_id(),
+        body=body,
+        conferenceDataVersion=conference_data_version,
+        sendUpdates="all" if attendees else "none",
+    ).execute()
+
+    return event
+
+
+def _event_created_response(prefix: str, event: dict[str, Any], report_path: Path, extra_lines: list[str] | None = None) -> str:
+    lines = [
+        prefix,
+        "",
+        f"- Title: {event.get('summary') or '(no title)'}",
+        f"- Event ID: {event.get('id')}",
+        f"- Status: {event.get('status')}",
+        f"- Start: {event.get('start')}",
+        f"- End: {event.get('end')}",
+        f"- Location: {event.get('location') or 'none'}",
+        f"- Link: {event.get('htmlLink') or 'none'}",
+        f"- Meet link: {event.get('hangoutLink') or 'none'}",
+        f"- Report: {report_path}",
+        "- Event created: yes",
+        "- Changes made: yes",
+        "- Delete performed: no",
+        "- Secret values exposed: no",
+    ]
+    if extra_lines:
+        lines.extend([""] + extra_lines)
+    return "\n".join(lines)
+
+
+@ToolRegistry.register("serena_google_calendar_create")
+class SerenaGoogleCalendarCreateTool(_GoogleCalendarBaseTool):
+    tool_id = "serena_google_calendar_create"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a Google Calendar event.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "start": {"type": "string"},
+                    "end": {"type": "string"},
+                    "description": {"type": "string"},
+                    "location": {"type": "string"},
+                    "attendees": {"type": "string"},
+                },
+                "required": ["title", "start", "end"],
+            },
+            category="serena_google_calendar",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        title = str(params.get("title") or "").strip()
+        start = str(params.get("start") or "").strip()
+        end = str(params.get("end") or "").strip()
+        description = str(params.get("description") or "").strip()
+        location = str(params.get("location") or "").strip()
+        attendees = str(params.get("attendees") or "").strip()
+
+        try:
+            event = _create_calendar_event(
+                title=title,
+                start=start,
+                end=end,
+                description=description,
+                location=location,
+                attendees=attendees,
+            )
+
+            payload = {
+                "report_type": "serena_google_calendar_create",
+                "created_at": _timestamp(),
+                "calendar_id": _calendar_id(),
+                "event": _event_summary(event),
+                "changes_made": True,
+                "delete_performed": False,
+                "secret_values_exposed": False,
+            }
+            report_path = _save_json("reports", f"create-{title}", payload)
+
+            return self._result(
+                _event_created_response("Serena Google Calendar event created", event, report_path),
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(
+                "Serena Google Calendar create failed safely\n\n"
+                f"- Title: {title}\n"
+                f"- Start: {start}\n"
+                f"- End: {end}\n"
+                f"- Error: {exc}\n"
+                "- Event created: no\n"
+                "- Changes made: no\n"
+                "- Delete performed: no\n\n"
+                "Note:\n"
+                "- If this says invalid_scope, Dr Piet still needs to approve the Calendar-scoped Google token.",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_google_calendar_appointment")
+class SerenaGoogleCalendarAppointmentTool(_GoogleCalendarBaseTool):
+    tool_id = "serena_google_calendar_appointment"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a structured appointment event.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "patient": {"type": "string"},
+                    "start": {"type": "string"},
+                    "end": {"type": "string"},
+                    "reason": {"type": "string"},
+                    "location": {"type": "string"},
+                    "attendees": {"type": "string"},
+                    "add_meet": {"type": "boolean"},
+                },
+                "required": ["patient", "start", "end"],
+            },
+            category="serena_google_calendar",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        patient = str(params.get("patient") or "").strip()
+        start = str(params.get("start") or "").strip()
+        end = str(params.get("end") or "").strip()
+        reason = str(params.get("reason") or "Consultation appointment").strip()
+        location = str(params.get("location") or "").strip()
+        attendees = str(params.get("attendees") or "").strip()
+        add_meet = bool(params.get("add_meet") or False)
+
+        title = f"Appointment: {patient}"
+        description = (
+            "Appointment created by Serena Google Calendar Full Operator v1.\n\n"
+            f"Patient / client: {patient}\n"
+            f"Reason: {reason}\n\n"
+            "Preparation:\n"
+            "- Review relevant notes before appointment.\n"
+            "- Confirm required documents or follow-up items.\n"
+        )
+
+        try:
+            event = _create_calendar_event(
+                title=title,
+                start=start,
+                end=end,
+                description=description,
+                location=location,
+                attendees=attendees,
+                add_meet=add_meet,
+            )
+
+            payload = {
+                "report_type": "serena_google_calendar_appointment",
+                "created_at": _timestamp(),
+                "calendar_id": _calendar_id(),
+                "patient": patient,
+                "reason": reason,
+                "event": _event_summary(event),
+                "meet_requested": add_meet,
+                "changes_made": True,
+                "delete_performed": False,
+                "secret_values_exposed": False,
+            }
+            report_path = _save_json("reports", f"appointment-{patient}", payload)
+
+            return self._result(
+                _event_created_response("Serena Google Calendar appointment created", event, report_path),
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(
+                "Serena Google Calendar appointment failed safely\n\n"
+                f"- Patient/client: {patient}\n"
+                f"- Start: {start}\n"
+                f"- End: {end}\n"
+                f"- Error: {exc}\n"
+                "- Appointment created: no\n"
+                "- Changes made: no\n"
+                "- Delete performed: no\n\n"
+                "Note:\n"
+                "- If this says invalid_scope, Dr Piet still needs to approve the Calendar-scoped Google token.",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_google_calendar_reminder")
+class SerenaGoogleCalendarReminderTool(_GoogleCalendarBaseTool):
+    tool_id = "serena_google_calendar_reminder"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a calendar reminder/follow-up event.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "start": {"type": "string"},
+                    "minutes": {"type": "integer"},
+                    "description": {"type": "string"},
+                },
+                "required": ["title", "start"],
+            },
+            category="serena_google_calendar",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        title = str(params.get("title") or "").strip()
+        start = str(params.get("start") or "").strip()
+        minutes = int(params.get("minutes") or 15)
+        description = str(params.get("description") or "Reminder created by Serena.").strip()
+
+        start_dt = datetime.fromisoformat(start.replace(" ", "T"))
+        end_dt = start_dt + timedelta(minutes=minutes)
+
+        try:
+            event = _create_calendar_event(
+                title=f"Reminder: {title}",
+                start=start_dt.isoformat(),
+                end=end_dt.isoformat(),
+                description=description,
+                reminders_minutes=10,
+            )
+
+            payload = {
+                "report_type": "serena_google_calendar_reminder",
+                "created_at": _timestamp(),
+                "calendar_id": _calendar_id(),
+                "event": _event_summary(event),
+                "changes_made": True,
+                "delete_performed": False,
+                "secret_values_exposed": False,
+            }
+            report_path = _save_json("reports", f"reminder-{title}", payload)
+
+            return self._result(
+                _event_created_response("Serena Google Calendar reminder created", event, report_path),
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(
+                "Serena Google Calendar reminder failed safely\n\n"
+                f"- Title: {title}\n"
+                f"- Start: {start}\n"
+                f"- Error: {exc}\n"
+                "- Reminder created: no\n"
+                "- Changes made: no\n"
+                "- Delete performed: no\n\n"
+                "Note:\n"
+                "- If this says invalid_scope, Dr Piet still needs to approve the Calendar-scoped Google token.",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_google_calendar_meet")
+class SerenaGoogleCalendarMeetTool(_GoogleCalendarBaseTool):
+    tool_id = "serena_google_calendar_meet"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a Google Calendar event with Google Meet link.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "start": {"type": "string"},
+                    "end": {"type": "string"},
+                    "description": {"type": "string"},
+                    "attendees": {"type": "string"},
+                },
+                "required": ["title", "start", "end"],
+            },
+            category="serena_google_calendar",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        title = str(params.get("title") or "").strip()
+        start = str(params.get("start") or "").strip()
+        end = str(params.get("end") or "").strip()
+        description = str(params.get("description") or "Google Meet event created by Serena.").strip()
+        attendees = str(params.get("attendees") or "").strip()
+
+        try:
+            event = _create_calendar_event(
+                title=title,
+                start=start,
+                end=end,
+                description=description,
+                attendees=attendees,
+                add_meet=True,
+            )
+
+            payload = {
+                "report_type": "serena_google_calendar_meet",
+                "created_at": _timestamp(),
+                "calendar_id": _calendar_id(),
+                "event": _event_summary(event),
+                "meet_requested": True,
+                "changes_made": True,
+                "delete_performed": False,
+                "secret_values_exposed": False,
+            }
+            report_path = _save_json("reports", f"meet-{title}", payload)
+
+            return self._result(
+                _event_created_response("Serena Google Calendar Meet event created", event, report_path),
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(
+                "Serena Google Calendar Meet event failed safely\n\n"
+                f"- Title: {title}\n"
+                f"- Start: {start}\n"
+                f"- End: {end}\n"
+                f"- Error: {exc}\n"
+                "- Meet event created: no\n"
+                "- Changes made: no\n"
+                "- Delete performed: no\n\n"
+                "Note:\n"
+                "- If this says invalid_scope, Dr Piet still needs to approve the Calendar-scoped Google token.",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_google_calendar_recurring")
+class SerenaGoogleCalendarRecurringTool(_GoogleCalendarBaseTool):
+    tool_id = "serena_google_calendar_recurring"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a recurring Google Calendar event.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "start": {"type": "string"},
+                    "end": {"type": "string"},
+                    "rrule": {"type": "string"},
+                    "description": {"type": "string"},
+                    "location": {"type": "string"},
+                    "attendees": {"type": "string"},
+                },
+                "required": ["title", "start", "end", "rrule"],
+            },
+            category="serena_google_calendar",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        title = str(params.get("title") or "").strip()
+        start = str(params.get("start") or "").strip()
+        end = str(params.get("end") or "").strip()
+        rrule = str(params.get("rrule") or "").strip()
+        description = str(params.get("description") or "Recurring event created by Serena.").strip()
+        location = str(params.get("location") or "").strip()
+        attendees = str(params.get("attendees") or "").strip()
+
+        if not rrule.startswith("RRULE:"):
+            rrule = "RRULE:" + rrule
+
+        try:
+            event = _create_calendar_event(
+                title=title,
+                start=start,
+                end=end,
+                description=description,
+                location=location,
+                attendees=attendees,
+                recurrence=[rrule],
+            )
+
+            payload = {
+                "report_type": "serena_google_calendar_recurring",
+                "created_at": _timestamp(),
+                "calendar_id": _calendar_id(),
+                "event": _event_summary(event),
+                "rrule": rrule,
+                "changes_made": True,
+                "delete_performed": False,
+                "secret_values_exposed": False,
+            }
+            report_path = _save_json("reports", f"recurring-{title}", payload)
+
+            return self._result(
+                _event_created_response(
+                    "Serena Google Calendar recurring event created",
+                    event,
+                    report_path,
+                    extra_lines=[f"- Recurrence: {rrule}"],
+                ),
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(
+                "Serena Google Calendar recurring event failed safely\n\n"
+                f"- Title: {title}\n"
+                f"- Start: {start}\n"
+                f"- End: {end}\n"
+                f"- RRULE: {rrule}\n"
+                f"- Error: {exc}\n"
+                "- Recurring event created: no\n"
+                "- Changes made: no\n"
+                "- Delete performed: no\n\n"
+                "Note:\n"
+                "- If this says invalid_scope, Dr Piet still needs to approve the Calendar-scoped Google token.",
+                success=False,
+            )
+
+
 __all__ = [
     "SerenaGoogleCalendarStatusTool",
     "SerenaGoogleCalendarEnvCheckTool",
     "SerenaGoogleCalendarConnectCheckTool",
     "SerenaGoogleCalendarPlanTool",
     "SerenaGoogleCalendarAvailabilityTool",
+    "SerenaGoogleCalendarRecurringTool",
+    "SerenaGoogleCalendarMeetTool",
+    "SerenaGoogleCalendarReminderTool",
+    "SerenaGoogleCalendarAppointmentTool",
+    "SerenaGoogleCalendarCreateTool",
     "SerenaGoogleCalendarEventInfoTool",
     "SerenaGoogleCalendarSearchTool",
     "SerenaGoogleCalendarUpcomingTool",
