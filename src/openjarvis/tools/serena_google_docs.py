@@ -1274,6 +1274,156 @@ class SerenaGoogleDocsSaveOutputTool(_GoogleDocsBaseTool):
             return self._result(f"Failed to save Serena output as Google Doc: {exc}", success=False)
 
 
+@ToolRegistry.register("serena_google_docs_audit")
+class SerenaGoogleDocsAuditTool(_GoogleDocsBaseTool):
+    tool_id = "serena_google_docs_audit"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Audit Google Docs visible to Serena, optionally filtered by query.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "limit": {"type": "integer"},
+                },
+            },
+            category="serena_google_docs",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            drive_service = _get_drive_service()
+
+            query_text = str(params.get("query") or "").strip()
+            limit = int(params.get("limit") or 50)
+
+            q = "mimeType = 'application/vnd.google-apps.document' and trashed = false"
+            if query_text:
+                safe_query = _escape_drive_query(query_text)
+                q += f" and (name contains '{safe_query}' or fullText contains '{safe_query}')"
+
+            result = drive_service.files().list(
+                q=q,
+                fields="files(id,name,mimeType,parents,webViewLink,createdTime,modifiedTime,size),nextPageToken",
+                pageSize=limit,
+                orderBy="modifiedTime desc",
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+            ).execute()
+
+            docs = result.get("files", [])
+
+            duplicate_names: dict[str, list[dict[str, Any]]] = {}
+            for item in docs:
+                duplicate_names.setdefault(item.get("name", ""), []).append(item)
+            duplicates = {
+                name: items for name, items in duplicate_names.items()
+                if name and len(items) > 1
+            }
+
+            payload = {
+                "report_type": "serena_google_docs_audit",
+                "created_at": _timestamp(),
+                "query": query_text,
+                "docs_scanned": len(docs),
+                "duplicate_name_groups": duplicates,
+                "documents": docs,
+                "changes_made": False,
+                "delete_performed": False,
+                "secret_values_exposed": False,
+            }
+            report_path = _save_json("reports", "audit-google-docs", payload)
+
+            lines = [
+                "Serena Google Docs audit",
+                "",
+                f"- Query: {query_text or 'all visible Google Docs'}",
+                f"- Docs scanned: {len(docs)}",
+                f"- Duplicate name groups: {len(duplicates)}",
+                f"- Report: {report_path}",
+                "- Changes made: no",
+                "- Delete performed: no",
+                "- Secret values exposed: no",
+                "",
+                "Documents:",
+            ]
+
+            if docs:
+                for item in docs[:50]:
+                    lines.append(
+                        f"- {item.get('name')} | id={item.get('id')} | "
+                        f"modified={item.get('modifiedTime')} | link={item.get('webViewLink', '')}"
+                    )
+                if len(docs) > 50:
+                    lines.append(f"... plus {len(docs) - 50} more")
+            else:
+                lines.append("- none")
+
+            return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+        except Exception as exc:
+            return self._result(f"Failed to audit Google Docs: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_google_docs_blocked_delete")
+class SerenaGoogleDocsBlockedDeleteTool(_GoogleDocsBaseTool):
+    tool_id = "serena_google_docs_blocked_delete"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked Google Docs delete command for v1 safety.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "document_id": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["document_id"],
+            },
+            category="serena_google_docs",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        document_id = str(params.get("document_id") or "").strip()
+        reason = str(params.get("reason") or "Delete requested.").strip()
+
+        payload = {
+            "report_type": "serena_google_docs_blocked_delete",
+            "created_at": _timestamp(),
+            "document_id_present": bool(document_id),
+            "document_id_length": len(document_id),
+            "reason": reason,
+            "delete_performed": False,
+            "trash_performed": False,
+            "permanent_delete_performed": False,
+            "changes_made": False,
+            "blocked_reason": "Google Docs delete/permanent removal is blocked in v1.",
+            "secret_values_exposed": False,
+        }
+        report_path = _save_json("reports", "blocked-delete", payload)
+
+        return self._result(
+            "Google Docs delete blocked by Serena Google Docs v1 policy\n\n"
+            f"- Document ID provided: {'yes' if document_id else 'no'}\n"
+            f"- Reason: {reason}\n"
+            f"- Report: {report_path}\n"
+            "- Delete performed: no\n"
+            "- Trash performed: no\n"
+            "- Permanent delete performed: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n\n"
+            "Policy:\n"
+            "- Serena Google Docs v1 may create, read, append, rename, copy, export, link, save outputs, and audit.\n"
+            "- Delete/trash/permanent removal is intentionally blocked in v1.",
+            success=False,
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
 __all__ = [
     "SerenaGoogleDocsStatusTool",
     "SerenaGoogleDocsEnvCheckTool",
@@ -1281,6 +1431,8 @@ __all__ = [
     "SerenaGoogleDocsPlanTool",
     "SerenaGoogleDocsLinkTool",
     "SerenaGoogleDocsSaveOutputTool",
+    "SerenaGoogleDocsBlockedDeleteTool",
+    "SerenaGoogleDocsAuditTool",
     "SerenaGoogleDocsCreateReportTool",
     "SerenaGoogleDocsCreateNoteTool",
     "SerenaGoogleDocsExportTool",

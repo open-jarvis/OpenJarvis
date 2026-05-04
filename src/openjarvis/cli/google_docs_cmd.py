@@ -11,6 +11,8 @@ from openjarvis.tools.serena_google_docs import (
     SerenaGoogleDocsEnvCheckTool,
     SerenaGoogleDocsPlanTool,
     SerenaGoogleDocsStatusTool,
+    SerenaGoogleDocsBlockedDeleteTool,
+    SerenaGoogleDocsAuditTool,
     SerenaGoogleDocsSaveOutputTool,
     SerenaGoogleDocsCreateReportTool,
     SerenaGoogleDocsCreateNoteTool,
@@ -210,6 +212,29 @@ def save_output(local_path: str, title: str, drive_folder: str, doc_type: str) -
         title=title,
         drive_folder=drive_folder,
         doc_type=doc_type,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@google_docs.command("audit")
+@click.option("--query", default="", help="Optional search query.")
+@click.option("--limit", default=50, type=int, help="Maximum Docs to audit.")
+def audit(query: str, limit: int) -> None:
+    """Audit Google Docs visible to Serena."""
+    console = Console()
+    result = SerenaGoogleDocsAuditTool().execute(query=query, limit=limit)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@google_docs.command("blocked-delete")
+@click.option("--document-id", required=True, help="Google Doc document ID.")
+@click.option("--reason", default="Delete requested.", help="Reason for attempted delete.")
+def blocked_delete(document_id: str, reason: str) -> None:
+    """Deliberately blocked Google Docs delete command for v1."""
+    console = Console()
+    result = SerenaGoogleDocsBlockedDeleteTool().execute(
+        document_id=document_id,
+        reason=reason,
     )
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
