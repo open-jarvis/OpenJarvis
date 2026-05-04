@@ -26,6 +26,16 @@ _PATH_ENV_VAR = {
     "openclaw": "OPENCLAW_PATH",
 }
 
+# Map framework name -> env var that overrides its language-runtime executable.
+# For hermes this overrides `python_executable` (point at the Hermes venv's
+# python so its deps don't need to be installed in OpenJarvis's venv); for
+# openclaw it overrides `node_executable` (point at a Node ≥14.8 binary if
+# the system default is too old).
+_RUNTIME_ENV_VAR = {
+    "hermes": "HERMES_AGENT_PYTHON",
+    "openclaw": "OPENCLAW_NODE",
+}
+
 
 class ThirdPartyError(Exception):
     """Base exception for third-party framework problems."""
@@ -87,15 +97,26 @@ def load_third_party_config(toml_path: Optional[Path] = None) -> ThirdPartyConfi
 
     entries: Dict[str, ThirdPartyEntry] = {}
     for name, body in raw.items():
-        env_var = _PATH_ENV_VAR.get(name)
-        path_str = os.environ.get(env_var, body["path"]) if env_var else body["path"]
+        path_env = _PATH_ENV_VAR.get(name)
+        path_str = os.environ.get(path_env, body["path"]) if path_env else body["path"]
+        runtime_env = _RUNTIME_ENV_VAR.get(name)
+        runtime_override = os.environ.get(runtime_env, "") if runtime_env else ""
+        # The runtime-env override takes precedence over the TOML default for
+        # whichever runtime field is relevant to this framework.
+        python_exe = body.get("python_executable", "")
+        node_exe = body.get("node_executable", "")
+        if runtime_override:
+            if name == "hermes":
+                python_exe = runtime_override
+            elif name == "openclaw":
+                node_exe = runtime_override
         entries[name] = ThirdPartyEntry(
             name=name,
             path=Path(path_str),
             pinned_commit=body.get("pinned_commit", ""),
             runner_script=body.get("runner_script", ""),
-            python_executable=body.get("python_executable", ""),
-            node_executable=body.get("node_executable", ""),
+            python_executable=python_exe,
+            node_executable=node_exe,
         )
     return ThirdPartyConfig(entries=entries)
 

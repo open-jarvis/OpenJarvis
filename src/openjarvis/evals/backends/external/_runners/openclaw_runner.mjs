@@ -54,8 +54,23 @@ async function main() {
     OPENCLAW_API_KEY: args.api_key,
   };
 
-  const child = spawn('node', [
-    openclawBin, 'chat',
+  // Use the SAME node executable that's running this script — picking up
+  // 'node' from PATH can resolve to a system Node too old for OpenClaw
+  // (which uses top-level await, requiring Node >=14.8).
+  const nodeExe = process.execPath;
+
+  // Use `openclaw agent --local` for headless single-shot invocation:
+  // runs the embedded agent locally without going through the Gateway,
+  // emits JSON. A unique --session-id per invocation gives each task a
+  // fresh OpenClaw session (no carryover between eval tasks).
+  const sessionId = (
+    `openjarvis-eval-${Date.now()}-` +
+    Math.floor(Math.random() * 1e9).toString(36)
+  );
+  const child = spawn(nodeExe, [
+    openclawBin, 'agent',
+    '--local',
+    '--session-id', sessionId,
     '--message', args.task,
     '--json',
   ], { env: childEnv });

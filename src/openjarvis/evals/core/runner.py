@@ -340,9 +340,13 @@ class EvalRunner:
             latency = full.get("latency_seconds", 0.0)
             cost = full.get("cost_usd", 0.0)
 
-            energy_j = full.get("energy_joules", 0.0)
-            power_w = full.get("power_watts", 0.0)
-            throughput = full.get("throughput_tok_per_sec", 0.0)
+            # Coerce None -> 0.0: backends may emit None when telemetry is
+            # unavailable (e.g., HermesBackend when no GPU sampler). The
+            # 'or 0.0' handles the case where the key is present but the
+            # value is None -- .get(default) only kicks in when missing.
+            energy_j = full.get("energy_joules", 0.0) or 0.0
+            power_w = full.get("power_watts", 0.0) or 0.0
+            throughput = full.get("throughput_tok_per_sec", 0.0) or 0.0
             accuracy_score = 1.0 if is_correct else 0.0
 
             # Compute IPW and IPJ
@@ -389,9 +393,11 @@ class EvalRunner:
 
             # Extract derived and ITL metrics from _telemetry dict
             _telem = full.get("_telemetry", {})
-            energy_per_out_tok = _telem.get("energy_per_output_token_joules", 0.0)
-            throughput_per_w = _telem.get("throughput_per_watt", 0.0)
-            mean_itl = _telem.get("mean_itl_ms", 0.0)
+            energy_per_out_tok = (
+                _telem.get("energy_per_output_token_joules", 0.0) or 0.0
+            )
+            throughput_per_w = _telem.get("throughput_per_watt", 0.0) or 0.0
+            mean_itl = _telem.get("mean_itl_ms", 0.0) or 0.0
 
             return EvalResult(
                 record_id=record.record_id,
@@ -403,10 +409,10 @@ class EvalRunner:
                 completion_tokens=usage.get("completion_tokens", 0),
                 cost_usd=cost,
                 scoring_metadata=scoring_meta,
-                ttft=full.get("ttft", 0.0),
+                ttft=full.get("ttft", 0.0) or 0.0,
                 energy_joules=energy_j,
                 power_watts=power_w,
-                gpu_utilization_pct=full.get("gpu_utilization_pct", 0.0),
+                gpu_utilization_pct=full.get("gpu_utilization_pct", 0.0) or 0.0,
                 throughput_tok_per_sec=throughput,
                 mfu_pct=mfu,
                 mbu_pct=mbu,
