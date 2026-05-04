@@ -1353,6 +1353,8 @@ class DigestConfig:
 class JarvisConfig:
     """Top-level configuration for OpenJarvis."""
 
+    installed_at: str = ""
+    installer_version: str = ""
     hardware: HardwareInfo = field(default_factory=HardwareInfo)
     engine: EngineConfig = field(default_factory=EngineConfig)
     intelligence: IntelligenceConfig = field(default_factory=IntelligenceConfig)
@@ -1599,6 +1601,11 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
         # Memory: accept [memory] (old) → maps to tools.storage
         if "memory" in data:
             _apply_toml_section(cfg.tools.storage, data["memory"])
+
+        # Top-level install provenance (installed_at, installer_version)
+        for key in ("installed_at", "installer_version"):
+            if key in data:
+                setattr(cfg, key, data[key])
 
         # Expand security profile (user TOML overrides take precedence)
         _user_security_keys = set(data.get("security", {}).keys())

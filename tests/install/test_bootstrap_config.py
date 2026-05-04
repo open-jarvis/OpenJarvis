@@ -90,3 +90,36 @@ def test_handles_special_chars_in_model_name(tmp_openjarvis_home: Path) -> None:
     _bootstrap.write_initial_config(hardware=hw, engine="ollama", model=weird_model)
     data = tomllib.loads((tmp_openjarvis_home / "config.toml").read_text())
     assert data["intelligence"]["default_model"] == weird_model
+
+
+def test_jarvis_config_has_install_provenance_fields() -> None:
+    """Top-level provenance fields should be addressable as attributes."""
+    from openjarvis.core.config import JarvisConfig
+
+    cfg = JarvisConfig()
+    assert hasattr(cfg, "installed_at")
+    assert hasattr(cfg, "installer_version")
+    assert cfg.installed_at == ""
+    assert cfg.installer_version == ""
+
+
+def test_load_config_parses_provenance_from_toml(
+    tmp_openjarvis_home: Path,
+) -> None:
+    """If config.toml has installed_at/installer_version at top level, load them."""
+    from openjarvis.core.config import load_config
+
+    cfg_path = tmp_openjarvis_home / "config.toml"
+    cfg_path.write_text(
+        'installed_at = "2026-05-03T12:00:00Z"\n'
+        'installer_version = "0.1.1"\n'
+        "\n"
+        "[engine]\n"
+        'default = "ollama"\n'
+    )
+    # Clear lru_cache so load_config reads our new file.
+    load_config.cache_clear()
+    cfg = load_config(cfg_path)
+    assert cfg.installed_at == "2026-05-03T12:00:00Z"
+    assert cfg.installer_version == "0.1.1"
+    load_config.cache_clear()
