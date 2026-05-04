@@ -2405,6 +2405,517 @@ class SerenaVSCodeFinalCheckTool(_VSCodeBaseTool):
             return self._result(f"Failed to run VS Code final check: {exc}", success=False)
 
 
+TODO_PATTERNS = [
+    "TODO",
+    "FIXME",
+    "HACK",
+    "BUG",
+    "XXX",
+    "REVIEW",
+]
+
+ERROR_PATTERNS = [
+    "Traceback",
+    "SyntaxError",
+    "ImportError",
+    "ModuleNotFoundError",
+    "TypeError",
+    "ValueError",
+    "NameError",
+    "AttributeError",
+    "Exception",
+    "ERROR",
+    "FAILED",
+    "failed",
+]
+
+
+def _scan_text_patterns(root_path: Path, patterns: list[str], limit: int = 500) -> list[dict[str, Any]]:
+    files = _collect_project_files(root_path, limit=limit)
+    matches: list[dict[str, Any]] = []
+
+    for file in files:
+        if not _is_safe_read(file):
+            continue
+        if file.stat().st_size > MAX_READ_BYTES:
+            continue
+
+        try:
+            text = _read_text(file, max_chars=MAX_READ_BYTES)
+        except Exception:
+            continue
+
+        lines = text.splitlines()
+        for idx, line in enumerate(lines, start=1):
+            for pattern in patterns:
+                if pattern in line:
+                    matches.append(
+                        {
+                            "path": str(file),
+                            "relative_path": str(file.relative_to(root_path)),
+                            "line": idx,
+                            "pattern": pattern,
+                            "text": line.strip()[:500],
+                        }
+                    )
+                    break
+
+    return matches
+
+
+@ToolRegistry.register("serena_vscode_find_todos")
+class SerenaVSCodeFindTodosTool(_VSCodeBaseTool):
+    tool_id = "serena_vscode_find_todos"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Find TODO/FIXME/HACK/BUG style markers in an approved root.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"},
+                    "limit": {"type": "integer"},
+                },
+                "required": ["root"],
+            },
+            category="serena_vscode",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            key, root, path = _resolve_root(str(params.get("root") or ""))
+            limit = int(params.get("limit") or 500)
+            matches = _scan_text_patterns(path, TODO_PATTERNS, limit=limit)
+
+            report = {
+                "report_type": "serena_vscode_find_todos",
+                "created_at": _timestamp(),
+                "root": key,
+                "patterns": TODO_PATTERNS,
+                "matches": matches,
+                "match_count": len(matches),
+            }
+            report_path = _save_report(path, report)
+
+            lines = [
+                "Serena VS Code TODO scan",
+                "",
+                f"- Root: {key}",
+                f"- Files scanned limit: {limit}",
+                f"- Matches found: {len(matches)}",
+                f"- Report: {report_path}",
+                "",
+                "Matches:",
+            ]
+
+            if matches:
+                for item in matches[:80]:
+                    lines.append(f"- {item['relative_path']}:{item['line']} | {item['pattern']} | {item['text']}")
+                if len(matches) > 80:
+                    lines.append(f"- ... plus {len(matches) - 80} more")
+            else:
+                lines.append("- none")
+
+            return self._result("\n".join(lines), metadata={**report, "report_path": str(report_path)})
+        except Exception as exc:
+            return self._result(f"Failed to find TODOs: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_vscode_find_errors")
+class SerenaVSCodeFindErrorsTool(_VSCodeBaseTool):
+    tool_id = "serena_vscode_find_errors"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Find common error/exception patterns in safe text files under an approved root.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"},
+                    "limit": {"type": "integer"},
+                },
+                "required": ["root"],
+            },
+            category="serena_vscode",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            key, root, path = _resolve_root(str(params.get("root") or ""))
+            limit = int(params.get("limit") or 500)
+            matches = _scan_text_patterns(path, ERROR_PATTERNS, limit=limit)
+
+            report = {
+                "report_type": "serena_vscode_find_errors",
+                "created_at": _timestamp(),
+                "root": key,
+                "patterns": ERROR_PATTERNS,
+                "matches": matches,
+                "match_count": len(matches),
+            }
+            report_path = _save_report(path, report)
+
+            lines = [
+                "Serena VS Code error-pattern scan",
+                "",
+                f"- Root: {key}",
+                f"- Files scanned limit: {limit}",
+                f"- Matches found: {len(matches)}",
+                f"- Report: {report_path}",
+                "",
+                "Matches:",
+            ]
+
+            if matches:
+                for item in matches[:80]:
+                    lines.append(f"- {item['relative_path']}:{item['line']} | {item['pattern']} | {item['text']}")
+                if len(matches) > 80:
+                    lines.append(f"- ... plus {len(matches) - 80} more")
+            else:
+                lines.append("- none")
+
+            return self._result("\n".join(lines), metadata={**report, "report_path": str(report_path)})
+        except Exception as exc:
+            return self._result(f"Failed to find errors: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_vscode_inspect_file")
+class SerenaVSCodeInspectFileTool(_VSCodeBaseTool):
+    tool_id = "serena_vscode_inspect_file"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Inspect one safe text file for developer signals, TODOs, errors, size, and line count.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"},
+                    "path": {"type": "string"},
+                    "preview_chars": {"type": "integer"},
+                },
+                "required": ["root", "path"],
+            },
+            category="serena_vscode",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            key, root, root_path, target = _resolve_project_file(
+                str(params.get("root") or ""),
+                str(params.get("path") or ""),
+            )
+            preview_chars = int(params.get("preview_chars") or 2000)
+            text = _read_text(target, max_chars=MAX_READ_BYTES)
+            lines = text.splitlines()
+
+            todo_hits = []
+            error_hits = []
+
+            for idx, line in enumerate(lines, start=1):
+                for pattern in TODO_PATTERNS:
+                    if pattern in line:
+                        todo_hits.append({"line": idx, "pattern": pattern, "text": line.strip()[:500]})
+                        break
+
+                for pattern in ERROR_PATTERNS:
+                    if pattern in line:
+                        error_hits.append({"line": idx, "pattern": pattern, "text": line.strip()[:500]})
+                        break
+
+            file_type = target.suffix.lower() or "(none)"
+            recommendations = []
+
+            if len(lines) > 800:
+                recommendations.append("Large file. Consider splitting or reviewing structure.")
+            if todo_hits:
+                recommendations.append("TODO/FIXME markers found. Review before finalizing.")
+            if error_hits:
+                recommendations.append("Error-like text found. Confirm whether it is documentation/example text or a real issue.")
+            if _is_sensitive_path(target):
+                recommendations.append("Sensitive/protected path signal detected. Avoid automated edits.")
+
+            report = {
+                "report_type": "serena_vscode_inspect_file",
+                "created_at": _timestamp(),
+                "root": key,
+                "path": str(target),
+                "relative_path": str(target.relative_to(root_path)),
+                "size_bytes": target.stat().st_size,
+                "line_count": len(lines),
+                "file_type": file_type,
+                "todo_hits": todo_hits,
+                "error_hits": error_hits,
+                "recommendations": recommendations,
+            }
+            report_path = _save_report(target, report)
+
+            return self._result(
+                "Serena VS Code file inspection\n\n"
+                f"- Root: {key}\n"
+                f"- File: {target.relative_to(root_path)}\n"
+                f"- Type: {file_type}\n"
+                f"- Size: {target.stat().st_size} bytes\n"
+                f"- Lines: {len(lines)}\n"
+                f"- TODO/error markers: {len(todo_hits)} TODO-style, {len(error_hits)} error-style\n"
+                f"- Report: {report_path}\n\n"
+                "Recommendations:\n"
+                + "\n".join(f"- {item}" for item in (recommendations or ["No immediate recommendations."]))
+                + "\n\nPreview:\n"
+                + text[:preview_chars],
+                metadata={**report, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to inspect VS Code file: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_vscode_refactor_plan")
+class SerenaVSCodeRefactorPlanTool(_VSCodeBaseTool):
+    tool_id = "serena_vscode_refactor_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a conservative refactor plan for a target file without changing code.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"},
+                    "path": {"type": "string"},
+                    "goal": {"type": "string"},
+                },
+                "required": ["root", "path", "goal"],
+            },
+            category="serena_vscode",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            key, root, root_path, target = _resolve_project_file(
+                str(params.get("root") or ""),
+                str(params.get("path") or ""),
+            )
+            goal = str(params.get("goal") or "").strip()
+            text = _read_text(target, max_chars=MAX_READ_BYTES)
+            line_count = len(text.splitlines())
+
+            plan = {
+                "report_type": "serena_vscode_refactor_plan",
+                "created_at": _timestamp(),
+                "root": key,
+                "path": str(target),
+                "relative_path": str(target.relative_to(root_path)),
+                "goal": goal,
+                "line_count": line_count,
+                "steps": [
+                    "Read and understand current behavior.",
+                    "Identify the smallest safe refactor.",
+                    "Snapshot the file before edits.",
+                    "Apply one targeted change at a time.",
+                    "Run safe import/check/test commands.",
+                    "Inspect diff after changes.",
+                    "Prepare change summary.",
+                ],
+                "risks": [
+                    "Behavior changes if refactor is too broad.",
+                    "Missing tests may hide regressions.",
+                    "Large files should be refactored in smaller stages.",
+                ],
+            }
+            report_path = _save_report(target, plan)
+
+            return self._result(
+                "Serena VS Code refactor plan\n\n"
+                f"- Root: {key}\n"
+                f"- File: {target.relative_to(root_path)}\n"
+                f"- Goal: {goal}\n"
+                f"- Lines: {line_count}\n"
+                f"- Report: {report_path}\n\n"
+                "Plan:\n"
+                + "\n".join(f"- {step}" for step in plan["steps"])
+                + "\n\nRisks:\n"
+                + "\n".join(f"- {risk}" for risk in plan["risks"]),
+                metadata={**plan, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to create refactor plan: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_vscode_bugfix_plan")
+class SerenaVSCodeBugfixPlanTool(_VSCodeBaseTool):
+    tool_id = "serena_vscode_bugfix_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a conservative bugfix plan for a target file or issue without changing code.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"},
+                    "path": {"type": "string"},
+                    "issue": {"type": "string"},
+                },
+                "required": ["root", "issue"],
+            },
+            category="serena_vscode",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            key, root, root_path = _resolve_root(str(params.get("root") or ""))
+            rel_path = str(params.get("path") or "").strip()
+            issue = str(params.get("issue") or "").strip()
+
+            target_info = None
+            file_preview = ""
+
+            if rel_path:
+                _key, _root, _root_path, target = _resolve_project_file(key, rel_path)
+                file_preview = _read_text(target, max_chars=3000)
+                target_info = {
+                    "path": str(target),
+                    "relative_path": str(target.relative_to(root_path)),
+                    "size_bytes": target.stat().st_size,
+                    "line_count": len(file_preview.splitlines()),
+                }
+
+            plan = {
+                "report_type": "serena_vscode_bugfix_plan",
+                "created_at": _timestamp(),
+                "root": key,
+                "issue": issue,
+                "target": target_info,
+                "steps": [
+                    "Reproduce or identify the failing behavior.",
+                    "Inspect the smallest relevant file scope.",
+                    "Check for TODO/error markers and recent diffs.",
+                    "Snapshot target files before edits.",
+                    "Apply a minimal fix.",
+                    "Run safe checks/tests.",
+                    "Inspect diff and summarize.",
+                ],
+                "approval_required_for": [
+                    "dependency changes",
+                    "secrets/config credentials",
+                    "publish/deploy/push",
+                    "destructive file operations",
+                ],
+            }
+            report_path = _save_report(root_path, plan)
+
+            lines = [
+                "Serena VS Code bugfix plan",
+                "",
+                f"- Root: {key}",
+                f"- Issue: {issue}",
+                f"- Target file: {target_info['relative_path'] if target_info else 'not specified'}",
+                f"- Report: {report_path}",
+                "",
+                "Plan:",
+            ]
+            lines.extend(f"- {step}" for step in plan["steps"])
+            lines.extend(["", "Approval required for:"])
+            lines.extend(f"- {item}" for item in plan["approval_required_for"])
+
+            if file_preview:
+                lines.extend(["", "Target preview:", file_preview[:1500]])
+
+            return self._result("\n".join(lines), metadata={**plan, "report_path": str(report_path)})
+        except Exception as exc:
+            return self._result(f"Failed to create bugfix plan: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_vscode_fix_small")
+class SerenaVSCodeFixSmallTool(_VSCodeBaseTool):
+    tool_id = "serena_vscode_fix_small"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Apply one small explicit text replacement fix with snapshot protection.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"},
+                    "path": {"type": "string"},
+                    "old": {"type": "string"},
+                    "new": {"type": "string"},
+                    "replace_all": {"type": "boolean"},
+                },
+                "required": ["root", "path", "old", "new"],
+            },
+            category="serena_vscode",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            key, root, root_path, target = _resolve_project_file(
+                str(params.get("root") or ""),
+                str(params.get("path") or ""),
+            )
+            old = str(params.get("old") or "")
+            new = str(params.get("new") or "")
+            replace_all = bool(params.get("replace_all", False))
+
+            if not old:
+                return self._result("Fix blocked. Old text is required.", success=False)
+
+            if _is_sensitive_path(target):
+                return self._result(
+                    "Fix blocked. Target path looks sensitive or production-related.",
+                    success=False,
+                    metadata={"root": key, "path": str(target)},
+                )
+
+            text = _read_text(target, max_chars=MAX_READ_BYTES)
+            count = text.count(old)
+
+            if count == 0:
+                return self._result(
+                    "Fix blocked. Old text was not found.",
+                    success=False,
+                    metadata={"root": key, "path": str(target)},
+                )
+
+            snapshot = _snapshot_file(target, "before-fix-small")
+            updated = text.replace(old, new) if replace_all else text.replace(old, new, 1)
+            target.write_text(updated, encoding="utf-8")
+
+            replacements = count if replace_all else 1
+
+            report = {
+                "report_type": "serena_vscode_fix_small",
+                "created_at": _timestamp(),
+                "root": key,
+                "path": str(target),
+                "relative_path": str(target.relative_to(root_path)),
+                "replacements": replacements,
+                "snapshot": str(snapshot),
+            }
+            report_path = _save_report(target, report)
+
+            return self._result(
+                "Serena VS Code small fix applied\n\n"
+                f"- Root: {key}\n"
+                f"- File: {target.relative_to(root_path)}\n"
+                f"- Replacements made: {replacements}\n"
+                f"- Snapshot: {snapshot}\n"
+                f"- Report: {report_path}",
+                metadata={**report, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to apply small VS Code fix: {exc}", success=False)
+
+
 __all__ = [
     "SerenaVSCodeStatusTool",
     "SerenaVSCodeRootsTool",
@@ -2422,6 +2933,12 @@ __all__ = [
     "SerenaVSCodeTestReportTool",
     "SerenaVSCodeSafeCommandTool",
     "SerenaVSCodeFinalCheckTool",
+    "SerenaVSCodeFixSmallTool",
+    "SerenaVSCodeBugfixPlanTool",
+    "SerenaVSCodeRefactorPlanTool",
+    "SerenaVSCodeInspectFileTool",
+    "SerenaVSCodeFindErrorsTool",
+    "SerenaVSCodeFindTodosTool",
     "SerenaVSCodeChangeSummaryTool",
     "SerenaVSCodeUpdateDocTool",
     "SerenaVSCodeCreateTestTool",

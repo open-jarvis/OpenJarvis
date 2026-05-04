@@ -23,6 +23,12 @@ from openjarvis.tools.serena_vscode import (
     SerenaVSCodeTestReportTool,
     SerenaVSCodeSafeCommandTool,
     SerenaVSCodeFinalCheckTool,
+    SerenaVSCodeFixSmallTool,
+    SerenaVSCodeBugfixPlanTool,
+    SerenaVSCodeRefactorPlanTool,
+    SerenaVSCodeInspectFileTool,
+    SerenaVSCodeFindErrorsTool,
+    SerenaVSCodeFindTodosTool,
     SerenaVSCodeChangeSummaryTool,
     SerenaVSCodeUpdateDocTool,
     SerenaVSCodeCreateTestTool,
@@ -358,6 +364,78 @@ def final_check(root: str, module: str) -> None:
     """Run Serena's final local developer check."""
     console = Console()
     result = SerenaVSCodeFinalCheckTool().execute(root=root, module=module)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@vscode.command("find-todos")
+@click.option("--root", required=True, help="Approved root alias.")
+@click.option("--limit", default=500, type=int, help="Maximum files to scan.")
+def find_todos(root: str, limit: int) -> None:
+    """Find TODO/FIXME/HACK/BUG markers."""
+    console = Console()
+    result = SerenaVSCodeFindTodosTool().execute(root=root, limit=limit)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@vscode.command("find-errors")
+@click.option("--root", required=True, help="Approved root alias.")
+@click.option("--limit", default=500, type=int, help="Maximum files to scan.")
+def find_errors(root: str, limit: int) -> None:
+    """Find common error/exception patterns."""
+    console = Console()
+    result = SerenaVSCodeFindErrorsTool().execute(root=root, limit=limit)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@vscode.command("inspect-file")
+@click.option("--root", required=True, help="Approved root alias.")
+@click.option("--path", "file_path", required=True, help="Relative file path inside root.")
+@click.option("--preview-chars", default=2000, type=int, help="Preview character count.")
+def inspect_file(root: str, file_path: str, preview_chars: int) -> None:
+    """Inspect one project file."""
+    console = Console()
+    result = SerenaVSCodeInspectFileTool().execute(root=root, path=file_path, preview_chars=preview_chars)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@vscode.command("refactor-plan")
+@click.option("--root", required=True, help="Approved root alias.")
+@click.option("--path", "file_path", required=True, help="Relative file path inside root.")
+@click.option("--goal", required=True, help="Refactor goal.")
+def refactor_plan(root: str, file_path: str, goal: str) -> None:
+    """Create a conservative refactor plan."""
+    console = Console()
+    result = SerenaVSCodeRefactorPlanTool().execute(root=root, path=file_path, goal=goal)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@vscode.command("bugfix-plan")
+@click.option("--root", required=True, help="Approved root alias.")
+@click.option("--path", "file_path", default="", help="Optional relative file path inside root.")
+@click.option("--issue", required=True, help="Bug/issue description.")
+def bugfix_plan(root: str, file_path: str, issue: str) -> None:
+    """Create a conservative bugfix plan."""
+    console = Console()
+    result = SerenaVSCodeBugfixPlanTool().execute(root=root, path=file_path, issue=issue)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@vscode.command("fix-small")
+@click.option("--root", required=True, help="Approved root alias.")
+@click.option("--path", "file_path", required=True, help="Relative file path inside root.")
+@click.option("--old", required=True, help="Old text.")
+@click.option("--new", required=True, help="New text.")
+@click.option("--replace-all", is_flag=True, help="Replace all matches.")
+def fix_small(root: str, file_path: str, old: str, new: str, replace_all: bool) -> None:
+    """Apply one small explicit text replacement fix."""
+    console = Console()
+    result = SerenaVSCodeFixSmallTool().execute(
+        root=root,
+        path=file_path,
+        old=old,
+        new=new,
+        replace_all=replace_all,
+    )
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 
