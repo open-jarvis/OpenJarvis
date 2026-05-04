@@ -2364,6 +2364,405 @@ class SerenaOCRExtractLiveTextTool(_OCRBaseTool):
             return self._result(f"Failed to extract live text: {exc}", success=False)
 
 
+def _latest_extracted_text_file() -> Path | None:
+    folder = _ocr_root() / "extracted-text"
+    if not folder.exists():
+        return None
+    files = sorted(folder.glob("*.txt"), key=lambda item: item.stat().st_mtime, reverse=True)
+    return files[0] if files else None
+
+
+def _safe_text_handoff_path(path_value: str | None = None) -> Path:
+    if path_value:
+        path = Path(str(path_value)).expanduser()
+    else:
+        latest = _latest_extracted_text_file()
+        if latest is None:
+            raise RuntimeError("No extracted OCR text file found. Run extract-image, capture-doc, or extract-live-text first.")
+        path = latest
+
+    if not path.exists():
+        raise RuntimeError(f"OCR text file does not exist: {path}")
+    if not path.is_file():
+        raise RuntimeError(f"OCR text path is not a file: {path}")
+
+    resolved = path.resolve()
+    allowed_roots = [
+        (_ocr_root() / "extracted-text").resolve(),
+        (_ocr_root() / "handoff").resolve(),
+        (_ocr_root() / "reports").resolve(),
+    ]
+
+    if not any(str(resolved).lower().startswith(str(root).lower()) for root in allowed_roots):
+        raise RuntimeError("OCR handoff only allows files under outputs/ocr extracted-text, handoff, or reports.")
+
+    lowered = str(path).lower()
+    blocked = [".env", "secret", "secrets", "credential", "credentials", "password", "token"]
+    if any(item in lowered for item in blocked):
+        raise RuntimeError(f"Refusing sensitive-looking OCR handoff path: {path}")
+
+    return path
+
+
+def _read_ocr_text(path_value: str | None = None) -> tuple[Path, str]:
+    path = _safe_text_handoff_path(path_value)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    return path, text.strip()
+
+
+def _write_handoff_markdown(title: str, source_path: Path, text: str) -> Path:
+    folder = _ocr_root() / "handoff"
+    folder.mkdir(parents=True, exist_ok=True)
+
+    safe_title = _safe_slug(title or source_path.stem)
+    path = folder / f"{_timestamp()}-{safe_title}.md"
+
+    content = (
+        f"# {title or source_path.stem}\n\n"
+        "Prepared by Serena OCR / Live Vision Full Operator v1.\n\n"
+        "## Source\n\n"
+        f"- OCR text source: `{source_path}`\n\n"
+        "## Extracted Text\n\n"
+        f"{text or '[no text available]'}\n\n"
+        "## Next Actions\n\n"
+        "- Review extracted text for accuracy.\n"
+        "- Correct OCR errors if needed.\n"
+        "- Save to Google Docs or Drive if approved.\n"
+    )
+
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+@ToolRegistry.register("serena_ocr_to_google_doc")
+class SerenaOCRToGoogleDocTool(_OCRBaseTool):
+    tool_id = "serena_ocr_to_google_doc"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a professional Google Doc from OCR extracted text.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "text_path": {"type": "string"},
+                    "title": {"type": "string"},
+                    "drive_folder": {"type": "string"},
+                    "doc_type": {"type": "string"},
+                },
+            },
+            category="serena_ocr",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            from openjarvis.tools.serena_google_docs import SerenaGoogleDocsCreateTool
+
+            text_path_value = str(params.get("text_path") or "").strip() or None
+            title = str(params.get("title") or "").strip() or "OCR Extracted Document"
+            drive_folder = str(params.get("drive_folder") or "Serena/OCR Documents").strip()
+            doc_type = str(params.get("doc_type") or "report").strip()
+
+            source_path, text = _read_ocr_text(text_path_value)
+
+            if not text:
+                return self._result("OCR text is empty; Google Doc was not created.", success=False)
+
+            content = (
+                "This document was generated from OCR extracted text.\n\n"
+                f"Source text file: {source_path}\n\n"
+                f"{text}"
+            )
+
+            result = SerenaGoogleDocsCreateTool().execute(
+                title=title,
+                content=content,
+                drive_folder=drive_folder,
+                doc_type=doc_type,
+            )
+
+            payload = {
+                "report_type": "serena_ocr_to_google_doc",
+                "created_at": _timestamp(),
+                "source_text_path": str(source_path),
+                "title": title,
+                "drive_folder": drive_folder,
+                "doc_type": doc_type,
+                "google_docs_success": result.success,
+                "google_docs_metadata": result.metadata,
+                "changes_made": result.success,
+                "delete_performed": False,
+                "secret_values_exposed": False,
+            }
+            report_path = _save_json("reports", f"to-google-doc-{title}", payload)
+
+            if result.success:
+                return self._result(
+                    "Serena OCR text sent to Google Docs\n\n"
+                    f"- Source text: {source_path}\n"
+                    f"- Title: {title}\n"
+                    f"- Drive folder: {drive_folder}\n"
+                    f"- Report: {report_path}\n"
+                    "- Google Doc created: yes\n"
+                    "- Changes made: yes\n"
+                    "- Delete performed: no\n"
+                    "- Secret values exposed: no\n\n"
+                    "Google Docs result:\n"
+                    f"{result.content}",
+                    metadata={**payload, "report_path": str(report_path)},
+                )
+
+            return self._result(
+                "Serena OCR text could not be sent to Google Docs\n\n"
+                f"- Source text: {source_path}\n"
+                f"- Report: {report_path}\n"
+                "- Google Doc created: no\n"
+                "- Changes made: no\n"
+                "- Delete performed: no\n\n"
+                f"{result.content}",
+                success=False,
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to send OCR text to Google Docs: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_ocr_to_drive")
+class SerenaOCRToDriveTool(_OCRBaseTool):
+    tool_id = "serena_ocr_to_drive"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Upload OCR extracted text or handoff file to Google Drive.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "text_path": {"type": "string"},
+                    "drive_folder": {"type": "string"},
+                    "name": {"type": "string"},
+                },
+            },
+            category="serena_ocr",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            from openjarvis.tools.serena_gdrive import SerenaGDriveUploadTool
+
+            text_path_value = str(params.get("text_path") or "").strip() or None
+            drive_folder = str(params.get("drive_folder") or "Serena/OCR Extracted Text").strip()
+            name = str(params.get("name") or "").strip()
+
+            source_path = _safe_text_handoff_path(text_path_value)
+            upload_name = name or source_path.name
+
+            result = SerenaGDriveUploadTool().execute(
+                local_path=str(source_path),
+                drive_folder=drive_folder,
+                name=upload_name,
+            )
+
+            payload = {
+                "report_type": "serena_ocr_to_drive",
+                "created_at": _timestamp(),
+                "source_text_path": str(source_path),
+                "drive_folder": drive_folder,
+                "name": upload_name,
+                "drive_success": result.success,
+                "drive_metadata": result.metadata,
+                "changes_made": result.success,
+                "delete_performed": False,
+                "secret_values_exposed": False,
+            }
+            report_path = _save_json("reports", f"to-drive-{upload_name}", payload)
+
+            if result.success:
+                return self._result(
+                    "Serena OCR output uploaded to Google Drive\n\n"
+                    f"- Source file: {source_path}\n"
+                    f"- Drive folder: {drive_folder}\n"
+                    f"- Drive name: {upload_name}\n"
+                    f"- Report: {report_path}\n"
+                    "- Upload performed: yes\n"
+                    "- Changes made: yes\n"
+                    "- Delete performed: no\n"
+                    "- Secret values exposed: no\n\n"
+                    "Drive result:\n"
+                    f"{result.content}",
+                    metadata={**payload, "report_path": str(report_path)},
+                )
+
+            return self._result(
+                "Serena OCR output upload to Google Drive failed\n\n"
+                f"- Source file: {source_path}\n"
+                f"- Report: {report_path}\n"
+                "- Upload performed: no\n"
+                "- Changes made: no\n"
+                "- Delete performed: no\n\n"
+                f"{result.content}",
+                success=False,
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to upload OCR output to Google Drive: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_ocr_to_document")
+class SerenaOCRToDocumentTool(_OCRBaseTool):
+    tool_id = "serena_ocr_to_document"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local structured OCR handoff document from extracted text.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "text_path": {"type": "string"},
+                    "title": {"type": "string"},
+                },
+            },
+            category="serena_ocr",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            text_path_value = str(params.get("text_path") or "").strip() or None
+            title = str(params.get("title") or "").strip() or "OCR Handoff Document"
+
+            source_path, text = _read_ocr_text(text_path_value)
+            handoff_path = _write_handoff_markdown(title=title, source_path=source_path, text=text)
+
+            payload = {
+                "report_type": "serena_ocr_to_document",
+                "created_at": _timestamp(),
+                "source_text_path": str(source_path),
+                "handoff_path": str(handoff_path),
+                "title": title,
+                "text_length": len(text),
+                "changes_made": True,
+                "delete_performed": False,
+            }
+            report_path = _save_json("reports", f"to-document-{title}", payload)
+
+            return self._result(
+                "Serena OCR local handoff document created\n\n"
+                f"- Source text: {source_path}\n"
+                f"- Handoff document: {handoff_path}\n"
+                f"- Text length: {len(text)}\n"
+                f"- Report: {report_path}\n"
+                "- Changes made: yes\n"
+                "- Delete performed: no\n\n"
+                "Note:\n"
+                "- This creates a local Markdown handoff. Future Documents skill integration can convert this to DOCX/PDF.",
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to create OCR handoff document: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_ocr_document_flow")
+class SerenaOCRDocumentFlowTool(_OCRBaseTool):
+    tool_id = "serena_ocr_document_flow"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Run OCR document handoff flow: local handoff, Drive upload, and Google Doc creation.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "text_path": {"type": "string"},
+                    "title": {"type": "string"},
+                    "drive_folder": {"type": "string"},
+                },
+            },
+            category="serena_ocr",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        title = str(params.get("title") or "").strip() or "OCR Document Flow"
+        text_path_value = str(params.get("text_path") or "").strip() or None
+        drive_folder = str(params.get("drive_folder") or "Serena/OCR Document Flow").strip()
+
+        try:
+            source_path, text = _read_ocr_text(text_path_value)
+            if not text:
+                return self._result("OCR text is empty; document flow was not run.", success=False)
+
+            local_result = SerenaOCRToDocumentTool().execute(
+                text_path=str(source_path),
+                title=title,
+            )
+
+            handoff_path = ""
+            if local_result.success:
+                handoff_path = str((local_result.metadata or {}).get("handoff_path") or "")
+
+            drive_result = SerenaOCRToDriveTool().execute(
+                text_path=handoff_path or str(source_path),
+                drive_folder=drive_folder,
+                name=f"{_safe_slug(title)}.md",
+            )
+
+            docs_result = SerenaOCRToGoogleDocTool().execute(
+                text_path=str(source_path),
+                title=title,
+                drive_folder=drive_folder,
+                doc_type="report",
+            )
+
+            success = bool(local_result.success and drive_result.success and docs_result.success)
+
+            payload = {
+                "report_type": "serena_ocr_document_flow",
+                "created_at": _timestamp(),
+                "source_text_path": str(source_path),
+                "title": title,
+                "drive_folder": drive_folder,
+                "local_handoff_success": local_result.success,
+                "drive_success": drive_result.success,
+                "google_docs_success": docs_result.success,
+                "local_metadata": local_result.metadata,
+                "drive_metadata": drive_result.metadata,
+                "google_docs_metadata": docs_result.metadata,
+                "changes_made": success,
+                "delete_performed": False,
+                "secret_values_exposed": False,
+            }
+            report_path = _save_json("reports", f"document-flow-{title}", payload)
+
+            return self._result(
+                "Serena OCR document flow complete\n\n"
+                f"- Source text: {source_path}\n"
+                f"- Title: {title}\n"
+                f"- Drive folder: {drive_folder}\n"
+                f"- Report: {report_path}\n"
+                f"- Local handoff created: {'yes' if local_result.success else 'no'}\n"
+                f"- Drive upload complete: {'yes' if drive_result.success else 'no'}\n"
+                f"- Google Doc created: {'yes' if docs_result.success else 'no'}\n"
+                f"- Overall success: {'yes' if success else 'no'}\n"
+                "- Delete performed: no\n"
+                "- Secret values exposed: no\n\n"
+                "Google Docs result:\n"
+                f"{docs_result.content}\n\n"
+                "Drive result:\n"
+                f"{drive_result.content}",
+                success=success,
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to run OCR document flow: {exc}", success=False)
+
+
 __all__ = [
     "SerenaOCRStatusTool",
     "SerenaOCREnginesTool",
@@ -2374,6 +2773,10 @@ __all__ = [
     "SerenaOCRDescribeCaptureTool",
     "SerenaOCRLiveReportTool",
     "SerenaOCRExtractLiveTextTool",
+    "SerenaOCRDocumentFlowTool",
+    "SerenaOCRToDocumentTool",
+    "SerenaOCRToDriveTool",
+    "SerenaOCRToGoogleDocTool",
     "SerenaOCRBestFrameTool",
     "SerenaOCRLiveWatchTextTool",
     "SerenaOCRLiveWatchDocTool",

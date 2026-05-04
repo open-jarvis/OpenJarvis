@@ -12,6 +12,10 @@ from openjarvis.tools.serena_ocr import (
     SerenaOCRPlanTool,
     SerenaOCRSafetyPolicyTool,
     SerenaOCRStatusTool,
+    SerenaOCRDocumentFlowTool,
+    SerenaOCRToDocumentTool,
+    SerenaOCRToDriveTool,
+    SerenaOCRToGoogleDocTool,
     SerenaOCRExtractLiveTextTool,
     SerenaOCRBestFrameTool,
     SerenaOCRLiveWatchTextTool,
@@ -243,6 +247,66 @@ def extract_live_text() -> None:
     """Extract text from the best live frame."""
     console = Console()
     result = SerenaOCRExtractLiveTextTool().execute()
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@ocr.command("to-google-doc")
+@click.option("--text-path", default="", help="OCR extracted text path. Defaults to latest extracted text.")
+@click.option("--title", default="OCR Extracted Document", help="Google Doc title.")
+@click.option("--drive-folder", default="Serena/OCR Documents", help="Google Drive folder path.")
+@click.option("--doc-type", default="report", help="document, note, or report.")
+def to_google_doc(text_path: str, title: str, drive_folder: str, doc_type: str) -> None:
+    """Create a Google Doc from OCR extracted text."""
+    console = Console()
+    result = SerenaOCRToGoogleDocTool().execute(
+        text_path=text_path,
+        title=title,
+        drive_folder=drive_folder,
+        doc_type=doc_type,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@ocr.command("to-drive")
+@click.option("--text-path", default="", help="OCR extracted text or handoff path. Defaults to latest extracted text.")
+@click.option("--drive-folder", default="Serena/OCR Extracted Text", help="Google Drive folder path.")
+@click.option("--name", default="", help="Optional Drive filename.")
+def to_drive(text_path: str, drive_folder: str, name: str) -> None:
+    """Upload OCR output to Google Drive."""
+    console = Console()
+    result = SerenaOCRToDriveTool().execute(
+        text_path=text_path,
+        drive_folder=drive_folder,
+        name=name,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@ocr.command("to-document")
+@click.option("--text-path", default="", help="OCR extracted text path. Defaults to latest extracted text.")
+@click.option("--title", default="OCR Handoff Document", help="Local handoff document title.")
+def to_document(text_path: str, title: str) -> None:
+    """Create local structured OCR handoff document."""
+    console = Console()
+    result = SerenaOCRToDocumentTool().execute(
+        text_path=text_path,
+        title=title,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@ocr.command("document-flow")
+@click.option("--text-path", default="", help="OCR extracted text path. Defaults to latest extracted text.")
+@click.option("--title", default="OCR Document Flow", help="Document title.")
+@click.option("--drive-folder", default="Serena/OCR Document Flow", help="Google Drive folder path.")
+def document_flow(text_path: str, title: str, drive_folder: str) -> None:
+    """Run OCR local handoff + Drive upload + Google Doc creation."""
+    console = Console()
+    result = SerenaOCRDocumentFlowTool().execute(
+        text_path=text_path,
+        title=title,
+        drive_folder=drive_folder,
+    )
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 
