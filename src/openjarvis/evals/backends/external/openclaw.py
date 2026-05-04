@@ -20,6 +20,7 @@ class OpenClawBackend(InferenceBackend):
     """Spawn real OpenClaw (pinned commit) as a Node subprocess per task."""
 
     backend_id = "openclaw"
+    framework_name = "openclaw"
 
     def __init__(
         self,

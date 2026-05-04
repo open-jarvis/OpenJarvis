@@ -26,6 +26,7 @@ class HermesBackend(InferenceBackend):
     """Spawn real Hermes Agent (pinned commit) as a subprocess per task."""
 
     backend_id = "hermes"
+    framework_name = "hermes"
 
     def __init__(
         self,

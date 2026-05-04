@@ -18,6 +18,7 @@ class JarvisAgentBackend(InferenceBackend):
     """
 
     backend_id = "jarvis-agent"
+    framework_name = "openjarvis"
 
     def __init__(
         self,

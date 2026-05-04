@@ -17,6 +17,7 @@ class JarvisDirectBackend(InferenceBackend):
     """
 
     backend_id = "jarvis-direct"
+    framework_name = "openjarvis"
 
     def __init__(
         self,

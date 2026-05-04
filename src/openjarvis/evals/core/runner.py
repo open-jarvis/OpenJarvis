@@ -429,6 +429,10 @@ class EvalRunner:
                 record_id=record.record_id,
                 model_answer="",
                 error=str(exc),
+                framework=getattr(self._backend, "framework_name", "openjarvis"),
+                framework_commit="",
+                tool_calls=0,
+                turn_count=0,
             )
 
     # ------------------------------------------------------------------
@@ -723,6 +727,10 @@ class EvalRunner:
                 model_answer="",
                 error=str(exc),
                 scoring_metadata={"interactive": True, "error": str(exc)},
+                framework=getattr(self._backend, "framework_name", "openjarvis"),
+                framework_commit="",
+                tool_calls=0,
+                turn_count=0,
             )
         finally:
             if env is not None:
