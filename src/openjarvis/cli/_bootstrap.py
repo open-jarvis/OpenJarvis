@@ -13,9 +13,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+import click
+
 import openjarvis
 from openjarvis.core import config as _cfg
-from openjarvis.core.config import HardwareInfo
+from openjarvis.core.config import (
+    HardwareInfo,
+    detect_hardware,
+    recommend_engine,
+    recommend_model,
+)
 
 # Marker used to redact secret values in __repr__.
 _REDACTED_PLACEHOLDER = "***redacted***"
@@ -170,3 +177,67 @@ def _seed_memory_files() -> None:
     if not (home / "USER.md").exists():
         (home / "USER.md").write_text(_DEFAULT_USER)
     (home / "skills").mkdir(exist_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# CLI command — invoked by install.sh, hidden from `jarvis --help`
+# ---------------------------------------------------------------------------
+
+
+@click.command("_bootstrap", hidden=True)
+@click.option(
+    "--write-config",
+    is_flag=True,
+    default=False,
+    help="Render config.toml from detected hardware + provided engine/model.",
+)
+@click.option(
+    "--engine",
+    default="",
+    help="Inference engine slug (e.g. ollama). Empty = auto-recommend.",
+)
+@click.option(
+    "--model",
+    default="",
+    help="Model id (e.g. qwen3.5:2b). Empty = auto-recommend.",
+)
+@click.option(
+    "--prefer-cloud-when-available",
+    is_flag=True,
+    default=False,
+    help="If a known cloud-API key is in env, override engine/model to cloud.",
+)
+def bootstrap_cmd(
+    write_config: bool,
+    engine: str,
+    model: str,
+    prefer_cloud_when_available: bool,
+) -> None:
+    """Internal helper used by install.sh — not for direct user invocation."""
+    if not write_config:
+        raise click.UsageError("--write-config is required")
+
+    hw = detect_hardware()
+    chosen_engine = engine or recommend_engine(hw)
+    chosen_model = model or recommend_model(hw, chosen_engine)
+
+    cloud = None
+    if prefer_cloud_when_available:
+        cloud = detect_cloud_keys()
+        if cloud is not None:
+            chosen_engine = "cloud"
+            # Pick a sensible default model for the detected provider.
+            chosen_model = {
+                "openrouter": "anthropic/claude-opus-4-6",
+                "anthropic": "claude-opus-4-6",
+                "openai": "gpt-5",
+                "google": "gemini-3-pro",
+            }.get(cloud.provider, chosen_model)
+
+    write_initial_config(
+        hardware=hw,
+        engine=chosen_engine,
+        model=chosen_model,
+        cloud=cloud,
+    )
+    click.echo(f"Wrote {_cfg.DEFAULT_CONFIG_PATH}")

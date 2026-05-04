@@ -5,6 +5,7 @@ from __future__ import annotations
 import click
 
 import openjarvis
+from openjarvis.cli._bootstrap import bootstrap_cmd
 from openjarvis.cli.add_cmd import add
 from openjarvis.cli.agent_cmd import agent
 from openjarvis.cli.ask import ask
@@ -100,6 +101,7 @@ cli.add_command(digest, "digest")
 cli.add_command(deep_research_setup, "deep-research-setup")
 cli.add_command(deep_research_setup, "research")
 cli.add_command(learning_group, "learning")
+cli.add_command(bootstrap_cmd, "_bootstrap")
 
 # Gateway CLI commands (lazy import to avoid pulling starlette)
 try:
