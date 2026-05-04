@@ -102,8 +102,33 @@ def _module_check(module_name: str) -> dict[str, Any]:
     return result
 
 
-def _command_check(command: str, version_args: list[str] | None = None) -> dict[str, Any]:
+def _resolve_executable(command: str) -> str | None:
     resolved = shutil.which(command)
+    if resolved:
+        return resolved
+
+    common_paths = {
+        "tesseract": [
+            r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+            r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+            r"C:\Users\Kyle\AppData\Local\Programs\Tesseract-OCR\tesseract.exe",
+        ],
+        "ffmpeg": [
+            r"C:\ffmpeg\bin\ffmpeg.exe",
+            r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
+            r"C:\Program Files\Gyan\FFmpeg\bin\ffmpeg.exe",
+        ],
+    }
+
+    for candidate in common_paths.get(command.lower(), []):
+        if Path(candidate).exists():
+            return candidate
+
+    return None
+
+
+def _command_check(command: str, version_args: list[str] | None = None) -> dict[str, Any]:
+    resolved = _resolve_executable(command)
     if not resolved:
         return {
             "command": [command] + (version_args or []),
@@ -181,6 +206,7 @@ def _engine_status() -> dict[str, Any]:
             and checks["pytesseract_module"]["returncode"] == 0
             and checks["tesseract_cli"]["returncode"] == 0
         ),
+        "camera_engine_ready": checks["opencv_cv2"]["returncode"] == 0,
         "webcam_ready": checks["opencv_cv2"]["returncode"] == 0,
     }
 
@@ -222,37 +248,69 @@ def _camera_probe(max_indexes: int = 5) -> dict[str, Any]:
         return {
             "opencv_available": False,
             "cameras": [],
+            "usable_cameras": [],
             "issues": ["OpenCV/cv2 is not available."],
             "recommendations": ["Install OpenCV before testing webcam capture."],
         }
 
-    probe_script = r'''
+    probe_script = """
 import cv2
 import json
 
+backends = [
+    ("DSHOW", cv2.CAP_DSHOW),
+    ("MSMF", cv2.CAP_MSMF),
+    ("ANY", cv2.CAP_ANY),
+]
+
 results = []
 for index in range(0, MAX_INDEXES):
-    cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
-    opened = bool(cap.isOpened())
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
-    fps = float(cap.get(cv2.CAP_PROP_FPS) or 0)
-    ok = False
-    if opened:
-        ok, frame = cap.read()
-    cap.release()
-    results.append({
+    best = {
         "index": index,
-        "opened": opened,
-        "frame_read": bool(ok),
-        "width": width,
-        "height": height,
-        "fps": fps,
-    })
-print(json.dumps(results))
-'''.replace("MAX_INDEXES", str(max_indexes))
+        "backend": "",
+        "opened": False,
+        "frame_read": False,
+        "width": 0,
+        "height": 0,
+        "fps": 0.0,
+    }
 
-    result = _run([sys.executable, "-c", probe_script], timeout=20)
+    for backend_name, backend in backends:
+        cap = cv2.VideoCapture(index, backend)
+        opened = bool(cap.isOpened())
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+        fps = float(cap.get(cv2.CAP_PROP_FPS) or 0)
+        ok = False
+
+        if opened:
+            ok, frame = cap.read()
+
+        cap.release()
+
+        candidate = {
+            "index": index,
+            "backend": backend_name,
+            "opened": opened,
+            "frame_read": bool(ok),
+            "width": width,
+            "height": height,
+            "fps": fps,
+        }
+
+        if candidate["opened"] or candidate["frame_read"]:
+            best = candidate
+
+        if candidate["opened"] and candidate["frame_read"]:
+            best = candidate
+            break
+
+    results.append(best)
+
+print(json.dumps(results))
+""".replace("MAX_INDEXES", str(max_indexes))
+
+    result = _run([sys.executable, "-c", probe_script], timeout=30)
     cameras: list[dict[str, Any]] = []
     issues: list[str] = []
     recommendations: list[str] = []
@@ -266,8 +324,10 @@ print(json.dumps(results))
         issues.append(result["output"] or "Camera probe failed.")
 
     usable = [cam for cam in cameras if cam.get("opened") and cam.get("frame_read")]
+
     if not usable:
-        recommendations.append("No usable camera frame detected yet. Check webcam connection/privacy permissions.")
+        recommendations.append("No usable camera frame detected yet. On Dr Piet's PC, plug in the webcam and allow Windows camera permissions.")
+        recommendations.append("For plug-and-play setup, run: serena ocr camera-status --max-indexes 8 after connecting the webcam.")
 
     return {
         "opencv_available": True,
@@ -345,7 +405,7 @@ class SerenaOCRStatusTool(_OCRBaseTool):
             "- Role: OCR, camera capture, controlled live vision, and document handoff operator\n"
             f"- Platform: {platform.platform()}\n"
             f"- Local OCR ready: {'yes' if engines['local_ocr_ready'] else 'no'}\n"
-            f"- Webcam ready: {'yes' if engines['webcam_ready'] else 'no'}\n"
+            f"- Camera engine ready: {'yes' if engines.get('camera_engine_ready') else 'no'}\n"
             f"- Live vision active: {'yes' if state.get('active') else 'no'}\n"
             "- Webcam default: closed/off\n"
             "- Silent camera use: blocked\n"
@@ -360,7 +420,7 @@ class SerenaOCRStatusTool(_OCRBaseTool):
                 "output_root": str(root),
                 "live_state": state,
                 "local_ocr_ready": engines["local_ocr_ready"],
-                "webcam_ready": engines["webcam_ready"],
+                "camera_engine_ready": engines.get("camera_engine_ready"),
             },
         )
 
@@ -396,7 +456,7 @@ class SerenaOCREnginesTool(_OCRBaseTool):
             "Serena OCR / Vision engines",
             "",
             f"- Local OCR ready: {'yes' if engines['local_ocr_ready'] else 'no'}",
-            f"- Webcam ready: {'yes' if engines['webcam_ready'] else 'no'}",
+            f"- Camera engine ready: {'yes' if engines.get('camera_engine_ready') else 'no'}",
             f"- Report: {report_path}",
             "- Changes made: no",
             "- Secret values exposed: no",
@@ -517,7 +577,7 @@ class SerenaOCRPlanTool(_OCRBaseTool):
             "mode": mode,
             "source": source,
             "local_ocr_ready": engines["local_ocr_ready"],
-            "webcam_ready": engines["webcam_ready"],
+            "camera_engine_ready": engines.get("camera_engine_ready"),
             "live_vision_active": bool(state.get("active")),
             "steps": [
                 "Check OCR/camera engine availability.",
@@ -544,7 +604,7 @@ class SerenaOCRPlanTool(_OCRBaseTool):
             f"- Mode: {mode}\n"
             f"- Source: {source or 'not specified'}\n"
             f"- Local OCR ready: {'yes' if engines['local_ocr_ready'] else 'no'}\n"
-            f"- Webcam ready: {'yes' if engines['webcam_ready'] else 'no'}\n"
+            f"- Camera engine ready: {'yes' if engines.get('camera_engine_ready') else 'no'}\n"
             f"- Live vision active: {'yes' if state.get('active') else 'no'}\n"
             f"- Plan: {plan_path}\n"
             "- Camera opened: no\n"
