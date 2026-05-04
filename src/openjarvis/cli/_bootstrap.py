@@ -17,6 +17,9 @@ import openjarvis
 from openjarvis.core import config as _cfg
 from openjarvis.core.config import HardwareInfo
 
+# Marker used to redact secret values in __repr__.
+_REDACTED_PLACEHOLDER = "***redacted***"
+
 # Precedence order matters: first match wins.
 # OpenRouter first because one key unlocks the most models; Anthropic
 # next because it's the highest-quality single-provider option; then
@@ -41,7 +44,7 @@ class CloudProvider:
     def __repr__(self) -> str:
         return (
             f"CloudProvider(provider={self.provider!r}, "
-            f"env_var={self.env_var!r}, api_key='***redacted***')"
+            f"env_var={self.env_var!r}, api_key='{_REDACTED_PLACEHOLDER}')"
         )
 
 
@@ -66,6 +69,16 @@ _DEFAULT_MEMORY = "# Agent Memory\n\n"
 _DEFAULT_USER = "# User Profile\n\n"
 
 
+def _toml_quote(value: str) -> str:
+    """Escape a runtime value for use inside TOML "..." double-quoted string.
+
+    Per TOML spec: backslash and double-quote must be backslash-escaped in
+    basic strings.  Other control chars are not common in our values, so we
+    don't escape them — keeping this helper minimal.
+    """
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 def _now_iso() -> str:
     return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -76,7 +89,8 @@ def _installer_version() -> str:
 
 def _render_provenance_lines() -> str:
     return (
-        f'installed_at = "{_now_iso()}"\ninstaller_version = "{_installer_version()}"\n'
+        f"installed_at = {_toml_quote(_now_iso())}\n"
+        f"installer_version = {_toml_quote(_installer_version())}\n"
     )
 
 
@@ -101,9 +115,9 @@ def write_initial_config(
             f"\n# GPU: {hardware.gpu.name} ({hardware.gpu.vram_gb} GB {mem_label})"
         )
 
-    intelligence_section = f'default_model = "{model}"'
+    intelligence_section = f"default_model = {_toml_quote(model)}"
     if cloud is not None:
-        intelligence_section += f'\nprovider = "{cloud.provider}"'
+        intelligence_section += f"\nprovider = {_toml_quote(cloud.provider)}"
 
     # Provenance must come before table declarations to be top-level keys.
     provenance = _render_provenance_lines().rstrip("\n")
@@ -121,7 +135,7 @@ def write_initial_config(
         f"{provenance}\n"
         f"\n"
         f"[engine]\n"
-        f'default = "{engine}"\n'
+        f"default = {_toml_quote(engine)}\n"
         f"\n"
         f"[engine.{engine}]\n"
         f"# host = "

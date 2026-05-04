@@ -81,3 +81,12 @@ def test_overwrites_existing_config_toml(tmp_openjarvis_home: Path) -> None:
     _bootstrap.write_initial_config(hardware=hw, engine="ollama", model="qwen3.5:2b")
     data = tomllib.loads(cfg.read_text())
     assert data["engine"]["default"] == "ollama"
+
+
+def test_handles_special_chars_in_model_name(tmp_openjarvis_home: Path) -> None:
+    """Model names with TOML-special chars (\\ and ") must produce valid TOML."""
+    hw = HardwareInfo(platform="linux", cpu_brand="x", cpu_count=1, ram_gb=4.0)
+    weird_model = 'my"weird\\model:1b'
+    _bootstrap.write_initial_config(hardware=hw, engine="ollama", model=weird_model)
+    data = tomllib.loads((tmp_openjarvis_home / "config.toml").read_text())
+    assert data["intelligence"]["default_model"] == weird_model
