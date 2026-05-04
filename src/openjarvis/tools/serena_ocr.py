@@ -1930,6 +1930,440 @@ class SerenaOCRLiveReportTool(_OCRBaseTool):
         return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
 
 
+def _live_artifacts(state: dict[str, Any]) -> list[dict[str, Any]]:
+    artifacts = state.get("artifacts") or []
+    return [item for item in artifacts if isinstance(item, dict)]
+
+
+def _live_frame_artifacts(state: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        item for item in _live_artifacts(state)
+        if item.get("type") in {"live_snapshot", "live_watch_doc_frame", "live_watch_text_frame"}
+        and item.get("path")
+    ]
+
+
+def _select_best_live_frame(state: dict[str, Any]) -> dict[str, Any] | None:
+    frames = _live_frame_artifacts(state)
+    if not frames:
+        return None
+
+    def score(item: dict[str, Any]) -> int:
+        try:
+            return int(item.get("readability_score") or 0)
+        except Exception:
+            return 0
+
+    return sorted(frames, key=score, reverse=True)[0]
+
+
+def _capture_live_frame_with_ocr(state: dict[str, Any], name: str, artifact_type: str, extract_text: bool = True) -> dict[str, Any]:
+    capture = _capture_frame(camera_index=int(state.get("camera_index") or 0), name=name)
+    path = Path(capture["output_path"])
+    desc = _describe_capture(path)
+
+    artifact: dict[str, Any] = {
+        "type": artifact_type,
+        "path": str(path),
+        "created_at": _timestamp(),
+        "camera_index": state.get("camera_index"),
+        "mode": state.get("mode"),
+        "readability": desc["stats"]["readability"],
+        "readability_score": desc["stats"]["readability_score"],
+        "description": desc["description"],
+    }
+
+    preview = ""
+    text_path = ""
+    text_length = 0
+
+    if extract_text:
+        ocr = _ocr_image_text(path)
+        text_path_obj = _write_extracted_text(path.stem, ocr["text"])
+        text_path = str(text_path_obj)
+        preview = ocr["text"][:2000] if ocr["text"] else ""
+        text_length = ocr["text_length"]
+        artifact["ocr"] = {
+            "performed": True,
+            "text_length": text_length,
+            "text_path": text_path,
+            "engine": ocr["engine"],
+        }
+    else:
+        artifact["ocr"] = {"performed": False}
+
+    state["frames_captured"] = int(state.get("frames_captured") or 0) + 1
+    state["frames_saved"] = int(state.get("frames_saved") or 0) + 1
+    state["last_frame"] = str(path)
+    state.setdefault("artifacts", []).append(artifact)
+
+    return {
+        "capture": capture,
+        "path": str(path),
+        "description": desc,
+        "artifact": artifact,
+        "preview": preview,
+        "text_path": text_path,
+        "text_length": text_length,
+    }
+
+
+@ToolRegistry.register("serena_ocr_live_watch_doc")
+class SerenaOCRLiveWatchDocTool(_OCRBaseTool):
+    tool_id = "serena_ocr_live_watch_doc"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="During an active live session, capture document frames and OCR the best available result.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "frames": {"type": "integer"},
+                    "name": {"type": "string"},
+                },
+            },
+            category="serena_ocr",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            state = _active_live_state_or_error()
+            frames = int(params.get("frames") or 1)
+            name = str(params.get("name") or "live-watch-doc").strip()
+
+            if frames < 1:
+                return self._result("frames must be at least 1.", success=False)
+            if frames > 5:
+                return self._result("frames is capped at 5 for v1 safety.", success=False)
+
+            captures: list[dict[str, Any]] = []
+            for index in range(frames):
+                frame_name = f"{name}-{index + 1}"
+                item = _capture_live_frame_with_ocr(
+                    state=state,
+                    name=frame_name,
+                    artifact_type="live_watch_doc_frame",
+                    extract_text=True,
+                )
+                captures.append(item)
+
+            best = _select_best_live_frame(state)
+            state["best_frame"] = best or {}
+            state_path = _save_live_state(state)
+
+            payload = {
+                "report_type": "serena_ocr_live_watch_doc",
+                "created_at": _timestamp(),
+                "frames_requested": frames,
+                "captures": captures,
+                "best_frame": best,
+                "state": state,
+                "state_path": str(state_path),
+                "camera_opened_by_command": True,
+                "camera_released": True,
+                "changes_made": True,
+                "delete_performed": False,
+            }
+            report_path = _save_json("reports", f"live-watch-doc-{name}", payload)
+
+            best_line = "none"
+            if best:
+                best_line = f"{best.get('path')} | readability={best.get('readability')} ({best.get('readability_score')}/100)"
+
+            preview = ""
+            for item in captures:
+                if item.get("preview"):
+                    preview = item["preview"]
+                    break
+
+            return self._result(
+                "Serena OCR live document watch complete\n\n"
+                f"- Mode: {state.get('mode')}\n"
+                f"- Camera index: {state.get('camera_index')}\n"
+                f"- Frames captured this command: {len(captures)}\n"
+                f"- Total frames captured: {state.get('frames_captured', 0)}\n"
+                f"- Best frame: {best_line}\n"
+                f"- State: {state_path}\n"
+                f"- Report: {report_path}\n"
+                "- Camera opened by explicit command: yes\n"
+                "- Camera released: yes\n"
+                "- OCR performed: yes\n"
+                "- Changes made: yes\n"
+                "- Delete performed: no\n\n"
+                "Preview:\n"
+                f"{preview or '[no text detected]'}",
+                metadata={**payload, "report_path": str(report_path), "preview": preview},
+            )
+        except Exception as exc:
+            payload = {
+                "report_type": "serena_ocr_live_watch_doc_failed",
+                "created_at": _timestamp(),
+                "error": str(exc),
+                "camera_released": True,
+                "changes_made": False,
+                "delete_performed": False,
+            }
+            report_path = _save_json("reports", "live-watch-doc-failed", payload)
+            return self._result(
+                "Serena OCR live document watch failed safely\n\n"
+                f"- Error: {exc}\n"
+                f"- Report: {report_path}\n"
+                "- Camera released: yes\n"
+                "- Changes made: no\n"
+                "- Delete performed: no",
+                success=False,
+                metadata={**payload, "report_path": str(report_path)},
+            )
+
+
+@ToolRegistry.register("serena_ocr_live_watch_text")
+class SerenaOCRLiveWatchTextTool(_OCRBaseTool):
+    tool_id = "serena_ocr_live_watch_text"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="During an active live session, capture frames and extract any visible text.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "frames": {"type": "integer"},
+                    "name": {"type": "string"},
+                },
+            },
+            category="serena_ocr",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            state = _active_live_state_or_error()
+            frames = int(params.get("frames") or 1)
+            name = str(params.get("name") or "live-watch-text").strip()
+
+            if frames < 1:
+                return self._result("frames must be at least 1.", success=False)
+            if frames > 5:
+                return self._result("frames is capped at 5 for v1 safety.", success=False)
+
+            captures: list[dict[str, Any]] = []
+            for index in range(frames):
+                frame_name = f"{name}-{index + 1}"
+                item = _capture_live_frame_with_ocr(
+                    state=state,
+                    name=frame_name,
+                    artifact_type="live_watch_text_frame",
+                    extract_text=True,
+                )
+                captures.append(item)
+
+            best = _select_best_live_frame(state)
+            state["best_frame"] = best or {}
+            state_path = _save_live_state(state)
+
+            payload = {
+                "report_type": "serena_ocr_live_watch_text",
+                "created_at": _timestamp(),
+                "frames_requested": frames,
+                "captures": captures,
+                "best_frame": best,
+                "state": state,
+                "state_path": str(state_path),
+                "camera_opened_by_command": True,
+                "camera_released": True,
+                "changes_made": True,
+                "delete_performed": False,
+            }
+            report_path = _save_json("reports", f"live-watch-text-{name}", payload)
+
+            preview = ""
+            for item in captures:
+                if item.get("preview"):
+                    preview = item["preview"]
+                    break
+
+            return self._result(
+                "Serena OCR live text watch complete\n\n"
+                f"- Mode: {state.get('mode')}\n"
+                f"- Camera index: {state.get('camera_index')}\n"
+                f"- Frames captured this command: {len(captures)}\n"
+                f"- Total frames captured: {state.get('frames_captured', 0)}\n"
+                f"- State: {state_path}\n"
+                f"- Report: {report_path}\n"
+                "- Camera opened by explicit command: yes\n"
+                "- Camera released: yes\n"
+                "- OCR performed: yes\n"
+                "- Changes made: yes\n"
+                "- Delete performed: no\n\n"
+                "Preview:\n"
+                f"{preview or '[no text detected]'}",
+                metadata={**payload, "report_path": str(report_path), "preview": preview},
+            )
+        except Exception as exc:
+            payload = {
+                "report_type": "serena_ocr_live_watch_text_failed",
+                "created_at": _timestamp(),
+                "error": str(exc),
+                "camera_released": True,
+                "changes_made": False,
+                "delete_performed": False,
+            }
+            report_path = _save_json("reports", "live-watch-text-failed", payload)
+            return self._result(
+                "Serena OCR live text watch failed safely\n\n"
+                f"- Error: {exc}\n"
+                f"- Report: {report_path}\n"
+                "- Camera released: yes\n"
+                "- Changes made: no\n"
+                "- Delete performed: no",
+                success=False,
+                metadata={**payload, "report_path": str(report_path)},
+            )
+
+
+@ToolRegistry.register("serena_ocr_best_frame")
+class SerenaOCRBestFrameTool(_OCRBaseTool):
+    tool_id = "serena_ocr_best_frame"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Select the best readable frame from the current/recent live vision session.",
+            parameters={"type": "object", "properties": {}},
+            category="serena_ocr",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        state = _load_live_state()
+        best = _select_best_live_frame(state)
+
+        payload = {
+            "report_type": "serena_ocr_best_frame",
+            "created_at": _timestamp(),
+            "best_frame": best,
+            "state": state,
+            "changes_made": False,
+            "camera_opened": False,
+            "delete_performed": False,
+        }
+        report_path = _save_json("reports", "best-frame", payload)
+
+        if not best:
+            return self._result(
+                "Serena OCR best frame\n\n"
+                "- Best frame: none\n"
+                f"- Report: {report_path}\n"
+                "- Camera opened: no\n"
+                "- Changes made: no\n"
+                "- Delete performed: no\n\n"
+                "Note:\n"
+                "- No live frame artifacts exist yet. Use live-snapshot, live-watch-doc, or live-watch-text during an active session.",
+                metadata={**payload, "report_path": str(report_path)},
+            )
+
+        return self._result(
+            "Serena OCR best frame\n\n"
+            f"- Path: {best.get('path')}\n"
+            f"- Type: {best.get('type')}\n"
+            f"- Mode: {best.get('mode')}\n"
+            f"- Readability: {best.get('readability')} ({best.get('readability_score')}/100)\n"
+            f"- Text path: {(best.get('ocr') or {}).get('text_path') or 'none'}\n"
+            f"- Report: {report_path}\n"
+            "- Camera opened: no\n"
+            "- Changes made: no\n"
+            "- Delete performed: no",
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_ocr_extract_live_text")
+class SerenaOCRExtractLiveTextTool(_OCRBaseTool):
+    tool_id = "serena_ocr_extract_live_text"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Extract text from the best live frame or most recent live frame artifact.",
+            parameters={"type": "object", "properties": {}},
+            category="serena_ocr",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            state = _load_live_state()
+            best = _select_best_live_frame(state)
+
+            if not best:
+                return self._result(
+                    "No live frame available for text extraction.\n\n"
+                    "- Use live-snapshot, live-watch-doc, or live-watch-text first.",
+                    success=False,
+                )
+
+            frame_path = Path(str(best.get("path") or ""))
+            if not frame_path.exists():
+                return self._result(f"Best frame file does not exist: {frame_path}", success=False)
+
+            ocr = _ocr_image_text(frame_path)
+            text_path_obj = _write_extracted_text(frame_path.stem, ocr["text"])
+
+            best["ocr"] = {
+                "performed": True,
+                "text_length": ocr["text_length"],
+                "text_path": str(text_path_obj),
+                "engine": ocr["engine"],
+            }
+
+            state["best_frame"] = best
+            state.setdefault("artifacts", []).append({
+                "type": "live_text_extraction",
+                "source_frame": str(frame_path),
+                "text_path": str(text_path_obj),
+                "text_length": ocr["text_length"],
+                "created_at": _timestamp(),
+            })
+            state_path = _save_live_state(state)
+
+            payload = {
+                "report_type": "serena_ocr_extract_live_text",
+                "created_at": _timestamp(),
+                "source_frame": str(frame_path),
+                "text_path": str(text_path_obj),
+                "text_length": ocr["text_length"],
+                "state": state,
+                "state_path": str(state_path),
+                "ocr_performed": True,
+                "changes_made": True,
+                "camera_opened": False,
+                "delete_performed": False,
+            }
+            report_path = _save_json("reports", "extract-live-text", payload)
+
+            preview = ocr["text"][:2000] if ocr["text"] else ""
+
+            return self._result(
+                "Serena OCR live text extraction complete\n\n"
+                f"- Source frame: {frame_path}\n"
+                f"- Text length: {ocr['text_length']}\n"
+                f"- Extracted text file: {text_path_obj}\n"
+                f"- State: {state_path}\n"
+                f"- Report: {report_path}\n"
+                "- Camera opened: no\n"
+                "- OCR performed: yes\n"
+                "- Changes made: yes\n"
+                "- Delete performed: no\n\n"
+                "Preview:\n"
+                f"{preview or '[no text detected]'}",
+                metadata={**payload, "report_path": str(report_path), "preview": preview},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to extract live text: {exc}", success=False)
+
+
 __all__ = [
     "SerenaOCRStatusTool",
     "SerenaOCREnginesTool",
@@ -1939,6 +2373,10 @@ __all__ = [
     "SerenaOCRExtractPDFTool",
     "SerenaOCRDescribeCaptureTool",
     "SerenaOCRLiveReportTool",
+    "SerenaOCRExtractLiveTextTool",
+    "SerenaOCRBestFrameTool",
+    "SerenaOCRLiveWatchTextTool",
+    "SerenaOCRLiveWatchDocTool",
     "SerenaOCRLiveSnapshotTool",
     "SerenaOCRLiveStopTool",
     "SerenaOCRLiveStatusTool",

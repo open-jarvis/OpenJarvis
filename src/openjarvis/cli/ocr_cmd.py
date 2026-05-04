@@ -12,6 +12,10 @@ from openjarvis.tools.serena_ocr import (
     SerenaOCRPlanTool,
     SerenaOCRSafetyPolicyTool,
     SerenaOCRStatusTool,
+    SerenaOCRExtractLiveTextTool,
+    SerenaOCRBestFrameTool,
+    SerenaOCRLiveWatchTextTool,
+    SerenaOCRLiveWatchDocTool,
     SerenaOCRLiveReportTool,
     SerenaOCRLiveSnapshotTool,
     SerenaOCRLiveStopTool,
@@ -203,6 +207,42 @@ def live_report() -> None:
     """Create a report for the current/recent OCR live vision session."""
     console = Console()
     result = SerenaOCRLiveReportTool().execute()
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@ocr.command("live-watch-doc")
+@click.option("--frames", default=1, type=int, help="Frames to capture, capped at 5.")
+@click.option("--name", default="live-watch-doc", help="Capture name prefix.")
+def live_watch_doc(frames: int, name: str) -> None:
+    """Capture document frames during an active live vision session."""
+    console = Console()
+    result = SerenaOCRLiveWatchDocTool().execute(frames=frames, name=name)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@ocr.command("live-watch-text")
+@click.option("--frames", default=1, type=int, help="Frames to capture, capped at 5.")
+@click.option("--name", default="live-watch-text", help="Capture name prefix.")
+def live_watch_text(frames: int, name: str) -> None:
+    """Capture text frames during an active live vision session."""
+    console = Console()
+    result = SerenaOCRLiveWatchTextTool().execute(frames=frames, name=name)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@ocr.command("best-frame")
+def best_frame() -> None:
+    """Select the best readable frame from the live vision session."""
+    console = Console()
+    result = SerenaOCRBestFrameTool().execute()
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@ocr.command("extract-live-text")
+def extract_live_text() -> None:
+    """Extract text from the best live frame."""
+    console = Console()
+    result = SerenaOCRExtractLiveTextTool().execute()
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 
