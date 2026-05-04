@@ -281,6 +281,13 @@ def _do_download(engine: str, model: str, spec, console: Console) -> None:
     default=None,
     help="Use a pre-built starter config instead of generating one.",
 )
+@click.option(
+    "--from-bare-jarvis",
+    is_flag=True,
+    default=False,
+    hidden=True,
+    help="Suppress launch-chat prompt; called by the bare-jarvis first-run guard.",
+)
 def init(
     force: bool,
     config: Optional[Path],
@@ -291,9 +298,21 @@ def init(
     host: Optional[str] = None,
     enable_digest: bool = False,
     preset: Optional[str] = None,
+    from_bare_jarvis: bool = False,
 ) -> None:
     """Detect hardware and generate ~/.openjarvis/config.toml."""
     console = Console()
+
+    # Cloud auto-detect — propose cloud as the default if a key is in env.
+    from openjarvis.cli._bootstrap import detect_cloud_keys
+
+    detected_cloud = detect_cloud_keys()
+    if detected_cloud is not None:
+        console.print(
+            f"[cyan]Detected cloud key in env:[/cyan] {detected_cloud.env_var} "
+            f"(provider: {detected_cloud.provider}). "
+            "Cloud will be proposed as the default; press Enter to accept."
+        )
 
     if DEFAULT_CONFIG_PATH.exists() and not force:
         console.print(
@@ -513,7 +532,7 @@ sources = ["hackernews", "news_rss"]
             f"  [dim](selected for {avail:.0f} GB available memory)[/dim]"
         )
 
-        if not no_download and spec:
+        if not no_download and not from_bare_jarvis and spec:
             prompt = f"  Download {model} (~{size_gb:.1f} GB) now?"
             if click.confirm(prompt, default=True):
                 _do_download(selected_engine, model, spec, console)
