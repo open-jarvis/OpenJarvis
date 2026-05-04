@@ -11,6 +11,11 @@ from openjarvis.tools.serena_google_docs import (
     SerenaGoogleDocsEnvCheckTool,
     SerenaGoogleDocsPlanTool,
     SerenaGoogleDocsStatusTool,
+    SerenaGoogleDocsSaveOutputTool,
+    SerenaGoogleDocsCreateReportTool,
+    SerenaGoogleDocsCreateNoteTool,
+    SerenaGoogleDocsExportTool,
+    SerenaGoogleDocsCopyTool,
     SerenaGoogleDocsLinkTool,
     SerenaGoogleDocsUpdateTitleTool,
     SerenaGoogleDocsAppendTool,
@@ -129,6 +134,83 @@ def link(document_id: str) -> None:
     """Return existing Google Doc link without changing permissions."""
     console = Console()
     result = SerenaGoogleDocsLinkTool().execute(document_id=document_id)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@google_docs.command("copy")
+@click.option("--document-id", required=True, help="Source Google Doc document ID.")
+@click.option("--title", required=True, help="Copy title.")
+@click.option("--drive-folder", default="", help="Drive folder path under configured root.")
+def copy(document_id: str, title: str, drive_folder: str) -> None:
+    """Copy a Google Doc."""
+    console = Console()
+    result = SerenaGoogleDocsCopyTool().execute(
+        document_id=document_id,
+        title=title,
+        drive_folder=drive_folder,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@google_docs.command("export")
+@click.option("--document-id", required=True, help="Google Doc document ID.")
+@click.option("--format", default="pdf", help="pdf, docx, txt, or html.")
+@click.option("--name", default="", help="Optional local export filename.")
+def export(document_id: str, format: str, name: str) -> None:
+    """Export a Google Doc to local file."""
+    console = Console()
+    result = SerenaGoogleDocsExportTool().execute(
+        document_id=document_id,
+        format=format,
+        name=name,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@google_docs.command("create-note")
+@click.option("--title", required=True, help="Note title.")
+@click.option("--content", required=True, help="Note content.")
+@click.option("--drive-folder", default="", help="Drive folder path under configured root.")
+def create_note(title: str, content: str, drive_folder: str) -> None:
+    """Create a professional Google Docs note."""
+    console = Console()
+    result = SerenaGoogleDocsCreateNoteTool().execute(
+        title=title,
+        content=content,
+        drive_folder=drive_folder,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@google_docs.command("create-report")
+@click.option("--title", required=True, help="Report title.")
+@click.option("--content", required=True, help="Report content.")
+@click.option("--drive-folder", default="", help="Drive folder path under configured root.")
+def create_report(title: str, content: str, drive_folder: str) -> None:
+    """Create a professional Google Docs report."""
+    console = Console()
+    result = SerenaGoogleDocsCreateReportTool().execute(
+        title=title,
+        content=content,
+        drive_folder=drive_folder,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@google_docs.command("save-output")
+@click.option("--local-path", required=True, help="Serena output/report text file path.")
+@click.option("--title", default="", help="Optional Google Doc title.")
+@click.option("--drive-folder", default="Serena/Google Docs Outputs", help="Drive folder path under configured root.")
+@click.option("--doc-type", default="report", help="document, note, or report.")
+def save_output(local_path: str, title: str, drive_folder: str, doc_type: str) -> None:
+    """Create a Google Doc from a Serena output/report text file."""
+    console = Console()
+    result = SerenaGoogleDocsSaveOutputTool().execute(
+        local_path=local_path,
+        title=title,
+        drive_folder=drive_folder,
+        doc_type=doc_type,
+    )
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 

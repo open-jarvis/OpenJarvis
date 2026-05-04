@@ -882,12 +882,409 @@ class SerenaGoogleDocsLinkTool(_GoogleDocsBaseTool):
             return self._result(f"Failed to get Google Doc link: {exc}", success=False)
 
 
+def _media_download_import() -> Any:
+    try:
+        from googleapiclient.http import MediaIoBaseDownload
+        return MediaIoBaseDownload
+    except Exception as exc:
+        raise RuntimeError("Google API media download helper is not available.") from exc
+
+
+def _safe_export_filename(name: str, extension: str) -> Path:
+    safe = Path(str(name or "google-doc-export")).name.strip()
+    if not safe:
+        safe = "google-doc-export"
+
+    extension = extension.strip(".").lower() or "pdf"
+    if not safe.lower().endswith(f".{extension}"):
+        safe = f"{safe}.{extension}"
+
+    lowered = safe.lower()
+    blocked = [".env", "secret", "secrets", "credential", "credentials", "password", "token"]
+    if any(item in lowered for item in blocked):
+        raise RuntimeError(f"Unsafe export filename: {safe}")
+
+    folder = _google_docs_root() / "exports"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / safe
+
+
+def _safe_serena_output_file(path_value: str) -> Path:
+    path = Path(str(path_value or "")).expanduser()
+
+    if not path.exists():
+        raise RuntimeError(f"Output file does not exist: {path}")
+    if not path.is_file():
+        raise RuntimeError(f"Output path is not a file: {path}")
+
+    resolved = path.resolve()
+    allowed_roots = [
+        Path("outputs").resolve(),
+        Path("reports").resolve(),
+        Path("conversion-workspace").resolve(),
+    ]
+
+    if not any(str(resolved).lower().startswith(str(root).lower()) for root in allowed_roots if root.exists()):
+        raise RuntimeError("save-output only allows files from outputs, reports, or conversion-workspace.")
+
+    lowered = str(path).lower()
+    blocked = [".env", "secret", "secrets", "credential", "credentials", "password", "token"]
+    if any(item in lowered for item in blocked):
+        raise RuntimeError(f"Refusing to save sensitive-looking output path: {path}")
+
+    return path
+
+
+@ToolRegistry.register("serena_google_docs_copy")
+class SerenaGoogleDocsCopyTool(_GoogleDocsBaseTool):
+    tool_id = "serena_google_docs_copy"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Copy a Google Doc and optionally place the copy into a Drive folder.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "document_id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "drive_folder": {"type": "string"},
+                },
+                "required": ["document_id", "title"],
+            },
+            category="serena_google_docs",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            drive_service = _get_drive_service()
+
+            document_id = str(params.get("document_id") or "").strip()
+            title = str(params.get("title") or "").strip()
+            drive_folder = str(params.get("drive_folder") or "").strip()
+
+            if not document_id:
+                return self._result("Document ID is required.", success=False)
+            if not title:
+                return self._result("Copy title is required.", success=False)
+
+            copied = drive_service.files().copy(
+                fileId=document_id,
+                body={"name": title},
+                fields=_drive_file_fields(),
+                supportsAllDrives=True,
+            ).execute()
+
+            folder_result = None
+            if drive_folder:
+                folder_result = _ensure_drive_folder_path(drive_service, drive_folder)
+                current = drive_service.files().get(
+                    fileId=copied["id"],
+                    fields="parents",
+                    supportsAllDrives=True,
+                ).execute()
+                previous_parents = ",".join(current.get("parents", []))
+                copied = drive_service.files().update(
+                    fileId=copied["id"],
+                    addParents=folder_result["folder_id"],
+                    removeParents=previous_parents,
+                    fields=_drive_file_fields(),
+                    supportsAllDrives=True,
+                ).execute()
+
+            payload = {
+                "report_type": "serena_google_docs_copy",
+                "created_at": _timestamp(),
+                "source_document_id": document_id,
+                "copy": copied,
+                "drive_folder": drive_folder,
+                "folder_result": folder_result,
+                "copy_performed": True,
+                "changes_made": True,
+                "delete_performed": False,
+            }
+            report_path = _save_json("reports", f"copy-{title}", payload)
+
+            return self._result(
+                "Serena Google Doc copied\n\n"
+                f"- Source document ID: {document_id}\n"
+                f"- Copy title: {copied.get('name', title)}\n"
+                f"- Copy document ID: {copied.get('id')}\n"
+                f"- Drive folder: {drive_folder or 'default Drive location'}\n"
+                f"- Link: {copied.get('webViewLink', '')}\n"
+                f"- Report: {report_path}\n"
+                "- Copy performed: yes\n"
+                "- Changes made: yes\n"
+                "- Delete performed: no",
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to copy Google Doc: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_google_docs_export")
+class SerenaGoogleDocsExportTool(_GoogleDocsBaseTool):
+    tool_id = "serena_google_docs_export"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Export/download a Google Doc as PDF, DOCX, TXT, or HTML.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "document_id": {"type": "string"},
+                    "format": {"type": "string"},
+                    "name": {"type": "string"},
+                },
+                "required": ["document_id"],
+            },
+            category="serena_google_docs",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            import io
+
+            drive_service = _get_drive_service()
+            MediaIoBaseDownload = _media_download_import()
+
+            document_id = str(params.get("document_id") or "").strip()
+            export_format = str(params.get("format") or "pdf").strip().lower()
+            name = str(params.get("name") or "").strip()
+
+            if not document_id:
+                return self._result("Document ID is required.", success=False)
+
+            mime_by_format = {
+                "pdf": "application/pdf",
+                "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "txt": "text/plain",
+                "html": "text/html",
+            }
+
+            if export_format not in mime_by_format:
+                return self._result("Export format must be one of: pdf, docx, txt, html.", success=False)
+
+            info = drive_service.files().get(
+                fileId=document_id,
+                fields="id,name,mimeType,webViewLink",
+                supportsAllDrives=True,
+            ).execute()
+
+            output_name = name or info.get("name") or document_id
+            output_path = _safe_export_filename(output_name, export_format)
+
+            request = drive_service.files().export_media(
+                fileId=document_id,
+                mimeType=mime_by_format[export_format],
+            )
+
+            fh = io.FileIO(output_path, "wb")
+            downloader = MediaIoBaseDownload(fh, request)
+
+            done = False
+            progress = 0
+            while not done:
+                status, done = downloader.next_chunk()
+                if status:
+                    progress = int(status.progress() * 100)
+
+            fh.close()
+
+            payload = {
+                "report_type": "serena_google_docs_export",
+                "created_at": _timestamp(),
+                "document_id": document_id,
+                "title": info.get("name"),
+                "format": export_format,
+                "mime_type": mime_by_format[export_format],
+                "output_path": str(output_path),
+                "progress": progress,
+                "export_performed": True,
+                "local_file_created": True,
+                "changes_made": True,
+                "delete_performed": False,
+            }
+            report_path = _save_json("reports", f"export-{output_path.name}", payload)
+
+            return self._result(
+                "Serena Google Doc exported\n\n"
+                f"- Title: {info.get('name', 'unknown')}\n"
+                f"- Document ID: {document_id}\n"
+                f"- Format: {export_format}\n"
+                f"- Local output: {output_path}\n"
+                f"- Progress: {progress}%\n"
+                f"- Report: {report_path}\n"
+                "- Export performed: yes\n"
+                "- Local file created: yes\n"
+                "- Delete performed: no",
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to export Google Doc: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_google_docs_create_note")
+class SerenaGoogleDocsCreateNoteTool(_GoogleDocsBaseTool):
+    tool_id = "serena_google_docs_create_note"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a professional structured note in Google Docs.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "content": {"type": "string"},
+                    "drive_folder": {"type": "string"},
+                },
+                "required": ["title", "content"],
+            },
+            category="serena_google_docs",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        return SerenaGoogleDocsCreateTool().execute(
+            title=str(params.get("title") or ""),
+            content=str(params.get("content") or ""),
+            drive_folder=str(params.get("drive_folder") or ""),
+            doc_type="note",
+        )
+
+
+@ToolRegistry.register("serena_google_docs_create_report")
+class SerenaGoogleDocsCreateReportTool(_GoogleDocsBaseTool):
+    tool_id = "serena_google_docs_create_report"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a professional structured report in Google Docs.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "content": {"type": "string"},
+                    "drive_folder": {"type": "string"},
+                },
+                "required": ["title", "content"],
+            },
+            category="serena_google_docs",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        return SerenaGoogleDocsCreateTool().execute(
+            title=str(params.get("title") or ""),
+            content=str(params.get("content") or ""),
+            drive_folder=str(params.get("drive_folder") or ""),
+            doc_type="report",
+        )
+
+
+@ToolRegistry.register("serena_google_docs_save_output")
+class SerenaGoogleDocsSaveOutputTool(_GoogleDocsBaseTool):
+    tool_id = "serena_google_docs_save_output"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a Google Doc from an existing Serena output/report text file.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "local_path": {"type": "string"},
+                    "title": {"type": "string"},
+                    "drive_folder": {"type": "string"},
+                    "doc_type": {"type": "string"},
+                },
+                "required": ["local_path"],
+            },
+            category="serena_google_docs",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            local_path = _safe_serena_output_file(str(params.get("local_path") or ""))
+            title = str(params.get("title") or "").strip() or local_path.stem
+            drive_folder = str(params.get("drive_folder") or "Serena/Google Docs Outputs").strip()
+            doc_type = str(params.get("doc_type") or "report").strip()
+
+            try:
+                content = local_path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                content = local_path.read_text(encoding="utf-8", errors="replace")
+
+            result = SerenaGoogleDocsCreateTool().execute(
+                title=title,
+                content=content,
+                drive_folder=drive_folder,
+                doc_type=doc_type,
+            )
+
+            payload = {
+                "report_type": "serena_google_docs_save_output",
+                "created_at": _timestamp(),
+                "local_path": str(local_path),
+                "title": title,
+                "drive_folder": drive_folder,
+                "doc_type": doc_type,
+                "create_success": result.success,
+                "create_result": result.metadata,
+                "changes_made": result.success,
+                "delete_performed": False,
+                "secret_values_exposed": False,
+            }
+            report_path = _save_json("reports", f"save-output-{title}", payload)
+
+            if result.success:
+                return self._result(
+                    "Serena output saved as Google Doc\n\n"
+                    f"- Local output: {local_path}\n"
+                    f"- Title: {title}\n"
+                    f"- Drive folder: {drive_folder}\n"
+                    f"- Report: {report_path}\n"
+                    "- Google Doc created: yes\n"
+                    "- Changes made: yes\n"
+                    "- Delete performed: no\n\n"
+                    "Create result:\n"
+                    f"{result.content}",
+                    metadata={**payload, "report_path": str(report_path)},
+                )
+
+            return self._result(
+                "Serena output could not be saved as Google Doc\n\n"
+                f"- Local output: {local_path}\n"
+                f"- Title: {title}\n"
+                f"- Report: {report_path}\n"
+                "- Google Doc created: no\n"
+                "- Changes made: no\n"
+                "- Delete performed: no\n\n"
+                f"{result.content}",
+                success=False,
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to save Serena output as Google Doc: {exc}", success=False)
+
+
 __all__ = [
     "SerenaGoogleDocsStatusTool",
     "SerenaGoogleDocsEnvCheckTool",
     "SerenaGoogleDocsConnectCheckTool",
     "SerenaGoogleDocsPlanTool",
     "SerenaGoogleDocsLinkTool",
+    "SerenaGoogleDocsSaveOutputTool",
+    "SerenaGoogleDocsCreateReportTool",
+    "SerenaGoogleDocsCreateNoteTool",
+    "SerenaGoogleDocsExportTool",
+    "SerenaGoogleDocsCopyTool",
     "SerenaGoogleDocsUpdateTitleTool",
     "SerenaGoogleDocsAppendTool",
     "SerenaGoogleDocsReadTool",
