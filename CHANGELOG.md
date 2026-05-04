@@ -10,6 +10,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Framework-comparison harness for NeurIPS 2026 paper.** New `evals/backends/external/`
+  subpackage wraps real Hermes Agent (commit `5d3be898a`) and OpenClaw (commit
+  `123ae82f...`) as one-shot subprocess backends, plus an `evals/comparison/` toolkit
+  for path/commit pinning, config templating (`make_configs.py`), and LaTeX table
+  generation (`table_gen.py`) for tables T1-T7. 96 Tier-1 configs ship under
+  `evals/configs/framework_comparison/`. See
+  `docs/superpowers/specs/2026-05-03-neurips-framework-comparison-design.md`.
+- New optional extra `framework-comparison` (depends on `polars`).
+- New pytest marker `live_external` for integration tests requiring real
+  foreign-framework installations.
+
+### Changed
+
+- `JarvisAgentBackend.generate_full` and `JarvisDirectBackend.generate_full` now return
+  the spec §6.2 extended fields (`energy_joules`, `peak_power_w`, `tool_calls`,
+  `turn_count`, `framework`, `framework_commit`, `error`) for cross-framework
+  comparison parity. Existing callers that didn't read these fields are unaffected.
+
 #### Skills System (Plans 1, 2A, 2B)
 
 - **Skills core** — every skill is a tool. Skills appear in a system prompt catalog, agents invoke them on demand, content (pipeline results, markdown instructions, or both) gets injected into context.

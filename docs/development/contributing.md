@@ -413,3 +413,41 @@ policy:
    if the component requires new packages
 
 See the [registry pattern](#registry-pattern) section above for complete examples.
+
+## Adding a new external framework backend
+
+To add a new agentic framework (e.g., LangChain agent harness) for inclusion in the
+NeurIPS 2026 framework comparison:
+
+1. **Pin the foreign framework's commit.** Add an entry to
+   `src/openjarvis/evals/configs/framework_comparison/_third_party.toml`:
+   ```toml
+   [langchain]
+   path = "/path/to/langchain-agent-checkout"
+   pinned_commit = "abc123"
+   runner_script = "src/openjarvis/evals/backends/external/_runners/langchain_runner.py"
+   python_executable = ""
+   ```
+
+2. **Write the bridge runner script** at
+   `src/openjarvis/evals/backends/external/_runners/langchain_runner.py`. It must:
+   - Accept CLI flags `--task --model --base-url --api-key --output-json`
+   - Import the foreign framework from the path in the appropriate env var
+     (e.g., `LANGCHAIN_AGENT_PATH`)
+   - Write a JSON file matching the `_RunnerOutput` schema in `_subprocess_runner.py`
+     to `--output-json` before exiting
+
+3. **Implement the backend wrapper** at
+   `src/openjarvis/evals/backends/external/langchain.py`, mirroring `HermesBackend`.
+
+4. **Re-export from `external/__init__.py`**.
+
+5. **Register the framework in `comparison/make_configs.py`**:
+   ```python
+   FRAMEWORKS["langchain"] = {"backend_id": "langchain"}
+   ```
+
+6. **Write 4 unit tests** at `tests/evals/comparison/test_langchain_backend.py`,
+   following the `test_hermes_backend.py` pattern (mocked subprocess).
+
+7. **Run `make_configs.py --all-tier1`** to materialize new configs.
