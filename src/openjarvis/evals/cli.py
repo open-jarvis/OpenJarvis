@@ -716,8 +716,16 @@ def _run_single(config, console: Optional[Console] = None) -> object:
         gpu_metrics=getattr(config, "gpu_metrics", False),
         model=config.model,
         max_turns=getattr(config, "max_turns", None),
-        base_url=_metadata.get("base_url") or os.environ.get("JARVIS_BACKEND_BASE_URL"),
-        api_key=_metadata.get("api_key") or os.environ.get("JARVIS_BACKEND_API_KEY"),
+        base_url=(
+            getattr(config, "base_url", None)
+            or _metadata.get("base_url")
+            or os.environ.get("JARVIS_BACKEND_BASE_URL")
+        ),
+        api_key=(
+            getattr(config, "api_key", None)
+            or _metadata.get("api_key")
+            or os.environ.get("JARVIS_BACKEND_API_KEY")
+        ),
     )
     dataset = _build_dataset(config.benchmark)
     # Inject engine config for benchmarks that run their own simulation
@@ -1301,6 +1309,8 @@ def run(
         sheets_worksheet=sheets_worksheet,
         sheets_credentials_path=sheets_credentials_path,
         episode_mode=episode_mode,
+        base_url=base_url or os.environ.get("JARVIS_BACKEND_BASE_URL"),
+        api_key=api_key or os.environ.get("JARVIS_BACKEND_API_KEY"),
         metadata={
             "base_url": base_url or os.environ.get("JARVIS_BACKEND_BASE_URL"),
             "api_key": api_key or os.environ.get("JARVIS_BACKEND_API_KEY"),
