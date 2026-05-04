@@ -447,7 +447,12 @@ NeurIPS 2026 framework comparison:
    FRAMEWORKS["langchain"] = {"backend_id": "langchain"}
    ```
 
-6. **Write 4 unit tests** at `tests/evals/comparison/test_langchain_backend.py`,
+6. **Register the backend in `evals/cli.py`**: add an entry to the `BACKENDS` dict
+   AND add an `elif backend_name == "<your_id>":` branch in `_build_backend()`.
+   Without this, the eval CLI will fail with "unknown backend" — or worse,
+   silently fall back to a different backend.
+
+7. **Write 4 unit tests** at `tests/evals/comparison/test_langchain_backend.py`,
    following the `test_hermes_backend.py` pattern (mocked subprocess).
 
-7. **Run `make_configs.py --all-tier1`** to materialize new configs.
+8. **Run `make_configs.py --all-tier1`** to materialize new configs.
