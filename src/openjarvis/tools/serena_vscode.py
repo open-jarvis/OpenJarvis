@@ -1585,6 +1585,353 @@ class SerenaVSCodeTestReportTool(_VSCodeBaseTool):
             return self._result(f"Failed to create VS Code test report: {exc}", success=False)
 
 
+SAFE_COMMAND_ALLOWLIST = {
+    "git status",
+    "git diff --stat",
+    "git diff --check",
+    "uv sync --python 3.11 --extra server",
+    "uv lock --check",
+    "uv run python -m pytest",
+    "uv run pytest",
+    "uv run ruff check .",
+    "uv run mypy .",
+    "npm test",
+    "npm run test",
+    "npm run lint",
+    "npm run typecheck",
+    "npm run build",
+    "pnpm test",
+    "pnpm run test",
+    "pnpm run lint",
+    "pnpm run typecheck",
+    "pnpm run build",
+}
+
+BLOCKED_COMMAND_TERMS = {
+    "push",
+    "publish",
+    "deploy",
+    "release",
+    "rm ",
+    "rmdir",
+    "del ",
+    "remove-item",
+    "format",
+    "shutdown",
+    "restart",
+    "docker push",
+    "kubectl apply",
+    "terraform apply",
+    "npm publish",
+    "pnpm publish",
+    "uv publish",
+    "twine upload",
+    "pip install",
+    "uv add",
+    "npm install",
+    "pnpm add",
+    "yarn add",
+}
+
+
+def _normalize_command(command: str) -> str:
+    return " ".join(str(command or "").strip().split())
+
+
+def _is_command_blocked(command: str) -> tuple[bool, str]:
+    normalized = _normalize_command(command)
+    lower = normalized.lower()
+
+    if not normalized:
+        return True, "empty command"
+
+    for term in BLOCKED_COMMAND_TERMS:
+        if term in lower:
+            return True, f"blocked term: {term}"
+
+    allowed_lower = {cmd.lower() for cmd in SAFE_COMMAND_ALLOWLIST}
+    if lower not in allowed_lower:
+        return True, "command is not in the safe allowlist"
+
+    return False, ""
+
+
+def _detect_project_scripts(root_path: Path) -> dict[str, Any]:
+    scripts: dict[str, Any] = {
+        "package_json": {},
+        "pyproject": {},
+        "safe_commands": sorted(SAFE_COMMAND_ALLOWLIST),
+    }
+
+    package_json = root_path / "package.json"
+    if package_json.exists():
+        try:
+            data = json.loads(package_json.read_text(encoding="utf-8-sig"))
+            scripts["package_json"] = data.get("scripts", {}) if isinstance(data, dict) else {}
+        except Exception as exc:
+            scripts["package_json_error"] = str(exc)
+
+    frontend_package_json = root_path / "frontend" / "package.json"
+    if frontend_package_json.exists():
+        try:
+            data = json.loads(frontend_package_json.read_text(encoding="utf-8-sig"))
+            scripts["frontend_package_json"] = data.get("scripts", {}) if isinstance(data, dict) else {}
+        except Exception as exc:
+            scripts["frontend_package_json_error"] = str(exc)
+
+    pyproject = root_path / "pyproject.toml"
+    if pyproject.exists():
+        try:
+            text = pyproject.read_text(encoding="utf-8-sig")
+            scripts["pyproject"] = {
+                "has_pytest": "pytest" in text.lower(),
+                "has_ruff": "ruff" in text.lower(),
+                "has_mypy": "mypy" in text.lower(),
+                "has_uv": (root_path / "uv.lock").exists(),
+            }
+        except Exception as exc:
+            scripts["pyproject_error"] = str(exc)
+
+    return scripts
+
+
+@ToolRegistry.register("serena_vscode_command_policy")
+class SerenaVSCodeCommandPolicyTool(_VSCodeBaseTool):
+    tool_id = "serena_vscode_command_policy"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Show Serena VS Code safe command policy.",
+            parameters={"type": "object", "properties": {}},
+            category="serena_vscode",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        lines = [
+            "Serena VS Code command policy",
+            "",
+            "Allowed safe commands:",
+        ]
+
+        for command in sorted(SAFE_COMMAND_ALLOWLIST):
+            lines.append(f"- {command}")
+
+        lines.extend([
+            "",
+            "Blocked command terms:",
+        ])
+
+        for term in sorted(BLOCKED_COMMAND_TERMS):
+            lines.append(f"- {term}")
+
+        lines.extend([
+            "",
+            "Rules:",
+            "- Safe diagnostics/checks can run without extra approval.",
+            "- Publish/deploy/push is blocked unless a future approval-gated layer handles it.",
+            "- Dependency installs/changes are blocked in this runner.",
+            "- Destructive commands are blocked.",
+            "- Commands must run inside an approved root.",
+        ])
+
+        return self._result(
+            "\n".join(lines),
+            metadata={
+                "safe_commands": sorted(SAFE_COMMAND_ALLOWLIST),
+                "blocked_terms": sorted(BLOCKED_COMMAND_TERMS),
+            },
+        )
+
+
+@ToolRegistry.register("serena_vscode_scripts")
+class SerenaVSCodeScriptsTool(_VSCodeBaseTool):
+    tool_id = "serena_vscode_scripts"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Detect available project scripts/checks for an approved root.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"}
+                },
+                "required": ["root"],
+            },
+            category="serena_vscode",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            key, root, path = _resolve_root(str(params.get("root") or ""))
+            scripts = _detect_project_scripts(path)
+
+            lines = [
+                "Serena VS Code project scripts",
+                "",
+                f"- Root: {key}",
+                f"- Path: {path}",
+                "",
+                "Detected package.json scripts:",
+            ]
+
+            pkg_scripts = scripts.get("package_json") or {}
+            if pkg_scripts:
+                for name, command in sorted(pkg_scripts.items()):
+                    lines.append(f"- {name}: {command}")
+            else:
+                lines.append("- none at project root")
+
+            lines.append("")
+            lines.append("Detected frontend package.json scripts:")
+
+            frontend_scripts = scripts.get("frontend_package_json") or {}
+            if frontend_scripts:
+                for name, command in sorted(frontend_scripts.items()):
+                    lines.append(f"- {name}: {command}")
+            else:
+                lines.append("- none")
+
+            lines.extend([
+                "",
+                "Python project signals:",
+            ])
+
+            py = scripts.get("pyproject") or {}
+            if py:
+                for name, value in sorted(py.items()):
+                    lines.append(f"- {name}: {value}")
+            else:
+                lines.append("- none")
+
+            lines.extend([
+                "",
+                "Safe command suggestions:",
+            ])
+
+            suggestions = []
+            if py.get("has_uv"):
+                suggestions.append("uv sync --python 3.11 --extra server")
+                suggestions.append("uv lock --check")
+            if py.get("has_pytest"):
+                suggestions.append("uv run pytest")
+            if py.get("has_ruff"):
+                suggestions.append("uv run ruff check .")
+            if py.get("has_mypy"):
+                suggestions.append("uv run mypy .")
+            if frontend_scripts:
+                for candidate in ["test", "lint", "typecheck", "build"]:
+                    if candidate in frontend_scripts:
+                        suggestions.append(f"npm run {candidate}")
+
+            if suggestions:
+                for item in suggestions:
+                    lines.append(f"- {item}")
+            else:
+                lines.append("- git status")
+                lines.append("- git diff --stat")
+
+            report = {
+                "report_type": "serena_vscode_project_scripts",
+                "created_at": _timestamp(),
+                "root": key,
+                "path": str(path),
+                "scripts": scripts,
+                "suggestions": suggestions,
+            }
+
+            report_path = _save_report(path, report)
+
+            lines.append("")
+            lines.append(f"Scripts report: {report_path}")
+
+            return self._result(
+                "\n".join(lines),
+                metadata={**report, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to detect VS Code scripts: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_vscode_safe_command")
+class SerenaVSCodeSafeCommandTool(_VSCodeBaseTool):
+    tool_id = "serena_vscode_safe_command"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Run a safe allowlisted developer command inside an approved root.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"},
+                    "command": {"type": "string"},
+                    "timeout": {"type": "integer"},
+                },
+                "required": ["root", "command"],
+            },
+            category="serena_vscode",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            key, root, path = _resolve_root(str(params.get("root") or ""))
+            command = _normalize_command(str(params.get("command") or ""))
+            timeout = int(params.get("timeout") or 180)
+
+            blocked, reason = _is_command_blocked(command)
+            if blocked:
+                return self._result(
+                    "Command blocked by Serena VS Code safe command policy.\n\n"
+                    f"- Root: {key}\n"
+                    f"- Command: {command}\n"
+                    f"- Reason: {reason}\n\n"
+                    "Use command-policy to see the safe allowlist.",
+                    success=False,
+                    metadata={"root": key, "command": command, "reason": reason},
+                )
+
+            result = subprocess.run(
+                command.split(" "),
+                cwd=str(path),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                shell=False,
+            )
+
+            output = (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
+
+            report = {
+                "report_type": "serena_vscode_safe_command",
+                "created_at": _timestamp(),
+                "root": key,
+                "path": str(path),
+                "command": command,
+                "returncode": result.returncode,
+                "output": output[-20000:],
+            }
+
+            report_path = _save_report(path, report)
+
+            return self._result(
+                "Serena VS Code safe command completed\n\n"
+                f"- Root: {key}\n"
+                f"- Command: {command}\n"
+                f"- Return code: {result.returncode}\n"
+                f"- Report: {report_path}\n\n"
+                "Output:\n"
+                f"{output[-5000:]}",
+                metadata={**report, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to run VS Code safe command: {exc}", success=False)
+
+
 __all__ = [
     "SerenaVSCodeStatusTool",
     "SerenaVSCodeRootsTool",
@@ -1600,6 +1947,9 @@ __all__ = [
     "SerenaVSCodeEditFileTool",
     "SerenaVSCodeRunCheckTool",
     "SerenaVSCodeTestReportTool",
+    "SerenaVSCodeSafeCommandTool",
+    "SerenaVSCodeScriptsTool",
+    "SerenaVSCodeCommandPolicyTool",
     "SerenaVSCodeImplementPlanTool",
     "SerenaVSCodeTaskPlanTool",
     "SerenaVSCodeRestoreSnapshotTool",

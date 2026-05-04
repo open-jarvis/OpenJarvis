@@ -21,6 +21,9 @@ from openjarvis.tools.serena_vscode import (
     SerenaVSCodeStatusTool,
     SerenaVSCodeWriteFileTool,
     SerenaVSCodeTestReportTool,
+    SerenaVSCodeSafeCommandTool,
+    SerenaVSCodeScriptsTool,
+    SerenaVSCodeCommandPolicyTool,
     SerenaVSCodeImplementPlanTool,
     SerenaVSCodeTaskPlanTool,
     SerenaVSCodeRestoreSnapshotTool,
@@ -246,6 +249,34 @@ def test_report(root: str, checks: str, module: str) -> None:
     """Run safe checks and create a developer test report."""
     console = Console()
     result = SerenaVSCodeTestReportTool().execute(root=root, checks=checks, module=module)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@vscode.command("command-policy")
+def command_policy() -> None:
+    """Show Serena VS Code safe command policy."""
+    console = Console()
+    result = SerenaVSCodeCommandPolicyTool().execute()
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@vscode.command("scripts")
+@click.option("--root", required=True, help="Approved root alias.")
+def scripts(root: str) -> None:
+    """Detect available project scripts/checks."""
+    console = Console()
+    result = SerenaVSCodeScriptsTool().execute(root=root)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@vscode.command("safe-command")
+@click.option("--root", required=True, help="Approved root alias.")
+@click.option("--command", required=True, help="Safe allowlisted command to run.")
+@click.option("--timeout", default=180, type=int, help="Timeout in seconds.")
+def safe_command(root: str, command: str, timeout: int) -> None:
+    """Run a safe allowlisted developer command."""
+    console = Console()
+    result = SerenaVSCodeSafeCommandTool().execute(root=root, command=command, timeout=timeout)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 
