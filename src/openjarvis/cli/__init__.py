@@ -54,6 +54,7 @@ from openjarvis.cli.vscode_builder_cmd import vscode_builder
 from openjarvis.cli.github_cmd import github
 from openjarvis.cli.health_monitor_cmd import health_monitor
 from openjarvis.cli.gdrive_cmd import gdrive
+from openjarvis.cli.google_docs_cmd import google_docs
 from openjarvis.learning.distillation.cli import learning_group
 
 
@@ -111,6 +112,7 @@ cli.add_command(vscode_builder, "vscode-builder")
 cli.add_command(github, "github")
 cli.add_command(health_monitor, "health-monitor")
 cli.add_command(gdrive, "gdrive")
+cli.add_command(google_docs, "google-docs")
 cli.add_command(skill, "skill")
 cli.add_command(start, "start")
 cli.add_command(stop, "stop")

@@ -152,3 +152,4 @@ import openjarvis.tools.serena_vscode_builder  # noqa: F401
 import openjarvis.tools.serena_github  # noqa: F401
 import openjarvis.tools.serena_health_monitor  # noqa: F401
 import openjarvis.tools.serena_gdrive  # noqa: F401
+import openjarvis.tools.serena_google_docs  # noqa: F401
