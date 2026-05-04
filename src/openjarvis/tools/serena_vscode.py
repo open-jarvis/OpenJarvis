@@ -1932,6 +1932,479 @@ class SerenaVSCodeSafeCommandTool(_VSCodeBaseTool):
             return self._result(f"Failed to run VS Code safe command: {exc}", success=False)
 
 
+def _developer_change_summary(root_key: str, root_path: Path) -> dict[str, Any]:
+    """Collect a safe local developer change summary."""
+    commands = {
+        "git_status": ["git", "status", "--short"],
+        "git_diff_stat": ["git", "diff", "--stat"],
+    }
+
+    results: dict[str, Any] = {}
+
+    for name, cmd in commands.items():
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=str(root_path),
+                capture_output=True,
+                text=True,
+                timeout=60,
+                shell=False,
+            )
+            results[name] = {
+                "command": cmd,
+                "returncode": result.returncode,
+                "output": ((result.stdout or "") + ("\n" + result.stderr if result.stderr else ""))[-12000:],
+            }
+        except Exception as exc:
+            results[name] = {
+                "command": cmd,
+                "returncode": -1,
+                "output": str(exc),
+            }
+
+    return {
+        "root": root_key,
+        "path": str(root_path),
+        "created_at": _timestamp(),
+        "results": results,
+    }
+
+
+def _write_text_with_snapshot(target: Path, content: str, overwrite: bool, reason: str) -> tuple[bool, str]:
+    """Write a text file. Snapshot existing target before overwrite."""
+    existed = target.exists()
+    snapshot = ""
+
+    if existed and not overwrite:
+        raise RuntimeError("Target file already exists. Use overwrite when replacing an existing file.")
+
+    if existed:
+        snapshot = str(_snapshot_file(target, reason))
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+
+    return existed, snapshot
+
+
+@ToolRegistry.register("serena_vscode_create_component")
+class SerenaVSCodeCreateComponentTool(_VSCodeBaseTool):
+    tool_id = "serena_vscode_create_component"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a developer component/source file in an approved root with safe defaults.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"},
+                    "path": {"type": "string"},
+                    "name": {"type": "string"},
+                    "kind": {"type": "string"},
+                    "overwrite": {"type": "boolean"},
+                },
+                "required": ["root", "path", "name"],
+            },
+            category="serena_vscode",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            key, root, root_path, target = _resolve_project_file(
+                str(params.get("root") or ""),
+                str(params.get("path") or ""),
+            )
+            name = str(params.get("name") or "").strip()
+            kind = str(params.get("kind") or "python").strip().lower()
+            overwrite = bool(params.get("overwrite", False))
+
+            if not name:
+                return self._result("Component name is required.", success=False)
+
+            if _is_sensitive_path(target):
+                return self._result("Create blocked. Target path looks sensitive or production-related.", success=False)
+
+            if kind in {"python", "py"}:
+                safe_name = re.sub(r"[^a-zA-Z0-9_]", "_", name).lower() or "serena_component"
+                content = (
+                    '"""Developer component created by Serena VS Code Full Operator v1."""\n\n'
+                    "from __future__ import annotations\n\n\n"
+                    f"def {safe_name}() -> str:\n"
+                    '    """Return a simple component status string."""\n'
+                    f'    return "{name} ready"\n'
+                )
+            elif kind in {"typescript", "ts"}:
+                ts_name = re.sub(r"[^a-zA-Z0-9_]", "", name) or "SerenaComponent"
+                content = (
+                    "/**\n"
+                    " * Developer component created by Serena VS Code Full Operator v1.\n"
+                    " */\n\n"
+                    f"export function {ts_name}(): string {{\n"
+                    f'  return "{name} ready";\n'
+                    "}\n"
+                )
+            elif kind in {"react", "tsx"}:
+                react_name = re.sub(r"[^a-zA-Z0-9_]", "", name) or "SerenaComponent"
+                content = (
+                    'import React from "react";\n\n'
+                    f"export default function {react_name}() {{\n"
+                    "  return (\n"
+                    "    <section>\n"
+                    f"      <h1>{name}</h1>\n"
+                    "      <p>Created by Serena VS Code Full Operator v1.</p>\n"
+                    "    </section>\n"
+                    "  );\n"
+                    "}\n"
+                )
+            else:
+                content = (
+                    f"# {name}\n\n"
+                    "Created by Serena VS Code Full Operator v1.\n\n"
+                    f"Kind: {kind}\n"
+                )
+
+            existed, snapshot = _write_text_with_snapshot(target, content, overwrite, "before-create-component-overwrite")
+
+            report = {
+                "report_type": "serena_vscode_create_component",
+                "created_at": _timestamp(),
+                "root": key,
+                "path": str(target),
+                "relative_path": str(target.relative_to(root_path)),
+                "name": name,
+                "kind": kind,
+                "existed": existed,
+                "snapshot": snapshot,
+            }
+            report_path = _save_report(target, report)
+
+            return self._result(
+                "Serena VS Code component created\n\n"
+                f"- Root: {key}\n"
+                f"- File: {target.relative_to(root_path)}\n"
+                f"- Name: {name}\n"
+                f"- Kind: {kind}\n"
+                f"- Existing file: {'yes' if existed else 'no'}\n"
+                f"- Snapshot: {snapshot or 'not needed'}\n"
+                f"- Report: {report_path}",
+                metadata={**report, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to create VS Code component: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_vscode_create_test")
+class SerenaVSCodeCreateTestTool(_VSCodeBaseTool):
+    tool_id = "serena_vscode_create_test"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a test file in an approved root with safe defaults.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"},
+                    "path": {"type": "string"},
+                    "name": {"type": "string"},
+                    "kind": {"type": "string"},
+                    "overwrite": {"type": "boolean"},
+                },
+                "required": ["root", "path", "name"],
+            },
+            category="serena_vscode",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            key, root, root_path, target = _resolve_project_file(
+                str(params.get("root") or ""),
+                str(params.get("path") or ""),
+            )
+            name = str(params.get("name") or "").strip()
+            kind = str(params.get("kind") or "python").strip().lower()
+            overwrite = bool(params.get("overwrite", False))
+
+            if not name:
+                return self._result("Test name is required.", success=False)
+
+            if _is_sensitive_path(target):
+                return self._result("Create blocked. Target path looks sensitive or production-related.", success=False)
+
+            if kind in {"python", "py"}:
+                safe_name = re.sub(r"[^a-zA-Z0-9_]", "_", name).lower() or "serena_test"
+                content = (
+                    '"""Tests created by Serena VS Code Full Operator v1."""\n\n\n'
+                    f"def test_{safe_name}_placeholder() -> None:\n"
+                    f'    assert "{name}"\n'
+                )
+            elif kind in {"typescript", "ts", "react", "tsx"}:
+                content = (
+                    f'describe("{name}", () => {{\n'
+                    '  it("has a placeholder test created by Serena", () => {\n'
+                    f'    expect("{name}").toBeTruthy();\n'
+                    "  });\n"
+                    "});\n"
+                )
+            else:
+                content = (
+                    f"# {name} Test\n\n"
+                    "Created by Serena VS Code Full Operator v1.\n\n"
+                    "Add test cases here.\n"
+                )
+
+            existed, snapshot = _write_text_with_snapshot(target, content, overwrite, "before-create-test-overwrite")
+
+            report = {
+                "report_type": "serena_vscode_create_test",
+                "created_at": _timestamp(),
+                "root": key,
+                "path": str(target),
+                "relative_path": str(target.relative_to(root_path)),
+                "name": name,
+                "kind": kind,
+                "existed": existed,
+                "snapshot": snapshot,
+            }
+            report_path = _save_report(target, report)
+
+            return self._result(
+                "Serena VS Code test file created\n\n"
+                f"- Root: {key}\n"
+                f"- File: {target.relative_to(root_path)}\n"
+                f"- Name: {name}\n"
+                f"- Kind: {kind}\n"
+                f"- Existing file: {'yes' if existed else 'no'}\n"
+                f"- Snapshot: {snapshot or 'not needed'}\n"
+                f"- Report: {report_path}",
+                metadata={**report, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to create VS Code test: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_vscode_update_doc")
+class SerenaVSCodeUpdateDocTool(_VSCodeBaseTool):
+    tool_id = "serena_vscode_update_doc"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Append or replace a documentation section with snapshot protection.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"},
+                    "path": {"type": "string"},
+                    "heading": {"type": "string"},
+                    "content": {"type": "string"},
+                    "mode": {"type": "string"},
+                },
+                "required": ["root", "path", "heading", "content"],
+            },
+            category="serena_vscode",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            key, root, root_path, target = _resolve_project_file(
+                str(params.get("root") or ""),
+                str(params.get("path") or ""),
+            )
+            heading = str(params.get("heading") or "").strip()
+            content = str(params.get("content") or "").strip()
+            mode = str(params.get("mode") or "append").strip().lower()
+
+            if not heading or not content:
+                return self._result("Heading and content are required.", success=False)
+
+            if _is_sensitive_path(target):
+                return self._result("Doc update blocked. Target path looks sensitive or production-related.", success=False)
+
+            if target.exists():
+                text = _read_text(target, max_chars=MAX_READ_BYTES)
+                snapshot = str(_snapshot_file(target, "before-update-doc"))
+            else:
+                text = ""
+                snapshot = ""
+
+            section = f"\n\n## {heading}\n\n{content.strip()}\n"
+
+            if mode == "replace-section" and f"## {heading}" in text:
+                pattern = rf"\n\n## {re.escape(heading)}\n\n.*?(?=\n\n## |\Z)"
+                updated = re.sub(pattern, section, text, count=1, flags=re.S)
+            else:
+                updated = text.rstrip() + section
+
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(updated.lstrip(), encoding="utf-8")
+
+            report = {
+                "report_type": "serena_vscode_update_doc",
+                "created_at": _timestamp(),
+                "root": key,
+                "path": str(target),
+                "relative_path": str(target.relative_to(root_path)),
+                "heading": heading,
+                "mode": mode,
+                "snapshot": snapshot,
+            }
+            report_path = _save_report(target, report)
+
+            return self._result(
+                "Serena VS Code documentation updated\n\n"
+                f"- Root: {key}\n"
+                f"- File: {target.relative_to(root_path)}\n"
+                f"- Heading: {heading}\n"
+                f"- Mode: {mode}\n"
+                f"- Snapshot: {snapshot or 'not needed'}\n"
+                f"- Report: {report_path}",
+                metadata={**report, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to update VS Code documentation: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_vscode_change_summary")
+class SerenaVSCodeChangeSummaryTool(_VSCodeBaseTool):
+    tool_id = "serena_vscode_change_summary"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a developer change summary for an approved root.",
+            parameters={
+                "type": "object",
+                "properties": {"root": {"type": "string"}},
+                "required": ["root"],
+            },
+            category="serena_vscode",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            key, root, path = _resolve_root(str(params.get("root") or ""))
+            summary = _developer_change_summary(key, path)
+
+            report = {
+                "report_type": "serena_vscode_change_summary",
+                "created_at": _timestamp(),
+                **summary,
+                "operator_notes": [
+                    "This summary is local only.",
+                    "No publish, deploy, or push was performed.",
+                    "Review changes before committing.",
+                ],
+            }
+            report_path = _save_report(path, report)
+
+            status = summary["results"].get("git_status", {}).get("output", "").strip()
+            diff_stat = summary["results"].get("git_diff_stat", {}).get("output", "").strip()
+
+            return self._result(
+                "Serena VS Code change summary\n\n"
+                f"- Root: {key}\n"
+                f"- Report: {report_path}\n\n"
+                "Git status:\n"
+                f"{status or 'clean'}\n\n"
+                "Git diff stat:\n"
+                f"{diff_stat or 'no diff'}\n\n"
+                "Operator note:\n"
+                "- No publish, deploy, or push was performed.",
+                metadata={**report, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to create VS Code change summary: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_vscode_final_check")
+class SerenaVSCodeFinalCheckTool(_VSCodeBaseTool):
+    tool_id = "serena_vscode_final_check"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Run Serena's final local developer check before commit/publish/push.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"},
+                    "module": {"type": "string"},
+                },
+                "required": ["root"],
+            },
+            category="serena_vscode",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            key, root, path = _resolve_root(str(params.get("root") or ""))
+            module = str(params.get("module") or "openjarvis.tools.serena_vscode").strip()
+
+            checks = [
+                ("git-status", SerenaVSCodeRunCheckTool().execute(root=key, check="git-status")),
+                ("git-diff-stat", SerenaVSCodeRunCheckTool().execute(root=key, check="git-diff-stat")),
+                ("python-import", SerenaVSCodeRunCheckTool().execute(root=key, check="python-import", module=module)),
+            ]
+
+            failed = []
+            results = []
+
+            for name, result in checks:
+                returncode = result.metadata.get("returncode", 0)
+                ok = result.success and returncode == 0
+                if not ok:
+                    failed.append(name)
+                results.append(
+                    {
+                        "name": name,
+                        "success": result.success,
+                        "returncode": returncode,
+                        "content": result.content[-5000:],
+                        "metadata": result.metadata,
+                    }
+                )
+
+            summary = _developer_change_summary(key, path)
+
+            report = {
+                "report_type": "serena_vscode_final_check",
+                "created_at": _timestamp(),
+                "root": key,
+                "module": module,
+                "results": results,
+                "failed": failed,
+                "ready_for_commit_review": len(failed) == 0,
+                "publish_allowed": False,
+                "publish_note": "Publish/deploy/push still requires explicit approval and is not performed by final-check.",
+                "change_summary": summary,
+            }
+            report_path = _save_report(path, report)
+
+            return self._result(
+                "Serena VS Code final local developer check\n\n"
+                f"- Root: {key}\n"
+                f"- Checks run: {len(results)}\n"
+                f"- Failed: {len(failed)}\n"
+                f"- Ready for commit review: {'yes' if len(failed) == 0 else 'no'}\n"
+                f"- Publish/deploy/push performed: no\n"
+                f"- Report: {report_path}\n\n"
+                "Results:\n"
+                + "\n".join(f"- {r['name']} | success={r['success']} | returncode={r['returncode']}" for r in results)
+                + "\n\nPublish/deploy/push still requires explicit approval.",
+                metadata={**report, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to run VS Code final check: {exc}", success=False)
+
+
 __all__ = [
     "SerenaVSCodeStatusTool",
     "SerenaVSCodeRootsTool",
@@ -1948,6 +2421,11 @@ __all__ = [
     "SerenaVSCodeRunCheckTool",
     "SerenaVSCodeTestReportTool",
     "SerenaVSCodeSafeCommandTool",
+    "SerenaVSCodeFinalCheckTool",
+    "SerenaVSCodeChangeSummaryTool",
+    "SerenaVSCodeUpdateDocTool",
+    "SerenaVSCodeCreateTestTool",
+    "SerenaVSCodeCreateComponentTool",
     "SerenaVSCodeScriptsTool",
     "SerenaVSCodeCommandPolicyTool",
     "SerenaVSCodeImplementPlanTool",

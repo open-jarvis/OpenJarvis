@@ -22,6 +22,11 @@ from openjarvis.tools.serena_vscode import (
     SerenaVSCodeWriteFileTool,
     SerenaVSCodeTestReportTool,
     SerenaVSCodeSafeCommandTool,
+    SerenaVSCodeFinalCheckTool,
+    SerenaVSCodeChangeSummaryTool,
+    SerenaVSCodeUpdateDocTool,
+    SerenaVSCodeCreateTestTool,
+    SerenaVSCodeCreateComponentTool,
     SerenaVSCodeScriptsTool,
     SerenaVSCodeCommandPolicyTool,
     SerenaVSCodeImplementPlanTool,
@@ -277,6 +282,82 @@ def safe_command(root: str, command: str, timeout: int) -> None:
     """Run a safe allowlisted developer command."""
     console = Console()
     result = SerenaVSCodeSafeCommandTool().execute(root=root, command=command, timeout=timeout)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@vscode.command("create-component")
+@click.option("--root", required=True, help="Approved root alias.")
+@click.option("--path", "file_path", required=True, help="Relative file path inside root.")
+@click.option("--name", required=True, help="Component/function name.")
+@click.option("--kind", default="python", help="Component kind: python, typescript, react, markdown.")
+@click.option("--overwrite", is_flag=True, help="Overwrite existing file after snapshot.")
+def create_component(root: str, file_path: str, name: str, kind: str, overwrite: bool) -> None:
+    """Create a developer component/source file."""
+    console = Console()
+    result = SerenaVSCodeCreateComponentTool().execute(
+        root=root,
+        path=file_path,
+        name=name,
+        kind=kind,
+        overwrite=overwrite,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@vscode.command("create-test")
+@click.option("--root", required=True, help="Approved root alias.")
+@click.option("--path", "file_path", required=True, help="Relative file path inside root.")
+@click.option("--name", required=True, help="Test name.")
+@click.option("--kind", default="python", help="Test kind: python, typescript, markdown.")
+@click.option("--overwrite", is_flag=True, help="Overwrite existing file after snapshot.")
+def create_test(root: str, file_path: str, name: str, kind: str, overwrite: bool) -> None:
+    """Create a developer test file."""
+    console = Console()
+    result = SerenaVSCodeCreateTestTool().execute(
+        root=root,
+        path=file_path,
+        name=name,
+        kind=kind,
+        overwrite=overwrite,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@vscode.command("update-doc")
+@click.option("--root", required=True, help="Approved root alias.")
+@click.option("--path", "file_path", required=True, help="Relative doc path inside root.")
+@click.option("--heading", required=True, help="Markdown heading.")
+@click.option("--content", required=True, help="Markdown content.")
+@click.option("--mode", default="append", help="append or replace-section.")
+def update_doc(root: str, file_path: str, heading: str, content: str, mode: str) -> None:
+    """Append or replace a documentation section."""
+    console = Console()
+    result = SerenaVSCodeUpdateDocTool().execute(
+        root=root,
+        path=file_path,
+        heading=heading,
+        content=content,
+        mode=mode,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@vscode.command("change-summary")
+@click.option("--root", required=True, help="Approved root alias.")
+def change_summary(root: str) -> None:
+    """Create a local developer change summary."""
+    console = Console()
+    result = SerenaVSCodeChangeSummaryTool().execute(root=root)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@vscode.command("final-check")
+@click.option("--root", required=True, help="Approved root alias.")
+@click.option("--module", default="openjarvis.tools.serena_vscode", help="Module import to check.")
+def final_check(root: str, module: str) -> None:
+    """Run Serena's final local developer check."""
+    console = Console()
+    result = SerenaVSCodeFinalCheckTool().execute(root=root, module=module)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 
