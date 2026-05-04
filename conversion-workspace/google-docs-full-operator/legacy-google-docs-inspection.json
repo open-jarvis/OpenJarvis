@@ -1,0 +1,40 @@
+{
+  "legacy_file": "legacy\\serena-skills\\08-google-docs.js",
+  "line_count": 100,
+  "character_count": 3259,
+  "function_names": [
+    "generateDocContent",
+    "parsePayload",
+    "replaceExisting"
+  ],
+  "dependencies": [
+    "../helpers/google-docs-service",
+    "../helpers/logger"
+  ],
+  "triggers": [
+    "CREATE DOC:",
+    "UPDATE DOC:"
+  ],
+  "env_mentions": [
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "GOOGLE_REFRESH_TOKEN"
+  ],
+  "status": "inspected",
+  "target_native_skill": "Serena Google Docs Full Operator v1",
+  "target_workflow": [
+    "connection/status check",
+    "credential presence check without exposing values",
+    "create Google Docs",
+    "read Google Docs",
+    "append document content",
+    "update title",
+    "copy documents",
+    "export/download documents",
+    "return Drive link",
+    "create professional notes and reports",
+    "save Serena outputs into Google Docs",
+    "audit Google Docs outputs",
+    "block delete/permanent removal in v1"
+  ]
+}
