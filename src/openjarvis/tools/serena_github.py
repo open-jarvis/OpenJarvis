@@ -531,6 +531,623 @@ class SerenaGitHubSafetyCheckTool(_GitHubBaseTool):
             return self._result(f"Failed to run GitHub safety check: {exc}", success=False)
 
 
+def _draft_text(kind: str, name: str, content: str) -> Path:
+    root = _github_root()
+    folder = root / "drafts"
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{_timestamp()}-{_safe_slug(name)}-{kind}.md"
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+def _changes_summary(root_key: str, root_path: Path) -> dict[str, Any]:
+    status = _run_git(root_path, ["status", "--short", "--branch"])
+    diff_stat = _run_git(root_path, ["diff", "--stat"])
+    diff_name_only = _run_git(root_path, ["diff", "--name-only"])
+    staged_stat = _run_git(root_path, ["diff", "--cached", "--stat"])
+    staged_name_only = _run_git(root_path, ["diff", "--cached", "--name-only"])
+    recent = _run_git(root_path, ["log", "--oneline", "-n", "8"])
+    branch = _run_git(root_path, ["branch", "--show-current"])
+
+    return {
+        "root": root_key,
+        "path": str(root_path),
+        "branch": branch["output"],
+        "status": status["output"],
+        "diff_stat": diff_stat["output"],
+        "diff_name_only": diff_name_only["output"],
+        "staged_stat": staged_stat["output"],
+        "staged_name_only": staged_name_only["output"],
+        "recent_commits": recent["output"],
+    }
+
+
+def _infer_commit_subject(summary: dict[str, Any], fallback: str = "Update Serena project") -> str:
+    changed = summary.get("diff_name_only") or summary.get("staged_name_only") or ""
+    status = summary.get("status") or ""
+
+    lower = (changed + "\n" + status).lower()
+
+    if "serena_github" in lower or "github_cmd" in lower:
+        return "Add Serena GitHub operator workflow"
+    if "vscode_builder" in lower:
+        return "Update Serena VS Code Builder operator"
+    if "serena_vscode" in lower:
+        return "Update Serena VS Code operator"
+    if "serena_documents" in lower:
+        return "Update Serena documents operator"
+    if "serena_files" in lower:
+        return "Update Serena files operator"
+    if "serena_wordpress" in lower:
+        return "Update Serena WordPress operator"
+    if "conversion_registry" in lower:
+        return "Update Serena capability registry"
+    if "skill.md" in lower:
+        return "Update Serena skill documentation"
+
+    return fallback
+
+
+@ToolRegistry.register("serena_github_commit_plan")
+class SerenaGitHubCommitPlanTool(_GitHubBaseTool):
+    tool_id = "serena_github_commit_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local commit plan from current Git changes without committing or pushing.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"},
+                    "goal": {"type": "string"},
+                },
+                "required": ["root"],
+            },
+            category="serena_github",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            key, root, path = _resolve_root(str(params.get("root") or ""))
+            goal = str(params.get("goal") or "Prepare local changes for review").strip()
+
+            if not _is_git_repo(path):
+                return self._result(f"Approved root is not a Git repository: {path}", success=False)
+
+            summary = _changes_summary(key, path)
+            subject = _infer_commit_subject(summary)
+
+            plan = {
+                "report_type": "serena_github_commit_plan",
+                "created_at": _timestamp(),
+                "root": key,
+                "path": str(path),
+                "goal": goal,
+                "suggested_commit_subject": subject,
+                "changes": summary,
+                "steps": [
+                    "Review git status.",
+                    "Review changed files and diff stat.",
+                    "Run relevant local checks.",
+                    "Stage only intended files.",
+                    "Commit locally with a clear message.",
+                    "Do not push without explicit approval.",
+                ],
+                "remote_writes_performed": False,
+                "push_performed": False,
+            }
+
+            report_path = _save_json("plans", f"{key}-commit-plan", plan)
+
+            return self._result(
+                "Serena GitHub commit plan\n\n"
+                f"- Root: {key}\n"
+                f"- Branch: {summary.get('branch') or 'unknown'}\n"
+                f"- Goal: {goal}\n"
+                f"- Suggested subject: {subject}\n"
+                f"- Plan: {report_path}\n"
+                "- Commit performed: no\n"
+                "- Push performed: no\n\n"
+                "Status:\n"
+                f"{summary.get('status') or 'clean'}\n\n"
+                "Diff stat:\n"
+                f"{summary.get('diff_stat') or 'no unstaged diff'}\n\n"
+                "Steps:\n"
+                + "\n".join(f"- {step}" for step in plan["steps"]),
+                metadata={**plan, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to create GitHub commit plan: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_github_commit_message")
+class SerenaGitHubCommitMessageTool(_GitHubBaseTool):
+    tool_id = "serena_github_commit_message"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Draft a commit message from local Git changes without committing.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"},
+                    "style": {"type": "string"},
+                },
+                "required": ["root"],
+            },
+            category="serena_github",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            key, root, path = _resolve_root(str(params.get("root") or ""))
+            style = str(params.get("style") or "standard").strip()
+
+            if not _is_git_repo(path):
+                return self._result(f"Approved root is not a Git repository: {path}", success=False)
+
+            summary = _changes_summary(key, path)
+            subject = _infer_commit_subject(summary)
+
+            changed_files = summary.get("diff_name_only") or summary.get("staged_name_only") or ""
+            file_lines = [line.strip() for line in changed_files.splitlines() if line.strip()]
+
+            body_lines = [
+                subject,
+                "",
+                "Summary:",
+                "- Update local Serena project files.",
+                "- Preserve approval-gated GitHub remote workflow.",
+                "- No push performed.",
+            ]
+
+            if file_lines:
+                body_lines.extend(["", "Changed files:"])
+                body_lines.extend(f"- {item}" for item in file_lines[:40])
+
+            content = "\n".join(body_lines).strip() + "\n"
+            draft_path = _draft_text("commit-message", subject, content)
+
+            payload = {
+                "report_type": "serena_github_commit_message",
+                "created_at": _timestamp(),
+                "root": key,
+                "style": style,
+                "subject": subject,
+                "draft_path": str(draft_path),
+                "changes": summary,
+                "commit_performed": False,
+                "push_performed": False,
+            }
+            report_path = _save_json("drafts", f"{key}-commit-message", payload)
+
+            return self._result(
+                "Serena GitHub commit message drafted\n\n"
+                f"- Root: {key}\n"
+                f"- Branch: {summary.get('branch') or 'unknown'}\n"
+                f"- Subject: {subject}\n"
+                f"- Draft: {draft_path}\n"
+                f"- Report: {report_path}\n"
+                "- Commit performed: no\n"
+                "- Push performed: no\n\n"
+                "Draft:\n"
+                f"{content}",
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to draft commit message: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_github_pr_summary")
+class SerenaGitHubPRSummaryTool(_GitHubBaseTool):
+    tool_id = "serena_github_pr_summary"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Draft a pull request summary from local changes without creating a PR.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"},
+                    "title": {"type": "string"},
+                },
+                "required": ["root"],
+            },
+            category="serena_github",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            key, root, path = _resolve_root(str(params.get("root") or ""))
+            title = str(params.get("title") or "").strip()
+
+            if not _is_git_repo(path):
+                return self._result(f"Approved root is not a Git repository: {path}", success=False)
+
+            summary = _changes_summary(key, path)
+            subject = title or _infer_commit_subject(summary, "Serena project updates")
+            changed = summary.get("diff_name_only") or summary.get("staged_name_only") or ""
+            changed_files = [line.strip() for line in changed.splitlines() if line.strip()]
+
+            content_lines = [
+                f"# {subject}",
+                "",
+                "## Summary",
+                "",
+                "- Prepared local Serena project updates.",
+                "- Generated this PR summary as a draft only.",
+                "- No remote PR was created.",
+                "",
+                "## Changed files",
+                "",
+            ]
+
+            content_lines.extend(f"- `{item}`" for item in changed_files[:80]) if changed_files else content_lines.append("- No changed files detected.")
+
+            content_lines.extend([
+                "",
+                "## Safety",
+                "",
+                "- Push performed: no",
+                "- PR created: no",
+                "- Merge performed: no",
+                "- Remote writes require explicit approval/future approval-gated layer.",
+                "",
+                "## Suggested checks",
+                "",
+                "- Run Serena VS Code final-check.",
+                "- Review diff stat.",
+                "- Confirm only intended files are included.",
+            ])
+
+            content = "\n".join(content_lines) + "\n"
+            draft_path = _draft_text("pr-summary", subject, content)
+
+            payload = {
+                "report_type": "serena_github_pr_summary",
+                "created_at": _timestamp(),
+                "root": key,
+                "title": subject,
+                "draft_path": str(draft_path),
+                "changes": summary,
+                "pr_created": False,
+                "push_performed": False,
+                "merge_performed": False,
+            }
+            report_path = _save_json("drafts", f"{key}-pr-summary", payload)
+
+            return self._result(
+                "Serena GitHub PR summary drafted\n\n"
+                f"- Root: {key}\n"
+                f"- Title: {subject}\n"
+                f"- Draft: {draft_path}\n"
+                f"- Report: {report_path}\n"
+                "- PR created: no\n"
+                "- Push performed: no\n\n"
+                "Preview:\n"
+                f"{content[:3000]}",
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to draft PR summary: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_github_issue_draft")
+class SerenaGitHubIssueDraftTool(_GitHubBaseTool):
+    tool_id = "serena_github_issue_draft"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Draft a GitHub issue locally without creating it remotely.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"},
+                    "title": {"type": "string"},
+                    "body": {"type": "string"},
+                    "kind": {"type": "string"},
+                },
+                "required": ["root", "title", "body"],
+            },
+            category="serena_github",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            key, root, path = _resolve_root(str(params.get("root") or ""))
+            title = str(params.get("title") or "").strip()
+            body = str(params.get("body") or "").strip()
+            kind = str(params.get("kind") or "issue").strip()
+
+            if not title or not body:
+                return self._result("Title and body are required.", success=False)
+
+            content = (
+                f"# {title}\n\n"
+                f"Type: {kind}\n\n"
+                "## Description\n\n"
+                f"{body}\n\n"
+                "## Safety\n\n"
+                "- GitHub issue created remotely: no\n"
+                "- Remote writes require explicit approval/future approval-gated layer.\n"
+            )
+
+            draft_path = _draft_text("issue-draft", title, content)
+
+            payload = {
+                "report_type": "serena_github_issue_draft",
+                "created_at": _timestamp(),
+                "root": key,
+                "title": title,
+                "kind": kind,
+                "draft_path": str(draft_path),
+                "remote_issue_created": False,
+            }
+            report_path = _save_json("drafts", f"{key}-issue-draft", payload)
+
+            return self._result(
+                "Serena GitHub issue draft created\n\n"
+                f"- Root: {key}\n"
+                f"- Type: {kind}\n"
+                f"- Title: {title}\n"
+                f"- Draft: {draft_path}\n"
+                f"- Report: {report_path}\n"
+                "- Remote issue created: no\n\n"
+                "Preview:\n"
+                f"{content[:2500]}",
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to create GitHub issue draft: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_github_bug_report")
+class SerenaGitHubBugReportTool(_GitHubBaseTool):
+    tool_id = "serena_github_bug_report"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Draft a GitHub bug report locally without creating it remotely.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"},
+                    "title": {"type": "string"},
+                    "problem": {"type": "string"},
+                    "steps": {"type": "string"},
+                    "expected": {"type": "string"},
+                    "actual": {"type": "string"},
+                },
+                "required": ["root", "title", "problem"],
+            },
+            category="serena_github",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            title = str(params.get("title") or "").strip()
+            problem = str(params.get("problem") or "").strip()
+            steps = str(params.get("steps") or "Not provided.").strip()
+            expected = str(params.get("expected") or "Not provided.").strip()
+            actual = str(params.get("actual") or "Not provided.").strip()
+
+            body = (
+                f"## Problem\n\n{problem}\n\n"
+                f"## Steps to reproduce\n\n{steps}\n\n"
+                f"## Expected behavior\n\n{expected}\n\n"
+                f"## Actual behavior\n\n{actual}\n"
+            )
+
+            return SerenaGitHubIssueDraftTool().execute(
+                root=str(params.get("root") or ""),
+                title=f"[BUG] {title}",
+                body=body,
+                kind="bug",
+            )
+        except Exception as exc:
+            return self._result(f"Failed to draft bug report: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_github_feature_request")
+class SerenaGitHubFeatureRequestTool(_GitHubBaseTool):
+    tool_id = "serena_github_feature_request"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Draft a GitHub feature request locally without creating it remotely.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"},
+                    "title": {"type": "string"},
+                    "summary": {"type": "string"},
+                    "value": {"type": "string"},
+                    "acceptance": {"type": "string"},
+                },
+                "required": ["root", "title", "summary"],
+            },
+            category="serena_github",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            title = str(params.get("title") or "").strip()
+            summary = str(params.get("summary") or "").strip()
+            value = str(params.get("value") or "Not provided.").strip()
+            acceptance = str(params.get("acceptance") or "Not provided.").strip()
+
+            body = (
+                f"## Summary\n\n{summary}\n\n"
+                f"## Value\n\n{value}\n\n"
+                f"## Acceptance criteria\n\n{acceptance}\n"
+            )
+
+            return SerenaGitHubIssueDraftTool().execute(
+                root=str(params.get("root") or ""),
+                title=f"[FEATURE] {title}",
+                body=body,
+                kind="feature",
+            )
+        except Exception as exc:
+            return self._result(f"Failed to draft feature request: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_github_release_notes")
+class SerenaGitHubReleaseNotesTool(_GitHubBaseTool):
+    tool_id = "serena_github_release_notes"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Draft release notes from recent commits and local changes without publishing a release.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"},
+                    "title": {"type": "string"},
+                    "limit": {"type": "integer"},
+                },
+                "required": ["root"],
+            },
+            category="serena_github",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            key, root, path = _resolve_root(str(params.get("root") or ""))
+            title = str(params.get("title") or "Serena local release notes draft").strip()
+            limit = int(params.get("limit") or 20)
+
+            if not _is_git_repo(path):
+                return self._result(f"Approved root is not a Git repository: {path}", success=False)
+
+            commits = _run_git(path, ["log", "--oneline", "-n", str(limit)])
+            summary = _changes_summary(key, path)
+
+            content = (
+                f"# {title}\n\n"
+                "## Recent commits\n\n"
+                + (commits["output"] or "No recent commits found.")
+                + "\n\n## Local changes\n\n"
+                + (summary.get("status") or "clean")
+                + "\n\n## Safety\n\n"
+                "- Release published: no\n"
+                "- Tag created: no\n"
+                "- Push performed: no\n"
+                "- Remote release actions require explicit approval/future approval-gated layer.\n"
+            )
+
+            draft_path = _draft_text("release-notes", title, content)
+
+            payload = {
+                "report_type": "serena_github_release_notes",
+                "created_at": _timestamp(),
+                "root": key,
+                "title": title,
+                "limit": limit,
+                "draft_path": str(draft_path),
+                "release_published": False,
+                "tag_created": False,
+                "push_performed": False,
+            }
+            report_path = _save_json("drafts", f"{key}-release-notes", payload)
+
+            return self._result(
+                "Serena GitHub release notes drafted\n\n"
+                f"- Root: {key}\n"
+                f"- Title: {title}\n"
+                f"- Draft: {draft_path}\n"
+                f"- Report: {report_path}\n"
+                "- Release published: no\n"
+                "- Tag created: no\n"
+                "- Push performed: no\n\n"
+                "Preview:\n"
+                f"{content[:3000]}",
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to draft release notes: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_github_final_check")
+class SerenaGitHubFinalCheckTool(_GitHubBaseTool):
+    tool_id = "serena_github_final_check"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Run final Serena GitHub local safety check before commit/PR/push review.",
+            parameters={
+                "type": "object",
+                "properties": {"root": {"type": "string"}},
+                "required": ["root"],
+            },
+            category="serena_github",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            key, root, path = _resolve_root(str(params.get("root") or ""))
+
+            if not _is_git_repo(path):
+                return self._result(f"Approved root is not a Git repository: {path}", success=False)
+
+            safety = SerenaGitHubSafetyCheckTool().execute(root=key)
+            changes = SerenaGitHubChangesTool().execute(root=key)
+            branch = _run_git(path, ["branch", "--show-current"])
+
+            payload = {
+                "report_type": "serena_github_final_check",
+                "created_at": _timestamp(),
+                "root": key,
+                "path": str(path),
+                "branch": branch["output"],
+                "safety_success": safety.success,
+                "changes_success": changes.success,
+                "remote_writes_performed": False,
+                "push_performed": False,
+                "force_push_performed": False,
+                "pr_created": False,
+                "issue_created": False,
+                "release_published": False,
+            }
+            report_path = _save_json("reports", f"{key}-final-check", payload)
+
+            return self._result(
+                "Serena GitHub final check\n\n"
+                f"- Root: {key}\n"
+                f"- Branch: {branch['output'] or 'unknown'}\n"
+                f"- Safety check success: {safety.success}\n"
+                f"- Changes check success: {changes.success}\n"
+                f"- Report: {report_path}\n"
+                "- Remote writes performed: no\n"
+                "- Push performed: no\n"
+                "- Force-push performed: no\n"
+                "- PR created: no\n"
+                "- Issue created: no\n"
+                "- Release published: no\n\n"
+                "Safety summary:\n"
+                f"{safety.content[:3000]}",
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to run GitHub final check: {exc}", success=False)
+
+
 __all__ = [
     "SerenaGitHubStatusTool",
     "SerenaGitHubRepoInfoTool",
@@ -539,4 +1156,12 @@ __all__ = [
     "SerenaGitHubRecentCommitsTool",
     "SerenaGitHubChangesTool",
     "SerenaGitHubSafetyCheckTool",
+    "SerenaGitHubFinalCheckTool",
+    "SerenaGitHubReleaseNotesTool",
+    "SerenaGitHubFeatureRequestTool",
+    "SerenaGitHubBugReportTool",
+    "SerenaGitHubIssueDraftTool",
+    "SerenaGitHubPRSummaryTool",
+    "SerenaGitHubCommitMessageTool",
+    "SerenaGitHubCommitPlanTool",
 ]
