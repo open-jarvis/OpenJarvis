@@ -666,10 +666,428 @@ class SerenaOCRSafetyPolicyTool(_OCRBaseTool):
         return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
 
 
+def _safe_image_path(path_value: str) -> Path:
+    path = Path(str(path_value or "")).expanduser()
+
+    if not path.exists():
+        raise RuntimeError(f"Image/PDF path does not exist: {path}")
+    if not path.is_file():
+        raise RuntimeError(f"Path is not a file: {path}")
+
+    lowered = str(path).lower()
+    blocked = [".env", "secret", "secrets", "credential", "credentials", "password", "token"]
+    if any(item in lowered for item in blocked):
+        raise RuntimeError(f"Refusing sensitive-looking path: {path}")
+
+    allowed_suffixes = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff", ".pdf"}
+    if path.suffix.lower() not in allowed_suffixes:
+        raise RuntimeError(f"Unsupported OCR input type: {path.suffix}")
+
+    return path
+
+
+def _load_image_stats(path: Path) -> dict[str, Any]:
+    from PIL import Image, ImageStat
+
+    with Image.open(path) as img:
+        image = img.convert("RGB")
+        width, height = image.size
+        gray = image.convert("L")
+        stat = ImageStat.Stat(gray)
+        mean_brightness = float(stat.mean[0])
+        contrast = float(stat.stddev[0])
+
+    megapixels = round((width * height) / 1_000_000, 3)
+
+    readability_score = 0
+    notes: list[str] = []
+
+    long_edge = max(width, height)
+    short_edge = min(width, height)
+
+    if long_edge >= 1200 and short_edge >= 500:
+        readability_score += 35
+    elif long_edge >= 900 and short_edge >= 400:
+        readability_score += 25
+    elif long_edge >= 600 and short_edge >= 300:
+        readability_score += 15
+    else:
+        notes.append("Image resolution may be low for OCR.")
+
+    # Bright white paper backgrounds are expected for documents.
+    if 70 <= mean_brightness <= 250:
+        readability_score += 25
+    elif mean_brightness > 250:
+        readability_score += 15
+        notes.append("Image is very bright; ensure text is dark and not washed out.")
+    else:
+        notes.append("Image may be too dark for OCR.")
+
+    if contrast >= 30:
+        readability_score += 30
+    elif contrast >= 12:
+        readability_score += 20
+        notes.append("Contrast is usable but could be improved with darker/larger text.")
+    elif contrast >= 6:
+        readability_score += 10
+        notes.append("Contrast is low; OCR may make mistakes.")
+    else:
+        notes.append("Contrast may be too low for reliable OCR.")
+
+    if megapixels >= 0.5:
+        readability_score += 10
+    else:
+        notes.append("Image is small; move closer or use a higher-resolution capture.")
+
+    readability_score = min(readability_score, 100)
+
+    if readability_score >= 80:
+        label = "good"
+    elif readability_score >= 55:
+        label = "usable"
+    else:
+        label = "poor"
+
+    return {
+        "width": width,
+        "height": height,
+        "megapixels": megapixels,
+        "mean_brightness": round(mean_brightness, 2),
+        "contrast": round(contrast, 2),
+        "readability_score": readability_score,
+        "readability": label,
+        "notes": notes,
+    }
+
+
+def _tesseract_cmd_path() -> str | None:
+    return _resolve_executable("tesseract")
+
+
+def _ocr_image_text(path: Path) -> dict[str, Any]:
+    from PIL import Image, ImageFilter, ImageOps
+    import pytesseract
+
+    cmd = _tesseract_cmd_path()
+    if cmd:
+        pytesseract.pytesseract.tesseract_cmd = cmd
+
+    with Image.open(path) as img:
+        gray = ImageOps.grayscale(img)
+
+        # Upscale smaller captures before OCR. This helps webcam/document photos and small test images.
+        width, height = gray.size
+        scale = 2 if max(width, height) < 2200 else 1
+        if scale > 1:
+            gray = gray.resize((width * scale, height * scale))
+
+        # Light preprocessing: sharpen and binarize for dark text on light paper.
+        gray = gray.filter(ImageFilter.SHARPEN)
+        bw = gray.point(lambda pixel: 255 if pixel > 180 else 0)
+
+        config = "--oem 3 --psm 6"
+        text = pytesseract.image_to_string(bw, config=config)
+
+    return {
+        "text": text.strip(),
+        "text_length": len(text.strip()),
+        "engine": "pytesseract+tesseract+preprocess",
+        "tesseract_cmd": cmd or "PATH",
+    }
+
+
+def _write_extracted_text(name: str, text: str) -> Path:
+    folder = _ocr_root() / "extracted-text"
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{_timestamp()}-{_safe_slug(name)}.txt"
+    path.write_text(text or "", encoding="utf-8")
+    return path
+
+
+@ToolRegistry.register("serena_ocr_inspect_image")
+class SerenaOCRInspectImageTool(_OCRBaseTool):
+    tool_id = "serena_ocr_inspect_image"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Inspect an image/PDF input for OCR suitability.",
+            parameters={
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"],
+            },
+            category="serena_ocr",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            path = _safe_image_path(str(params.get("path") or ""))
+
+            if path.suffix.lower() == ".pdf":
+                info = {
+                    "path": str(path),
+                    "suffix": path.suffix.lower(),
+                    "size_bytes": path.stat().st_size,
+                    "type": "pdf",
+                    "readability": "requires page extraction",
+                    "notes": ["Use extract-pdf for PDF OCR."],
+                }
+            else:
+                stats = _load_image_stats(path)
+                info = {
+                    "path": str(path),
+                    "suffix": path.suffix.lower(),
+                    "size_bytes": path.stat().st_size,
+                    "type": "image",
+                    **stats,
+                }
+
+            payload = {
+                "report_type": "serena_ocr_inspect_image",
+                "created_at": _timestamp(),
+                "input": info,
+                "changes_made": False,
+                "ocr_performed": False,
+                "delete_performed": False,
+            }
+            report_path = _save_json("reports", f"inspect-{path.name}", payload)
+
+            lines = [
+                "Serena OCR input inspection",
+                "",
+                f"- Path: {path}",
+                f"- Type: {info['type']}",
+                f"- Size bytes: {info['size_bytes']}",
+                f"- Report: {report_path}",
+                "- OCR performed: no",
+                "- Changes made: no",
+                "- Delete performed: no",
+            ]
+
+            if info["type"] == "image":
+                lines.extend([
+                    f"- Dimensions: {info['width']}x{info['height']}",
+                    f"- Brightness: {info['mean_brightness']}",
+                    f"- Contrast: {info['contrast']}",
+                    f"- Readability: {info['readability']} ({info['readability_score']}/100)",
+                    "",
+                    "Notes:",
+                ])
+                lines.extend(f"- {item}" for item in info["notes"]) if info["notes"] else lines.append("- No immediate readability warnings.")
+            else:
+                lines.extend(["", "Notes:"])
+                lines.extend(f"- {item}" for item in info["notes"])
+
+            return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+        except Exception as exc:
+            return self._result(f"Failed to inspect OCR input: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_ocr_readability")
+class SerenaOCRReadabilityTool(_OCRBaseTool):
+    tool_id = "serena_ocr_readability"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Assess image readability for OCR.",
+            parameters={
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"],
+            },
+            category="serena_ocr",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            path = _safe_image_path(str(params.get("path") or ""))
+            if path.suffix.lower() == ".pdf":
+                return self._result("Readability currently expects an image file. Use extract-pdf for PDFs.", success=False)
+
+            stats = _load_image_stats(path)
+
+            payload = {
+                "report_type": "serena_ocr_readability",
+                "created_at": _timestamp(),
+                "path": str(path),
+                "stats": stats,
+                "changes_made": False,
+                "delete_performed": False,
+            }
+            report_path = _save_json("reports", f"readability-{path.name}", payload)
+
+            return self._result(
+                "Serena OCR readability\n\n"
+                f"- Path: {path}\n"
+                f"- Dimensions: {stats['width']}x{stats['height']}\n"
+                f"- Brightness: {stats['mean_brightness']}\n"
+                f"- Contrast: {stats['contrast']}\n"
+                f"- Readability: {stats['readability']} ({stats['readability_score']}/100)\n"
+                f"- Report: {report_path}\n"
+                "- Changes made: no\n"
+                "- Delete performed: no\n\n"
+                "Recommendations:\n"
+                + ("\n".join(f"- {item}" for item in stats["notes"]) if stats["notes"] else "- Image appears suitable for OCR."),
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to assess OCR readability: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_ocr_extract_image")
+class SerenaOCRExtractImageTool(_OCRBaseTool):
+    tool_id = "serena_ocr_extract_image"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Extract visible text from an image using local OCR.",
+            parameters={
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"],
+            },
+            category="serena_ocr",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            path = _safe_image_path(str(params.get("path") or ""))
+            if path.suffix.lower() == ".pdf":
+                return self._result("extract-image expects an image file. Use extract-pdf for PDFs.", success=False)
+
+            stats = _load_image_stats(path)
+            ocr = _ocr_image_text(path)
+            text_path = _write_extracted_text(path.stem, ocr["text"])
+
+            payload = {
+                "report_type": "serena_ocr_extract_image",
+                "created_at": _timestamp(),
+                "path": str(path),
+                "readability": stats,
+                "ocr": {
+                    "text_length": ocr["text_length"],
+                    "engine": ocr["engine"],
+                    "tesseract_cmd_present": bool(ocr["tesseract_cmd"]),
+                },
+                "text_path": str(text_path),
+                "changes_made": True,
+                "ocr_performed": True,
+                "delete_performed": False,
+            }
+            report_path = _save_json("reports", f"extract-image-{path.name}", payload)
+
+            preview = ocr["text"][:2000] if ocr["text"] else ""
+
+            return self._result(
+                "Serena OCR image extraction complete\n\n"
+                f"- Path: {path}\n"
+                f"- Readability: {stats['readability']} ({stats['readability_score']}/100)\n"
+                f"- Text length: {ocr['text_length']}\n"
+                f"- Extracted text file: {text_path}\n"
+                f"- Report: {report_path}\n"
+                "- OCR performed: yes\n"
+                "- Changes made: yes\n"
+                "- Delete performed: no\n\n"
+                "Preview:\n"
+                f"{preview or '[no text detected]'}",
+                metadata={**payload, "report_path": str(report_path), "preview": preview},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to extract OCR text from image: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_ocr_extract_pdf")
+class SerenaOCRExtractPDFTool(_OCRBaseTool):
+    tool_id = "serena_ocr_extract_pdf"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Extract text from a PDF using PyMuPDF text extraction first, with OCR page rendering later.",
+            parameters={
+                "type": "object",
+                "properties": {"path": {"type": "string"}, "max_pages": {"type": "integer"}},
+                "required": ["path"],
+            },
+            category="serena_ocr",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            import fitz
+
+            path = _safe_image_path(str(params.get("path") or ""))
+            max_pages = int(params.get("max_pages") or 10)
+
+            if path.suffix.lower() != ".pdf":
+                return self._result("extract-pdf expects a PDF file.", success=False)
+
+            doc = fitz.open(str(path))
+            pages = min(len(doc), max_pages)
+            text_parts: list[str] = []
+
+            for i in range(pages):
+                page = doc[i]
+                text_parts.append(f"\n\n--- Page {i + 1} ---\n")
+                text_parts.append(page.get_text("text") or "")
+
+            doc.close()
+
+            text = "".join(text_parts).strip()
+            text_path = _write_extracted_text(path.stem, text)
+
+            payload = {
+                "report_type": "serena_ocr_extract_pdf",
+                "created_at": _timestamp(),
+                "path": str(path),
+                "pages_total": len(doc) if False else pages,
+                "pages_processed": pages,
+                "text_length": len(text),
+                "text_path": str(text_path),
+                "engine": "pymupdf_text_extraction",
+                "changes_made": True,
+                "ocr_performed": False,
+                "pdf_text_extraction_performed": True,
+                "delete_performed": False,
+            }
+            report_path = _save_json("reports", f"extract-pdf-{path.name}", payload)
+
+            preview = text[:2000] if text else ""
+
+            return self._result(
+                "Serena PDF text extraction complete\n\n"
+                f"- Path: {path}\n"
+                f"- Pages processed: {pages}\n"
+                f"- Text length: {len(text)}\n"
+                f"- Extracted text file: {text_path}\n"
+                f"- Report: {report_path}\n"
+                "- PDF text extraction performed: yes\n"
+                "- Image OCR performed: no\n"
+                "- Changes made: yes\n"
+                "- Delete performed: no\n\n"
+                "Preview:\n"
+                f"{preview or '[no embedded text detected]'}",
+                metadata={**payload, "report_path": str(report_path), "preview": preview},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to extract text from PDF: {exc}", success=False)
+
+
 __all__ = [
     "SerenaOCRStatusTool",
     "SerenaOCREnginesTool",
     "SerenaOCRCameraStatusTool",
     "SerenaOCRPlanTool",
     "SerenaOCRSafetyPolicyTool",
+    "SerenaOCRExtractPDFTool",
+    "SerenaOCRExtractImageTool",
+    "SerenaOCRReadabilityTool",
+    "SerenaOCRInspectImageTool",
 ]
