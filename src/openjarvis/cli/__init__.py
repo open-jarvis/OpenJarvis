@@ -51,6 +51,7 @@ from openjarvis.cli.documents_cmd import documents
 from openjarvis.cli.files_cmd import files
 from openjarvis.cli.vscode_cmd import vscode
 from openjarvis.cli.vscode_builder_cmd import vscode_builder
+from openjarvis.cli.github_cmd import github
 from openjarvis.learning.distillation.cli import learning_group
 
 
@@ -105,6 +106,7 @@ cli.add_command(documents, "documents")
 cli.add_command(files, "files")
 cli.add_command(vscode, "vscode")
 cli.add_command(vscode_builder, "vscode-builder")
+cli.add_command(github, "github")
 cli.add_command(skill, "skill")
 cli.add_command(start, "start")
 cli.add_command(stop, "stop")
