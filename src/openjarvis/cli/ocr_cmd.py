@@ -12,6 +12,11 @@ from openjarvis.tools.serena_ocr import (
     SerenaOCRPlanTool,
     SerenaOCRSafetyPolicyTool,
     SerenaOCRStatusTool,
+    SerenaOCRLiveReportTool,
+    SerenaOCRLiveSnapshotTool,
+    SerenaOCRLiveStopTool,
+    SerenaOCRLiveStatusTool,
+    SerenaOCRLiveStartTool,
     SerenaOCRDescribeCaptureTool,
     SerenaOCRCaptureDocTool,
     SerenaOCRCaptureTool,
@@ -144,6 +149,60 @@ def describe_capture(path: str) -> None:
     """Describe a saved capture/image for OCR suitability."""
     console = Console()
     result = SerenaOCRDescribeCaptureTool().execute(path=path)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@ocr.command("live-start")
+@click.option("--mode", default="assist", help="document, text, scene, object, assist.")
+@click.option("--camera-index", default=0, type=int, help="Camera index.")
+@click.option("--interval-seconds", default=5, type=int, help="Frame interval seconds.")
+@click.option("--max-minutes", default=10, type=int, help="Maximum session duration.")
+@click.option("--approved", is_flag=True, help="Required explicit approval to start live vision.")
+def live_start(mode: str, camera_index: int, interval_seconds: int, max_minutes: int, approved: bool) -> None:
+    """Start a controlled OCR/live vision session."""
+    console = Console()
+    result = SerenaOCRLiveStartTool().execute(
+        mode=mode,
+        camera_index=camera_index,
+        interval_seconds=interval_seconds,
+        max_minutes=max_minutes,
+        approved=approved,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@ocr.command("live-status")
+def live_status() -> None:
+    """Show OCR/live vision session status."""
+    console = Console()
+    result = SerenaOCRLiveStatusTool().execute()
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@ocr.command("live-stop")
+@click.option("--reason", default="Stopped by explicit command.", help="Stop reason.")
+def live_stop(reason: str) -> None:
+    """Stop a controlled OCR/live vision session."""
+    console = Console()
+    result = SerenaOCRLiveStopTool().execute(reason=reason)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@ocr.command("live-snapshot")
+@click.option("--name", default="live-snapshot", help="Snapshot name.")
+@click.option("--extract-text", is_flag=True, help="Also run OCR extraction on the snapshot.")
+def live_snapshot(name: str, extract_text: bool) -> None:
+    """Capture one frame during an active OCR/live vision session."""
+    console = Console()
+    result = SerenaOCRLiveSnapshotTool().execute(name=name, extract_text=extract_text)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@ocr.command("live-report")
+def live_report() -> None:
+    """Create a report for the current/recent OCR live vision session."""
+    console = Console()
+    result = SerenaOCRLiveReportTool().execute()
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 

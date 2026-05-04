@@ -1467,6 +1467,469 @@ class SerenaOCRDescribeCaptureTool(_OCRBaseTool):
             return self._result(f"Failed to describe capture: {exc}", success=False)
 
 
+def _live_session_expired(state: dict[str, Any]) -> bool:
+    if not state.get("active"):
+        return False
+
+    started_at_epoch = float(state.get("started_at_epoch") or 0)
+    max_minutes = float(state.get("max_minutes") or 0)
+
+    if started_at_epoch <= 0 or max_minutes <= 0:
+        return False
+
+    return (time.time() - started_at_epoch) >= (max_minutes * 60)
+
+
+def _normalize_live_mode(mode: str) -> str:
+    mode = str(mode or "assist").strip().lower()
+    allowed = {"document", "text", "scene", "object", "assist"}
+    if mode not in allowed:
+        raise RuntimeError(f"Unsupported live vision mode: {mode}. Allowed: {', '.join(sorted(allowed))}")
+    return mode
+
+
+def _active_live_state_or_error() -> dict[str, Any]:
+    state = _load_live_state()
+    if not state.get("active"):
+        raise RuntimeError("No active OCR live vision session. Start one with `serena ocr live-start`.")
+
+    if _live_session_expired(state):
+        state["active"] = False
+        state["stop_requested"] = True
+        state["stopped_at"] = _timestamp()
+        state["stop_reason"] = "auto-stop: max duration reached"
+        _save_live_state(state)
+        raise RuntimeError("Live vision session has expired and was auto-stopped.")
+
+    return state
+
+
+def _live_summary(state: dict[str, Any]) -> str:
+    artifacts = state.get("artifacts") or []
+    return (
+        f"mode={state.get('mode')}, "
+        f"camera_index={state.get('camera_index')}, "
+        f"active={state.get('active')}, "
+        f"frames_captured={state.get('frames_captured', 0)}, "
+        f"frames_saved={state.get('frames_saved', 0)}, "
+        f"artifacts={len(artifacts)}"
+    )
+
+
+@ToolRegistry.register("serena_ocr_live_start")
+class SerenaOCRLiveStartTool(_OCRBaseTool):
+    tool_id = "serena_ocr_live_start"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Start a controlled OCR/live vision session. Does not continuously watch in background.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "mode": {"type": "string"},
+                    "camera_index": {"type": "integer"},
+                    "interval_seconds": {"type": "integer"},
+                    "max_minutes": {"type": "integer"},
+                    "approved": {"type": "boolean"},
+                },
+            },
+            category="serena_ocr",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            approved = bool(params.get("approved") or False)
+            if not approved:
+                return self._result(
+                    "OCR live vision start blocked\n\n"
+                    "- Reason: explicit approval flag is required.\n"
+                    "- Required: --approved\n"
+                    "- Camera opened: no\n"
+                    "- Live vision active: no\n"
+                    "- Changes made: no\n\n"
+                    "Safety rule:\n"
+                    "- Live vision can only start from an explicit approved command.",
+                    success=False,
+                )
+
+            mode = _normalize_live_mode(str(params.get("mode") or "assist"))
+            camera_index = int(params.get("camera_index") or 0)
+            interval_seconds = int(params.get("interval_seconds") or 5)
+            max_minutes = int(params.get("max_minutes") or 10)
+
+            if interval_seconds < 2:
+                return self._result("Live vision interval must be at least 2 seconds.", success=False)
+            if max_minutes < 1 or max_minutes > 60:
+                return self._result("Live vision max_minutes must be between 1 and 60.", success=False)
+
+            existing = _load_live_state()
+            if existing.get("active") and not _live_session_expired(existing):
+                return self._result(
+                    "OCR live vision session already active\n\n"
+                    f"- Current session: {_live_summary(existing)}\n"
+                    "- Camera opened: no\n"
+                    "- Changes made: no\n\n"
+                    "Use `serena ocr live-status` or `serena ocr live-stop`.",
+                    success=False,
+                    metadata={"live_state": existing},
+                )
+
+            state = {
+                "active": True,
+                "mode": mode,
+                "camera_index": camera_index,
+                "interval_seconds": interval_seconds,
+                "max_minutes": max_minutes,
+                "started_at": _timestamp(),
+                "started_at_epoch": time.time(),
+                "stopped_at": "",
+                "stop_requested": False,
+                "stop_reason": "",
+                "frames_captured": 0,
+                "frames_saved": 0,
+                "last_frame": "",
+                "last_snapshot_report": "",
+                "artifacts": [],
+                "policy": {
+                    "explicit_command": True,
+                    "approved": True,
+                    "silent_camera_use": False,
+                    "always_on_camera": False,
+                    "audio_recording": False,
+                    "face_identity_recognition": False,
+                    "biometric_recognition": False,
+                },
+            }
+
+            state_path = _save_live_state(state)
+
+            payload = {
+                "report_type": "serena_ocr_live_start",
+                "created_at": _timestamp(),
+                "state": state,
+                "state_path": str(state_path),
+                "camera_opened": False,
+                "background_watch_started": False,
+                "changes_made": True,
+                "delete_performed": False,
+            }
+            report_path = _save_json("reports", "live-start", payload)
+
+            return self._result(
+                "Serena OCR live vision session started\n\n"
+                f"- Mode: {mode}\n"
+                f"- Camera index: {camera_index}\n"
+                f"- Interval seconds: {interval_seconds}\n"
+                f"- Max minutes: {max_minutes}\n"
+                f"- State: {state_path}\n"
+                f"- Report: {report_path}\n"
+                "- Explicit approval: yes\n"
+                "- Camera opened now: no\n"
+                "- Background watch started: no\n"
+                "- Live vision active: yes\n"
+                "- Changes made: yes\n"
+                "- Delete performed: no\n\n"
+                "Important:\n"
+                "- v1 live-start creates controlled session state.\n"
+                "- Frames are captured only when `live-snapshot` or future watch commands run.",
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(f"Failed to start OCR live vision session: {exc}", success=False)
+
+
+@ToolRegistry.register("serena_ocr_live_status")
+class SerenaOCRLiveStatusTool(_OCRBaseTool):
+    tool_id = "serena_ocr_live_status"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Show OCR/live vision session status.",
+            parameters={"type": "object", "properties": {}},
+            category="serena_ocr",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        state = _load_live_state()
+
+        if state.get("active") and _live_session_expired(state):
+            state["active"] = False
+            state["stop_requested"] = True
+            state["stopped_at"] = _timestamp()
+            state["stop_reason"] = "auto-stop: max duration reached"
+            _save_live_state(state)
+
+        payload = {
+            "report_type": "serena_ocr_live_status",
+            "created_at": _timestamp(),
+            "state": state,
+            "changes_made": False,
+            "camera_opened": False,
+            "delete_performed": False,
+        }
+        report_path = _save_json("reports", "live-status", payload)
+
+        return self._result(
+            "Serena OCR live vision status\n\n"
+            f"- Active: {'yes' if state.get('active') else 'no'}\n"
+            f"- Mode: {state.get('mode') or 'none'}\n"
+            f"- Camera index: {state.get('camera_index')}\n"
+            f"- Interval seconds: {state.get('interval_seconds')}\n"
+            f"- Max minutes: {state.get('max_minutes')}\n"
+            f"- Started at: {state.get('started_at') or 'not started'}\n"
+            f"- Stopped at: {state.get('stopped_at') or 'not stopped'}\n"
+            f"- Stop reason: {state.get('stop_reason') or 'none'}\n"
+            f"- Frames captured: {state.get('frames_captured', 0)}\n"
+            f"- Frames saved: {state.get('frames_saved', 0)}\n"
+            f"- Last frame: {state.get('last_frame') or 'none'}\n"
+            f"- Report: {report_path}\n"
+            "- Camera opened by status: no\n"
+            "- Changes made: no\n"
+            "- Delete performed: no",
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_ocr_live_stop")
+class SerenaOCRLiveStopTool(_OCRBaseTool):
+    tool_id = "serena_ocr_live_stop"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Stop a controlled OCR/live vision session.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "reason": {"type": "string"},
+                },
+            },
+            category="serena_ocr",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        reason = str(params.get("reason") or "Stopped by explicit command.").strip()
+        state = _load_live_state()
+        was_active = bool(state.get("active"))
+
+        state["active"] = False
+        state["stop_requested"] = True
+        state["stopped_at"] = _timestamp()
+        state["stop_reason"] = reason
+        state_path = _save_live_state(state)
+
+        payload = {
+            "report_type": "serena_ocr_live_stop",
+            "created_at": _timestamp(),
+            "was_active": was_active,
+            "state": state,
+            "state_path": str(state_path),
+            "camera_released": True,
+            "changes_made": True,
+            "delete_performed": False,
+        }
+        report_path = _save_json("reports", "live-stop", payload)
+
+        return self._result(
+            "Serena OCR live vision session stopped\n\n"
+            f"- Was active: {'yes' if was_active else 'no'}\n"
+            f"- Reason: {reason}\n"
+            f"- Frames captured: {state.get('frames_captured', 0)}\n"
+            f"- Frames saved: {state.get('frames_saved', 0)}\n"
+            f"- State: {state_path}\n"
+            f"- Report: {report_path}\n"
+            "- Camera released: yes\n"
+            "- Live vision active: no\n"
+            "- Changes made: yes\n"
+            "- Delete performed: no",
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_ocr_live_snapshot")
+class SerenaOCRLiveSnapshotTool(_OCRBaseTool):
+    tool_id = "serena_ocr_live_snapshot"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Capture one frame during an active OCR/live vision session.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "extract_text": {"type": "boolean"},
+                },
+            },
+            category="serena_ocr",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            state = _active_live_state_or_error()
+            name = str(params.get("name") or f"live-{state.get('mode')}-snapshot").strip()
+            extract_text = bool(params.get("extract_text") or False)
+
+            capture = _capture_frame(camera_index=int(state.get("camera_index") or 0), name=name)
+            path = Path(capture["output_path"])
+            desc = _describe_capture(path)
+
+            artifact: dict[str, Any] = {
+                "type": "live_snapshot",
+                "path": str(path),
+                "created_at": _timestamp(),
+                "camera_index": state.get("camera_index"),
+                "mode": state.get("mode"),
+                "readability": desc["stats"]["readability"],
+                "readability_score": desc["stats"]["readability_score"],
+            }
+
+            preview = ""
+            text_path = ""
+            if extract_text:
+                ocr = _ocr_image_text(path)
+                text_path_obj = _write_extracted_text(path.stem, ocr["text"])
+                text_path = str(text_path_obj)
+                preview = ocr["text"][:2000] if ocr["text"] else ""
+                artifact["ocr"] = {
+                    "performed": True,
+                    "text_length": ocr["text_length"],
+                    "text_path": text_path,
+                }
+            else:
+                artifact["ocr"] = {"performed": False}
+
+            state["frames_captured"] = int(state.get("frames_captured") or 0) + 1
+            state["frames_saved"] = int(state.get("frames_saved") or 0) + 1
+            state["last_frame"] = str(path)
+            state.setdefault("artifacts", []).append(artifact)
+            state_path = _save_live_state(state)
+
+            payload = {
+                "report_type": "serena_ocr_live_snapshot",
+                "created_at": _timestamp(),
+                "state": state,
+                "capture": capture,
+                "description": desc,
+                "artifact": artifact,
+                "text_path": text_path,
+                "camera_opened_by_command": True,
+                "camera_released": True,
+                "changes_made": True,
+                "delete_performed": False,
+            }
+            report_path = _save_json("reports", f"live-snapshot-{name}", payload)
+
+            state["last_snapshot_report"] = str(report_path)
+            _save_live_state(state)
+
+            return self._result(
+                "Serena OCR live snapshot complete\n\n"
+                f"- Mode: {state.get('mode')}\n"
+                f"- Camera index: {state.get('camera_index')}\n"
+                f"- Capture file: {path}\n"
+                f"- Readability: {desc['stats']['readability']} ({desc['stats']['readability_score']}/100)\n"
+                f"- Extract text: {'yes' if extract_text else 'no'}\n"
+                f"- Extracted text file: {text_path or 'none'}\n"
+                f"- State: {state_path}\n"
+                f"- Report: {report_path}\n"
+                "- Camera opened by explicit command: yes\n"
+                "- Camera released: yes\n"
+                "- Changes made: yes\n"
+                "- Delete performed: no\n\n"
+                "Preview:\n"
+                f"{preview or '[no text extracted]'}",
+                metadata={**payload, "report_path": str(report_path), "preview": preview},
+            )
+        except Exception as exc:
+            payload = {
+                "report_type": "serena_ocr_live_snapshot_failed",
+                "created_at": _timestamp(),
+                "error": str(exc),
+                "camera_released": True,
+                "changes_made": False,
+                "delete_performed": False,
+            }
+            report_path = _save_json("reports", "live-snapshot-failed", payload)
+            return self._result(
+                "Serena OCR live snapshot failed safely\n\n"
+                f"- Error: {exc}\n"
+                f"- Report: {report_path}\n"
+                "- Camera released: yes\n"
+                "- Changes made: no\n"
+                "- Delete performed: no",
+                success=False,
+                metadata={**payload, "report_path": str(report_path)},
+            )
+
+
+@ToolRegistry.register("serena_ocr_live_report")
+class SerenaOCRLiveReportTool(_OCRBaseTool):
+    tool_id = "serena_ocr_live_report"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a report for the current or most recent OCR/live vision session.",
+            parameters={"type": "object", "properties": {}},
+            category="serena_ocr",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        state = _load_live_state()
+
+        payload = {
+            "report_type": "serena_ocr_live_report",
+            "created_at": _timestamp(),
+            "state": state,
+            "summary": _live_summary(state),
+            "changes_made": False,
+            "camera_opened": False,
+            "delete_performed": False,
+        }
+        report_path = _save_json("reports", "live-report", payload)
+
+        artifacts = state.get("artifacts") or []
+
+        lines = [
+            "Serena OCR live vision report",
+            "",
+            f"- Active: {'yes' if state.get('active') else 'no'}",
+            f"- Mode: {state.get('mode') or 'none'}",
+            f"- Camera index: {state.get('camera_index')}",
+            f"- Started at: {state.get('started_at') or 'not started'}",
+            f"- Stopped at: {state.get('stopped_at') or 'not stopped'}",
+            f"- Stop reason: {state.get('stop_reason') or 'none'}",
+            f"- Frames captured: {state.get('frames_captured', 0)}",
+            f"- Frames saved: {state.get('frames_saved', 0)}",
+            f"- Artifacts: {len(artifacts)}",
+            f"- Report: {report_path}",
+            "- Camera opened by report: no",
+            "- Changes made: no",
+            "- Delete performed: no",
+            "",
+            "Artifacts:",
+        ]
+
+        if artifacts:
+            for artifact in artifacts[-20:]:
+                lines.append(
+                    f"- {artifact.get('type')} | path={artifact.get('path')} | "
+                    f"readability={artifact.get('readability')} ({artifact.get('readability_score')})"
+                )
+        else:
+            lines.append("- none")
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
 __all__ = [
     "SerenaOCRStatusTool",
     "SerenaOCREnginesTool",
@@ -1475,6 +1938,11 @@ __all__ = [
     "SerenaOCRSafetyPolicyTool",
     "SerenaOCRExtractPDFTool",
     "SerenaOCRDescribeCaptureTool",
+    "SerenaOCRLiveReportTool",
+    "SerenaOCRLiveSnapshotTool",
+    "SerenaOCRLiveStopTool",
+    "SerenaOCRLiveStatusTool",
+    "SerenaOCRLiveStartTool",
     "SerenaOCRCaptureDocTool",
     "SerenaOCRCaptureTool",
     "SerenaOCRCamerasTool",
