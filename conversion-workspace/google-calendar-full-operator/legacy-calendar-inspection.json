@@ -1,0 +1,50 @@
+{
+  "legacy_file": "legacy\\serena-skills\\04-calendar.js",
+  "line_count": 183,
+  "character_count": 6910,
+  "function_names": [
+    "getCalendarClient"
+  ],
+  "dependencies": [
+    "../helpers/logger",
+    "googleapis"
+  ],
+  "triggers": [
+    "BOOK SLOT:",
+    "CHECK AVAILABILITY:",
+    "TODAY SCHEDULE",
+    "CANCEL APPOINTMENT:"
+  ],
+  "env_mentions": [
+    "CALENDAR",
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "GOOGLE_REFRESH_TOKEN"
+  ],
+  "status": "inspected",
+  "target_native_skill": "Serena Google Calendar Full Operator v1",
+  "target_workflow": [
+    "status",
+    "env-check",
+    "connect-check",
+    "plan",
+    "today",
+    "upcoming",
+    "search",
+    "event-info",
+    "availability",
+    "create",
+    "appointment",
+    "reminder",
+    "meet",
+    "recurring",
+    "reschedule",
+    "update",
+    "add-attendee",
+    "cancel",
+    "daily-brief",
+    "weekly-brief",
+    "audit",
+    "blocked-bulk-delete"
+  ]
+}
