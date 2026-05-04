@@ -12,6 +12,7 @@ from openjarvis.tools.serena_vscode_builder import (
     SerenaVSCodeBuilderTemplatesTool,
     SerenaVSCodeBuilderScaffoldTool,
     SerenaVSCodeBuilderBuildWordPressSectionTool,
+    SerenaVSCodeBuilderBuildReactComponentTool,
     SerenaVSCodeBuilderBuildSectionTool,
     SerenaVSCodeBuilderPlanTool,
 )
@@ -123,6 +124,31 @@ def build_wordpress_section(root: str, target_path: str, title: str, subtitle: s
     result = SerenaVSCodeBuilderBuildWordPressSectionTool().execute(
         root=root,
         target_path=target_path,
+        title=title,
+        subtitle=subtitle,
+        cta_text=cta_text,
+        cta_url=cta_url,
+        overwrite=overwrite,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@vscode_builder.command("build-react-component")
+@click.option("--root", required=True, help="Approved root alias.")
+@click.option("--target-path", required=True, help="Relative target folder.")
+@click.option("--name", required=True, help="Component name.")
+@click.option("--title", default="", help="Component title.")
+@click.option("--subtitle", default="", help="Component subtitle.")
+@click.option("--cta-text", default="Get started", help="CTA text.")
+@click.option("--cta-url", default="#", help="CTA URL.")
+@click.option("--overwrite", is_flag=True, help="Overwrite existing files.")
+def build_react_component(root: str, target_path: str, name: str, title: str, subtitle: str, cta_text: str, cta_url: str, overwrite: bool) -> None:
+    """Build a React component."""
+    console = Console()
+    result = SerenaVSCodeBuilderBuildReactComponentTool().execute(
+        root=root,
+        target_path=target_path,
+        name=name,
         title=title,
         subtitle=subtitle,
         cta_text=cta_text,
