@@ -406,9 +406,464 @@ class SerenaGoogleCalendarPlanTool(_GoogleCalendarBaseTool):
         )
 
 
+def _parse_date_start(date_text: str | None = None) -> datetime:
+    value = str(date_text or "").strip().lower()
+    now = datetime.now(timezone.utc)
+
+    if not value or value == "today":
+        local = datetime.now()
+        return datetime(local.year, local.month, local.day, tzinfo=timezone.utc)
+
+    if value == "tomorrow":
+        local = datetime.now() + timedelta(days=1)
+        return datetime(local.year, local.month, local.day, tzinfo=timezone.utc)
+
+    if value in {"week", "this-week", "this week"}:
+        local = datetime.now()
+        start = local - timedelta(days=local.weekday())
+        return datetime(start.year, start.month, start.day, tzinfo=timezone.utc)
+
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+    except Exception:
+        raise RuntimeError(f"Could not parse date: {date_text}")
+
+
+def _date_range(date_text: str | None = None, days: int = 1) -> tuple[str, str]:
+    start = _parse_date_start(date_text)
+    end = start + timedelta(days=days)
+    return start.isoformat(), end.isoformat()
+
+
+def _format_event_line(event: dict[str, Any]) -> str:
+    start = event.get("start", {})
+    end = event.get("end", {})
+    start_value = start.get("dateTime") or start.get("date") or "unknown"
+    end_value = end.get("dateTime") or end.get("date") or "unknown"
+    title = event.get("summary") or "(no title)"
+    event_id = event.get("id") or ""
+    link = event.get("htmlLink") or ""
+    location = event.get("location") or ""
+    return f"- {start_value} -> {end_value} | {title} | id={event_id} | location={location} | link={link}"
+
+
+def _event_summary(event: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": event.get("id"),
+        "summary": event.get("summary"),
+        "description": event.get("description"),
+        "location": event.get("location"),
+        "start": event.get("start"),
+        "end": event.get("end"),
+        "htmlLink": event.get("htmlLink"),
+        "hangoutLink": event.get("hangoutLink"),
+        "attendees": event.get("attendees", []),
+        "status": event.get("status"),
+        "creator": event.get("creator"),
+        "organizer": event.get("organizer"),
+    }
+
+
+def _list_events(time_min: str, time_max: str, query: str = "", limit: int = 20) -> list[dict[str, Any]]:
+    service = _get_calendar_service()
+    result = service.events().list(
+        calendarId=_calendar_id(),
+        timeMin=time_min,
+        timeMax=time_max,
+        q=query or None,
+        maxResults=limit,
+        singleEvents=True,
+        orderBy="startTime",
+    ).execute()
+    return result.get("items", [])
+
+
+@ToolRegistry.register("serena_google_calendar_today")
+class SerenaGoogleCalendarTodayTool(_GoogleCalendarBaseTool):
+    tool_id = "serena_google_calendar_today"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Read today's Google Calendar schedule.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer"},
+                },
+            },
+            category="serena_google_calendar",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            limit = int(params.get("limit") or 20)
+            time_min, time_max = _date_range("today", days=1)
+            events = _list_events(time_min, time_max, limit=limit)
+
+            payload = {
+                "report_type": "serena_google_calendar_today",
+                "created_at": _timestamp(),
+                "calendar_id": _calendar_id(),
+                "time_min": time_min,
+                "time_max": time_max,
+                "events": [_event_summary(item) for item in events],
+                "changes_made": False,
+                "delete_performed": False,
+                "secret_values_exposed": False,
+            }
+            report_path = _save_json("snapshots", "today", payload)
+
+            lines = [
+                "Serena Google Calendar today",
+                "",
+                f"- Calendar ID: {_calendar_id()}",
+                f"- Time range: {time_min} to {time_max}",
+                f"- Events found: {len(events)}",
+                f"- Snapshot: {report_path}",
+                "- Changes made: no",
+                "- Delete performed: no",
+                "",
+                "Events:",
+            ]
+            lines.extend(_format_event_line(item) for item in events) if events else lines.append("- none")
+
+            return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+        except Exception as exc:
+            return self._result(
+                "Serena Google Calendar today failed\n\n"
+                f"- Error: {exc}\n"
+                "- Changes made: no\n"
+                "- Delete performed: no\n\n"
+                "Note:\n"
+                "- If this says invalid_scope, Dr Piet still needs to approve the new Calendar-scoped Google token.",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_google_calendar_upcoming")
+class SerenaGoogleCalendarUpcomingTool(_GoogleCalendarBaseTool):
+    tool_id = "serena_google_calendar_upcoming"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Read upcoming Google Calendar events.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "days": {"type": "integer"},
+                    "limit": {"type": "integer"},
+                },
+            },
+            category="serena_google_calendar",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            days = int(params.get("days") or 7)
+            limit = int(params.get("limit") or 30)
+            time_min = datetime.now(timezone.utc).isoformat()
+            time_max = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+            events = _list_events(time_min, time_max, limit=limit)
+
+            payload = {
+                "report_type": "serena_google_calendar_upcoming",
+                "created_at": _timestamp(),
+                "calendar_id": _calendar_id(),
+                "days": days,
+                "time_min": time_min,
+                "time_max": time_max,
+                "events": [_event_summary(item) for item in events],
+                "changes_made": False,
+                "delete_performed": False,
+                "secret_values_exposed": False,
+            }
+            report_path = _save_json("snapshots", f"upcoming-{days}-days", payload)
+
+            lines = [
+                "Serena Google Calendar upcoming",
+                "",
+                f"- Calendar ID: {_calendar_id()}",
+                f"- Days: {days}",
+                f"- Events found: {len(events)}",
+                f"- Snapshot: {report_path}",
+                "- Changes made: no",
+                "- Delete performed: no",
+                "",
+                "Events:",
+            ]
+            lines.extend(_format_event_line(item) for item in events) if events else lines.append("- none")
+
+            return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+        except Exception as exc:
+            return self._result(
+                "Serena Google Calendar upcoming failed\n\n"
+                f"- Error: {exc}\n"
+                "- Changes made: no\n"
+                "- Delete performed: no\n\n"
+                "Note:\n"
+                "- If this says invalid_scope, Dr Piet still needs to approve the new Calendar-scoped Google token.",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_google_calendar_search")
+class SerenaGoogleCalendarSearchTool(_GoogleCalendarBaseTool):
+    tool_id = "serena_google_calendar_search"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Search Google Calendar events.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "days": {"type": "integer"},
+                    "limit": {"type": "integer"},
+                },
+                "required": ["query"],
+            },
+            category="serena_google_calendar",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            query = str(params.get("query") or "").strip()
+            days = int(params.get("days") or 90)
+            limit = int(params.get("limit") or 20)
+
+            if not query:
+                return self._result("Search query is required.", success=False)
+
+            time_min = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+            time_max = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+            events = _list_events(time_min, time_max, query=query, limit=limit)
+
+            payload = {
+                "report_type": "serena_google_calendar_search",
+                "created_at": _timestamp(),
+                "calendar_id": _calendar_id(),
+                "query": query,
+                "days": days,
+                "events": [_event_summary(item) for item in events],
+                "changes_made": False,
+                "delete_performed": False,
+                "secret_values_exposed": False,
+            }
+            report_path = _save_json("snapshots", f"search-{query}", payload)
+
+            lines = [
+                "Serena Google Calendar search",
+                "",
+                f"- Query: {query}",
+                f"- Calendar ID: {_calendar_id()}",
+                f"- Events found: {len(events)}",
+                f"- Snapshot: {report_path}",
+                "- Changes made: no",
+                "- Delete performed: no",
+                "",
+                "Matches:",
+            ]
+            lines.extend(_format_event_line(item) for item in events) if events else lines.append("- none")
+
+            return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+        except Exception as exc:
+            return self._result(
+                "Serena Google Calendar search failed\n\n"
+                f"- Error: {exc}\n"
+                "- Changes made: no\n"
+                "- Delete performed: no\n\n"
+                "Note:\n"
+                "- If this says invalid_scope, Dr Piet still needs to approve the new Calendar-scoped Google token.",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_google_calendar_event_info")
+class SerenaGoogleCalendarEventInfoTool(_GoogleCalendarBaseTool):
+    tool_id = "serena_google_calendar_event_info"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Read details for a specific Google Calendar event.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "event_id": {"type": "string"},
+                },
+                "required": ["event_id"],
+            },
+            category="serena_google_calendar",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            event_id = str(params.get("event_id") or "").strip()
+            if not event_id:
+                return self._result("event_id is required.", success=False)
+
+            service = _get_calendar_service()
+            event = service.events().get(calendarId=_calendar_id(), eventId=event_id).execute()
+
+            payload = {
+                "report_type": "serena_google_calendar_event_info",
+                "created_at": _timestamp(),
+                "calendar_id": _calendar_id(),
+                "event": _event_summary(event),
+                "changes_made": False,
+                "delete_performed": False,
+                "secret_values_exposed": False,
+            }
+            report_path = _save_json("reports", f"event-info-{event_id}", payload)
+
+            attendees = event.get("attendees", []) or []
+
+            lines = [
+                "Serena Google Calendar event info",
+                "",
+                f"- Title: {event.get('summary') or '(no title)'}",
+                f"- Event ID: {event.get('id')}",
+                f"- Status: {event.get('status')}",
+                f"- Start: {event.get('start')}",
+                f"- End: {event.get('end')}",
+                f"- Location: {event.get('location') or 'none'}",
+                f"- Link: {event.get('htmlLink') or 'none'}",
+                f"- Meet link: {event.get('hangoutLink') or 'none'}",
+                f"- Attendees: {len(attendees)}",
+                f"- Report: {report_path}",
+                "- Changes made: no",
+                "- Delete performed: no",
+            ]
+
+            return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+        except Exception as exc:
+            return self._result(
+                "Serena Google Calendar event-info failed\n\n"
+                f"- Error: {exc}\n"
+                "- Changes made: no\n"
+                "- Delete performed: no",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_google_calendar_availability")
+class SerenaGoogleCalendarAvailabilityTool(_GoogleCalendarBaseTool):
+    tool_id = "serena_google_calendar_availability"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Check Google Calendar availability across a date/time range.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "date": {"type": "string"},
+                    "days": {"type": "integer"},
+                    "work_start_hour": {"type": "integer"},
+                    "work_end_hour": {"type": "integer"},
+                    "slot_minutes": {"type": "integer"},
+                },
+            },
+            category="serena_google_calendar",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            date_text = str(params.get("date") or "today").strip()
+            days = int(params.get("days") or 1)
+            work_start_hour = int(params.get("work_start_hour") or 8)
+            work_end_hour = int(params.get("work_end_hour") or 17)
+            slot_minutes = int(params.get("slot_minutes") or 30)
+
+            time_min, time_max = _date_range(date_text, days=days)
+            events = _list_events(time_min, time_max, limit=100)
+
+            busy = []
+            for event in events:
+                start = (event.get("start") or {}).get("dateTime")
+                end = (event.get("end") or {}).get("dateTime")
+                if start and end:
+                    busy.append({"start": start, "end": end, "summary": event.get("summary") or "(no title)"})
+
+            payload = {
+                "report_type": "serena_google_calendar_availability",
+                "created_at": _timestamp(),
+                "calendar_id": _calendar_id(),
+                "date": date_text,
+                "days": days,
+                "work_start_hour": work_start_hour,
+                "work_end_hour": work_end_hour,
+                "slot_minutes": slot_minutes,
+                "busy": busy,
+                "events_seen": len(events),
+                "changes_made": False,
+                "delete_performed": False,
+                "secret_values_exposed": False,
+                "note": "v1 reports busy blocks; open-slot ranking can be refined after live Calendar token is approved.",
+            }
+            report_path = _save_json("reports", f"availability-{date_text}", payload)
+
+            lines = [
+                "Serena Google Calendar availability",
+                "",
+                f"- Calendar ID: {_calendar_id()}",
+                f"- Date: {date_text}",
+                f"- Days: {days}",
+                f"- Work hours: {work_start_hour}:00 to {work_end_hour}:00",
+                f"- Slot minutes: {slot_minutes}",
+                f"- Events seen: {len(events)}",
+                f"- Busy blocks: {len(busy)}",
+                f"- Report: {report_path}",
+                "- Changes made: no",
+                "- Delete performed: no",
+                "",
+                "Busy blocks:",
+            ]
+
+            if busy:
+                for item in busy:
+                    lines.append(f"- {item['start']} -> {item['end']} | {item['summary']}")
+            else:
+                lines.append("- none detected in range")
+
+            lines.extend([
+                "",
+                "Note:",
+                "- v1 availability reports busy blocks first. Slot recommendations can be refined after live Calendar access is approved.",
+            ])
+
+            return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+        except Exception as exc:
+            return self._result(
+                "Serena Google Calendar availability failed\n\n"
+                f"- Error: {exc}\n"
+                "- Changes made: no\n"
+                "- Delete performed: no\n\n"
+                "Note:\n"
+                "- If this says invalid_scope, Dr Piet still needs to approve the new Calendar-scoped Google token.",
+                success=False,
+            )
+
+
 __all__ = [
     "SerenaGoogleCalendarStatusTool",
     "SerenaGoogleCalendarEnvCheckTool",
     "SerenaGoogleCalendarConnectCheckTool",
     "SerenaGoogleCalendarPlanTool",
+    "SerenaGoogleCalendarAvailabilityTool",
+    "SerenaGoogleCalendarEventInfoTool",
+    "SerenaGoogleCalendarSearchTool",
+    "SerenaGoogleCalendarUpcomingTool",
+    "SerenaGoogleCalendarTodayTool",
 ]
