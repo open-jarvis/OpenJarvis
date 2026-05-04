@@ -27,6 +27,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the spec §6.2 extended fields (`energy_joules`, `peak_power_w`, `tool_calls`,
   `turn_count`, `framework`, `framework_commit`, `error`) for cross-framework
   comparison parity. Existing callers that didn't read these fields are unaffected.
+- `_third_party.toml` no longer ships user-specific default paths. Set
+  `HERMES_AGENT_PATH` and `OPENCLAW_PATH` env vars to point at your local
+  checkouts before running the framework-comparison harness; missing or
+  empty paths now raise `ThirdPartyNotFoundError` with an actionable hint.
 
 #### Skills System (Plans 1, 2A, 2B)
 

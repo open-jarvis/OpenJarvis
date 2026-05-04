@@ -120,3 +120,20 @@ class TestVerifyCommitPin:
             mock_run.return_value.returncode = 0
             # Should not raise; should log a warning instead
             verify_commit_pin(entry)
+
+
+class TestVerifyCommitPinPathHandling:
+    def test_empty_path_raises_with_env_var_hint(self) -> None:
+        from openjarvis.evals.comparison.third_party import (
+            ThirdPartyNotFoundError,
+            verify_commit_pin,
+        )
+
+        entry = ThirdPartyEntry(
+            name="hermes",
+            path=Path(""),
+            pinned_commit="abc",
+            runner_script="x",
+        )
+        with pytest.raises(ThirdPartyNotFoundError, match="HERMES_AGENT_PATH"):
+            verify_commit_pin(entry)

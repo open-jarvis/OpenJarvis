@@ -108,11 +108,18 @@ def verify_commit_pin(entry: ThirdPartyEntry) -> None:
         CommitDriftError: if HEAD doesn't match pinned_commit, unless
             ``JARVIS_ALLOW_COMMIT_DRIFT=1`` is set (then logs a warning).
     """
+    env_var = _PATH_ENV_VAR.get(entry.name, "<env var>")
+    if str(entry.path) == "" or str(entry.path) == ".":
+        raise ThirdPartyNotFoundError(
+            f"{entry.name} path is not configured. "
+            f"Set the {env_var} environment variable to point at your "
+            f"local {entry.name} checkout, or set `path = ...` in "
+            f"_third_party.toml."
+        )
     if not entry.path.exists():
-        env_var = _PATH_ENV_VAR.get(entry.name, "<env var>")
         raise ThirdPartyNotFoundError(
             f"{entry.name} path does not exist: {entry.path}. "
-            f"Set {env_var} or update _third_party.toml."
+            f"Set {env_var} to override, or update _third_party.toml."
         )
 
     try:
