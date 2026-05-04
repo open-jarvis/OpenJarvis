@@ -8,6 +8,9 @@ from rich.console import Console
 
 from openjarvis.tools.serena_health_monitor import (
     SerenaHealthMonitorFinalReportTool,
+    SerenaHealthMonitorDeviceReportTool,
+    SerenaHealthMonitorSoftwareTool,
+    SerenaHealthMonitorHardwareTool,
     SerenaHealthMonitorGitTool,
     SerenaHealthMonitorOutputsTool,
     SerenaHealthMonitorProjectTool,
@@ -84,6 +87,30 @@ def final_report() -> None:
     """Create a full Serena operator health report."""
     console = Console()
     result = SerenaHealthMonitorFinalReportTool().execute()
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@health_monitor.command("hardware")
+def hardware() -> None:
+    """Inspect PC hardware health."""
+    console = Console()
+    result = SerenaHealthMonitorHardwareTool().execute()
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@health_monitor.command("software")
+def software() -> None:
+    """Inspect software/developer tool health."""
+    console = Console()
+    result = SerenaHealthMonitorSoftwareTool().execute()
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@health_monitor.command("device-report")
+def device_report() -> None:
+    """Create combined PC/device and Serena health report."""
+    console = Console()
+    result = SerenaHealthMonitorDeviceReportTool().execute()
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 

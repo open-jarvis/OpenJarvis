@@ -646,6 +646,327 @@ class SerenaHealthMonitorFinalReportTool(_HealthBaseTool):
         )
 
 
+def _run_powershell(command: str, timeout: int = 30) -> dict[str, Any]:
+    ps = shutil.which("powershell") or shutil.which("pwsh")
+    if not ps:
+        return {
+            "command": command,
+            "returncode": -1,
+            "stdout": "",
+            "stderr": "PowerShell not found",
+            "output": "PowerShell not found",
+        }
+
+    try:
+        result = subprocess.run(
+            [ps, "-NoProfile", "-Command", command],
+            cwd=str(Path.cwd()),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            shell=False,
+        )
+        output = (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
+        return {
+            "command": command,
+            "returncode": result.returncode,
+            "stdout": result.stdout or "",
+            "stderr": result.stderr or "",
+            "output": output.strip(),
+        }
+    except Exception as exc:
+        return {
+            "command": command,
+            "returncode": -1,
+            "stdout": "",
+            "stderr": str(exc),
+            "output": str(exc),
+        }
+
+
+def _collect_hardware_health() -> dict[str, Any]:
+    disk = shutil.disk_usage(Path.cwd())
+
+    checks = {
+        "computer_system": "Get-CimInstance Win32_ComputerSystem | Select-Object Manufacturer,Model,TotalPhysicalMemory | ConvertTo-Json -Compress",
+        "processor": "Get-CimInstance Win32_Processor | Select-Object Name,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed | ConvertTo-Json -Compress",
+        "bios": "Get-CimInstance Win32_BIOS | Select-Object Manufacturer,SMBIOSBIOSVersion,ReleaseDate | ConvertTo-Json -Compress",
+        "gpu": "Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM,DriverVersion | ConvertTo-Json -Compress",
+        "physical_memory": "Get-CimInstance Win32_PhysicalMemory | Select-Object Manufacturer,Capacity,Speed,PartNumber | ConvertTo-Json -Compress",
+        "logical_disks": "Get-CimInstance Win32_LogicalDisk | Select-Object DeviceID,DriveType,Size,FreeSpace,VolumeName | ConvertTo-Json -Compress",
+        "battery": "Get-CimInstance Win32_Battery | Select-Object Name,EstimatedChargeRemaining,BatteryStatus | ConvertTo-Json -Compress",
+        "cameras": "Get-CimInstance Win32_PnPEntity | Where-Object { $_.Name -match 'camera|webcam|video' } | Select-Object Name,Status,Manufacturer | ConvertTo-Json -Compress",
+        "audio": "Get-CimInstance Win32_SoundDevice | Select-Object Name,Status,Manufacturer | ConvertTo-Json -Compress",
+    }
+
+    results = {name: _run_powershell(cmd) for name, cmd in checks.items()}
+
+    issues: list[str] = []
+    recommendations: list[str] = []
+
+    free_gb = disk.free / (1024 ** 3)
+    total_gb = disk.total / (1024 ** 3)
+
+    if free_gb < 20:
+        recommendations.append("Disk free space is below 20 GB. Consider cleanup or backup before heavy builds.")
+    if results["processor"]["returncode"] != 0:
+        recommendations.append("Could not read CPU details through PowerShell/CIM.")
+    if results["gpu"]["returncode"] != 0:
+        recommendations.append("Could not read GPU details through PowerShell/CIM.")
+    if results["cameras"]["returncode"] != 0:
+        recommendations.append("Could not read camera/webcam device details.")
+    if results["audio"]["returncode"] != 0:
+        recommendations.append("Could not read audio device details.")
+
+    return {
+        "platform": platform.platform(),
+        "machine": platform.machine(),
+        "disk_total_bytes": disk.total,
+        "disk_used_bytes": disk.used,
+        "disk_free_bytes": disk.free,
+        "disk_total_gb": round(total_gb, 2),
+        "disk_free_gb": round(free_gb, 2),
+        "powershell_checks": results,
+        "issues": issues,
+        "recommendations": recommendations,
+    }
+
+
+def _resolve_command(candidates: list[str]) -> str | None:
+    for candidate in candidates:
+        found = shutil.which(candidate)
+        if found:
+            return found
+    return None
+
+
+def _run_tool_version(name: str, candidates: list[str], args: list[str]) -> dict[str, Any]:
+    resolved = _resolve_command(candidates)
+    if not resolved:
+        return {
+            "command": candidates + args,
+            "resolved_command": "",
+            "returncode": -1,
+            "stdout": "",
+            "stderr": "not found",
+            "output": "not found",
+        }
+
+    result = _run([resolved] + args, timeout=30)
+    result["resolved_command"] = resolved
+    return result
+
+
+def _collect_software_health() -> dict[str, Any]:
+    results = {
+        "python": _run([sys.executable, "--version"], timeout=30),
+        "uv": _run_tool_version("uv", ["uv", "uv.exe"], ["--version"]),
+        "git": _run_tool_version("git", ["git", "git.exe"], ["--version"]),
+        "code": _run_tool_version("code", ["code", "code.cmd", "code.exe"], ["--version"]),
+        "node": _run_tool_version("node", ["node", "node.exe"], ["--version"]),
+        "npm": _run_tool_version("npm", ["npm", "npm.cmd", "npm.exe"], ["--version"]),
+        "pnpm": _run_tool_version("pnpm", ["pnpm", "pnpm.cmd", "pnpm.exe"], ["--version"]),
+    }
+
+    powershell_version = _run_powershell("$PSVersionTable.PSVersion.ToString()", timeout=15)
+    windows_version = _run_powershell("(Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,BuildNumber,OSArchitecture) | ConvertTo-Json -Compress", timeout=15)
+
+    required = ["python", "uv", "git", "code"]
+    optional = ["node", "npm", "pnpm"]
+
+    issues: list[str] = []
+    recommendations: list[str] = []
+
+    for item in required:
+        if results[item]["returncode"] != 0:
+            issues.append(f"Required developer tool unavailable or failing: {item}")
+
+    for item in optional:
+        if results[item]["returncode"] != 0:
+            recommendations.append(f"Optional frontend tool not available: {item}")
+
+    if powershell_version["returncode"] != 0:
+        recommendations.append("Could not determine PowerShell version.")
+
+    return {
+        "tool_results": results,
+        "powershell_version": powershell_version,
+        "windows_version": windows_version,
+        "issues": issues,
+        "recommendations": recommendations,
+    }
+
+
+@ToolRegistry.register("serena_health_monitor_hardware")
+class SerenaHealthMonitorHardwareTool(_HealthBaseTool):
+    tool_id = "serena_health_monitor_hardware"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Inspect local PC hardware health using safe read-only checks.",
+            parameters={"type": "object", "properties": {}},
+            category="serena_health_monitor",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        health = _collect_hardware_health()
+        payload = {"report_type": "hardware", "created_at": _timestamp(), **health}
+        report_path = _save_report("hardware", payload)
+
+        lines = [
+            "Serena hardware health",
+            "",
+            f"- Platform: {health['platform']}",
+            f"- Machine: {health['machine']}",
+            f"- Disk free: {health['disk_free_gb']} GB / {health['disk_total_gb']} GB",
+            f"- Report: {report_path}",
+            "",
+            "Hardware checks:",
+        ]
+
+        for name, result in health["powershell_checks"].items():
+            status = "ok" if result["returncode"] == 0 else "warning"
+            preview = (result["output"] or "").replace("\n", " ")[:300]
+            lines.append(f"- {name}: {status} | {preview or 'no output'}")
+
+        lines.extend(["", "Issues:"])
+        lines.extend(f"- {item}" for item in health["issues"]) if health["issues"] else lines.append("- none")
+
+        lines.extend(["", "Recommendations:"])
+        lines.extend(f"- {item}" for item in health["recommendations"]) if health["recommendations"] else lines.append("- No immediate recommendations.")
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+@ToolRegistry.register("serena_health_monitor_software")
+class SerenaHealthMonitorSoftwareTool(_HealthBaseTool):
+    tool_id = "serena_health_monitor_software"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Inspect local software/developer tool health using safe read-only checks.",
+            parameters={"type": "object", "properties": {}},
+            category="serena_health_monitor",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        health = _collect_software_health()
+        payload = {"report_type": "software", "created_at": _timestamp(), **health}
+        report_path = _save_report("software", payload)
+
+        lines = [
+            "Serena software health",
+            "",
+            f"- Report: {report_path}",
+            "",
+            "Tool checks:",
+        ]
+
+        for name, result in health["tool_results"].items():
+            status = "ok" if result["returncode"] == 0 else "missing/warning"
+            output = (result["output"] or "").replace("\n", " ")[:250]
+            lines.append(f"- {name}: {status} | {output}")
+
+        ps_status = "ok" if health["powershell_version"]["returncode"] == 0 else "warning"
+        win_status = "ok" if health["windows_version"]["returncode"] == 0 else "warning"
+
+        lines.extend([
+            f"- powershell: {ps_status} | {(health['powershell_version']['output'] or '')[:250]}",
+            f"- windows: {win_status} | {(health['windows_version']['output'] or '')[:250]}",
+            "",
+            "Issues:",
+        ])
+
+        lines.extend(f"- {item}" for item in health["issues"]) if health["issues"] else lines.append("- none")
+
+        lines.extend(["", "Recommendations:"])
+        lines.extend(f"- {item}" for item in health["recommendations"]) if health["recommendations"] else lines.append("- No immediate recommendations.")
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+@ToolRegistry.register("serena_health_monitor_device_report")
+class SerenaHealthMonitorDeviceReportTool(_HealthBaseTool):
+    tool_id = "serena_health_monitor_device_report"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a combined PC hardware/software and Serena operator health report.",
+            parameters={"type": "object", "properties": {}},
+            category="serena_health_monitor",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        hardware = _collect_hardware_health()
+        software = _collect_software_health()
+        system = _collect_system_health()
+        registry = _collect_registry_health()
+        skills = _collect_skill_docs_health()
+        imports = _collect_import_health()
+        git = _collect_git_health()
+
+        issues: list[str] = []
+        recommendations: list[str] = []
+
+        issues.extend(hardware["issues"])
+        issues.extend(software["issues"])
+        if skills["missing"]:
+            issues.append(f"Missing skill docs: {', '.join(skills['missing'])}")
+        if imports["failed"]:
+            issues.append(f"Tool import failures: {len(imports['failed'])}")
+        issues.extend(git["issues"])
+
+        recommendations.extend(hardware["recommendations"])
+        recommendations.extend(software["recommendations"])
+        recommendations.extend(git["recommendations"])
+
+        if registry["remaining_batch_1"] > 0:
+            recommendations.append(f"Batch 1 has {registry['remaining_batch_1']} remaining skill(s).")
+
+        overall_status = "healthy" if not issues else "needs_attention"
+
+        payload = {
+            "report_type": "serena_health_monitor_device_report",
+            "created_at": _timestamp(),
+            "overall_status": overall_status,
+            "hardware": hardware,
+            "software": software,
+            "system": system,
+            "registry": registry,
+            "skills": skills,
+            "imports": imports,
+            "git": git,
+            "issues": issues,
+            "recommendations": recommendations,
+            "read_only": True,
+            "changes_made": False,
+        }
+        report_path = _save_report("device-report", payload)
+
+        return self._result(
+            "Serena device health report\n\n"
+            f"- Overall status: {overall_status}\n"
+            f"- Disk free: {hardware['disk_free_gb']} GB / {hardware['disk_total_gb']} GB\n"
+            f"- Batch 1 complete: {registry['complete_batch_1']} / {registry['total_batch_1']}\n"
+            f"- Missing skill docs: {len(skills['missing'])}\n"
+            f"- Tool import failures: {len(imports['failed'])}\n"
+            f"- Report: {report_path}\n"
+            "- Read-only scan: yes\n"
+            "- Changes made: no\n\n"
+            "Issues:\n"
+            + ("\n".join(f"- {item}" for item in issues) if issues else "- none")
+            + "\n\nRecommendations:\n"
+            + ("\n".join(f"- {item}" for item in recommendations) if recommendations else "- No immediate recommendations."),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
 __all__ = [
     "SerenaHealthMonitorStatusTool",
     "SerenaHealthMonitorSystemTool",
@@ -655,4 +976,7 @@ __all__ = [
     "SerenaHealthMonitorSkillsTool",
     "SerenaHealthMonitorGitTool",
     "SerenaHealthMonitorFinalReportTool",
+    "SerenaHealthMonitorDeviceReportTool",
+    "SerenaHealthMonitorSoftwareTool",
+    "SerenaHealthMonitorHardwareTool",
 ]
