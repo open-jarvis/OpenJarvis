@@ -1355,6 +1355,419 @@ class SerenaGoogleCalendarRecurringTool(_GoogleCalendarBaseTool):
             )
 
 
+def _get_event(event_id: str) -> dict[str, Any]:
+    service = _get_calendar_service()
+    return service.events().get(calendarId=_calendar_id(), eventId=event_id).execute()
+
+
+def _patch_event(event_id: str, body: dict[str, Any], send_updates: str = "all") -> dict[str, Any]:
+    service = _get_calendar_service()
+    return service.events().patch(
+        calendarId=_calendar_id(),
+        eventId=event_id,
+        body=body,
+        sendUpdates=send_updates,
+    ).execute()
+
+
+@ToolRegistry.register("serena_google_calendar_reschedule")
+class SerenaGoogleCalendarRescheduleTool(_GoogleCalendarBaseTool):
+    tool_id = "serena_google_calendar_reschedule"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Reschedule a specific Google Calendar event.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "event_id": {"type": "string"},
+                    "start": {"type": "string"},
+                    "end": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["event_id", "start", "end"],
+            },
+            category="serena_google_calendar",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        event_id = str(params.get("event_id") or "").strip()
+        start = str(params.get("start") or "").strip()
+        end = str(params.get("end") or "").strip()
+        reason = str(params.get("reason") or "Rescheduled by Serena.").strip()
+
+        try:
+            old_event = _get_event(event_id)
+            body = {
+                "start": _event_datetime(start),
+                "end": _event_datetime(end),
+                "description": ((old_event.get("description") or "") + f"\n\nReschedule note: {reason}").strip(),
+            }
+            event = _patch_event(event_id, body)
+
+            payload = {
+                "report_type": "serena_google_calendar_reschedule",
+                "created_at": _timestamp(),
+                "calendar_id": _calendar_id(),
+                "event_id": event_id,
+                "old_event": _event_summary(old_event),
+                "new_event": _event_summary(event),
+                "reason": reason,
+                "changes_made": True,
+                "delete_performed": False,
+                "secret_values_exposed": False,
+            }
+            report_path = _save_json("reports", f"reschedule-{event_id}", payload)
+
+            return self._result(
+                "Serena Google Calendar event rescheduled\n\n"
+                f"- Event ID: {event_id}\n"
+                f"- Title: {event.get('summary') or '(no title)'}\n"
+                f"- Old start: {old_event.get('start')}\n"
+                f"- Old end: {old_event.get('end')}\n"
+                f"- New start: {event.get('start')}\n"
+                f"- New end: {event.get('end')}\n"
+                f"- Reason: {reason}\n"
+                f"- Link: {event.get('htmlLink') or 'none'}\n"
+                f"- Report: {report_path}\n"
+                "- Rescheduled: yes\n"
+                "- Changes made: yes\n"
+                "- Delete performed: no\n"
+                "- Secret values exposed: no",
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(
+                "Serena Google Calendar reschedule failed safely\n\n"
+                f"- Event ID: {event_id}\n"
+                f"- Start: {start}\n"
+                f"- End: {end}\n"
+                f"- Error: {exc}\n"
+                "- Rescheduled: no\n"
+                "- Changes made: no\n"
+                "- Delete performed: no\n\n"
+                "Note:\n"
+                "- If this says invalid_scope, Dr Piet still needs to approve the Calendar-scoped Google token.",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_google_calendar_update")
+class SerenaGoogleCalendarUpdateTool(_GoogleCalendarBaseTool):
+    tool_id = "serena_google_calendar_update"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Update specific fields of a Google Calendar event.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "event_id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "description": {"type": "string"},
+                    "location": {"type": "string"},
+                },
+                "required": ["event_id"],
+            },
+            category="serena_google_calendar",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        event_id = str(params.get("event_id") or "").strip()
+        title = str(params.get("title") or "").strip()
+        description = str(params.get("description") or "").strip()
+        location = str(params.get("location") or "").strip()
+
+        try:
+            old_event = _get_event(event_id)
+            body: dict[str, Any] = {}
+            changed_fields = []
+
+            if title:
+                body["summary"] = title
+                changed_fields.append("title")
+            if description:
+                body["description"] = description
+                changed_fields.append("description")
+            if location:
+                body["location"] = location
+                changed_fields.append("location")
+
+            if not body:
+                return self._result(
+                    "No update fields provided.\n\n- Changes made: no\n- Delete performed: no",
+                    success=False,
+                )
+
+            event = _patch_event(event_id, body)
+
+            payload = {
+                "report_type": "serena_google_calendar_update",
+                "created_at": _timestamp(),
+                "calendar_id": _calendar_id(),
+                "event_id": event_id,
+                "changed_fields": changed_fields,
+                "old_event": _event_summary(old_event),
+                "new_event": _event_summary(event),
+                "changes_made": True,
+                "delete_performed": False,
+                "secret_values_exposed": False,
+            }
+            report_path = _save_json("reports", f"update-{event_id}", payload)
+
+            return self._result(
+                "Serena Google Calendar event updated\n\n"
+                f"- Event ID: {event_id}\n"
+                f"- Changed fields: {', '.join(changed_fields)}\n"
+                f"- Title: {event.get('summary') or '(no title)'}\n"
+                f"- Location: {event.get('location') or 'none'}\n"
+                f"- Link: {event.get('htmlLink') or 'none'}\n"
+                f"- Report: {report_path}\n"
+                "- Updated: yes\n"
+                "- Changes made: yes\n"
+                "- Delete performed: no\n"
+                "- Secret values exposed: no",
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(
+                "Serena Google Calendar update failed safely\n\n"
+                f"- Event ID: {event_id}\n"
+                f"- Error: {exc}\n"
+                "- Updated: no\n"
+                "- Changes made: no\n"
+                "- Delete performed: no",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_google_calendar_add_attendee")
+class SerenaGoogleCalendarAddAttendeeTool(_GoogleCalendarBaseTool):
+    tool_id = "serena_google_calendar_add_attendee"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Add attendees to a specific Google Calendar event.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "event_id": {"type": "string"},
+                    "attendees": {"type": "string"},
+                },
+                "required": ["event_id", "attendees"],
+            },
+            category="serena_google_calendar",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        event_id = str(params.get("event_id") or "").strip()
+        attendees_raw = str(params.get("attendees") or "").strip()
+
+        try:
+            old_event = _get_event(event_id)
+            existing = old_event.get("attendees", []) or []
+            existing_emails = {item.get("email", "").lower() for item in existing}
+            new_attendees = _parse_attendees(attendees_raw)
+
+            merged = list(existing)
+            added = []
+            for attendee in new_attendees:
+                email = attendee.get("email", "").lower()
+                if email and email not in existing_emails:
+                    merged.append(attendee)
+                    added.append(attendee.get("email"))
+                    existing_emails.add(email)
+
+            if not added:
+                return self._result(
+                    "No new attendees to add.\n\n"
+                    f"- Event ID: {event_id}\n"
+                    "- Changes made: no\n"
+                    "- Delete performed: no",
+                    success=False,
+                )
+
+            event = _patch_event(event_id, {"attendees": merged}, send_updates="all")
+
+            payload = {
+                "report_type": "serena_google_calendar_add_attendee",
+                "created_at": _timestamp(),
+                "calendar_id": _calendar_id(),
+                "event_id": event_id,
+                "added_attendees": added,
+                "old_event": _event_summary(old_event),
+                "new_event": _event_summary(event),
+                "changes_made": True,
+                "delete_performed": False,
+                "secret_values_exposed": False,
+            }
+            report_path = _save_json("reports", f"add-attendee-{event_id}", payload)
+
+            return self._result(
+                "Serena Google Calendar attendees added\n\n"
+                f"- Event ID: {event_id}\n"
+                f"- Added attendees: {', '.join(added)}\n"
+                f"- Link: {event.get('htmlLink') or 'none'}\n"
+                f"- Report: {report_path}\n"
+                "- Attendees changed: yes\n"
+                "- Changes made: yes\n"
+                "- Delete performed: no\n"
+                "- Secret values exposed: no",
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(
+                "Serena Google Calendar add-attendee failed safely\n\n"
+                f"- Event ID: {event_id}\n"
+                f"- Attendees: {attendees_raw}\n"
+                f"- Error: {exc}\n"
+                "- Attendees changed: no\n"
+                "- Changes made: no\n"
+                "- Delete performed: no",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_google_calendar_cancel")
+class SerenaGoogleCalendarCancelTool(_GoogleCalendarBaseTool):
+    tool_id = "serena_google_calendar_cancel"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Cancel a specific Google Calendar event with explicit approval.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "event_id": {"type": "string"},
+                    "reason": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                },
+                "required": ["event_id", "approved"],
+            },
+            category="serena_google_calendar",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        event_id = str(params.get("event_id") or "").strip()
+        reason = str(params.get("reason") or "Cancelled by explicit Serena command.").strip()
+        approved = bool(params.get("approved") or False)
+
+        if not approved:
+            return self._result(
+                "Serena Google Calendar cancel blocked\n\n"
+                f"- Event ID: {event_id or 'missing'}\n"
+                "- Reason: explicit --approved flag is required for cancellation.\n"
+                "- Cancelled: no\n"
+                "- Delete performed: no\n"
+                "- Changes made: no",
+                success=False,
+            )
+
+        try:
+            event = _get_event(event_id)
+            service = _get_calendar_service()
+            service.events().delete(
+                calendarId=_calendar_id(),
+                eventId=event_id,
+                sendUpdates="all",
+            ).execute()
+
+            payload = {
+                "report_type": "serena_google_calendar_cancel",
+                "created_at": _timestamp(),
+                "calendar_id": _calendar_id(),
+                "event_id": event_id,
+                "cancelled_event": _event_summary(event),
+                "reason": reason,
+                "approved": True,
+                "changes_made": True,
+                "delete_performed": True,
+                "bulk_delete_performed": False,
+                "secret_values_exposed": False,
+            }
+            report_path = _save_json("reports", f"cancel-{event_id}", payload)
+
+            return self._result(
+                "Serena Google Calendar event cancelled\n\n"
+                f"- Event ID: {event_id}\n"
+                f"- Title: {event.get('summary') or '(no title)'}\n"
+                f"- Reason: {reason}\n"
+                f"- Report: {report_path}\n"
+                "- Explicit approval: yes\n"
+                "- Cancelled: yes\n"
+                "- Delete performed: yes\n"
+                "- Bulk delete performed: no\n"
+                "- Secret values exposed: no",
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(
+                "Serena Google Calendar cancel failed safely\n\n"
+                f"- Event ID: {event_id}\n"
+                f"- Error: {exc}\n"
+                "- Cancelled: no\n"
+                "- Delete performed: no\n"
+                "- Changes made: no",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_google_calendar_blocked_bulk_delete")
+class SerenaGoogleCalendarBlockedBulkDeleteTool(_GoogleCalendarBaseTool):
+    tool_id = "serena_google_calendar_blocked_bulk_delete"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked Google Calendar bulk delete command.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "reason": {"type": "string"},
+                },
+            },
+            category="serena_google_calendar",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        reason = str(params.get("reason") or "Bulk calendar delete requested.").strip()
+        payload = {
+            "report_type": "serena_google_calendar_blocked_bulk_delete",
+            "created_at": _timestamp(),
+            "reason": reason,
+            "bulk_delete_performed": False,
+            "delete_performed": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "blocked_reason": "Bulk calendar deletion is blocked in Google Calendar v1.",
+        }
+        report_path = _save_json("reports", "blocked-bulk-delete", payload)
+
+        return self._result(
+            "Google Calendar bulk delete blocked by Serena Calendar v1 policy\n\n"
+            f"- Reason: {reason}\n"
+            f"- Report: {report_path}\n"
+            "- Bulk delete performed: no\n"
+            "- Delete performed: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n\n"
+            "Policy:\n"
+            "- Serena Calendar v1 may cancel one specific event only with explicit approval.\n"
+            "- Silent deletion, bulk deletion, and destructive calendar cleanup are blocked.",
+            success=False,
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
 __all__ = [
     "SerenaGoogleCalendarStatusTool",
     "SerenaGoogleCalendarEnvCheckTool",
@@ -1362,6 +1775,11 @@ __all__ = [
     "SerenaGoogleCalendarPlanTool",
     "SerenaGoogleCalendarAvailabilityTool",
     "SerenaGoogleCalendarRecurringTool",
+    "SerenaGoogleCalendarBlockedBulkDeleteTool",
+    "SerenaGoogleCalendarCancelTool",
+    "SerenaGoogleCalendarAddAttendeeTool",
+    "SerenaGoogleCalendarUpdateTool",
+    "SerenaGoogleCalendarRescheduleTool",
     "SerenaGoogleCalendarMeetTool",
     "SerenaGoogleCalendarReminderTool",
     "SerenaGoogleCalendarAppointmentTool",

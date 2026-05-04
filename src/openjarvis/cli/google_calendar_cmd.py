@@ -11,6 +11,11 @@ from openjarvis.tools.serena_google_calendar import (
     SerenaGoogleCalendarEnvCheckTool,
     SerenaGoogleCalendarPlanTool,
     SerenaGoogleCalendarStatusTool,
+    SerenaGoogleCalendarBlockedBulkDeleteTool,
+    SerenaGoogleCalendarCancelTool,
+    SerenaGoogleCalendarAddAttendeeTool,
+    SerenaGoogleCalendarUpdateTool,
+    SerenaGoogleCalendarRescheduleTool,
     SerenaGoogleCalendarRecurringTool,
     SerenaGoogleCalendarMeetTool,
     SerenaGoogleCalendarReminderTool,
@@ -230,6 +235,60 @@ def recurring(title: str, start: str, end: str, rrule: str, description: str, lo
         location=location,
         attendees=attendees,
     )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@calendar.command("reschedule")
+@click.option("--event-id", required=True, help="Google Calendar event ID.")
+@click.option("--start", required=True, help="New start datetime.")
+@click.option("--end", required=True, help="New end datetime.")
+@click.option("--reason", default="Rescheduled by Serena.", help="Reason for reschedule.")
+def reschedule(event_id: str, start: str, end: str, reason: str) -> None:
+    """Reschedule a specific event."""
+    console = Console()
+    result = SerenaGoogleCalendarRescheduleTool().execute(event_id=event_id, start=start, end=end, reason=reason)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@calendar.command("update")
+@click.option("--event-id", required=True, help="Google Calendar event ID.")
+@click.option("--title", default="", help="New title.")
+@click.option("--description", default="", help="New description.")
+@click.option("--location", default="", help="New location.")
+def update(event_id: str, title: str, description: str, location: str) -> None:
+    """Update specific event fields."""
+    console = Console()
+    result = SerenaGoogleCalendarUpdateTool().execute(event_id=event_id, title=title, description=description, location=location)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@calendar.command("add-attendee")
+@click.option("--event-id", required=True, help="Google Calendar event ID.")
+@click.option("--attendees", required=True, help="Comma-separated attendee emails.")
+def add_attendee(event_id: str, attendees: str) -> None:
+    """Add attendees to a specific event."""
+    console = Console()
+    result = SerenaGoogleCalendarAddAttendeeTool().execute(event_id=event_id, attendees=attendees)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@calendar.command("cancel")
+@click.option("--event-id", required=True, help="Google Calendar event ID.")
+@click.option("--reason", default="Cancelled by explicit Serena command.", help="Cancel reason.")
+@click.option("--approved", is_flag=True, help="Required explicit approval.")
+def cancel(event_id: str, reason: str, approved: bool) -> None:
+    """Cancel a specific event with explicit approval."""
+    console = Console()
+    result = SerenaGoogleCalendarCancelTool().execute(event_id=event_id, reason=reason, approved=approved)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@calendar.command("blocked-bulk-delete")
+@click.option("--reason", default="Bulk calendar delete requested.", help="Reason for attempted bulk delete.")
+def blocked_bulk_delete(reason: str) -> None:
+    """Deliberately blocked bulk calendar delete command."""
+    console = Console()
+    result = SerenaGoogleCalendarBlockedBulkDeleteTool().execute(reason=reason)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 
