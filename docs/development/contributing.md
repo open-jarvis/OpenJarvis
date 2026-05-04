@@ -456,3 +456,60 @@ NeurIPS 2026 framework comparison:
    following the `test_hermes_backend.py` pattern (mocked subprocess).
 
 8. **Run `make_configs.py --all-tier1`** to materialize new configs.
+
+## Setting up Hermes Agent and OpenClaw for the framework comparison
+
+Before running the framework-comparison harness against real Hermes Agent or
+OpenClaw, set up each framework's prerequisites:
+
+### Hermes Agent
+
+1. Clone Hermes Agent and check out the pinned commit (see
+   `src/openjarvis/evals/configs/framework_comparison/_third_party.toml`).
+2. Install Hermes's deps. Either (recommended) create a Hermes-specific venv
+   and install there, then point `python_executable` in `_third_party.toml` at
+   it; OR rely on OpenJarvis's venv satisfying Hermes's imports (mostly works
+   thanks to dep overlap, but isolation is safer).
+
+   Hermes-specific venv (recommended):
+   ```bash
+   cd $HERMES_AGENT_PATH
+   uv venv .venv
+   source .venv/bin/activate
+   uv pip install -e ".[all,dev]"
+   deactivate
+   ```
+   Then in `_third_party.toml`:
+   ```toml
+   [hermes]
+   python_executable = "/path/to/hermes-agent/.venv/bin/python"
+   ```
+
+3. Set `HERMES_AGENT_PATH` env var to your Hermes checkout.
+
+### OpenClaw
+
+1. Clone OpenClaw and check out the pinned commit (see `_third_party.toml`).
+2. **Install Node 14.8 or newer** (OpenClaw uses top-level `await`; older Node
+   fails with `SyntaxError: Unexpected reserved word`).
+3. Build OpenClaw:
+   ```bash
+   cd $OPENCLAW_PATH
+   pnpm install
+   pnpm build
+   # Verifies the dist/ directory is created with entry.js
+   ls dist/entry.js
+   ```
+4. Set `OPENCLAW_PATH` env var to your OpenClaw checkout.
+
+### Smoke check
+
+Once both frameworks are set up, run:
+```bash
+HERMES_AGENT_PATH=/your/path OPENCLAW_PATH=/your/path \
+JARVIS_MOCK_LLM_URL=http://localhost:11434/v1 \
+bash scripts/smoke_framework_comparison.sh
+```
+
+This invokes one task per (framework, benchmark) combo against a local
+Ollama-style endpoint and verifies T1.tex is emitted.

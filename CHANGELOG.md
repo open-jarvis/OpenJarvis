@@ -20,6 +20,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - New optional extra `framework-comparison` (depends on `polars`).
 - New pytest marker `live_external` for integration tests requiring real
   foreign-framework installations.
+- **Foreign-framework prerequisites** (required before running framework
+  comparison): Hermes Agent needs its own Python deps installed (recommend a
+  Hermes-specific venv, point `python_executable` in `_third_party.toml` at
+  it); OpenClaw needs Node 14.8+ AND `pnpm install && pnpm build` to produce
+  `dist/`. See `docs/development/contributing.md` for setup instructions.
 
 ### Changed
 

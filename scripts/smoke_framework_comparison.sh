@@ -18,6 +18,18 @@ set -euo pipefail
 : "${OPENCLAW_PATH:?must be set}"
 : "${JARVIS_MOCK_LLM_URL:?must be set (e.g. http://localhost:11434/v1)}"
 
+# OpenClaw prerequisites: Node version + dist/ dir
+NODE_VERSION=$(node --version 2>&1 || echo "v0")
+NODE_MAJOR=$(echo "$NODE_VERSION" | sed -E 's/v([0-9]+)\..*/\1/')
+if [ "$NODE_MAJOR" -lt 14 ]; then
+  echo "WARNING: Node $NODE_VERSION may be too old for OpenClaw (needs ≥14.8)"
+  echo "         OpenClaw runs may fail with 'SyntaxError: Unexpected reserved word'"
+fi
+if [ ! -f "$OPENCLAW_PATH/dist/entry.js" ]; then
+  echo "WARNING: $OPENCLAW_PATH/dist/entry.js not found"
+  echo "         OpenClaw needs 'pnpm install && pnpm build' before use"
+fi
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
