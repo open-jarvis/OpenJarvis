@@ -16,6 +16,11 @@ class InferenceBackend(ABC):
     # error-path results are tagged with the correct framework name.
     framework_name: str = "openjarvis"
 
+    @property
+    def framework_commit_value(self) -> str:
+        """Default: empty (subclasses override). Used by runner.py error paths."""
+        return ""
+
     @abstractmethod
     def generate(
         self,

@@ -46,6 +46,11 @@ class HermesBackend(InferenceBackend):
         self._entry: ThirdPartyEntry = cfg.entries["hermes"]
         verify_commit_pin(self._entry)
 
+    @property
+    def framework_commit_value(self) -> str:
+        """Pinned commit of Hermes Agent (for telemetry tagging)."""
+        return self._entry.pinned_commit
+
     def generate(
         self,
         prompt: str,

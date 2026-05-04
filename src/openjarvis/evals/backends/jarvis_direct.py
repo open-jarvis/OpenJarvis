@@ -39,6 +39,13 @@ class JarvisDirectBackend(InferenceBackend):
             builder._config.telemetry.gpu_metrics = True
         self._system = builder.telemetry(telemetry).traces(telemetry).build()
 
+    @property
+    def framework_commit_value(self) -> str:
+        """OpenJarvis repo HEAD commit (for telemetry tagging)."""
+        from openjarvis.evals.backends._commit_util import openjarvis_commit
+
+        return openjarvis_commit()
+
     def generate(
         self,
         prompt: str,

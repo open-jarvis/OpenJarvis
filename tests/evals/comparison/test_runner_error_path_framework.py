@@ -139,3 +139,51 @@ class TestErrorPathFrameworkPropagation:
         # the conservative "openjarvis" tag rather than crashing.
         assert results[0].framework == "openjarvis"
         assert results[0].error is not None
+
+
+class _MockBackendWithCommit:
+    """Mock backend that exposes framework_name AND framework_commit_value."""
+
+    backend_id = "hermes"
+    framework_name = "hermes"
+    framework_commit_value = "abc12345"
+
+    def generate(self, *args: Any, **kwargs: Any) -> str:
+        raise RuntimeError("simulated")
+
+    def generate_full(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
+        raise RuntimeError("simulated")
+
+    def close(self) -> None:
+        pass
+
+
+class TestErrorPathCommitPropagation:
+    def test_failed_task_keeps_backend_framework_commit(self, tmp_path: Any) -> None:
+        """When the backend raises, EvalResult.framework_commit should be
+        the backend's framework_commit_value, not empty."""
+        cfg = RunConfig(
+            benchmark="mock",
+            backend="hermes",
+            model="mock-model",
+            max_samples=1,
+            max_workers=1,
+            output_path=str(tmp_path / "out.jsonl"),
+        )
+        runner = EvalRunner(
+            config=cfg,
+            dataset=_SingleRecordDataset(),
+            backend=_MockBackendWithCommit(),  # type: ignore[arg-type]
+            scorer=_NoopScorer(),
+        )
+        runner.run()
+        results = runner.results
+        assert len(results) >= 1
+        for r in results:
+            assert r.framework == "hermes"
+            assert r.framework_commit == "abc12345", (
+                f"Expected framework_commit='abc12345' "
+                f"(from backend.framework_commit_value), "
+                f"got {r.framework_commit!r}"
+            )
+            assert r.error is not None

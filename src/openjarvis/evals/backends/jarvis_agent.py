@@ -64,6 +64,13 @@ class JarvisAgentBackend(InferenceBackend):
             builder._config.learning.skills.overlay_dir = str(overlay_dir)
         self._system = builder.telemetry(telemetry).traces(True).build()
 
+    @property
+    def framework_commit_value(self) -> str:
+        """OpenJarvis repo HEAD commit (for telemetry tagging)."""
+        from openjarvis.evals.backends._commit_util import openjarvis_commit
+
+        return openjarvis_commit()
+
     def generate(
         self,
         prompt: str,

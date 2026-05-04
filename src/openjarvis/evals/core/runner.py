@@ -436,7 +436,8 @@ class EvalRunner:
                 model_answer="",
                 error=str(exc),
                 framework=getattr(self._backend, "framework_name", "openjarvis"),
-                framework_commit="",
+                framework_commit=getattr(self._backend, "framework_commit_value", "")
+                or "",
                 tool_calls=0,
                 turn_count=0,
             )
@@ -734,7 +735,8 @@ class EvalRunner:
                 error=str(exc),
                 scoring_metadata={"interactive": True, "error": str(exc)},
                 framework=getattr(self._backend, "framework_name", "openjarvis"),
-                framework_commit="",
+                framework_commit=getattr(self._backend, "framework_commit_value", "")
+                or "",
                 tool_calls=0,
                 turn_count=0,
             )
