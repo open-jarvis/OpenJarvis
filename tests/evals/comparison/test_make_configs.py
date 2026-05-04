@@ -73,3 +73,25 @@ class TestMaterializeConfig:
         )
         assert out1 == out2
         assert out2.read_text() == content1
+
+
+class TestTemplateStripping:
+    def test_no_substitution_in_comments(self, tmp_path: Path) -> None:
+        """Documentation comments must not contain substituted text."""
+        out = materialize_config(
+            framework="hermes",
+            model="qwen-9b",
+            benchmark="gaia",
+            output_dir=tmp_path,
+        )
+        text = out.read_text()
+        # The substitution variables doc block uses <var> not {{var}};
+        # if it leaks through, "<benchmark>" or similar would appear in output
+        assert "<benchmark>" not in text
+        assert "<framework>" not in text
+        assert "{{benchmark}}" not in text  # Must be substituted
+        # The output should start with [meta], not with a doc-comment header
+        first_non_blank = next(line for line in text.splitlines() if line.strip())
+        assert first_non_blank.startswith("[meta]"), (
+            f"Expected first line to be [meta], got: {first_non_blank!r}"
+        )

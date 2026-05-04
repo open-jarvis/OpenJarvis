@@ -134,6 +134,9 @@ def materialize_config(
     bnk = BENCHMARKS[benchmark]
 
     template = _template_path().read_text()
+    sentinel = "# --- TEMPLATE BEGIN ---\n"
+    if sentinel in template:
+        template = template.split(sentinel, 1)[1]
     rendered = (
         template.replace("{{benchmark}}", benchmark)
         .replace("{{framework}}", framework)

@@ -1,19 +1,21 @@
 # Jinja-style template for framework-comparison configs.
+#
 # Substitution variables (all required):
-#   {{benchmark}}      e.g. "gaia"
-#   {{framework}}      one of: openjarvis, hermes, openclaw, openjarvis-distilled
-#   {{framework_id}}   backend id: jarvis-agent | hermes | openclaw
-#   {{model_pretty}}   e.g. "Qwen3.5-9B"
-#   {{model_id}}       e.g. "Qwen/Qwen3.5-9B"
-#   {{model_slug}}     filename-safe slug, e.g. "qwen-9b"
-#   {{engine}}         e.g. "vllm" | "cloud"
-#   {{num_gpus}}       int, default 1
-#   {{tools}}          TOML list literal
-#   {{max_samples}}    int
-#   {{temperature}}    float
-#   {{max_tokens}}     int
-#   {{judge_model}}    LLM judge id
+#   <benchmark>      e.g. "gaia"
+#   <framework>      one of: openjarvis, hermes, openclaw, openjarvis-distilled
+#   <framework_id>   backend id: jarvis-agent | hermes | openclaw
+#   <model_pretty>   e.g. "Qwen3.5-9B"
+#   <model_id>       e.g. "Qwen/Qwen3.5-9B"
+#   <model_slug>     filename-safe slug, e.g. "qwen-9b"
+#   <engine>         e.g. "vllm" | "cloud"
+#   <num_gpus>       int, default 1
+#   <tools>          TOML list literal
+#   <max_samples>    int
+#   <temperature>    float
+#   <max_tokens>     int
+#   <judge_model>    LLM judge id
 
+# --- TEMPLATE BEGIN ---
 [meta]
 name = "{{benchmark}}-{{framework}}-{{model_slug}}"
 description = "{{benchmark}} on {{framework}} + {{model_pretty}}"
