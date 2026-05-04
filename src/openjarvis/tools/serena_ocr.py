@@ -2763,6 +2763,309 @@ class SerenaOCRDocumentFlowTool(_OCRBaseTool):
             return self._result(f"Failed to run OCR document flow: {exc}", success=False)
 
 
+def _artifact_file_inventory() -> dict[str, Any]:
+    root = _ocr_root()
+    folders = {
+        "captures": root / "captures",
+        "reports": root / "reports",
+        "extracted_text": root / "extracted-text",
+        "handoff": root / "handoff",
+        "live_frames": root / "live" / "frames",
+    }
+
+    inventory: dict[str, Any] = {
+        "root": str(root),
+        "folders": {},
+        "total_files": 0,
+        "total_bytes": 0,
+    }
+
+    for name, folder in folders.items():
+        files = []
+        if folder.exists():
+            for item in sorted(folder.glob("*"), key=lambda x: x.stat().st_mtime if x.exists() else 0, reverse=True):
+                if item.is_file():
+                    stat = item.stat()
+                    files.append({
+                        "path": str(item),
+                        "name": item.name,
+                        "suffix": item.suffix,
+                        "size_bytes": stat.st_size,
+                        "modified_epoch": stat.st_mtime,
+                    })
+
+        inventory["folders"][name] = {
+            "path": str(folder),
+            "file_count": len(files),
+            "files": files,
+        }
+        inventory["total_files"] += len(files)
+        inventory["total_bytes"] += sum(file["size_bytes"] for file in files)
+
+    return inventory
+
+
+@ToolRegistry.register("serena_ocr_artifacts")
+class SerenaOCRArtifactsTool(_OCRBaseTool):
+    tool_id = "serena_ocr_artifacts"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="List OCR captures, extracted text, handoffs, and reports.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer"},
+                },
+            },
+            category="serena_ocr",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        limit = int(params.get("limit") or 20)
+        inventory = _artifact_file_inventory()
+
+        payload = {
+            "report_type": "serena_ocr_artifacts",
+            "created_at": _timestamp(),
+            "inventory": inventory,
+            "changes_made": False,
+            "delete_performed": False,
+        }
+        report_path = _save_json("reports", "artifacts", payload)
+
+        lines = [
+            "Serena OCR artifacts",
+            "",
+            f"- Root: {inventory['root']}",
+            f"- Total files: {inventory['total_files']}",
+            f"- Total bytes: {inventory['total_bytes']}",
+            f"- Report: {report_path}",
+            "- Changes made: no",
+            "- Delete performed: no",
+            "",
+            "Folders:",
+        ]
+
+        for name, folder_info in inventory["folders"].items():
+            lines.append(f"- {name}: {folder_info['file_count']} files | {folder_info['path']}")
+
+        lines.extend(["", f"Recent files, up to {limit}:"])
+
+        all_files = []
+        for folder_name, folder_info in inventory["folders"].items():
+            for file_info in folder_info["files"]:
+                all_files.append({**file_info, "folder": folder_name})
+
+        all_files = sorted(all_files, key=lambda item: item["modified_epoch"], reverse=True)
+
+        if all_files:
+            for item in all_files[:limit]:
+                lines.append(
+                    f"- {item['folder']} | {item['name']} | {item['size_bytes']} bytes | {item['path']}"
+                )
+        else:
+            lines.append("- none")
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+@ToolRegistry.register("serena_ocr_audit")
+class SerenaOCRAuditTool(_OCRBaseTool):
+    tool_id = "serena_ocr_audit"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Audit OCR/live vision state, artifacts, engines, and safety posture.",
+            parameters={"type": "object", "properties": {}},
+            category="serena_ocr",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        engines = _engine_status()
+        camera = _camera_probe(max_indexes=8)
+        state = _load_live_state()
+        inventory = _artifact_file_inventory()
+        policy = _safety_policy()
+
+        issues: list[str] = []
+        recommendations: list[str] = []
+
+        if not engines.get("local_ocr_ready"):
+            issues.append("Local OCR is not fully ready.")
+        if not engines.get("camera_engine_ready"):
+            issues.append("Camera engine is not ready.")
+        if not camera.get("usable_cameras"):
+            recommendations.append("No usable webcam detected on this PC. On Dr Piet's PC, plug in webcam and allow Windows camera permissions.")
+        if state.get("active") and _live_session_expired(state):
+            issues.append("Live session is expired and should be stopped.")
+        if state.get("active"):
+            recommendations.append("Live session is currently active. Stop it when finished.")
+
+        payload = {
+            "report_type": "serena_ocr_audit",
+            "created_at": _timestamp(),
+            "engines": engines,
+            "camera": camera,
+            "live_state": state,
+            "inventory": inventory,
+            "policy": policy,
+            "issues": issues,
+            "recommendations": recommendations,
+            "changes_made": False,
+            "camera_left_open": False,
+            "delete_performed": False,
+            "secret_values_exposed": False,
+        }
+        report_path = _save_json("reports", "audit", payload)
+
+        lines = [
+            "Serena OCR / Live Vision audit",
+            "",
+            f"- Local OCR ready: {'yes' if engines.get('local_ocr_ready') else 'no'}",
+            f"- Camera engine ready: {'yes' if engines.get('camera_engine_ready') else 'no'}",
+            f"- Usable cameras detected: {len(camera.get('usable_cameras') or [])}",
+            f"- Live vision active: {'yes' if state.get('active') else 'no'}",
+            f"- OCR artifact files: {inventory['total_files']}",
+            f"- OCR artifact bytes: {inventory['total_bytes']}",
+            f"- Report: {report_path}",
+            "- Camera left open: no",
+            "- Changes made: no",
+            "- Delete performed: no",
+            "- Secret values exposed: no",
+            "",
+            "Issues:",
+        ]
+
+        lines.extend(f"- {item}" for item in issues) if issues else lines.append("- none")
+
+        lines.extend(["", "Recommendations:"])
+        lines.extend(f"- {item}" for item in recommendations) if recommendations else lines.append("- No immediate recommendations.")
+
+        lines.extend(["", "Blocked safety operations:"])
+        for item in policy["blocked"]:
+            lines.append(f"- {item}")
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+@ToolRegistry.register("serena_ocr_blocked_hidden_watch")
+class SerenaOCRBlockedHiddenWatchTool(_OCRBaseTool):
+    tool_id = "serena_ocr_blocked_hidden_watch"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked hidden/always-on webcam watch command for safety.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "reason": {"type": "string"},
+                },
+            },
+            category="serena_ocr",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        reason = str(params.get("reason") or "Hidden/background watch requested.").strip()
+
+        payload = {
+            "report_type": "serena_ocr_blocked_hidden_watch",
+            "created_at": _timestamp(),
+            "reason": reason,
+            "hidden_watch_performed": False,
+            "always_on_watch_performed": False,
+            "camera_opened": False,
+            "audio_recording_performed": False,
+            "face_identity_recognition_performed": False,
+            "biometric_recognition_performed": False,
+            "changes_made": False,
+            "delete_performed": False,
+            "blocked_reason": "Hidden/background/always-on camera watching is blocked in OCR v1.",
+        }
+        report_path = _save_json("reports", "blocked-hidden-watch", payload)
+
+        return self._result(
+            "OCR hidden/background watch blocked by Serena OCR v1 policy\n\n"
+            f"- Reason: {reason}\n"
+            f"- Report: {report_path}\n"
+            "- Hidden watch performed: no\n"
+            "- Always-on watch performed: no\n"
+            "- Camera opened: no\n"
+            "- Audio recording performed: no\n"
+            "- Face identity recognition performed: no\n"
+            "- Biometric recognition performed: no\n"
+            "- Changes made: no\n"
+            "- Delete performed: no\n\n"
+            "Policy:\n"
+            "- Serena OCR v1 may only use webcam after explicit user command.\n"
+            "- Controlled live vision requires explicit --approved start and can be stopped with live-stop.\n"
+            "- Hidden, silent, background, or always-on watching is intentionally blocked.",
+            success=False,
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_ocr_blocked_delete")
+class SerenaOCRBlockedDeleteTool(_OCRBaseTool):
+    tool_id = "serena_ocr_blocked_delete"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked OCR artifact delete command for v1 safety.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+            },
+            category="serena_ocr",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        path = str(params.get("path") or "").strip()
+        reason = str(params.get("reason") or "Delete requested.").strip()
+
+        payload = {
+            "report_type": "serena_ocr_blocked_delete",
+            "created_at": _timestamp(),
+            "path_provided": bool(path),
+            "path": path,
+            "reason": reason,
+            "delete_performed": False,
+            "trash_performed": False,
+            "permanent_delete_performed": False,
+            "changes_made": False,
+            "blocked_reason": "OCR artifact delete/permanent removal is blocked in v1.",
+        }
+        report_path = _save_json("reports", "blocked-delete", payload)
+
+        return self._result(
+            "OCR artifact delete blocked by Serena OCR v1 policy\n\n"
+            f"- Path provided: {'yes' if path else 'no'}\n"
+            f"- Path: {path or 'none'}\n"
+            f"- Reason: {reason}\n"
+            f"- Report: {report_path}\n"
+            "- Delete performed: no\n"
+            "- Trash performed: no\n"
+            "- Permanent delete performed: no\n"
+            "- Changes made: no\n\n"
+            "Policy:\n"
+            "- Serena OCR v1 preserves captures, extracted text, reports, and handoffs for auditability.\n"
+            "- Deletion is intentionally blocked in v1.",
+            success=False,
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
 __all__ = [
     "SerenaOCRStatusTool",
     "SerenaOCREnginesTool",
@@ -2774,6 +3077,10 @@ __all__ = [
     "SerenaOCRLiveReportTool",
     "SerenaOCRExtractLiveTextTool",
     "SerenaOCRDocumentFlowTool",
+    "SerenaOCRBlockedDeleteTool",
+    "SerenaOCRBlockedHiddenWatchTool",
+    "SerenaOCRAuditTool",
+    "SerenaOCRArtifactsTool",
     "SerenaOCRToDocumentTool",
     "SerenaOCRToDriveTool",
     "SerenaOCRToGoogleDocTool",

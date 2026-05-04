@@ -12,6 +12,10 @@ from openjarvis.tools.serena_ocr import (
     SerenaOCRPlanTool,
     SerenaOCRSafetyPolicyTool,
     SerenaOCRStatusTool,
+    SerenaOCRBlockedDeleteTool,
+    SerenaOCRBlockedHiddenWatchTool,
+    SerenaOCRAuditTool,
+    SerenaOCRArtifactsTool,
     SerenaOCRDocumentFlowTool,
     SerenaOCRToDocumentTool,
     SerenaOCRToDriveTool,
@@ -307,6 +311,42 @@ def document_flow(text_path: str, title: str, drive_folder: str) -> None:
         title=title,
         drive_folder=drive_folder,
     )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@ocr.command("artifacts")
+@click.option("--limit", default=20, type=int, help="Maximum recent artifact files to show.")
+def artifacts(limit: int) -> None:
+    """List OCR artifacts."""
+    console = Console()
+    result = SerenaOCRArtifactsTool().execute(limit=limit)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@ocr.command("audit")
+def audit() -> None:
+    """Audit OCR/live vision engines, state, artifacts, and safety."""
+    console = Console()
+    result = SerenaOCRAuditTool().execute()
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@ocr.command("blocked-hidden-watch")
+@click.option("--reason", default="Hidden/background watch requested.", help="Reason for attempted hidden watch.")
+def blocked_hidden_watch(reason: str) -> None:
+    """Deliberately blocked hidden/background watch command."""
+    console = Console()
+    result = SerenaOCRBlockedHiddenWatchTool().execute(reason=reason)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@ocr.command("blocked-delete")
+@click.option("--path", default="", help="OCR artifact path.")
+@click.option("--reason", default="Delete requested.", help="Reason for attempted delete.")
+def blocked_delete(path: str, reason: str) -> None:
+    """Deliberately blocked OCR artifact delete command."""
+    console = Console()
+    result = SerenaOCRBlockedDeleteTool().execute(path=path, reason=reason)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 
