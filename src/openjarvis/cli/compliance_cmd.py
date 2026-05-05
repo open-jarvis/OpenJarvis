@@ -12,6 +12,10 @@ from openjarvis.tools.serena_compliance import (
     SerenaCompliancePolicyListTool,
     SerenaComplianceSourceListTool,
     SerenaComplianceStatusTool,
+    SerenaComplianceBlockedPolicyUpdateTool,
+    SerenaCompliancePolicyDiffTool,
+    SerenaComplianceRefreshPlanTool,
+    SerenaComplianceUpdateCheckTool,
     SerenaComplianceCrmCheckTool,
     SerenaComplianceCalendarCheckTool,
     SerenaComplianceDocsCheckTool,
@@ -199,6 +203,45 @@ def crm_check(text: str, context: str, crm_action: str) -> None:
     """Check CRM/business record workflow risk."""
     console = Console()
     result = SerenaComplianceCrmCheckTool().execute(text=text, context=context, crm_action=crm_action)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@compliance.command("update-check")
+def update_check() -> None:
+    """Check policy update posture without changing rules."""
+    console = Console()
+    result = SerenaComplianceUpdateCheckTool().execute()
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@compliance.command("refresh-plan")
+@click.option("--policy", default="all", help="Policy to refresh, or all.")
+@click.option("--reason", default="Routine policy refresh review.", help="Refresh reason.")
+@click.option("--source-id", default="", help="Optional source registry ID.")
+def refresh_plan(policy: str, reason: str, source_id: str) -> None:
+    """Create policy refresh plan without changing active rules."""
+    console = Console()
+    result = SerenaComplianceRefreshPlanTool().execute(policy=policy, reason=reason, source_id=source_id)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@compliance.command("policy-diff")
+@click.option("--policy", required=True, help="Policy ID/name.")
+@click.option("--proposed-text", required=True, help="Proposed replacement text.")
+def policy_diff(policy: str, proposed_text: str) -> None:
+    """Compare local policy to proposed text without applying changes."""
+    console = Console()
+    result = SerenaCompliancePolicyDiffTool().execute(policy=policy, proposed_text=proposed_text)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@compliance.command("blocked-policy-update")
+@click.option("--policy", default="unknown", help="Policy ID/name.")
+@click.option("--reason", default="Silent policy update requested.", help="Reason.")
+def blocked_policy_update(policy: str, reason: str) -> None:
+    """Deliberately blocked silent policy update command."""
+    console = Console()
+    result = SerenaComplianceBlockedPolicyUpdateTool().execute(policy=policy, reason=reason)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 

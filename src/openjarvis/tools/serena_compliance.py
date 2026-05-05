@@ -995,6 +995,296 @@ class SerenaComplianceCrmCheckTool(_ComplianceBaseTool):
         return _run_check("Serena CRM compliance guard", text, combined_context, "crm_check", "crm-check")
 
 
+def _policy_inventory() -> list[dict[str, Any]]:
+    items = []
+    for path in _policy_files():
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        status = "unknown"
+        for line in text.splitlines():
+            if line.lower().startswith("status:"):
+                status = line.split(":", 1)[1].strip()
+                break
+        items.append({
+            "policy_id": path.stem,
+            "path": str(path),
+            "characters": len(text),
+            "status": status,
+        })
+    return items
+
+
+@ToolRegistry.register("serena_compliance_update_check")
+class SerenaComplianceUpdateCheckTool(_ComplianceBaseTool):
+    tool_id = "serena_compliance_update_check"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Check local compliance source registry and policy update posture without changing policy rules.",
+            parameters={"type": "object", "properties": {}},
+            category="serena_compliance",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        registry = _load_source_registry()
+        sources = registry.get("sources", [])
+        policies = _policy_inventory()
+
+        recommendations = [
+            "Review official source URLs manually or through a future approved web-check workflow.",
+            "Do not silently activate policy changes.",
+            "If a source changes, create a refresh plan and require owner review.",
+        ]
+
+        payload = {
+            "report_type": "serena_compliance_update_check",
+            "created_at": _timestamp(),
+            "sources": sources,
+            "policies": policies,
+            "recommendations": recommendations,
+            "policy_rules_changed": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+            "note": "v1 checks update posture and source registry; it does not silently fetch or activate new legal/policy rules.",
+        }
+        report_path = _save_json("reports", "update-check", payload)
+
+        lines = [
+            "Serena Compliance policy update check",
+            "",
+            f"- Local policies: {len(policies)}",
+            f"- Source registry entries: {len(sources)}",
+            f"- Report: {report_path}",
+            "- Policy rules changed: no",
+            "- Changes made: no",
+            "- Secret values exposed: no",
+            "- Hub adapter: pending future dashboard",
+            "",
+            "Sources to monitor:",
+        ]
+
+        if sources:
+            for item in sources:
+                lines.append(f"- {item.get('id')} | {item.get('name')} | area={item.get('policy_area')} | review_required={item.get('review_required')}")
+        else:
+            lines.append("- none")
+
+        lines.extend(["", "Recommendations:"])
+        lines.extend(f"- {item}" for item in recommendations)
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+@ToolRegistry.register("serena_compliance_refresh_plan")
+class SerenaComplianceRefreshPlanTool(_ComplianceBaseTool):
+    tool_id = "serena_compliance_refresh_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a policy refresh plan without changing active compliance rules.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "policy": {"type": "string"},
+                    "reason": {"type": "string"},
+                    "source_id": {"type": "string"},
+                },
+            },
+            category="serena_compliance",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        policy = str(params.get("policy") or "all").strip()
+        reason = str(params.get("reason") or "Routine policy refresh review.").strip()
+        source_id = str(params.get("source_id") or "").strip()
+
+        registry = _load_source_registry()
+        sources = registry.get("sources", [])
+        selected_sources = [item for item in sources if not source_id or item.get("id") == source_id]
+
+        plan = {
+            "report_type": "serena_compliance_refresh_plan",
+            "created_at": _timestamp(),
+            "policy": policy,
+            "reason": reason,
+            "source_id": source_id,
+            "sources_to_review": selected_sources,
+            "steps": [
+                "Identify local policy file and current local status.",
+                "Open official/public source.",
+                "Compare official wording or publication status against local policy summary.",
+                "Write a proposed policy update draft if differences are found.",
+                "Require Kyle/Dr Piet review before activation.",
+                "Do not silently rewrite active policy rules.",
+                "Do not treat uncertain changes as final legal advice.",
+            ],
+            "owner_review_required": True,
+            "policy_rules_changed": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"refresh-plan-{policy}", plan)
+
+        return self._result(
+            "Serena Compliance policy refresh plan\n\n"
+            f"- Policy: {policy}\n"
+            f"- Reason: {reason}\n"
+            f"- Source filter: {source_id or 'all'}\n"
+            f"- Sources to review: {len(selected_sources)}\n"
+            f"- Report: {report_path}\n"
+            "- Owner review required: yes\n"
+            "- Policy rules changed: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Steps:\n"
+            + "\n".join(f"- {step}" for step in plan["steps"]),
+            metadata={**plan, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_compliance_policy_diff")
+class SerenaCompliancePolicyDiffTool(_ComplianceBaseTool):
+    tool_id = "serena_compliance_policy_diff"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Compare current local policy text to proposed replacement text without applying changes.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "policy": {"type": "string"},
+                    "proposed_text": {"type": "string"},
+                },
+                "required": ["policy", "proposed_text"],
+            },
+            category="serena_compliance",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        policy = str(params.get("policy") or "").strip()
+        proposed_text = str(params.get("proposed_text") or "")
+
+        try:
+            path, current_text = _load_policy(policy)
+            current_lines = current_text.splitlines()
+            proposed_lines = proposed_text.splitlines()
+
+            import difflib
+            diff_lines = list(difflib.unified_diff(
+                current_lines,
+                proposed_lines,
+                fromfile=f"current/{path.name}",
+                tofile=f"proposed/{path.name}",
+                lineterm="",
+            ))
+
+            payload = {
+                "report_type": "serena_compliance_policy_diff",
+                "created_at": _timestamp(),
+                "policy": policy,
+                "path": str(path),
+                "current_characters": len(current_text),
+                "proposed_characters": len(proposed_text),
+                "diff_line_count": len(diff_lines),
+                "diff_preview": diff_lines[:200],
+                "owner_review_required": True,
+                "policy_rules_changed": False,
+                "changes_made": False,
+                "secret_values_exposed": False,
+                "hub_adapter": _hub_adapter_contract(),
+            }
+            report_path = _save_json("reports", f"policy-diff-{path.stem}", payload)
+
+            preview = "\n".join(diff_lines[:80]) if diff_lines else "No differences detected."
+
+            return self._result(
+                "Serena Compliance policy diff\n\n"
+                f"- Policy: {path.stem}\n"
+                f"- Current characters: {len(current_text)}\n"
+                f"- Proposed characters: {len(proposed_text)}\n"
+                f"- Diff lines: {len(diff_lines)}\n"
+                f"- Report: {report_path}\n"
+                "- Owner review required: yes\n"
+                "- Policy rules changed: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no\n\n"
+                "Diff preview:\n"
+                f"{preview}",
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(
+                "Serena Compliance policy-diff failed\n\n"
+                f"- Policy: {policy}\n"
+                f"- Error: {exc}\n"
+                "- Policy rules changed: no\n"
+                "- Changes made: no",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_compliance_blocked_policy_update")
+class SerenaComplianceBlockedPolicyUpdateTool(_ComplianceBaseTool):
+    tool_id = "serena_compliance_blocked_policy_update"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked silent policy update command.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "policy": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+            },
+            category="serena_compliance",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        policy = str(params.get("policy") or "unknown").strip()
+        reason = str(params.get("reason") or "Silent policy update requested.").strip()
+
+        payload = {
+            "report_type": "serena_compliance_blocked_policy_update",
+            "created_at": _timestamp(),
+            "policy": policy,
+            "reason": reason,
+            "blocked_reason": "Serena Compliance v1 may propose policy updates but may not silently activate or rewrite active policy rules.",
+            "owner_review_required": True,
+            "policy_rules_changed": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", "blocked-policy-update", payload)
+
+        return self._result(
+            "Compliance policy update blocked by Serena Compliance v1 policy\n\n"
+            f"- Policy: {policy}\n"
+            f"- Reason: {reason}\n"
+            f"- Report: {report_path}\n"
+            "- Owner review required: yes\n"
+            "- Policy rules changed: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n\n"
+            "Policy:\n"
+            "- Serena may check policy sources, create refresh plans, and draft proposed changes.\n"
+            "- Serena may not silently rewrite or activate compliance policy rules.",
+            success=False,
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
 __all__ = [
     "SerenaComplianceStatusTool",
     "SerenaCompliancePolicyListTool",
@@ -1003,6 +1293,10 @@ __all__ = [
     "SerenaCompliancePlanTool",
     "SerenaComplianceDocumentCheckTool",
     "SerenaComplianceCrmCheckTool",
+    "SerenaComplianceBlockedPolicyUpdateTool",
+    "SerenaCompliancePolicyDiffTool",
+    "SerenaComplianceRefreshPlanTool",
+    "SerenaComplianceUpdateCheckTool",
     "SerenaComplianceCalendarCheckTool",
     "SerenaComplianceDocsCheckTool",
     "SerenaComplianceDriveSharingCheckTool",
