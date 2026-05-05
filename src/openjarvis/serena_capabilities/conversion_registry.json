@@ -653,8 +653,79 @@
         },
         {
           "legacy_file": "02-reporting.js",
-          "status": "pending",
-          "name": "Reporting"
+          "status": "complete_v1_hub_adapter_pending",
+          "name": "Reporting",
+          "tested": true,
+          "native_tool_complete": true,
+          "hub_adapter_pending": true,
+          "completion_level": "reporting_full_operator_v1",
+          "capabilities": [
+            "status",
+            "plan",
+            "templates",
+            "template_info",
+            "from_text",
+            "from_json",
+            "from_file",
+            "from_folder",
+            "daily",
+            "weekly",
+            "activity_summary",
+            "compliance_summary",
+            "operator_summary",
+            "business_summary",
+            "save_report",
+            "export_md",
+            "export_json",
+            "to_google_doc",
+            "to_drive",
+            "audit",
+            "blocked_sensitive_report",
+            "blocked_unredacted_export",
+            "hub_adapter_metadata"
+          ],
+          "hub_adapter": {
+            "status": "pending_future_dashboard",
+            "widgets": [
+              "report_viewer_widget",
+              "daily_report_widget",
+              "weekly_report_widget",
+              "compliance_report_widget",
+              "activity_feed_summary_widget",
+              "approval_summary_widget",
+              "business_kpi_report_widget",
+              "export_status_widget"
+            ],
+            "events": [
+              "report_created",
+              "report_exported",
+              "report_handoff_created",
+              "report_blocked",
+              "reporting_audit_completed",
+              "sensitive_report_detected"
+            ],
+            "operator_state": [
+              "current_business_id",
+              "current_report_type",
+              "current_report_path",
+              "current_report_sources",
+              "current_report_risk_level",
+              "current_export_target",
+              "current_required_approval"
+            ]
+          },
+          "notes": [
+            "Converted legacy Reporting triggers into native Serena Reporting Full Operator.",
+            "Legacy triggers were MORNING BRIEF, WEEKLY REPORT, and KPI REPORT.",
+            "Inspected related analytics, compliance, Drive, Docs, OCR, Calendar, finance, ClickUp, and website revenue audit hooks.",
+            "Built foundation commands: status, plan, templates, template-info.",
+            "Built source report generation: from-text, from-json, from-file, from-folder.",
+            "Built standard report workflows: daily, weekly, activity-summary, compliance-summary, operator-summary, business-summary.",
+            "Built local save/export and approved handoff workflows: save-report, export-md, export-json, to-google-doc, to-drive.",
+            "Built audit and safety blocks: audit, blocked-sensitive-report, blocked-unredacted-export.",
+            "Tested local report generation, metadata, exports, approved Docs/Drive handoff, blocked unapproved handoff, safety blocks, and no secret exposure.",
+            "Reporting Full Operator v1 complete with Hub Adapter pending."
+          ]
         },
         {
           "legacy_file": "12-analytics.js",
