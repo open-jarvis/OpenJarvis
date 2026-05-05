@@ -292,3 +292,115 @@ def test_ingest_chunk_count_return_value(
     assert n2 == 1  # only doc_c is new
 
     assert store.count() == 3
+
+
+# ---------------------------------------------------------------------------
+# v1 schema tests — pipeline-side derivation
+# ---------------------------------------------------------------------------
+
+
+def test_thread_id_namespaced_at_pipeline(
+    pipeline: IngestionPipeline, store: KnowledgeStore
+) -> None:
+    """Pipeline prefixes raw thread_id with '{source}:' so connectors can't forget."""
+    doc = _make_doc(
+        doc_id="gmail:msg-tn1",
+        source="gmail",
+        thread_id="raw-thread-id",
+        content="Thread namespacing should happen here.",
+    )
+    pipeline.ingest([doc])
+
+    rows = store._conn.execute(
+        "SELECT thread_id FROM knowledge_chunks"
+    ).fetchall()
+    assert len(rows) == 1
+    assert rows[0][0] == "gmail:raw-thread-id"
+
+
+def test_thread_id_namespacing_is_idempotent(
+    pipeline: IngestionPipeline, store: KnowledgeStore
+) -> None:
+    """A connector that already namespaced thread_id is not double-prefixed."""
+    doc = _make_doc(
+        doc_id="gmail:msg-tn2",
+        source="gmail",
+        thread_id="gmail:already-prefixed",
+        content="Idempotent namespacing keeps a single prefix.",
+    )
+    pipeline.ingest([doc])
+
+    rows = store._conn.execute(
+        "SELECT thread_id FROM knowledge_chunks"
+    ).fetchall()
+    assert rows[0][0] == "gmail:already-prefixed"
+
+
+def test_source_id_derived_from_doc_id_prefix(
+    pipeline: IngestionPipeline, store: KnowledgeStore
+) -> None:
+    """When source_id isn't set on the Document, the pipeline strips '{source}:'
+    from doc_id so legacy connectors keep working."""
+    doc = _make_doc(
+        doc_id="gmail:msg42",
+        source="gmail",
+        content="Legacy connector with composite doc_id.",
+    )
+    pipeline.ingest([doc])
+
+    rows = store._conn.execute(
+        "SELECT source_id FROM knowledge_chunks"
+    ).fetchall()
+    assert rows[0][0] == "msg42"
+
+
+def test_source_id_uses_explicit_field_when_set(
+    pipeline: IngestionPipeline, store: KnowledgeStore
+) -> None:
+    """An explicit Document.source_id wins over any prefix-stripping heuristic."""
+    doc = _make_doc(
+        doc_id="some-other-shape",
+        source="gmail",
+        content="Explicit source_id should be used verbatim.",
+    )
+    doc.source_id = "explicit-src-id"
+    pipeline.ingest([doc])
+
+    rows = store._conn.execute(
+        "SELECT source_id FROM knowledge_chunks"
+    ).fetchall()
+    assert rows[0][0] == "explicit-src-id"
+
+
+def test_content_hash_computed_per_chunk(
+    pipeline: IngestionPipeline, store: KnowledgeStore
+) -> None:
+    """content_hash equals sha256(chunk.content) for a single-chunk document."""
+    import hashlib as _hashlib
+
+    content = "Hello world this is a test document."
+    doc = _make_doc(doc_id="doc:hash:1", content=content)
+    pipeline.ingest([doc])
+
+    rows = store._conn.execute(
+        "SELECT content, content_hash FROM knowledge_chunks"
+    ).fetchall()
+    assert len(rows) == 1
+    assert rows[0][1] == _hashlib.sha256(rows[0][0].encode("utf-8")).hexdigest()
+
+
+def test_last_synced_set_at_ingest(
+    pipeline: IngestionPipeline, store: KnowledgeStore
+) -> None:
+    """last_synced is populated with the ingest time, not 0 default."""
+    import time as _time
+
+    before = _time.time()
+    pipeline.ingest([_make_doc(doc_id="doc:ls:1", content="Last synced check.")])
+    after = _time.time()
+
+    rows = store._conn.execute(
+        "SELECT last_synced FROM knowledge_chunks"
+    ).fetchall()
+    assert len(rows) == 1
+    assert before <= rows[0][0] <= after

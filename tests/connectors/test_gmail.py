@@ -269,3 +269,128 @@ def test_registry() -> None:
     assert ConnectorRegistry.contains("gmail")
     cls = ConnectorRegistry.get("gmail")
     assert cls.connector_id == "gmail"
+
+
+# ---------------------------------------------------------------------------
+# v1 schema tests
+# ---------------------------------------------------------------------------
+
+# base64url("Migration body") == "TWlncmF0aW9uIGJvZHk="
+_MSG_RICH = {
+    "id": "msg-rich-1",
+    "threadId": "thread-rich-1",
+    "labelIds": ["SENT", "CATEGORY_PERSONAL"],
+    "snippet": "Quick note on the migration",
+    "historyId": "1234567",
+    "sizeEstimate": 4096,
+    "payload": {
+        "mimeType": "text/plain",
+        "headers": [
+            {"name": "From", "value": "Alice Bose <alice@example.com>"},
+            {
+                "name": "To",
+                "value": "Bob <bob@example.com>, charlie@example.com",
+            },
+            {"name": "Cc", "value": "dana@example.com"},
+            {"name": "Subject", "value": "Migration plan"},
+            {"name": "Date", "value": "Mon, 01 Jan 2024 10:00:00 +0000"},
+            {"name": "Message-ID", "value": "<abc123@mail.example.com>"},
+        ],
+        "body": {"data": "TWlncmF0aW9uIGJvZHk="},
+    },
+}
+
+
+@patch("openjarvis.connectors.gmail._gmail_api_list_messages")
+@patch("openjarvis.connectors.gmail._gmail_api_get_message")
+def test_sync_emits_v1_fields(
+    mock_get,
+    mock_list,
+    connector,
+    tmp_path: Path,
+) -> None:
+    """sync() populates source_id, participants_raw, normalized participants,
+    channel from labels, and Gmail-specific fields in metadata."""
+    creds_path = Path(connector._credentials_path)
+    creds_path.write_text(json.dumps({"token": "fake-access-token"}), encoding="utf-8")
+
+    mock_list.return_value = {"messages": [{"id": "msg-rich-1"}]}
+    mock_get.return_value = _MSG_RICH
+
+    docs: List[Document] = list(connector.sync())
+    assert len(docs) == 1
+    doc = docs[0]
+
+    # source_id is the raw Gmail msg.id (no "gmail:" prefix); doc_id stays
+    # composite for back-compat with legacy callers.
+    assert doc.source_id == "msg-rich-1"
+    assert doc.doc_id == "gmail:msg-rich-1"
+
+    # participants_raw preserves From / To / Cc as Gmail returned them.
+    assert doc.participants_raw == [
+        "Alice Bose <alice@example.com>",
+        "Bob <bob@example.com>, charlie@example.com",
+        "dana@example.com",
+    ]
+    # participants extracts and lowercases all addresses, multi-recipient-aware.
+    assert doc.participants == [
+        "alice@example.com",
+        "bob@example.com",
+        "charlie@example.com",
+        "dana@example.com",
+    ]
+
+    # channel comes from the highest-priority system label.
+    assert doc.channel == "SENT"
+
+    # Gmail-specific richness lives in source_metadata.
+    assert doc.metadata["rfc_message_id"] == "<abc123@mail.example.com>"
+    assert doc.metadata["snippet"] == "Quick note on the migration"
+    assert doc.metadata["history_id"] == "1234567"
+    assert doc.metadata["size_estimate"] == 4096
+    assert "SENT" in doc.metadata["labels"]
+    assert "CATEGORY_PERSONAL" in doc.metadata["labels"]
+
+
+@patch("openjarvis.connectors.gmail._gmail_api_list_messages")
+@patch("openjarvis.connectors.gmail._gmail_api_get_message")
+def test_sync_channel_falls_back_to_inbox(
+    mock_get,
+    mock_list,
+    connector,
+    tmp_path: Path,
+) -> None:
+    """When only INBOX is present among system labels, channel == 'INBOX'."""
+    creds_path = Path(connector._credentials_path)
+    creds_path.write_text(json.dumps({"token": "fake-access-token"}), encoding="utf-8")
+
+    mock_list.return_value = _LIST_RESPONSE
+    mock_get.side_effect = lambda token, msg_id: _MSG1 if msg_id == "msg1" else _MSG2
+
+    docs = list(connector.sync())
+    assert all(d.channel == "INBOX" for d in docs)
+
+
+@patch("openjarvis.connectors.gmail._gmail_api_list_messages")
+@patch("openjarvis.connectors.gmail._gmail_api_get_message")
+def test_sync_channel_none_when_no_system_label(
+    mock_get,
+    mock_list,
+    connector,
+    tmp_path: Path,
+) -> None:
+    """A message with only user-defined labels has channel=None."""
+    creds_path = Path(connector._credentials_path)
+    creds_path.write_text(json.dumps({"token": "fake-access-token"}), encoding="utf-8")
+
+    msg_userlabel = {
+        **_MSG1,
+        "id": "msg-user",
+        "labelIds": ["Label_1234", "CATEGORY_FORUMS"],
+    }
+    mock_list.return_value = {"messages": [{"id": "msg-user"}]}
+    mock_get.return_value = msg_userlabel
+
+    docs = list(connector.sync())
+    assert len(docs) == 1
+    assert docs[0].channel is None
