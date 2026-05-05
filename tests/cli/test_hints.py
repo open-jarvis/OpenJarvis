@@ -6,6 +6,7 @@ from openjarvis.cli.hints import (
     hint_no_config,
     hint_no_engine,
     hint_no_model,
+    mining_not_running_hint,
 )
 
 
@@ -45,3 +46,14 @@ class TestHintFunctions:
         msg = hint_no_engine("vllm")
         assert "config set" in msg
         assert "engine.vllm.host" in msg
+
+    def test_mining_not_running_hint_when_configured_no_sidecar(self):
+        msg = mining_not_running_hint(object(), sidecar_present=False)
+        assert msg is not None
+        assert "jarvis mine start" in msg
+
+    def test_mining_not_running_hint_silent_when_running(self):
+        assert mining_not_running_hint(object(), sidecar_present=True) is None
+
+    def test_mining_not_running_hint_silent_when_unconfigured(self):
+        assert mining_not_running_hint(None, sidecar_present=False) is None
