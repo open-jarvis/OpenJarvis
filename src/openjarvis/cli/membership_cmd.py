@@ -12,6 +12,11 @@ from openjarvis.tools.serena_membership import (
     SerenaMembershipSourceInfoTool,
     SerenaMembershipSourceListTool,
     SerenaMembershipStatusTool,
+    SerenaMembershipRenewalPlanTool,
+    SerenaMembershipPauseMembershipPlanTool,
+    SerenaMembershipCancelMembershipPlanTool,
+    SerenaMembershipEnrollMemberTool,
+    SerenaMembershipEnrollmentPlanTool,
     SerenaMembershipUpdateMemberStatusTool,
     SerenaMembershipMemberListTool,
     SerenaMembershipMemberInfoTool,
@@ -159,6 +164,105 @@ def update_member_status(member_id: str, new_status: str, reason: str, approved:
         new_status=new_status,
         reason=reason,
         approved=approved,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("enrollment-plan")
+@click.option("--member-id", required=True, help="Member ID.")
+@click.option("--plan-id", default="not specified", help="Membership plan ID.")
+@click.option("--programme", default="not specified", help="Programme.")
+@click.option("--payment-model", default="not specified", help="Payment model.")
+@click.option("--notes", default="", help="Notes.")
+def enrollment_plan(member_id: str, plan_id: str, programme: str, payment_model: str, notes: str) -> None:
+    """Create local enrollment plan."""
+    console = Console()
+    result = SerenaMembershipEnrollmentPlanTool().execute(
+        member_id=member_id,
+        plan_id=plan_id,
+        programme=programme,
+        payment_model=payment_model,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("enroll-member")
+@click.option("--member-id", required=True, help="Member ID.")
+@click.option("--plan-id", required=True, help="Membership plan ID.")
+@click.option("--programme", default="not specified", help="Programme.")
+@click.option("--start-date", default="not specified", help="Start date.")
+@click.option("--end-date", default="not specified", help="End date.")
+@click.option("--payment-model", default="not specified", help="Payment model.")
+@click.option("--payment-status", default="pending", help="Payment status.")
+@click.option("--approved", is_flag=True, help="Approval flag for sensitive enrollment.")
+@click.option("--notes", default="", help="Notes.")
+def enroll_member(member_id: str, plan_id: str, programme: str, start_date: str, end_date: str, payment_model: str, payment_status: str, approved: bool, notes: str) -> None:
+    """Create local member enrollment record."""
+    console = Console()
+    result = SerenaMembershipEnrollMemberTool().execute(
+        member_id=member_id,
+        plan_id=plan_id,
+        programme=programme,
+        start_date=start_date,
+        end_date=end_date,
+        payment_model=payment_model,
+        payment_status=payment_status,
+        approved=approved,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("cancel-membership-plan")
+@click.option("--member-id", required=True, help="Member ID.")
+@click.option("--reason", default="Cancellation requested.", help="Reason.")
+@click.option("--effective-date", default="not specified", help="Effective date.")
+@click.option("--approved", is_flag=True, help="Required approval flag.")
+def cancel_membership_plan(member_id: str, reason: str, effective_date: str, approved: bool) -> None:
+    """Create local membership cancellation plan."""
+    console = Console()
+    result = SerenaMembershipCancelMembershipPlanTool().execute(
+        member_id=member_id,
+        reason=reason,
+        effective_date=effective_date,
+        approved=approved,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("pause-membership-plan")
+@click.option("--member-id", required=True, help="Member ID.")
+@click.option("--reason", default="Pause requested.", help="Reason.")
+@click.option("--pause-start", default="not specified", help="Pause start.")
+@click.option("--pause-end", default="not specified", help="Pause end.")
+@click.option("--approved", is_flag=True, help="Required approval flag.")
+def pause_membership_plan(member_id: str, reason: str, pause_start: str, pause_end: str, approved: bool) -> None:
+    """Create local membership pause plan."""
+    console = Console()
+    result = SerenaMembershipPauseMembershipPlanTool().execute(
+        member_id=member_id,
+        reason=reason,
+        pause_start=pause_start,
+        pause_end=pause_end,
+        approved=approved,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("renewal-plan")
+@click.option("--member-id", required=True, help="Member ID.")
+@click.option("--renewal-date", default="not specified", help="Renewal date.")
+@click.option("--next-plan-id", default="same/current plan", help="Next plan ID.")
+@click.option("--notes", default="", help="Notes.")
+def renewal_plan(member_id: str, renewal_date: str, next_plan_id: str, notes: str) -> None:
+    """Create local membership/programme renewal plan."""
+    console = Console()
+    result = SerenaMembershipRenewalPlanTool().execute(
+        member_id=member_id,
+        renewal_date=renewal_date,
+        next_plan_id=next_plan_id,
+        notes=notes,
     )
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 

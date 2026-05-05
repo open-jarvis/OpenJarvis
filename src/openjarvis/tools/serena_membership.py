@@ -1136,6 +1136,556 @@ class SerenaMembershipUpdateMemberStatusTool(_MembershipBaseTool):
         )
 
 
+@ToolRegistry.register("serena_membership_enrollment_plan")
+class SerenaMembershipEnrollmentPlanTool(_MembershipBaseTool):
+    tool_id = "serena_membership_enrollment_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local membership/programme enrollment plan without external writes.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "member_id": {"type": "string"},
+                    "plan_id": {"type": "string"},
+                    "programme": {"type": "string"},
+                    "payment_model": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["member_id"],
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        member_id = str(params.get("member_id") or "").strip()
+        plan_id = str(params.get("plan_id") or "not specified").strip()
+        programme = str(params.get("programme") or "not specified").strip()
+        payment_model = str(params.get("payment_model") or "not specified").strip()
+        notes = str(params.get("notes") or "").strip()
+
+        member = _find_member_profile(member_id)
+        if not member:
+            return self._result(
+                "Serena enrollment plan failed\n\n"
+                f"- Member ID: {member_id}\n"
+                "- Error: member not found\n"
+                "- Enrollment planned: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        steps = [
+            "Confirm member profile and consent context.",
+            "Confirm membership plan/programme scope.",
+            "Confirm payment model and whether Accounting handoff is needed.",
+            "Confirm whether Bookings handoff is needed for programme sessions.",
+            "Check sensitive data handling before external handoff.",
+            "Create local enrollment record only after details are confirmed.",
+            "Do not perform payment, accounting, booking, or external writes from this command.",
+        ]
+
+        payload = {
+            "report_type": "serena_membership_enrollment_plan",
+            "created_at": _timestamp(),
+            "member_id": member_id,
+            "business": member.get("business"),
+            "member_name": member.get("member_name"),
+            "plan_id": plan_id,
+            "programme": programme,
+            "payment_model": payment_model,
+            "notes": notes,
+            "steps": steps,
+            "sensitive": bool(member.get("sensitive")),
+            "enrollment_planned": True,
+            "external_api_called": False,
+            "payment_action_performed": False,
+            "accounting_write_performed": False,
+            "booking_write_performed": False,
+            "programme_changed": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("enrollments", f"enrollment-plan-{member_id}-{plan_id}", payload)
+
+        return self._result(
+            "Serena enrollment plan created\n\n"
+            f"- Member ID: {member_id}\n"
+            f"- Member: {member.get('member_name')}\n"
+            f"- Plan ID: {plan_id}\n"
+            f"- Programme: {programme}\n"
+            f"- Payment model: {payment_model}\n"
+            f"- Sensitive: {'yes' if member.get('sensitive') else 'no'}\n"
+            f"- Plan: {report_path}\n"
+            "- Enrollment planned: yes\n"
+            "- External API called: no\n"
+            "- Payment action performed: no\n"
+            "- Accounting write performed: no\n"
+            "- Booking write performed: no\n"
+            "- Programme changed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Steps:\n"
+            + "\n".join(f"- {step}" for step in steps),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_membership_enroll_member")
+class SerenaMembershipEnrollMemberTool(_MembershipBaseTool):
+    tool_id = "serena_membership_enroll_member"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local member enrollment record. Does not perform payment/accounting/booking writes.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "member_id": {"type": "string"},
+                    "plan_id": {"type": "string"},
+                    "programme": {"type": "string"},
+                    "start_date": {"type": "string"},
+                    "end_date": {"type": "string"},
+                    "payment_model": {"type": "string"},
+                    "payment_status": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["member_id", "plan_id"],
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        member_id = str(params.get("member_id") or "").strip()
+        plan_id = str(params.get("plan_id") or "").strip()
+        programme = str(params.get("programme") or "not specified").strip()
+        start_date = str(params.get("start_date") or "not specified").strip()
+        end_date = str(params.get("end_date") or "not specified").strip()
+        payment_model = str(params.get("payment_model") or "not specified").strip()
+        payment_status = str(params.get("payment_status") or "pending").strip()
+        approved = bool(params.get("approved") or False)
+        notes = str(params.get("notes") or "").strip()
+
+        member = _find_member_profile(member_id)
+        if not member:
+            return self._result(
+                "Serena member enrollment failed\n\n"
+                f"- Member ID: {member_id}\n"
+                "- Error: member not found\n"
+                "- Enrollment created: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        if bool(member.get("sensitive")) and not approved:
+            return self._result(
+                "Serena member enrollment blocked\n\n"
+                f"- Member ID: {member_id}\n"
+                "- Reason: sensitive member/programme enrollment requires approval.\n"
+                "- Enrollment created: no\n"
+                "- External API called: no\n"
+                "- Payment action performed: no\n"
+                "- Accounting write performed: no\n"
+                "- Booking write performed: no\n"
+                "- Programme changed: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        record = {
+            "record_type": "membership_enrollment",
+            "created_at": _timestamp(),
+            "enrollment_id": f"ENR-{_timestamp()}",
+            "member_id": member_id,
+            "business": member.get("business"),
+            "member_name": member.get("member_name"),
+            "plan_id": plan_id,
+            "programme": programme,
+            "start_date": start_date,
+            "end_date": end_date,
+            "payment_model": payment_model,
+            "payment_status": payment_status,
+            "approved": approved,
+            "notes": notes,
+            "sensitive": bool(member.get("sensitive")),
+            "enrollment_created": True,
+            "external_api_called": False,
+            "payment_action_performed": False,
+            "accounting_write_performed": False,
+            "booking_write_performed": False,
+            "programme_changed": True,
+            "delete_performed": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        record_path = _save_json("enrollments", f"enrollment-{member_id}-{plan_id}", record)
+
+        return self._result(
+            "Serena member enrollment created\n\n"
+            f"- Enrollment ID: {record['enrollment_id']}\n"
+            f"- Member ID: {member_id}\n"
+            f"- Member: {member.get('member_name')}\n"
+            f"- Plan ID: {plan_id}\n"
+            f"- Programme: {programme}\n"
+            f"- Start date: {start_date}\n"
+            f"- End date: {end_date}\n"
+            f"- Payment model: {payment_model}\n"
+            f"- Payment status: {payment_status}\n"
+            f"- Approved: {'yes' if approved else 'no'}\n"
+            f"- Sensitive: {'yes' if member.get('sensitive') else 'no'}\n"
+            f"- Record: {record_path}\n"
+            "- Enrollment created: yes\n"
+            "- External API called: no\n"
+            "- Payment action performed: no\n"
+            "- Accounting write performed: no\n"
+            "- Booking write performed: no\n"
+            "- Programme changed: yes\n"
+            "- Delete performed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={**record, "record_path": str(record_path)},
+        )
+
+
+@ToolRegistry.register("serena_membership_cancel_membership_plan")
+class SerenaMembershipCancelMembershipPlanTool(_MembershipBaseTool):
+    tool_id = "serena_membership_cancel_membership_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local membership cancellation plan. Does not cancel subscriptions or payments.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "member_id": {"type": "string"},
+                    "reason": {"type": "string"},
+                    "effective_date": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                },
+                "required": ["member_id"],
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        member_id = str(params.get("member_id") or "").strip()
+        reason = str(params.get("reason") or "Cancellation requested.").strip()
+        effective_date = str(params.get("effective_date") or "not specified").strip()
+        approved = bool(params.get("approved") or False)
+
+        member = _find_member_profile(member_id)
+        if not member:
+            return self._result(
+                "Serena membership cancellation plan failed\n\n"
+                f"- Member ID: {member_id}\n"
+                "- Error: member not found\n"
+                "- Cancellation planned: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        if not approved:
+            return self._result(
+                "Serena membership cancellation blocked\n\n"
+                f"- Member ID: {member_id}\n"
+                f"- Reason: {reason}\n"
+                "- Blocked reason: membership cancellation requires explicit approval.\n"
+                "- Cancellation planned: no\n"
+                "- Payment action performed: no\n"
+                "- Accounting write performed: no\n"
+                "- Programme changed: no\n"
+                "- Delete performed: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        steps = [
+            "Confirm exact member and plan.",
+            "Confirm effective cancellation date.",
+            "Check payment/subscription implications through Accounting handoff.",
+            "Check booking/session implications through Bookings handoff.",
+            "Preserve member/enrollment/subscription evidence.",
+            "Do not cancel live payment/subscription from Membership v1.",
+        ]
+
+        payload = {
+            "report_type": "serena_membership_cancel_membership_plan",
+            "created_at": _timestamp(),
+            "member_id": member_id,
+            "business": member.get("business"),
+            "member_name": member.get("member_name"),
+            "membership_plan": member.get("membership_plan"),
+            "programme": member.get("programme"),
+            "reason": reason,
+            "effective_date": effective_date,
+            "approved": approved,
+            "steps": steps,
+            "cancellation_planned": True,
+            "external_api_called": False,
+            "payment_action_performed": False,
+            "accounting_write_performed": False,
+            "subscription_cancelled": False,
+            "membership_cancelled": False,
+            "programme_changed": False,
+            "delete_performed": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("plans", f"cancel-membership-{member_id}", payload)
+
+        return self._result(
+            "Serena membership cancellation plan created\n\n"
+            f"- Member ID: {member_id}\n"
+            f"- Member: {member.get('member_name')}\n"
+            f"- Effective date: {effective_date}\n"
+            f"- Reason: {reason}\n"
+            f"- Approved: yes\n"
+            f"- Plan: {report_path}\n"
+            "- Cancellation planned: yes\n"
+            "- External API called: no\n"
+            "- Payment action performed: no\n"
+            "- Accounting write performed: no\n"
+            "- Subscription cancelled: no\n"
+            "- Membership cancelled: no\n"
+            "- Programme changed: no\n"
+            "- Delete performed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Steps:\n"
+            + "\n".join(f"- {step}" for step in steps),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_membership_pause_membership_plan")
+class SerenaMembershipPauseMembershipPlanTool(_MembershipBaseTool):
+    tool_id = "serena_membership_pause_membership_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local membership pause plan. Does not pause live subscriptions or payments.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "member_id": {"type": "string"},
+                    "reason": {"type": "string"},
+                    "pause_start": {"type": "string"},
+                    "pause_end": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                },
+                "required": ["member_id"],
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        member_id = str(params.get("member_id") or "").strip()
+        reason = str(params.get("reason") or "Pause requested.").strip()
+        pause_start = str(params.get("pause_start") or "not specified").strip()
+        pause_end = str(params.get("pause_end") or "not specified").strip()
+        approved = bool(params.get("approved") or False)
+
+        member = _find_member_profile(member_id)
+        if not member:
+            return self._result(
+                "Serena membership pause plan failed\n\n"
+                f"- Member ID: {member_id}\n"
+                "- Error: member not found\n"
+                "- Pause planned: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        if not approved:
+            return self._result(
+                "Serena membership pause blocked\n\n"
+                f"- Member ID: {member_id}\n"
+                f"- Reason: {reason}\n"
+                "- Blocked reason: membership pause requires explicit approval.\n"
+                "- Pause planned: no\n"
+                "- Payment action performed: no\n"
+                "- Accounting write performed: no\n"
+                "- Programme changed: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        steps = [
+            "Confirm exact member and programme.",
+            "Confirm pause period.",
+            "Check subscription/payment impact through Accounting handoff.",
+            "Check appointment/session impact through Bookings handoff.",
+            "Create restart/follow-up reminder plan.",
+            "Do not pause live payment/subscription from Membership v1.",
+        ]
+
+        payload = {
+            "report_type": "serena_membership_pause_membership_plan",
+            "created_at": _timestamp(),
+            "member_id": member_id,
+            "business": member.get("business"),
+            "member_name": member.get("member_name"),
+            "reason": reason,
+            "pause_start": pause_start,
+            "pause_end": pause_end,
+            "approved": approved,
+            "steps": steps,
+            "pause_planned": True,
+            "external_api_called": False,
+            "payment_action_performed": False,
+            "accounting_write_performed": False,
+            "subscription_paused": False,
+            "membership_paused": False,
+            "programme_changed": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("plans", f"pause-membership-{member_id}", payload)
+
+        return self._result(
+            "Serena membership pause plan created\n\n"
+            f"- Member ID: {member_id}\n"
+            f"- Member: {member.get('member_name')}\n"
+            f"- Pause start: {pause_start}\n"
+            f"- Pause end: {pause_end}\n"
+            f"- Reason: {reason}\n"
+            f"- Approved: yes\n"
+            f"- Plan: {report_path}\n"
+            "- Pause planned: yes\n"
+            "- External API called: no\n"
+            "- Payment action performed: no\n"
+            "- Accounting write performed: no\n"
+            "- Subscription paused: no\n"
+            "- Membership paused: no\n"
+            "- Programme changed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Steps:\n"
+            + "\n".join(f"- {step}" for step in steps),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_membership_renewal_plan")
+class SerenaMembershipRenewalPlanTool(_MembershipBaseTool):
+    tool_id = "serena_membership_renewal_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local membership/programme renewal plan.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "member_id": {"type": "string"},
+                    "renewal_date": {"type": "string"},
+                    "next_plan_id": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["member_id"],
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        member_id = str(params.get("member_id") or "").strip()
+        renewal_date = str(params.get("renewal_date") or "not specified").strip()
+        next_plan_id = str(params.get("next_plan_id") or "same/current plan").strip()
+        notes = str(params.get("notes") or "").strip()
+
+        member = _find_member_profile(member_id)
+        if not member:
+            return self._result(
+                "Serena renewal plan failed\n\n"
+                f"- Member ID: {member_id}\n"
+                "- Error: member not found\n"
+                "- Renewal planned: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        steps = [
+            "Review current membership/programme state.",
+            "Review payment/subscription status via Accounting handoff.",
+            "Review programme progress and outcomes.",
+            "Confirm renewal date and next plan.",
+            "Prepare member follow-up plan if needed.",
+            "Do not change price/payment/subscription silently.",
+        ]
+
+        payload = {
+            "report_type": "serena_membership_renewal_plan",
+            "created_at": _timestamp(),
+            "member_id": member_id,
+            "business": member.get("business"),
+            "member_name": member.get("member_name"),
+            "current_plan": member.get("membership_plan"),
+            "current_programme": member.get("programme"),
+            "renewal_date": renewal_date,
+            "next_plan_id": next_plan_id,
+            "notes": notes,
+            "steps": steps,
+            "renewal_planned": True,
+            "external_api_called": False,
+            "payment_action_performed": False,
+            "accounting_write_performed": False,
+            "booking_write_performed": False,
+            "programme_changed": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("plans", f"renewal-plan-{member_id}", payload)
+
+        return self._result(
+            "Serena renewal plan created\n\n"
+            f"- Member ID: {member_id}\n"
+            f"- Member: {member.get('member_name')}\n"
+            f"- Current plan: {member.get('membership_plan')}\n"
+            f"- Renewal date: {renewal_date}\n"
+            f"- Next plan: {next_plan_id}\n"
+            f"- Plan: {report_path}\n"
+            "- Renewal planned: yes\n"
+            "- External API called: no\n"
+            "- Payment action performed: no\n"
+            "- Accounting write performed: no\n"
+            "- Booking write performed: no\n"
+            "- Programme changed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Steps:\n"
+            + "\n".join(f"- {step}" for step in steps),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
 __all__ = [
     "SerenaMembershipStatusTool",
     "SerenaMembershipEnvCheckTool",
@@ -1143,6 +1693,11 @@ __all__ = [
     "SerenaMembershipSourceListTool",
     "SerenaMembershipSourceInfoTool",
     "SerenaMembershipUpdateMemberStatusTool",
+    "SerenaMembershipRenewalPlanTool",
+    "SerenaMembershipPauseMembershipPlanTool",
+    "SerenaMembershipCancelMembershipPlanTool",
+    "SerenaMembershipEnrollMemberTool",
+    "SerenaMembershipEnrollmentPlanTool",
     "SerenaMembershipMemberListTool",
     "SerenaMembershipMemberInfoTool",
     "SerenaMembershipCreateMemberProfileTool",
