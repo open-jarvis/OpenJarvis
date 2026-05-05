@@ -12,6 +12,10 @@ from openjarvis.tools.serena_analytics import (
     SerenaAnalyticsSourceInfoTool,
     SerenaAnalyticsSourceListTool,
     SerenaAnalyticsStatusTool,
+    SerenaAnalyticsBlockedSensitiveExportTool,
+    SerenaAnalyticsBlockedUnapprovedPostingTool,
+    SerenaAnalyticsBlockedTokenExposureTool,
+    SerenaAnalyticsAuditTool,
     SerenaAnalyticsRecommendationsTool,
     SerenaAnalyticsContentPerformanceTool,
     SerenaAnalyticsMarketingFunnelTool,
@@ -421,6 +425,44 @@ def recommendations(metrics: str, business: str, date_range: str, source: str, n
         source=source,
         notes=notes,
     )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@analytics.command("audit")
+def audit() -> None:
+    """Audit Analytics outputs, sources, env readiness, and safety posture."""
+    console = Console()
+    result = SerenaAnalyticsAuditTool().execute()
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@analytics.command("blocked-token-exposure")
+@click.option("--action", default="expose analytics token", help="Requested action.")
+@click.option("--reason", default="Token exposure requested.", help="Reason.")
+def blocked_token_exposure(action: str, reason: str) -> None:
+    """Deliberately blocked token/API secret exposure command."""
+    console = Console()
+    result = SerenaAnalyticsBlockedTokenExposureTool().execute(action=action, reason=reason)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@analytics.command("blocked-unapproved-posting")
+@click.option("--action", default="post or modify page/campaign", help="Requested action.")
+@click.option("--reason", default="Unapproved posting/modification requested.", help="Reason.")
+def blocked_unapproved_posting(action: str, reason: str) -> None:
+    """Deliberately blocked posting/page/campaign modification command."""
+    console = Console()
+    result = SerenaAnalyticsBlockedUnapprovedPostingTool().execute(action=action, reason=reason)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@analytics.command("blocked-sensitive-export")
+@click.option("--action", default="export sensitive analytics", help="Requested action.")
+@click.option("--reason", default="Sensitive analytics export requested.", help="Reason.")
+def blocked_sensitive_export(action: str, reason: str) -> None:
+    """Deliberately blocked sensitive analytics export command."""
+    console = Console()
+    result = SerenaAnalyticsBlockedSensitiveExportTool().execute(action=action, reason=reason)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 

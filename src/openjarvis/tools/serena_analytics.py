@@ -2200,6 +2200,252 @@ class SerenaAnalyticsRecommendationsTool(_AnalyticsBaseTool):
             )
 
 
+@ToolRegistry.register("serena_analytics_audit")
+class SerenaAnalyticsAuditTool(_AnalyticsBaseTool):
+    tool_id = "serena_analytics_audit"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Audit Serena Analytics outputs, sources, env readiness, and safety posture.",
+            parameters={"type": "object", "properties": {}},
+            category="serena_analytics",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        root = _analytics_root()
+        sources = _analytics_sources()
+        env = _env_status()
+        safety = _safety_policy()
+        hub = _hub_adapter_contract()
+
+        counts = {}
+        for folder_name in ["reports", "snapshots", "exports", "sources", "handoff"]:
+            folder = root / folder_name
+            counts[folder_name] = len([p for p in folder.glob("*") if p.is_file()]) if folder.exists() else 0
+
+        configured = [source_id for source_id, item in env.items() if item.get("configured")]
+        external_configured = [
+            source_id for source_id in configured
+            if source_id != "serena-operator"
+        ]
+
+        issues = []
+        recommendations = []
+
+        if not external_configured:
+            recommendations.append("No external analytics sources fully configured yet. Continue with pasted/exported metrics until credentials are added.")
+
+        if not env.get("google-business-profile", {}).get("configured"):
+            recommendations.append("Set GBP_ACCOUNT_ID and GBP_LOCATION_IDS later for live Google Business Profile analytics.")
+
+        if not env.get("facebook", {}).get("configured"):
+            recommendations.append("Set META_APP_ID, META_APP_SECRET, META_ACCESS_TOKEN, and FACEBOOK_PAGE_IDS later for live Facebook Page analytics.")
+
+        if not env.get("wordpress", {}).get("configured"):
+            recommendations.append("Set WordPress/WooCommerce/Jetpack credentials later for live website analytics.")
+
+        recommendations.extend([
+            "Use analytics summaries as inputs to Reporting for shareable reports.",
+            "Run Compliance before external export if analytics includes patient/client/financial/business-sensitive data.",
+            "Keep Analytics read-only; posting/editing belongs to future social/WordPress operator skills.",
+            "Keep Hub adapter pending until Serena Hub dashboard/event bus exists.",
+        ])
+
+        payload = {
+            "report_type": "serena_analytics_audit",
+            "created_at": _timestamp(),
+            "source_count": len(sources),
+            "configured_sources": configured,
+            "external_configured_sources": external_configured,
+            "artifact_counts": counts,
+            "env_status": env,
+            "safety_policy": safety,
+            "hub_adapter": hub,
+            "issues": issues,
+            "recommendations": recommendations,
+            "external_api_called": False,
+            "changes_made": False,
+            "delete_performed": False,
+            "secret_values_exposed": False,
+        }
+        report_path = _save_json("reports", "analytics-audit", payload)
+
+        lines = [
+            "Serena Analytics audit",
+            "",
+            f"- Sources registered: {len(sources)}",
+            f"- Configured sources: {len(configured)}",
+            f"- Configured external sources: {len(external_configured)}",
+            f"- Reports: {counts['reports']}",
+            f"- Snapshots: {counts['snapshots']}",
+            f"- Source records: {counts['sources']}",
+            f"- Exports: {counts['exports']}",
+            f"- Handoff records: {counts['handoff']}",
+            f"- Audit report: {report_path}",
+            "- External API called: no",
+            "- Changes made: no",
+            "- Delete performed: no",
+            "- Secret values exposed: no",
+            "- Hub adapter: pending future dashboard",
+            "",
+            "Issues:",
+        ]
+
+        lines.extend(f"- {item}" for item in issues) if issues else lines.append("- none")
+
+        lines.extend(["", "Recommendations:"])
+        lines.extend(f"- {item}" for item in recommendations)
+
+        lines.extend(["", "Blocked operations:"])
+        for item in safety["blocked"]:
+            lines.append(f"- {item}")
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+def _blocked_analytics_response(
+    title: str,
+    action: str,
+    reason: str,
+    blocked_reason: str,
+    report_name: str,
+) -> ToolResult:
+    payload = {
+        "report_type": f"serena_analytics_{report_name}",
+        "created_at": _timestamp(),
+        "action": action,
+        "reason": reason,
+        "blocked_reason": blocked_reason,
+        "risk_level": "BLOCKED",
+        "allowed_to_continue": False,
+        "approval_required": True,
+        "owner_review_required": True,
+        "external_api_called": False,
+        "snapshot_created": False,
+        "report_created": False,
+        "export_performed": False,
+        "delete_performed": False,
+        "changes_made": False,
+        "secret_values_exposed": False,
+        "hub_adapter": _hub_adapter_contract(),
+    }
+    report_path = _save_json("reports", report_name, payload)
+
+    return ToolResult(
+        tool_name=f"serena_analytics_{report_name}",
+        success=False,
+        content=(
+            f"{title}\n\n"
+            f"- Action: {action}\n"
+            f"- Reason: {reason}\n"
+            f"- Blocked reason: {blocked_reason}\n"
+            "- Risk level: BLOCKED\n"
+            "- Allowed to continue: no\n"
+            "- Approval required: yes\n"
+            "- Owner review required: yes\n"
+            f"- Report: {report_path}\n"
+            "- External API called: no\n"
+            "- Snapshot created: no\n"
+            "- Report created: no\n"
+            "- Export performed: no\n"
+            "- Delete performed: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard"
+        ),
+        metadata={**payload, "report_path": str(report_path)},
+    )
+
+
+@ToolRegistry.register("serena_analytics_blocked_token_exposure")
+class SerenaAnalyticsBlockedTokenExposureTool(_AnalyticsBaseTool):
+    tool_id = "serena_analytics_blocked_token_exposure"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked token/API secret exposure command.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+            },
+            category="serena_analytics",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        return _blocked_analytics_response(
+            "Analytics token exposure blocked by Serena Analytics v1 policy",
+            str(params.get("action") or "expose analytics token").strip(),
+            str(params.get("reason") or "Token exposure requested.").strip(),
+            "Serena Analytics may check whether tokens exist, but may never display access tokens, API secrets, refresh tokens, or page tokens.",
+            "blocked-token-exposure",
+        )
+
+
+@ToolRegistry.register("serena_analytics_blocked_unapproved_posting")
+class SerenaAnalyticsBlockedUnapprovedPostingTool(_AnalyticsBaseTool):
+    tool_id = "serena_analytics_blocked_unapproved_posting"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked posting/editing/campaign modification command from Analytics.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+            },
+            category="serena_analytics",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        return _blocked_analytics_response(
+            "Posting or page/campaign modification blocked by Serena Analytics v1 policy",
+            str(params.get("action") or "post or modify page/campaign").strip(),
+            str(params.get("reason") or "Unapproved posting/modification requested.").strip(),
+            "Analytics v1 is read/analyze/report only. Posting, editing pages, changing campaigns, and altering tracking settings belong to future approved operator workflows.",
+            "blocked-unapproved-posting",
+        )
+
+
+@ToolRegistry.register("serena_analytics_blocked_sensitive_export")
+class SerenaAnalyticsBlockedSensitiveExportTool(_AnalyticsBaseTool):
+    tool_id = "serena_analytics_blocked_sensitive_export"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked sensitive analytics export command.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+            },
+            category="serena_analytics",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        return _blocked_analytics_response(
+            "Sensitive analytics export blocked by Serena Analytics v1 policy",
+            str(params.get("action") or "export sensitive analytics").strip(),
+            str(params.get("reason") or "Sensitive analytics export requested.").strip(),
+            "Serena may not export business-sensitive, financial, patient/client, or combined CRM/revenue analytics externally without explicit approval and Compliance review.",
+            "blocked-sensitive-export",
+        )
+
+
 __all__ = [
     "SerenaAnalyticsStatusTool",
     "SerenaAnalyticsEnvCheckTool",
@@ -2211,6 +2457,10 @@ __all__ = [
     "SerenaAnalyticsGBPKeywordsTool",
     "SerenaAnalyticsSocialSummaryTool",
     "SerenaAnalyticsRecommendationsTool",
+    "SerenaAnalyticsBlockedSensitiveExportTool",
+    "SerenaAnalyticsBlockedUnapprovedPostingTool",
+    "SerenaAnalyticsBlockedTokenExposureTool",
+    "SerenaAnalyticsAuditTool",
     "SerenaAnalyticsContentPerformanceTool",
     "SerenaAnalyticsMarketingFunnelTool",
     "SerenaAnalyticsBusinessOverviewTool",
