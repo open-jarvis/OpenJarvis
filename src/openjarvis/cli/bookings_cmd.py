@@ -12,6 +12,10 @@ from openjarvis.tools.serena_bookings import (
     SerenaBookingsSourceInfoTool,
     SerenaBookingsSourceListTool,
     SerenaBookingsStatusTool,
+    SerenaBookingsNoShowPolicyTool,
+    SerenaBookingsCancellationPolicyTool,
+    SerenaBookingsCancelBookingTool,
+    SerenaBookingsRescheduleBookingTool,
     SerenaBookingsBookingListTool,
     SerenaBookingsBookingInfoTool,
     SerenaBookingsCreateBookingTool,
@@ -183,6 +187,65 @@ def booking_list(business: str, status: str, limit: int) -> None:
     """List local booking records."""
     console = Console()
     result = SerenaBookingsBookingListTool().execute(business=business, status=status, limit=limit)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@bookings.command("reschedule-booking")
+@click.option("--booking-id", required=True, help="Booking ID.")
+@click.option("--new-date", required=True, help="New appointment date.")
+@click.option("--new-time", required=True, help="New appointment time.")
+@click.option("--reason", default="Reschedule requested.", help="Reason.")
+@click.option("--approved", is_flag=True, help="Mark reschedule as approved/planned.")
+def reschedule_booking(booking_id: str, new_date: str, new_time: str, reason: str, approved: bool) -> None:
+    """Create a local booking reschedule plan."""
+    console = Console()
+    result = SerenaBookingsRescheduleBookingTool().execute(
+        booking_id=booking_id,
+        new_date=new_date,
+        new_time=new_time,
+        reason=reason,
+        approved=approved,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@bookings.command("cancel-booking")
+@click.option("--booking-id", required=True, help="Booking ID.")
+@click.option("--reason", default="Cancellation requested.", help="Reason.")
+@click.option("--approved", is_flag=True, help="Required for cancellation planning.")
+def cancel_booking(booking_id: str, reason: str, approved: bool) -> None:
+    """Create a local booking cancellation plan."""
+    console = Console()
+    result = SerenaBookingsCancelBookingTool().execute(
+        booking_id=booking_id,
+        reason=reason,
+        approved=approved,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@bookings.command("cancellation-policy")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--notice-hours", default=24, type=int, help="Preferred notice hours.")
+@click.option("--notes", default="", help="Notes.")
+def cancellation_policy(business: str, notice_hours: int, notes: str) -> None:
+    """Create/display appointment cancellation policy."""
+    console = Console()
+    result = SerenaBookingsCancellationPolicyTool().execute(
+        business=business,
+        notice_hours=notice_hours,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@bookings.command("no-show-policy")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--notes", default="", help="Notes.")
+def no_show_policy(business: str, notes: str) -> None:
+    """Create/display no-show policy and prevention workflow."""
+    console = Console()
+    result = SerenaBookingsNoShowPolicyTool().execute(business=business, notes=notes)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 

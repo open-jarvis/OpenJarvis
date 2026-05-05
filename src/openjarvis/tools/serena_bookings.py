@@ -1012,6 +1012,324 @@ class SerenaBookingsBookingListTool(_BookingsBaseTool):
         return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
 
 
+@ToolRegistry.register("serena_bookings_reschedule_booking")
+class SerenaBookingsRescheduleBookingTool(_BookingsBaseTool):
+    tool_id = "serena_bookings_reschedule_booking"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local booking reschedule plan. Does not update Calendar.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "booking_id": {"type": "string"},
+                    "new_date": {"type": "string"},
+                    "new_time": {"type": "string"},
+                    "reason": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                },
+                "required": ["booking_id", "new_date", "new_time"],
+            },
+            category="serena_bookings",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        booking_id = str(params.get("booking_id") or "").strip()
+        new_date = str(params.get("new_date") or "").strip()
+        new_time = str(params.get("new_time") or "").strip()
+        reason = str(params.get("reason") or "Reschedule requested.").strip()
+        approved = bool(params.get("approved") or False)
+
+        records = _load_json_records("appointments")
+        match = None
+        for record in records:
+            if str(record.get("booking_id") or "") == booking_id:
+                match = record
+                break
+
+        if not match:
+            return self._result(
+                "Serena booking reschedule failed\n\n"
+                f"- Booking ID: {booking_id}\n"
+                "- Error: booking not found\n"
+                "- Calendar write performed: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        payload = {
+            "report_type": "serena_bookings_reschedule_plan",
+            "created_at": _timestamp(),
+            "booking_id": booking_id,
+            "business": match.get("business"),
+            "patient_or_client": match.get("patient_or_client"),
+            "appointment_type": match.get("appointment_type"),
+            "old_date": match.get("date"),
+            "old_time": match.get("time"),
+            "new_date": new_date,
+            "new_time": new_time,
+            "reason": reason,
+            "approved": approved,
+            "calendar_event_id": match.get("calendar_event_id"),
+            "sensitive": bool(match.get("sensitive")),
+            "reschedule_planned": True,
+            "calendar_write_performed": False,
+            "reminder_sent": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"reschedule-{booking_id}", payload)
+
+        return self._result(
+            "Serena booking reschedule plan created\n\n"
+            f"- Booking ID: {booking_id}\n"
+            f"- Patient/client: {match.get('patient_or_client')}\n"
+            f"- Old time: {match.get('date')} {match.get('time')}\n"
+            f"- New time: {new_date} {new_time}\n"
+            f"- Reason: {reason}\n"
+            f"- Approved: {'yes' if approved else 'no'}\n"
+            f"- Calendar event ID: {match.get('calendar_event_id') or 'not linked'}\n"
+            f"- Report: {report_path}\n"
+            "- Reschedule planned: yes\n"
+            "- Calendar write performed: no\n"
+            "- Reminder sent: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Next safe step:\n"
+            "- Use bookings calendar-update-plan or calendar handoff after approval.",
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_bookings_cancel_booking")
+class SerenaBookingsCancelBookingTool(_BookingsBaseTool):
+    tool_id = "serena_bookings_cancel_booking"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local booking cancellation plan. Does not cancel Calendar.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "booking_id": {"type": "string"},
+                    "reason": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                },
+                "required": ["booking_id"],
+            },
+            category="serena_bookings",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        booking_id = str(params.get("booking_id") or "").strip()
+        reason = str(params.get("reason") or "Cancellation requested.").strip()
+        approved = bool(params.get("approved") or False)
+
+        if not approved:
+            return self._result(
+                "Serena booking cancellation blocked\n\n"
+                f"- Booking ID: {booking_id}\n"
+                f"- Reason: {reason}\n"
+                "- Blocked reason: cancellation requires explicit approval.\n"
+                "- Cancellation planned: no\n"
+                "- Calendar write performed: no\n"
+                "- Delete performed: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        records = _load_json_records("appointments")
+        match = None
+        for record in records:
+            if str(record.get("booking_id") or "") == booking_id:
+                match = record
+                break
+
+        if not match:
+            return self._result(
+                "Serena booking cancellation failed\n\n"
+                f"- Booking ID: {booking_id}\n"
+                "- Error: booking not found\n"
+                "- Calendar write performed: no\n"
+                "- Delete performed: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        payload = {
+            "report_type": "serena_bookings_cancel_plan",
+            "created_at": _timestamp(),
+            "booking_id": booking_id,
+            "business": match.get("business"),
+            "patient_or_client": match.get("patient_or_client"),
+            "appointment_type": match.get("appointment_type"),
+            "date": match.get("date"),
+            "time": match.get("time"),
+            "reason": reason,
+            "approved": approved,
+            "calendar_event_id": match.get("calendar_event_id"),
+            "sensitive": bool(match.get("sensitive")),
+            "cancellation_planned": True,
+            "calendar_write_performed": False,
+            "appointment_deleted": False,
+            "delete_performed": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"cancel-{booking_id}", payload)
+
+        return self._result(
+            "Serena booking cancellation plan created\n\n"
+            f"- Booking ID: {booking_id}\n"
+            f"- Patient/client: {match.get('patient_or_client')}\n"
+            f"- Appointment: {match.get('appointment_type')} | {match.get('date')} {match.get('time')}\n"
+            f"- Reason: {reason}\n"
+            f"- Approved: yes\n"
+            f"- Calendar event ID: {match.get('calendar_event_id') or 'not linked'}\n"
+            f"- Report: {report_path}\n"
+            "- Cancellation planned: yes\n"
+            "- Calendar write performed: no\n"
+            "- Appointment deleted: no\n"
+            "- Delete performed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Next safe step:\n"
+            "- Use bookings calendar-cancel-plan or Calendar operator cancellation only with explicit event targeting.",
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_bookings_cancellation_policy")
+class SerenaBookingsCancellationPolicyTool(_BookingsBaseTool):
+    tool_id = "serena_bookings_cancellation_policy"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create or display a local appointment cancellation policy note.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                    "notice_hours": {"type": "integer"},
+                    "notes": {"type": "string"},
+                },
+            },
+            category="serena_bookings",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "General Business").strip()
+        notice_hours = int(params.get("notice_hours") or 24)
+        notes = str(params.get("notes") or "").strip()
+
+        policy = [
+            f"Preferred cancellation/reschedule notice: {notice_hours} hours.",
+            "Cancellations must target one specific booking.",
+            "Bulk cancellations are blocked.",
+            "Silent calendar cancellation is blocked.",
+            "Patient/client-sensitive details must not be exposed in cancellation messages.",
+            "Cancellation fees/payment implications must be handled by Accounting/PayFast policy later.",
+            "Calendar cancellation handoff requires exact event targeting and approval.",
+        ]
+
+        payload = {
+            "report_type": "serena_bookings_cancellation_policy",
+            "created_at": _timestamp(),
+            "business": business,
+            "notice_hours": notice_hours,
+            "notes": notes,
+            "policy": policy,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"cancellation-policy-{business}", payload)
+
+        return self._result(
+            "Serena cancellation policy\n\n"
+            f"- Business: {business}\n"
+            f"- Notice hours: {notice_hours}\n"
+            f"- Report: {report_path}\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Policy:\n"
+            + "\n".join(f"- {item}" for item in policy),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_bookings_no_show_policy")
+class SerenaBookingsNoShowPolicyTool(_BookingsBaseTool):
+    tool_id = "serena_bookings_no_show_policy"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create or display a local no-show policy and prevention workflow.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+            },
+            category="serena_bookings",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "General Business").strip()
+        notes = str(params.get("notes") or "").strip()
+
+        policy = [
+            "Create reminders for upcoming appointments.",
+            "Flag higher no-show risk when contact details are missing, reminder status is pending, or appointment was rescheduled repeatedly.",
+            "Do not send reminders externally without approval.",
+            "Do not include sensitive health details in reminders.",
+            "Create follow-up plan for missed appointments.",
+            "Preserve appointment evidence and reminder records.",
+            "Use Reporting for no-show summaries.",
+        ]
+
+        payload = {
+            "report_type": "serena_bookings_no_show_policy",
+            "created_at": _timestamp(),
+            "business": business,
+            "notes": notes,
+            "policy": policy,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"no-show-policy-{business}", payload)
+
+        return self._result(
+            "Serena no-show policy\n\n"
+            f"- Business: {business}\n"
+            f"- Report: {report_path}\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Policy:\n"
+            + "\n".join(f"- {item}" for item in policy),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
 __all__ = [
     "SerenaBookingsStatusTool",
     "SerenaBookingsEnvCheckTool",
@@ -1019,6 +1337,10 @@ __all__ = [
     "SerenaBookingsSourceListTool",
     "SerenaBookingsSourceInfoTool",
     "SerenaBookingsBookingListTool",
+    "SerenaBookingsNoShowPolicyTool",
+    "SerenaBookingsCancellationPolicyTool",
+    "SerenaBookingsCancelBookingTool",
+    "SerenaBookingsRescheduleBookingTool",
     "SerenaBookingsBookingInfoTool",
     "SerenaBookingsCreateBookingTool",
     "SerenaBookingsBookingRequestTool",
