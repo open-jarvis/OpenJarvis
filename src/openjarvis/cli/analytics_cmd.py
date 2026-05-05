@@ -12,6 +12,10 @@ from openjarvis.tools.serena_analytics import (
     SerenaAnalyticsSourceInfoTool,
     SerenaAnalyticsSourceListTool,
     SerenaAnalyticsStatusTool,
+    SerenaAnalyticsGBPKeywordsTool,
+    SerenaAnalyticsGBPSummaryTool,
+    SerenaAnalyticsGBPPlanTool,
+    SerenaAnalyticsGBPEnvCheckTool,
     SerenaAnalyticsWebsiteSummaryTool,
     SerenaAnalyticsGA4PlanTool,
     SerenaAnalyticsWordpressSummaryTool,
@@ -223,6 +227,61 @@ def website_summary(metrics: str, business: str, date_range: str, source: str, n
         date_range=date_range,
         source=source,
         notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@analytics.command("gbp-env-check")
+def gbp_env_check() -> None:
+    """Check Google Business Profile analytics env configuration."""
+    console = Console()
+    result = SerenaAnalyticsGBPEnvCheckTool().execute()
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@analytics.command("gbp-plan")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--date-range", default="last 30 days", help="Date range.")
+@click.option("--goal", default="Analyze Google Business Profile performance.", help="Analytics goal.")
+def gbp_plan(business: str, date_range: str, goal: str) -> None:
+    """Create a Google Business Profile analytics plan."""
+    console = Console()
+    result = SerenaAnalyticsGBPPlanTool().execute(business=business, date_range=date_range, goal=goal)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@analytics.command("gbp-summary")
+@click.option("--metrics", required=True, help="GBP metrics as JSON or JSON-like text.")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--date-range", default="unspecified", help="Date range.")
+@click.option("--location", default="primary location", help="GBP location/profile.")
+@click.option("--notes", default="", help="Optional notes.")
+def gbp_summary(metrics: str, business: str, date_range: str, location: str, notes: str) -> None:
+    """Create a Google Business Profile analytics summary."""
+    console = Console()
+    result = SerenaAnalyticsGBPSummaryTool().execute(
+        metrics=metrics,
+        business=business,
+        date_range=date_range,
+        location=location,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@analytics.command("gbp-keywords")
+@click.option("--keywords", required=True, help="GBP keyword metrics as JSON or JSON-like text.")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--date-range", default="unspecified", help="Date range.")
+@click.option("--location", default="primary location", help="GBP location/profile.")
+def gbp_keywords(keywords: str, business: str, date_range: str, location: str) -> None:
+    """Create a Google Business Profile keyword analytics summary."""
+    console = Console()
+    result = SerenaAnalyticsGBPKeywordsTool().execute(
+        keywords=keywords,
+        business=business,
+        date_range=date_range,
+        location=location,
     )
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 

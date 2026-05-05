@@ -1337,6 +1337,239 @@ class SerenaAnalyticsWebsiteSummaryTool(_AnalyticsBaseTool):
             )
 
 
+@ToolRegistry.register("serena_analytics_gbp_env_check")
+class SerenaAnalyticsGBPEnvCheckTool(_AnalyticsBaseTool):
+    tool_id = "serena_analytics_gbp_env_check"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Check Google Business Profile analytics environment without exposing secrets.",
+            parameters={"type": "object", "properties": {}},
+            category="serena_analytics",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        env = _env_status().get("google-business-profile", {})
+        required = env.get("required", [])
+        configured = bool(env.get("configured"))
+
+        payload = {
+            "report_type": "serena_analytics_gbp_env_check",
+            "created_at": _timestamp(),
+            "source": "google-business-profile",
+            "configured": configured,
+            "env_status": env,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", "gbp-env-check", payload)
+
+        lines = [
+            "Serena Google Business Profile analytics env check",
+            "",
+            f"- Configured: {'yes' if configured else 'no'}",
+            f"- Report: {report_path}",
+            "- Changes made: no",
+            "- Secret values exposed: no",
+            "- Hub adapter: pending future dashboard",
+            "",
+            "Required environment:",
+        ]
+
+        for item in required:
+            lines.append(f"- {item['name']} | present={'yes' if item['present'] else 'no'} | length={item['length']}")
+
+        lines.extend([
+            "",
+            "Notes:",
+            "- GOOGLE_REFRESH_TOKEN is now present, but GBP_ACCOUNT_ID and GBP_LOCATION_IDS are still needed before live GBP analytics can run.",
+            "- Google Business Profile API access/permissions may still require account-level access and API quota approval.",
+            "- Analytics v1 does not modify business profiles.",
+        ])
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+@ToolRegistry.register("serena_analytics_gbp_plan")
+class SerenaAnalyticsGBPPlanTool(_AnalyticsBaseTool):
+    tool_id = "serena_analytics_gbp_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a Google Business Profile analytics collection plan without external API calls.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                    "date_range": {"type": "string"},
+                    "goal": {"type": "string"},
+                },
+            },
+            category="serena_analytics",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "General Business").strip()
+        date_range = str(params.get("date_range") or "last 30 days").strip()
+        goal = str(params.get("goal") or "Analyze Google Business Profile performance.").strip()
+
+        return _source_plan_response(
+            "Serena Google Business Profile analytics plan",
+            "google-business-profile",
+            business,
+            date_range,
+            goal,
+            [
+                "Confirm the correct Google Business Profile account ID.",
+                "Confirm one or more location IDs for the business profiles Serena must manage.",
+                "Collect search impressions, map impressions, website clicks, calls, directions, messages, bookings, and keyword impressions when available.",
+                "Compare location performance if multiple profiles exist.",
+                "Connect GBP results to website, Facebook, calendar bookings, and future CRM leads.",
+            ],
+        )
+
+
+@ToolRegistry.register("serena_analytics_gbp_summary")
+class SerenaAnalyticsGBPSummaryTool(_AnalyticsBaseTool):
+    tool_id = "serena_analytics_gbp_summary"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a Google Business Profile analytics summary from provided metrics.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "metrics": {"type": "string"},
+                    "business": {"type": "string"},
+                    "date_range": {"type": "string"},
+                    "location": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["metrics"],
+            },
+            category="serena_analytics",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        metrics_text = str(params.get("metrics") or "")
+        business = str(params.get("business") or "General Business").strip()
+        date_range = str(params.get("date_range") or "unspecified").strip()
+        location = str(params.get("location") or "primary location").strip()
+        notes = str(params.get("notes") or "").strip()
+
+        try:
+            metrics = _parse_jsonish(metrics_text)
+            data = {
+                "business": business,
+                "date_range": date_range,
+                "source": "google-business-profile",
+                "location": location,
+                "metrics": metrics,
+                "notes": notes,
+                "analysis_focus": [
+                    "search visibility",
+                    "map visibility",
+                    "calls",
+                    "website clicks",
+                    "directions",
+                    "messages",
+                    "bookings",
+                    "keyword demand",
+                    "local conversion signals",
+                ],
+            }
+            return _save_analytics_snapshot(
+                "Serena Google Business Profile Analytics Summary",
+                data,
+                "google-business-profile",
+                business,
+                date_range,
+                "provided GBP metrics",
+                "gbp-summary",
+            )
+        except Exception as exc:
+            return self._result(
+                "Serena Google Business Profile analytics summary failed\n\n"
+                f"- Error: {exc}\n"
+                "- Snapshot created: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_analytics_gbp_keywords")
+class SerenaAnalyticsGBPKeywordsTool(_AnalyticsBaseTool):
+    tool_id = "serena_analytics_gbp_keywords"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Analyze Google Business Profile keyword/search-term performance from provided metrics.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "keywords": {"type": "string"},
+                    "business": {"type": "string"},
+                    "date_range": {"type": "string"},
+                    "location": {"type": "string"},
+                },
+                "required": ["keywords"],
+            },
+            category="serena_analytics",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        keyword_text = str(params.get("keywords") or "")
+        business = str(params.get("business") or "General Business").strip()
+        date_range = str(params.get("date_range") or "unspecified").strip()
+        location = str(params.get("location") or "primary location").strip()
+
+        try:
+            keywords = _parse_jsonish(keyword_text)
+            data = {
+                "business": business,
+                "date_range": date_range,
+                "source": "google-business-profile-keywords",
+                "location": location,
+                "keywords": keywords,
+                "analysis_focus": [
+                    "highest impression search terms",
+                    "local intent",
+                    "content opportunities",
+                    "service page opportunities",
+                    "Google Business Profile post ideas",
+                    "website SEO alignment",
+                ],
+            }
+            return _save_analytics_snapshot(
+                "Serena Google Business Profile Keyword Analytics",
+                data,
+                "google-business-profile-keywords",
+                business,
+                date_range,
+                "provided GBP keyword metrics",
+                "gbp-keywords",
+            )
+        except Exception as exc:
+            return self._result(
+                "Serena Google Business Profile keyword analytics failed\n\n"
+                f"- Error: {exc}\n"
+                "- Snapshot created: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+
 __all__ = [
     "SerenaAnalyticsStatusTool",
     "SerenaAnalyticsEnvCheckTool",
@@ -1345,6 +1578,10 @@ __all__ = [
     "SerenaAnalyticsSourceInfoTool",
     "SerenaAnalyticsCompareTool",
     "SerenaAnalyticsWebsiteSummaryTool",
+    "SerenaAnalyticsGBPKeywordsTool",
+    "SerenaAnalyticsGBPSummaryTool",
+    "SerenaAnalyticsGBPPlanTool",
+    "SerenaAnalyticsGBPEnvCheckTool",
     "SerenaAnalyticsGA4PlanTool",
     "SerenaAnalyticsWordpressSummaryTool",
     "SerenaAnalyticsWordpressPlanTool",
