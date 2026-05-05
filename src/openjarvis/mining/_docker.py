@@ -129,6 +129,13 @@ class PearlDockerLauncher:
                     f"origin/{PEARL_PINNED_REF}",
                     cwd=PEARL_CACHE_DIR,
                 )
+            self._git(
+                "submodule",
+                "update",
+                "--init",
+                "--recursive",
+                cwd=PEARL_CACHE_DIR,
+            )
             self._git("clean", "-fdx", cwd=PEARL_CACHE_DIR)
         else:
             # Fresh clone. Note: --branch accepts both branches and tags but
@@ -142,15 +149,26 @@ class PearlDockerLauncher:
                 str(PEARL_CACHE_DIR),
                 cwd=None,
             )
+            self._git(
+                "submodule",
+                "update",
+                "--init",
+                "--recursive",
+                cwd=PEARL_CACHE_DIR,
+            )
         return PEARL_CACHE_DIR
 
     def _docker_build(self, repo_path: Path, tag: str) -> str:
         """Run ``docker buildx build`` with Pearl's Dockerfile against the monorepo."""
+        self._patch_vllm_entrypoint(repo_path)
+
         # Build context is the repo root; Dockerfile is at miner/vllm-miner/Dockerfile.
         cmd = [
             "docker",
             "buildx",
             "build",
+            "--ulimit",
+            "nofile=1048576:1048576",
             "-t",
             tag,
             "-f",
@@ -172,6 +190,32 @@ class PearlDockerLauncher:
                 + " | ".join(stderr_tail)
             ) from exc
         return tag
+
+    def _patch_vllm_entrypoint(self, repo_path: Path) -> None:
+        """Patch Pearl's current entrypoint to wait on the UDS gateway socket.
+
+        The upstream entrypoint waits for a Prometheus endpoint that the current
+        gateway package does not start, which causes the container to restart
+        before vLLM launches. The miner itself expects the UDS path, so wait for
+        that socket instead.
+        """
+        entrypoint = repo_path / "miner" / "vllm-miner" / "entrypoint.sh"
+        text = entrypoint.read_text()
+        old = (
+            "# Wait until the gateway is ready\n"
+            "curl -s http://localhost:8339/metrics --retry-delay 1 --retry 20 "
+            "--retry-all-errors > /dev/null"
+        )
+        new = (
+            "# Wait until the gateway is ready\n"
+            "for i in $(seq 1 20); do\n"
+            "    [ -S /tmp/pearlgw.sock ] && break\n"
+            "    sleep 1\n"
+            "done\n"
+            "[ -S /tmp/pearlgw.sock ]"
+        )
+        if old in text:
+            entrypoint.write_text(text.replace(old, new))
 
     # -----------------------------------------------------------------
     # Container lifecycle
@@ -220,7 +264,8 @@ class PearlDockerLauncher:
             "PEARLD_RPC_PASSWORD": password,
             "PEARLD_MINING_ADDRESS": config.wallet_address,
             "HF_TOKEN": hf_token,
-            "MINER_RPC_TRANSPORT": "tcp",
+            "MINER_RPC_TRANSPORT": "uds",
+            "MINER_RPC_SOCKET_PATH": "/tmp/pearlgw.sock",
         }
 
         # Dynamic import so tests don't need the real `docker` package shape.

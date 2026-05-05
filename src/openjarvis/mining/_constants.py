@@ -14,7 +14,7 @@ from pathlib import Path
 PEARL_REPO = "https://github.com/pearl-research-labs/pearl.git"
 # TODO at implementation time: replace with the specific commit/tag verified
 # against H100. Document the chosen ref in the OJ release notes.
-PEARL_PINNED_REF = "main"
+PEARL_PINNED_REF = "master"
 PEARL_IMAGE_TAG = f"openjarvis/pearl-miner:{PEARL_PINNED_REF}"
 
 # Default Pearl-blessed model. Overridable via [mining.extra].model.
