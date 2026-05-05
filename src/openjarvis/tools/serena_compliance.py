@@ -831,6 +831,170 @@ class SerenaComplianceDocumentCheckTool(_ComplianceBaseTool):
         return _run_check("Serena document compliance check", text, context, "document_check", "document-check")
 
 
+def _workflow_context(base: str, workflow: str) -> str:
+    return f"{workflow} workflow guard. {base}".strip()
+
+
+@ToolRegistry.register("serena_compliance_ocr_check")
+class SerenaComplianceOcrCheckTool(_ComplianceBaseTool):
+    tool_id = "serena_compliance_ocr_check"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Check OCR/camera/screen/video extracted text or capture workflow before handoff.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "context": {"type": "string"},
+                    "target": {"type": "string"},
+                },
+                "required": ["text"],
+            },
+            category="serena_compliance",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        text = str(params.get("text") or "")
+        context = str(params.get("context") or "")
+        target = str(params.get("target") or "local report").strip()
+        combined_context = _workflow_context(
+            f"{context} Target handoff: {target}. OCR/capture may contain visual, patient, health, or personal data.",
+            "OCR/Vision",
+        )
+        return _run_check("Serena OCR/Vision compliance guard", text, combined_context, "ocr_check", "ocr-check")
+
+
+@ToolRegistry.register("serena_compliance_drive_sharing_check")
+class SerenaComplianceDriveSharingCheckTool(_ComplianceBaseTool):
+    tool_id = "serena_compliance_drive_sharing_check"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Check Google Drive upload/link/share workflow before external storage or sharing.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "context": {"type": "string"},
+                    "drive_action": {"type": "string"},
+                },
+                "required": ["text"],
+            },
+            category="serena_compliance",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        text = str(params.get("text") or "")
+        context = str(params.get("context") or "")
+        drive_action = str(params.get("drive_action") or "upload/link").strip()
+        combined_context = _workflow_context(
+            f"{context} Drive action: {drive_action}. Check for sensitive data before upload, link return, or sharing.",
+            "Google Drive",
+        )
+        return _run_check("Serena Google Drive sharing compliance guard", text, combined_context, "drive_sharing_check", "drive-sharing-check")
+
+
+@ToolRegistry.register("serena_compliance_docs_check")
+class SerenaComplianceDocsCheckTool(_ComplianceBaseTool):
+    tool_id = "serena_compliance_docs_check"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Check Google Docs create/edit/export workflow before document creation or sharing.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "context": {"type": "string"},
+                    "doc_action": {"type": "string"},
+                },
+                "required": ["text"],
+            },
+            category="serena_compliance",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        text = str(params.get("text") or "")
+        context = str(params.get("context") or "")
+        doc_action = str(params.get("doc_action") or "create/edit/export").strip()
+        combined_context = _workflow_context(
+            f"{context} Google Docs action: {doc_action}. Check document content before create, edit, export, link, or Drive handoff.",
+            "Google Docs",
+        )
+        return _run_check("Serena Google Docs compliance guard", text, combined_context, "docs_check", "docs-check")
+
+
+@ToolRegistry.register("serena_compliance_calendar_check")
+class SerenaComplianceCalendarCheckTool(_ComplianceBaseTool):
+    tool_id = "serena_compliance_calendar_check"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Check Google Calendar appointment/reminder/event workflow for privacy and clinical safety.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "context": {"type": "string"},
+                    "calendar_action": {"type": "string"},
+                },
+                "required": ["text"],
+            },
+            category="serena_compliance",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        text = str(params.get("text") or "")
+        context = str(params.get("context") or "")
+        calendar_action = str(params.get("calendar_action") or "appointment/reminder/event").strip()
+        combined_context = _workflow_context(
+            f"{context} Calendar action: {calendar_action}. Check title, description, attendees, links, and health/private details before event creation or update.",
+            "Google Calendar",
+        )
+        return _run_check("Serena Google Calendar compliance guard", text, combined_context, "calendar_check", "calendar-check")
+
+
+@ToolRegistry.register("serena_compliance_crm_check")
+class SerenaComplianceCrmCheckTool(_ComplianceBaseTool):
+    tool_id = "serena_compliance_crm_check"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Check CRM/business/patient record workflow for sensitive data, bulk actions, and audit requirements.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "context": {"type": "string"},
+                    "crm_action": {"type": "string"},
+                },
+                "required": ["text"],
+            },
+            category="serena_compliance",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        text = str(params.get("text") or "")
+        context = str(params.get("context") or "")
+        crm_action = str(params.get("crm_action") or "create/update/search/export").strip()
+        combined_context = _workflow_context(
+            f"{context} CRM action: {crm_action}. CRM may contain client, patient, business, financial, or health data.",
+            "CRM/Business OS",
+        )
+        return _run_check("Serena CRM compliance guard", text, combined_context, "crm_check", "crm-check")
+
+
 __all__ = [
     "SerenaComplianceStatusTool",
     "SerenaCompliancePolicyListTool",
@@ -838,6 +1002,11 @@ __all__ = [
     "SerenaComplianceSourceListTool",
     "SerenaCompliancePlanTool",
     "SerenaComplianceDocumentCheckTool",
+    "SerenaComplianceCrmCheckTool",
+    "SerenaComplianceCalendarCheckTool",
+    "SerenaComplianceDocsCheckTool",
+    "SerenaComplianceDriveSharingCheckTool",
+    "SerenaComplianceOcrCheckTool",
     "SerenaComplianceMarketingCheckTool",
     "SerenaCompliancePatientDataCheckTool",
     "SerenaComplianceHpcsaCheckTool",

@@ -12,6 +12,11 @@ from openjarvis.tools.serena_compliance import (
     SerenaCompliancePolicyListTool,
     SerenaComplianceSourceListTool,
     SerenaComplianceStatusTool,
+    SerenaComplianceCrmCheckTool,
+    SerenaComplianceCalendarCheckTool,
+    SerenaComplianceDocsCheckTool,
+    SerenaComplianceDriveSharingCheckTool,
+    SerenaComplianceOcrCheckTool,
     SerenaComplianceDocumentCheckTool,
     SerenaComplianceMarketingCheckTool,
     SerenaCompliancePatientDataCheckTool,
@@ -139,6 +144,61 @@ def document_check(text: str, context: str) -> None:
     """Check document text risk."""
     console = Console()
     result = SerenaComplianceDocumentCheckTool().execute(text=text, context=context)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@compliance.command("ocr-check")
+@click.option("--text", required=True, help="OCR/capture text to check.")
+@click.option("--context", default="", help="Workflow context.")
+@click.option("--target", default="local report", help="Target handoff, e.g. Google Docs, Drive.")
+def ocr_check(text: str, context: str, target: str) -> None:
+    """Check OCR/camera/screen/video workflow risk."""
+    console = Console()
+    result = SerenaComplianceOcrCheckTool().execute(text=text, context=context, target=target)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@compliance.command("drive-sharing-check")
+@click.option("--text", required=True, help="Content/file summary to check.")
+@click.option("--context", default="", help="Workflow context.")
+@click.option("--drive-action", default="upload/link", help="Drive action.")
+def drive_sharing_check(text: str, context: str, drive_action: str) -> None:
+    """Check Google Drive upload/link/share risk."""
+    console = Console()
+    result = SerenaComplianceDriveSharingCheckTool().execute(text=text, context=context, drive_action=drive_action)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@compliance.command("docs-check")
+@click.option("--text", required=True, help="Document text to check.")
+@click.option("--context", default="", help="Workflow context.")
+@click.option("--doc-action", default="create/edit/export", help="Google Docs action.")
+def docs_check(text: str, context: str, doc_action: str) -> None:
+    """Check Google Docs workflow risk."""
+    console = Console()
+    result = SerenaComplianceDocsCheckTool().execute(text=text, context=context, doc_action=doc_action)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@compliance.command("calendar-check")
+@click.option("--text", required=True, help="Calendar event text/details to check.")
+@click.option("--context", default="", help="Workflow context.")
+@click.option("--calendar-action", default="appointment/reminder/event", help="Calendar action.")
+def calendar_check(text: str, context: str, calendar_action: str) -> None:
+    """Check Calendar workflow risk."""
+    console = Console()
+    result = SerenaComplianceCalendarCheckTool().execute(text=text, context=context, calendar_action=calendar_action)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@compliance.command("crm-check")
+@click.option("--text", required=True, help="CRM record/action text to check.")
+@click.option("--context", default="", help="Workflow context.")
+@click.option("--crm-action", default="create/update/search/export", help="CRM action.")
+def crm_check(text: str, context: str, crm_action: str) -> None:
+    """Check CRM/business record workflow risk."""
+    console = Console()
+    result = SerenaComplianceCrmCheckTool().execute(text=text, context=context, crm_action=crm_action)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 
