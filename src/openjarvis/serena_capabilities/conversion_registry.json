@@ -1138,12 +1138,15 @@
         },
         {
           "legacy_file": "45-payflow.js",
-          "status": "complete_v1_hub_adapter_pending",
+          "status": "merged_into_accounting_and_membership",
           "name": "Payflow",
           "tested": true,
           "native_tool_complete": true,
           "hub_adapter_pending": true,
-          "merged_into": "serena_accounting",
+          "merged_into": [
+            "serena_accounting",
+            "serena_membership"
+          ],
           "completion_level": "accounting_payments_payroll_tax_full_operator_v1",
           "capabilities": [
             "status",
@@ -1237,17 +1240,12 @@
             ]
           },
           "notes": [
-            "Converted legacy Finance, PayFast, and Payflow into one Accounting / Payments / Payroll / Tax Full Operator.",
-            "Legacy finance triggers: GENERATE INVOICE, INVOICE SUMMARY, RECORD PAYMENT.",
-            "Legacy PayFast triggers: PAYMENT LINK, PAYMENT STATUS.",
-            "Legacy Payflow triggers: PAYFLOW, SUBSCRIPTION.",
-            "Xero is future ledger/source-of-truth target.",
-            "PayFast is future payment-event source.",
-            "Built local ledger/evidence system for invoices, payments, expenses, receipts, payroll, tax, reports, audit.",
-            "Built safety blocks for bank changes, tax filing, payroll submission, ledger deletion, and secret exposure.",
-            "Live Xero/PayFast credentials remain future configuration items.",
-            "Hub Adapter pending."
-          ]
+            "Payflow standalone skill intentionally skipped.",
+            "Legacy Payflow is subscription/payment-flow context.",
+            "Accounting handles PayFast/Xero/payment/invoice reality.",
+            "Membership handles member/subscription/programme workflow."
+          ],
+          "standalone_skill_required": false
         },
         {
           "legacy_file": "20-bookings.js",
@@ -1427,8 +1425,95 @@
         },
         {
           "legacy_file": "21-membership.js",
-          "status": "pending",
-          "name": "Membership"
+          "status": "complete_v1_hub_adapter_pending",
+          "name": "Membership",
+          "tested": true,
+          "native_tool_complete": true,
+          "hub_adapter_pending": true,
+          "merged_into": "serena_membership",
+          "completion_level": "membership_subscriptions_patient_programmes_full_operator_v1",
+          "capabilities": [
+            "status",
+            "env_check",
+            "plan",
+            "source_list",
+            "source_info",
+            "plan_list",
+            "plan_info",
+            "create_member_profile",
+            "member_info",
+            "member_list",
+            "update_member_status",
+            "enrollment_plan",
+            "enroll_member",
+            "cancel_membership_plan",
+            "pause_membership_plan",
+            "renewal_plan",
+            "subscription_plan",
+            "subscription_record",
+            "payment_handoff",
+            "accounting_handoff",
+            "booking_handoff",
+            "programme_plan",
+            "programme_enroll",
+            "programme_progress",
+            "programme_follow_up",
+            "docs_handoff",
+            "drive_handoff",
+            "reporting_handoff",
+            "member_summary",
+            "audit",
+            "blocked_bulk_cancel",
+            "blocked_unapproved_payment_change",
+            "blocked_patient_data_exposure",
+            "blocked_silent_programme_change",
+            "hub_adapter_metadata"
+          ],
+          "hub_adapter": {
+            "status": "pending_future_dashboard",
+            "widgets": [
+              "membership_overview_widget",
+              "member_profile_widget",
+              "subscription_status_widget",
+              "programme_progress_widget",
+              "renewal_pipeline_widget",
+              "membership_payment_widget",
+              "membership_approval_widget",
+              "membership_exceptions_widget"
+            ],
+            "events": [
+              "membership_plan_created",
+              "member_profile_created",
+              "member_enrolled",
+              "membership_status_updated",
+              "subscription_record_created",
+              "programme_progress_updated",
+              "membership_handoff_created",
+              "membership_report_created",
+              "membership_action_blocked"
+            ],
+            "operator_state": [
+              "current_business_id",
+              "current_member_id",
+              "current_patient_or_client_id",
+              "current_membership_plan_id",
+              "current_subscription_id",
+              "current_programme_id",
+              "current_payment_status",
+              "current_required_approval",
+              "current_report_path"
+            ]
+          },
+          "notes": [
+            "Converted legacy Membership into Membership / Subscriptions / Patient Programmes Full Operator.",
+            "Built local member profile, enrollment, subscription, programme, handoff, report, and audit evidence.",
+            "Accounting owns PayFast/Xero/invoice/payment reality.",
+            "Bookings owns appointment/calendar/reminder reality.",
+            "Compliance owns sensitive data review.",
+            "Sensitive Docs/Drive/Reporting/member-summary handoffs require approval.",
+            "Safety blocks cover bulk cancellation, unapproved payment changes, patient data exposure, and silent programme changes.",
+            "Hub Adapter pending."
+          ]
         },
         {
           "legacy_file": "29-ecommerce.js",
