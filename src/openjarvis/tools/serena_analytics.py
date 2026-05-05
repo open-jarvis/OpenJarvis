@@ -561,6 +561,35 @@ class SerenaAnalyticsPlanTool(_AnalyticsBaseTool):
         )
 
 
+
+def _parse_jsonish(text: str) -> Any:
+    """Parse strict JSON first, then tolerate common PowerShell/pasted object forms."""
+    raw = str(text or "").strip()
+
+    if not raw:
+        raise ValueError("empty JSON text")
+
+    try:
+        return json.loads(raw)
+    except Exception:
+        pass
+
+    # Common PowerShell result after quote loss:
+    # {page_reach:1200,page_impressions:3400}
+    import re
+    fixed = raw
+
+    # Quote unquoted object keys after { or ,
+    fixed = re.sub(r'([{,]\s*)([A-Za-z_][A-Za-z0-9_\-]*)(\s*:)', r'\1"\2"\3', fixed)
+
+    # Convert single quotes to double quotes when used as string delimiters
+    fixed = fixed.replace("'", '"')
+
+    try:
+        return json.loads(fixed)
+    except Exception as exc:
+        raise ValueError(f"could not parse JSON or relaxed JSON-like text: {exc}") from exc
+
 def _numeric_values_from_obj(obj: Any, prefix: str = "") -> dict[str, float]:
     values: dict[str, float] = {}
 
@@ -759,7 +788,7 @@ class SerenaAnalyticsFromJsonTool(_AnalyticsBaseTool):
         date_range = str(params.get("date_range") or "unspecified").strip()
 
         try:
-            data = json.loads(json_text)
+            data = _parse_jsonish(json_text)
             return _save_analytics_snapshot(title, data, source, business, date_range, "provided JSON text", f"from-json-{title}")
         except Exception as exc:
             return self._result(
@@ -968,14 +997,14 @@ class SerenaAnalyticsCompareTool(_AnalyticsBaseTool):
                 current_path, current_data = _read_json_file(str(params.get("current_file")))
                 current_label = str(current_path)
             else:
-                current_data = json.loads(str(params.get("current_json") or "{}"))
+                current_data = _parse_jsonish(str(params.get("current_json") or "{}"))
                 current_label = "current JSON text"
 
             if params.get("previous_file"):
                 previous_path, previous_data = _read_json_file(str(params.get("previous_file")))
                 previous_label = str(previous_path)
             else:
-                previous_data = json.loads(str(params.get("previous_json") or "{}"))
+                previous_data = _parse_jsonish(str(params.get("previous_json") or "{}"))
                 previous_label = "previous JSON text"
 
             current_metrics = _numeric_values_from_obj(current_data)
