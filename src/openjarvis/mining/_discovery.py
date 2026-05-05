@@ -148,15 +148,15 @@ def check_pearld_reachable(url: str, user: str, password: str) -> Tuple[bool, st
 
 
 def check_wallet_address_format(address: str) -> Tuple[bool, str]:
-    """Pearl Taproot addresses begin with ``prl1q...``.
+    """Pearl bech32/bech32m addresses begin with ``prl1q...`` or ``prl1p...``.
 
     We do *not* attempt to validate the bech32 checksum — that's a stronger
     contract that may shift between Pearl revs. Format check only.
     """
     if not address:
         return False, "empty"
-    if not address.startswith("prl1q"):
-        return False, f"expected 'prl1q...' prefix; got {address[:6]!r}"
+    if not address.startswith(("prl1q", "prl1p")):
+        return False, f"expected 'prl1q...' or 'prl1p...' prefix; got {address[:6]!r}"
     if len(address) < 14:
         return False, f"too short ({len(address)} chars)"
     return True, "format ok"

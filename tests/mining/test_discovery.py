@@ -201,6 +201,15 @@ def test_check_wallet_address_format_valid():
     assert ok is True
 
 
+def test_check_wallet_address_format_valid_prl1p():
+    from openjarvis.mining._discovery import check_wallet_address_format
+
+    ok, info = check_wallet_address_format(
+        "prl1pkf5s56dgm6jpg4z9z9qv5wua4jgs3h8q98rfh3gsqxp60eagmruqdnr3dp"
+    )
+    assert ok is True
+
+
 def test_check_wallet_address_format_invalid():
     from openjarvis.mining._discovery import check_wallet_address_format
 

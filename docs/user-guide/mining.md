@@ -14,7 +14,7 @@ integration point is the `MiningProvider` registry.
 | Docker | Docker 24+ with GPU runtime access |
 | Disk | At least 200 GB free for the 70B model and build cache |
 | Pearl node | Reachable `pearld` JSON-RPC endpoint, default `http://localhost:44107` |
-| Wallet | Pearl Taproot address beginning with `prl1q` |
+| Wallet | Pearl address beginning with `prl1q` or `prl1p` |
 
 To generate a wallet address with Pearl's Oyster wallet, run Pearl's wallet
 daemon and query it with `prlctl --wallet --skipverify -s localhost:44207

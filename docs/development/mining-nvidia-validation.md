@@ -13,7 +13,7 @@ Run this on a Linux machine with:
 - Docker 24+ and `nvidia-container-toolkit`
 - At least 200 GB free disk
 - Reachable `pearld` JSON-RPC endpoint
-- Pearl Taproot payout address beginning with `prl1q`
+- Pearl payout address beginning with `prl1q` or `prl1p`
 - Hugging Face access to `pearl-ai/Llama-3.3-70B-Instruct-pearl`
 
 Do not run this on macOS, Apple Silicon, AMD, RTX 4090, or CPU-only hosts.
@@ -108,7 +108,7 @@ uv run jarvis mine init
 
 Use:
 
-- Wallet: the user's Pearl `prl1q...` address
+- Wallet: the user's Pearl `prl1q...` or `prl1p...` address
 - `pearld` URL: usually `http://localhost:44107`
 - RPC user: configured `pearld` user, often `rpcuser`
 - Password env: `PEARLD_RPC_PASSWORD`
