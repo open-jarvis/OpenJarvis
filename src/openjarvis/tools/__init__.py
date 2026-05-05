@@ -156,3 +156,4 @@ import openjarvis.tools.serena_google_docs  # noqa: F401
 import openjarvis.tools.serena_ocr  # noqa: F401
 import openjarvis.tools.serena_google_calendar  # noqa: F401
 import openjarvis.tools.serena_compliance  # noqa: F401
+import openjarvis.tools.serena_reporting  # noqa: F401
