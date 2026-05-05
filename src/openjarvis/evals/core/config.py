@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import List
@@ -31,7 +32,13 @@ else:
 
 logger = logging.getLogger(__name__)
 
-VALID_BACKENDS = {"jarvis-direct", "jarvis-agent", "terminalbench-native"}
+VALID_BACKENDS = {
+    "jarvis-direct",
+    "jarvis-agent",
+    "terminalbench-native",
+    "hermes",
+    "openclaw",
+}
 
 # Known benchmark names (used for warnings, not hard validation)
 KNOWN_BENCHMARKS = {
@@ -134,9 +141,7 @@ def load_eval_config(path: str | Path) -> EvalSuiteConfig:
         sheets_spreadsheet_id=run_raw.get("sheets_spreadsheet_id", ""),
         sheets_worksheet=run_raw.get("sheets_worksheet", "Results"),
         sheets_credentials_path=run_raw.get("sheets_credentials_path", ""),
-        max_turns=(
-            int(run_raw["max_turns"]) if "max_turns" in run_raw else None
-        ),
+        max_turns=(int(run_raw["max_turns"]) if "max_turns" in run_raw else None),
     )
 
     # Parse [[models]]
@@ -209,6 +214,18 @@ def load_eval_config(path: str | Path) -> EvalSuiteConfig:
             )
         )
 
+    # Parse optional [backend.external] section (for hermes/openclaw backends).
+    # Env vars override TOML values; either source may be empty.
+    external_raw = raw.get("backend", {}).get("external", {})
+    backend_external_base_url = (
+        os.environ.get("JARVIS_BACKEND_BASE_URL")
+        or external_raw.get("base_url")
+        or None
+    )
+    backend_external_api_key = (
+        os.environ.get("JARVIS_BACKEND_API_KEY") or external_raw.get("api_key") or None
+    )
+
     return EvalSuiteConfig(
         meta=meta,
         defaults=defaults,
@@ -216,6 +233,8 @@ def load_eval_config(path: str | Path) -> EvalSuiteConfig:
         run=execution,
         models=models,
         benchmarks=benchmarks,
+        backend_external_base_url=backend_external_base_url,
+        backend_external_api_key=backend_external_api_key,
     )
 
 
@@ -305,6 +324,8 @@ def expand_suite(suite: EvalSuiteConfig) -> List[RunConfig]:
                     sheets_worksheet=suite.run.sheets_worksheet,
                     sheets_credentials_path=suite.run.sheets_credentials_path,
                     max_turns=suite.run.max_turns,
+                    base_url=suite.backend_external_base_url,
+                    api_key=suite.backend_external_api_key,
                     record_ids=bench.record_ids,
                 )
             )

@@ -273,7 +273,11 @@ class EvalRunner:
         if output_path:
             summary_path = output_path.with_suffix(".summary.json")
             with open(summary_path, "w") as f:
-                json.dump(_summary_to_dict(summary), f, indent=2)
+                json.dump(
+                    _summary_to_dict(summary, results=self._results),
+                    f,
+                    indent=2,
+                )
             LOGGER.info("Results written to %s", output_path)
             LOGGER.info("Summary written to %s", summary_path)
 
@@ -369,9 +373,13 @@ class EvalRunner:
             latency = full.get("latency_seconds", 0.0)
             cost = full.get("cost_usd", 0.0)
 
-            energy_j = full.get("energy_joules", 0.0)
-            power_w = full.get("power_watts", 0.0)
-            throughput = full.get("throughput_tok_per_sec", 0.0)
+            # Coerce None -> 0.0: backends may emit None when telemetry is
+            # unavailable (e.g., HermesBackend when no GPU sampler). The
+            # 'or 0.0' handles the case where the key is present but the
+            # value is None -- .get(default) only kicks in when missing.
+            energy_j = full.get("energy_joules", 0.0) or 0.0
+            power_w = full.get("power_watts", 0.0) or 0.0
+            throughput = full.get("throughput_tok_per_sec", 0.0) or 0.0
             accuracy_score = 1.0 if is_correct else 0.0
 
             # Compute IPW and IPJ
@@ -418,9 +426,11 @@ class EvalRunner:
 
             # Extract derived and ITL metrics from _telemetry dict
             _telem = full.get("_telemetry", {})
-            energy_per_out_tok = _telem.get("energy_per_output_token_joules", 0.0)
-            throughput_per_w = _telem.get("throughput_per_watt", 0.0)
-            mean_itl = _telem.get("mean_itl_ms", 0.0)
+            energy_per_out_tok = (
+                _telem.get("energy_per_output_token_joules", 0.0) or 0.0
+            )
+            throughput_per_w = _telem.get("throughput_per_watt", 0.0) or 0.0
+            mean_itl = _telem.get("mean_itl_ms", 0.0) or 0.0
 
             # Prefer continuous score from scoring_meta when scorer provides it.
             score_val = _extract_continuous_score(scoring_meta, is_correct)
@@ -434,10 +444,10 @@ class EvalRunner:
                 completion_tokens=usage.get("completion_tokens", 0),
                 cost_usd=cost,
                 scoring_metadata=scoring_meta,
-                ttft=full.get("ttft", 0.0),
+                ttft=full.get("ttft", 0.0) or 0.0,
                 energy_joules=energy_j,
                 power_watts=power_w,
-                gpu_utilization_pct=full.get("gpu_utilization_pct", 0.0),
+                gpu_utilization_pct=full.get("gpu_utilization_pct", 0.0) or 0.0,
                 throughput_tok_per_sec=throughput,
                 mfu_pct=mfu,
                 mbu_pct=mbu,
@@ -448,6 +458,11 @@ class EvalRunner:
                 mean_itl_ms=mean_itl,
                 estimated_flops=estimated_flops,
                 trace_data=full.get("trace_data"),
+                # Spec §6.2 extended fields for cross-framework comparison
+                framework=full.get("framework", "openjarvis"),
+                framework_commit=full.get("framework_commit", ""),
+                tool_calls=int(full.get("tool_calls", 0)),
+                turn_count=int(full.get("turn_count", 0)),
             )
         except Exception as exc:
             LOGGER.error("Error processing %s: %s", record.record_id, exc)
@@ -455,6 +470,11 @@ class EvalRunner:
                 record_id=record.record_id,
                 model_answer="",
                 error=str(exc),
+                framework=getattr(self._backend, "framework_name", "openjarvis"),
+                framework_commit=getattr(self._backend, "framework_commit_value", "")
+                or "",
+                tool_calls=0,
+                turn_count=0,
             )
 
     # ------------------------------------------------------------------
@@ -731,6 +751,13 @@ class EvalRunner:
                 cost_usd=total_cost,
                 scoring_metadata=scoring_meta,
                 trace_data=full.get("trace_data"),
+                # Spec §6.2 extended fields. framework/commit are constant
+                # per backend, so the last turn's value is correct. tool_calls
+                # / turn_count come from the interactive loop itself.
+                framework=full.get("framework", "openjarvis"),
+                framework_commit=full.get("framework_commit", ""),
+                tool_calls=int(full.get("tool_calls", 0)),
+                turn_count=len(all_responses),
             )
         except Exception as exc:
             LOGGER.error(
@@ -743,6 +770,11 @@ class EvalRunner:
                 model_answer="",
                 error=str(exc),
                 scoring_metadata={"interactive": True, "error": str(exc)},
+                framework=getattr(self._backend, "framework_name", "openjarvis"),
+                framework_commit=getattr(self._backend, "framework_commit_value", "")
+                or "",
+                tool_calls=0,
+                turn_count=0,
             )
         finally:
             if env is not None:
@@ -1125,9 +1157,18 @@ def _metric_stats_to_dict(ms: Optional[MetricStats]) -> Optional[Dict[str, float
     }
 
 
-def _summary_to_dict(s: RunSummary) -> Dict[str, Any]:
-    """Convert a RunSummary to a JSON-serializable dict."""
-    return {
+def _summary_to_dict(
+    s: RunSummary,
+    results: Optional[List[EvalResult]] = None,
+) -> Dict[str, Any]:
+    """Convert a RunSummary to a JSON-serializable dict.
+
+    When ``results`` is provided, the dict ALSO carries the spec §6.3
+    ``framework`` / ``framework_commit`` / ``n_tasks`` / ``metrics`` block
+    expected by the framework-comparison ``table_gen`` loader. Existing
+    top-level keys are preserved (this is purely additive).
+    """
+    d = {
         "hardware_info": _hardware_info_dict(),
         "benchmark": s.benchmark,
         "category": s.category,
@@ -1200,6 +1241,66 @@ def _summary_to_dict(s: RunSummary) -> Dict[str, Any]:
         },
     }
 
+    # ---- Spec §6.3: table_gen-compatible flat schema ----
+    # In addition to the existing rich schema, emit framework / commit /
+    # per-metric stats so framework-comparison `table_gen.load_results`
+    # can parse this file as a `_SummarySchema` row.
+    fwk = "openjarvis"
+    fwk_commit = ""
+    if results:
+        for r in results:
+            if getattr(r, "framework", None):
+                fwk = r.framework
+                fwk_commit = r.framework_commit or ""
+                break
+
+    def _stats_block(vals: List[float]) -> Dict[str, Any]:
+        if not vals:
+            return {"mean": 0.0, "std": 0.0, "n": 0}
+        return {
+            "mean": float(statistics.fmean(vals)),
+            "std": (float(statistics.stdev(vals)) if len(vals) > 1 else 0.0),
+            "n": len(vals),
+        }
+
+    if results is not None:
+        scored = [r for r in results if r.is_correct is not None]
+        accuracy_vals = [1.0 if r.is_correct else 0.0 for r in scored]
+        latency_vals = [r.latency_seconds for r in results if r.latency_seconds > 0]
+        energy_vals = [r.energy_joules for r in results if r.energy_joules > 0]
+        in_tok_vals = [float(r.prompt_tokens) for r in results if r.prompt_tokens > 0]
+        out_tok_vals = [
+            float(r.completion_tokens) for r in results if r.completion_tokens > 0
+        ]
+        cost_vals = [r.cost_usd for r in results if r.cost_usd > 0]
+        power_vals = [r.power_watts for r in results if r.power_watts > 0]
+        n_tasks = len(results)
+    else:
+        accuracy_vals = []
+        latency_vals = []
+        energy_vals = []
+        in_tok_vals = []
+        out_tok_vals = []
+        cost_vals = []
+        power_vals = []
+        n_tasks = 0
+
+    d["framework"] = fwk
+    d["framework_commit"] = fwk_commit
+    # `model` and `benchmark` are already top-level above; keep them.
+    d["n_tasks"] = n_tasks
+    d["metrics"] = {
+        "accuracy": _stats_block(accuracy_vals),
+        "latency_seconds": _stats_block(latency_vals),
+        "energy_joules_per_query": _stats_block(energy_vals),
+        "input_tokens_per_query": _stats_block(in_tok_vals),
+        "output_tokens_per_query": _stats_block(out_tok_vals),
+        "cost_usd_per_query": _stats_block(cost_vals),
+        "peak_power_w": _stats_block(power_vals),
+    }
+
+    return d
+
 
 def _result_to_trace_dict(result: EvalResult) -> Dict[str, Any]:
     """Convert an EvalResult to a full trace dict for per-sample export."""
@@ -1227,6 +1328,11 @@ def _result_to_trace_dict(result: EvalResult) -> Dict[str, Any]:
         "throughput_per_watt": result.throughput_per_watt,
         "mean_itl_ms": result.mean_itl_ms,
         "estimated_flops": result.estimated_flops,
+        # Spec §6.2 cross-framework fields
+        "framework": result.framework,
+        "framework_commit": result.framework_commit,
+        "tool_calls": result.tool_calls,
+        "turn_count": result.turn_count,
     }
     if result.trace_data is not None:
         d["trace_data"] = result.trace_data

@@ -133,6 +133,19 @@ def chat(
         f"  Type /help for commands, /quit to exit.\n"
     )
 
+    # Background-work status banner (disappears after first user message)
+    from openjarvis.cli._bg_state import get_status
+    from openjarvis.cli._chat_banner import render_startup_banner
+
+    _banner = render_startup_banner(get_status())
+    if _banner:
+        console.print(f"[dim cyan]{_banner}[/dim cyan]")
+
+    # Completion-notification dispatcher (fires once per task per session)
+    from openjarvis.cli._chat_notifications import NotificationDispatcher
+
+    _notifications = NotificationDispatcher(get_status())
+
     # Conversation state
     history: List[Message] = []
     if system_prompt:
@@ -140,6 +153,9 @@ def chat(
 
     # REPL loop
     while True:
+        for note in _notifications.diff(get_status()):
+            console.print(f"[dim cyan]{note}[/dim cyan]")
+
         user_input = _read_input()
         if user_input is None:
             console.print("\n[dim]Goodbye![/dim]")

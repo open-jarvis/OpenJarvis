@@ -128,6 +128,7 @@ mining-pearl-cpu = [
     # `uv sync --extra mining-pearl-cpu` to opt-in (it succeeds with no
     # additional resolution today; the actual install happens on demand).
 ]
+framework-comparison = ["polars>=1.0"]
 docs = [
     "mkdocs>=1.6",
     "mkdocs-material>=9.5",
@@ -151,6 +152,7 @@ packages = ["src/openjarvis"]
 [tool.hatch.build.targets.wheel.force-include]
 "src/openjarvis/agents/claude_code_runner" = "_node_modules/claude_code_runner"
 "src/openjarvis/channels/whatsapp_baileys_bridge" = "_node_modules/whatsapp_baileys_bridge"
+"scripts/install" = "_install_scripts"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -164,6 +166,7 @@ markers = [
     "live_channel: requires real channel credentials (env vars)",
     "nvidia: requires NVIDIA GPU",
     "slow: long-running test",
+    "live_external: requires HERMES_AGENT_PATH and OPENCLAW_PATH; spawns real foreign-framework subprocesses",
 ]
 
 [tool.ruff]

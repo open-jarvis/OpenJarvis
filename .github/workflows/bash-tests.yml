@@ -1,0 +1,27 @@
+name: Bash tests
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/install/**'
+      - 'tests/install/bash/**'
+      - '.github/workflows/bash-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/install/**'
+      - 'tests/install/bash/**'
+
+jobs:
+  bats:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install bats-core
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats
+
+      - name: Run bats tests
+        run: bats tests/install/bash/

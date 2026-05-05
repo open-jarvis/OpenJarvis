@@ -10,6 +10,16 @@ class InferenceBackend(ABC):
     """Base class for all inference backends used in evaluation."""
 
     backend_id: str
+    # Default framework label used when an EvalResult is constructed in an
+    # error path before the backend's generate_full() has returned a payload
+    # to read ``framework`` from. Each subclass must override this so that
+    # error-path results are tagged with the correct framework name.
+    framework_name: str = "openjarvis"
+
+    @property
+    def framework_commit_value(self) -> str:
+        """Default: empty (subclasses override). Used by runner.py error paths."""
+        return ""
 
     @abstractmethod
     def generate(

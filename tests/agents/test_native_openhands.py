@@ -379,15 +379,22 @@ class TestNativeOpenHandsAgent:
         result = agent.run("")
         assert result.content == "Empty input received."
 
-    def test_error_400_handling(self):
-        """Agent catches 400 errors and returns friendly message."""
+    def test_error_400_propagation(self):
+        """Engine errors propagate so the eval runner records a real failure.
+
+        Updated from earlier behavior (which swallowed 4xx errors and
+        returned a "context too long" placeholder string) — see PR #303
+        for the design rationale: silent fakes were scoring 0 without
+        surfacing the underlying issue.
+        """
+        import pytest
+
         engine = MagicMock()
         engine.engine_id = "mock"
         engine.generate.side_effect = RuntimeError("HTTP 400 Bad Request")
         agent = NativeOpenHandsAgent(engine, "test-model")
-        result = agent.run("Hello")
-        assert "too long" in result.content
-        assert result.metadata.get("error") is True
+        with pytest.raises(RuntimeError, match="HTTP 400"):
+            agent.run("Hello")
 
     def test_xml_tool_call_extraction(self):
         """Agent parses XML-style tool calls."""
