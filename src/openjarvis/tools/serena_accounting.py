@@ -3808,6 +3808,321 @@ class SerenaAccountingProfitabilitySummaryTool(_AccountingBaseTool):
         )
 
 
+def _blocked_accounting_response(
+    title: str,
+    report_name: str,
+    action: str,
+    reason: str,
+    blocked_reason: str,
+    extra_flags: dict[str, Any] | None = None,
+) -> ToolResult:
+    payload = {
+        "report_type": f"serena_accounting_{report_name}",
+        "created_at": _timestamp(),
+        "action": action,
+        "reason": reason,
+        "blocked_reason": blocked_reason,
+        "risk_level": "BLOCKED",
+        "allowed_to_continue": False,
+        "approval_required": True,
+        "owner_review_required": True,
+        "accountant_review_required": True,
+        "external_api_called": False,
+        "live_accounting_write": False,
+        "bank_action_performed": False,
+        "tax_submitted": False,
+        "vat_submitted": False,
+        "payroll_submitted": False,
+        "ledger_deleted": False,
+        "delete_performed": False,
+        "changes_made": False,
+        "secret_values_exposed": False,
+        "hub_adapter": _hub_adapter_contract(),
+    }
+
+    if extra_flags:
+        payload.update(extra_flags)
+
+    report_path = _save_json("reports", report_name, payload)
+
+    return ToolResult(
+        tool_name=f"serena_accounting_{report_name}",
+        success=False,
+        content=(
+            f"{title}\n\n"
+            f"- Action: {action}\n"
+            f"- Reason: {reason}\n"
+            f"- Blocked reason: {blocked_reason}\n"
+            "- Risk level: BLOCKED\n"
+            "- Allowed to continue: no\n"
+            "- Approval required: yes\n"
+            "- Owner review required: yes\n"
+            "- Accountant review required: yes\n"
+            f"- Report: {report_path}\n"
+            "- External API called: no\n"
+            "- Live accounting write: no\n"
+            "- Bank action performed: no\n"
+            "- Tax submitted: no\n"
+            "- VAT submitted: no\n"
+            "- Payroll submitted: no\n"
+            "- Ledger deleted: no\n"
+            "- Delete performed: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard"
+        ),
+        metadata={**payload, "report_path": str(report_path)},
+    )
+
+
+@ToolRegistry.register("serena_accounting_audit")
+class SerenaAccountingAuditTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_audit"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Audit Serena Accounting outputs, sources, environment readiness, record counts, totals, and safety posture.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "").strip()
+        root = _accounting_root()
+        sources = _accounting_sources()
+        env = _env_status()
+        counts = _record_counts()
+        totals = _local_money_totals(business)
+        safety = _safety_policy()
+
+        configured_sources = [
+            source_id for source_id, source_env in env.items()
+            if source_env.get("configured")
+        ]
+
+        external_configured = [
+            source_id for source_id in configured_sources
+            if _accounting_sources().get(source_id, {}).get("required_env")
+        ]
+
+        issues = []
+        recommendations = []
+
+        if not env.get("xero", {}).get("configured"):
+            recommendations.append("Configure Xero credentials and tenant ID later for live ledger sync/write workflows.")
+
+        if not env.get("payfast", {}).get("configured"):
+            recommendations.append("Configure PayFast merchant credentials later for live payment link/ITN validation workflows.")
+
+        if totals.get("unpaid_total", 0) > 0:
+            issues.append(f"Unpaid invoices total is {totals.get('unpaid_total')}.")
+
+        if counts.get("receipts", 0) == 0 and counts.get("expenses", 0) > 0:
+            recommendations.append("Attach/capture receipt evidence for all expenses before month-end review.")
+
+        recommendations.extend([
+            "Run exceptions before month-end close.",
+            "Run VAT summary before accountant review.",
+            "Use Reporting/Docs/Drive handoff only after Compliance review when sensitive finance/client data is included.",
+            "Keep bank changes, payroll submission, tax filing, ledger deletion, and secret exposure blocked.",
+            "Hub adapter remains pending until Serena Hub dashboard/event bus exists.",
+        ])
+
+        payload = {
+            "report_type": "serena_accounting_audit",
+            "created_at": _timestamp(),
+            "business": business or "all",
+            "sources_registered": len(sources),
+            "configured_sources": configured_sources,
+            "configured_external_sources": external_configured,
+            "record_counts": counts,
+            "totals": totals,
+            "env_status": env,
+            "safety_policy": safety,
+            "issues": issues,
+            "recommendations": recommendations,
+            "external_api_called": False,
+            "live_accounting_write": False,
+            "bank_action_performed": False,
+            "tax_submitted": False,
+            "vat_submitted": False,
+            "payroll_submitted": False,
+            "delete_performed": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"accounting-audit-{business or 'all'}", payload)
+
+        lines = [
+            "Serena Accounting audit",
+            "",
+            f"- Business: {business or 'all'}",
+            f"- Sources registered: {len(sources)}",
+            f"- Configured sources: {len(configured_sources)}",
+            f"- Configured external sources: {len(external_configured)}",
+            f"- Invoices: {counts.get('invoices', 0)}",
+            f"- Payments: {counts.get('payments', 0)}",
+            f"- Expenses: {counts.get('expenses', 0)}",
+            f"- Receipts: {counts.get('receipts', 0)}",
+            f"- Reports: {counts.get('reports', 0)}",
+            f"- Invoice total: {totals.get('invoice_total')}",
+            f"- Unpaid total: {totals.get('unpaid_total')}",
+            f"- Payment total: {totals.get('payment_total')}",
+            f"- Expense total: {totals.get('expense_total')}",
+            f"- Cash basis net: {totals.get('cash_basis_net')}",
+            f"- Audit report: {report_path}",
+            "- External API called: no",
+            "- Live accounting write: no",
+            "- Bank action performed: no",
+            "- Tax submitted: no",
+            "- VAT submitted: no",
+            "- Payroll submitted: no",
+            "- Delete performed: no",
+            "- Secret values exposed: no",
+            "- Hub adapter: pending future dashboard",
+            "",
+            "Issues:",
+        ]
+
+        lines.extend(f"- {item}" for item in issues) if issues else lines.append("- none")
+
+        lines.extend(["", "Recommendations:"])
+        lines.extend(f"- {item}" for item in recommendations)
+
+        lines.extend(["", "Blocked operations:"])
+        lines.extend(f"- {item}" for item in safety["blocked"])
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+@ToolRegistry.register("serena_accounting_blocked_bank_change")
+class SerenaAccountingBlockedBankChangeTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_blocked_bank_change"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked bank account/detail change command.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        return _blocked_accounting_response(
+            "Bank account/detail change blocked by Serena Accounting v1 policy",
+            "blocked-bank-change",
+            str(params.get("action") or "change bank account details").strip(),
+            str(params.get("reason") or "Bank detail change requested.").strip(),
+            "Changing bank account details, payout settings, payment destination details, or bank rules is blocked in Accounting v1.",
+            {"bank_change_performed": False},
+        )
+
+
+@ToolRegistry.register("serena_accounting_blocked_tax_filing")
+class SerenaAccountingBlockedTaxFilingTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_blocked_tax_filing"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked tax filing command alias.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        return _blocked_accounting_response(
+            "Tax filing blocked by Serena Accounting v1 policy",
+            "blocked-tax-filing",
+            str(params.get("action") or "file tax return").strip(),
+            str(params.get("reason") or "Tax filing requested.").strip(),
+            "Tax, VAT, SARS, eFiling, statutory returns, and final tax filings are blocked in Accounting v1.",
+            {"tax_filed": False},
+        )
+
+
+@ToolRegistry.register("serena_accounting_blocked_delete_ledger")
+class SerenaAccountingBlockedDeleteLedgerTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_blocked_delete_ledger"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked ledger/evidence deletion command.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        return _blocked_accounting_response(
+            "Ledger/evidence deletion blocked by Serena Accounting v1 policy",
+            "blocked-delete-ledger",
+            str(params.get("action") or "delete ledger records").strip(),
+            str(params.get("reason") or "Ledger deletion requested.").strip(),
+            "Deleting ledger records, payment evidence, invoices, receipts, reports, or audit trails is blocked in Accounting v1.",
+            {"ledger_deleted": False},
+        )
+
+
+@ToolRegistry.register("serena_accounting_blocked_secret_exposure")
+class SerenaAccountingBlockedSecretExposureTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_blocked_secret_exposure"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked Xero/PayFast/accounting secret exposure command.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        return _blocked_accounting_response(
+            "Accounting secret exposure blocked by Serena Accounting v1 policy",
+            "blocked-secret-exposure",
+            str(params.get("action") or "print accounting secrets").strip(),
+            str(params.get("reason") or "Secret exposure requested.").strip(),
+            "Serena may check whether Xero/PayFast/API credentials exist, but may never display secrets, client secrets, refresh tokens, merchant keys, passphrases, account tokens, or bank credentials.",
+            {"secret_values_exposed": False},
+        )
+
+
 __all__ = [
     "SerenaAccountingStatusTool",
     "SerenaAccountingEnvCheckTool",
@@ -3822,6 +4137,11 @@ __all__ = [
     "SerenaAccountingBlockedPayrollSubmitTool",
     "SerenaAccountingBlockedTaxSubmitTool",
     "SerenaAccountingProfitabilitySummaryTool",
+    "SerenaAccountingBlockedSecretExposureTool",
+    "SerenaAccountingBlockedDeleteLedgerTool",
+    "SerenaAccountingBlockedTaxFilingTool",
+    "SerenaAccountingBlockedBankChangeTool",
+    "SerenaAccountingAuditTool",
     "SerenaAccountingDebtorCreditorSummaryTool",
     "SerenaAccountingCashflowSummaryTool",
     "SerenaAccountingMonthlyManagementReportTool",

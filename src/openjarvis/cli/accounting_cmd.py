@@ -12,6 +12,11 @@ from openjarvis.tools.serena_accounting import (
     SerenaAccountingSourceInfoTool,
     SerenaAccountingSourceListTool,
     SerenaAccountingStatusTool,
+    SerenaAccountingBlockedSecretExposureTool,
+    SerenaAccountingBlockedDeleteLedgerTool,
+    SerenaAccountingBlockedTaxFilingTool,
+    SerenaAccountingBlockedBankChangeTool,
+    SerenaAccountingAuditTool,
     SerenaAccountingProfitabilitySummaryTool,
     SerenaAccountingDebtorCreditorSummaryTool,
     SerenaAccountingCashflowSummaryTool,
@@ -682,6 +687,55 @@ def profitability_summary(business: str, period: str) -> None:
     """Create profitability summary."""
     console = Console()
     result = SerenaAccountingProfitabilitySummaryTool().execute(business=business, period=period)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("audit")
+@click.option("--business", default="", help="Optional business filter.")
+def audit(business: str) -> None:
+    """Audit Accounting outputs, sources, environment readiness, totals, and safety posture."""
+    console = Console()
+    result = SerenaAccountingAuditTool().execute(business=business)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("blocked-bank-change")
+@click.option("--action", default="change bank account details", help="Requested action.")
+@click.option("--reason", default="Bank detail change requested.", help="Reason.")
+def blocked_bank_change(action: str, reason: str) -> None:
+    """Deliberately blocked bank account/detail change command."""
+    console = Console()
+    result = SerenaAccountingBlockedBankChangeTool().execute(action=action, reason=reason)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("blocked-tax-filing")
+@click.option("--action", default="file tax return", help="Requested action.")
+@click.option("--reason", default="Tax filing requested.", help="Reason.")
+def blocked_tax_filing(action: str, reason: str) -> None:
+    """Deliberately blocked tax filing command."""
+    console = Console()
+    result = SerenaAccountingBlockedTaxFilingTool().execute(action=action, reason=reason)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("blocked-delete-ledger")
+@click.option("--action", default="delete ledger records", help="Requested action.")
+@click.option("--reason", default="Ledger deletion requested.", help="Reason.")
+def blocked_delete_ledger(action: str, reason: str) -> None:
+    """Deliberately blocked ledger/evidence deletion command."""
+    console = Console()
+    result = SerenaAccountingBlockedDeleteLedgerTool().execute(action=action, reason=reason)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("blocked-secret-exposure")
+@click.option("--action", default="print accounting secrets", help="Requested action.")
+@click.option("--reason", default="Secret exposure requested.", help="Reason.")
+def blocked_secret_exposure(action: str, reason: str) -> None:
+    """Deliberately blocked Xero/PayFast/accounting secret exposure command."""
+    console = Console()
+    result = SerenaAccountingBlockedSecretExposureTool().execute(action=action, reason=reason)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 
