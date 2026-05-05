@@ -933,6 +933,7 @@ class SerenaAccountingXeroChartPlanTool(_AccountingBaseTool):
         return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
 
 
+
 def _parse_jsonish(text: str) -> Any:
     """Parse strict JSON first, then tolerate common PowerShell/pasted object forms."""
     raw = str(text or "").strip()
@@ -946,8 +947,25 @@ def _parse_jsonish(text: str) -> Any:
 
     import re
     fixed = raw
-    fixed = re.sub(r'([{,]\s*)([A-Za-z_][A-Za-z0-9_\-]*)(\s*:)', r'\1"\2"\3', fixed)
+
+    # Quote unquoted object keys:
+    # {payment_status:COMPLETE,m_payment_id:INV-1001}
+    fixed = re.sub(
+        r'([{,]\s*)([A-Za-z_][A-Za-z0-9_\-]*)(\s*:)',
+        r'\1"\2"\3',
+        fixed,
+    )
+
+    # Convert single-quoted strings to JSON strings.
     fixed = fixed.replace("'", '"')
+
+    # Quote unquoted string values after colon.
+    # Leaves numbers, booleans, null, arrays, objects, and already quoted strings alone.
+    fixed = re.sub(
+        r':\s*(?!["{\[\-0-9])([A-Za-z_][A-Za-z0-9_\-./ ]*?)(\s*[,}])',
+        lambda m: ': "' + m.group(1).strip() + '"' + m.group(2),
+        fixed,
+    )
 
     try:
         return json.loads(fixed)
