@@ -159,3 +159,4 @@ import openjarvis.tools.serena_compliance  # noqa: F401
 import openjarvis.tools.serena_reporting  # noqa: F401
 import openjarvis.tools.serena_analytics  # noqa: F401
 import openjarvis.tools.serena_accounting  # noqa: F401
+import openjarvis.tools.serena_bookings  # noqa: F401
