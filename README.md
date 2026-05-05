@@ -30,53 +30,30 @@ OpenJarvis is that stack. It is an opinionated framework for local-first persona
 
 ## Installation
 
-### Prerequisites
-
-| Tool | Install |
-|------|---------|
-| **Python 3.10+** | [python.org](https://www.python.org/downloads/) |
-| **uv** (Python package manager) | `curl -LsSf https://astral.sh/uv/install.sh \| sh` — or `brew install uv` on macOS |
-| **Rust** | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
-| **Git** | [git-scm.com](https://git-scm.com/) — or `brew install git` on macOS |
-
-> **macOS users:** see the full [macOS Installation Guide](https://open-jarvis.github.io/OpenJarvis/getting-started/macos/) for a step-by-step walkthrough including Homebrew setup.
-
-### Setup
-
 ```bash
-git clone https://github.com/open-jarvis/OpenJarvis.git
-cd OpenJarvis
-uv sync                           # core framework
-uv sync --extra server             # + FastAPI server
-
-# Build the Rust extension
-uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml
+curl -fsSL https://openjarvis.ai/install.sh | bash
 ```
 
-> **Python 3.14+:** set `PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1` before the `maturin` command.
+That's it. The installer handles everything: uv, the Python venv, Ollama, and pulling a small starter model. About 3 minutes on a typical broadband connection. Then:
 
-You also need a local inference backend: [Ollama](https://ollama.com), [vLLM](https://github.com/vllm-project/vllm), [SGLang](https://github.com/sgl-project/sglang), or [llama.cpp](https://github.com/ggerganov/llama.cpp). Alternatively, use the `cloud` engine with [OpenAI](https://openai.com), [Anthropic](https://anthropic.com), [Google Gemini](https://ai.google.dev), [OpenRouter](https://openrouter.ai), or [MiniMax](https://www.minimax.io) by setting the corresponding API key environment variable.
+```bash
+jarvis
+```
+
+The Rust extension and bigger models continue downloading in the background while you chat. Run `jarvis doctor` to see status.
+
+**Platforms:** macOS (Intel + Apple Silicon), Linux, WSL2 on Windows.
+
+**Manual install / contributors:** see [docs/getting-started/install.md](docs/getting-started/install.md).
 
 ## Quick Start
 
 ```bash
-# 1. Install and detect hardware
-git clone https://github.com/open-jarvis/OpenJarvis.git
-cd OpenJarvis
-uv sync
-uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml   # required for memory + security features
-uv run jarvis init
-
-# 2. Start Ollama and pull a model
-curl -fsSL https://ollama.com/install.sh | sh
-ollama serve &
-ollama pull qwen3.5:4b   # CPU-friendly default; use qwen3.5:9b or larger if you have a GPU
-
-# 3. Ask a question
-uv run jarvis ask "What is the capital of France?"
+curl -fsSL https://openjarvis.ai/install.sh | bash
+jarvis
 ```
 
-`jarvis init` auto-detects your hardware and recommends the best engine and model size. Run `uv run jarvis doctor` at any time to diagnose issues.
+`jarvis init --preset <name>` switches to a starter config. Available presets: `morning-digest-mac`, `morning-digest-linux`, `morning-digest-minimal`, `deep-research`, `code-assistant`, `scheduled-monitor`, `chat-simple`.
 
 ## Starter Configs
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import click
 
 import openjarvis
+from openjarvis.cli._bootstrap import bootstrap_cmd
 from openjarvis.cli.add_cmd import add
 from openjarvis.cli.agent_cmd import agent
 from openjarvis.cli.ask import ask
@@ -41,7 +42,10 @@ from openjarvis.cli.workflow_cmd import workflow
 from openjarvis.learning.distillation.cli import learning_group
 
 
-@click.group(help="OpenJarvis — modular AI assistant backend")
+@click.group(
+    help="OpenJarvis — modular AI assistant backend",
+    invoke_without_command=True,
+)
 @click.version_option(version=openjarvis.__version__, prog_name="jarvis")
 @click.option("--verbose", is_flag=True, default=False, help="Enable debug logging")
 @click.option("--quiet", is_flag=True, default=False, help="Suppress non-error output")
@@ -60,6 +64,12 @@ def cli(ctx: click.Context, verbose: bool, quiet: bool) -> None:
         from openjarvis.cli._version_check import check_for_updates
 
         check_for_updates(ctx.invoked_subcommand)
+
+    # First-run guard — routes bare `jarvis` to chat or init.
+    if ctx.invoked_subcommand is None:
+        from openjarvis.cli._first_run import check_and_route
+
+        check_and_route(ctx)
 
 
 cli.add_command(init, "init")
@@ -100,6 +110,7 @@ cli.add_command(digest, "digest")
 cli.add_command(deep_research_setup, "deep-research-setup")
 cli.add_command(deep_research_setup, "research")
 cli.add_command(learning_group, "learning")
+cli.add_command(bootstrap_cmd, "_bootstrap")
 
 # Gateway CLI commands (lazy import to avoid pulling starlette)
 try:
