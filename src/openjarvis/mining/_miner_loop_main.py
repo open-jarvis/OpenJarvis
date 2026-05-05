@@ -48,8 +48,12 @@ def _decode_mining_info(result: dict[str, Any]) -> tuple[bytes, int]:
 
 
 def _encode_plain_proof(plain_proof: Any) -> str:
-    """Serialize a PlainProof to base64 for ``submitPlainProof``."""
-    return base64.b64encode(plain_proof.serialize()).decode()
+    """Return the proof as a base64 string for ``submitPlainProof``.
+
+    Pearl's ``PlainProof`` exposes ``to_base64()`` directly — no manual
+    encoding required. (Verified via py-pearl-mining 0.1.0 on macOS arm64.)
+    """
+    return plain_proof.to_base64()
 
 
 async def _read_response(reader: asyncio.StreamReader) -> dict[str, Any]:

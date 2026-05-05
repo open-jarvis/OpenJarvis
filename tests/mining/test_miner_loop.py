@@ -25,14 +25,18 @@ def test_decode_mining_info_returns_header_bytes_and_target(fake_mining_info_res
     assert target == 0x1D2FFFFF
 
 
-def test_encode_plain_proof_round_trips():
-    """We can encode a PlainProof to base64 and the bytes are non-empty."""
+def test_encode_plain_proof_returns_to_base64_result():
+    """_encode_plain_proof returns plain_proof.to_base64() directly.
+
+    No double-encode: to_base64() already returns a base64 string.
+    """
     from openjarvis.mining._miner_loop_main import _encode_plain_proof
 
     fake_proof = MagicMock()
-    fake_proof.serialize.return_value = b"PROOF_BYTES_DUMMY"
+    fake_proof.to_base64.return_value = "ABCabc012=="
     encoded = _encode_plain_proof(fake_proof)
-    assert encoded == base64.b64encode(b"PROOF_BYTES_DUMMY").decode()
+    assert encoded == "ABCabc012=="
+    fake_proof.to_base64.assert_called_once()
 
 
 def test_jsonrpc_envelope_shape():
