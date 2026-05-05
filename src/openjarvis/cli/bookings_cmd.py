@@ -12,6 +12,11 @@ from openjarvis.tools.serena_bookings import (
     SerenaBookingsSourceInfoTool,
     SerenaBookingsSourceListTool,
     SerenaBookingsStatusTool,
+    SerenaBookingsBlockedSilentCalendarChangeTool,
+    SerenaBookingsBlockedPatientDataExposureTool,
+    SerenaBookingsBlockedUnapprovedReminderSendTool,
+    SerenaBookingsBlockedBulkCancelTool,
+    SerenaBookingsAuditTool,
     SerenaBookingsAppointmentSummaryTool,
     SerenaBookingsReportingHandoffTool,
     SerenaBookingsDriveHandoffTool,
@@ -468,6 +473,55 @@ def appointment_summary(booking_id: str, title: str, notes: str, approved: bool)
         notes=notes,
         approved=approved,
     )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@bookings.command("audit")
+@click.option("--business", default="", help="Optional business filter.")
+def audit(business: str) -> None:
+    """Audit Bookings records, reminders, handoffs, and safety posture."""
+    console = Console()
+    result = SerenaBookingsAuditTool().execute(business=business)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@bookings.command("blocked-bulk-cancel")
+@click.option("--action", default="bulk cancel appointments", help="Requested action.")
+@click.option("--reason", default="Bulk cancellation requested.", help="Reason.")
+def blocked_bulk_cancel(action: str, reason: str) -> None:
+    """Deliberately blocked bulk appointment cancellation command."""
+    console = Console()
+    result = SerenaBookingsBlockedBulkCancelTool().execute(action=action, reason=reason)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@bookings.command("blocked-unapproved-reminder-send")
+@click.option("--action", default="send appointment reminder", help="Requested action.")
+@click.option("--reason", default="Reminder send requested without approval.", help="Reason.")
+def blocked_unapproved_reminder_send(action: str, reason: str) -> None:
+    """Deliberately blocked unapproved reminder send command."""
+    console = Console()
+    result = SerenaBookingsBlockedUnapprovedReminderSendTool().execute(action=action, reason=reason)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@bookings.command("blocked-patient-data-exposure")
+@click.option("--action", default="expose appointment patient/client details", help="Requested action.")
+@click.option("--reason", default="Patient/client data exposure requested.", help="Reason.")
+def blocked_patient_data_exposure(action: str, reason: str) -> None:
+    """Deliberately blocked patient/client data exposure command."""
+    console = Console()
+    result = SerenaBookingsBlockedPatientDataExposureTool().execute(action=action, reason=reason)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@bookings.command("blocked-silent-calendar-change")
+@click.option("--action", default="silently change calendar event", help="Requested action.")
+@click.option("--reason", default="Silent Calendar change requested.", help="Reason.")
+def blocked_silent_calendar_change(action: str, reason: str) -> None:
+    """Deliberately blocked silent Calendar change command."""
+    console = Console()
+    result = SerenaBookingsBlockedSilentCalendarChangeTool().execute(action=action, reason=reason)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 

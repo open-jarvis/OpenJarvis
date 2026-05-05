@@ -2614,6 +2614,333 @@ class SerenaBookingsAppointmentSummaryTool(_BookingsBaseTool):
         )
 
 
+def _booking_record_counts() -> dict[str, int]:
+    return {
+        "requests": len(_load_json_records("requests")),
+        "appointments": len(_load_json_records("appointments")),
+        "reminders": len(_load_json_records("reminders")),
+        "followups": len(_load_json_records("followups")),
+        "handoff": len(_load_json_records("handoff")),
+        "reports": len(_load_json_records("reports")),
+    }
+
+
+def _blocked_bookings_response(
+    title: str,
+    report_name: str,
+    action: str,
+    reason: str,
+    blocked_reason: str,
+    extra_flags: dict[str, Any] | None = None,
+) -> ToolResult:
+    payload = {
+        "report_type": f"serena_bookings_{report_name}",
+        "created_at": _timestamp(),
+        "action": action,
+        "reason": reason,
+        "blocked_reason": blocked_reason,
+        "risk_level": "BLOCKED",
+        "allowed_to_continue": False,
+        "approval_required": True,
+        "owner_review_required": True,
+        "compliance_review_required": True,
+        "external_api_called": False,
+        "calendar_write_performed": False,
+        "calendar_cancelled": False,
+        "bulk_cancel_performed": False,
+        "reminder_sent": False,
+        "external_message_sent": False,
+        "patient_data_exposed": False,
+        "appointment_deleted": False,
+        "delete_performed": False,
+        "changes_made": False,
+        "secret_values_exposed": False,
+        "hub_adapter": _hub_adapter_contract(),
+    }
+
+    if extra_flags:
+        payload.update(extra_flags)
+
+    report_path = _save_json("reports", report_name, payload)
+
+    return ToolResult(
+        tool_name=f"serena_bookings_{report_name}",
+        success=False,
+        content=(
+            f"{title}\n\n"
+            f"- Action: {action}\n"
+            f"- Reason: {reason}\n"
+            f"- Blocked reason: {blocked_reason}\n"
+            "- Risk level: BLOCKED\n"
+            "- Allowed to continue: no\n"
+            "- Approval required: yes\n"
+            "- Owner review required: yes\n"
+            "- Compliance review required: yes\n"
+            f"- Report: {report_path}\n"
+            "- External API called: no\n"
+            "- Calendar write performed: no\n"
+            "- Calendar cancelled: no\n"
+            "- Bulk cancel performed: no\n"
+            "- Reminder sent: no\n"
+            "- External message sent: no\n"
+            "- Patient data exposed: no\n"
+            "- Appointment deleted: no\n"
+            "- Delete performed: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard"
+        ),
+        metadata={**payload, "report_path": str(report_path)},
+    )
+
+
+@ToolRegistry.register("serena_bookings_audit")
+class SerenaBookingsAuditTool(_BookingsBaseTool):
+    tool_id = "serena_bookings_audit"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Audit Serena Bookings outputs, records, handoffs, reminders, and safety posture.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                },
+            },
+            category="serena_bookings",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "").strip()
+        sources = _booking_sources()
+        env = _env_status()
+        counts = _booking_record_counts()
+        safety = _safety_policy()
+
+        appointments = _load_json_records("appointments")
+        reminders = _load_json_records("reminders")
+        handoffs = _load_json_records("handoff")
+
+        if business:
+            appointments = [x for x in appointments if str(x.get("business") or "") == business]
+            reminders = [x for x in reminders if str(x.get("business") or "") == business]
+            handoffs = [x for x in handoffs if str(x.get("business") or "") == business]
+
+        sensitive_appointments = [x for x in appointments if bool(x.get("sensitive"))]
+        unlinked_calendar = [x for x in appointments if not str(x.get("calendar_event_id") or "").strip()]
+        appointments_without_reminders = []
+
+        reminder_booking_ids = {str(r.get("booking_id") or "") for r in reminders}
+        for appt in appointments:
+            if str(appt.get("booking_id") or "") not in reminder_booking_ids:
+                appointments_without_reminders.append(appt)
+
+        issues = []
+        recommendations = []
+
+        if sensitive_appointments:
+            recommendations.append(f"{len(sensitive_appointments)} sensitive appointment(s) require Compliance review before external sharing.")
+
+        if unlinked_calendar:
+            issues.append(f"{len(unlinked_calendar)} appointment(s) do not have linked Calendar event IDs.")
+
+        if appointments_without_reminders:
+            recommendations.append(f"{len(appointments_without_reminders)} appointment(s) have no reminder records.")
+
+        recommendations.extend([
+            "Use Calendar handoff before live Calendar writes.",
+            "Use Docs/Drive/Reporting handoff only after approval for sensitive appointments.",
+            "Run no-show-risk before appointment day.",
+            "Keep bulk cancellation, silent calendar changes, unapproved reminder sending, and patient data exposure blocked.",
+            "Hub adapter remains pending until Serena Hub dashboard/event bus exists.",
+        ])
+
+        payload = {
+            "report_type": "serena_bookings_audit",
+            "created_at": _timestamp(),
+            "business": business or "all",
+            "sources_registered": len(sources),
+            "record_counts": counts,
+            "appointments_considered": len(appointments),
+            "sensitive_appointments": len(sensitive_appointments),
+            "appointments_without_calendar_event_id": len(unlinked_calendar),
+            "appointments_without_reminders": len(appointments_without_reminders),
+            "handoff_records": len(handoffs),
+            "env_status": env,
+            "safety_policy": safety,
+            "issues": issues,
+            "recommendations": recommendations,
+            "external_api_called": False,
+            "calendar_write_performed": False,
+            "reminder_sent": False,
+            "patient_data_exposed": False,
+            "delete_performed": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"bookings-audit-{business or 'all'}", payload)
+
+        lines = [
+            "Serena Bookings audit",
+            "",
+            f"- Business: {business or 'all'}",
+            f"- Sources registered: {len(sources)}",
+            f"- Requests: {counts.get('requests', 0)}",
+            f"- Appointments: {counts.get('appointments', 0)}",
+            f"- Reminders: {counts.get('reminders', 0)}",
+            f"- Followups: {counts.get('followups', 0)}",
+            f"- Handoff records: {counts.get('handoff', 0)}",
+            f"- Reports: {counts.get('reports', 0)}",
+            f"- Appointments considered: {len(appointments)}",
+            f"- Sensitive appointments: {len(sensitive_appointments)}",
+            f"- Appointments without Calendar event ID: {len(unlinked_calendar)}",
+            f"- Appointments without reminders: {len(appointments_without_reminders)}",
+            f"- Audit report: {report_path}",
+            "- External API called: no",
+            "- Calendar write performed: no",
+            "- Reminder sent: no",
+            "- Patient data exposed: no",
+            "- Delete performed: no",
+            "- Secret values exposed: no",
+            "- Hub adapter: pending future dashboard",
+            "",
+            "Issues:",
+        ]
+
+        lines.extend(f"- {item}" for item in issues) if issues else lines.append("- none")
+
+        lines.extend(["", "Recommendations:"])
+        lines.extend(f"- {item}" for item in recommendations)
+
+        lines.extend(["", "Blocked operations:"])
+        lines.extend(f"- {item}" for item in safety["blocked"])
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+@ToolRegistry.register("serena_bookings_blocked_bulk_cancel")
+class SerenaBookingsBlockedBulkCancelTool(_BookingsBaseTool):
+    tool_id = "serena_bookings_blocked_bulk_cancel"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked bulk appointment cancellation command.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+            },
+            category="serena_bookings",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        return _blocked_bookings_response(
+            "Bulk appointment cancellation blocked by Serena Bookings v1 policy",
+            "blocked-bulk-cancel",
+            str(params.get("action") or "bulk cancel appointments").strip(),
+            str(params.get("reason") or "Bulk cancellation requested.").strip(),
+            "Bulk appointment cancellation is blocked. Serena may only prepare/cancel one exact booking/event at a time with approval.",
+            {"bulk_cancel_performed": False},
+        )
+
+
+@ToolRegistry.register("serena_bookings_blocked_unapproved_reminder_send")
+class SerenaBookingsBlockedUnapprovedReminderSendTool(_BookingsBaseTool):
+    tool_id = "serena_bookings_blocked_unapproved_reminder_send"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked unapproved reminder send command.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+            },
+            category="serena_bookings",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        return _blocked_bookings_response(
+            "Unapproved reminder send blocked by Serena Bookings v1 policy",
+            "blocked-unapproved-reminder-send",
+            str(params.get("action") or "send appointment reminder").strip(),
+            str(params.get("reason") or "Reminder send requested without approval.").strip(),
+            "External reminder sending through SMS, email, WhatsApp, or other channels is blocked unless approved and Compliance-safe.",
+            {"reminder_sent": False, "external_message_sent": False},
+        )
+
+
+@ToolRegistry.register("serena_bookings_blocked_patient_data_exposure")
+class SerenaBookingsBlockedPatientDataExposureTool(_BookingsBaseTool):
+    tool_id = "serena_bookings_blocked_patient_data_exposure"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked patient/client data exposure command.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+            },
+            category="serena_bookings",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        return _blocked_bookings_response(
+            "Patient/client data exposure blocked by Serena Bookings v1 policy",
+            "blocked-patient-data-exposure",
+            str(params.get("action") or "expose appointment patient/client details").strip(),
+            str(params.get("reason") or "Patient/client data exposure requested.").strip(),
+            "Patient/client appointment data may not be exposed externally or placed in public-facing calendar/docs/reminder fields without approval and Compliance review.",
+            {"patient_data_exposed": False},
+        )
+
+
+@ToolRegistry.register("serena_bookings_blocked_silent_calendar_change")
+class SerenaBookingsBlockedSilentCalendarChangeTool(_BookingsBaseTool):
+    tool_id = "serena_bookings_blocked_silent_calendar_change"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked silent Calendar change command.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+            },
+            category="serena_bookings",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        return _blocked_bookings_response(
+            "Silent Calendar change blocked by Serena Bookings v1 policy",
+            "blocked-silent-calendar-change",
+            str(params.get("action") or "silently change calendar event").strip(),
+            str(params.get("reason") or "Silent Calendar change requested.").strip(),
+            "Calendar create/update/cancel actions must be explicit, targeted, reported, and approval-gated. Silent changes are blocked.",
+            {"calendar_write_performed": False},
+        )
+
+
 __all__ = [
     "SerenaBookingsStatusTool",
     "SerenaBookingsEnvCheckTool",
@@ -2625,6 +2952,11 @@ __all__ = [
     "SerenaBookingsFollowUpPlanTool",
     "SerenaBookingsCalendarCancelPlanTool",
     "SerenaBookingsAppointmentSummaryTool",
+    "SerenaBookingsBlockedSilentCalendarChangeTool",
+    "SerenaBookingsBlockedPatientDataExposureTool",
+    "SerenaBookingsBlockedUnapprovedReminderSendTool",
+    "SerenaBookingsBlockedBulkCancelTool",
+    "SerenaBookingsAuditTool",
     "SerenaBookingsReportingHandoffTool",
     "SerenaBookingsDriveHandoffTool",
     "SerenaBookingsDocsHandoffTool",
