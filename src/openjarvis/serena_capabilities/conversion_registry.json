@@ -366,7 +366,7 @@
     },
     "batch-2-cloud-workspace": {
       "name": "Batch 2 Cloud Workspace",
-      "status": "active",
+      "status": "complete_v1_with_crm_deferred_for_hub",
       "description": "Cloud workspace, Google integrations, OCR/capture, calendar, CRM, compliance, and reporting foundations.",
       "skills": [
         {
@@ -729,8 +729,89 @@
         },
         {
           "legacy_file": "12-analytics.js",
-          "status": "pending",
-          "name": "Analytics"
+          "status": "complete_v1_hub_adapter_pending",
+          "name": "Analytics",
+          "tested": true,
+          "native_tool_complete": true,
+          "hub_adapter_pending": true,
+          "completion_level": "analytics_full_operator_v1",
+          "capabilities": [
+            "status",
+            "env_check",
+            "plan",
+            "source_list",
+            "source_info",
+            "from_json",
+            "from_file",
+            "from_folder",
+            "snapshot",
+            "compare",
+            "wordpress_plan",
+            "wordpress_summary",
+            "ga4_plan",
+            "website_summary",
+            "gbp_env_check",
+            "gbp_plan",
+            "gbp_summary",
+            "gbp_keywords",
+            "meta_env_check",
+            "facebook_pages",
+            "facebook_page_summary",
+            "social_summary",
+            "business_overview",
+            "marketing_funnel",
+            "content_performance",
+            "recommendations",
+            "audit",
+            "blocked_token_exposure",
+            "blocked_unapproved_posting",
+            "blocked_sensitive_export",
+            "hub_adapter_metadata"
+          ],
+          "hub_adapter": {
+            "status": "pending_future_dashboard",
+            "widgets": [
+              "analytics_overview_widget",
+              "website_analytics_widget",
+              "facebook_page_analytics_widget",
+              "google_business_profile_widget",
+              "content_performance_widget",
+              "marketing_funnel_widget",
+              "recommendations_widget",
+              "analytics_export_status_widget"
+            ],
+            "events": [
+              "analytics_snapshot_created",
+              "analytics_report_created",
+              "analytics_warning_created",
+              "analytics_export_blocked",
+              "analytics_source_connected",
+              "analytics_audit_completed"
+            ],
+            "operator_state": [
+              "current_business_id",
+              "current_analytics_source",
+              "current_asset_id",
+              "current_date_range",
+              "current_metric_set",
+              "current_report_path",
+              "current_required_approval"
+            ]
+          },
+          "notes": [
+            "Converted legacy Analytics triggers into native Serena Analytics Full Operator.",
+            "Legacy triggers were ANALYTICS REPORT and SITE ANALYTICS.",
+            "Inspected related website revenue audit, WordPress, newsletter, email marketing, reporting, compliance, Drive, Docs, ClickUp, and finance hooks.",
+            "Built foundation commands: status, env-check, plan, source-list, source-info.",
+            "Built local analytics: from-json, from-file, from-folder, snapshot, compare.",
+            "Built website analytics: wordpress-plan, wordpress-summary, ga4-plan, website-summary.",
+            "Built Google Business Profile analytics: gbp-env-check, gbp-plan, gbp-summary, gbp-keywords.",
+            "Built Meta/Facebook analytics: meta-env-check, facebook-pages, facebook-page-summary, social-summary.",
+            "Built insight workflows: business-overview, marketing-funnel, content-performance, recommendations.",
+            "Built audit and safety blocks: audit, blocked-token-exposure, blocked-unapproved-posting, blocked-sensitive-export.",
+            "Tested local snapshots, comparisons, website, GBP, Facebook/social, business insights, audit, safety blocks, and no secret exposure.",
+            "Analytics Full Operator v1 complete with Hub Adapter pending."
+          ]
         },
         {
           "legacy_file": "24-compliance-guard.js",
@@ -810,6 +891,18 @@
             "Compliance Full Operator v1 complete with Hub Adapter pending."
           ]
         }
+      ],
+      "notes": [
+        "Batch 2 operator conversions complete.",
+        "Google Drive complete.",
+        "Google Docs complete.",
+        "OCR / Live Vision complete.",
+        "Google Calendar complete; live token approval completed and connection verified.",
+        "Compliance / Policy Guard complete.",
+        "Reporting complete.",
+        "Analytics complete.",
+        "CRM deferred for Serena Hub / Business OS core rebuild.",
+        "External analytics live credentials for WordPress, GBP, GA4, and Meta/Facebook remain future configuration items."
       ]
     }
   }
