@@ -1570,6 +1570,264 @@ class SerenaAnalyticsGBPKeywordsTool(_AnalyticsBaseTool):
             )
 
 
+@ToolRegistry.register("serena_analytics_meta_env_check")
+class SerenaAnalyticsMetaEnvCheckTool(_AnalyticsBaseTool):
+    tool_id = "serena_analytics_meta_env_check"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Check Meta/Facebook analytics environment without exposing secrets.",
+            parameters={"type": "object", "properties": {}},
+            category="serena_analytics",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        env = _env_status().get("facebook", {})
+        required = env.get("required", [])
+        configured = bool(env.get("configured"))
+
+        payload = {
+            "report_type": "serena_analytics_meta_env_check",
+            "created_at": _timestamp(),
+            "source": "facebook",
+            "configured": configured,
+            "env_status": env,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", "meta-env-check", payload)
+
+        lines = [
+            "Serena Meta/Facebook analytics env check",
+            "",
+            f"- Configured: {'yes' if configured else 'no'}",
+            f"- Report: {report_path}",
+            "- Changes made: no",
+            "- Secret values exposed: no",
+            "- Hub adapter: pending future dashboard",
+            "",
+            "Required environment:",
+        ]
+
+        for item in required:
+            lines.append(f"- {item['name']} | present={'yes' if item['present'] else 'no'} | length={item['length']}")
+
+        lines.extend([
+            "",
+            "Notes:",
+            "- META_ACCESS_TOKEN and FACEBOOK_PAGE_IDS are required before live Facebook Page analytics can run.",
+            "- Meta app/page permissions and page access token are required.",
+            "- Analytics v1 reads/analyzes only. Posting, editing, campaign changes, and page modifications are blocked.",
+        ])
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+@ToolRegistry.register("serena_analytics_facebook_pages")
+class SerenaAnalyticsFacebookPagesTool(_AnalyticsBaseTool):
+    tool_id = "serena_analytics_facebook_pages"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Show configured Facebook Page IDs and readiness without calling Meta APIs.",
+            parameters={"type": "object", "properties": {}},
+            category="serena_analytics",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        page_ids_raw = os.getenv("FACEBOOK_PAGE_IDS", "").strip()
+        page_ids = [item.strip() for item in page_ids_raw.split(",") if item.strip()]
+        env = _env_status().get("facebook", {})
+
+        payload = {
+            "report_type": "serena_analytics_facebook_pages",
+            "created_at": _timestamp(),
+            "configured": bool(env.get("configured")),
+            "page_count": len(page_ids),
+            "page_id_lengths": [len(item) for item in page_ids],
+            "external_api_called": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("sources", "facebook-pages", payload)
+
+        lines = [
+            "Serena Facebook Pages analytics readiness",
+            "",
+            f"- Configured: {'yes' if env.get('configured') else 'no'}",
+            f"- Page IDs configured: {len(page_ids)}",
+            f"- Snapshot: {report_path}",
+            "- External API called: no",
+            "- Changes made: no",
+            "- Secret values exposed: no",
+            "- Hub adapter: pending future dashboard",
+            "",
+            "Pages:",
+        ]
+
+        if page_ids:
+            for index, page_id in enumerate(page_ids, start=1):
+                lines.append(f"- page {index} | id length={len(page_id)}")
+        else:
+            lines.append("- none configured")
+
+        lines.extend([
+            "",
+            "Next setup:",
+            "- Add META_APP_ID, META_APP_SECRET, META_ACCESS_TOKEN, and FACEBOOK_PAGE_IDS.",
+            "- Use page IDs only in reports; do not expose page access tokens.",
+        ])
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+@ToolRegistry.register("serena_analytics_facebook_page_summary")
+class SerenaAnalyticsFacebookPageSummaryTool(_AnalyticsBaseTool):
+    tool_id = "serena_analytics_facebook_page_summary"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create Facebook Page analytics summary from provided metrics.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "metrics": {"type": "string"},
+                    "business": {"type": "string"},
+                    "date_range": {"type": "string"},
+                    "page": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["metrics"],
+            },
+            category="serena_analytics",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        metrics_text = str(params.get("metrics") or "")
+        business = str(params.get("business") or "General Business").strip()
+        date_range = str(params.get("date_range") or "unspecified").strip()
+        page = str(params.get("page") or "facebook page").strip()
+        notes = str(params.get("notes") or "").strip()
+
+        try:
+            metrics = _parse_jsonish(metrics_text)
+            data = {
+                "business": business,
+                "date_range": date_range,
+                "source": "facebook-page",
+                "page": page,
+                "metrics": metrics,
+                "notes": notes,
+                "analysis_focus": [
+                    "reach",
+                    "impressions",
+                    "post engagement",
+                    "followers",
+                    "link clicks",
+                    "messages",
+                    "leads",
+                    "content performance",
+                    "audience response",
+                ],
+            }
+            return _save_analytics_snapshot(
+                "Serena Facebook Page Analytics Summary",
+                data,
+                "facebook",
+                business,
+                date_range,
+                "provided Facebook Page metrics",
+                "facebook-page-summary",
+            )
+        except Exception as exc:
+            return self._result(
+                "Serena Facebook Page analytics summary failed\n\n"
+                f"- Error: {exc}\n"
+                "- Snapshot created: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_analytics_social_summary")
+class SerenaAnalyticsSocialSummaryTool(_AnalyticsBaseTool):
+    tool_id = "serena_analytics_social_summary"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a combined social analytics summary from provided metrics.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "metrics": {"type": "string"},
+                    "business": {"type": "string"},
+                    "date_range": {"type": "string"},
+                    "source": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["metrics"],
+            },
+            category="serena_analytics",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        metrics_text = str(params.get("metrics") or "")
+        business = str(params.get("business") or "General Business").strip()
+        date_range = str(params.get("date_range") or "unspecified").strip()
+        source = str(params.get("source") or "social").strip()
+        notes = str(params.get("notes") or "").strip()
+
+        try:
+            metrics = _parse_jsonish(metrics_text)
+            data = {
+                "business": business,
+                "date_range": date_range,
+                "source": source,
+                "metrics": metrics,
+                "notes": notes,
+                "analysis_focus": [
+                    "cross-channel reach",
+                    "impressions",
+                    "engagement",
+                    "audience growth",
+                    "clicks",
+                    "messages",
+                    "lead signals",
+                    "best-performing content",
+                    "next content actions",
+                ],
+            }
+            return _save_analytics_snapshot(
+                "Serena Social Analytics Summary",
+                data,
+                source,
+                business,
+                date_range,
+                "provided social metrics",
+                "social-summary",
+            )
+        except Exception as exc:
+            return self._result(
+                "Serena social analytics summary failed\n\n"
+                f"- Error: {exc}\n"
+                "- Snapshot created: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+
 __all__ = [
     "SerenaAnalyticsStatusTool",
     "SerenaAnalyticsEnvCheckTool",
@@ -1579,6 +1837,10 @@ __all__ = [
     "SerenaAnalyticsCompareTool",
     "SerenaAnalyticsWebsiteSummaryTool",
     "SerenaAnalyticsGBPKeywordsTool",
+    "SerenaAnalyticsSocialSummaryTool",
+    "SerenaAnalyticsFacebookPageSummaryTool",
+    "SerenaAnalyticsFacebookPagesTool",
+    "SerenaAnalyticsMetaEnvCheckTool",
     "SerenaAnalyticsGBPSummaryTool",
     "SerenaAnalyticsGBPPlanTool",
     "SerenaAnalyticsGBPEnvCheckTool",

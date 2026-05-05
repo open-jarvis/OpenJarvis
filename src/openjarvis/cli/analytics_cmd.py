@@ -12,6 +12,10 @@ from openjarvis.tools.serena_analytics import (
     SerenaAnalyticsSourceInfoTool,
     SerenaAnalyticsSourceListTool,
     SerenaAnalyticsStatusTool,
+    SerenaAnalyticsSocialSummaryTool,
+    SerenaAnalyticsFacebookPageSummaryTool,
+    SerenaAnalyticsFacebookPagesTool,
+    SerenaAnalyticsMetaEnvCheckTool,
     SerenaAnalyticsGBPKeywordsTool,
     SerenaAnalyticsGBPSummaryTool,
     SerenaAnalyticsGBPPlanTool,
@@ -282,6 +286,60 @@ def gbp_keywords(keywords: str, business: str, date_range: str, location: str) -
         business=business,
         date_range=date_range,
         location=location,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@analytics.command("meta-env-check")
+def meta_env_check() -> None:
+    """Check Meta/Facebook analytics env configuration."""
+    console = Console()
+    result = SerenaAnalyticsMetaEnvCheckTool().execute()
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@analytics.command("facebook-pages")
+def facebook_pages() -> None:
+    """Show configured Facebook Page analytics readiness."""
+    console = Console()
+    result = SerenaAnalyticsFacebookPagesTool().execute()
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@analytics.command("facebook-page-summary")
+@click.option("--metrics", required=True, help="Facebook Page metrics as JSON or JSON-like text.")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--date-range", default="unspecified", help="Date range.")
+@click.option("--page", default="facebook page", help="Facebook page label.")
+@click.option("--notes", default="", help="Optional notes.")
+def facebook_page_summary(metrics: str, business: str, date_range: str, page: str, notes: str) -> None:
+    """Create a Facebook Page analytics summary."""
+    console = Console()
+    result = SerenaAnalyticsFacebookPageSummaryTool().execute(
+        metrics=metrics,
+        business=business,
+        date_range=date_range,
+        page=page,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@analytics.command("social-summary")
+@click.option("--metrics", required=True, help="Social metrics as JSON or JSON-like text.")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--date-range", default="unspecified", help="Date range.")
+@click.option("--source", default="social", help="Social analytics source.")
+@click.option("--notes", default="", help="Optional notes.")
+def social_summary(metrics: str, business: str, date_range: str, source: str, notes: str) -> None:
+    """Create a combined social analytics summary."""
+    console = Console()
+    result = SerenaAnalyticsSocialSummaryTool().execute(
+        metrics=metrics,
+        business=business,
+        date_range=date_range,
+        source=source,
+        notes=notes,
     )
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
