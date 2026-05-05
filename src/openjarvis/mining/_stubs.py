@@ -17,7 +17,6 @@ from typing import Any, Optional, Union
 
 from openjarvis.core.config import HardwareInfo
 
-
 # ---------------------------------------------------------------------------
 # Capability descriptor
 # ---------------------------------------------------------------------------
@@ -104,10 +103,11 @@ class MiningStats:
 
 
 class MiningProvider(ABC):
-    """A mining provider — orchestrates a Pearl mining session for one (hardware, engine, model) combo.
+    """A mining provider — orchestrates a Pearl mining session.
 
-    All future hardware/engine paths (Apple Silicon, AMD, Ollama) implement
-    this exact contract. See spec §4.4.
+    One provider per ``(hardware, engine, model)`` combo. All future
+    hardware/engine paths (Apple Silicon, AMD, Ollama) implement this exact
+    contract. See spec §4.4.
     """
 
     provider_id: str  # set by subclass
