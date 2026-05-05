@@ -26,6 +26,11 @@ class Document:
     """Universal schema for data from any connector.
 
     All connectors normalize their output to this format before ingestion.
+
+    v1 schema fields (``source_id``, ``participants_raw``, ``channel``) default
+    to empty so existing connectors compile without modification; new
+    connectors should populate them. The pipeline derives ``source_id`` from
+    ``doc_id`` by stripping the ``{source}:`` prefix when not set explicitly.
     """
 
     doc_id: str
@@ -40,6 +45,10 @@ class Document:
     url: Optional[str] = None
     attachments: List[Attachment] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
+    # v1 schema additions: defaulted empty so legacy connectors keep working.
+    source_id: str = ""
+    participants_raw: List[str] = field(default_factory=list)
+    channel: Optional[str] = None
 
 
 @dataclass(slots=True)
