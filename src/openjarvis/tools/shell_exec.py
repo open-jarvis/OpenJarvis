@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 from pathlib import Path
-from typing import Any, List
+from typing import Any, List, Sequence
 
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
@@ -30,8 +31,12 @@ class ShellExecTool(BaseTool):
 
     tool_id = "shell_exec"
 
+    def __init__(self, allowed_commands: Sequence[str] | None = None) -> None:
+        self._allowed_commands = [cmd.strip() for cmd in (allowed_commands or []) if cmd.strip()]
+
     @property
     def spec(self) -> ToolSpec:
+        allowlisted = bool(self._allowed_commands)
         return ToolSpec(
             name="shell_exec",
             description=(
@@ -68,10 +73,24 @@ class ShellExecTool(BaseTool):
                 "required": ["command"],
             },
             category="system",
-            requires_confirmation=True,
+            requires_confirmation=not allowlisted,
             timeout_seconds=60.0,
             required_capabilities=["code:execute"],
+            metadata={
+                "allowlisted": allowlisted,
+                "allowed_commands": self._allowed_commands,
+            },
         )
+
+    def _command_allowed(self, command: str) -> bool:
+        if not self._allowed_commands:
+            return True
+        normalized = " ".join(shlex.split(command))
+        for allowed in self._allowed_commands:
+            allowed_norm = " ".join(shlex.split(allowed))
+            if normalized == allowed_norm or normalized.startswith(f"{allowed_norm} "):
+                return True
+        return False
 
     def execute(self, **params: Any) -> ToolResult:
         command = params.get("command", "")
@@ -80,6 +99,20 @@ class ShellExecTool(BaseTool):
                 tool_name="shell_exec",
                 content="No command provided.",
                 success=False,
+            )
+
+        if not self._command_allowed(command):
+            return ToolResult(
+                tool_name="shell_exec",
+                content=(
+                    "Command blocked by this agent's shell_exec allowlist."
+                    f" Command: {command}"
+                ),
+                success=False,
+                metadata={
+                    "blocked_by_allowlist": True,
+                    "allowed_commands": self._allowed_commands,
+                },
             )
 
         # Resolve timeout (capped at _MAX_TIMEOUT)

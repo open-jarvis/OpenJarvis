@@ -7,6 +7,7 @@ from typing import Optional
 
 import click
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 
@@ -78,17 +79,20 @@ def list_agents() -> None:
                 "error": "red",
                 "archived": "dim strike",
             }.get(a["status"], "")
+            status_text = escape(a["status"])
+            if status_style:
+                status_text = f"[{status_style}]{status_text}[/{status_style}]"
             table.add_row(
                 a["id"],
                 a["name"],
                 a["agent_type"],
-                f"[{status_style}]{a['status']}[/{status_style}]",
+                status_text,
                 str(len(tasks)),
                 str(len(bindings)),
             )
         console.print(table)
     except Exception as exc:
-        console.print(f"[red]Error: {exc}[/red]")
+        console.print(f"[red]Error: {escape(str(exc))}[/red]")
 
 
 @agent.command("create")

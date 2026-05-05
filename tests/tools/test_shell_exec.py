@@ -56,6 +56,12 @@ class TestShellExecTool:
         assert "command" in tool.spec.parameters["properties"]
         assert "command" in tool.spec.parameters["required"]
 
+    def test_allowlisted_spec_skips_confirmation(self):
+        tool = ShellExecTool(allowed_commands=["echo"])
+        assert tool.spec.requires_confirmation is False
+        assert tool.spec.metadata["allowlisted"] is True
+        assert tool.spec.metadata["allowed_commands"] == ["echo"]
+
     def test_no_command(self):
         tool = ShellExecTool()
         result = tool.execute(command="")
@@ -81,6 +87,26 @@ class TestShellExecTool:
         assert result.success is True
         assert "hello" in result.content
         assert "--- stdout ---" in result.content
+
+    def test_allowlist_allows_prefix(self):
+        mock_mod = _make_mock_rust(
+            return_value=_rust_output(stdout="hello\n"),
+        )
+        tool = ShellExecTool(allowed_commands=["echo"])
+        with patch(
+            "openjarvis._rust_bridge.get_rust_module",
+            return_value=mock_mod,
+        ):
+            result = tool.execute(command="echo hello")
+        assert result.success is True
+        assert "hello" in result.content
+
+    def test_allowlist_blocks_unlisted_command(self):
+        tool = ShellExecTool(allowed_commands=["echo"])
+        result = tool.execute(command="rm -rf /tmp/nope")
+        assert result.success is False
+        assert "blocked" in result.content
+        assert result.metadata["blocked_by_allowlist"] is True
 
     def test_capture_stderr(self):
         mock_mod = _make_mock_rust(

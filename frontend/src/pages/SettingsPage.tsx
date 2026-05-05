@@ -18,7 +18,7 @@ import {
   Brain,
 } from 'lucide-react';
 import { useAppStore, type ThemeMode } from '../lib/store';
-import { checkHealth, fetchSpeechHealth, getMemoryStats } from '../lib/api';
+import { checkHealth, fetchSpeechHealth, getMemoryStats, saveCloudKey } from '../lib/api';
 
 function OllamaModelList() {
   const [models, setModels] = useState<Array<{ name: string; size: number }>>([]);
@@ -42,20 +42,34 @@ function OllamaModelList() {
   );
 }
 
-function ApiKeyInput({ storageKey, placeholder }: { storageKey: string; placeholder: string }) {
+function ApiKeyInput({ storageKey, placeholder, envKey }: { storageKey: string; placeholder: string; envKey?: string }) {
   const [value, setValue] = useState(() => {
     try { return localStorage.getItem(storageKey) || ''; } catch { return ''; }
   });
   const [saved, setSaved] = useState(false);
-  const save = (v: string) => {
+  useEffect(() => {
+    if (envKey && value) {
+      saveCloudKey(envKey, value).catch(() => {});
+    }
+  }, []);
+  const save = async (v: string) => {
     setValue(v);
     try { if (v) localStorage.setItem(storageKey, v); else localStorage.removeItem(storageKey); } catch {}
+    if (envKey) {
+      try { await saveCloudKey(envKey, v); } catch {}
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
   return (
     <div className="flex items-center gap-2">
-      <input type="password" value={value} onChange={e => save(e.target.value)} placeholder={placeholder}
+      <input type="password" value={value} onChange={e => {
+          setValue(e.target.value);
+          try {
+            if (e.target.value) localStorage.setItem(storageKey, e.target.value);
+            else localStorage.removeItem(storageKey);
+          } catch {}
+        }} onBlur={() => save(value)} placeholder={placeholder}
         className="w-48 px-2 py-1 rounded text-xs"
         style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }} />
       {saved && <span className="text-[10px]" style={{ color: 'var(--color-success)' }}>Saved</span>}
@@ -305,9 +319,6 @@ export function SettingsPage() {
             </div>
             <SettingRow label="Cloud providers" description="Green dot means API key is configured">
               <div className="flex flex-wrap gap-3">
-                <CloudProviderStatus label="OpenAI" storageKey="openjarvis-openai-key" />
-                <CloudProviderStatus label="Anthropic" storageKey="openjarvis-anthropic-key" />
-                <CloudProviderStatus label="Google" storageKey="openjarvis-gemini-key" />
                 <CloudProviderStatus label="OpenRouter" storageKey="openjarvis-openrouter-key" />
               </div>
             </SettingRow>
@@ -315,17 +326,8 @@ export function SettingsPage() {
 
           {/* API Keys */}
           <Section title="API Keys">
-            <SettingRow label="OpenAI" description="GPT-4, GPT-3.5, etc.">
-              <ApiKeyInput storageKey="openjarvis-openai-key" placeholder="sk-..." />
-            </SettingRow>
-            <SettingRow label="Anthropic" description="Claude models">
-              <ApiKeyInput storageKey="openjarvis-anthropic-key" placeholder="sk-ant-..." />
-            </SettingRow>
-            <SettingRow label="Google" description="Gemini models">
-              <ApiKeyInput storageKey="openjarvis-gemini-key" placeholder="AI..." />
-            </SettingRow>
-            <SettingRow label="OpenRouter" description="Multi-provider routing">
-              <ApiKeyInput storageKey="openjarvis-openrouter-key" placeholder="sk-or-..." />
+            <SettingRow label="OpenRouter" description="Primary cloud route for Kimi, DeepSeek, Nemotron, Gemini, and Claude">
+              <ApiKeyInput storageKey="openjarvis-openrouter-key" envKey="OPENROUTER_API_KEY" placeholder="sk-or-..." />
             </SettingRow>
           </Section>
 

@@ -74,7 +74,7 @@ def get_provider(model: str) -> str | None:
         return "minimax"
     if any(model.startswith(org) for org in _LOCAL_HF_ORGS):
         return None  # local model, never route to cloud
-    if "/" in model:  # openrouter format: "meta-llama/llama-3-8b"
+    if model.startswith("openrouter/"):
         return "openrouter"
     return None
 
@@ -370,8 +370,9 @@ async def stream_cloud(
             raise ValueError(
                 "OPENROUTER_API_KEY not set — add it in the Cloud Models tab"
             )
+        actual_model = model.removeprefix("openrouter/")
         async for token in _stream_openai(
-            model,
+            actual_model,
             messages,
             temperature,
             max_tokens,

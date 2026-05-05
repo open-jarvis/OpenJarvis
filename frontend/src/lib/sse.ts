@@ -1,5 +1,5 @@
 import type { SSEEvent } from '../types';
-import { getBase } from './api';
+import { getBase, syncCloudKeyForModel } from './api';
 
 export interface ChatRequest {
   model: string;
@@ -13,6 +13,7 @@ export async function* streamChat(
   request: ChatRequest,
   signal?: AbortSignal,
 ): AsyncGenerator<SSEEvent> {
+  await syncCloudKeyForModel(request.model);
   const base = getBase();
   const response = await fetch(`${base}/v1/chat/completions`, {
     method: 'POST',

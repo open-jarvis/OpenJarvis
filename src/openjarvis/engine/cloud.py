@@ -83,14 +83,11 @@ _MINIMAX_MODELS = [
 
 # OpenRouter models — prefixed with "openrouter/" so they can be identified
 _OPENROUTER_POPULAR = [
-    "openrouter/auto",
-    "openrouter/openai/gpt-4o",
-    "openrouter/anthropic/claude-sonnet-4",
-    "openrouter/google/gemini-2.5-pro",
-    "openrouter/meta-llama/llama-3.3-70b-instruct",
-    "openrouter/mistralai/mistral-large",
-    "openrouter/deepseek/deepseek-r1",
-    "openrouter/qwen/qwen3-235b-a22b",
+    "openrouter/moonshotai/kimi-k2.6",
+    "openrouter/deepseek/deepseek-v4-pro",
+    "openrouter/nvidia/nemotron-3-super-120b-a12b",
+    "openrouter/google/gemini-3.1-flash-lite-preview",
+    "openrouter/anthropic/claude-sonnet-4.6",
 ]
 
 # Codex models — prefixed with "codex/" for ChatGPT Plus/Pro subscribers.

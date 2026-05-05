@@ -1,0 +1,26 @@
+# Local MLX Code Assistant — Apple Silicon + OpenClaw MLX server
+
+[engine]
+default = "mlx"
+
+[engine.mlx]
+host = "http://127.0.0.1:11435"
+
+[intelligence]
+default_model = "mlx-community/Qwen3.5-9B-MLX-4bit"
+temperature = 0.3
+max_tokens = 2048
+
+[agent]
+default_agent = "orchestrator"
+max_turns = 12
+context_from_memory = true
+
+[tools]
+enabled = ["code_interpreter", "file_read", "file_write", "shell_exec", "web_search", "think", "calculator", "skill_manage", "memory_search", "retrieval"]
+
+[tools.storage]
+default_backend = "sqlite"
+
+[traces]
+enabled = true

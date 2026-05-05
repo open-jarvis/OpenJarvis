@@ -93,7 +93,7 @@ class AgentExecutor:
         )
         return agent.run(input_text)
 
-    def execute_tick(self, agent_id: str) -> None:
+    def execute_tick(self, agent_id: str, assume_started: bool = False) -> None:
         """Run one tick for the given agent.
 
         1. Acquire concurrency guard (start_tick)
@@ -101,12 +101,15 @@ class AgentExecutor:
         3. Update stats
         4. Release guard (end_tick)
         """
-        try:
-            self._manager.start_tick(agent_id)
+        if not assume_started:
+            try:
+                self._manager.start_tick(agent_id)
+                self._set_activity(agent_id, "Preparing tick...")
+            except ValueError:
+                logger.warning("Agent %s already running, skipping tick", agent_id)
+                return
+        else:
             self._set_activity(agent_id, "Preparing tick...")
-        except ValueError:
-            logger.warning("Agent %s already running, skipping tick", agent_id)
-            return
 
         agent = self._manager.get_agent(agent_id)
         if agent is None:
@@ -298,7 +301,15 @@ class AgentExecutor:
                 if ToolRegistry.contains(tname):
                     try:
                         tool_cls = ToolRegistry.get(tname)
-                        tool = tool_cls()
+                        if tname == "shell_exec":
+                            tool = tool_cls(
+                                allowed_commands=config.get(
+                                    "shell_command_allowlist",
+                                )
+                                or [],
+                            )
+                        else:
+                            tool = tool_cls()
                         self._inject_tool_deps(tool)
                         tool_instances.append(tool)
                     except Exception:

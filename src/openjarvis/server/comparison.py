@@ -186,7 +186,7 @@ COMPARISON_HTML = """\
 <div class="header">
   <h1><span>OpenJarvis</span> Cost Comparison</h1>
   <div class="nav">
-    <a href="/dashboard">Dashboard</a>
+    <a href="/savings-dashboard">Savings Dashboard</a>
     <a href="/comparison">Comparison</a>
   </div>
 </div>

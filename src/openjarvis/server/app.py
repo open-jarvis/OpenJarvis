@@ -205,6 +205,23 @@ def create_app(
         allow_headers=["*"],
     )
 
+    @app.middleware("http")
+    async def strip_spa_route_prefix(request, call_next):
+        """Route nested SPA API calls back to the server root.
+
+        When the browser is on a client-side route such as /pauls, a stale or
+        unconfigured frontend can issue relative API calls to /pauls/v1/...
+        instead of /v1/.... Normalize those requests before FastAPI routing.
+        """
+        path = request.scope.get("path", "")
+        parts = path.split("/")
+        if len(parts) >= 3 and parts[1] and parts[2] in {"v1", "api", "health"}:
+            request.scope["path"] = "/" + "/".join(parts[2:])
+            raw_path = request.scope.get("raw_path")
+            if isinstance(raw_path, bytes):
+                request.scope["raw_path"] = request.scope["path"].encode()
+        return await call_next(request)
+
     # Store dependencies in app state
     app.state.engine = engine
     app.state.model = model
