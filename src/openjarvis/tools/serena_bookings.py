@@ -1330,6 +1330,470 @@ class SerenaBookingsNoShowPolicyTool(_BookingsBaseTool):
         )
 
 
+@ToolRegistry.register("serena_bookings_reminder_plan")
+class SerenaBookingsReminderPlanTool(_BookingsBaseTool):
+    tool_id = "serena_bookings_reminder_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create an appointment reminder plan. Does not send reminders.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "booking_id": {"type": "string"},
+                    "channels": {"type": "string"},
+                    "timing": {"type": "string"},
+                    "message_type": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["booking_id"],
+            },
+            category="serena_bookings",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        booking_id = str(params.get("booking_id") or "").strip()
+        channels = str(params.get("channels") or "email/sms/whatsapp planned").strip()
+        timing = str(params.get("timing") or "24 hours before appointment").strip()
+        message_type = str(params.get("message_type") or "minimal appointment reminder").strip()
+        notes = str(params.get("notes") or "").strip()
+
+        records = _load_json_records("appointments")
+        booking = next((r for r in records if str(r.get("booking_id") or "") == booking_id), None)
+
+        if not booking:
+            return self._result(
+                "Serena reminder plan failed\n\n"
+                f"- Booking ID: {booking_id}\n"
+                "- Error: booking not found\n"
+                "- Reminder sent: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        safety_notes = [
+            "Do not include sensitive health details in reminder content.",
+            "Do not send reminders externally without approval.",
+            "Use minimal wording: appointment date/time/location/contact only.",
+            "Run Compliance before reminder send if content contains patient/client/health data.",
+        ]
+
+        payload = {
+            "record_type": "reminder_plan",
+            "created_at": _timestamp(),
+            "booking_id": booking_id,
+            "business": booking.get("business"),
+            "patient_or_client": booking.get("patient_or_client"),
+            "appointment_type": booking.get("appointment_type"),
+            "date": booking.get("date"),
+            "time": booking.get("time"),
+            "channels": channels,
+            "timing": timing,
+            "message_type": message_type,
+            "notes": notes,
+            "sensitive": bool(booking.get("sensitive")),
+            "safety_notes": safety_notes,
+            "reminder_plan_created": True,
+            "reminder_sent": False,
+            "external_api_called": False,
+            "calendar_write_performed": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        record_path = _save_json("reminders", f"reminder-plan-{booking_id}", payload)
+
+        return self._result(
+            "Serena reminder plan created\n\n"
+            f"- Booking ID: {booking_id}\n"
+            f"- Patient/client: {booking.get('patient_or_client')}\n"
+            f"- Appointment: {booking.get('appointment_type')} | {booking.get('date')} {booking.get('time')}\n"
+            f"- Channels: {channels}\n"
+            f"- Timing: {timing}\n"
+            f"- Message type: {message_type}\n"
+            f"- Sensitive: {'yes' if booking.get('sensitive') else 'no'}\n"
+            f"- Record: {record_path}\n"
+            "- Reminder plan created: yes\n"
+            "- Reminder sent: no\n"
+            "- External API called: no\n"
+            "- Calendar write performed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Safety notes:\n"
+            + "\n".join(f"- {item}" for item in safety_notes),
+            metadata={**payload, "record_path": str(record_path)},
+        )
+
+
+@ToolRegistry.register("serena_bookings_reminder_schedule")
+class SerenaBookingsReminderScheduleTool(_BookingsBaseTool):
+    tool_id = "serena_bookings_reminder_schedule"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local reminder schedule record. Does not send reminders.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "booking_id": {"type": "string"},
+                    "reminder_time": {"type": "string"},
+                    "channel": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                    "message": {"type": "string"},
+                },
+                "required": ["booking_id", "reminder_time"],
+            },
+            category="serena_bookings",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        booking_id = str(params.get("booking_id") or "").strip()
+        reminder_time = str(params.get("reminder_time") or "").strip()
+        channel = str(params.get("channel") or "manual/local").strip()
+        approved = bool(params.get("approved") or False)
+        message = str(params.get("message") or "").strip()
+
+        records = _load_json_records("appointments")
+        booking = next((r for r in records if str(r.get("booking_id") or "") == booking_id), None)
+
+        if not booking:
+            return self._result(
+                "Serena reminder schedule failed\n\n"
+                f"- Booking ID: {booking_id}\n"
+                "- Error: booking not found\n"
+                "- Reminder schedule created: no\n"
+                "- Reminder sent: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        if message and bool(booking.get("sensitive")) and not approved:
+            return self._result(
+                "Serena reminder schedule blocked\n\n"
+                f"- Booking ID: {booking_id}\n"
+                "- Reason: sensitive reminder message requires approval before scheduling/sending.\n"
+                "- Reminder schedule created: no\n"
+                "- Reminder sent: no\n"
+                "- External API called: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        record = {
+            "record_type": "reminder_schedule",
+            "created_at": _timestamp(),
+            "booking_id": booking_id,
+            "business": booking.get("business"),
+            "patient_or_client": booking.get("patient_or_client"),
+            "appointment_type": booking.get("appointment_type"),
+            "date": booking.get("date"),
+            "time": booking.get("time"),
+            "reminder_time": reminder_time,
+            "channel": channel,
+            "approved": approved,
+            "message_preview": message[:300],
+            "status": "scheduled_local",
+            "sensitive": bool(booking.get("sensitive")),
+            "reminder_schedule_created": True,
+            "reminder_sent": False,
+            "external_api_called": False,
+            "calendar_write_performed": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        record_path = _save_json("reminders", f"reminder-schedule-{booking_id}", record)
+
+        return self._result(
+            "Serena reminder schedule created\n\n"
+            f"- Booking ID: {booking_id}\n"
+            f"- Reminder time: {reminder_time}\n"
+            f"- Channel: {channel}\n"
+            f"- Approved: {'yes' if approved else 'no'}\n"
+            f"- Status: scheduled_local\n"
+            f"- Sensitive: {'yes' if booking.get('sensitive') else 'no'}\n"
+            f"- Record: {record_path}\n"
+            "- Reminder schedule created: yes\n"
+            "- Reminder sent: no\n"
+            "- External API called: no\n"
+            "- Calendar write performed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={**record, "record_path": str(record_path)},
+        )
+
+
+@ToolRegistry.register("serena_bookings_reminder_status")
+class SerenaBookingsReminderStatusTool(_BookingsBaseTool):
+    tool_id = "serena_bookings_reminder_status"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Show local reminder status for a booking.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "booking_id": {"type": "string"},
+                },
+                "required": ["booking_id"],
+            },
+            category="serena_bookings",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        booking_id = str(params.get("booking_id") or "").strip()
+        reminders = _load_json_records("reminders")
+        selected = [r for r in reminders if str(r.get("booking_id") or "") == booking_id]
+
+        payload = {
+            "report_type": "serena_bookings_reminder_status",
+            "created_at": _timestamp(),
+            "booking_id": booking_id,
+            "reminder_records": len(selected),
+            "records": selected,
+            "external_api_called": False,
+            "reminder_sent": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"reminder-status-{booking_id}", payload)
+
+        lines = [
+            "Serena reminder status",
+            "",
+            f"- Booking ID: {booking_id}",
+            f"- Reminder records: {len(selected)}",
+            f"- Report: {report_path}",
+            "- External API called: no",
+            "- Reminder sent: no",
+            "- Changes made: no",
+            "- Secret values exposed: no",
+            "- Hub adapter: pending future dashboard",
+            "",
+            "Records:",
+        ]
+
+        if selected:
+            for r in selected[:20]:
+                lines.append(
+                    f"- {r.get('record_type')} | status={r.get('status', 'planned')} | channel={r.get('channel', r.get('channels', 'n/a'))} | time={r.get('reminder_time', r.get('timing', 'n/a'))}"
+                )
+        else:
+            lines.append("- none")
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+@ToolRegistry.register("serena_bookings_no_show_risk")
+class SerenaBookingsNoShowRiskTool(_BookingsBaseTool):
+    tool_id = "serena_bookings_no_show_risk"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Estimate no-show risk from local booking/reminder data.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "booking_id": {"type": "string"},
+                },
+                "required": ["booking_id"],
+            },
+            category="serena_bookings",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        booking_id = str(params.get("booking_id") or "").strip()
+        records = _load_json_records("appointments")
+        booking = next((r for r in records if str(r.get("booking_id") or "") == booking_id), None)
+
+        if not booking:
+            return self._result(
+                "Serena no-show risk failed\n\n"
+                f"- Booking ID: {booking_id}\n"
+                "- Error: booking not found\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        reminders = [r for r in _load_json_records("reminders") if str(r.get("booking_id") or "") == booking_id]
+        score = 0
+        reasons = []
+
+        if not str(booking.get("contact") or "").strip():
+            score += 30
+            reasons.append("Missing contact details.")
+
+        if not reminders:
+            score += 30
+            reasons.append("No reminder plan/schedule found.")
+
+        if bool(booking.get("sensitive")):
+            score += 10
+            reasons.append("Sensitive appointment requires careful approved reminder workflow.")
+
+        if str(booking.get("calendar_event_id") or "").strip() == "":
+            score += 15
+            reasons.append("No linked Calendar event ID.")
+
+        if str(booking.get("status") or "").lower() not in {"scheduled", "scheduled_local", "confirmed"}:
+            score += 15
+            reasons.append("Booking status is not confirmed/scheduled.")
+
+        risk = "low"
+        if score >= 60:
+            risk = "high"
+        elif score >= 30:
+            risk = "medium"
+
+        payload = {
+            "report_type": "serena_bookings_no_show_risk",
+            "created_at": _timestamp(),
+            "booking_id": booking_id,
+            "business": booking.get("business"),
+            "patient_or_client": booking.get("patient_or_client"),
+            "score": score,
+            "risk": risk,
+            "reasons": reasons,
+            "reminder_records": len(reminders),
+            "external_api_called": False,
+            "reminder_sent": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"no-show-risk-{booking_id}", payload)
+
+        return self._result(
+            "Serena no-show risk report\n\n"
+            f"- Booking ID: {booking_id}\n"
+            f"- Patient/client: {booking.get('patient_or_client')}\n"
+            f"- Risk: {risk}\n"
+            f"- Score: {score}\n"
+            f"- Reminder records: {len(reminders)}\n"
+            f"- Report: {report_path}\n"
+            "- External API called: no\n"
+            "- Reminder sent: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Reasons:\n"
+            + ("\n".join(f"- {item}" for item in reasons) if reasons else "- none"),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_bookings_follow_up_plan")
+class SerenaBookingsFollowUpPlanTool(_BookingsBaseTool):
+    tool_id = "serena_bookings_follow_up_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a follow-up plan for an appointment. Does not send external messages.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "booking_id": {"type": "string"},
+                    "reason": {"type": "string"},
+                    "timing": {"type": "string"},
+                    "channel": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["booking_id"],
+            },
+            category="serena_bookings",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        booking_id = str(params.get("booking_id") or "").strip()
+        reason = str(params.get("reason") or "Follow-up after appointment.").strip()
+        timing = str(params.get("timing") or "after appointment").strip()
+        channel = str(params.get("channel") or "manual/local").strip()
+        notes = str(params.get("notes") or "").strip()
+
+        records = _load_json_records("appointments")
+        booking = next((r for r in records if str(r.get("booking_id") or "") == booking_id), None)
+
+        if not booking:
+            return self._result(
+                "Serena follow-up plan failed\n\n"
+                f"- Booking ID: {booking_id}\n"
+                "- Error: booking not found\n"
+                "- Follow-up plan created: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        steps = [
+            "Confirm appointment outcome/status.",
+            "Confirm follow-up reason and appropriate timing.",
+            "Avoid sensitive details in external messages.",
+            "Run Compliance before sending patient/client/health-related follow-up externally.",
+            "Create Reporting handoff if this belongs in daily/weekly appointment report.",
+        ]
+
+        payload = {
+            "record_type": "follow_up_plan",
+            "created_at": _timestamp(),
+            "booking_id": booking_id,
+            "business": booking.get("business"),
+            "patient_or_client": booking.get("patient_or_client"),
+            "appointment_type": booking.get("appointment_type"),
+            "date": booking.get("date"),
+            "time": booking.get("time"),
+            "reason": reason,
+            "timing": timing,
+            "channel": channel,
+            "notes": notes,
+            "steps": steps,
+            "sensitive": bool(booking.get("sensitive")),
+            "follow_up_plan_created": True,
+            "external_message_sent": False,
+            "external_api_called": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        record_path = _save_json("followups", f"follow-up-{booking_id}", payload)
+
+        return self._result(
+            "Serena follow-up plan created\n\n"
+            f"- Booking ID: {booking_id}\n"
+            f"- Patient/client: {booking.get('patient_or_client')}\n"
+            f"- Reason: {reason}\n"
+            f"- Timing: {timing}\n"
+            f"- Channel: {channel}\n"
+            f"- Sensitive: {'yes' if booking.get('sensitive') else 'no'}\n"
+            f"- Record: {record_path}\n"
+            "- Follow-up plan created: yes\n"
+            "- External message sent: no\n"
+            "- External API called: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Steps:\n"
+            + "\n".join(f"- {step}" for step in steps),
+            metadata={**payload, "record_path": str(record_path)},
+        )
+
+
 __all__ = [
     "SerenaBookingsStatusTool",
     "SerenaBookingsEnvCheckTool",
@@ -1338,6 +1802,11 @@ __all__ = [
     "SerenaBookingsSourceInfoTool",
     "SerenaBookingsBookingListTool",
     "SerenaBookingsNoShowPolicyTool",
+    "SerenaBookingsFollowUpPlanTool",
+    "SerenaBookingsNoShowRiskTool",
+    "SerenaBookingsReminderStatusTool",
+    "SerenaBookingsReminderScheduleTool",
+    "SerenaBookingsReminderPlanTool",
     "SerenaBookingsCancellationPolicyTool",
     "SerenaBookingsCancelBookingTool",
     "SerenaBookingsRescheduleBookingTool",

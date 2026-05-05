@@ -12,6 +12,11 @@ from openjarvis.tools.serena_bookings import (
     SerenaBookingsSourceInfoTool,
     SerenaBookingsSourceListTool,
     SerenaBookingsStatusTool,
+    SerenaBookingsFollowUpPlanTool,
+    SerenaBookingsNoShowRiskTool,
+    SerenaBookingsReminderStatusTool,
+    SerenaBookingsReminderScheduleTool,
+    SerenaBookingsReminderPlanTool,
     SerenaBookingsNoShowPolicyTool,
     SerenaBookingsCancellationPolicyTool,
     SerenaBookingsCancelBookingTool,
@@ -246,6 +251,81 @@ def no_show_policy(business: str, notes: str) -> None:
     """Create/display no-show policy and prevention workflow."""
     console = Console()
     result = SerenaBookingsNoShowPolicyTool().execute(business=business, notes=notes)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@bookings.command("reminder-plan")
+@click.option("--booking-id", required=True, help="Booking ID.")
+@click.option("--channels", default="email/sms/whatsapp planned", help="Reminder channels.")
+@click.option("--timing", default="24 hours before appointment", help="Reminder timing.")
+@click.option("--message-type", default="minimal appointment reminder", help="Message type.")
+@click.option("--notes", default="", help="Notes.")
+def reminder_plan(booking_id: str, channels: str, timing: str, message_type: str, notes: str) -> None:
+    """Create an appointment reminder plan."""
+    console = Console()
+    result = SerenaBookingsReminderPlanTool().execute(
+        booking_id=booking_id,
+        channels=channels,
+        timing=timing,
+        message_type=message_type,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@bookings.command("reminder-schedule")
+@click.option("--booking-id", required=True, help="Booking ID.")
+@click.option("--reminder-time", required=True, help="Reminder time.")
+@click.option("--channel", default="manual/local", help="Reminder channel.")
+@click.option("--approved", is_flag=True, help="Approval flag for sensitive reminder messages.")
+@click.option("--message", default="", help="Reminder message preview.")
+def reminder_schedule(booking_id: str, reminder_time: str, channel: str, approved: bool, message: str) -> None:
+    """Create a local reminder schedule record."""
+    console = Console()
+    result = SerenaBookingsReminderScheduleTool().execute(
+        booking_id=booking_id,
+        reminder_time=reminder_time,
+        channel=channel,
+        approved=approved,
+        message=message,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@bookings.command("reminder-status")
+@click.option("--booking-id", required=True, help="Booking ID.")
+def reminder_status(booking_id: str) -> None:
+    """Show local reminder status for a booking."""
+    console = Console()
+    result = SerenaBookingsReminderStatusTool().execute(booking_id=booking_id)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@bookings.command("no-show-risk")
+@click.option("--booking-id", required=True, help="Booking ID.")
+def no_show_risk(booking_id: str) -> None:
+    """Estimate no-show risk from local booking/reminder data."""
+    console = Console()
+    result = SerenaBookingsNoShowRiskTool().execute(booking_id=booking_id)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@bookings.command("follow-up-plan")
+@click.option("--booking-id", required=True, help="Booking ID.")
+@click.option("--reason", default="Follow-up after appointment.", help="Follow-up reason.")
+@click.option("--timing", default="after appointment", help="Follow-up timing.")
+@click.option("--channel", default="manual/local", help="Follow-up channel.")
+@click.option("--notes", default="", help="Notes.")
+def follow_up_plan(booking_id: str, reason: str, timing: str, channel: str, notes: str) -> None:
+    """Create a follow-up plan."""
+    console = Console()
+    result = SerenaBookingsFollowUpPlanTool().execute(
+        booking_id=booking_id,
+        reason=reason,
+        timing=timing,
+        channel=channel,
+        notes=notes,
+    )
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 
