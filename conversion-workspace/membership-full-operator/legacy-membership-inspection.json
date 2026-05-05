@@ -1,0 +1,387 @@
+{
+  "status": "inspected",
+  "target_native_skill": "Serena Membership / Subscriptions / Patient Programmes Full Operator v1",
+  "missing_files": [
+    "legacy\\serena-skills\\20-bookings.js",
+    "legacy\\serena-skills\\58-appointment-reminders.js",
+    "legacy\\serena-skills\\77-ecommerce-ops.js"
+  ],
+  "files": [
+    {
+      "file": "legacy\\serena-skills\\21-membership.js",
+      "exists": true,
+      "line_count": 204,
+      "character_count": 7650,
+      "triggers": [
+        "CREATE MEMBERSHIP:",
+        "ENROL MEMBER:",
+        "MEMBER STATUS:",
+        "MEMBERSHIP PLANS"
+      ],
+      "function_names": [],
+      "dependencies": [
+        "../helpers/logger",
+        "../helpers/structured-output"
+      ],
+      "membership_terms": [
+        "booking",
+        "enrol",
+        "enroll",
+        "health",
+        "member",
+        "members",
+        "membership",
+        "patient",
+        "payment",
+        "plan",
+        "plans",
+        "renewal",
+        "subscription",
+        "woocommerce"
+      ],
+      "env_mentions": [
+        "MEMBER",
+        "MEMBERSHIP",
+        "PATIENT"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\45-payflow.js",
+      "exists": true,
+      "line_count": 77,
+      "character_count": 2706,
+      "triggers": [
+        "PAYFLOW:",
+        "SUBSCRIPTION:"
+      ],
+      "function_names": [
+        "parsePayload"
+      ],
+      "dependencies": [
+        "../helpers/logger"
+      ],
+      "membership_terms": [
+        "member",
+        "members",
+        "membership",
+        "order",
+        "payfast",
+        "payflow",
+        "payment",
+        "plan",
+        "plans",
+        "renewal",
+        "revenue",
+        "subscription"
+      ],
+      "env_mentions": [
+        "PAYFLOW",
+        "SUBSCRIPTION"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\10-payfast.js",
+      "exists": true,
+      "line_count": 120,
+      "character_count": 4830,
+      "triggers": [
+        "PAYMENT LINK:",
+        "PAYMENT STATUS:"
+      ],
+      "function_names": [
+        "buildPayfastUrl"
+      ],
+      "dependencies": [
+        "../helpers/logger",
+        "crypto"
+      ],
+      "membership_terms": [
+        "cancel",
+        "docs",
+        "order",
+        "patient",
+        "payfast",
+        "payment"
+      ],
+      "env_mentions": [
+        "PAYFAST",
+        "PAYFAST_ENABLED",
+        "PAYFAST_MERCHANT_ID",
+        "PAYFAST_MERCHANT_KEY",
+        "PAYFAST_PASSPHRASE",
+        "PAYFAST_SANDBOX"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\09-finance.js",
+      "exists": true,
+      "line_count": 171,
+      "character_count": 6730,
+      "triggers": [
+        "GENERATE INVOICE:",
+        "INVOICE SUMMARY",
+        "PAID",
+        "PENDING",
+        "RECORD PAYMENT:"
+      ],
+      "function_names": [
+        "totalAmount",
+        "vatAmount"
+      ],
+      "dependencies": [
+        "../helpers/logger",
+        "../helpers/structured-output"
+      ],
+      "membership_terms": [
+        "invoice",
+        "patient",
+        "payfast",
+        "payment"
+      ],
+      "env_mentions": [
+        "PAYFAST_ENABLED"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\01-crm.js",
+      "exists": true,
+      "line_count": 205,
+      "character_count": 7663,
+      "triggers": [
+        "ADD PATIENT:",
+        "GET PATIENT:",
+        "UPDATE PATIENT:"
+      ],
+      "function_names": [],
+      "dependencies": [
+        "../helpers/logger",
+        "../helpers/structured-output"
+      ],
+      "membership_terms": [
+        "crm",
+        "health",
+        "patient"
+      ],
+      "env_mentions": [
+        "CRM",
+        "PATIENT"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\25-compliance.js",
+      "exists": true,
+      "line_count": 98,
+      "character_count": 4160,
+      "triggers": [
+        "ANALYSE CONTENT:",
+        "COMPLIANCE CHECK:",
+        "FULL COMPLIANCE:",
+        "HPCSA CHECK:"
+      ],
+      "function_names": [],
+      "dependencies": [
+        "../helpers/logger"
+      ],
+      "membership_terms": [
+        "compliance",
+        "consent",
+        "health",
+        "hpcsa",
+        "patient",
+        "popia",
+        "privacy",
+        "report"
+      ],
+      "env_mentions": []
+    },
+    {
+      "file": "legacy\\serena-skills\\02-reporting.js",
+      "exists": true,
+      "line_count": 105,
+      "character_count": 3818,
+      "triggers": [
+        "KPI REPORT",
+        "MORNING BRIEF",
+        "WEEKLY REPORT"
+      ],
+      "function_names": [],
+      "dependencies": [
+        "../helpers/logger"
+      ],
+      "membership_terms": [
+        "appointment",
+        "booking",
+        "member",
+        "members",
+        "membership",
+        "patient",
+        "plan",
+        "report",
+        "revenue",
+        "woocommerce"
+      ],
+      "env_mentions": []
+    },
+    {
+      "file": "legacy\\serena-skills\\03-gdrive.js",
+      "exists": true,
+      "line_count": 96,
+      "character_count": 3508,
+      "triggers": [
+        "DRIVE FOLDER:",
+        "DRIVE LIST:",
+        "DRIVE SAVE:",
+        "DRIVE UPLOAD:"
+      ],
+      "function_names": [],
+      "dependencies": [
+        "../helpers/google-drive",
+        "../helpers/logger"
+      ],
+      "membership_terms": [
+        "drive"
+      ],
+      "env_mentions": [
+        "GDRIVE",
+        "GDRIVE_ROOT_FOLDER_ID"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\08-google-docs.js",
+      "exists": true,
+      "line_count": 100,
+      "character_count": 3259,
+      "triggers": [
+        "CREATE DOC:",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        "GOOGLE_REFRESH_TOKEN",
+        "UPDATE DOC:"
+      ],
+      "function_names": [
+        "generateDocContent",
+        "parsePayload",
+        "replaceExisting"
+      ],
+      "dependencies": [
+        "../helpers/google-docs-service",
+        "../helpers/logger"
+      ],
+      "membership_terms": [
+        "client",
+        "docs"
+      ],
+      "env_mentions": [
+        "DOCS",
+        "GOOGLE",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        "GOOGLE_REFRESH_TOKEN"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\29-ecommerce.js",
+      "exists": true,
+      "line_count": 152,
+      "character_count": 6105,
+      "triggers": [
+        "POST",
+        "WC ORDER:",
+        "WC ORDERS",
+        "WC PRODUCT:",
+        "WC PRODUCTS",
+        "WC REVENUE"
+      ],
+      "function_names": [
+        "base",
+        "items",
+        "wcGet",
+        "wcPost",
+        "wcUrl"
+      ],
+      "dependencies": [
+        "../helpers/logger"
+      ],
+      "membership_terms": [
+        "cancel",
+        "order",
+        "revenue",
+        "woocommerce"
+      ],
+      "env_mentions": [
+        "WOOCOMMERCE_KEY",
+        "WOOCOMMERCE_SECRET"
+      ]
+    }
+  ],
+  "target_workflow": [
+    "status",
+    "env-check",
+    "plan",
+    "source-list",
+    "source-info",
+    "plan-list",
+    "plan-info",
+    "create-member-profile",
+    "member-info",
+    "member-list",
+    "update-member-status",
+    "enrollment-plan",
+    "enroll-member",
+    "cancel-membership-plan",
+    "pause-membership-plan",
+    "renewal-plan",
+    "subscription-plan",
+    "subscription-record",
+    "payment-handoff",
+    "accounting-handoff",
+    "booking-handoff",
+    "programme-plan",
+    "programme-enroll",
+    "programme-progress",
+    "programme-follow-up",
+    "docs-handoff",
+    "drive-handoff",
+    "reporting-handoff",
+    "member-summary",
+    "audit",
+    "blocked-bulk-cancel",
+    "blocked-unapproved-payment-change",
+    "blocked-patient-data-exposure",
+    "blocked-silent-programme-change"
+  ],
+  "hub_adapter": {
+    "future_widgets": [
+      "membership_overview_widget",
+      "member_profile_widget",
+      "subscription_status_widget",
+      "programme_progress_widget",
+      "renewal_pipeline_widget",
+      "membership_payment_widget",
+      "membership_approval_widget",
+      "membership_exceptions_widget"
+    ],
+    "future_events": [
+      "membership_plan_created",
+      "member_profile_created",
+      "member_enrolled",
+      "membership_status_updated",
+      "subscription_record_created",
+      "programme_progress_updated",
+      "membership_handoff_created",
+      "membership_report_created",
+      "membership_action_blocked"
+    ],
+    "operator_state": [
+      "current_business_id",
+      "current_member_id",
+      "current_patient_or_client_id",
+      "current_membership_plan_id",
+      "current_subscription_id",
+      "current_programme_id",
+      "current_payment_status",
+      "current_required_approval",
+      "current_report_path"
+    ]
+  }
+}
