@@ -91,7 +91,7 @@ def _detect_nvidia_gpu() -> Optional[GpuInfo]:
     raw = _run_cmd(
         [
             "nvidia-smi",
-            "--query-gpu=name,memory.total,count",
+            "--query-gpu=name,memory.total,count,compute_cap",
             "--format=csv,noheader,nounits",
         ]
     )
@@ -103,10 +103,12 @@ def _detect_nvidia_gpu() -> Optional[GpuInfo]:
         name = parts[0]
         vram_mb = float(parts[1])
         count = int(parts[2])
+        compute_capability = parts[3] if len(parts) > 3 else ""
         return GpuInfo(
             vendor="nvidia",
             name=name,
             vram_gb=round(vram_mb / 1024, 1),
+            compute_capability=compute_capability,
             count=count,
         )
     except (IndexError, ValueError):
@@ -1405,7 +1407,10 @@ class JarvisConfig:
 
 # Sections that users may set via ``jarvis config set``.
 # ``hardware`` is auto-detected and not user-settable.
-_SETTABLE_SECTIONS = frozenset(JarvisConfig.__dataclass_fields__.keys()) - {"hardware", "mining"}
+_SETTABLE_SECTIONS = frozenset(JarvisConfig.__dataclass_fields__.keys()) - {
+    "hardware",
+    "mining",
+}
 
 
 def validate_config_key(dotted_key: str) -> type:
