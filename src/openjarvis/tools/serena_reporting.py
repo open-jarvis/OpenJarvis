@@ -428,9 +428,333 @@ class SerenaReportingPlanTool(_ReportingBaseTool):
         )
 
 
+def _read_source_file(path_value: str, max_chars: int = 20000) -> tuple[Path, str]:
+    path = Path(path_value)
+    if not path.exists():
+        raise RuntimeError(f"Source file not found: {path}")
+    if not path.is_file():
+        raise RuntimeError(f"Source path is not a file: {path}")
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    return path, text[:max_chars]
+
+
+def _summarize_text_for_report(text: str, title: str, report_type: str = "activity-summary", source_label: str = "provided text") -> str:
+    templates = _templates()
+    template = templates.get(report_type, templates["activity-summary"])
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+
+    signal_lines = []
+    keywords = [
+        "created", "complete", "completed", "failed", "blocked", "error", "report",
+        "changes made", "delete performed", "secret values exposed", "approval",
+        "risk level", "connected", "status", "uploaded", "downloaded", "exported",
+        "policy rules changed", "document", "calendar", "drive", "ocr", "compliance"
+    ]
+
+    lower_lines = [(line, line.lower()) for line in lines]
+    for original, lower in lower_lines:
+        if any(keyword in lower for keyword in keywords):
+            signal_lines.append(original)
+
+    if not signal_lines:
+        signal_lines = lines[:12]
+
+    signal_lines = signal_lines[:30]
+
+    report_lines = [
+        f"# {title}",
+        "",
+        f"Report type: {report_type}",
+        f"Source: {source_label}",
+        f"Created by: Serena Reporting Full Operator v1",
+        f"Created at: {_timestamp()}",
+        "",
+        "## Executive Summary",
+        "",
+        f"Serena reviewed the source material and generated a structured {template['name'].lower()}.",
+        f"The source contained {len(text)} characters and {len(lines)} non-empty lines.",
+        "",
+        "## Key Findings",
+        "",
+    ]
+
+    if signal_lines:
+        for item in signal_lines[:12]:
+            report_lines.append(f"- {item}")
+    else:
+        report_lines.append("- No high-signal lines were detected.")
+
+    report_lines.extend([
+        "",
+        "## Report Sections",
+        "",
+    ])
+
+    for section in template["sections"]:
+        report_lines.append(f"### {section}")
+        if section.lower().startswith("evidence"):
+            report_lines.append(f"- Source: {source_label}")
+        elif section.lower().startswith("next"):
+            report_lines.append("- Review this report and decide whether handoff/export is required.")
+        elif "risk" in section.lower() or "compliance" in section.lower():
+            report_lines.append("- Run Compliance checks before sharing externally if sensitive information is present.")
+        elif "blocked" in section.lower() or "approval" in section.lower():
+            report_lines.append("- See key findings for blocked actions or approval signals.")
+        else:
+            report_lines.append("- See key findings and source evidence above.")
+        report_lines.append("")
+
+    report_lines.extend([
+        "## Evidence / Source Paths",
+        "",
+        f"- {source_label}",
+        "",
+        "## Safety",
+        "",
+        "- Report generated locally.",
+        "- Source evidence was not deleted.",
+        "- Secret values were not intentionally exposed.",
+        "- External handoff/export should use compliance checks first.",
+        "",
+    ])
+
+    return "\n".join(report_lines)
+
+
+def _source_report_result(
+    title: str,
+    source_text: str,
+    source_label: str,
+    report_type: str,
+    report_name: str,
+) -> ToolResult:
+    report_md = _summarize_text_for_report(
+        text=source_text,
+        title=title,
+        report_type=report_type,
+        source_label=source_label,
+    )
+    draft_path = _save_text("drafts", report_name, report_md, ".md")
+    payload = {
+        "report_type": f"serena_reporting_{report_name}",
+        "created_at": _timestamp(),
+        "requested_report_type": report_type,
+        "source_label": source_label,
+        "source_characters": len(source_text),
+        "draft_path": str(draft_path),
+        "report_created": True,
+        "export_performed": False,
+        "delete_performed": False,
+        "changes_made": True,
+        "secret_values_exposed": False,
+        "hub_adapter": _hub_adapter_contract(),
+    }
+    report_path = _save_json("reports", report_name, payload)
+
+    return ToolResult(
+        tool_name=f"serena_reporting_{report_name}",
+        success=True,
+        content=(
+            f"{title} created\n\n"
+            f"- Report type: {report_type}\n"
+            f"- Source: {source_label}\n"
+            f"- Source characters: {len(source_text)}\n"
+            f"- Draft report: {draft_path}\n"
+            f"- Metadata report: {report_path}\n"
+            "- Report created: yes\n"
+            "- Export performed: no\n"
+            "- Delete performed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard"
+        ),
+        metadata={**payload, "report_path": str(report_path)},
+    )
+
+
+@ToolRegistry.register("serena_reporting_from_text")
+class SerenaReportingFromTextTool(_ReportingBaseTool):
+    tool_id = "serena_reporting_from_text"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a structured report from provided text.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "title": {"type": "string"},
+                    "report_type": {"type": "string"},
+                },
+                "required": ["text"],
+            },
+            category="serena_reporting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        text = str(params.get("text") or "")
+        title = str(params.get("title") or "Serena Text Report").strip()
+        report_type = str(params.get("report_type") or "activity-summary").strip()
+        return _source_report_result(title, text, "provided text", report_type, f"from-text-{title}")
+
+
+@ToolRegistry.register("serena_reporting_from_json")
+class SerenaReportingFromJsonTool(_ReportingBaseTool):
+    tool_id = "serena_reporting_from_json"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a structured report from JSON text.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "json_text": {"type": "string"},
+                    "title": {"type": "string"},
+                    "report_type": {"type": "string"},
+                },
+                "required": ["json_text"],
+            },
+            category="serena_reporting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        json_text = str(params.get("json_text") or "")
+        title = str(params.get("title") or "Serena JSON Report").strip()
+        report_type = str(params.get("report_type") or "activity-summary").strip()
+
+        try:
+            data = json.loads(json_text)
+            pretty = json.dumps(data, indent=2, default=str)
+            source = pretty
+        except Exception as exc:
+            source = f"JSON parse warning: {exc}\n\nRaw input:\n{json_text}"
+
+        return _source_report_result(title, source, "provided JSON text", report_type, f"from-json-{title}")
+
+
+@ToolRegistry.register("serena_reporting_from_file")
+class SerenaReportingFromFileTool(_ReportingBaseTool):
+    tool_id = "serena_reporting_from_file"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a structured report from a local text/JSON/markdown file.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "title": {"type": "string"},
+                    "report_type": {"type": "string"},
+                    "max_chars": {"type": "integer"},
+                },
+                "required": ["path"],
+            },
+            category="serena_reporting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        path_value = str(params.get("path") or "").strip()
+        title = str(params.get("title") or "Serena File Report").strip()
+        report_type = str(params.get("report_type") or "activity-summary").strip()
+        max_chars = int(params.get("max_chars") or 20000)
+
+        try:
+            path, text = _read_source_file(path_value, max_chars=max_chars)
+            return _source_report_result(title, text, str(path), report_type, f"from-file-{path.stem}")
+        except Exception as exc:
+            return self._result(
+                "Serena Reporting from-file failed\n\n"
+                f"- Path: {path_value}\n"
+                f"- Error: {exc}\n"
+                "- Report created: no\n"
+                "- Changes made: no\n"
+                "- Delete performed: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_reporting_from_folder")
+class SerenaReportingFromFolderTool(_ReportingBaseTool):
+    tool_id = "serena_reporting_from_folder"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a structured report from recent local text/JSON/markdown files in a folder.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "folder": {"type": "string"},
+                    "title": {"type": "string"},
+                    "report_type": {"type": "string"},
+                    "limit": {"type": "integer"},
+                    "max_chars_per_file": {"type": "integer"},
+                },
+                "required": ["folder"],
+            },
+            category="serena_reporting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        folder_value = str(params.get("folder") or "").strip()
+        title = str(params.get("title") or "Serena Folder Report").strip()
+        report_type = str(params.get("report_type") or "activity-summary").strip()
+        limit = int(params.get("limit") or 10)
+        max_chars_per_file = int(params.get("max_chars_per_file") or 4000)
+
+        try:
+            folder = Path(folder_value)
+            if not folder.exists() or not folder.is_dir():
+                raise RuntimeError(f"Folder not found or not directory: {folder}")
+
+            candidates = []
+            for pattern in ["*.json", "*.md", "*.txt", "*.log"]:
+                candidates.extend(folder.rglob(pattern))
+
+            candidates = sorted(
+                [path for path in candidates if path.is_file()],
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )[:limit]
+
+            if not candidates:
+                raise RuntimeError("No JSON/MD/TXT/LOG source files found.")
+
+            chunks = []
+            for path in candidates:
+                text = path.read_text(encoding="utf-8", errors="ignore")[:max_chars_per_file]
+                chunks.append(f"===== SOURCE: {path} =====\n{text}")
+
+            combined = "\n\n".join(chunks)
+            return _source_report_result(title, combined, str(folder), report_type, f"from-folder-{folder.name}")
+        except Exception as exc:
+            return self._result(
+                "Serena Reporting from-folder failed\n\n"
+                f"- Folder: {folder_value}\n"
+                f"- Error: {exc}\n"
+                "- Report created: no\n"
+                "- Changes made: no\n"
+                "- Delete performed: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+
 __all__ = [
     "SerenaReportingStatusTool",
     "SerenaReportingPlanTool",
     "SerenaReportingTemplatesTool",
     "SerenaReportingTemplateInfoTool",
+    "SerenaReportingFromFolderTool",
+    "SerenaReportingFromFileTool",
+    "SerenaReportingFromJsonTool",
+    "SerenaReportingFromTextTool",
 ]
