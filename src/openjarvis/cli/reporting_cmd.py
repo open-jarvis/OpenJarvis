@@ -11,6 +11,12 @@ from openjarvis.tools.serena_reporting import (
     SerenaReportingStatusTool,
     SerenaReportingTemplateInfoTool,
     SerenaReportingTemplatesTool,
+    SerenaReportingBusinessSummaryTool,
+    SerenaReportingOperatorSummaryTool,
+    SerenaReportingComplianceSummaryTool,
+    SerenaReportingActivitySummaryTool,
+    SerenaReportingWeeklyTool,
+    SerenaReportingDailyTool,
     SerenaReportingFromFolderTool,
     SerenaReportingFromFileTool,
     SerenaReportingFromJsonTool,
@@ -110,6 +116,69 @@ def from_folder(folder: str, title: str, report_type: str, limit: int, max_chars
         limit=limit,
         max_chars_per_file=max_chars_per_file,
     )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@reporting.command("daily")
+@click.option("--title", default="Serena Daily Operations Report", help="Report title.")
+@click.option("--limit-per-folder", default=8, type=int, help="Maximum source files per folder.")
+def daily(title: str, limit_per_folder: int) -> None:
+    """Create a daily Serena operations report."""
+    console = Console()
+    result = SerenaReportingDailyTool().execute(title=title, limit_per_folder=limit_per_folder)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@reporting.command("weekly")
+@click.option("--title", default="Serena Weekly Operations Report", help="Report title.")
+@click.option("--limit-per-folder", default=12, type=int, help="Maximum source files per folder.")
+def weekly(title: str, limit_per_folder: int) -> None:
+    """Create a weekly Serena operations report."""
+    console = Console()
+    result = SerenaReportingWeeklyTool().execute(title=title, limit_per_folder=limit_per_folder)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@reporting.command("activity-summary")
+@click.option("--title", default="Serena Activity Summary", help="Report title.")
+@click.option("--folder", default="outputs", help="Source folder.")
+@click.option("--limit", default=10, type=int, help="Maximum source files.")
+def activity_summary(title: str, folder: str, limit: int) -> None:
+    """Create a Serena activity summary report."""
+    console = Console()
+    result = SerenaReportingActivitySummaryTool().execute(title=title, folder=folder, limit=limit)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@reporting.command("compliance-summary")
+@click.option("--title", default="Serena Compliance Summary Report", help="Report title.")
+@click.option("--limit-per-folder", default=12, type=int, help="Maximum source files per folder.")
+def compliance_summary(title: str, limit_per_folder: int) -> None:
+    """Create a compliance summary report."""
+    console = Console()
+    result = SerenaReportingComplianceSummaryTool().execute(title=title, limit_per_folder=limit_per_folder)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@reporting.command("operator-summary")
+@click.option("--title", default="Serena Operator Summary", help="Report title.")
+@click.option("--limit-per-folder", default=8, type=int, help="Maximum source files per folder.")
+def operator_summary(title: str, limit_per_folder: int) -> None:
+    """Create an operator summary report."""
+    console = Console()
+    result = SerenaReportingOperatorSummaryTool().execute(title=title, limit_per_folder=limit_per_folder)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@reporting.command("business-summary")
+@click.option("--title", default="", help="Report title.")
+@click.option("--business", default="General Business", help="Business name/context.")
+@click.option("--folder", default="outputs", help="Source folder.")
+@click.option("--limit", default=12, type=int, help="Maximum source files.")
+def business_summary(title: str, business: str, folder: str, limit: int) -> None:
+    """Create a business summary report."""
+    console = Console()
+    result = SerenaReportingBusinessSummaryTool().execute(title=title, business=business, folder=folder, limit=limit)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 

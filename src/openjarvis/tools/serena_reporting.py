@@ -748,12 +748,278 @@ class SerenaReportingFromFolderTool(_ReportingBaseTool):
             )
 
 
+def _collect_folder_sources(
+    folders: list[str],
+    limit_per_folder: int = 8,
+    max_chars_per_file: int = 3000,
+) -> tuple[str, list[str]]:
+    chunks = []
+    source_paths = []
+
+    for folder_value in folders:
+        folder = Path(folder_value)
+        if not folder.exists() or not folder.is_dir():
+            continue
+
+        candidates = []
+        for pattern in ["*.json", "*.md", "*.txt", "*.log"]:
+            candidates.extend(folder.rglob(pattern))
+
+        candidates = sorted(
+            [path for path in candidates if path.is_file()],
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )[:limit_per_folder]
+
+        for path in candidates:
+            try:
+                text = path.read_text(encoding="utf-8", errors="ignore")[:max_chars_per_file]
+                source_paths.append(str(path))
+                chunks.append(f"===== SOURCE: {path} =====\n{text}")
+            except Exception as exc:
+                chunks.append(f"===== SOURCE READ FAILED: {path} =====\n{exc}")
+
+    combined = "\n\n".join(chunks).strip()
+    if not combined:
+        combined = "No source files were found for this report window."
+
+    return combined, source_paths
+
+
+def _standard_report_from_sources(
+    title: str,
+    report_type: str,
+    folders: list[str],
+    report_name: str,
+    limit_per_folder: int = 8,
+) -> ToolResult:
+    source_text, source_paths = _collect_folder_sources(
+        folders=folders,
+        limit_per_folder=limit_per_folder,
+        max_chars_per_file=3000,
+    )
+    source_label = "; ".join(folders)
+
+    result = _source_report_result(
+        title=title,
+        source_text=source_text,
+        source_label=source_label,
+        report_type=report_type,
+        report_name=report_name,
+    )
+
+    if result.metadata is not None:
+        result.metadata["source_paths"] = source_paths
+        result.metadata["source_count"] = len(source_paths)
+
+    return result
+
+
+@ToolRegistry.register("serena_reporting_daily")
+class SerenaReportingDailyTool(_ReportingBaseTool):
+    tool_id = "serena_reporting_daily"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a daily Serena operations report from local operator outputs.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "limit_per_folder": {"type": "integer"},
+                },
+            },
+            category="serena_reporting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        title = str(params.get("title") or "Serena Daily Operations Report").strip()
+        limit_per_folder = int(params.get("limit_per_folder") or 8)
+        folders = [
+            "outputs/gdrive/reports",
+            "outputs/google-docs/reports",
+            "outputs/google-calendar/reports",
+            "outputs/google-calendar/snapshots",
+            "outputs/ocr/reports",
+            "outputs/compliance/reports",
+            "outputs/compliance/checks",
+            "outputs/reporting/reports",
+        ]
+        return _standard_report_from_sources(title, "daily", folders, "daily-report", limit_per_folder)
+
+
+@ToolRegistry.register("serena_reporting_weekly")
+class SerenaReportingWeeklyTool(_ReportingBaseTool):
+    tool_id = "serena_reporting_weekly"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a weekly Serena operations report from local operator outputs.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "limit_per_folder": {"type": "integer"},
+                },
+            },
+            category="serena_reporting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        title = str(params.get("title") or "Serena Weekly Operations Report").strip()
+        limit_per_folder = int(params.get("limit_per_folder") or 12)
+        folders = [
+            "outputs/gdrive/reports",
+            "outputs/gdrive/audits",
+            "outputs/google-docs/reports",
+            "outputs/google-calendar/reports",
+            "outputs/google-calendar/snapshots",
+            "outputs/ocr/reports",
+            "outputs/compliance/reports",
+            "outputs/compliance/checks",
+            "outputs/compliance/audits",
+            "outputs/reporting/reports",
+            "conversion-workspace",
+        ]
+        return _standard_report_from_sources(title, "weekly", folders, "weekly-report", limit_per_folder)
+
+
+@ToolRegistry.register("serena_reporting_activity_summary")
+class SerenaReportingActivitySummaryTool(_ReportingBaseTool):
+    tool_id = "serena_reporting_activity_summary"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a Serena activity summary report.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "folder": {"type": "string"},
+                    "limit": {"type": "integer"},
+                },
+            },
+            category="serena_reporting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        title = str(params.get("title") or "Serena Activity Summary").strip()
+        folder = str(params.get("folder") or "outputs").strip()
+        limit = int(params.get("limit") or 10)
+        return _standard_report_from_sources(title, "activity-summary", [folder], "activity-summary", limit)
+
+
+@ToolRegistry.register("serena_reporting_compliance_summary")
+class SerenaReportingComplianceSummaryTool(_ReportingBaseTool):
+    tool_id = "serena_reporting_compliance_summary"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a compliance summary report from Compliance outputs.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "limit_per_folder": {"type": "integer"},
+                },
+            },
+            category="serena_reporting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        title = str(params.get("title") or "Serena Compliance Summary Report").strip()
+        limit_per_folder = int(params.get("limit_per_folder") or 12)
+        folders = [
+            "outputs/compliance/reports",
+            "outputs/compliance/checks",
+            "outputs/compliance/audits",
+            "outputs/compliance/policies",
+        ]
+        return _standard_report_from_sources(title, "compliance-summary", folders, "compliance-summary", limit_per_folder)
+
+
+@ToolRegistry.register("serena_reporting_operator_summary")
+class SerenaReportingOperatorSummaryTool(_ReportingBaseTool):
+    tool_id = "serena_reporting_operator_summary"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create an operator summary report covering Serena tool/operator state.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "limit_per_folder": {"type": "integer"},
+                },
+            },
+            category="serena_reporting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        title = str(params.get("title") or "Serena Operator Summary").strip()
+        limit_per_folder = int(params.get("limit_per_folder") or 8)
+        folders = [
+            "outputs/gdrive/reports",
+            "outputs/google-docs/reports",
+            "outputs/google-calendar/reports",
+            "outputs/ocr/reports",
+            "outputs/compliance/reports",
+            "outputs/reporting/reports",
+        ]
+        return _standard_report_from_sources(title, "operator-summary", folders, "operator-summary", limit_per_folder)
+
+
+@ToolRegistry.register("serena_reporting_business_summary")
+class SerenaReportingBusinessSummaryTool(_ReportingBaseTool):
+    tool_id = "serena_reporting_business_summary"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a business summary report from selected local business/operator outputs.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "business": {"type": "string"},
+                    "folder": {"type": "string"},
+                    "limit": {"type": "integer"},
+                },
+            },
+            category="serena_reporting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "General Business").strip()
+        title = str(params.get("title") or f"{business} Business Summary Report").strip()
+        folder = str(params.get("folder") or "outputs").strip()
+        limit = int(params.get("limit") or 12)
+        return _standard_report_from_sources(title, "business-summary", [folder], "business-summary", limit)
+
+
 __all__ = [
     "SerenaReportingStatusTool",
     "SerenaReportingPlanTool",
     "SerenaReportingTemplatesTool",
     "SerenaReportingTemplateInfoTool",
     "SerenaReportingFromFolderTool",
+    "SerenaReportingBusinessSummaryTool",
+    "SerenaReportingOperatorSummaryTool",
+    "SerenaReportingComplianceSummaryTool",
+    "SerenaReportingActivitySummaryTool",
+    "SerenaReportingWeeklyTool",
+    "SerenaReportingDailyTool",
     "SerenaReportingFromFileTool",
     "SerenaReportingFromJsonTool",
     "SerenaReportingFromTextTool",
