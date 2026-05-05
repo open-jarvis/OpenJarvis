@@ -87,7 +87,13 @@ def detect_for_engine_model(
 
 
 def _docker_client():  # pragma: no cover - trivial wrapper, mocked in tests
-    import docker
+    try:
+        import docker
+    except ImportError as exc:
+        raise RuntimeError(
+            "Docker SDK not installed; install with "
+            "`uv sync --extra mining-pearl-vllm`"
+        ) from exc
 
     return docker.from_env()
 

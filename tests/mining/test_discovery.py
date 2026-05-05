@@ -130,6 +130,19 @@ def test_check_docker_available_false_when_daemon_down():
         assert "daemon" in info.lower() or "connect" in info.lower()
 
 
+def test_check_docker_available_false_when_sdk_missing():
+    from openjarvis.mining._discovery import check_docker_available
+
+    with patch("openjarvis.mining._discovery._docker_client") as fake:
+        fake.side_effect = RuntimeError(
+            "Docker SDK not installed; install with "
+            "`uv sync --extra mining-pearl-vllm`"
+        )
+        ok, info = check_docker_available()
+        assert ok is False
+        assert "mining-pearl-vllm" in info
+
+
 def test_check_disk_free_passes(tmp_path):
     from openjarvis.mining._discovery import check_disk_free
 
