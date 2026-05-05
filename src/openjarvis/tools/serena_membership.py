@@ -2215,6 +2215,457 @@ class SerenaMembershipBookingHandoffTool(_MembershipBaseTool):
         )
 
 
+@ToolRegistry.register("serena_membership_programme_plan")
+class SerenaMembershipProgrammePlanTool(_MembershipBaseTool):
+    tool_id = "serena_membership_programme_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local patient/client programme plan. Does not provide medical advice or change live systems.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "member_id": {"type": "string"},
+                    "programme_id": {"type": "string"},
+                    "programme_name": {"type": "string"},
+                    "duration": {"type": "string"},
+                    "goals": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["member_id"],
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        member_id = str(params.get("member_id") or "").strip()
+        programme_id = str(params.get("programme_id") or f"PROG-{_timestamp()}").strip()
+        programme_name = str(params.get("programme_name") or "member programme").strip()
+        duration = str(params.get("duration") or "not specified").strip()
+        goals = str(params.get("goals") or "").strip()
+        notes = str(params.get("notes") or "").strip()
+
+        member = _find_member_profile(member_id)
+        if not member:
+            return self._result(
+                "Serena programme plan failed\n\n"
+                f"- Member ID: {member_id}\n"
+                "- Error: member not found\n"
+                "- Programme planned: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        steps = [
+            "Confirm member profile and consent context.",
+            "Define programme scope, duration, non-clinical goals, and operational milestones.",
+            "Keep clinical/medical advice outside Membership v1.",
+            "Use Bookings handoff for programme sessions.",
+            "Use Accounting handoff for programme payments/subscriptions.",
+            "Use Compliance before external reporting or messaging.",
+            "Track progress locally with auditable records.",
+        ]
+
+        payload = {
+            "report_type": "serena_membership_programme_plan",
+            "created_at": _timestamp(),
+            "programme_id": programme_id,
+            "member_id": member_id,
+            "business": member.get("business"),
+            "member_name": member.get("member_name"),
+            "programme_name": programme_name,
+            "duration": duration,
+            "goals": goals,
+            "notes": notes,
+            "steps": steps,
+            "sensitive": bool(member.get("sensitive")),
+            "programme_planned": True,
+            "medical_advice_given": False,
+            "external_api_called": False,
+            "payment_action_performed": False,
+            "accounting_write_performed": False,
+            "booking_write_performed": False,
+            "programme_changed": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("programmes", f"programme-plan-{member_id}-{programme_id}", payload)
+
+        return self._result(
+            "Serena programme plan created\n\n"
+            f"- Programme ID: {programme_id}\n"
+            f"- Member ID: {member_id}\n"
+            f"- Member: {member.get('member_name')}\n"
+            f"- Programme: {programme_name}\n"
+            f"- Duration: {duration}\n"
+            f"- Sensitive: {'yes' if member.get('sensitive') else 'no'}\n"
+            f"- Plan: {report_path}\n"
+            "- Programme planned: yes\n"
+            "- Medical advice given: no\n"
+            "- External API called: no\n"
+            "- Payment action performed: no\n"
+            "- Accounting write performed: no\n"
+            "- Booking write performed: no\n"
+            "- Programme changed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Steps:\n"
+            + "\n".join(f"- {step}" for step in steps),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_membership_programme_enroll")
+class SerenaMembershipProgrammeEnrollTool(_MembershipBaseTool):
+    tool_id = "serena_membership_programme_enroll"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local programme enrollment record. Does not perform booking/payment/accounting writes.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "member_id": {"type": "string"},
+                    "programme_id": {"type": "string"},
+                    "programme_name": {"type": "string"},
+                    "start_date": {"type": "string"},
+                    "target_end_date": {"type": "string"},
+                    "status": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["member_id", "programme_id"],
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        member_id = str(params.get("member_id") or "").strip()
+        programme_id = str(params.get("programme_id") or "").strip()
+        programme_name = str(params.get("programme_name") or "member programme").strip()
+        start_date = str(params.get("start_date") or "not specified").strip()
+        target_end_date = str(params.get("target_end_date") or "not specified").strip()
+        status = str(params.get("status") or "enrolled_local").strip()
+        approved = bool(params.get("approved") or False)
+        notes = str(params.get("notes") or "").strip()
+
+        member = _find_member_profile(member_id)
+        if not member:
+            return self._result(
+                "Serena programme enrollment failed\n\n"
+                f"- Member ID: {member_id}\n"
+                "- Error: member not found\n"
+                "- Programme enrollment created: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        if bool(member.get("sensitive")) and not approved:
+            return self._result(
+                "Serena programme enrollment blocked\n\n"
+                f"- Member ID: {member_id}\n"
+                "- Reason: sensitive member/programme enrollment requires approval.\n"
+                "- Programme enrollment created: no\n"
+                "- Medical advice given: no\n"
+                "- External API called: no\n"
+                "- Payment action performed: no\n"
+                "- Accounting write performed: no\n"
+                "- Booking write performed: no\n"
+                "- Programme changed: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        record = {
+            "record_type": "programme_enrollment",
+            "created_at": _timestamp(),
+            "programme_enrollment_id": f"PENR-{_timestamp()}",
+            "programme_id": programme_id,
+            "member_id": member_id,
+            "business": member.get("business"),
+            "member_name": member.get("member_name"),
+            "programme_name": programme_name,
+            "start_date": start_date,
+            "target_end_date": target_end_date,
+            "status": status,
+            "approved": approved,
+            "notes": notes,
+            "sensitive": bool(member.get("sensitive")),
+            "programme_enrollment_created": True,
+            "medical_advice_given": False,
+            "external_api_called": False,
+            "payment_action_performed": False,
+            "accounting_write_performed": False,
+            "booking_write_performed": False,
+            "programme_changed": True,
+            "delete_performed": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        record_path = _save_json("programmes", f"programme-enroll-{member_id}-{programme_id}", record)
+
+        return self._result(
+            "Serena programme enrollment created\n\n"
+            f"- Programme enrollment ID: {record['programme_enrollment_id']}\n"
+            f"- Programme ID: {programme_id}\n"
+            f"- Member ID: {member_id}\n"
+            f"- Member: {member.get('member_name')}\n"
+            f"- Programme: {programme_name}\n"
+            f"- Start date: {start_date}\n"
+            f"- Target end date: {target_end_date}\n"
+            f"- Status: {status}\n"
+            f"- Approved: {'yes' if approved else 'no'}\n"
+            f"- Sensitive: {'yes' if member.get('sensitive') else 'no'}\n"
+            f"- Record: {record_path}\n"
+            "- Programme enrollment created: yes\n"
+            "- Medical advice given: no\n"
+            "- External API called: no\n"
+            "- Payment action performed: no\n"
+            "- Accounting write performed: no\n"
+            "- Booking write performed: no\n"
+            "- Programme changed: yes\n"
+            "- Delete performed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={**record, "record_path": str(record_path)},
+        )
+
+
+@ToolRegistry.register("serena_membership_programme_progress")
+class SerenaMembershipProgrammeProgressTool(_MembershipBaseTool):
+    tool_id = "serena_membership_programme_progress"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local programme progress record. Does not provide medical advice.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "member_id": {"type": "string"},
+                    "programme_id": {"type": "string"},
+                    "progress_status": {"type": "string"},
+                    "milestone": {"type": "string"},
+                    "progress_note": {"type": "string"},
+                    "next_step": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                },
+                "required": ["member_id", "programme_id"],
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        member_id = str(params.get("member_id") or "").strip()
+        programme_id = str(params.get("programme_id") or "").strip()
+        progress_status = str(params.get("progress_status") or "in_progress").strip()
+        milestone = str(params.get("milestone") or "not specified").strip()
+        progress_note = str(params.get("progress_note") or "").strip()
+        next_step = str(params.get("next_step") or "not specified").strip()
+        approved = bool(params.get("approved") or False)
+
+        member = _find_member_profile(member_id)
+        if not member:
+            return self._result(
+                "Serena programme progress failed\n\n"
+                f"- Member ID: {member_id}\n"
+                "- Error: member not found\n"
+                "- Progress recorded: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        sensitive_note = bool(member.get("sensitive")) and bool(progress_note.strip())
+        if sensitive_note and not approved:
+            return self._result(
+                "Serena programme progress blocked\n\n"
+                f"- Member ID: {member_id}\n"
+                f"- Programme ID: {programme_id}\n"
+                "- Reason: sensitive programme progress note requires approval.\n"
+                "- Progress recorded: no\n"
+                "- Medical advice given: no\n"
+                "- External API called: no\n"
+                "- Programme changed: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        record = {
+            "record_type": "programme_progress",
+            "created_at": _timestamp(),
+            "progress_id": f"PROGPROG-{_timestamp()}",
+            "programme_id": programme_id,
+            "member_id": member_id,
+            "business": member.get("business"),
+            "member_name": member.get("member_name"),
+            "progress_status": progress_status,
+            "milestone": milestone,
+            "progress_note": progress_note,
+            "next_step": next_step,
+            "approved": approved,
+            "sensitive": bool(member.get("sensitive")),
+            "progress_recorded": True,
+            "medical_advice_given": False,
+            "external_api_called": False,
+            "payment_action_performed": False,
+            "accounting_write_performed": False,
+            "booking_write_performed": False,
+            "programme_changed": True,
+            "delete_performed": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        record_path = _save_json("programmes", f"programme-progress-{member_id}-{programme_id}", record)
+
+        return self._result(
+            "Serena programme progress recorded\n\n"
+            f"- Progress ID: {record['progress_id']}\n"
+            f"- Programme ID: {programme_id}\n"
+            f"- Member ID: {member_id}\n"
+            f"- Member: {member.get('member_name')}\n"
+            f"- Progress status: {progress_status}\n"
+            f"- Milestone: {milestone}\n"
+            f"- Next step: {next_step}\n"
+            f"- Approved: {'yes' if approved else 'no'}\n"
+            f"- Sensitive: {'yes' if member.get('sensitive') else 'no'}\n"
+            f"- Record: {record_path}\n"
+            "- Progress recorded: yes\n"
+            "- Medical advice given: no\n"
+            "- External API called: no\n"
+            "- Payment action performed: no\n"
+            "- Accounting write performed: no\n"
+            "- Booking write performed: no\n"
+            "- Programme changed: yes\n"
+            "- Delete performed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={**record, "record_path": str(record_path)},
+        )
+
+
+@ToolRegistry.register("serena_membership_programme_follow_up")
+class SerenaMembershipProgrammeFollowUpTool(_MembershipBaseTool):
+    tool_id = "serena_membership_programme_follow_up"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local programme follow-up plan. Does not send external messages.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "member_id": {"type": "string"},
+                    "programme_id": {"type": "string"},
+                    "reason": {"type": "string"},
+                    "timing": {"type": "string"},
+                    "channel": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["member_id", "programme_id"],
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        member_id = str(params.get("member_id") or "").strip()
+        programme_id = str(params.get("programme_id") or "").strip()
+        reason = str(params.get("reason") or "programme follow-up").strip()
+        timing = str(params.get("timing") or "not specified").strip()
+        channel = str(params.get("channel") or "manual/local").strip()
+        notes = str(params.get("notes") or "").strip()
+
+        member = _find_member_profile(member_id)
+        if not member:
+            return self._result(
+                "Serena programme follow-up failed\n\n"
+                f"- Member ID: {member_id}\n"
+                "- Error: member not found\n"
+                "- Follow-up planned: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        steps = [
+            "Confirm programme status and follow-up reason.",
+            "Avoid sensitive health details in external messages.",
+            "Use Bookings handoff if follow-up requires an appointment.",
+            "Use Compliance before external messaging or reporting.",
+            "Do not send SMS/email/WhatsApp from Membership v1.",
+            "Preserve follow-up plan evidence.",
+        ]
+
+        record = {
+            "record_type": "programme_follow_up",
+            "created_at": _timestamp(),
+            "follow_up_id": f"PFU-{_timestamp()}",
+            "programme_id": programme_id,
+            "member_id": member_id,
+            "business": member.get("business"),
+            "member_name": member.get("member_name"),
+            "reason": reason,
+            "timing": timing,
+            "channel": channel,
+            "notes": notes,
+            "steps": steps,
+            "sensitive": bool(member.get("sensitive")),
+            "follow_up_planned": True,
+            "external_message_sent": False,
+            "external_api_called": False,
+            "payment_action_performed": False,
+            "accounting_write_performed": False,
+            "booking_write_performed": False,
+            "programme_changed": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        record_path = _save_json("programmes", f"programme-follow-up-{member_id}-{programme_id}", record)
+
+        return self._result(
+            "Serena programme follow-up plan created\n\n"
+            f"- Follow-up ID: {record['follow_up_id']}\n"
+            f"- Programme ID: {programme_id}\n"
+            f"- Member ID: {member_id}\n"
+            f"- Member: {member.get('member_name')}\n"
+            f"- Reason: {reason}\n"
+            f"- Timing: {timing}\n"
+            f"- Channel: {channel}\n"
+            f"- Sensitive: {'yes' if member.get('sensitive') else 'no'}\n"
+            f"- Record: {record_path}\n"
+            "- Follow-up planned: yes\n"
+            "- External message sent: no\n"
+            "- External API called: no\n"
+            "- Payment action performed: no\n"
+            "- Accounting write performed: no\n"
+            "- Booking write performed: no\n"
+            "- Programme changed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Steps:\n"
+            + "\n".join(f"- {step}" for step in steps),
+            metadata={**record, "record_path": str(record_path)},
+        )
+
+
 __all__ = [
     "SerenaMembershipStatusTool",
     "SerenaMembershipEnvCheckTool",
@@ -2224,6 +2675,10 @@ __all__ = [
     "SerenaMembershipUpdateMemberStatusTool",
     "SerenaMembershipRenewalPlanTool",
     "SerenaMembershipBookingHandoffTool",
+    "SerenaMembershipProgrammeFollowUpTool",
+    "SerenaMembershipProgrammeProgressTool",
+    "SerenaMembershipProgrammeEnrollTool",
+    "SerenaMembershipProgrammePlanTool",
     "SerenaMembershipAccountingHandoffTool",
     "SerenaMembershipPaymentHandoffTool",
     "SerenaMembershipSubscriptionRecordTool",

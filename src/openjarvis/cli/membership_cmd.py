@@ -12,6 +12,10 @@ from openjarvis.tools.serena_membership import (
     SerenaMembershipSourceInfoTool,
     SerenaMembershipSourceListTool,
     SerenaMembershipStatusTool,
+    SerenaMembershipProgrammeFollowUpTool,
+    SerenaMembershipProgrammeProgressTool,
+    SerenaMembershipProgrammeEnrollTool,
+    SerenaMembershipProgrammePlanTool,
     SerenaMembershipBookingHandoffTool,
     SerenaMembershipAccountingHandoffTool,
     SerenaMembershipPaymentHandoffTool,
@@ -378,6 +382,96 @@ def booking_handoff(member_id: str, appointment_type: str, preferred_date: str, 
         appointment_type=appointment_type,
         preferred_date=preferred_date,
         preferred_time=preferred_time,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("programme-plan")
+@click.option("--member-id", required=True, help="Member ID.")
+@click.option("--programme-id", default="", help="Programme ID.")
+@click.option("--programme-name", default="member programme", help="Programme name.")
+@click.option("--duration", default="not specified", help="Programme duration.")
+@click.option("--goals", default="", help="Operational goals, not medical advice.")
+@click.option("--notes", default="", help="Notes.")
+def programme_plan(member_id: str, programme_id: str, programme_name: str, duration: str, goals: str, notes: str) -> None:
+    """Create local programme plan."""
+    console = Console()
+    result = SerenaMembershipProgrammePlanTool().execute(
+        member_id=member_id,
+        programme_id=programme_id,
+        programme_name=programme_name,
+        duration=duration,
+        goals=goals,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("programme-enroll")
+@click.option("--member-id", required=True, help="Member ID.")
+@click.option("--programme-id", required=True, help="Programme ID.")
+@click.option("--programme-name", default="member programme", help="Programme name.")
+@click.option("--start-date", default="not specified", help="Start date.")
+@click.option("--target-end-date", default="not specified", help="Target end date.")
+@click.option("--status", default="enrolled_local", help="Programme status.")
+@click.option("--approved", is_flag=True, help="Approval flag for sensitive programme enrollment.")
+@click.option("--notes", default="", help="Notes.")
+def programme_enroll(member_id: str, programme_id: str, programme_name: str, start_date: str, target_end_date: str, status: str, approved: bool, notes: str) -> None:
+    """Create local programme enrollment."""
+    console = Console()
+    result = SerenaMembershipProgrammeEnrollTool().execute(
+        member_id=member_id,
+        programme_id=programme_id,
+        programme_name=programme_name,
+        start_date=start_date,
+        target_end_date=target_end_date,
+        status=status,
+        approved=approved,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("programme-progress")
+@click.option("--member-id", required=True, help="Member ID.")
+@click.option("--programme-id", required=True, help="Programme ID.")
+@click.option("--progress-status", default="in_progress", help="Progress status.")
+@click.option("--milestone", default="not specified", help="Milestone.")
+@click.option("--progress-note", default="", help="Progress note.")
+@click.option("--next-step", default="not specified", help="Operational next step.")
+@click.option("--approved", is_flag=True, help="Approval flag for sensitive progress note.")
+def programme_progress(member_id: str, programme_id: str, progress_status: str, milestone: str, progress_note: str, next_step: str, approved: bool) -> None:
+    """Create local programme progress record."""
+    console = Console()
+    result = SerenaMembershipProgrammeProgressTool().execute(
+        member_id=member_id,
+        programme_id=programme_id,
+        progress_status=progress_status,
+        milestone=milestone,
+        progress_note=progress_note,
+        next_step=next_step,
+        approved=approved,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("programme-follow-up")
+@click.option("--member-id", required=True, help="Member ID.")
+@click.option("--programme-id", required=True, help="Programme ID.")
+@click.option("--reason", default="programme follow-up", help="Follow-up reason.")
+@click.option("--timing", default="not specified", help="Follow-up timing.")
+@click.option("--channel", default="manual/local", help="Follow-up channel.")
+@click.option("--notes", default="", help="Notes.")
+def programme_follow_up(member_id: str, programme_id: str, reason: str, timing: str, channel: str, notes: str) -> None:
+    """Create local programme follow-up plan."""
+    console = Console()
+    result = SerenaMembershipProgrammeFollowUpTool().execute(
+        member_id=member_id,
+        programme_id=programme_id,
+        reason=reason,
+        timing=timing,
+        channel=channel,
         notes=notes,
     )
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
