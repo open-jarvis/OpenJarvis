@@ -1686,6 +1686,535 @@ class SerenaMembershipRenewalPlanTool(_MembershipBaseTool):
         )
 
 
+def _money(value: Any) -> float:
+    try:
+        return round(float(str(value).replace("R", "").replace(",", "").strip() or 0), 2)
+    except Exception:
+        return 0.0
+
+
+@ToolRegistry.register("serena_membership_subscription_plan")
+class SerenaMembershipSubscriptionPlanTool(_MembershipBaseTool):
+    tool_id = "serena_membership_subscription_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local subscription/payment plan for a member. Does not create live subscriptions.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "member_id": {"type": "string"},
+                    "billing_model": {"type": "string"},
+                    "amount": {"type": "number"},
+                    "currency": {"type": "string"},
+                    "interval": {"type": "string"},
+                    "start_date": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["member_id"],
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        member_id = str(params.get("member_id") or "").strip()
+        billing_model = str(params.get("billing_model") or "monthly subscription").strip()
+        amount = _money(params.get("amount") or 0)
+        currency = str(params.get("currency") or "ZAR").strip()
+        interval = str(params.get("interval") or "monthly").strip()
+        start_date = str(params.get("start_date") or "not specified").strip()
+        notes = str(params.get("notes") or "").strip()
+
+        member = _find_member_profile(member_id)
+        if not member:
+            return self._result(
+                "Serena subscription plan failed\n\n"
+                f"- Member ID: {member_id}\n"
+                "- Error: member not found\n"
+                "- Subscription planned: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        steps = [
+            "Confirm member, membership plan, programme, billing model, interval, and amount.",
+            "Confirm whether PayFast payment link or subscription event is needed through Accounting handoff.",
+            "Confirm whether Xero invoice/contact setup is needed through Accounting handoff.",
+            "Do not create live subscriptions from Membership v1.",
+            "Do not change price/payment terms without approval.",
+            "Preserve subscription plan evidence.",
+        ]
+
+        payload = {
+            "report_type": "serena_membership_subscription_plan",
+            "created_at": _timestamp(),
+            "member_id": member_id,
+            "business": member.get("business"),
+            "member_name": member.get("member_name"),
+            "membership_plan": member.get("membership_plan"),
+            "programme": member.get("programme"),
+            "billing_model": billing_model,
+            "amount": amount,
+            "currency": currency,
+            "interval": interval,
+            "start_date": start_date,
+            "notes": notes,
+            "steps": steps,
+            "subscription_planned": True,
+            "external_api_called": False,
+            "payment_action_performed": False,
+            "accounting_write_performed": False,
+            "subscription_created_live": False,
+            "price_changed": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("subscriptions", f"subscription-plan-{member_id}", payload)
+
+        return self._result(
+            "Serena subscription plan created\n\n"
+            f"- Member ID: {member_id}\n"
+            f"- Member: {member.get('member_name')}\n"
+            f"- Billing model: {billing_model}\n"
+            f"- Amount: {amount} {currency}\n"
+            f"- Interval: {interval}\n"
+            f"- Start date: {start_date}\n"
+            f"- Plan: {report_path}\n"
+            "- Subscription planned: yes\n"
+            "- External API called: no\n"
+            "- Payment action performed: no\n"
+            "- Accounting write performed: no\n"
+            "- Live subscription created: no\n"
+            "- Price changed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Steps:\n"
+            + "\n".join(f"- {step}" for step in steps),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_membership_subscription_record")
+class SerenaMembershipSubscriptionRecordTool(_MembershipBaseTool):
+    tool_id = "serena_membership_subscription_record"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local subscription record. Does not create live PayFast/Xero subscription.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "subscription_id": {"type": "string"},
+                    "member_id": {"type": "string"},
+                    "billing_model": {"type": "string"},
+                    "amount": {"type": "number"},
+                    "currency": {"type": "string"},
+                    "interval": {"type": "string"},
+                    "status": {"type": "string"},
+                    "payment_reference": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["member_id"],
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        subscription_id = str(params.get("subscription_id") or f"SUB-{_timestamp()}").strip()
+        member_id = str(params.get("member_id") or "").strip()
+        billing_model = str(params.get("billing_model") or "monthly subscription").strip()
+        amount = _money(params.get("amount") or 0)
+        currency = str(params.get("currency") or "ZAR").strip()
+        interval = str(params.get("interval") or "monthly").strip()
+        status = str(params.get("status") or "local_pending").strip()
+        payment_reference = str(params.get("payment_reference") or "").strip()
+        approved = bool(params.get("approved") or False)
+        notes = str(params.get("notes") or "").strip()
+
+        member = _find_member_profile(member_id)
+        if not member:
+            return self._result(
+                "Serena subscription record failed\n\n"
+                f"- Member ID: {member_id}\n"
+                "- Error: member not found\n"
+                "- Subscription record created: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        if amount > 0 and not approved:
+            return self._result(
+                "Serena subscription record blocked\n\n"
+                f"- Member ID: {member_id}\n"
+                f"- Amount: {amount} {currency}\n"
+                "- Reason: subscription/payment amount records require approval.\n"
+                "- Subscription record created: no\n"
+                "- Payment action performed: no\n"
+                "- Accounting write performed: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        record = {
+            "record_type": "subscription_record",
+            "created_at": _timestamp(),
+            "subscription_id": subscription_id,
+            "member_id": member_id,
+            "business": member.get("business"),
+            "member_name": member.get("member_name"),
+            "membership_plan": member.get("membership_plan"),
+            "programme": member.get("programme"),
+            "billing_model": billing_model,
+            "amount": amount,
+            "currency": currency,
+            "interval": interval,
+            "status": status,
+            "payment_reference": payment_reference,
+            "approved": approved,
+            "notes": notes,
+            "subscription_record_created": True,
+            "external_api_called": False,
+            "payment_action_performed": False,
+            "accounting_write_performed": False,
+            "live_subscription_created": False,
+            "price_changed": False,
+            "delete_performed": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        record_path = _save_json("subscriptions", f"subscription-record-{subscription_id}", record)
+
+        return self._result(
+            "Serena subscription record created\n\n"
+            f"- Subscription ID: {subscription_id}\n"
+            f"- Member ID: {member_id}\n"
+            f"- Member: {member.get('member_name')}\n"
+            f"- Billing model: {billing_model}\n"
+            f"- Amount: {amount} {currency}\n"
+            f"- Interval: {interval}\n"
+            f"- Status: {status}\n"
+            f"- Payment reference: {payment_reference or 'not linked'}\n"
+            f"- Approved: {'yes' if approved else 'no'}\n"
+            f"- Record: {record_path}\n"
+            "- Subscription record created: yes\n"
+            "- External API called: no\n"
+            "- Payment action performed: no\n"
+            "- Accounting write performed: no\n"
+            "- Live subscription created: no\n"
+            "- Price changed: no\n"
+            "- Delete performed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={**record, "record_path": str(record_path)},
+        )
+
+
+@ToolRegistry.register("serena_membership_payment_handoff")
+class SerenaMembershipPaymentHandoffTool(_MembershipBaseTool):
+    tool_id = "serena_membership_payment_handoff"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create Accounting/PayFast payment handoff for a member/subscription. Does not perform payment actions.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "member_id": {"type": "string"},
+                    "amount": {"type": "number"},
+                    "currency": {"type": "string"},
+                    "payment_reason": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["member_id"],
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        member_id = str(params.get("member_id") or "").strip()
+        amount = _money(params.get("amount") or 0)
+        currency = str(params.get("currency") or "ZAR").strip()
+        payment_reason = str(params.get("payment_reason") or "membership/subscription payment").strip()
+        approved = bool(params.get("approved") or False)
+        notes = str(params.get("notes") or "").strip()
+
+        member = _find_member_profile(member_id)
+        if not member:
+            return self._result(
+                "Serena payment handoff failed\n\n"
+                f"- Member ID: {member_id}\n"
+                "- Error: member not found\n"
+                "- Handoff created: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        if amount > 0 and not approved:
+            return self._result(
+                "Serena payment handoff blocked\n\n"
+                f"- Member ID: {member_id}\n"
+                f"- Amount: {amount} {currency}\n"
+                "- Reason: payment handoff with amount requires approval.\n"
+                "- Handoff created: no\n"
+                "- Payment action performed: no\n"
+                "- Accounting write performed: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        payload = {
+            "record_type": "payment_handoff",
+            "created_at": _timestamp(),
+            "member_id": member_id,
+            "business": member.get("business"),
+            "member_name": member.get("member_name"),
+            "membership_plan": member.get("membership_plan"),
+            "programme": member.get("programme"),
+            "amount": amount,
+            "currency": currency,
+            "payment_reason": payment_reason,
+            "approved": approved,
+            "notes": notes,
+            "target_operator": "serena_accounting",
+            "handoff_created": True,
+            "external_api_called": False,
+            "payment_action_performed": False,
+            "payfast_action_performed": False,
+            "accounting_write_performed": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        record_path = _save_json("handoff", f"payment-handoff-{member_id}", payload)
+
+        return self._result(
+            "Serena payment handoff created\n\n"
+            f"- Member ID: {member_id}\n"
+            f"- Member: {member.get('member_name')}\n"
+            f"- Amount: {amount} {currency}\n"
+            f"- Payment reason: {payment_reason}\n"
+            f"- Approved: {'yes' if approved else 'no'}\n"
+            f"- Target operator: serena_accounting\n"
+            f"- Record: {record_path}\n"
+            "- Handoff created: yes\n"
+            "- External API called: no\n"
+            "- Payment action performed: no\n"
+            "- PayFast action performed: no\n"
+            "- Accounting write performed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={**payload, "record_path": str(record_path)},
+        )
+
+
+@ToolRegistry.register("serena_membership_accounting_handoff")
+class SerenaMembershipAccountingHandoffTool(_MembershipBaseTool):
+    tool_id = "serena_membership_accounting_handoff"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create Accounting handoff for membership invoices/payments/subscription records. Does not write accounting records.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "member_id": {"type": "string"},
+                    "handoff_type": {"type": "string"},
+                    "amount": {"type": "number"},
+                    "approved": {"type": "boolean"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["member_id"],
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        member_id = str(params.get("member_id") or "").strip()
+        handoff_type = str(params.get("handoff_type") or "invoice/payment/subscription handoff").strip()
+        amount = _money(params.get("amount") or 0)
+        approved = bool(params.get("approved") or False)
+        notes = str(params.get("notes") or "").strip()
+
+        member = _find_member_profile(member_id)
+        if not member:
+            return self._result(
+                "Serena accounting handoff failed\n\n"
+                f"- Member ID: {member_id}\n"
+                "- Error: member not found\n"
+                "- Handoff created: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        if amount > 0 and not approved:
+            return self._result(
+                "Serena accounting handoff blocked\n\n"
+                f"- Member ID: {member_id}\n"
+                f"- Amount: {amount}\n"
+                "- Reason: accounting handoff with amount requires approval.\n"
+                "- Handoff created: no\n"
+                "- Accounting write performed: no\n"
+                "- Payment action performed: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        payload = {
+            "record_type": "accounting_handoff",
+            "created_at": _timestamp(),
+            "member_id": member_id,
+            "business": member.get("business"),
+            "member_name": member.get("member_name"),
+            "membership_plan": member.get("membership_plan"),
+            "programme": member.get("programme"),
+            "handoff_type": handoff_type,
+            "amount": amount,
+            "approved": approved,
+            "notes": notes,
+            "target_operator": "serena_accounting",
+            "handoff_created": True,
+            "external_api_called": False,
+            "accounting_write_performed": False,
+            "payment_action_performed": False,
+            "xero_write_performed": False,
+            "payfast_action_performed": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        record_path = _save_json("handoff", f"accounting-handoff-{member_id}", payload)
+
+        return self._result(
+            "Serena accounting handoff created\n\n"
+            f"- Member ID: {member_id}\n"
+            f"- Member: {member.get('member_name')}\n"
+            f"- Handoff type: {handoff_type}\n"
+            f"- Amount: {amount}\n"
+            f"- Approved: {'yes' if approved else 'no'}\n"
+            f"- Target operator: serena_accounting\n"
+            f"- Record: {record_path}\n"
+            "- Handoff created: yes\n"
+            "- External API called: no\n"
+            "- Accounting write performed: no\n"
+            "- Payment action performed: no\n"
+            "- Xero write performed: no\n"
+            "- PayFast action performed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={**payload, "record_path": str(record_path)},
+        )
+
+
+@ToolRegistry.register("serena_membership_booking_handoff")
+class SerenaMembershipBookingHandoffTool(_MembershipBaseTool):
+    tool_id = "serena_membership_booking_handoff"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create Bookings handoff for membership/programme appointments. Does not create bookings/calendar events.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "member_id": {"type": "string"},
+                    "appointment_type": {"type": "string"},
+                    "preferred_date": {"type": "string"},
+                    "preferred_time": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["member_id"],
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        member_id = str(params.get("member_id") or "").strip()
+        appointment_type = str(params.get("appointment_type") or "programme appointment").strip()
+        preferred_date = str(params.get("preferred_date") or "not specified").strip()
+        preferred_time = str(params.get("preferred_time") or "not specified").strip()
+        notes = str(params.get("notes") or "").strip()
+
+        member = _find_member_profile(member_id)
+        if not member:
+            return self._result(
+                "Serena booking handoff failed\n\n"
+                f"- Member ID: {member_id}\n"
+                "- Error: member not found\n"
+                "- Handoff created: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        payload = {
+            "record_type": "booking_handoff",
+            "created_at": _timestamp(),
+            "member_id": member_id,
+            "business": member.get("business"),
+            "member_name": member.get("member_name"),
+            "membership_plan": member.get("membership_plan"),
+            "programme": member.get("programme"),
+            "appointment_type": appointment_type,
+            "preferred_date": preferred_date,
+            "preferred_time": preferred_time,
+            "notes": notes,
+            "target_operator": "serena_bookings",
+            "handoff_created": True,
+            "external_api_called": False,
+            "booking_write_performed": False,
+            "calendar_write_performed": False,
+            "reminder_sent": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        record_path = _save_json("handoff", f"booking-handoff-{member_id}", payload)
+
+        return self._result(
+            "Serena booking handoff created\n\n"
+            f"- Member ID: {member_id}\n"
+            f"- Member: {member.get('member_name')}\n"
+            f"- Appointment type: {appointment_type}\n"
+            f"- Preferred date: {preferred_date}\n"
+            f"- Preferred time: {preferred_time}\n"
+            f"- Target operator: serena_bookings\n"
+            f"- Record: {record_path}\n"
+            "- Handoff created: yes\n"
+            "- External API called: no\n"
+            "- Booking write performed: no\n"
+            "- Calendar write performed: no\n"
+            "- Reminder sent: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={**payload, "record_path": str(record_path)},
+        )
+
+
 __all__ = [
     "SerenaMembershipStatusTool",
     "SerenaMembershipEnvCheckTool",
@@ -1694,6 +2223,11 @@ __all__ = [
     "SerenaMembershipSourceInfoTool",
     "SerenaMembershipUpdateMemberStatusTool",
     "SerenaMembershipRenewalPlanTool",
+    "SerenaMembershipBookingHandoffTool",
+    "SerenaMembershipAccountingHandoffTool",
+    "SerenaMembershipPaymentHandoffTool",
+    "SerenaMembershipSubscriptionRecordTool",
+    "SerenaMembershipSubscriptionPlanTool",
     "SerenaMembershipPauseMembershipPlanTool",
     "SerenaMembershipCancelMembershipPlanTool",
     "SerenaMembershipEnrollMemberTool",

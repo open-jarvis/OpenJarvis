@@ -12,6 +12,11 @@ from openjarvis.tools.serena_membership import (
     SerenaMembershipSourceInfoTool,
     SerenaMembershipSourceListTool,
     SerenaMembershipStatusTool,
+    SerenaMembershipBookingHandoffTool,
+    SerenaMembershipAccountingHandoffTool,
+    SerenaMembershipPaymentHandoffTool,
+    SerenaMembershipSubscriptionRecordTool,
+    SerenaMembershipSubscriptionPlanTool,
     SerenaMembershipRenewalPlanTool,
     SerenaMembershipPauseMembershipPlanTool,
     SerenaMembershipCancelMembershipPlanTool,
@@ -262,6 +267,117 @@ def renewal_plan(member_id: str, renewal_date: str, next_plan_id: str, notes: st
         member_id=member_id,
         renewal_date=renewal_date,
         next_plan_id=next_plan_id,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("subscription-plan")
+@click.option("--member-id", required=True, help="Member ID.")
+@click.option("--billing-model", default="monthly subscription", help="Billing model.")
+@click.option("--amount", default=0.0, type=float, help="Amount.")
+@click.option("--currency", default="ZAR", help="Currency.")
+@click.option("--interval", default="monthly", help="Billing interval.")
+@click.option("--start-date", default="not specified", help="Start date.")
+@click.option("--notes", default="", help="Notes.")
+def subscription_plan(member_id: str, billing_model: str, amount: float, currency: str, interval: str, start_date: str, notes: str) -> None:
+    """Create local subscription/payment plan."""
+    console = Console()
+    result = SerenaMembershipSubscriptionPlanTool().execute(
+        member_id=member_id,
+        billing_model=billing_model,
+        amount=amount,
+        currency=currency,
+        interval=interval,
+        start_date=start_date,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("subscription-record")
+@click.option("--subscription-id", default="", help="Subscription ID.")
+@click.option("--member-id", required=True, help="Member ID.")
+@click.option("--billing-model", default="monthly subscription", help="Billing model.")
+@click.option("--amount", default=0.0, type=float, help="Amount.")
+@click.option("--currency", default="ZAR", help="Currency.")
+@click.option("--interval", default="monthly", help="Billing interval.")
+@click.option("--status", default="local_pending", help="Status.")
+@click.option("--payment-reference", default="", help="Payment reference.")
+@click.option("--approved", is_flag=True, help="Approval flag for amount/payment record.")
+@click.option("--notes", default="", help="Notes.")
+def subscription_record(subscription_id: str, member_id: str, billing_model: str, amount: float, currency: str, interval: str, status: str, payment_reference: str, approved: bool, notes: str) -> None:
+    """Create local subscription record."""
+    console = Console()
+    result = SerenaMembershipSubscriptionRecordTool().execute(
+        subscription_id=subscription_id,
+        member_id=member_id,
+        billing_model=billing_model,
+        amount=amount,
+        currency=currency,
+        interval=interval,
+        status=status,
+        payment_reference=payment_reference,
+        approved=approved,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("payment-handoff")
+@click.option("--member-id", required=True, help="Member ID.")
+@click.option("--amount", default=0.0, type=float, help="Amount.")
+@click.option("--currency", default="ZAR", help="Currency.")
+@click.option("--payment-reason", default="membership/subscription payment", help="Payment reason.")
+@click.option("--approved", is_flag=True, help="Approval flag for payment amount.")
+@click.option("--notes", default="", help="Notes.")
+def payment_handoff(member_id: str, amount: float, currency: str, payment_reason: str, approved: bool, notes: str) -> None:
+    """Create Accounting/PayFast payment handoff."""
+    console = Console()
+    result = SerenaMembershipPaymentHandoffTool().execute(
+        member_id=member_id,
+        amount=amount,
+        currency=currency,
+        payment_reason=payment_reason,
+        approved=approved,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("accounting-handoff")
+@click.option("--member-id", required=True, help="Member ID.")
+@click.option("--handoff-type", default="invoice/payment/subscription handoff", help="Accounting handoff type.")
+@click.option("--amount", default=0.0, type=float, help="Amount.")
+@click.option("--approved", is_flag=True, help="Approval flag for amount.")
+@click.option("--notes", default="", help="Notes.")
+def accounting_handoff(member_id: str, handoff_type: str, amount: float, approved: bool, notes: str) -> None:
+    """Create Accounting handoff."""
+    console = Console()
+    result = SerenaMembershipAccountingHandoffTool().execute(
+        member_id=member_id,
+        handoff_type=handoff_type,
+        amount=amount,
+        approved=approved,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("booking-handoff")
+@click.option("--member-id", required=True, help="Member ID.")
+@click.option("--appointment-type", default="programme appointment", help="Appointment type.")
+@click.option("--preferred-date", default="not specified", help="Preferred date.")
+@click.option("--preferred-time", default="not specified", help="Preferred time.")
+@click.option("--notes", default="", help="Notes.")
+def booking_handoff(member_id: str, appointment_type: str, preferred_date: str, preferred_time: str, notes: str) -> None:
+    """Create Bookings handoff."""
+    console = Console()
+    result = SerenaMembershipBookingHandoffTool().execute(
+        member_id=member_id,
+        appointment_type=appointment_type,
+        preferred_date=preferred_date,
+        preferred_time=preferred_time,
         notes=notes,
     )
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
