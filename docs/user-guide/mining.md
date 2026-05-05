@@ -1,9 +1,10 @@
 # Pearl Mining
 
 OpenJarvis can mine the Pearl Proof-of-Useful-Work chain through local LLM
-inference. v1 supports NVIDIA H100/H200 hosts running vLLM with Pearl's
-Docker miner. Apple Silicon GPU support is a separate parallel effort; the
-integration point is the `MiningProvider` registry.
+inference. The primary v1 path supports NVIDIA H100/H200 hosts running vLLM
+with Pearl's Docker miner. The consolidated Pearl integration also includes
+experimental Apple Silicon and CPU providers through the same `MiningProvider`
+registry.
 
 ## Prerequisites
 
@@ -62,7 +63,7 @@ and payout address.
 Unsupported in this PR:
 
 - Pool mining and the future 20% OpenJarvis fee model
-- Apple Silicon, AMD, and non-vLLM backends
+- AMD GPU mining and non-Pearl backends
 - RTX 4090 or other non-Hopper NVIDIA GPUs
 - Wallet generation or transaction signing inside OpenJarvis
 

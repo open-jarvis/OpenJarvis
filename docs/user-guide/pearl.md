@@ -32,6 +32,10 @@ These map directly to:
 | `jarvis pearl wallet` | `oyster` |
 | `jarvis pearl ctl` | `prlctl` |
 
+The command format is always `jarvis pearl <command>`. Pearl-native arguments
+go after that command. Use `--` before Pearl arguments when the arguments begin
+with dashes and you want to make the pass-through boundary explicit.
+
 ## Wallet Address Helper
 
 If Oyster is already running, generate a mining address through wallet RPC:

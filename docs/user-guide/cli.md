@@ -199,6 +199,35 @@ jarvis model pull qwen3:8b
 
 ---
 
+## `jarvis pearl`
+
+Access Pearl's native node, wallet, and RPC tools from the OpenJarvis CLI.
+
+```bash
+jarvis pearl doctor
+jarvis pearl node -- <pearld args>
+jarvis pearl wallet -- <oyster args>
+jarvis pearl ctl -- <prlctl args>
+jarvis pearl address
+```
+
+All Pearl wrapper commands use the `jarvis pearl <command>` shape. The
+pass-through commands map to Pearl's native binaries:
+
+| OpenJarvis command | Pearl binary | Use |
+|--------------------|--------------|-----|
+| `jarvis pearl doctor` | n/a | Check whether `pearld`, `oyster`, and `prlctl` are discoverable |
+| `jarvis pearl node` | `pearld` | Run the Pearl full node |
+| `jarvis pearl wallet` | `oyster` | Run the Oyster wallet daemon |
+| `jarvis pearl ctl` | `prlctl` | Query Pearl node or wallet RPC |
+| `jarvis pearl address` | `prlctl --wallet getnewaddress` | Generate a wallet address from Oyster |
+
+Use `PEARL_HOME=/path/to/pearl` or `--pearl-home /path/to/pearl` if Pearl's
+`bin/` directory is not on `PATH`. See the [Pearl CLI guide](pearl.md) for
+examples.
+
+---
+
 ## `jarvis memory`
 
 Manage the document memory store for retrieval-augmented generation.
