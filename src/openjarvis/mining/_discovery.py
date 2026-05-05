@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Tuple
 
 import httpx
 
@@ -121,7 +121,12 @@ def check_pearld_reachable(
     try:
         resp = httpx.post(
             url,
-            json={"jsonrpc": "1.0", "id": "ojprobe", "method": "getblockchaininfo", "params": []},
+            json={
+                "jsonrpc": "1.0",
+                "id": "ojprobe",
+                "method": "getblockchaininfo",
+                "params": [],
+            },
             auth=(user, password),
             timeout=5.0,
         )
