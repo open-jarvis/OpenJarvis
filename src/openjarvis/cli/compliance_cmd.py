@@ -12,6 +12,11 @@ from openjarvis.tools.serena_compliance import (
     SerenaCompliancePolicyListTool,
     SerenaComplianceSourceListTool,
     SerenaComplianceStatusTool,
+    SerenaComplianceBlockedHiddenCaptureTool,
+    SerenaComplianceBlockedBulkExportTool,
+    SerenaComplianceBlockedClinicalDecisionTool,
+    SerenaComplianceBlockedDisclosureTool,
+    SerenaComplianceAuditTool,
     SerenaComplianceBlockedPolicyUpdateTool,
     SerenaCompliancePolicyDiffTool,
     SerenaComplianceRefreshPlanTool,
@@ -242,6 +247,54 @@ def blocked_policy_update(policy: str, reason: str) -> None:
     """Deliberately blocked silent policy update command."""
     console = Console()
     result = SerenaComplianceBlockedPolicyUpdateTool().execute(policy=policy, reason=reason)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@compliance.command("audit")
+def audit() -> None:
+    """Audit Compliance policy library and safety posture."""
+    console = Console()
+    result = SerenaComplianceAuditTool().execute()
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@compliance.command("blocked-disclosure")
+@click.option("--action", default="silent disclosure", help="Requested action.")
+@click.option("--reason", default="Sensitive disclosure requested.", help="Reason.")
+def blocked_disclosure(action: str, reason: str) -> None:
+    """Deliberately blocked sensitive disclosure command."""
+    console = Console()
+    result = SerenaComplianceBlockedDisclosureTool().execute(action=action, reason=reason)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@compliance.command("blocked-clinical-decision")
+@click.option("--action", default="clinical decision", help="Requested action.")
+@click.option("--reason", default="Clinical decision requested.", help="Reason.")
+def blocked_clinical_decision(action: str, reason: str) -> None:
+    """Deliberately blocked autonomous clinical decision command."""
+    console = Console()
+    result = SerenaComplianceBlockedClinicalDecisionTool().execute(action=action, reason=reason)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@compliance.command("blocked-bulk-export")
+@click.option("--action", default="bulk export", help="Requested action.")
+@click.option("--reason", default="Bulk export requested.", help="Reason.")
+def blocked_bulk_export(action: str, reason: str) -> None:
+    """Deliberately blocked bulk export/disclosure command."""
+    console = Console()
+    result = SerenaComplianceBlockedBulkExportTool().execute(action=action, reason=reason)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@compliance.command("blocked-hidden-capture")
+@click.option("--action", default="hidden capture", help="Requested action.")
+@click.option("--reason", default="Hidden capture requested.", help="Reason.")
+def blocked_hidden_capture(action: str, reason: str) -> None:
+    """Deliberately blocked hidden capture command."""
+    console = Console()
+    result = SerenaComplianceBlockedHiddenCaptureTool().execute(action=action, reason=reason)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 

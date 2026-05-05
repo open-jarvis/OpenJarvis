@@ -1285,6 +1285,273 @@ class SerenaComplianceBlockedPolicyUpdateTool(_ComplianceBaseTool):
         )
 
 
+@ToolRegistry.register("serena_compliance_audit")
+class SerenaComplianceAuditTool(_ComplianceBaseTool):
+    tool_id = "serena_compliance_audit"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Audit Serena Compliance policy library, safety posture, and Hub adapter readiness.",
+            parameters={"type": "object", "properties": {}},
+            category="serena_compliance",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        root = _compliance_root()
+        policies = _policy_inventory()
+        registry = _load_source_registry()
+        sources = registry.get("sources", [])
+        safety = _safety_policy()
+        hub = _hub_adapter_contract()
+
+        issues = []
+        recommendations = []
+
+        required_policy_ids = {
+            "popia",
+            "national-health-confidentiality",
+            "hpcsa-patient-records",
+            "hpcsa-social-media-marketing",
+            "clinical-boundaries",
+            "data-sharing",
+            "vision-capture",
+            "policy-update-governance",
+        }
+
+        existing_policy_ids = {item["policy_id"] for item in policies}
+        missing = sorted(required_policy_ids - existing_policy_ids)
+        if missing:
+            issues.append("Missing required local policies: " + ", ".join(missing))
+
+        if not sources:
+            issues.append("Source registry has no entries.")
+
+        if not issues:
+            recommendations.append("No immediate foundation issues detected.")
+        recommendations.extend([
+            "Use workflow guards before OCR, Drive, Docs, Calendar, CRM, finance, marketing, and autonomous actions.",
+            "Use update-check and refresh-plan for policy monitoring.",
+            "Keep Hub adapter pending until Serena Hub dashboard/event bus exists.",
+        ])
+
+        payload = {
+            "report_type": "serena_compliance_audit",
+            "created_at": _timestamp(),
+            "policy_count": len(policies),
+            "source_count": len(sources),
+            "policies": policies,
+            "sources": sources,
+            "safety_policy": safety,
+            "hub_adapter": hub,
+            "issues": issues,
+            "recommendations": recommendations,
+            "policy_rules_changed": False,
+            "changes_made": False,
+            "delete_performed": False,
+            "secret_values_exposed": False,
+        }
+        report_path = _save_json("audits", "compliance-audit", payload)
+
+        lines = [
+            "Serena Compliance audit",
+            "",
+            f"- Local policies: {len(policies)}",
+            f"- Source registry entries: {len(sources)}",
+            f"- Report: {report_path}",
+            "- Policy rules changed: no",
+            "- Changes made: no",
+            "- Delete performed: no",
+            "- Secret values exposed: no",
+            "- Hub adapter: pending future dashboard",
+            "",
+            "Issues:",
+        ]
+
+        lines.extend(f"- {item}" for item in issues) if issues else lines.append("- none")
+
+        lines.extend(["", "Recommendations:"])
+        lines.extend(f"- {item}" for item in recommendations)
+
+        lines.extend(["", "Blocked operations:"])
+        for item in safety["blocked"]:
+            lines.append(f"- {item}")
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+def _blocked_compliance_response(
+    title: str,
+    action: str,
+    reason: str,
+    blocked_reason: str,
+    report_name: str,
+    policy_refs: list[str],
+) -> ToolResult:
+    payload = {
+        "report_type": f"serena_compliance_{report_name}",
+        "created_at": _timestamp(),
+        "action": action,
+        "reason": reason,
+        "blocked_reason": blocked_reason,
+        "policy_refs": policy_refs,
+        "risk_level": "BLOCKED",
+        "allowed_to_continue": False,
+        "approval_required": True,
+        "owner_review_required": True,
+        "changes_made": False,
+        "delete_performed": False,
+        "policy_rules_changed": False,
+        "secret_values_exposed": False,
+        "hub_adapter": _hub_adapter_contract(),
+    }
+    report_path = _save_json("reports", report_name, payload)
+
+    return ToolResult(
+        tool_name=f"serena_compliance_{report_name}",
+        success=False,
+        content=(
+            f"{title}\n\n"
+            f"- Action: {action}\n"
+            f"- Reason: {reason}\n"
+            f"- Blocked reason: {blocked_reason}\n"
+            f"- Risk level: BLOCKED\n"
+            f"- Allowed to continue: no\n"
+            f"- Approval required: yes\n"
+            f"- Owner review required: yes\n"
+            f"- Policy refs: {', '.join(policy_refs)}\n"
+            f"- Report: {report_path}\n"
+            "- Changes made: no\n"
+            "- Delete performed: no\n"
+            "- Policy rules changed: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard"
+        ),
+        metadata={**payload, "report_path": str(report_path)},
+    )
+
+
+@ToolRegistry.register("serena_compliance_blocked_disclosure")
+class SerenaComplianceBlockedDisclosureTool(_ComplianceBaseTool):
+    tool_id = "serena_compliance_blocked_disclosure"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked silent/sensitive disclosure command.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+            },
+            category="serena_compliance",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        return _blocked_compliance_response(
+            "Sensitive disclosure blocked by Serena Compliance v1 policy",
+            str(params.get("action") or "silent disclosure").strip(),
+            str(params.get("reason") or "Sensitive disclosure requested.").strip(),
+            "Serena may not silently disclose personal, patient, health, financial, or business-sensitive information.",
+            "blocked-disclosure",
+            ["popia", "national-health-confidentiality", "data-sharing"],
+        )
+
+
+@ToolRegistry.register("serena_compliance_blocked_clinical_decision")
+class SerenaComplianceBlockedClinicalDecisionTool(_ComplianceBaseTool):
+    tool_id = "serena_compliance_blocked_clinical_decision"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked autonomous clinical decision command.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+            },
+            category="serena_compliance",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        return _blocked_compliance_response(
+            "Autonomous clinical decision blocked by Serena Compliance v1 policy",
+            str(params.get("action") or "clinical decision").strip(),
+            str(params.get("reason") or "Clinical decision requested.").strip(),
+            "Serena may support documentation and preparation, but may not diagnose, prescribe, or replace Dr Piet's clinical judgment.",
+            "blocked-clinical-decision",
+            ["clinical-boundaries", "hpcsa-patient-records", "national-health-confidentiality"],
+        )
+
+
+@ToolRegistry.register("serena_compliance_blocked_bulk_export")
+class SerenaComplianceBlockedBulkExportTool(_ComplianceBaseTool):
+    tool_id = "serena_compliance_blocked_bulk_export"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked bulk export/disclosure command.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+            },
+            category="serena_compliance",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        return _blocked_compliance_response(
+            "Bulk export blocked by Serena Compliance v1 policy",
+            str(params.get("action") or "bulk export").strip(),
+            str(params.get("reason") or "Bulk export requested.").strip(),
+            "Serena may not perform destructive or unreviewed bulk export/disclosure of sensitive data.",
+            "blocked-bulk-export",
+            ["popia", "data-sharing", "policy-update-governance"],
+        )
+
+
+@ToolRegistry.register("serena_compliance_blocked_hidden_capture")
+class SerenaComplianceBlockedHiddenCaptureTool(_ComplianceBaseTool):
+    tool_id = "serena_compliance_blocked_hidden_capture"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked hidden camera/audio/screen capture command.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+            },
+            category="serena_compliance",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        return _blocked_compliance_response(
+            "Hidden capture blocked by Serena Compliance v1 policy",
+            str(params.get("action") or "hidden capture").strip(),
+            str(params.get("reason") or "Hidden capture requested.").strip(),
+            "Serena may not use hidden camera, audio, screen capture, or always-on watching. Capture must be explicit, visible, bounded, and reported.",
+            "blocked-hidden-capture",
+            ["vision-capture", "popia", "data-sharing"],
+        )
+
+
 __all__ = [
     "SerenaComplianceStatusTool",
     "SerenaCompliancePolicyListTool",
@@ -1294,6 +1561,11 @@ __all__ = [
     "SerenaComplianceDocumentCheckTool",
     "SerenaComplianceCrmCheckTool",
     "SerenaComplianceBlockedPolicyUpdateTool",
+    "SerenaComplianceBlockedHiddenCaptureTool",
+    "SerenaComplianceBlockedBulkExportTool",
+    "SerenaComplianceBlockedClinicalDecisionTool",
+    "SerenaComplianceBlockedDisclosureTool",
+    "SerenaComplianceAuditTool",
     "SerenaCompliancePolicyDiffTool",
     "SerenaComplianceRefreshPlanTool",
     "SerenaComplianceUpdateCheckTool",
