@@ -16,12 +16,19 @@ plus ``jarvis mine doctor``.
 from __future__ import annotations
 
 import importlib.util
+import sys
 
 
-def _module_available(name: str) -> bool:
-    """True if ``import name`` would succeed in the current environment."""
-    import sys
+def _module_importable(name: str) -> bool:
+    """True if ``import name`` would succeed in the current environment.
 
+    Checks ``sys.modules`` first (a module already resident is by definition
+    importable); falls back to ``importlib.util.find_spec``. The find_spec
+    call raises ``ValueError`` for entries in sys.modules that were inserted
+    without a populated ``__spec__`` (e.g., test stubs created via
+    ``types.ModuleType()``). We treat that as "available" — sys.modules
+    presence implies importable.
+    """
     if name in sys.modules:
         return True
     try:
@@ -37,7 +44,7 @@ def pearl_packages_available() -> bool:
     surface the next step to the user.
     """
     return all(
-        _module_available(m)
+        _module_importable(m)
         for m in ("pearl_mining", "pearl_gateway", "miner_base")
     )
 

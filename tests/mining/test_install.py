@@ -1,20 +1,30 @@
 """Tests for openjarvis.mining._install."""
 from __future__ import annotations
 
+import importlib.util
 import sys
 import types
-from unittest.mock import patch
+
+import pytest
 
 
-def test_pearl_packages_available_returns_false_when_pearl_mining_missing():
+@pytest.mark.parametrize(
+    "missing_module", ["pearl_mining", "pearl_gateway", "miner_base"]
+)
+def test_pearl_packages_available_returns_false_when_any_one_missing(
+    missing_module, monkeypatch
+):
+    """Returns False if ANY of the three packages is absent."""
     from openjarvis.mining import _install
 
-    fake_modules = dict(sys.modules)
-    fake_modules.pop("pearl_mining", None)
-    fake_modules.pop("pearl_gateway", None)
-    fake_modules.pop("miner_base", None)
-    with patch.dict(sys.modules, fake_modules, clear=True):
-        assert _install.pearl_packages_available() is False
+    # Stub the two that should be present, leave the third missing.
+    present = {"pearl_mining", "pearl_gateway", "miner_base"} - {missing_module}
+    for name in present:
+        monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
+    monkeypatch.delitem(sys.modules, missing_module, raising=False)
+    monkeypatch.setattr(_install, "_module_importable", lambda n: n != missing_module)
+
+    assert _install.pearl_packages_available() is False
 
 
 def test_pearl_packages_available_returns_true_when_all_present():
@@ -25,7 +35,9 @@ def test_pearl_packages_available_returns_true_when_all_present():
         name: types.ModuleType(name)
         for name in ("pearl_mining", "pearl_gateway", "miner_base")
     }
-    with patch.dict(sys.modules, fakes):
+    with pytest.MonkeyPatch().context() as mp:
+        for name, mod in fakes.items():
+            mp.setitem(sys.modules, name, mod)
         assert _install.pearl_packages_available() is True
 
 
@@ -35,4 +47,17 @@ def test_install_hint_is_actionable():
 
     h = install_hint()
     assert "mining-pearl-cpu" in h
-    assert "uv sync" in h or "pip install" in h
+    assert "uv sync" in h, "hint must mention `uv sync` (the project's installer)"
+
+
+def test_module_importable_returns_false_on_value_error(monkeypatch):
+    """If find_spec raises ValueError, the helper treats the module as missing."""
+    from openjarvis.mining import _install
+
+    def boom(name):
+        raise ValueError("simulated partially-initialised package")
+
+    monkeypatch.setattr(importlib.util, "find_spec", boom)
+    # Make sure the module name is NOT in sys.modules, so we hit the find_spec path.
+    monkeypatch.delitem(sys.modules, "_nonexistent_test_pkg", raising=False)
+    assert _install._module_importable("_nonexistent_test_pkg") is False
