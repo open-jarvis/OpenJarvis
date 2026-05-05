@@ -57,6 +57,7 @@ from openjarvis.cli.gdrive_cmd import gdrive
 from openjarvis.cli.google_docs_cmd import google_docs
 from openjarvis.cli.ocr_cmd import ocr
 from openjarvis.cli.google_calendar_cmd import calendar
+from openjarvis.cli.compliance_cmd import compliance
 from openjarvis.learning.distillation.cli import learning_group
 
 
@@ -117,6 +118,7 @@ cli.add_command(gdrive, "gdrive")
 cli.add_command(google_docs, "google-docs")
 cli.add_command(ocr, "ocr")
 cli.add_command(calendar, "calendar")
+cli.add_command(compliance, "compliance")
 cli.add_command(skill, "skill")
 cli.add_command(start, "start")
 cli.add_command(stop, "stop")
