@@ -2186,6 +2186,434 @@ class SerenaBookingsCalendarCancelPlanTool(_BookingsBaseTool):
         )
 
 
+def _appointment_summary_markdown(booking: dict[str, Any], title: str, notes: str = "") -> str:
+    sensitive = bool(booking.get("sensitive"))
+    lines = [
+        f"# {title}",
+        "",
+        "Created by: Serena Bookings / Appointments / Reminders Full Operator v1",
+        f"Created at: {_timestamp()}",
+        "",
+        "## Appointment",
+        "",
+        f"- Booking ID: {booking.get('booking_id')}",
+        f"- Business: {booking.get('business')}",
+        f"- Appointment type: {booking.get('appointment_type')}",
+        f"- Date: {booking.get('date')}",
+        f"- Time: {booking.get('time')}",
+        f"- Duration minutes: {booking.get('duration_minutes')}",
+        f"- Location: {booking.get('location') or 'not specified'}",
+        f"- Status: {booking.get('status')}",
+        f"- Calendar event ID: {booking.get('calendar_event_id') or 'not linked'}",
+        f"- Sensitive: {'yes' if sensitive else 'no'}",
+        "",
+        "## Patient/client handling",
+        "",
+    ]
+
+    if sensitive:
+        lines.extend([
+            "- Patient/client details are sensitive.",
+            "- Avoid sharing externally without Compliance review and approval.",
+            "- Use minimal public-facing appointment wording.",
+        ])
+    else:
+        lines.append(f"- Patient/client: {booking.get('patient_or_client')}")
+
+    lines.extend([
+        "",
+        "## Safety",
+        "",
+        "- External API called: no",
+        "- Docs/Drive write performed: no",
+        "- Report created locally: yes",
+        "- Secret values exposed: no",
+        "",
+    ])
+
+    if notes:
+        lines.extend(["## Notes", "", notes, ""])
+
+    return "\n".join(lines)
+
+
+@ToolRegistry.register("serena_bookings_docs_handoff")
+class SerenaBookingsDocsHandoffTool(_BookingsBaseTool):
+    tool_id = "serena_bookings_docs_handoff"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a Google Docs handoff plan for a booking. Does not create a Google Doc.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "booking_id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["booking_id"],
+            },
+            category="serena_bookings",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        booking_id = str(params.get("booking_id") or "").strip()
+        title = str(params.get("title") or f"Appointment Summary {booking_id}").strip()
+        approved = bool(params.get("approved") or False)
+        notes = str(params.get("notes") or "").strip()
+
+        booking = _get_booking_or_fail(booking_id)
+        if not booking:
+            return self._result(
+                "Serena Docs handoff failed\n\n"
+                f"- Booking ID: {booking_id}\n"
+                "- Error: booking not found\n"
+                "- Google Doc created: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        if bool(booking.get("sensitive")) and not approved:
+            return self._result(
+                "Serena Docs handoff blocked\n\n"
+                f"- Booking ID: {booking_id}\n"
+                "- Reason: sensitive appointment Docs handoff requires approval and Compliance review.\n"
+                "- Google Doc created: no\n"
+                "- External API called: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        payload = {
+            "record_type": "docs_handoff",
+            "created_at": _timestamp(),
+            "booking_id": booking_id,
+            "title": title,
+            "approved": approved,
+            "business": booking.get("business"),
+            "patient_or_client": booking.get("patient_or_client"),
+            "appointment_type": booking.get("appointment_type"),
+            "date": booking.get("date"),
+            "time": booking.get("time"),
+            "sensitive": bool(booking.get("sensitive")),
+            "notes": notes,
+            "handoff_created": True,
+            "external_api_called": False,
+            "google_doc_created": False,
+            "drive_upload_performed": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        record_path = _save_json("handoff", f"docs-handoff-{booking_id}", payload)
+
+        return self._result(
+            "Serena Docs handoff created\n\n"
+            f"- Booking ID: {booking_id}\n"
+            f"- Title: {title}\n"
+            f"- Approved: {'yes' if approved else 'no'}\n"
+            f"- Sensitive: {'yes' if booking.get('sensitive') else 'no'}\n"
+            f"- Record: {record_path}\n"
+            "- Handoff created: yes\n"
+            "- External API called: no\n"
+            "- Google Doc created: no\n"
+            "- Drive upload performed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Next safe step:\n"
+            "- Use Google Docs operator only after approval when sensitive appointment data is included.",
+            metadata={**payload, "record_path": str(record_path)},
+        )
+
+
+@ToolRegistry.register("serena_bookings_drive_handoff")
+class SerenaBookingsDriveHandoffTool(_BookingsBaseTool):
+    tool_id = "serena_bookings_drive_handoff"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a Google Drive evidence/storage handoff plan for a booking. Does not upload to Drive.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "booking_id": {"type": "string"},
+                    "folder": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["booking_id"],
+            },
+            category="serena_bookings",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        booking_id = str(params.get("booking_id") or "").strip()
+        folder = str(params.get("folder") or "Appointments").strip()
+        approved = bool(params.get("approved") or False)
+        notes = str(params.get("notes") or "").strip()
+
+        booking = _get_booking_or_fail(booking_id)
+        if not booking:
+            return self._result(
+                "Serena Drive handoff failed\n\n"
+                f"- Booking ID: {booking_id}\n"
+                "- Error: booking not found\n"
+                "- Drive upload performed: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        if bool(booking.get("sensitive")) and not approved:
+            return self._result(
+                "Serena Drive handoff blocked\n\n"
+                f"- Booking ID: {booking_id}\n"
+                "- Reason: sensitive appointment Drive handoff requires approval and Compliance review.\n"
+                "- Drive upload performed: no\n"
+                "- External API called: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        payload = {
+            "record_type": "drive_handoff",
+            "created_at": _timestamp(),
+            "booking_id": booking_id,
+            "folder": folder,
+            "approved": approved,
+            "business": booking.get("business"),
+            "patient_or_client": booking.get("patient_or_client"),
+            "appointment_type": booking.get("appointment_type"),
+            "date": booking.get("date"),
+            "time": booking.get("time"),
+            "sensitive": bool(booking.get("sensitive")),
+            "notes": notes,
+            "handoff_created": True,
+            "external_api_called": False,
+            "drive_upload_performed": False,
+            "google_doc_created": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        record_path = _save_json("handoff", f"drive-handoff-{booking_id}", payload)
+
+        return self._result(
+            "Serena Drive handoff created\n\n"
+            f"- Booking ID: {booking_id}\n"
+            f"- Folder: {folder}\n"
+            f"- Approved: {'yes' if approved else 'no'}\n"
+            f"- Sensitive: {'yes' if booking.get('sensitive') else 'no'}\n"
+            f"- Record: {record_path}\n"
+            "- Handoff created: yes\n"
+            "- External API called: no\n"
+            "- Drive upload performed: no\n"
+            "- Google Doc created: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Next safe step:\n"
+            "- Use Google Drive operator only after approval when sensitive appointment data is included.",
+            metadata={**payload, "record_path": str(record_path)},
+        )
+
+
+@ToolRegistry.register("serena_bookings_reporting_handoff")
+class SerenaBookingsReportingHandoffTool(_BookingsBaseTool):
+    tool_id = "serena_bookings_reporting_handoff"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a Reporting handoff plan for a booking. Does not export externally.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "booking_id": {"type": "string"},
+                    "report_type": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["booking_id"],
+            },
+            category="serena_bookings",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        booking_id = str(params.get("booking_id") or "").strip()
+        report_type = str(params.get("report_type") or "appointment-summary").strip()
+        approved = bool(params.get("approved") or False)
+        notes = str(params.get("notes") or "").strip()
+
+        booking = _get_booking_or_fail(booking_id)
+        if not booking:
+            return self._result(
+                "Serena Reporting handoff failed\n\n"
+                f"- Booking ID: {booking_id}\n"
+                "- Error: booking not found\n"
+                "- Report exported: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        if bool(booking.get("sensitive")) and not approved:
+            return self._result(
+                "Serena Reporting handoff blocked\n\n"
+                f"- Booking ID: {booking_id}\n"
+                "- Reason: sensitive appointment Reporting handoff requires approval and Compliance review.\n"
+                "- Report exported: no\n"
+                "- External API called: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        payload = {
+            "record_type": "reporting_handoff",
+            "created_at": _timestamp(),
+            "booking_id": booking_id,
+            "report_type": report_type,
+            "approved": approved,
+            "business": booking.get("business"),
+            "patient_or_client": booking.get("patient_or_client"),
+            "appointment_type": booking.get("appointment_type"),
+            "date": booking.get("date"),
+            "time": booking.get("time"),
+            "sensitive": bool(booking.get("sensitive")),
+            "notes": notes,
+            "handoff_created": True,
+            "external_api_called": False,
+            "report_exported": False,
+            "drive_upload_performed": False,
+            "google_doc_created": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        record_path = _save_json("handoff", f"reporting-handoff-{booking_id}", payload)
+
+        return self._result(
+            "Serena Reporting handoff created\n\n"
+            f"- Booking ID: {booking_id}\n"
+            f"- Report type: {report_type}\n"
+            f"- Approved: {'yes' if approved else 'no'}\n"
+            f"- Sensitive: {'yes' if booking.get('sensitive') else 'no'}\n"
+            f"- Record: {record_path}\n"
+            "- Handoff created: yes\n"
+            "- External API called: no\n"
+            "- Report exported: no\n"
+            "- Drive upload performed: no\n"
+            "- Google Doc created: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Next safe step:\n"
+            "- Use Reporting operator only after approval when sensitive appointment data is included.",
+            metadata={**payload, "record_path": str(record_path)},
+        )
+
+
+@ToolRegistry.register("serena_bookings_appointment_summary")
+class SerenaBookingsAppointmentSummaryTool(_BookingsBaseTool):
+    tool_id = "serena_bookings_appointment_summary"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local appointment summary in JSON and Markdown.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "booking_id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "notes": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                },
+                "required": ["booking_id"],
+            },
+            category="serena_bookings",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        booking_id = str(params.get("booking_id") or "").strip()
+        title = str(params.get("title") or f"Appointment Summary {booking_id}").strip()
+        notes = str(params.get("notes") or "").strip()
+        approved = bool(params.get("approved") or False)
+
+        booking = _get_booking_or_fail(booking_id)
+        if not booking:
+            return self._result(
+                "Serena appointment summary failed\n\n"
+                f"- Booking ID: {booking_id}\n"
+                "- Error: booking not found\n"
+                "- Summary created: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        if bool(booking.get("sensitive")) and not approved:
+            return self._result(
+                "Serena appointment summary blocked\n\n"
+                f"- Booking ID: {booking_id}\n"
+                "- Reason: sensitive appointment summary requires approval.\n"
+                "- Summary created: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        payload = {
+            "report_type": "serena_bookings_appointment_summary",
+            "created_at": _timestamp(),
+            "booking": booking,
+            "title": title,
+            "notes": notes,
+            "approved": approved,
+            "summary_created": True,
+            "external_api_called": False,
+            "drive_upload_performed": False,
+            "google_doc_created": False,
+            "report_exported": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        json_path = _save_json("reports", f"appointment-summary-{booking_id}", payload)
+        md_path = _save_text("reports", f"appointment-summary-{booking_id}", _appointment_summary_markdown(booking, title, notes), ".md")
+
+        return self._result(
+            "Serena appointment summary created\n\n"
+            f"- Booking ID: {booking_id}\n"
+            f"- Title: {title}\n"
+            f"- Approved: {'yes' if approved else 'no'}\n"
+            f"- Sensitive: {'yes' if booking.get('sensitive') else 'no'}\n"
+            f"- JSON report: {json_path}\n"
+            f"- Markdown report: {md_path}\n"
+            "- Summary created: yes\n"
+            "- External API called: no\n"
+            "- Drive upload performed: no\n"
+            "- Google Doc created: no\n"
+            "- Report exported: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={**payload, "json_path": str(json_path), "markdown_path": str(md_path)},
+        )
+
+
 __all__ = [
     "SerenaBookingsStatusTool",
     "SerenaBookingsEnvCheckTool",
@@ -2196,6 +2624,10 @@ __all__ = [
     "SerenaBookingsNoShowPolicyTool",
     "SerenaBookingsFollowUpPlanTool",
     "SerenaBookingsCalendarCancelPlanTool",
+    "SerenaBookingsAppointmentSummaryTool",
+    "SerenaBookingsReportingHandoffTool",
+    "SerenaBookingsDriveHandoffTool",
+    "SerenaBookingsDocsHandoffTool",
     "SerenaBookingsCalendarUpdatePlanTool",
     "SerenaBookingsCalendarCreatePlanTool",
     "SerenaBookingsCalendarHandoffTool",

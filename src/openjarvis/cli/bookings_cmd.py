@@ -12,6 +12,10 @@ from openjarvis.tools.serena_bookings import (
     SerenaBookingsSourceInfoTool,
     SerenaBookingsSourceListTool,
     SerenaBookingsStatusTool,
+    SerenaBookingsAppointmentSummaryTool,
+    SerenaBookingsReportingHandoffTool,
+    SerenaBookingsDriveHandoffTool,
+    SerenaBookingsDocsHandoffTool,
     SerenaBookingsCalendarCancelPlanTool,
     SerenaBookingsCalendarUpdatePlanTool,
     SerenaBookingsCalendarCreatePlanTool,
@@ -394,6 +398,74 @@ def calendar_cancel_plan(booking_id: str, reason: str, approved: bool) -> None:
     result = SerenaBookingsCalendarCancelPlanTool().execute(
         booking_id=booking_id,
         reason=reason,
+        approved=approved,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@bookings.command("docs-handoff")
+@click.option("--booking-id", required=True, help="Booking ID.")
+@click.option("--title", default="", help="Document title.")
+@click.option("--approved", is_flag=True, help="Approval flag for sensitive data.")
+@click.option("--notes", default="", help="Notes.")
+def docs_handoff(booking_id: str, title: str, approved: bool, notes: str) -> None:
+    """Create Google Docs handoff plan for a booking."""
+    console = Console()
+    result = SerenaBookingsDocsHandoffTool().execute(
+        booking_id=booking_id,
+        title=title,
+        approved=approved,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@bookings.command("drive-handoff")
+@click.option("--booking-id", required=True, help="Booking ID.")
+@click.option("--folder", default="Appointments", help="Drive folder label.")
+@click.option("--approved", is_flag=True, help="Approval flag for sensitive data.")
+@click.option("--notes", default="", help="Notes.")
+def drive_handoff(booking_id: str, folder: str, approved: bool, notes: str) -> None:
+    """Create Google Drive handoff plan for a booking."""
+    console = Console()
+    result = SerenaBookingsDriveHandoffTool().execute(
+        booking_id=booking_id,
+        folder=folder,
+        approved=approved,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@bookings.command("reporting-handoff")
+@click.option("--booking-id", required=True, help="Booking ID.")
+@click.option("--report-type", default="appointment-summary", help="Report type.")
+@click.option("--approved", is_flag=True, help="Approval flag for sensitive data.")
+@click.option("--notes", default="", help="Notes.")
+def reporting_handoff(booking_id: str, report_type: str, approved: bool, notes: str) -> None:
+    """Create Reporting handoff plan for a booking."""
+    console = Console()
+    result = SerenaBookingsReportingHandoffTool().execute(
+        booking_id=booking_id,
+        report_type=report_type,
+        approved=approved,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@bookings.command("appointment-summary")
+@click.option("--booking-id", required=True, help="Booking ID.")
+@click.option("--title", default="", help="Summary title.")
+@click.option("--notes", default="", help="Notes.")
+@click.option("--approved", is_flag=True, help="Approval flag for sensitive data.")
+def appointment_summary(booking_id: str, title: str, notes: str, approved: bool) -> None:
+    """Create local appointment summary."""
+    console = Console()
+    result = SerenaBookingsAppointmentSummaryTool().execute(
+        booking_id=booking_id,
+        title=title,
+        notes=notes,
         approved=approved,
     )
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
