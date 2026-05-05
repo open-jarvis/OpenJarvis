@@ -2,7 +2,7 @@
 # smoke_framework_comparison.sh
 #
 # One-task-per-cell sanity check for the framework-comparison harness.
-# Run before kicking off the real Tier-1 sweep.
+# Run before kicking off a benchmark sweep.
 #
 # Required env vars:
 #   HERMES_AGENT_PATH   - path to pinned hermes-agent checkout
@@ -55,7 +55,7 @@ for fwk in "${SMOKE_FRAMEWORKS[@]}"; do
   for bench in "${SMOKE_BENCHES[@]}"; do
     config="src/openjarvis/evals/configs/framework_comparison/${bench}-${fwk}-${SMOKE_MODEL}.toml"
     if [ ! -f "$config" ]; then
-      echo "  ! missing config: $config (run make_configs --all-tier1)"
+      echo "  ! missing config: $config (run make_configs --all-tier1 (or materialize the configs you need))"
       continue
     fi
     echo "  ▸ $fwk × $bench"

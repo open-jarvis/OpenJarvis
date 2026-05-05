@@ -1,1 +1,1 @@
-"""Framework-comparison toolkit for the NeurIPS 2026 paper."""
+"""Framework-comparison toolkit: drive other agentic frameworks via subprocess and emit comparable telemetry."""

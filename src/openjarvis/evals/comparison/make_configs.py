@@ -173,7 +173,7 @@ def materialize_config(
 @click.option(
     "--all-tier1",
     is_flag=True,
-    help="Materialize all 96 Tier-1 configs (4 frameworks x 8 benchmarks x 3 models)",
+    help="Materialize the full configs grid (4 frameworks x 8 benchmarks x 3 models)",
 )
 def main(
     framework: Optional[str],

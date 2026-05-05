@@ -34,7 +34,7 @@ engine = "cloud"
 
 [run]
 max_workers = 1
-output_dir = "results/neurips-2026/comparison/{{framework}}/{{model_slug}}/{{benchmark}}/"
+output_dir = "results/comparison/{{framework}}/{{model_slug}}/{{benchmark}}/"
 seed = 42
 
 [[models]]

@@ -1,4 +1,4 @@
-"""LaTeX table generator for the NeurIPS 2026 framework-comparison experiment.
+"""LaTeX table generator for the framework-comparison harness.
 
 Reads `summary.json` files produced by EvalRunner, builds a long-format
 polars DataFrame, then renders 7 tables (T1..T7) as both `tabular`
@@ -361,7 +361,7 @@ def _table_gen_default_output_dir() -> Path:
 @click.option(
     "--results-glob",
     required=True,
-    help='Glob, e.g. "results/neurips-2026/comparison/**/summary.json"',
+    help='Glob, e.g. "results/comparison/**/summary.json"',
 )
 @click.option(
     "--tables",

@@ -10,21 +10,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- **Framework-comparison harness for NeurIPS 2026 paper.** New `evals/backends/external/`
-  subpackage wraps real Hermes Agent (commit `5d3be898a`) and OpenClaw (commit
-  `123ae82f...`) as one-shot subprocess backends, plus an `evals/comparison/` toolkit
-  for path/commit pinning, config templating (`make_configs.py`), and LaTeX table
-  generation (`table_gen.py`) for tables T1-T7. 96 Tier-1 configs ship under
-  `evals/configs/framework_comparison/`. See
-  `docs/superpowers/specs/2026-05-03-neurips-framework-comparison-design.md`.
+- AI stack support for evaluating other agentic frameworks via subprocess.
+  New `evals/backends/external/` subpackage wraps Hermes Agent and OpenClaw
+  as one-shot subprocess backends behind the existing `InferenceBackend`
+  ABC; new `evals/comparison/` toolkit provides path + commit-pin
+  enforcement (`third_party.py`), config templating (`make_configs.py`),
+  and LaTeX table generation (`table_gen.py`).
 - New optional extra `framework-comparison` (depends on `polars`).
 - New pytest marker `live_external` for integration tests requiring real
   foreign-framework installations.
-- **Foreign-framework prerequisites** (required before running framework
-  comparison): Hermes Agent needs its own Python deps installed (recommend a
-  Hermes-specific venv, point `python_executable` in `_third_party.toml` at
-  it); OpenClaw needs Node 14.8+ AND `pnpm install && pnpm build` to produce
-  `dist/`. See `docs/development/contributing.md` for setup instructions.
 
 ### Changed
 
