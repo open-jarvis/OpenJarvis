@@ -54,11 +54,15 @@ class PearlDockerLauncher:
         except derr.ImageNotFound:
             pass
 
+        pull_error: str | None = None
         try:
             self._client.images.pull(tag)
             return tag
-        except (derr.NotFound, derr.APIError):
-            pass
+        except (derr.NotFound, derr.APIError) as exc:
+            # Capture for context in the eventual ImageAcquisitionError below;
+            # we still fall through to the build path for the OJ default tag.
+            msg = str(exc).splitlines()[0] if str(exc) else exc.__class__.__name__
+            pull_error = msg
 
         if tag == PEARL_IMAGE_TAG:
             cache = self._clone_pearl_repo()
@@ -66,35 +70,43 @@ class PearlDockerLauncher:
 
         raise ImageAcquisitionError(
             f"image {tag!r} not present locally, not pullable, and not OJ's "
-            f"default tag (no build fallback). Either build it manually with "
+            f"default tag (no build fallback). Pull error: {pull_error}. "
+            f"Either build it manually with "
             f"`docker buildx build -t {tag} -f miner/vllm-miner/Dockerfile .` "
             f"from the Pearl repo, or set [mining.extra].docker_image_tag to "
             f"the OJ default ({PEARL_IMAGE_TAG}) to enable the build fallback."
         )
 
     def _clone_pearl_repo(self) -> Path:
-        """Clone Pearl at the pinned ref into the OJ cache."""
+        """Sync the Pearl source cache to ``PEARL_PINNED_REF``.
+
+        Uses a detached-HEAD checkout strategy so the result is correct for
+        both branch refs (mutable) and commit SHAs (immutable). Discards any
+        local modifications and untracked build artifacts in the cache so a
+        previous interrupted run can't poison the build context.
+        """
         PEARL_CACHE_DIR.parent.mkdir(parents=True, exist_ok=True)
-        if PEARL_CACHE_DIR.exists():
-            subprocess.run(
-                ["git", "fetch", "origin", PEARL_PINNED_REF],
-                cwd=str(PEARL_CACHE_DIR),
-                check=True,
-            )
-            subprocess.run(
-                ["git", "checkout", PEARL_PINNED_REF],
-                cwd=str(PEARL_CACHE_DIR),
-                check=True,
-            )
+        if PEARL_CACHE_DIR.exists() and (PEARL_CACHE_DIR / ".git").exists():
+            self._git("fetch", "origin", cwd=PEARL_CACHE_DIR)
+            # Detach to origin/<ref> when ref is a branch; for a SHA this
+            # falls through naturally because `origin/<sha>` doesn't exist
+            # but `<sha>` does — try the bare ref first, fall back to origin/.
+            try:
+                self._git("checkout", "--detach", PEARL_PINNED_REF, cwd=PEARL_CACHE_DIR)
+            except ImageAcquisitionError:
+                self._git(
+                    "checkout", "--detach", f"origin/{PEARL_PINNED_REF}",
+                    cwd=PEARL_CACHE_DIR,
+                )
+            self._git("clean", "-fdx", cwd=PEARL_CACHE_DIR)
         else:
-            subprocess.run(
-                [
-                    "git", "clone",
-                    "--branch", PEARL_PINNED_REF,
-                    PEARL_REPO,
-                    str(PEARL_CACHE_DIR),
-                ],
-                check=True,
+            # Fresh clone. Note: --branch accepts both branches and tags but
+            # not arbitrary SHAs; for a SHA-pinned ref we'd need to clone +
+            # then check out. For v1's ``main`` default, --branch is fine.
+            self._git(
+                "clone", "--branch", PEARL_PINNED_REF,
+                PEARL_REPO, str(PEARL_CACHE_DIR),
+                cwd=None,
             )
         return PEARL_CACHE_DIR
 
@@ -107,5 +119,37 @@ class PearlDockerLauncher:
             "-f", "miner/vllm-miner/Dockerfile",
             ".",
         ]
-        subprocess.run(cmd, cwd=str(repo_path), check=True)
+        try:
+            subprocess.run(
+                cmd,
+                cwd=str(repo_path),
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            stderr_tail = (exc.stderr or "").strip().splitlines()[-10:]
+            raise ImageAcquisitionError(
+                f"docker build failed (exit {exc.returncode}): "
+                + " | ".join(stderr_tail)
+            ) from exc
         return tag
+
+    @staticmethod
+    def _git(*args: str, cwd: Path | None) -> None:
+        """Invoke git with stderr capture so failures surface readably."""
+        cmd = ["git", *args]
+        try:
+            subprocess.run(
+                cmd,
+                cwd=str(cwd) if cwd is not None else None,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            stderr_tail = (exc.stderr or "").strip().splitlines()[-5:]
+            raise ImageAcquisitionError(
+                f"`{' '.join(cmd)}` failed (exit {exc.returncode}): "
+                + " | ".join(stderr_tail)
+            ) from exc
