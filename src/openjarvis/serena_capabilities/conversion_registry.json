@@ -563,13 +563,93 @@
         },
         {
           "legacy_file": "01-crm.js",
-          "status": "pending",
-          "name": "CRM"
+          "status": "deferred_for_serena_hub_core",
+          "name": "CRM",
+          "deferred_reason": "CRM will be rebuilt later as Serena Hub / Business OS core after main operator skills are converted.",
+          "hub_role": "future_multi_business_crm_core",
+          "notes": [
+            "Old CRM is too small for the new Serena vision.",
+            "Future CRM should become Serena Hub / Business OS core.",
+            "Future CRM must support multi-business CRM, contacts, clients/patients/customers, companies, tasks, notes, documents, appointments, accounting links, custom fields, relationships, pipelines, audit trail, and embedded CRM widgets."
+          ]
         },
         {
           "legacy_file": "25-compliance.js",
-          "status": "pending",
-          "name": "Compliance"
+          "status": "complete_v1_hub_adapter_pending",
+          "name": "Compliance",
+          "tested": true,
+          "native_tool_complete": true,
+          "hub_adapter_pending": true,
+          "completion_level": "compliance_policy_guard_full_operator_v1",
+          "capabilities": [
+            "status",
+            "policy_list",
+            "policy_info",
+            "source_list",
+            "plan",
+            "quick_check",
+            "full_check",
+            "popia_check",
+            "hpcsa_check",
+            "patient_data_check",
+            "marketing_check",
+            "document_check",
+            "ocr_check",
+            "drive_sharing_check",
+            "docs_check",
+            "calendar_check",
+            "crm_check",
+            "update_check",
+            "refresh_plan",
+            "policy_diff",
+            "blocked_policy_update",
+            "audit",
+            "blocked_disclosure",
+            "blocked_clinical_decision",
+            "blocked_bulk_export",
+            "blocked_hidden_capture",
+            "hub_adapter_metadata"
+          ],
+          "hub_adapter": {
+            "status": "pending_future_dashboard",
+            "widgets": [
+              "compliance_risk_widget",
+              "policy_library_widget",
+              "active_warning_widget",
+              "blocked_action_widget",
+              "approval_requirement_widget",
+              "policy_update_monitor_widget",
+              "audit_report_widget"
+            ],
+            "events": [
+              "compliance_checked",
+              "compliance_warning_created",
+              "compliance_action_blocked",
+              "compliance_policy_update_available",
+              "compliance_approval_required",
+              "compliance_audit_completed"
+            ],
+            "operator_state": [
+              "current_business_id",
+              "current_policy_context",
+              "current_risk_level",
+              "current_sensitive_data_types",
+              "current_blocked_reason",
+              "current_compliance_report",
+              "current_required_approval"
+            ]
+          },
+          "notes": [
+            "Converted legacy compliance content checks into central Compliance / Policy Guard operator.",
+            "Built local policy library for POPIA, health confidentiality, HPCSA patient records, HPCSA social media/marketing, clinical boundaries, data sharing, vision capture, and policy update governance.",
+            "Built foundation commands: status, policy-list, policy-info, source-list, plan.",
+            "Built core checks: quick-check, full-check, popia-check, hpcsa-check, patient-data-check, marketing-check, document-check.",
+            "Built workflow guards: ocr-check, drive-sharing-check, docs-check, calendar-check, crm-check.",
+            "Built policy maintenance safeguards: update-check, refresh-plan, policy-diff, blocked-policy-update.",
+            "Built audit and safety blocks: audit, blocked-disclosure, blocked-clinical-decision, blocked-bulk-export, blocked-hidden-capture.",
+            "Tested reports, safety blocks, no secret exposure, no policy-rule changes, no deletion, and Hub Adapter metadata.",
+            "Compliance Full Operator v1 complete with Hub Adapter pending."
+          ]
         },
         {
           "legacy_file": "02-reporting.js",
@@ -580,6 +660,84 @@
           "legacy_file": "12-analytics.js",
           "status": "pending",
           "name": "Analytics"
+        },
+        {
+          "legacy_file": "24-compliance-guard.js",
+          "status": "complete_v1_hub_adapter_pending",
+          "name": "Compliance Guard",
+          "tested": true,
+          "native_tool_complete": true,
+          "hub_adapter_pending": true,
+          "completion_level": "compliance_policy_guard_full_operator_v1",
+          "capabilities": [
+            "status",
+            "policy_list",
+            "policy_info",
+            "source_list",
+            "plan",
+            "quick_check",
+            "full_check",
+            "popia_check",
+            "hpcsa_check",
+            "patient_data_check",
+            "marketing_check",
+            "document_check",
+            "ocr_check",
+            "drive_sharing_check",
+            "docs_check",
+            "calendar_check",
+            "crm_check",
+            "update_check",
+            "refresh_plan",
+            "policy_diff",
+            "blocked_policy_update",
+            "audit",
+            "blocked_disclosure",
+            "blocked_clinical_decision",
+            "blocked_bulk_export",
+            "blocked_hidden_capture",
+            "hub_adapter_metadata"
+          ],
+          "hub_adapter": {
+            "status": "pending_future_dashboard",
+            "widgets": [
+              "compliance_risk_widget",
+              "policy_library_widget",
+              "active_warning_widget",
+              "blocked_action_widget",
+              "approval_requirement_widget",
+              "policy_update_monitor_widget",
+              "audit_report_widget"
+            ],
+            "events": [
+              "compliance_checked",
+              "compliance_warning_created",
+              "compliance_action_blocked",
+              "compliance_policy_update_available",
+              "compliance_approval_required",
+              "compliance_audit_completed"
+            ],
+            "operator_state": [
+              "current_business_id",
+              "current_policy_context",
+              "current_risk_level",
+              "current_sensitive_data_types",
+              "current_blocked_reason",
+              "current_compliance_report",
+              "current_required_approval"
+            ]
+          },
+          "notes": [
+            "Converted legacy compliance content checks into central Compliance / Policy Guard operator.",
+            "Built local policy library for POPIA, health confidentiality, HPCSA patient records, HPCSA social media/marketing, clinical boundaries, data sharing, vision capture, and policy update governance.",
+            "Built foundation commands: status, policy-list, policy-info, source-list, plan.",
+            "Built core checks: quick-check, full-check, popia-check, hpcsa-check, patient-data-check, marketing-check, document-check.",
+            "Built workflow guards: ocr-check, drive-sharing-check, docs-check, calendar-check, crm-check.",
+            "Built policy maintenance safeguards: update-check, refresh-plan, policy-diff, blocked-policy-update.",
+            "Built audit and safety blocks: audit, blocked-disclosure, blocked-clinical-decision, blocked-bulk-export, blocked-hidden-capture.",
+            "Tested reports, safety blocks, no secret exposure, no policy-rule changes, no deletion, and Hub Adapter metadata.",
+            "Compliance Full Operator v1 complete with Hub Adapter pending."
+          ]
         }
       ]
     }
