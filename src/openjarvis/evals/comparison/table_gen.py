@@ -16,7 +16,15 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import click
-import polars as pl
+
+try:
+    import polars as pl
+except ImportError as _polars_err:  # pragma: no cover
+    raise ImportError(
+        "polars is required for the framework-comparison table generator. "
+        "Install with: uv sync --extra framework-comparison"
+    ) from _polars_err
+
 from pydantic import BaseModel, ValidationError
 
 LOGGER = logging.getLogger(__name__)

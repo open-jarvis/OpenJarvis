@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import polars as pl
 import pytest
 
-from openjarvis.evals.comparison.table_gen import (
+pl = pytest.importorskip("polars")
+
+from openjarvis.evals.comparison.table_gen import (  # noqa: E402
     MixedCommitError,
     ResultsFrame,
     load_results,
