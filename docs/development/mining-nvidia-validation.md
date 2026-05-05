@@ -16,6 +16,10 @@ Run this on a Linux machine with:
 - Pearl payout address beginning with `prl1q` or `prl1p`
 - Hugging Face access to `pearl-ai/Llama-3.3-70B-Instruct-pearl`
 
+The validated H100 configuration uses `gpu_memory_utilization = 0.96` with
+`max_model_len = 8192`. Lower memory utilization can fail during vLLM startup
+because the Pearl 70B mining model leaves too little KV cache at 8k context.
+
 Do not run this on macOS, Apple Silicon, AMD, RTX 4090, or CPU-only hosts.
 Those are separate providers.
 

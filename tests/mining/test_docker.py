@@ -103,6 +103,8 @@ def test_docker_build_raises_nofile_limit(tmp_path):
     entrypoint = tmp_path / "miner" / "vllm-miner" / "entrypoint.sh"
     entrypoint.parent.mkdir(parents=True)
     entrypoint.write_text("#!/bin/sh\n")
+    dockerfile = tmp_path / "miner" / "vllm-miner" / "Dockerfile"
+    dockerfile.write_text("FROM nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu24.04\n")
     launcher = PearlDockerLauncher(client=MagicMock())
     with patch("openjarvis.mining._docker.subprocess.run") as run:
         launcher._docker_build(tmp_path, "openjarvis/pearl-miner:test")
@@ -110,6 +112,18 @@ def test_docker_build_raises_nofile_limit(tmp_path):
     cmd = run.call_args.args[0]
     assert "--ulimit" in cmd
     assert "nofile=1048576:1048576" in cmd
+
+
+def test_patch_vllm_dockerfile_keeps_nvcc_runtime(tmp_path):
+    from openjarvis.mining._docker import PearlDockerLauncher
+
+    dockerfile = tmp_path / "miner" / "vllm-miner" / "Dockerfile"
+    dockerfile.parent.mkdir(parents=True)
+    dockerfile.write_text("FROM nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu24.04\n")
+    PearlDockerLauncher(client=MagicMock())._patch_vllm_dockerfile(tmp_path)
+    text = dockerfile.read_text()
+    assert "devel-ubuntu24.04" in text
+    assert "runtime-ubuntu24.04" not in text
 
 
 def test_patch_vllm_entrypoint_waits_for_gateway_socket(tmp_path):

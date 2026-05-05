@@ -16,6 +16,9 @@ integration point is the `MiningProvider` registry.
 | Pearl node | Reachable `pearld` JSON-RPC endpoint, default `http://localhost:44107` |
 | Wallet | Pearl address beginning with `prl1q` or `prl1p` |
 
+The default vLLM config uses `gpu_memory_utilization = 0.96` and
+`max_model_len = 8192` for the Pearl 70B mining model on H100/H200 80 GB GPUs.
+
 To generate a wallet address with Pearl's Oyster wallet, run Pearl's wallet
 daemon and query it with `prlctl --wallet --skipverify -s localhost:44207
 getnewaddress`. Do not reuse a wallet whose mnemonic has been pasted into logs,

@@ -162,6 +162,7 @@ class PearlDockerLauncher:
 
     def _docker_build(self, repo_path: Path, tag: str) -> str:
         """Run ``docker buildx build`` with Pearl's Dockerfile against the monorepo."""
+        self._patch_vllm_dockerfile(repo_path)
         self._patch_vllm_entrypoint(repo_path)
 
         # Build context is the repo root; Dockerfile is at miner/vllm-miner/Dockerfile.
@@ -192,6 +193,21 @@ class PearlDockerLauncher:
                 + " | ".join(stderr_tail)
             ) from exc
         return tag
+
+    def _patch_vllm_dockerfile(self, repo_path: Path) -> None:
+        """Patch Pearl's runtime image to include nvcc for DeepGEMM JIT.
+
+        Pearl's current Dockerfile builds kernels in a CUDA devel image, then
+        switches to a CUDA runtime image. vLLM 0.20's DeepGEMM path still JITs
+        kernels at runtime and asserts that nvcc exists, so the runtime image
+        must keep the CUDA compiler toolchain.
+        """
+        dockerfile = repo_path / "miner" / "vllm-miner" / "Dockerfile"
+        text = dockerfile.read_text()
+        old = "FROM nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu24.04"
+        new = "FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu24.04"
+        if old in text:
+            dockerfile.write_text(text.replace(old, new))
 
     def _patch_vllm_entrypoint(self, repo_path: Path) -> None:
         """Patch Pearl's current entrypoint to wait on the UDS gateway socket.
@@ -244,7 +260,7 @@ class PearlDockerLauncher:
 
         model = extra.get("model", "pearl-ai/Llama-3.3-70B-Instruct-pearl")
         vllm_port = int(extra.get("vllm_port", 8000))
-        gpu_mem = float(extra.get("gpu_memory_utilization", 0.9))
+        gpu_mem = float(extra.get("gpu_memory_utilization", 0.96))
         max_len = int(extra.get("max_model_len", 8192))
 
         command = [
