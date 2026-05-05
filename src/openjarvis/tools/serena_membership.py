@@ -3116,6 +3116,357 @@ class SerenaMembershipMemberSummaryTool(_MembershipBaseTool):
         )
 
 
+def _membership_record_counts() -> dict[str, int]:
+    return {
+        "members": len(_load_json_records("members")),
+        "enrollments": len(_load_json_records("enrollments")),
+        "subscriptions": len(_load_json_records("subscriptions")),
+        "programmes": len(_load_json_records("programmes")),
+        "handoff": len(_load_json_records("handoff")),
+        "reports": len(_load_json_records("reports")),
+        "plans": len(_load_json_records("plans")),
+        "audits": len(_load_json_records("audits")),
+    }
+
+
+def _blocked_membership_response(
+    title: str,
+    report_name: str,
+    action: str,
+    reason: str,
+    blocked_reason: str,
+    extra_flags: dict[str, Any] | None = None,
+) -> ToolResult:
+    payload = {
+        "report_type": f"serena_membership_{report_name}",
+        "created_at": _timestamp(),
+        "action": action,
+        "reason": reason,
+        "blocked_reason": blocked_reason,
+        "risk_level": "BLOCKED",
+        "allowed_to_continue": False,
+        "approval_required": True,
+        "owner_review_required": True,
+        "compliance_review_required": True,
+        "external_api_called": False,
+        "payment_action_performed": False,
+        "accounting_write_performed": False,
+        "booking_write_performed": False,
+        "programme_changed": False,
+        "bulk_cancel_performed": False,
+        "membership_cancelled": False,
+        "subscription_cancelled": False,
+        "payment_changed": False,
+        "patient_data_exposed": False,
+        "medical_advice_given": False,
+        "delete_performed": False,
+        "changes_made": False,
+        "secret_values_exposed": False,
+        "hub_adapter": _hub_adapter_contract(),
+    }
+
+    if extra_flags:
+        payload.update(extra_flags)
+
+    report_path = _save_json("audits", report_name, payload)
+
+    return ToolResult(
+        tool_name=f"serena_membership_{report_name}",
+        success=False,
+        content=(
+            f"{title}\n\n"
+            f"- Action: {action}\n"
+            f"- Reason: {reason}\n"
+            f"- Blocked reason: {blocked_reason}\n"
+            "- Risk level: BLOCKED\n"
+            "- Allowed to continue: no\n"
+            "- Approval required: yes\n"
+            "- Owner review required: yes\n"
+            "- Compliance review required: yes\n"
+            f"- Report: {report_path}\n"
+            "- External API called: no\n"
+            "- Payment action performed: no\n"
+            "- Accounting write performed: no\n"
+            "- Booking write performed: no\n"
+            "- Programme changed: no\n"
+            "- Bulk cancel performed: no\n"
+            "- Membership cancelled: no\n"
+            "- Subscription cancelled: no\n"
+            "- Payment changed: no\n"
+            "- Patient data exposed: no\n"
+            "- Medical advice given: no\n"
+            "- Delete performed: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard"
+        ),
+        metadata={**payload, "report_path": str(report_path)},
+    )
+
+
+@ToolRegistry.register("serena_membership_audit")
+class SerenaMembershipAuditTool(_MembershipBaseTool):
+    tool_id = "serena_membership_audit"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Audit Serena Membership outputs, records, handoffs, programmes, subscriptions, and safety posture.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                },
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "").strip()
+        sources = _membership_sources()
+        env = _env_status()
+        counts = _membership_record_counts()
+        safety = _safety_policy()
+
+        members = _load_json_records("members")
+        enrollments = _load_json_records("enrollments")
+        subscriptions = _load_json_records("subscriptions")
+        programmes = _load_json_records("programmes")
+        handoffs = _load_json_records("handoff")
+
+        if business:
+            members = [x for x in members if str(x.get("business") or "") == business]
+            enrollments = [x for x in enrollments if str(x.get("business") or "") == business]
+            subscriptions = [x for x in subscriptions if str(x.get("business") or "") == business]
+            programmes = [x for x in programmes if str(x.get("business") or "") == business]
+            handoffs = [x for x in handoffs if str(x.get("business") or "") == business]
+
+        member_profiles = [x for x in members if str(x.get("record_type") or "") == "member_profile"]
+        sensitive_members = [x for x in member_profiles if bool(x.get("sensitive"))]
+        pending_payments = [
+            x for x in subscriptions
+            if str(x.get("payment_status") or x.get("status") or "").lower() in {"pending", "local_pending", "not started"}
+        ]
+        members_without_subscription = []
+        subscription_member_ids = {str(x.get("member_id") or "") for x in subscriptions}
+        for member in member_profiles:
+            if str(member.get("member_id") or "") not in subscription_member_ids:
+                members_without_subscription.append(member)
+
+        issues = []
+        recommendations = []
+
+        if sensitive_members:
+            recommendations.append(f"{len(sensitive_members)} sensitive member(s) require Compliance review before external sharing.")
+
+        if pending_payments:
+            recommendations.append(f"{len(pending_payments)} subscription/payment record(s) are pending or local-only.")
+
+        if members_without_subscription:
+            issues.append(f"{len(members_without_subscription)} member profile(s) do not have a local subscription record.")
+
+        recommendations.extend([
+            "Use Accounting handoff for payment, invoice, PayFast, and Xero workflows.",
+            "Use Bookings handoff for programme appointments and reminders.",
+            "Use Docs/Drive/Reporting handoff only after approval for sensitive member/programme data.",
+            "Keep Payflow as absorbed subscription/payment-flow context, not a standalone skill.",
+            "Keep bulk cancellation, silent programme changes, unapproved payment changes, and patient data exposure blocked.",
+            "Hub adapter remains pending until Serena Hub dashboard/event bus exists.",
+        ])
+
+        payload = {
+            "report_type": "serena_membership_audit",
+            "created_at": _timestamp(),
+            "business": business or "all",
+            "sources_registered": len(sources),
+            "record_counts": counts,
+            "member_profiles_considered": len(member_profiles),
+            "sensitive_members": len(sensitive_members),
+            "subscriptions_considered": len(subscriptions),
+            "pending_payment_or_subscription_records": len(pending_payments),
+            "members_without_subscription": len(members_without_subscription),
+            "programme_records": len(programmes),
+            "handoff_records": len(handoffs),
+            "env_status": env,
+            "safety_policy": safety,
+            "issues": issues,
+            "recommendations": recommendations,
+            "external_api_called": False,
+            "payment_action_performed": False,
+            "accounting_write_performed": False,
+            "booking_write_performed": False,
+            "programme_changed": False,
+            "medical_advice_given": False,
+            "patient_data_exposed": False,
+            "delete_performed": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("audits", f"membership-audit-{business or 'all'}", payload)
+
+        lines = [
+            "Serena Membership audit",
+            "",
+            f"- Business: {business or 'all'}",
+            f"- Sources registered: {len(sources)}",
+            f"- Members: {counts.get('members', 0)}",
+            f"- Enrollments: {counts.get('enrollments', 0)}",
+            f"- Subscriptions: {counts.get('subscriptions', 0)}",
+            f"- Programmes: {counts.get('programmes', 0)}",
+            f"- Handoff records: {counts.get('handoff', 0)}",
+            f"- Reports: {counts.get('reports', 0)}",
+            f"- Member profiles considered: {len(member_profiles)}",
+            f"- Sensitive members: {len(sensitive_members)}",
+            f"- Pending payment/subscription records: {len(pending_payments)}",
+            f"- Members without subscription: {len(members_without_subscription)}",
+            f"- Audit report: {report_path}",
+            "- External API called: no",
+            "- Payment action performed: no",
+            "- Accounting write performed: no",
+            "- Booking write performed: no",
+            "- Programme changed: no",
+            "- Medical advice given: no",
+            "- Patient data exposed: no",
+            "- Delete performed: no",
+            "- Secret values exposed: no",
+            "- Hub adapter: pending future dashboard",
+            "",
+            "Issues:",
+        ]
+
+        lines.extend(f"- {item}" for item in issues) if issues else lines.append("- none")
+
+        lines.extend(["", "Recommendations:"])
+        lines.extend(f"- {item}" for item in recommendations)
+
+        lines.extend(["", "Blocked operations:"])
+        lines.extend(f"- {item}" for item in safety["blocked"])
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+@ToolRegistry.register("serena_membership_blocked_bulk_cancel")
+class SerenaMembershipBlockedBulkCancelTool(_MembershipBaseTool):
+    tool_id = "serena_membership_blocked_bulk_cancel"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked bulk membership cancellation command.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        return _blocked_membership_response(
+            "Bulk membership cancellation blocked by Serena Membership v1 policy",
+            "blocked-bulk-cancel",
+            str(params.get("action") or "bulk cancel memberships").strip(),
+            str(params.get("reason") or "Bulk membership cancellation requested.").strip(),
+            "Bulk membership cancellation is blocked. Serena may only prepare one exact member cancellation plan at a time with approval.",
+            {"bulk_cancel_performed": False},
+        )
+
+
+@ToolRegistry.register("serena_membership_blocked_unapproved_payment_change")
+class SerenaMembershipBlockedUnapprovedPaymentChangeTool(_MembershipBaseTool):
+    tool_id = "serena_membership_blocked_unapproved_payment_change"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked unapproved membership/subscription payment change command.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        return _blocked_membership_response(
+            "Unapproved payment change blocked by Serena Membership v1 policy",
+            "blocked-unapproved-payment-change",
+            str(params.get("action") or "change subscription payment amount").strip(),
+            str(params.get("reason") or "Payment change requested without approval.").strip(),
+            "Payment amount, subscription price, billing interval, PayFast, Xero, and accounting changes require explicit approval and Accounting handoff.",
+            {"payment_changed": False, "payment_action_performed": False},
+        )
+
+
+@ToolRegistry.register("serena_membership_blocked_patient_data_exposure")
+class SerenaMembershipBlockedPatientDataExposureTool(_MembershipBaseTool):
+    tool_id = "serena_membership_blocked_patient_data_exposure"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked patient/client membership/programme data exposure command.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        return _blocked_membership_response(
+            "Patient/client data exposure blocked by Serena Membership v1 policy",
+            "blocked-patient-data-exposure",
+            str(params.get("action") or "expose member patient/client details").strip(),
+            str(params.get("reason") or "Patient/client data exposure requested.").strip(),
+            "Patient/client membership and programme data may not be exposed externally or placed in public-facing docs/reports/messages without approval and Compliance review.",
+            {"patient_data_exposed": False},
+        )
+
+
+@ToolRegistry.register("serena_membership_blocked_silent_programme_change")
+class SerenaMembershipBlockedSilentProgrammeChangeTool(_MembershipBaseTool):
+    tool_id = "serena_membership_blocked_silent_programme_change"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked silent programme change command.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        return _blocked_membership_response(
+            "Silent programme change blocked by Serena Membership v1 policy",
+            "blocked-silent-programme-change",
+            str(params.get("action") or "silently change programme").strip(),
+            str(params.get("reason") or "Silent programme change requested.").strip(),
+            "Programme enrollment, progress, pause, cancellation, renewal, or member status changes must be explicit, targeted, reported, and approval-gated when sensitive or material.",
+            {"programme_changed": False},
+        )
+
+
 __all__ = [
     "SerenaMembershipStatusTool",
     "SerenaMembershipEnvCheckTool",
@@ -3127,6 +3478,11 @@ __all__ = [
     "SerenaMembershipBookingHandoffTool",
     "SerenaMembershipProgrammeFollowUpTool",
     "SerenaMembershipMemberSummaryTool",
+    "SerenaMembershipBlockedSilentProgrammeChangeTool",
+    "SerenaMembershipBlockedPatientDataExposureTool",
+    "SerenaMembershipBlockedUnapprovedPaymentChangeTool",
+    "SerenaMembershipBlockedBulkCancelTool",
+    "SerenaMembershipAuditTool",
     "SerenaMembershipReportingHandoffTool",
     "SerenaMembershipDriveHandoffTool",
     "SerenaMembershipDocsHandoffTool",

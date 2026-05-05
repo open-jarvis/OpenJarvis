@@ -12,6 +12,11 @@ from openjarvis.tools.serena_membership import (
     SerenaMembershipSourceInfoTool,
     SerenaMembershipSourceListTool,
     SerenaMembershipStatusTool,
+    SerenaMembershipBlockedSilentProgrammeChangeTool,
+    SerenaMembershipBlockedPatientDataExposureTool,
+    SerenaMembershipBlockedUnapprovedPaymentChangeTool,
+    SerenaMembershipBlockedBulkCancelTool,
+    SerenaMembershipAuditTool,
     SerenaMembershipMemberSummaryTool,
     SerenaMembershipReportingHandoffTool,
     SerenaMembershipDriveHandoffTool,
@@ -546,6 +551,55 @@ def member_summary(member_id: str, title: str, notes: str, approved: bool) -> No
         notes=notes,
         approved=approved,
     )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("audit")
+@click.option("--business", default="", help="Optional business filter.")
+def audit(business: str) -> None:
+    """Audit Membership records, handoffs, subscriptions, programmes, and safety posture."""
+    console = Console()
+    result = SerenaMembershipAuditTool().execute(business=business)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("blocked-bulk-cancel")
+@click.option("--action", default="bulk cancel memberships", help="Requested action.")
+@click.option("--reason", default="Bulk membership cancellation requested.", help="Reason.")
+def blocked_bulk_cancel(action: str, reason: str) -> None:
+    """Deliberately blocked bulk membership cancellation command."""
+    console = Console()
+    result = SerenaMembershipBlockedBulkCancelTool().execute(action=action, reason=reason)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("blocked-unapproved-payment-change")
+@click.option("--action", default="change subscription payment amount", help="Requested action.")
+@click.option("--reason", default="Payment change requested without approval.", help="Reason.")
+def blocked_unapproved_payment_change(action: str, reason: str) -> None:
+    """Deliberately blocked unapproved payment/subscription change command."""
+    console = Console()
+    result = SerenaMembershipBlockedUnapprovedPaymentChangeTool().execute(action=action, reason=reason)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("blocked-patient-data-exposure")
+@click.option("--action", default="expose member patient/client details", help="Requested action.")
+@click.option("--reason", default="Patient/client data exposure requested.", help="Reason.")
+def blocked_patient_data_exposure(action: str, reason: str) -> None:
+    """Deliberately blocked patient/client data exposure command."""
+    console = Console()
+    result = SerenaMembershipBlockedPatientDataExposureTool().execute(action=action, reason=reason)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("blocked-silent-programme-change")
+@click.option("--action", default="silently change programme", help="Requested action.")
+@click.option("--reason", default="Silent programme change requested.", help="Reason.")
+def blocked_silent_programme_change(action: str, reason: str) -> None:
+    """Deliberately blocked silent programme change command."""
+    console = Console()
+    result = SerenaMembershipBlockedSilentProgrammeChangeTool().execute(action=action, reason=reason)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 
