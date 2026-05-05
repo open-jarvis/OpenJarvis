@@ -73,16 +73,23 @@ class VllmPearlProvider(MiningProvider):
         )
         model_name = config.extra.get("model", DEFAULT_PEARL_MODEL)
 
-        Sidecar.write(SIDECAR_PATH, {
-            "provider": self.provider_id,
-            "vllm_endpoint": f"http://127.0.0.1:{vllm_port}/v1",
-            "model": model_name,
-            "gateway_url": f"http://127.0.0.1:{gw_port}",
-            "gateway_metrics_url": f"http://127.0.0.1:{gw_metrics}",
-            "container_id": getattr(container, "id", ""),
-            "wallet_address": config.wallet_address,
-            "started_at": int(time.time()),
-        })
+        # Sidecar write failure (filesystem full, perms, etc.) leaves a
+        # running container with no recorded session — clean it up rather
+        # than lying via is_running() later.
+        try:
+            Sidecar.write(SIDECAR_PATH, {
+                "provider": self.provider_id,
+                "vllm_endpoint": f"http://127.0.0.1:{vllm_port}/v1",
+                "model": model_name,
+                "gateway_url": f"http://127.0.0.1:{gw_port}",
+                "gateway_metrics_url": f"http://127.0.0.1:{gw_metrics}",
+                "container_id": getattr(container, "id", ""),
+                "wallet_address": config.wallet_address,
+                "started_at": int(time.time()),
+            })
+        except Exception:
+            self._launcher.stop()
+            raise
 
     async def stop(self) -> None:
         self._launcher.stop()
