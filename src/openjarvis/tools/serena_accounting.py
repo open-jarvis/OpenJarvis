@@ -589,10 +589,359 @@ class SerenaAccountingPlanTool(_AccountingBaseTool):
         )
 
 
+@ToolRegistry.register("serena_accounting_xero_env_check")
+class SerenaAccountingXeroEnvCheckTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_xero_env_check"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Check Xero accounting environment without exposing secrets.",
+            parameters={"type": "object", "properties": {}},
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        env = _env_status().get("xero", {})
+        configured = bool(env.get("configured"))
+        payload = {
+            "report_type": "serena_accounting_xero_env_check",
+            "created_at": _timestamp(),
+            "source": "xero",
+            "configured": configured,
+            "env_status": env,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", "xero-env-check", payload)
+
+        lines = [
+            "Serena Xero env check",
+            "",
+            f"- Configured: {'yes' if configured else 'no'}",
+            f"- Report: {report_path}",
+            "- Changes made: no",
+            "- Secret values exposed: no",
+            "- Hub adapter: pending future dashboard",
+            "",
+            "Required environment:",
+        ]
+
+        for item in env.get("required", []):
+            lines.append(f"- {item['name']} | present={'yes' if item['present'] else 'no'} | length={item['length']}")
+
+        lines.extend([
+            "",
+            "Notes:",
+            "- Xero live accounting actions remain approval-gated.",
+            "- Tax/VAT submission, payroll submission, bank changes, manual journals, and ledger deletion remain blocked.",
+            "- Xero tenant selection is required before live Xero operations.",
+        ])
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+@ToolRegistry.register("serena_accounting_xero_connect_check")
+class SerenaAccountingXeroConnectCheckTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_xero_connect_check"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Check Xero connection readiness. Does not perform live accounting writes.",
+            parameters={"type": "object", "properties": {}},
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        env = _env_status().get("xero", {})
+        configured = bool(env.get("configured"))
+
+        issues = []
+        if not configured:
+            issues.append("Xero environment is not fully configured.")
+
+        required_missing = [
+            item["name"] for item in env.get("required", [])
+            if not item.get("present")
+        ]
+
+        if required_missing:
+            issues.append("Missing required Xero environment variables: " + ", ".join(required_missing))
+
+        payload = {
+            "report_type": "serena_accounting_xero_connect_check",
+            "created_at": _timestamp(),
+            "connected": False,
+            "configured": configured,
+            "missing_required": required_missing,
+            "issues": issues,
+            "external_api_called": False,
+            "live_accounting_write": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", "xero-connect-check", payload)
+
+        lines = [
+            "Serena Xero connection readiness check",
+            "",
+            f"- Configured: {'yes' if configured else 'no'}",
+            "- Connected: no live API call in v1 readiness check",
+            f"- Report: {report_path}",
+            "- External API called: no",
+            "- Live accounting write: no",
+            "- Changes made: no",
+            "- Secret values exposed: no",
+            "- Hub adapter: pending future dashboard",
+            "",
+            "Issues:",
+        ]
+
+        lines.extend(f"- {item}" for item in issues) if issues else lines.append("- none")
+
+        lines.extend([
+            "",
+            "Next setup:",
+            "- Create/configure a Xero app.",
+            "- Generate XERO_CLIENT_ID, XERO_CLIENT_SECRET, XERO_REFRESH_TOKEN.",
+            "- Identify and set XERO_TENANT_ID.",
+            "- Run xero-tenant-list after credentials are available.",
+        ])
+
+        return self._result("\n".join(lines), success=configured, metadata={**payload, "report_path": str(report_path)})
+
+
+@ToolRegistry.register("serena_accounting_xero_tenant_list")
+class SerenaAccountingXeroTenantListTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_xero_tenant_list"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Show configured Xero tenant readiness without exposing secrets.",
+            parameters={"type": "object", "properties": {}},
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        tenant_id = os.getenv("XERO_TENANT_ID", "").strip()
+        configured = bool(tenant_id)
+        payload = {
+            "report_type": "serena_accounting_xero_tenant_list",
+            "created_at": _timestamp(),
+            "configured": configured,
+            "tenant_id_present": bool(tenant_id),
+            "tenant_id_length": len(tenant_id),
+            "external_api_called": False,
+            "live_accounting_write": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("snapshots", "xero-tenant-list", payload)
+
+        lines = [
+            "Serena Xero tenant readiness",
+            "",
+            f"- XERO_TENANT_ID present: {'yes' if tenant_id else 'no'}",
+            f"- XERO_TENANT_ID length: {len(tenant_id)}",
+            f"- Snapshot: {report_path}",
+            "- External API called: no",
+            "- Live accounting write: no",
+            "- Changes made: no",
+            "- Secret values exposed: no",
+            "- Hub adapter: pending future dashboard",
+            "",
+            "Tenants:",
+        ]
+
+        if tenant_id:
+            lines.append(f"- configured tenant | id length={len(tenant_id)}")
+        else:
+            lines.append("- none configured")
+
+        lines.extend([
+            "",
+            "Note:",
+            "- Future live Xero tenant discovery can call Xero connections endpoint after OAuth is configured.",
+        ])
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+@ToolRegistry.register("serena_accounting_xero_plan")
+class SerenaAccountingXeroPlanTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_xero_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a Xero accounting operation plan without live writes.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "goal": {"type": "string"},
+                    "business": {"type": "string"},
+                    "period": {"type": "string"},
+                    "operation": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        goal = str(params.get("goal") or "Prepare Xero accounting workflow.").strip()
+        business = str(params.get("business") or "General Business").strip()
+        period = str(params.get("period") or "current period").strip()
+        operation = str(params.get("operation") or "readiness").strip()
+        env = _env_status().get("xero", {})
+
+        steps = [
+            "Confirm the correct business and Xero organisation.",
+            "Confirm Xero credentials and tenant ID without exposing secrets.",
+            "Identify operation type: contacts, invoices, payments, bills, bank transactions, reports, VAT/tax prep, or attachments.",
+            "Create local plan and evidence record first.",
+            "Check Compliance if patient/client/financial data is involved.",
+            "Require explicit approval before live Xero write actions.",
+            "Write exact report of any proposed or completed accounting change.",
+        ]
+
+        payload = {
+            "report_type": "serena_accounting_xero_plan",
+            "created_at": _timestamp(),
+            "goal": goal,
+            "business": business,
+            "period": period,
+            "operation": operation,
+            "env_status": env,
+            "steps": steps,
+            "external_api_called": False,
+            "live_accounting_write": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"xero-plan-{business}-{operation}", payload)
+
+        return self._result(
+            "Serena Xero operation plan\n\n"
+            f"- Goal: {goal}\n"
+            f"- Business: {business}\n"
+            f"- Period: {period}\n"
+            f"- Operation: {operation}\n"
+            f"- Xero configured: {'yes' if env.get('configured') else 'no'}\n"
+            f"- Plan: {report_path}\n"
+            "- External API called: no\n"
+            "- Live accounting write: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Steps:\n"
+            + "\n".join(f"- {step}" for step in steps),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_accounting_xero_chart_plan")
+class SerenaAccountingXeroChartPlanTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_xero_chart_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a Xero chart of accounts planning report without modifying accounts.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                    "industry": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "General Business").strip()
+        industry = str(params.get("industry") or "health practice").strip()
+        notes = str(params.get("notes") or "").strip()
+
+        suggested_groups = [
+            "Revenue / consultation income",
+            "Revenue / product or programme income",
+            "Cost of sales / direct service costs",
+            "Operating expenses",
+            "Marketing expenses",
+            "Professional fees",
+            "Payroll and contractor costs",
+            "VAT control accounts",
+            "Bank and payment clearing accounts",
+            "PayFast clearing account",
+            "Accounts receivable",
+            "Accounts payable",
+        ]
+
+        payload = {
+            "report_type": "serena_accounting_xero_chart_plan",
+            "created_at": _timestamp(),
+            "business": business,
+            "industry": industry,
+            "notes": notes,
+            "suggested_account_groups": suggested_groups,
+            "external_api_called": False,
+            "chart_modified": False,
+            "live_accounting_write": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"xero-chart-plan-{business}", payload)
+
+        lines = [
+            "Serena Xero chart of accounts plan",
+            "",
+            f"- Business: {business}",
+            f"- Industry: {industry}",
+            f"- Plan: {report_path}",
+            "- External API called: no",
+            "- Chart modified: no",
+            "- Live accounting write: no",
+            "- Changes made: no",
+            "- Secret values exposed: no",
+            "- Hub adapter: pending future dashboard",
+            "",
+            "Suggested account groups:",
+        ]
+
+        lines.extend(f"- {item}" for item in suggested_groups)
+
+        lines.extend([
+            "",
+            "Blocked:",
+            "- Serena may not modify the chart of accounts without future explicit approval and accountant review.",
+            "- Serena may not create manual journals or restructure the ledger silently.",
+        ])
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
 __all__ = [
     "SerenaAccountingStatusTool",
     "SerenaAccountingEnvCheckTool",
     "SerenaAccountingPlanTool",
     "SerenaAccountingSourceListTool",
     "SerenaAccountingSourceInfoTool",
+    "SerenaAccountingXeroChartPlanTool",
+    "SerenaAccountingXeroPlanTool",
+    "SerenaAccountingXeroTenantListTool",
+    "SerenaAccountingXeroConnectCheckTool",
+    "SerenaAccountingXeroEnvCheckTool",
 ]

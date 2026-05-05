@@ -12,6 +12,11 @@ from openjarvis.tools.serena_accounting import (
     SerenaAccountingSourceInfoTool,
     SerenaAccountingSourceListTool,
     SerenaAccountingStatusTool,
+    SerenaAccountingXeroChartPlanTool,
+    SerenaAccountingXeroPlanTool,
+    SerenaAccountingXeroTenantListTool,
+    SerenaAccountingXeroConnectCheckTool,
+    SerenaAccountingXeroEnvCheckTool,
 )
 
 
@@ -62,6 +67,53 @@ def plan(goal: str, source: str, business: str, period: str) -> None:
     """Create an accounting/payment operation plan."""
     console = Console()
     result = SerenaAccountingPlanTool().execute(goal=goal, source=source, business=business, period=period)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("xero-env-check")
+def xero_env_check() -> None:
+    """Check Xero accounting env without exposing secrets."""
+    console = Console()
+    result = SerenaAccountingXeroEnvCheckTool().execute()
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("xero-connect-check")
+def xero_connect_check() -> None:
+    """Check Xero connection readiness."""
+    console = Console()
+    result = SerenaAccountingXeroConnectCheckTool().execute()
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("xero-tenant-list")
+def xero_tenant_list() -> None:
+    """Show configured Xero tenant readiness."""
+    console = Console()
+    result = SerenaAccountingXeroTenantListTool().execute()
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("xero-plan")
+@click.option("--goal", default="Prepare Xero accounting workflow.", help="Xero operation goal.")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--period", default="current period", help="Accounting period.")
+@click.option("--operation", default="readiness", help="Xero operation type.")
+def xero_plan(goal: str, business: str, period: str, operation: str) -> None:
+    """Create a Xero operation plan."""
+    console = Console()
+    result = SerenaAccountingXeroPlanTool().execute(goal=goal, business=business, period=period, operation=operation)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("xero-chart-plan")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--industry", default="health practice", help="Business industry.")
+@click.option("--notes", default="", help="Optional notes.")
+def xero_chart_plan(business: str, industry: str, notes: str) -> None:
+    """Create a Xero chart of accounts plan without modifying accounts."""
+    console = Console()
+    result = SerenaAccountingXeroChartPlanTool().execute(business=business, industry=industry, notes=notes)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 
