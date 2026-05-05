@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 def test_detect_supported_on_h100(hopper_hw):
     from openjarvis.mining._discovery import detect_for_engine_model
+
     cap = detect_for_engine_model(
         hw=hopper_hw,
         engine_id="vllm",
@@ -19,6 +20,7 @@ def test_detect_supported_on_h100(hopper_hw):
 
 def test_detect_unsupported_on_ada_4090(ada_hw):
     from openjarvis.mining._discovery import detect_for_engine_model
+
     cap = detect_for_engine_model(
         hw=ada_hw,
         engine_id="vllm",
@@ -32,6 +34,7 @@ def test_detect_unsupported_on_ada_4090(ada_hw):
 def test_detect_unsupported_on_apple_engine(apple_hw):
     """Engine check rejects mlx before reaching the GPU vendor branch."""
     from openjarvis.mining._discovery import detect_for_engine_model
+
     cap = detect_for_engine_model(
         hw=apple_hw,
         engine_id="mlx",
@@ -45,6 +48,7 @@ def test_detect_unsupported_on_apple_engine(apple_hw):
 def test_detect_unsupported_on_apple_gpu_vendor(apple_hw):
     """Apple Silicon GPU is rejected by the vendor branch (Spec B territory)."""
     from openjarvis.mining._discovery import detect_for_engine_model
+
     cap = detect_for_engine_model(
         hw=apple_hw,
         engine_id="vllm",  # bypass the engine check
@@ -57,6 +61,7 @@ def test_detect_unsupported_on_apple_gpu_vendor(apple_hw):
 
 def test_detect_unsupported_for_non_vllm_engine(hopper_hw):
     from openjarvis.mining._discovery import detect_for_engine_model
+
     cap = detect_for_engine_model(
         hw=hopper_hw,
         engine_id="ollama",
@@ -69,6 +74,7 @@ def test_detect_unsupported_for_non_vllm_engine(hopper_hw):
 
 def test_detect_unsupported_for_non_pearl_model(hopper_hw):
     from openjarvis.mining._discovery import detect_for_engine_model
+
     cap = detect_for_engine_model(
         hw=hopper_hw,
         engine_id="vllm",
@@ -82,6 +88,7 @@ def test_detect_unsupported_for_non_pearl_model(hopper_hw):
 def test_detect_unsupported_for_low_vram():
     from openjarvis.core.config import GpuInfo, HardwareInfo
     from openjarvis.mining._discovery import detect_for_engine_model
+
     hw = HardwareInfo(
         platform="linux",
         gpu=GpuInfo(
@@ -93,7 +100,9 @@ def test_detect_unsupported_for_low_vram():
         ),
     )
     cap = detect_for_engine_model(
-        hw=hw, engine_id="vllm", model="pearl-ai/Llama-3.3-70B-Instruct-pearl",
+        hw=hw,
+        engine_id="vllm",
+        model="pearl-ai/Llama-3.3-70B-Instruct-pearl",
         provider_id="vllm-pearl",
     )
     assert cap.supported is False
@@ -102,6 +111,7 @@ def test_detect_unsupported_for_low_vram():
 
 def test_check_docker_available_true():
     from openjarvis.mining._discovery import check_docker_available
+
     with patch("openjarvis.mining._discovery._docker_client") as fake:
         fake.return_value.ping.return_value = True
         fake.return_value.version.return_value = {"Version": "24.0.7"}
@@ -112,6 +122,7 @@ def test_check_docker_available_true():
 
 def test_check_docker_available_false_when_daemon_down():
     from openjarvis.mining._discovery import check_docker_available
+
     with patch("openjarvis.mining._discovery._docker_client") as fake:
         fake.side_effect = Exception("Cannot connect to the Docker daemon")
         ok, info = check_docker_available()
@@ -121,6 +132,7 @@ def test_check_docker_available_false_when_daemon_down():
 
 def test_check_disk_free_passes(tmp_path):
     from openjarvis.mining._discovery import check_disk_free
+
     with patch("openjarvis.mining._discovery.shutil.disk_usage") as du:
         # 500 GB free
         du.return_value = MagicMock(
@@ -134,6 +146,7 @@ def test_check_disk_free_passes(tmp_path):
 
 def test_check_disk_free_fails_below_threshold(tmp_path):
     from openjarvis.mining._discovery import check_disk_free
+
     with patch("openjarvis.mining._discovery.shutil.disk_usage") as du:
         du.return_value = MagicMock(
             total=1_000_000_000_000,
@@ -146,6 +159,7 @@ def test_check_disk_free_fails_below_threshold(tmp_path):
 
 def test_check_pearld_reachable_true():
     from openjarvis.mining._discovery import check_pearld_reachable
+
     with patch("openjarvis.mining._discovery.httpx.post") as post:
         post.return_value.status_code = 200
         post.return_value.json.return_value = {
@@ -160,6 +174,7 @@ def test_check_pearld_reachable_false_on_connection_error():
     import httpx
 
     from openjarvis.mining._discovery import check_pearld_reachable
+
     with patch("openjarvis.mining._discovery.httpx.post") as post:
         post.side_effect = httpx.ConnectError("connection refused")
         ok, info = check_pearld_reachable("http://localhost:44107", "user", "pass")
@@ -168,11 +183,13 @@ def test_check_pearld_reachable_false_on_connection_error():
 
 def test_check_wallet_address_format_valid():
     from openjarvis.mining._discovery import check_wallet_address_format
+
     ok, info = check_wallet_address_format("prl1qexampleaddress0123456789")
     assert ok is True
 
 
 def test_check_wallet_address_format_invalid():
     from openjarvis.mining._discovery import check_wallet_address_format
+
     ok, info = check_wallet_address_format("not-a-pearl-address")
     assert ok is False

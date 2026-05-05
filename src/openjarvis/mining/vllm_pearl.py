@@ -43,6 +43,7 @@ class VllmPearlProvider(MiningProvider):
     def __init__(self, docker_client: Optional[Any] = None):
         if docker_client is None:
             import docker
+
             docker_client = docker.from_env()
         self._client = docker_client
         self._launcher = PearlDockerLauncher(client=docker_client)
@@ -50,7 +51,10 @@ class VllmPearlProvider(MiningProvider):
     @classmethod
     def detect(cls, hw: HardwareInfo, engine_id: str, model: str) -> MiningCapabilities:
         return detect_for_engine_model(
-            hw=hw, engine_id=engine_id, model=model, provider_id=cls.provider_id,
+            hw=hw,
+            engine_id=engine_id,
+            model=model,
+            provider_id=cls.provider_id,
         )
 
     async def start(self, config: MiningConfig) -> None:
@@ -77,16 +81,19 @@ class VllmPearlProvider(MiningProvider):
         # running container with no recorded session — clean it up rather
         # than lying via is_running() later.
         try:
-            Sidecar.write(SIDECAR_PATH, {
-                "provider": self.provider_id,
-                "vllm_endpoint": f"http://127.0.0.1:{vllm_port}/v1",
-                "model": model_name,
-                "gateway_url": f"http://127.0.0.1:{gw_port}",
-                "gateway_metrics_url": f"http://127.0.0.1:{gw_metrics}",
-                "container_id": getattr(container, "id", ""),
-                "wallet_address": config.wallet_address,
-                "started_at": int(time.time()),
-            })
+            Sidecar.write(
+                SIDECAR_PATH,
+                {
+                    "provider": self.provider_id,
+                    "vllm_endpoint": f"http://127.0.0.1:{vllm_port}/v1",
+                    "model": model_name,
+                    "gateway_url": f"http://127.0.0.1:{gw_port}",
+                    "gateway_metrics_url": f"http://127.0.0.1:{gw_metrics}",
+                    "container_id": getattr(container, "id", ""),
+                    "wallet_address": config.wallet_address,
+                    "started_at": int(time.time()),
+                },
+            )
         except Exception:
             self._launcher.stop()
             raise

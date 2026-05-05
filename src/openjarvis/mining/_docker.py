@@ -124,7 +124,9 @@ class PearlDockerLauncher:
                 self._git("checkout", "--detach", PEARL_PINNED_REF, cwd=PEARL_CACHE_DIR)
             except ImageAcquisitionError:
                 self._git(
-                    "checkout", "--detach", f"origin/{PEARL_PINNED_REF}",
+                    "checkout",
+                    "--detach",
+                    f"origin/{PEARL_PINNED_REF}",
                     cwd=PEARL_CACHE_DIR,
                 )
             self._git("clean", "-fdx", cwd=PEARL_CACHE_DIR)
@@ -133,8 +135,11 @@ class PearlDockerLauncher:
             # not arbitrary SHAs; for a SHA-pinned ref we'd need to clone +
             # then check out. For v1's ``main`` default, --branch is fine.
             self._git(
-                "clone", "--branch", PEARL_PINNED_REF,
-                PEARL_REPO, str(PEARL_CACHE_DIR),
+                "clone",
+                "--branch",
+                PEARL_PINNED_REF,
+                PEARL_REPO,
+                str(PEARL_CACHE_DIR),
                 cwd=None,
             )
         return PEARL_CACHE_DIR
@@ -143,9 +148,13 @@ class PearlDockerLauncher:
         """Run ``docker buildx build`` with Pearl's Dockerfile against the monorepo."""
         # Build context is the repo root; Dockerfile is at miner/vllm-miner/Dockerfile.
         cmd = [
-            "docker", "buildx", "build",
-            "-t", tag,
-            "-f", "miner/vllm-miner/Dockerfile",
+            "docker",
+            "buildx",
+            "build",
+            "-t",
+            tag,
+            "-f",
+            "miner/vllm-miner/Dockerfile",
             ".",
         ]
         try:
@@ -194,11 +203,15 @@ class PearlDockerLauncher:
 
         command = [
             model,
-            "--host", "0.0.0.0",
-            "--port", str(vllm_port),
-            "--gpu-memory-utilization", str(gpu_mem),
+            "--host",
+            "0.0.0.0",
+            "--port",
+            str(vllm_port),
+            "--gpu-memory-utilization",
+            str(gpu_mem),
             "--enforce-eager",
-            "--max-model-len", str(max_len),
+            "--max-model-len",
+            str(max_len),
         ]
 
         environment = {
@@ -213,6 +226,7 @@ class PearlDockerLauncher:
         # Dynamic import so tests don't need the real `docker` package shape.
         try:
             from docker.types import DeviceRequest
+
             device_requests = [DeviceRequest(count=-1, capabilities=[["gpu"]])]
         except ImportError:  # pragma: no cover
             device_requests = None

@@ -10,8 +10,10 @@ import pytest
 
 def test_vllm_pearl_detect_supported_on_h100(hopper_hw):
     from openjarvis.mining.vllm_pearl import VllmPearlProvider
+
     cap = VllmPearlProvider.detect(
-        hopper_hw, engine_id="vllm",
+        hopper_hw,
+        engine_id="vllm",
         model="pearl-ai/Llama-3.3-70B-Instruct-pearl",
     )
     assert cap.supported is True
@@ -19,8 +21,10 @@ def test_vllm_pearl_detect_supported_on_h100(hopper_hw):
 
 def test_vllm_pearl_detect_unsupported_on_apple(apple_hw):
     from openjarvis.mining.vllm_pearl import VllmPearlProvider
+
     cap = VllmPearlProvider.detect(
-        apple_hw, engine_id="mlx",
+        apple_hw,
+        engine_id="mlx",
         model="pearl-ai/Llama-3.3-70B-Instruct-pearl",
     )
     assert cap.supported is False
@@ -32,9 +36,7 @@ async def test_vllm_pearl_start_writes_sidecar(tmp_path, monkeypatch):
     from openjarvis.mining.vllm_pearl import VllmPearlProvider
 
     sidecar_path = tmp_path / "mining.json"
-    monkeypatch.setattr(
-        "openjarvis.mining.vllm_pearl.SIDECAR_PATH", sidecar_path
-    )
+    monkeypatch.setattr("openjarvis.mining.vllm_pearl.SIDECAR_PATH", sidecar_path)
     monkeypatch.setenv("PEARLD_RPC_PASSWORD", "x")
 
     fake_client = MagicMock()
@@ -79,14 +81,14 @@ async def test_vllm_pearl_start_writes_sidecar(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_vllm_pearl_start_pool_target_raises_not_implemented(monkeypatch, tmp_path):  # noqa: E501
+async def test_vllm_pearl_start_pool_target_raises_not_implemented(
+    monkeypatch, tmp_path
+):  # noqa: E501
     from openjarvis.mining._stubs import MiningConfig, PoolTarget
     from openjarvis.mining.vllm_pearl import VllmPearlProvider
 
     sidecar_path = tmp_path / "mining.json"
-    monkeypatch.setattr(
-        "openjarvis.mining.vllm_pearl.SIDECAR_PATH", sidecar_path
-    )
+    monkeypatch.setattr("openjarvis.mining.vllm_pearl.SIDECAR_PATH", sidecar_path)
 
     cfg = MiningConfig(
         provider="vllm-pearl",
@@ -103,9 +105,8 @@ async def test_vllm_pearl_start_pool_target_raises_not_implemented(monkeypatch, 
 @pytest.mark.asyncio
 async def test_vllm_pearl_stop_removes_sidecar(tmp_path, monkeypatch, written_sidecar):
     from openjarvis.mining.vllm_pearl import VllmPearlProvider
-    monkeypatch.setattr(
-        "openjarvis.mining.vllm_pearl.SIDECAR_PATH", written_sidecar
-    )
+
+    monkeypatch.setattr("openjarvis.mining.vllm_pearl.SIDECAR_PATH", written_sidecar)
     fake_client = MagicMock()
     provider = VllmPearlProvider(docker_client=fake_client)
     provider._launcher._container = MagicMock()  # simulate running
@@ -115,9 +116,8 @@ async def test_vllm_pearl_stop_removes_sidecar(tmp_path, monkeypatch, written_si
 
 def test_vllm_pearl_stats_reads_gateway(monkeypatch, written_sidecar):
     from openjarvis.mining.vllm_pearl import VllmPearlProvider
-    monkeypatch.setattr(
-        "openjarvis.mining.vllm_pearl.SIDECAR_PATH", written_sidecar
-    )
+
+    monkeypatch.setattr("openjarvis.mining.vllm_pearl.SIDECAR_PATH", written_sidecar)
     sample = (
         "pearl_gateway_shares_submitted_total 100\n"
         "pearl_gateway_shares_accepted_total 99\n"
@@ -139,6 +139,7 @@ def test_ensure_registered_is_idempotent():
         VllmPearlProvider,
         ensure_registered,
     )
+
     ensure_registered()
     ensure_registered()  # second call should not raise
     assert MinerRegistry.contains("vllm-pearl")

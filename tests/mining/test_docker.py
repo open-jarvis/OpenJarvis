@@ -9,6 +9,7 @@ import pytest
 
 def test_ensure_image_already_local():
     from openjarvis.mining._docker import PearlDockerLauncher
+
     fake = MagicMock()
     fake.images.get.return_value = MagicMock(
         id="sha256:abc", tags=["openjarvis/pearl-miner:main"]
@@ -22,6 +23,7 @@ def test_ensure_image_already_local():
 
 def test_ensure_image_pulls_if_published():
     from openjarvis.mining._docker import ImageNotFound, PearlDockerLauncher
+
     fake = MagicMock()
     fake.images.get.side_effect = ImageNotFound("nope")
     fake.images.pull.return_value = MagicMock(id="sha256:def")
@@ -34,13 +36,15 @@ def test_ensure_image_pulls_if_published():
 def test_ensure_image_falls_back_to_build_for_default_tag():
     from openjarvis.mining._constants import PEARL_IMAGE_TAG
     from openjarvis.mining._docker import ImageNotFound, NotFound, PearlDockerLauncher
+
     fake = MagicMock()
     fake.images.get.side_effect = ImageNotFound("nope")
     fake.images.pull.side_effect = NotFound("registry refused")
     launcher = PearlDockerLauncher(client=fake)
-    with patch.object(launcher, "_clone_pearl_repo") as clone, patch.object(
-        launcher, "_docker_build"
-    ) as build:
+    with (
+        patch.object(launcher, "_clone_pearl_repo") as clone,
+        patch.object(launcher, "_docker_build") as build,
+    ):
         clone.return_value = "/tmp/pearl-cache"
         build.return_value = PEARL_IMAGE_TAG
         out = launcher.ensure_image(PEARL_IMAGE_TAG)
@@ -58,6 +62,7 @@ def test_ensure_image_errors_when_non_default_tag_missing():
         NotFound,
         PearlDockerLauncher,
     )
+
     fake = MagicMock()
     fake.images.get.side_effect = ImageNotFound("nope")
     fake.images.pull.side_effect = NotFound("registry refused")
@@ -75,6 +80,7 @@ def _env_password(monkeypatch):
 def test_launcher_start_calls_run_with_expected_kwargs(_env_password):
     from openjarvis.mining._docker import PearlDockerLauncher
     from openjarvis.mining._stubs import MiningConfig, SoloTarget
+
     fake = MagicMock()
     fake.containers.run.return_value = MagicMock(id="cid-1", status="running")
     launcher = PearlDockerLauncher(client=fake)
@@ -110,6 +116,7 @@ def test_launcher_start_calls_run_with_expected_kwargs(_env_password):
 
 def test_launcher_stop_calls_container_stop_and_remove():
     from openjarvis.mining._docker import PearlDockerLauncher
+
     fake_client = MagicMock()
     fake_container = MagicMock()
     launcher = PearlDockerLauncher(client=fake_client)
@@ -122,6 +129,7 @@ def test_launcher_stop_calls_container_stop_and_remove():
 
 def test_launcher_is_running_when_container_running():
     from openjarvis.mining._docker import PearlDockerLauncher
+
     fake_client = MagicMock()
     fake_container = MagicMock(status="running")
     fake_container.reload.return_value = None
@@ -132,6 +140,7 @@ def test_launcher_is_running_when_container_running():
 
 def test_launcher_is_running_false_when_container_exited():
     from openjarvis.mining._docker import PearlDockerLauncher
+
     fake_client = MagicMock()
     fake_container = MagicMock()
     fake_container.reload.return_value = None
@@ -143,6 +152,7 @@ def test_launcher_is_running_false_when_container_exited():
 
 def test_launcher_get_logs_returns_decoded_string():
     from openjarvis.mining._docker import PearlDockerLauncher
+
     fake_client = MagicMock()
     fake_container = MagicMock()
     fake_container.logs.return_value = b"hello\nworld\n"
@@ -157,6 +167,7 @@ def test_launcher_start_errors_when_password_env_missing():
         PearlDockerLauncher,
     )
     from openjarvis.mining._stubs import MiningConfig, SoloTarget
+
     fake = MagicMock()
     launcher = PearlDockerLauncher(client=fake)
     cfg = MiningConfig(

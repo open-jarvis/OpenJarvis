@@ -9,6 +9,7 @@ FIXTURE = Path(__file__).parent / "fixtures" / "gateway_metrics_sample.txt"
 
 def test_parse_gateway_metrics_full():
     from openjarvis.mining._metrics import parse_gateway_metrics
+
     text = FIXTURE.read_text()
     stats = parse_gateway_metrics(text, provider_id="vllm-pearl")
     assert stats.provider_id == "vllm-pearl"
@@ -22,6 +23,7 @@ def test_parse_gateway_metrics_full():
 
 def test_parse_gateway_metrics_missing_metrics_zero_fills():
     from openjarvis.mining._metrics import parse_gateway_metrics
+
     stats = parse_gateway_metrics("# empty exposition\n", provider_id="vllm-pearl")
     assert stats.shares_submitted == 0
     assert stats.shares_accepted == 0
@@ -31,6 +33,7 @@ def test_parse_gateway_metrics_missing_metrics_zero_fills():
 
 def test_parse_gateway_metrics_ignores_comment_lines():
     from openjarvis.mining._metrics import parse_gateway_metrics
+
     stats = parse_gateway_metrics(
         "# HELP something\n# TYPE something counter\nsomething 99\n",
         provider_id="vllm-pearl",

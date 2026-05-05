@@ -39,9 +39,7 @@ def detect_for_engine_model(
     ``jarvis mine doctor`` and ``jarvis mine init``.
     """
     if provider_id != "vllm-pearl":
-        return MiningCapabilities(
-            False, reason=f"unknown provider {provider_id!r}"
-        )
+        return MiningCapabilities(False, reason=f"unknown provider {provider_id!r}")
 
     # Engine
     if engine_id not in SUPPORTED_VLLM_ENGINE_IDS:
@@ -114,9 +112,7 @@ def check_disk_free(path: Path) -> Tuple[bool, str]:
     return True, f"{free_gb:.0f} GB free"
 
 
-def check_pearld_reachable(
-    url: str, user: str, password: str
-) -> Tuple[bool, str]:
+def check_pearld_reachable(url: str, user: str, password: str) -> Tuple[bool, str]:
     """Probe pearld via JSON-RPC ``getblockchaininfo``."""
     try:
         resp = httpx.post(
