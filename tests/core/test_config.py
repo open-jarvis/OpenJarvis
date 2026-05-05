@@ -525,8 +525,10 @@ def test_mining_config_absent_means_none(tmp_path):
 
 def test_mining_config_solo_parsed(tmp_path):
     from pathlib import Path
+
     from openjarvis.core.config import load_config
     from openjarvis.mining._stubs import SoloTarget
+
     src = Path(__file__).parent.parent / "mining" / "fixtures" / "config_minimal.toml"
     target = tmp_path / "config.toml"
     target.write_text(src.read_text())
@@ -542,8 +544,10 @@ def test_mining_config_solo_parsed(tmp_path):
 
 def test_mining_config_pool_parsed_as_pool_target(tmp_path):
     from pathlib import Path
+
     from openjarvis.core.config import load_config
     from openjarvis.mining._stubs import PoolTarget
+
     src = Path(__file__).parent.parent / "mining" / "fixtures" / "config_pool_v2.toml"
     target = tmp_path / "config.toml"
     target.write_text(src.read_text())
