@@ -12,6 +12,12 @@ from openjarvis.tools.serena_accounting import (
     SerenaAccountingSourceInfoTool,
     SerenaAccountingSourceListTool,
     SerenaAccountingStatusTool,
+    SerenaAccountingPaymentSummaryTool,
+    SerenaAccountingUnpaidInvoicesTool,
+    SerenaAccountingPaymentMatchTool,
+    SerenaAccountingRecordPaymentTool,
+    SerenaAccountingCreateInvoiceTool,
+    SerenaAccountingInvoicePlanTool,
     SerenaAccountingPayFastReconcilePlanTool,
     SerenaAccountingPayFastPaymentRecordTool,
     SerenaAccountingPayFastVerifyITNTool,
@@ -199,6 +205,111 @@ def payfast_reconcile_plan(business: str, period: str, notes: str) -> None:
     """Create a PayFast reconciliation plan."""
     console = Console()
     result = SerenaAccountingPayFastReconcilePlanTool().execute(business=business, period=period, notes=notes)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("invoice-plan")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--client", default="Client", help="Client name.")
+@click.option("--description", default="Invoice item", help="Invoice description.")
+@click.option("--amount", default=0.0, type=float, help="Invoice subtotal amount.")
+@click.option("--vat-rate", default=0.0, type=float, help="VAT rate percentage.")
+@click.option("--due-date", default="not specified", help="Invoice due date.")
+def invoice_plan(business: str, client: str, description: str, amount: float, vat_rate: float, due_date: str) -> None:
+    """Create an invoice workflow plan."""
+    console = Console()
+    result = SerenaAccountingInvoicePlanTool().execute(
+        business=business,
+        client=client,
+        description=description,
+        amount=amount,
+        vat_rate=vat_rate,
+        due_date=due_date,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("create-invoice")
+@click.option("--invoice-id", default="", help="Invoice ID.")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--client", required=True, help="Client name.")
+@click.option("--description", default="Invoice item", help="Invoice description.")
+@click.option("--amount", required=True, type=float, help="Invoice subtotal amount.")
+@click.option("--vat-rate", default=0.0, type=float, help="VAT rate percentage.")
+@click.option("--due-date", default="not specified", help="Invoice due date.")
+@click.option("--status", default="unpaid", help="Invoice status.")
+@click.option("--notes", default="", help="Notes.")
+def create_invoice(invoice_id: str, business: str, client: str, description: str, amount: float, vat_rate: float, due_date: str, status: str, notes: str) -> None:
+    """Create a local invoice record."""
+    console = Console()
+    result = SerenaAccountingCreateInvoiceTool().execute(
+        invoice_id=invoice_id,
+        business=business,
+        client=client,
+        description=description,
+        amount=amount,
+        vat_rate=vat_rate,
+        due_date=due_date,
+        status=status,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("record-payment")
+@click.option("--payment-id", default="", help="Payment ID.")
+@click.option("--invoice-id", default="", help="Linked invoice ID.")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--payer", default="", help="Payer.")
+@click.option("--amount", required=True, type=float, help="Payment amount.")
+@click.option("--method", default="manual/local", help="Payment method.")
+@click.option("--status", default="pending", help="Payment status.")
+@click.option("--reference", default="", help="Payment reference.")
+@click.option("--approved", is_flag=True, help="Required when status is paid/complete.")
+@click.option("--notes", default="", help="Notes.")
+def record_payment(payment_id: str, invoice_id: str, business: str, payer: str, amount: float, method: str, status: str, reference: str, approved: bool, notes: str) -> None:
+    """Create a local payment record."""
+    console = Console()
+    result = SerenaAccountingRecordPaymentTool().execute(
+        payment_id=payment_id,
+        invoice_id=invoice_id,
+        business=business,
+        payer=payer,
+        amount=amount,
+        method=method,
+        status=status,
+        reference=reference,
+        approved=approved,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("payment-match")
+@click.option("--invoice-id", default="", help="Invoice ID to match.")
+@click.option("--payment-reference", default="", help="Payment reference to match.")
+def payment_match(invoice_id: str, payment_reference: str) -> None:
+    """Match local payment records to local invoices."""
+    console = Console()
+    result = SerenaAccountingPaymentMatchTool().execute(invoice_id=invoice_id, payment_reference=payment_reference)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("unpaid-invoices")
+@click.option("--business", default="", help="Optional business filter.")
+def unpaid_invoices(business: str) -> None:
+    """List local unpaid invoices."""
+    console = Console()
+    result = SerenaAccountingUnpaidInvoicesTool().execute(business=business)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("payment-summary")
+@click.option("--business", default="", help="Optional business filter.")
+def payment_summary(business: str) -> None:
+    """Summarize local payment records."""
+    console = Console()
+    result = SerenaAccountingPaymentSummaryTool().execute(business=business)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 

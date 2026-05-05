@@ -1383,6 +1383,537 @@ class SerenaAccountingPayFastReconcilePlanTool(_AccountingBaseTool):
         )
 
 
+def _load_json_records(folder: str) -> list[dict[str, Any]]:
+    root = ACCOUNTING_OUTPUT_ROOT / folder
+    if not root.exists():
+        return []
+
+    records: list[dict[str, Any]] = []
+    for path in sorted(root.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
+            if isinstance(data, dict):
+                data["_path"] = str(path)
+                records.append(data)
+        except Exception:
+            continue
+    return records
+
+
+def _invoice_total(subtotal: float, vat_rate: float) -> tuple[float, float, float]:
+    subtotal = _money(subtotal)
+    vat_rate = float(vat_rate or 0)
+    vat_amount = round(subtotal * (vat_rate / 100), 2)
+    total = round(subtotal + vat_amount, 2)
+    return subtotal, vat_amount, total
+
+
+@ToolRegistry.register("serena_accounting_invoice_plan")
+class SerenaAccountingInvoicePlanTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_invoice_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create an invoice workflow plan without live accounting writes.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                    "client": {"type": "string"},
+                    "description": {"type": "string"},
+                    "amount": {"type": "number"},
+                    "vat_rate": {"type": "number"},
+                    "due_date": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "General Business").strip()
+        client = str(params.get("client") or "Client").strip()
+        description = str(params.get("description") or "Invoice item").strip()
+        amount = _money(params.get("amount") or 0)
+        vat_rate = float(params.get("vat_rate") or 0)
+        due_date = str(params.get("due_date") or "not specified").strip()
+        subtotal, vat_amount, total = _invoice_total(amount, vat_rate)
+
+        steps = [
+            "Confirm client/contact details.",
+            "Confirm invoice description, amount, VAT treatment, due date, and business context.",
+            "Create local invoice record first.",
+            "Attach supporting evidence if needed.",
+            "Check Compliance when patient/client/health/financial data is included.",
+            "Prepare Xero invoice only after credentials and explicit approval exist.",
+            "Report exact invoice values and status.",
+        ]
+
+        payload = {
+            "report_type": "serena_accounting_invoice_plan",
+            "created_at": _timestamp(),
+            "business": business,
+            "client": client,
+            "description": description,
+            "subtotal": subtotal,
+            "vat_rate": vat_rate,
+            "vat_amount": vat_amount,
+            "total": total,
+            "due_date": due_date,
+            "steps": steps,
+            "external_api_called": False,
+            "live_accounting_write": False,
+            "invoice_created": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"invoice-plan-{client}", payload)
+
+        return self._result(
+            "Serena invoice plan\n\n"
+            f"- Business: {business}\n"
+            f"- Client: {client}\n"
+            f"- Description: {description}\n"
+            f"- Subtotal: {subtotal}\n"
+            f"- VAT rate: {vat_rate}%\n"
+            f"- VAT amount: {vat_amount}\n"
+            f"- Total: {total}\n"
+            f"- Due date: {due_date}\n"
+            f"- Plan: {report_path}\n"
+            "- External API called: no\n"
+            "- Live accounting write: no\n"
+            "- Invoice created: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Steps:\n"
+            + "\n".join(f"- {step}" for step in steps),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_accounting_create_invoice")
+class SerenaAccountingCreateInvoiceTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_create_invoice"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local invoice record. Does not write to Xero unless future approved live workflow exists.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "invoice_id": {"type": "string"},
+                    "business": {"type": "string"},
+                    "client": {"type": "string"},
+                    "description": {"type": "string"},
+                    "amount": {"type": "number"},
+                    "vat_rate": {"type": "number"},
+                    "due_date": {"type": "string"},
+                    "status": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["client", "amount"],
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        invoice_id = str(params.get("invoice_id") or f"INV-{_timestamp()}").strip()
+        business = str(params.get("business") or "General Business").strip()
+        client = str(params.get("client") or "").strip()
+        description = str(params.get("description") or "Invoice item").strip()
+        amount = _money(params.get("amount") or 0)
+        vat_rate = float(params.get("vat_rate") or 0)
+        due_date = str(params.get("due_date") or "not specified").strip()
+        status = str(params.get("status") or "unpaid").strip().lower()
+        notes = str(params.get("notes") or "").strip()
+        subtotal, vat_amount, total = _invoice_total(amount, vat_rate)
+
+        record = {
+            "record_type": "invoice",
+            "created_at": _timestamp(),
+            "invoice_id": invoice_id,
+            "business": business,
+            "client": client,
+            "description": description,
+            "subtotal": subtotal,
+            "vat_rate": vat_rate,
+            "vat_amount": vat_amount,
+            "total": total,
+            "amount_due": total if status not in {"paid", "settled"} else 0.0,
+            "due_date": due_date,
+            "status": status,
+            "notes": notes,
+            "invoice_created": True,
+            "external_api_called": False,
+            "live_accounting_write": False,
+            "delete_performed": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        record_path = _save_json("invoices", f"invoice-{invoice_id}", record)
+
+        return self._result(
+            "Serena local invoice created\n\n"
+            f"- Invoice ID: {invoice_id}\n"
+            f"- Business: {business}\n"
+            f"- Client: {client}\n"
+            f"- Description: {description}\n"
+            f"- Subtotal: {subtotal}\n"
+            f"- VAT: {vat_amount}\n"
+            f"- Total: {total}\n"
+            f"- Status: {status}\n"
+            f"- Due date: {due_date}\n"
+            f"- Record: {record_path}\n"
+            "- Invoice created: yes\n"
+            "- External API called: no\n"
+            "- Live accounting write: no\n"
+            "- Delete performed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={**record, "record_path": str(record_path)},
+        )
+
+
+@ToolRegistry.register("serena_accounting_record_payment")
+class SerenaAccountingRecordPaymentTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_record_payment"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local payment record and optionally link it to an invoice. Does not write to Xero.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "payment_id": {"type": "string"},
+                    "invoice_id": {"type": "string"},
+                    "business": {"type": "string"},
+                    "payer": {"type": "string"},
+                    "amount": {"type": "number"},
+                    "method": {"type": "string"},
+                    "status": {"type": "string"},
+                    "reference": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["amount"],
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        payment_id = str(params.get("payment_id") or f"PAY-{_timestamp()}").strip()
+        invoice_id = str(params.get("invoice_id") or "").strip()
+        business = str(params.get("business") or "General Business").strip()
+        payer = str(params.get("payer") or "").strip()
+        amount = _money(params.get("amount") or 0)
+        method = str(params.get("method") or "manual/local").strip()
+        status = str(params.get("status") or "pending").strip().lower()
+        reference = str(params.get("reference") or payment_id).strip()
+        approved = bool(params.get("approved") or False)
+        notes = str(params.get("notes") or "").strip()
+
+        paid_like = status in {"paid", "complete", "success", "confirmed", "settled"}
+        if paid_like and not approved:
+            return self._result(
+                "Serena payment record blocked\n\n"
+                f"- Payment ID: {payment_id}\n"
+                f"- Invoice ID: {invoice_id or 'not linked'}\n"
+                "- Reason: paid/complete status requires explicit approval or verified payment evidence.\n"
+                "- Payment record created: no\n"
+                "- Live accounting write: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        record = {
+            "record_type": "payment",
+            "created_at": _timestamp(),
+            "payment_id": payment_id,
+            "invoice_id": invoice_id,
+            "business": business,
+            "payer": payer,
+            "amount": amount,
+            "method": method,
+            "status": status,
+            "reference": reference,
+            "approved": approved,
+            "notes": notes,
+            "payment_record_created": True,
+            "external_api_called": False,
+            "live_accounting_write": False,
+            "delete_performed": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        record_path = _save_json("payments", f"payment-{payment_id}", record)
+
+        return self._result(
+            "Serena local payment record created\n\n"
+            f"- Payment ID: {payment_id}\n"
+            f"- Business: {business}\n"
+            f"- Invoice ID: {invoice_id or 'not linked'}\n"
+            f"- Payer: {payer or 'not provided'}\n"
+            f"- Amount: {amount}\n"
+            f"- Method: {method}\n"
+            f"- Status: {status}\n"
+            f"- Reference: {reference}\n"
+            f"- Record: {record_path}\n"
+            "- Payment record created: yes\n"
+            "- External API called: no\n"
+            "- Live accounting write: no\n"
+            "- Delete performed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={**record, "record_path": str(record_path)},
+        )
+
+
+@ToolRegistry.register("serena_accounting_payment_match")
+class SerenaAccountingPaymentMatchTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_payment_match"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Match local payment records to local invoices using invoice ID/reference/amount.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "invoice_id": {"type": "string"},
+                    "payment_reference": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        invoice_id = str(params.get("invoice_id") or "").strip()
+        payment_reference = str(params.get("payment_reference") or "").strip()
+
+        invoices = _load_json_records("invoices")
+        payments = _load_json_records("payments")
+
+        matched_invoices = []
+        matched_payments = []
+
+        for inv in invoices:
+            if invoice_id and str(inv.get("invoice_id") or "") == invoice_id:
+                matched_invoices.append(inv)
+
+        for pay in payments:
+            pay_invoice_id = str(pay.get("invoice_id") or "")
+            pay_ref = str(pay.get("reference") or pay.get("payment_id") or pay.get("reference") or "")
+            if invoice_id and pay_invoice_id == invoice_id:
+                matched_payments.append(pay)
+            elif payment_reference and pay_ref == payment_reference:
+                matched_payments.append(pay)
+
+        match_amount = sum(_money(pay.get("amount") or 0) for pay in matched_payments)
+        invoice_total = sum(_money(inv.get("total") or inv.get("amount_due") or 0) for inv in matched_invoices)
+        balanced = bool(matched_invoices and matched_payments and round(match_amount, 2) == round(invoice_total, 2))
+
+        payload = {
+            "report_type": "serena_accounting_payment_match",
+            "created_at": _timestamp(),
+            "invoice_id": invoice_id,
+            "payment_reference": payment_reference,
+            "matched_invoice_count": len(matched_invoices),
+            "matched_payment_count": len(matched_payments),
+            "invoice_total": invoice_total,
+            "payment_total": match_amount,
+            "balanced": balanced,
+            "matched_invoice_paths": [item.get("_path") for item in matched_invoices],
+            "matched_payment_paths": [item.get("_path") for item in matched_payments],
+            "external_api_called": False,
+            "live_accounting_write": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"payment-match-{invoice_id or payment_reference or 'all'}", payload)
+
+        return self._result(
+            "Serena payment match report\n\n"
+            f"- Invoice ID: {invoice_id or 'not specified'}\n"
+            f"- Payment reference: {payment_reference or 'not specified'}\n"
+            f"- Matched invoices: {len(matched_invoices)}\n"
+            f"- Matched payments: {len(matched_payments)}\n"
+            f"- Invoice total: {invoice_total}\n"
+            f"- Payment total: {match_amount}\n"
+            f"- Balanced: {'yes' if balanced else 'no'}\n"
+            f"- Report: {report_path}\n"
+            "- External API called: no\n"
+            "- Live accounting write: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_accounting_unpaid_invoices")
+class SerenaAccountingUnpaidInvoicesTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_unpaid_invoices"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="List local unpaid invoices.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "").strip()
+        invoices = _load_json_records("invoices")
+
+        unpaid = []
+        for inv in invoices:
+            if business and str(inv.get("business") or "") != business:
+                continue
+            status = str(inv.get("status") or "").lower()
+            amount_due = _money(inv.get("amount_due") or inv.get("total") or 0)
+            if status not in {"paid", "settled"} and amount_due > 0:
+                unpaid.append(inv)
+
+        total_due = sum(_money(item.get("amount_due") or item.get("total") or 0) for item in unpaid)
+
+        payload = {
+            "report_type": "serena_accounting_unpaid_invoices",
+            "created_at": _timestamp(),
+            "business": business or "all",
+            "unpaid_count": len(unpaid),
+            "total_due": total_due,
+            "invoice_paths": [item.get("_path") for item in unpaid],
+            "external_api_called": False,
+            "live_accounting_write": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"unpaid-invoices-{business or 'all'}", payload)
+
+        lines = [
+            "Serena unpaid invoices",
+            "",
+            f"- Business: {business or 'all'}",
+            f"- Unpaid invoices: {len(unpaid)}",
+            f"- Total due: {total_due}",
+            f"- Report: {report_path}",
+            "- External API called: no",
+            "- Live accounting write: no",
+            "- Changes made: no",
+            "- Secret values exposed: no",
+            "- Hub adapter: pending future dashboard",
+            "",
+            "Invoices:",
+        ]
+
+        if unpaid:
+            for inv in unpaid[:20]:
+                lines.append(
+                    f"- {inv.get('invoice_id')} | client={inv.get('client')} | status={inv.get('status')} | due={_money(inv.get('amount_due') or inv.get('total') or 0)}"
+                )
+        else:
+            lines.append("- none")
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+@ToolRegistry.register("serena_accounting_payment_summary")
+class SerenaAccountingPaymentSummaryTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_payment_summary"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Summarize local payment records.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "").strip()
+        payments = _load_json_records("payments")
+
+        selected = []
+        for pay in payments:
+            if business and str(pay.get("business") or "") != business:
+                continue
+            selected.append(pay)
+
+        total = sum(_money(item.get("amount") or 0) for item in selected)
+        by_status: dict[str, float] = {}
+        for pay in selected:
+            status = str(pay.get("status") or "unknown").lower()
+            by_status[status] = round(by_status.get(status, 0.0) + _money(pay.get("amount") or 0), 2)
+
+        payload = {
+            "report_type": "serena_accounting_payment_summary",
+            "created_at": _timestamp(),
+            "business": business or "all",
+            "payment_count": len(selected),
+            "total_amount": total,
+            "amount_by_status": by_status,
+            "payment_paths": [item.get("_path") for item in selected],
+            "external_api_called": False,
+            "live_accounting_write": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"payment-summary-{business or 'all'}", payload)
+
+        lines = [
+            "Serena payment summary",
+            "",
+            f"- Business: {business or 'all'}",
+            f"- Payments: {len(selected)}",
+            f"- Total amount: {total}",
+            f"- Report: {report_path}",
+            "- External API called: no",
+            "- Live accounting write: no",
+            "- Changes made: no",
+            "- Secret values exposed: no",
+            "- Hub adapter: pending future dashboard",
+            "",
+            "By status:",
+        ]
+
+        if by_status:
+            for status, amount in sorted(by_status.items()):
+                lines.append(f"- {status}: {amount}")
+        else:
+            lines.append("- none")
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
 __all__ = [
     "SerenaAccountingStatusTool",
     "SerenaAccountingEnvCheckTool",
@@ -1391,6 +1922,12 @@ __all__ = [
     "SerenaAccountingSourceInfoTool",
     "SerenaAccountingXeroChartPlanTool",
     "SerenaAccountingPayFastReconcilePlanTool",
+    "SerenaAccountingPaymentSummaryTool",
+    "SerenaAccountingUnpaidInvoicesTool",
+    "SerenaAccountingPaymentMatchTool",
+    "SerenaAccountingRecordPaymentTool",
+    "SerenaAccountingCreateInvoiceTool",
+    "SerenaAccountingInvoicePlanTool",
     "SerenaAccountingPayFastPaymentRecordTool",
     "SerenaAccountingPayFastVerifyITNTool",
     "SerenaAccountingPayFastPlanTool",
