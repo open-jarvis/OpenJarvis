@@ -1,0 +1,2813 @@
+{
+  "status": "complete",
+  "created_for": "pre-membership-layer-1 merge decision",
+  "legacy_root": "legacy\\serena-skills",
+  "total_legacy_files": 87,
+  "converted_or_merged_count": 17,
+  "remaining_or_unconfirmed_count": 70,
+  "recommended_merge_strategy": {
+    "membership_programmes_subscriptions": {
+      "recommendation": "Merge into Membership / Subscriptions / Patient Programmes. Do not build Payflow standalone unless it has a true external gateway workflow not covered by Accounting.",
+      "likely_operator": "serena_membership"
+    },
+    "ecommerce_woocommerce_store": {
+      "recommendation": "Build as Ecommerce / WooCommerce Store Operator, but reuse Accounting for payments/revenue and Membership for subscription/member outcomes.",
+      "likely_operator": "serena_ecommerce"
+    },
+    "crm_patient_records": {
+      "recommendation": "Hold for Serena Hub / CRM / Business OS unless needed earlier. CRM should become multi-business patient/client/customer record layer.",
+      "likely_operator": "serena_crm_or_hub_later"
+    },
+    "marketing_communications": {
+      "recommendation": "Merge into Marketing / Communications Operator with Compliance guardrails. Keep email/newsletter/social together.",
+      "likely_operator": "serena_marketing"
+    },
+    "analytics_reporting": {
+      "recommendation": "Already partly covered by Analytics and Reporting. Remaining files should be checked for gaps, then merged into existing operators instead of separate skills.",
+      "likely_operator": "serena_analytics_or_serena_reporting"
+    },
+    "clinical_health_patient_ops": {
+      "recommendation": "Build as Clinical / Patient Ops operator or merge into Compliance/OCR/Docs depending on function. Keep strict medical-safety boundaries.",
+      "likely_operator": "serena_clinical_patient_ops"
+    },
+    "websites_wordpress_content": {
+      "recommendation": "Build as Websites / WordPress Operator, with Analytics, Marketing, Docs/Drive, and Compliance hooks.",
+      "likely_operator": "serena_websites_wordpress"
+    },
+    "assistant_core_admin": {
+      "recommendation": "Treat as Serena core/operator capability. Merge carefully into existing local operator/core systems.",
+      "likely_operator": "serena_core_operator"
+    },
+    "uncategorized_review_required": {
+      "recommendation": "Manual review before deciding whether to merge, skip, or build standalone.",
+      "likely_operator": "review_required"
+    }
+  },
+  "items": [
+    {
+      "legacy_file": "01-crm.js",
+      "path": "legacy\\serena-skills\\01-crm.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "crm_patient_records",
+        "clinical_health_patient_ops",
+        "assistant_core_admin"
+      ],
+      "line_count": 205,
+      "character_count": 7663,
+      "triggers": [
+        "ADD PATIENT:",
+        "GET PATIENT:",
+        "UPDATE PATIENT:"
+      ],
+      "function_names": [],
+      "env_mentions": [
+        "CRM",
+        "PATIENT"
+      ]
+    },
+    {
+      "legacy_file": "02-reporting.js",
+      "path": "legacy\\serena-skills\\02-reporting.js",
+      "status": "converted_or_merged",
+      "groups": [
+        "analytics_reporting",
+        "membership_programmes_subscriptions",
+        "ecommerce_woocommerce_store",
+        "crm_patient_records",
+        "marketing_communications",
+        "clinical_health_patient_ops"
+      ],
+      "line_count": 105,
+      "character_count": 3818,
+      "triggers": [
+        "KPI REPORT",
+        "MORNING BRIEF",
+        "WEEKLY REPORT"
+      ],
+      "function_names": [],
+      "env_mentions": []
+    },
+    {
+      "legacy_file": "03-gdrive.js",
+      "path": "legacy\\serena-skills\\03-gdrive.js",
+      "status": "converted_or_merged",
+      "groups": [
+        "marketing_communications"
+      ],
+      "line_count": 96,
+      "character_count": 3508,
+      "triggers": [
+        "DRIVE FOLDER:",
+        "DRIVE LIST:",
+        "DRIVE SAVE:",
+        "DRIVE UPLOAD:"
+      ],
+      "function_names": [],
+      "env_mentions": [
+        "GDRIVE",
+        "GDRIVE_ROOT_FOLDER_ID"
+      ]
+    },
+    {
+      "legacy_file": "04-calendar.js",
+      "path": "legacy\\serena-skills\\04-calendar.js",
+      "status": "converted_or_merged",
+      "groups": [
+        "ecommerce_woocommerce_store",
+        "crm_patient_records",
+        "clinical_health_patient_ops"
+      ],
+      "line_count": 183,
+      "character_count": 6910,
+      "triggers": [
+        "BOOK SLOT:",
+        "CANCEL APPOINTMENT:",
+        "CHECK AVAILABILITY:",
+        "TODAY SCHEDULE"
+      ],
+      "function_names": [
+        "getCalendarClient"
+      ],
+      "env_mentions": [
+        "API",
+        "CALENDAR",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        "GOOGLE_REFRESH_TOKEN"
+      ]
+    },
+    {
+      "legacy_file": "05-social.js",
+      "path": "legacy\\serena-skills\\05-social.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "crm_patient_records",
+        "marketing_communications",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content",
+        "assistant_core_admin"
+      ],
+      "line_count": 101,
+      "character_count": 4638,
+      "triggers": [
+        "FACEBOOK POST:",
+        "INSTAGRAM POST:",
+        "LINKEDIN POST:",
+        "SOCIAL DRAFT:",
+        "SOCIAL POST:",
+        "TWITTER POST:"
+      ],
+      "function_names": [
+        "platformParam"
+      ],
+      "env_mentions": [
+        "API",
+        "FACEBOOK"
+      ]
+    },
+    {
+      "legacy_file": "06-notebook.js",
+      "path": "legacy\\serena-skills\\06-notebook.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "ecommerce_woocommerce_store",
+        "crm_patient_records",
+        "marketing_communications",
+        "clinical_health_patient_ops",
+        "assistant_core_admin"
+      ],
+      "line_count": 409,
+      "character_count": 13381,
+      "triggers": [
+        "ASK KNOWLEDGE:",
+        "NOTEBOOK SETUP",
+        "VAULT AUTOMATION STATUS",
+        "VAULT CREATE ALL",
+        "VAULT INVENTORY",
+        "VAULT INVENTORY:",
+        "VAULT MAP",
+        "VAULT MISSING DOCS",
+        "VAULT MISSING DOCS:",
+        "VAULT QUERY:",
+        "VAULT SOURCE ADD:",
+        "VAULT STAGE:",
+        "VAULT STATUS",
+        "VAULT SYNC",
+        "VAULT SYNC STATUS"
+      ],
+      "function_names": [
+        "formatCreateLayout",
+        "formatInventory",
+        "formatMissingDocs",
+        "formatSetup",
+        "formatStatus",
+        "formatSyncResult",
+        "formatSyncStatus",
+        "formatVaultMap",
+        "getValueLine",
+        "parseSourcePayload",
+        "parseStagePayload",
+        "parseVaultOnly",
+        "parts",
+        "raw",
+        "runBridge"
+      ],
+      "env_mentions": [
+        "DOCS"
+      ]
+    },
+    {
+      "legacy_file": "07-assets.js",
+      "path": "legacy\\serena-skills\\07-assets.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "marketing_communications",
+        "assistant_core_admin"
+      ],
+      "line_count": 77,
+      "character_count": 2644,
+      "triggers": [
+        "CREATE DECK:",
+        "GENERATE SLIDES:"
+      ],
+      "function_names": [
+        "generateDeckOutline",
+        "parsePayload"
+      ],
+      "env_mentions": []
+    },
+    {
+      "legacy_file": "08-google-docs.js",
+      "path": "legacy\\serena-skills\\08-google-docs.js",
+      "status": "converted_or_merged",
+      "groups": [
+        "crm_patient_records",
+        "marketing_communications",
+        "assistant_core_admin"
+      ],
+      "line_count": 100,
+      "character_count": 3259,
+      "triggers": [
+        "CREATE DOC:",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        "GOOGLE_REFRESH_TOKEN",
+        "UPDATE DOC:"
+      ],
+      "function_names": [
+        "generateDocContent",
+        "parsePayload",
+        "replaceExisting"
+      ],
+      "env_mentions": [
+        "DOCS",
+        "GOOGLE",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        "GOOGLE_REFRESH_TOKEN"
+      ]
+    },
+    {
+      "legacy_file": "09-finance.js",
+      "path": "legacy\\serena-skills\\09-finance.js",
+      "status": "converted_or_merged",
+      "groups": [
+        "crm_patient_records",
+        "clinical_health_patient_ops",
+        "assistant_core_admin"
+      ],
+      "line_count": 171,
+      "character_count": 6730,
+      "triggers": [
+        "GENERATE INVOICE:",
+        "INVOICE SUMMARY",
+        "PAID",
+        "PENDING",
+        "RECORD PAYMENT:"
+      ],
+      "function_names": [
+        "totalAmount",
+        "vatAmount"
+      ],
+      "env_mentions": [
+        "PAYFAST_ENABLED"
+      ]
+    },
+    {
+      "legacy_file": "10-payfast.js",
+      "path": "legacy\\serena-skills\\10-payfast.js",
+      "status": "converted_or_merged",
+      "groups": [
+        "ecommerce_woocommerce_store",
+        "crm_patient_records",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content"
+      ],
+      "line_count": 120,
+      "character_count": 4830,
+      "triggers": [
+        "PAYMENT LINK:",
+        "PAYMENT STATUS:"
+      ],
+      "function_names": [
+        "buildPayfastUrl"
+      ],
+      "env_mentions": [
+        "PAYFAST",
+        "PAYFAST_ENABLED",
+        "PAYFAST_MERCHANT_ID",
+        "PAYFAST_MERCHANT_KEY",
+        "PAYFAST_PASSPHRASE",
+        "PAYFAST_SANDBOX",
+        "WORDPRESS_URL"
+      ]
+    },
+    {
+      "legacy_file": "11-whatsapp.js",
+      "path": "legacy\\serena-skills\\11-whatsapp.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "ecommerce_woocommerce_store",
+        "marketing_communications",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content"
+      ],
+      "line_count": 96,
+      "character_count": 3255,
+      "triggers": [
+        "N/A",
+        "POST",
+        "WHATSAPP:"
+      ],
+      "function_names": [
+        "sendViaMetaAPI"
+      ],
+      "env_mentions": [
+        "API",
+        "META_ACCESS_TOKEN",
+        "META_API_VERSION",
+        "META_PHONE_NUMBER_ID"
+      ]
+    },
+    {
+      "legacy_file": "12-analytics.js",
+      "path": "legacy\\serena-skills\\12-analytics.js",
+      "status": "converted_or_merged",
+      "groups": [
+        "analytics_reporting",
+        "membership_programmes_subscriptions",
+        "ecommerce_woocommerce_store",
+        "crm_patient_records",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content",
+        "assistant_core_admin"
+      ],
+      "line_count": 134,
+      "character_count": 5395,
+      "triggers": [
+        "ANALYTICS REPORT",
+        "N/A",
+        "SITE ANALYTICS"
+      ],
+      "function_names": [
+        "fetchTelemetrySummary",
+        "fetchWooMetrics"
+      ],
+      "env_mentions": [
+        "WOOCOMMERCE_KEY",
+        "WOOCOMMERCE_SECRET",
+        "WORDPRESS_URL"
+      ]
+    },
+    {
+      "legacy_file": "14-podcast.js",
+      "path": "legacy\\serena-skills\\14-podcast.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "marketing_communications",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content",
+        "assistant_core_admin"
+      ],
+      "line_count": 69,
+      "character_count": 2965,
+      "triggers": [
+        "EPISODE SCRIPT:",
+        "PODCAST SCRIPT:"
+      ],
+      "function_names": [],
+      "env_mentions": [
+        "API"
+      ]
+    },
+    {
+      "legacy_file": "15-video-script.js",
+      "path": "legacy\\serena-skills\\15-video-script.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "crm_patient_records",
+        "marketing_communications",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content",
+        "assistant_core_admin"
+      ],
+      "line_count": 84,
+      "character_count": 3748,
+      "triggers": [
+        "REEL SCRIPT:",
+        "TIKTOK SCRIPT:",
+        "VIDEO SCRIPT:"
+      ],
+      "function_names": [
+        "platform"
+      ],
+      "env_mentions": []
+    },
+    {
+      "legacy_file": "16-ebook.js",
+      "path": "legacy\\serena-skills\\16-ebook.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "crm_patient_records",
+        "marketing_communications",
+        "clinical_health_patient_ops",
+        "assistant_core_admin"
+      ],
+      "line_count": 150,
+      "character_count": 6467,
+      "triggers": [
+        "EBOOK CHAPTER:",
+        "EBOOK OUTLINE",
+        "EBOOK OUTLINE:",
+        "EBOOK:"
+      ],
+      "function_names": [],
+      "env_mentions": []
+    },
+    {
+      "legacy_file": "17-newsletter.js",
+      "path": "legacy\\serena-skills\\17-newsletter.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "marketing_communications",
+        "crm_patient_records",
+        "clinical_health_patient_ops",
+        "assistant_core_admin"
+      ],
+      "line_count": 120,
+      "character_count": 5433,
+      "triggers": [
+        "HEALTH NEWSLETTER:",
+        "NEWSLETTER:",
+        "WEEKLY NEWSLETTER"
+      ],
+      "function_names": [
+        "shouldSend"
+      ],
+      "env_mentions": [
+        "PATIENT"
+      ]
+    },
+    {
+      "legacy_file": "18-blog.js",
+      "path": "legacy\\serena-skills\\18-blog.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "marketing_communications",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content",
+        "assistant_core_admin"
+      ],
+      "line_count": 96,
+      "character_count": 3741,
+      "triggers": [
+        "BLOG POST:",
+        "SEO ARTICLE:",
+        "WRITE BLOG:"
+      ],
+      "function_names": [
+        "wantsPublish"
+      ],
+      "env_mentions": []
+    },
+    {
+      "legacy_file": "19-email-marketing.js",
+      "path": "legacy\\serena-skills\\19-email-marketing.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "marketing_communications",
+        "crm_patient_records",
+        "clinical_health_patient_ops",
+        "assistant_core_admin"
+      ],
+      "line_count": 131,
+      "character_count": 5140,
+      "triggers": [
+        "EMAIL CAMPAIGN:",
+        "EMAIL DRAFT:"
+      ],
+      "function_names": [],
+      "env_mentions": [
+        "API"
+      ]
+    },
+    {
+      "legacy_file": "20-booking.js",
+      "path": "legacy\\serena-skills\\20-booking.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "ecommerce_woocommerce_store",
+        "crm_patient_records",
+        "clinical_health_patient_ops",
+        "assistant_core_admin"
+      ],
+      "line_count": 284,
+      "character_count": 10697,
+      "triggers": [
+        "BOOK APPOINTMENT:",
+        "CANCEL BOOKING:",
+        "MY BOOKINGS",
+        "NEW BOOKING:"
+      ],
+      "function_names": [
+        "getCalendarClient"
+      ],
+      "env_mentions": [
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        "GOOGLE_REFRESH_TOKEN"
+      ]
+    },
+    {
+      "legacy_file": "21-membership.js",
+      "path": "legacy\\serena-skills\\21-membership.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "membership_programmes_subscriptions",
+        "ecommerce_woocommerce_store",
+        "crm_patient_records",
+        "marketing_communications",
+        "clinical_health_patient_ops",
+        "assistant_core_admin"
+      ],
+      "line_count": 204,
+      "character_count": 7650,
+      "triggers": [
+        "CREATE MEMBERSHIP:",
+        "ENROL MEMBER:",
+        "MEMBER STATUS:",
+        "MEMBERSHIP PLANS"
+      ],
+      "function_names": [],
+      "env_mentions": [
+        "MEMBER",
+        "MEMBERSHIP",
+        "PATIENT"
+      ]
+    },
+    {
+      "legacy_file": "22-leadmagnet.js",
+      "path": "legacy\\serena-skills\\22-leadmagnet.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "crm_patient_records",
+        "marketing_communications",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content",
+        "assistant_core_admin"
+      ],
+      "line_count": 98,
+      "character_count": 4478,
+      "triggers": [
+        "CAPTURE PAGE:",
+        "FREEBIE:",
+        "LEAD MAGNET FULL:",
+        "LEAD PAGE:"
+      ],
+      "function_names": [],
+      "env_mentions": []
+    },
+    {
+      "legacy_file": "23-telehealth.js",
+      "path": "legacy\\serena-skills\\23-telehealth.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "clinical_health_patient_ops",
+        "crm_patient_records",
+        "marketing_communications",
+        "assistant_core_admin"
+      ],
+      "line_count": 59,
+      "character_count": 2196,
+      "triggers": [
+        "CONSULT PREP:",
+        "TELEHEALTH PREP:"
+      ],
+      "function_names": [
+        "generatePrep",
+        "parsePayload"
+      ],
+      "env_mentions": []
+    },
+    {
+      "legacy_file": "24-compliance-guard.js",
+      "path": "legacy\\serena-skills\\24-compliance-guard.js",
+      "status": "converted_or_merged",
+      "groups": [
+        "crm_patient_records",
+        "marketing_communications",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content",
+        "assistant_core_admin"
+      ],
+      "line_count": 113,
+      "character_count": 4932,
+      "triggers": [
+        "QUICK CHECK:"
+      ],
+      "function_names": [],
+      "env_mentions": []
+    },
+    {
+      "legacy_file": "25-compliance.js",
+      "path": "legacy\\serena-skills\\25-compliance.js",
+      "status": "converted_or_merged",
+      "groups": [
+        "crm_patient_records",
+        "marketing_communications",
+        "analytics_reporting",
+        "clinical_health_patient_ops",
+        "assistant_core_admin"
+      ],
+      "line_count": 98,
+      "character_count": 4160,
+      "triggers": [
+        "ANALYSE CONTENT:",
+        "COMPLIANCE CHECK:",
+        "FULL COMPLIANCE:",
+        "HPCSA CHECK:"
+      ],
+      "function_names": [],
+      "env_mentions": [
+        "META"
+      ]
+    },
+    {
+      "legacy_file": "26-canva.js",
+      "path": "legacy\\serena-skills\\26-canva.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "crm_patient_records",
+        "marketing_communications",
+        "clinical_health_patient_ops",
+        "assistant_core_admin"
+      ],
+      "line_count": 220,
+      "character_count": 12828,
+      "triggers": [
+        "CANVA ASK",
+        "CANVA ASK:",
+        "CANVA COMMENT:",
+        "CANVA CONNECT",
+        "CANVA DESIGN:",
+        "CANVA EXPORT:",
+        "CANVA FIND:",
+        "CANVA GET DESIGN:",
+        "CANVA LIST DESIGNS",
+        "CANVA LIST DESIGNS:",
+        "CANVA MCP",
+        "CANVA MCP SEARCH",
+        "CANVA MCP SEARCH:",
+        "CANVA STATUS",
+        "CANVA UPLOAD ASSET:",
+        "CANVA_CLIENT_ID",
+        "CANVA_CLIENT_SECRET",
+        "CANVA_REDIRECT_URI",
+        "CREATE DESIGN:"
+      ],
+      "function_names": [
+        "buildConnectRoute",
+        "buildRestFallback",
+        "generateDesignBrief",
+        "inferIntent",
+        "maybeCallCanvaMcp",
+        "parseLegacyBrief",
+        "parseLooseFields",
+        "sanitizeLine"
+      ],
+      "env_mentions": [
+        "API",
+        "CANVA_CLIENT_ID",
+        "CANVA_CLIENT_SECRET"
+      ]
+    },
+    {
+      "legacy_file": "27-gemini.js",
+      "path": "legacy\\serena-skills\\27-gemini.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "ecommerce_woocommerce_store",
+        "marketing_communications",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content",
+        "assistant_core_admin"
+      ],
+      "line_count": 97,
+      "character_count": 3315,
+      "triggers": [
+        "DEEP ANALYSIS:",
+        "GEMINI ANALYSE:",
+        "GEMINI:",
+        "POST",
+        "STRATEGY:"
+      ],
+      "function_names": [
+        "callGemini",
+        "fetchWithTimeout"
+      ],
+      "env_mentions": [
+        "API",
+        "GEMINI_API_KEY"
+      ]
+    },
+    {
+      "legacy_file": "28-email-funnel.js",
+      "path": "legacy\\serena-skills\\28-email-funnel.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "membership_programmes_subscriptions",
+        "crm_patient_records",
+        "marketing_communications",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content",
+        "assistant_core_admin"
+      ],
+      "line_count": 86,
+      "character_count": 3971,
+      "triggers": [
+        "BUILD FUNNEL:",
+        "DRIP SEQUENCE:",
+        "EMAIL FUNNEL:",
+        "NURTURE:"
+      ],
+      "function_names": [],
+      "env_mentions": [
+        "API"
+      ]
+    },
+    {
+      "legacy_file": "29-ecommerce.js",
+      "path": "legacy\\serena-skills\\29-ecommerce.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "ecommerce_woocommerce_store",
+        "marketing_communications",
+        "analytics_reporting",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content",
+        "assistant_core_admin"
+      ],
+      "line_count": 152,
+      "character_count": 6105,
+      "triggers": [
+        "POST",
+        "WC ORDER:",
+        "WC ORDERS",
+        "WC PRODUCT:",
+        "WC PRODUCTS",
+        "WC REVENUE"
+      ],
+      "function_names": [
+        "base",
+        "items",
+        "wcGet",
+        "wcPost",
+        "wcUrl"
+      ],
+      "env_mentions": [
+        "API",
+        "WOOCOMMERCE_KEY",
+        "WOOCOMMERCE_SECRET",
+        "WORDPRESS_URL"
+      ]
+    },
+    {
+      "legacy_file": "30-seo-audit.js",
+      "path": "legacy\\serena-skills\\30-seo-audit.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "marketing_communications",
+        "analytics_reporting",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content",
+        "assistant_core_admin"
+      ],
+      "line_count": 132,
+      "character_count": 5522,
+      "triggers": [
+        "AUDIT SITE:",
+        "NONE",
+        "SEO AUDIT:",
+        "SEO CHECK:"
+      ],
+      "function_names": [
+        "canonical",
+        "externalLinks",
+        "fetchPageForSEO",
+        "imgCount",
+        "imgNoAlt",
+        "internalLinks",
+        "metaDesc",
+        "robotsMeta",
+        "title"
+      ],
+      "env_mentions": [
+        "API",
+        "META"
+      ]
+    },
+    {
+      "legacy_file": "31-flux-image.js",
+      "path": "legacy\\serena-skills\\31-flux-image.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "marketing_communications",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content"
+      ],
+      "line_count": 92,
+      "character_count": 3374,
+      "triggers": [
+        "FLUX:",
+        "GENERATE IMAGE:",
+        "IMAGE:",
+        "POST"
+      ],
+      "function_names": [],
+      "env_mentions": [
+        "API",
+        "HF_API",
+        "HUGGINGFACE_API_KEY"
+      ]
+    },
+    {
+      "legacy_file": "32-video-generator.js",
+      "path": "legacy\\serena-skills\\32-video-generator.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "ecommerce_woocommerce_store",
+        "marketing_communications",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content",
+        "assistant_core_admin"
+      ],
+      "line_count": 279,
+      "character_count": 9530,
+      "triggers": [
+        "GENERATE VIDEO:",
+        "VEO:",
+        "VIDEO AD:",
+        "VIDEO CINEMATIC:",
+        "VIDEO EDUCATION:",
+        "VIDEO FAST:",
+        "VIDEO FROM IMAGE:",
+        "VIDEO HQ:",
+        "VIDEO PRODUCT:",
+        "VIDEO REEL:",
+        "VIDEO REMIX:",
+        "VIDEO TESTIMONIAL STYLE:",
+        "VIDEO:"
+      ],
+      "function_names": [
+        "buildUsageHelp",
+        "downloadTelegramPhoto",
+        "estimateCostNote",
+        "execute",
+        "getServiceBaseUrl",
+        "modeFromTrigger",
+        "uploadVideoArchive",
+        "waitForJobCompletion"
+      ],
+      "env_mentions": [
+        "GDRIVE_ROOT_FOLDER_ID",
+        "TELEGRAM_TOKEN"
+      ]
+    },
+    {
+      "legacy_file": "33-mistral.js",
+      "path": "legacy\\serena-skills\\33-mistral.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "marketing_communications",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content",
+        "assistant_core_admin"
+      ],
+      "line_count": 130,
+      "character_count": 4538,
+      "triggers": [
+        "ANALYSE IMAGE:",
+        "MISTRAL ANALYSE:",
+        "MISTRAL:",
+        "POST",
+        "READ DOCUMENT:"
+      ],
+      "function_names": [
+        "callMistral"
+      ],
+      "env_mentions": [
+        "API",
+        "MISTRAL",
+        "MISTRAL_API_KEY",
+        "MISTRAL_URL",
+        "TELEGRAM_TOKEN"
+      ]
+    },
+    {
+      "legacy_file": "34-voice-out.js",
+      "path": "legacy\\serena-skills\\34-voice-out.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "crm_patient_records",
+        "assistant_core_admin"
+      ],
+      "line_count": 50,
+      "character_count": 1708,
+      "triggers": [
+        "GOOGLE_TTS_API_KEY",
+        "READ ALOUD:",
+        "SPEAK:",
+        "TTS:"
+      ],
+      "function_names": [],
+      "env_mentions": [
+        "GOOGLE_TTS_API_KEY"
+      ]
+    },
+    {
+      "legacy_file": "35-translate.js",
+      "path": "legacy\\serena-skills\\35-translate.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "marketing_communications",
+        "clinical_health_patient_ops",
+        "assistant_core_admin"
+      ],
+      "line_count": 84,
+      "character_count": 3137,
+      "triggers": [
+        "AFRIKAANS:",
+        "TRANSLATE TO:",
+        "TRANSLATE:",
+        "VERTAAL:"
+      ],
+      "function_names": [],
+      "env_mentions": [
+        "API",
+        "HUGGINGFACE_API_KEY"
+      ]
+    },
+    {
+      "legacy_file": "36-voice-in.js",
+      "path": "legacy\\serena-skills\\36-voice-in.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "crm_patient_records",
+        "assistant_core_admin"
+      ],
+      "line_count": 66,
+      "character_count": 2733,
+      "triggers": [
+        "TRANSCRIBE:",
+        "VOICE NOTE:",
+        "VOICE STATUS"
+      ],
+      "function_names": [],
+      "env_mentions": [
+        "HUGGINGFACE_API_KEY"
+      ]
+    },
+    {
+      "legacy_file": "37-ocr.js",
+      "path": "legacy\\serena-skills\\37-ocr.js",
+      "status": "converted_or_merged",
+      "groups": [
+        "marketing_communications",
+        "analytics_reporting",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content",
+        "assistant_core_admin"
+      ],
+      "line_count": 148,
+      "character_count": 5369,
+      "triggers": [
+        "EXTRACT TEXT:",
+        "HUGGINGFACE_API_KEY",
+        "MISTRAL_API_KEY",
+        "MODEL_LOADING",
+        "OCR:",
+        "POST",
+        "SCAN DOC:"
+      ],
+      "function_names": [
+        "ocrViaHuggingFace",
+        "ocrViaMistral"
+      ],
+      "env_mentions": [
+        "HUGGINGFACE_API_KEY",
+        "MISTRAL_API_KEY",
+        "TELEGRAM_TOKEN"
+      ]
+    },
+    {
+      "legacy_file": "38-summarise.js",
+      "path": "legacy\\serena-skills\\38-summarise.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "ecommerce_woocommerce_store",
+        "crm_patient_records",
+        "marketing_communications",
+        "analytics_reporting",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content",
+        "assistant_core_admin"
+      ],
+      "line_count": 115,
+      "character_count": 4779,
+      "triggers": [
+        "READ URL:",
+        "SUMMARISE URL:",
+        "SUMMARISE:",
+        "SUMMARIZE URL:",
+        "SUMMARIZE:"
+      ],
+      "function_names": [
+        "fetchPageText"
+      ],
+      "env_mentions": [
+        "KEY"
+      ]
+    },
+    {
+      "legacy_file": "39-remove-bg.js",
+      "path": "legacy\\serena-skills\\39-remove-bg.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "marketing_communications",
+        "websites_wordpress_content"
+      ],
+      "line_count": 71,
+      "character_count": 2643,
+      "triggers": [
+        "CLEAN IMAGE:",
+        "HUGGINGFACE_API_KEY",
+        "REMOVE BG:"
+      ],
+      "function_names": [],
+      "env_mentions": [
+        "HUGGINGFACE_API_KEY"
+      ]
+    },
+    {
+      "legacy_file": "40-image-caption.js",
+      "path": "legacy\\serena-skills\\40-image-caption.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "marketing_communications",
+        "assistant_core_admin"
+      ],
+      "line_count": 60,
+      "character_count": 2142,
+      "triggers": [
+        "CAPTION IMAGE:",
+        "DESCRIBE IMAGE:"
+      ],
+      "function_names": [
+        "describeImage"
+      ],
+      "env_mentions": []
+    },
+    {
+      "legacy_file": "41-vscode.js",
+      "path": "legacy\\serena-skills\\41-vscode.js",
+      "status": "converted_or_merged",
+      "groups": [
+        "marketing_communications",
+        "clinical_health_patient_ops"
+      ],
+      "line_count": 197,
+      "character_count": 7262,
+      "triggers": [
+        "FILE LIST:",
+        "FILE READ:",
+        "FILE WRITE:",
+        "GITHUB CLONE:"
+      ],
+      "function_names": [
+        "cleanup"
+      ],
+      "env_mentions": [
+        "GITHUB_TOKEN"
+      ]
+    },
+    {
+      "legacy_file": "42-automation.js",
+      "path": "legacy\\serena-skills\\42-automation.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "crm_patient_records",
+        "marketing_communications",
+        "analytics_reporting",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content",
+        "assistant_core_admin"
+      ],
+      "line_count": 209,
+      "character_count": 8896,
+      "triggers": [
+        "CONTENT CALENDAR",
+        "MONTHLY CALENDAR:",
+        "SCHEDULE CONTENT:",
+        "TBD",
+        "WEEKLY PLAN"
+      ],
+      "function_names": [
+        "parts",
+        "typeKey"
+      ],
+      "env_mentions": [
+        "CALENDAR",
+        "FACEBOOK",
+        "KEY"
+      ]
+    },
+    {
+      "legacy_file": "43-clickup.js",
+      "path": "legacy\\serena-skills\\43-clickup.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "analytics_reporting",
+        "clinical_health_patient_ops",
+        "assistant_core_admin"
+      ],
+      "line_count": 840,
+      "character_count": 35816,
+      "triggers": [
+        "CU ASK:",
+        "CU CREATE FOLDER:",
+        "CU CREATE LIST:",
+        "CU CREATE SPACE:",
+        "CU CREATE TASK:",
+        "CU DELETE FOLDER:",
+        "CU DELETE LIST:",
+        "CU DELETE SPACE:",
+        "CU DELETE TASK:",
+        "CU FOLDERS",
+        "CU FOLDERS:",
+        "CU LIST",
+        "CU LIST SPACES",
+        "CU LIST SPACES:",
+        "CU LIST TASKS",
+        "CU LIST TASKS:",
+        "CU LIST:",
+        "CU LISTS",
+        "CU LISTS:",
+        "CU MCP COMMENT:",
+        "CU MCP REPORT:",
+        "CU MCP SEARCH:",
+        "CU MCP TIME:",
+        "CU SETUP",
+        "CU SPACES:",
+        "CU STRUCTURE",
+        "CU STRUCTURE:",
+        "CU SUBTASK:",
+        "CU TASK:",
+        "CU UPDATE FOLDER:",
+        "CU UPDATE LIST:",
+        "CU UPDATE SPACE:",
+        "CU UPDATE:",
+        "CU WORKSPACES",
+        "CU WORKSPACES:",
+        "TASK:"
+      ],
+      "function_names": [
+        "buildRestFallback",
+        "configMessage",
+        "formatMcpResultForTelegram",
+        "formatRestFallback",
+        "formatSingleMcpItem",
+        "formatSpaces",
+        "formatTimestamp",
+        "formatTree",
+        "formatWorkspaces",
+        "humanizeHierarchy",
+        "inferMcpIntent",
+        "isConfigured",
+        "maybeCallClickUpMcp",
+        "mergeRequest",
+        "normalizeTriggerPayload",
+        "parseLooseFields",
+        "parseOperationRequest",
+        "resolveFolder",
+        "resolveList",
+        "resolveSpace",
+        "resolveTask",
+        "resolveWorkspaceId",
+        "safeParseMcpJson",
+        "sanitizeLine",
+        "searchTasksAcrossWorkspace",
+        "stripCodeFences",
+        "summarizeItem"
+      ],
+      "env_mentions": [
+        "API",
+        "CLICKUP_API_KEY"
+      ]
+    },
+    {
+      "legacy_file": "44-hubspot.js",
+      "path": "legacy\\serena-skills\\44-hubspot.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "crm_patient_records",
+        "marketing_communications",
+        "websites_wordpress_content"
+      ],
+      "line_count": 98,
+      "character_count": 2910,
+      "triggers": [
+        "GET",
+        "HUBSPOT CONTACT:",
+        "HUBSPOT DEAL:",
+        "HUBSPOT_API_KEY",
+        "POST"
+      ],
+      "function_names": [
+        "getHubSpotHeaders",
+        "hubspotRequest"
+      ],
+      "env_mentions": [
+        "API",
+        "CRM",
+        "HUBSPOT_API_KEY"
+      ]
+    },
+    {
+      "legacy_file": "45-payflow.js",
+      "path": "legacy\\serena-skills\\45-payflow.js",
+      "status": "converted_or_merged",
+      "groups": [
+        "membership_programmes_subscriptions",
+        "ecommerce_woocommerce_store",
+        "analytics_reporting",
+        "assistant_core_admin"
+      ],
+      "line_count": 77,
+      "character_count": 2706,
+      "triggers": [
+        "PAYFLOW:",
+        "SUBSCRIPTION:"
+      ],
+      "function_names": [
+        "parsePayload"
+      ],
+      "env_mentions": [
+        "PAYFLOW",
+        "SUBSCRIPTION"
+      ]
+    },
+    {
+      "legacy_file": "46-database.js",
+      "path": "legacy\\serena-skills\\46-database.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "crm_patient_records",
+        "clinical_health_patient_ops"
+      ],
+      "line_count": 61,
+      "character_count": 2176,
+      "triggers": [
+        "DB BACKUP:",
+        "DB QUERY:",
+        "PRAGMA",
+        "SELECT",
+        "WITH"
+      ],
+      "function_names": [
+        "isSafeQuery"
+      ],
+      "env_mentions": []
+    },
+    {
+      "legacy_file": "47-health-monitor.js",
+      "path": "legacy\\serena-skills\\47-health-monitor.js",
+      "status": "converted_or_merged",
+      "groups": [
+        "crm_patient_records",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content",
+        "assistant_core_admin"
+      ],
+      "line_count": 101,
+      "character_count": 4133,
+      "triggers": [
+        "BOT STATUS",
+        "HEALTH CHECK",
+        "SELECT 1",
+        "STATUS",
+        "SYSTEM STATUS"
+      ],
+      "function_names": [
+        "freeMem",
+        "heapTotMB",
+        "heapUsedMB",
+        "rssMB",
+        "totalMem"
+      ],
+      "env_mentions": [
+        "API",
+        "CLICKUP_API_KEY",
+        "GEMINI_API_KEY",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        "GOOGLE_REFRESH_TOKEN",
+        "GROQ_API_KEY",
+        "HUGGINGFACE_API_KEY",
+        "PAYFAST_ENABLED",
+        "WORDPRESS_APP_PASSWORD",
+        "WORDPRESS_URL"
+      ]
+    },
+    {
+      "legacy_file": "48-notifications.js",
+      "path": "legacy\\serena-skills\\48-notifications.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "clinical_health_patient_ops",
+        "assistant_core_admin"
+      ],
+      "line_count": 145,
+      "character_count": 6042,
+      "triggers": [
+        "ALERT:",
+        "NOTIFY LIST",
+        "NOTIFY:",
+        "SCHEDULE NOTIFY:"
+      ],
+      "function_names": [
+        "ownerIds"
+      ],
+      "env_mentions": []
+    },
+    {
+      "legacy_file": "49-security.js",
+      "path": "legacy\\serena-skills\\49-security.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "ecommerce_woocommerce_store",
+        "marketing_communications",
+        "analytics_reporting",
+        "websites_wordpress_content",
+        "assistant_core_admin"
+      ],
+      "line_count": 96,
+      "character_count": 3966,
+      "triggers": [
+        "ACCESS LOG",
+        "AUDIT BOT",
+        "SECURITY AUDIT",
+        "SECURITY STATUS"
+      ],
+      "function_names": [
+        "ownerIds"
+      ],
+      "env_mentions": [
+        "JWT_SECRET",
+        "PAYFAST_ENABLED",
+        "PAYFAST_SANDBOX",
+        "WORDPRESS_URL"
+      ]
+    },
+    {
+      "legacy_file": "50-deployment.js",
+      "path": "legacy\\serena-skills\\50-deployment.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "uncategorized_review_required"
+      ],
+      "line_count": 136,
+      "character_count": 4103,
+      "triggers": [
+        "DEPLOY:",
+        "RESTART BOT"
+      ],
+      "function_names": [
+        "execFileAsync",
+        "isOwner",
+        "parseDeployIntent"
+      ],
+      "env_mentions": []
+    },
+    {
+      "legacy_file": "51-ai-teacher.js",
+      "path": "legacy\\serena-skills\\51-ai-teacher.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "crm_patient_records",
+        "marketing_communications",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content",
+        "assistant_core_admin"
+      ],
+      "line_count": 186,
+      "character_count": 8064,
+      "triggers": [
+        "CREATE LESSON:",
+        "HEALTH QUIZ:",
+        "PATIENT EDUCATION:",
+        "QUIZ:",
+        "TEACH TOPIC:"
+      ],
+      "function_names": [],
+      "env_mentions": [
+        "PATIENT"
+      ]
+    },
+    {
+      "legacy_file": "52-corporate-wellness.js",
+      "path": "legacy\\serena-skills\\52-corporate-wellness.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "membership_programmes_subscriptions",
+        "ecommerce_woocommerce_store",
+        "crm_patient_records",
+        "marketing_communications",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content",
+        "assistant_core_admin"
+      ],
+      "line_count": 196,
+      "character_count": 8198,
+      "triggers": [
+        "B2B LEAD:",
+        "CORPORATE PROPOSAL:",
+        "WELLNESS PROGRAM:",
+        "WELLNESS TALK:"
+      ],
+      "function_names": [],
+      "env_mentions": [
+        "CRM"
+      ]
+    },
+    {
+      "legacy_file": "53-affiliate.js",
+      "path": "legacy\\serena-skills\\53-affiliate.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "ecommerce_woocommerce_store",
+        "analytics_reporting",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content"
+      ],
+      "line_count": 60,
+      "character_count": 2029,
+      "triggers": [
+        "AFFILIATE PRODUCTS",
+        "PRODUCT LINKS:"
+      ],
+      "function_names": [],
+      "env_mentions": []
+    },
+    {
+      "legacy_file": "54-video-edit.js",
+      "path": "legacy\\serena-skills\\54-video-edit.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "ecommerce_woocommerce_store",
+        "marketing_communications",
+        "websites_wordpress_content",
+        "assistant_core_admin"
+      ],
+      "line_count": 84,
+      "character_count": 2816,
+      "triggers": [
+        "AUTO CAPTION:",
+        "EDIT VIDEO:"
+      ],
+      "function_names": [
+        "ensureOutputDir",
+        "stamp",
+        "toSrt"
+      ],
+      "env_mentions": []
+    },
+    {
+      "legacy_file": "55-Research.js",
+      "path": "legacy\\serena-skills\\55-Research.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "clinical_health_patient_ops",
+        "assistant_core_admin"
+      ],
+      "line_count": 54,
+      "character_count": 2270,
+      "triggers": [
+        "PUBMED",
+        "research-fetch",
+        "systematic-review-find"
+      ],
+      "function_names": [],
+      "env_mentions": [
+        "API"
+      ]
+    },
+    {
+      "legacy_file": "56-CrmSync.js",
+      "path": "legacy\\serena-skills\\56-CrmSync.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "crm_patient_records",
+        "clinical_health_patient_ops"
+      ],
+      "line_count": 57,
+      "character_count": 2319,
+      "triggers": [
+        "ADD PATIENT:",
+        "CLICKUP_SPACE_PATIENTS",
+        "CRM SYNC:",
+        "CU SETUP",
+        "CU TASK:",
+        "IMPORT CSV:",
+        "SYNC PATIENTS"
+      ],
+      "function_names": [],
+      "env_mentions": [
+        "API",
+        "CLICKUP_API_KEY",
+        "CLICKUP_SPACE_PATIENTS",
+        "CRM",
+        "CRMSYNC",
+        "PATIENT",
+        "PATIENTS"
+      ]
+    },
+    {
+      "legacy_file": "57-LabResultsInterpreter.js",
+      "path": "legacy\\serena-skills\\57-LabResultsInterpreter.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "clinical_health_patient_ops",
+        "crm_patient_records",
+        "marketing_communications",
+        "assistant_core_admin"
+      ],
+      "line_count": 66,
+      "character_count": 2852,
+      "triggers": [
+        "INTERPRET LAB:",
+        "LAB RESULTS:",
+        "READ LAB:"
+      ],
+      "function_names": [],
+      "env_mentions": []
+    },
+    {
+      "legacy_file": "58-ApptReminders.js",
+      "path": "legacy\\serena-skills\\58-ApptReminders.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "ecommerce_woocommerce_store",
+        "crm_patient_records",
+        "clinical_health_patient_ops",
+        "assistant_core_admin"
+      ],
+      "line_count": 168,
+      "character_count": 6303,
+      "triggers": [
+        "REMINDER STATUS",
+        "SEND REMINDERS",
+        "TEST REMINDER:"
+      ],
+      "function_names": [
+        "buildReminderMessage",
+        "getCalendarClient",
+        "listUpcomingAppointments",
+        "upcoming"
+      ],
+      "env_mentions": [
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        "GOOGLE_REFRESH_TOKEN"
+      ]
+    },
+    {
+      "legacy_file": "59-ContentRepurposeEngine.js",
+      "path": "legacy\\serena-skills\\59-ContentRepurposeEngine.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "crm_patient_records",
+        "marketing_communications",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content",
+        "assistant_core_admin"
+      ],
+      "line_count": 72,
+      "character_count": 3258,
+      "triggers": [
+        "CONTENT VARIANTS:",
+        "REPURPOSE CONTENT:",
+        "REPURPOSE:"
+      ],
+      "function_names": [],
+      "env_mentions": [
+        "API"
+      ]
+    },
+    {
+      "legacy_file": "60-browser.js",
+      "path": "legacy\\serena-skills\\60-browser.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "crm_patient_records",
+        "marketing_communications",
+        "websites_wordpress_content",
+        "assistant_core_admin"
+      ],
+      "line_count": 136,
+      "character_count": 5225,
+      "triggers": [
+        "BROWSE:",
+        "BROWSER:",
+        "FILL FORM:",
+        "SCRAPE PAGE:",
+        "SCREENSHOT:"
+      ],
+      "function_names": [],
+      "env_mentions": [
+        "API"
+      ]
+    },
+    {
+      "legacy_file": "61-web-search.js",
+      "path": "legacy\\serena-skills\\61-web-search.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "clinical_health_patient_ops",
+        "websites_wordpress_content",
+        "assistant_core_admin"
+      ],
+      "line_count": 102,
+      "character_count": 3418,
+      "triggers": [
+        "COMPETITOR:",
+        "FIND NEWS:",
+        "RESEARCH COMPARE:",
+        "RESEARCH PAGE:",
+        "RESEARCH STATUS",
+        "RESEARCH:",
+        "SEARCH STATUS",
+        "SEARCH:",
+        "SEARXNG STATUS",
+        "WEB SEARCH:"
+      ],
+      "function_names": [
+        "cleanText",
+        "formatResearchErrorResponse",
+        "getResearchApi",
+        "getResearchSkill"
+      ],
+      "env_mentions": []
+    },
+    {
+      "legacy_file": "62-memory.js",
+      "path": "legacy\\serena-skills\\62-memory.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "membership_programmes_subscriptions",
+        "crm_patient_records",
+        "marketing_communications",
+        "clinical_health_patient_ops",
+        "assistant_core_admin"
+      ],
+      "line_count": 402,
+      "character_count": 12575,
+      "triggers": [
+        "FORGET:",
+        "MEMORY LIST",
+        "RECALL:",
+        "REMEMBER:"
+      ],
+      "function_names": [
+        "buildNaturalFactsFromSentence",
+        "cleanText",
+        "deriveFallbackKey",
+        "formatMcpMemoryText",
+        "formatResultsByType",
+        "mirrorFactToMcpMemory",
+        "normalizeText",
+        "searchMcpMemory",
+        "section",
+        "titleCaseWords",
+        "trimAtEmbeddedCommand"
+      ],
+      "env_mentions": [
+        "REMEMBER"
+      ]
+    },
+    {
+      "legacy_file": "63-files.js",
+      "path": "legacy\\serena-skills\\63-files.js",
+      "status": "converted_or_merged",
+      "groups": [
+        "crm_patient_records",
+        "marketing_communications",
+        "analytics_reporting",
+        "assistant_core_admin"
+      ],
+      "line_count": 99,
+      "character_count": 3900,
+      "triggers": [
+        "MCP DIR:",
+        "MCP FILE READ:",
+        "MCP FILE SEARCH:",
+        "MCP FILE WRITE:"
+      ],
+      "function_names": [],
+      "env_mentions": [
+        "API"
+      ]
+    },
+    {
+      "legacy_file": "64-github.js",
+      "path": "legacy\\serena-skills\\64-github.js",
+      "status": "converted_or_merged",
+      "groups": [
+        "crm_patient_records",
+        "marketing_communications",
+        "analytics_reporting",
+        "clinical_health_patient_ops",
+        "assistant_core_admin"
+      ],
+      "line_count": 133,
+      "character_count": 5032,
+      "triggers": [
+        "BUG REPORT:",
+        "CODE REQUEST:",
+        "GITHUB ISSUE:",
+        "GITHUB READ:",
+        "GITHUB STATUS"
+      ],
+      "function_names": [],
+      "env_mentions": [
+        "GITHUB_TOKEN"
+      ]
+    },
+    {
+      "legacy_file": "65-location.js",
+      "path": "legacy\\serena-skills\\65-location.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "crm_patient_records",
+        "marketing_communications",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content",
+        "assistant_core_admin"
+      ],
+      "line_count": 101,
+      "character_count": 3854,
+      "triggers": [
+        "DIRECTIONS:",
+        "FIND NEARBY:",
+        "LOCATE:",
+        "MAP SEARCH:"
+      ],
+      "function_names": [],
+      "env_mentions": [
+        "GOOGLE_MAPS_API_KEY"
+      ]
+    },
+    {
+      "legacy_file": "66-mcp-status.js",
+      "path": "legacy\\serena-skills\\66-mcp-status.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "crm_patient_records",
+        "marketing_communications",
+        "clinical_health_patient_ops",
+        "assistant_core_admin"
+      ],
+      "line_count": 131,
+      "character_count": 4921,
+      "triggers": [
+        "MCP CALL:",
+        "MCP STATUS",
+        "MCP TOOLS:"
+      ],
+      "function_names": [
+        "getAllTools",
+        "serverLines"
+      ],
+      "env_mentions": [
+        "API"
+      ]
+    },
+    {
+      "legacy_file": "67-documents.js",
+      "path": "legacy\\serena-skills\\67-documents.js",
+      "status": "converted_or_merged",
+      "groups": [
+        "ecommerce_woocommerce_store",
+        "crm_patient_records",
+        "marketing_communications",
+        "analytics_reporting",
+        "clinical_health_patient_ops",
+        "assistant_core_admin"
+      ],
+      "line_count": 145,
+      "character_count": 5333,
+      "triggers": [
+        "CREATE DOCX:",
+        "CREATE EXCEL:",
+        "CREATE PDF:",
+        "CREATE WORD:",
+        "CREATE XLSX:",
+        "EXPORT PDF:"
+      ],
+      "function_names": [
+        "deriveTitleAndBrief",
+        "extractJsonBlock",
+        "generateNarrative",
+        "generateWorkbookData"
+      ],
+      "env_mentions": [
+        "DOCS"
+      ]
+    },
+    {
+      "legacy_file": "68-autonomous-mode.js",
+      "path": "legacy\\serena-skills\\68-autonomous-mode.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "analytics_reporting",
+        "clinical_health_patient_ops"
+      ],
+      "line_count": 53,
+      "character_count": 1870,
+      "triggers": [
+        "AUTO OFF",
+        "AUTO ON",
+        "AUTO REPORT",
+        "AUTO STATUS",
+        "CLEAR PENDING",
+        "PENDING"
+      ],
+      "function_names": [],
+      "env_mentions": []
+    },
+    {
+      "legacy_file": "69-monetization-orchestrator.js",
+      "path": "legacy\\serena-skills\\69-monetization-orchestrator.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "membership_programmes_subscriptions",
+        "ecommerce_woocommerce_store",
+        "marketing_communications",
+        "analytics_reporting",
+        "clinical_health_patient_ops",
+        "assistant_core_admin"
+      ],
+      "line_count": 156,
+      "character_count": 5593,
+      "triggers": [
+        "MONETIZATION PLAN:",
+        "MONETIZATION STATUS",
+        "REVENUE ACTIONS",
+        "REVENUE PLAN:"
+      ],
+      "function_names": [
+        "formatOutputSync",
+        "formatPlan"
+      ],
+      "env_mentions": []
+    },
+    {
+      "legacy_file": "70-conversion-optimizer.js",
+      "path": "legacy\\serena-skills\\70-conversion-optimizer.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "membership_programmes_subscriptions",
+        "ecommerce_woocommerce_store",
+        "crm_patient_records",
+        "marketing_communications",
+        "analytics_reporting",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content"
+      ],
+      "line_count": 124,
+      "character_count": 4244,
+      "triggers": [
+        "CONVERSION FIX:",
+        "CRO AUDIT:",
+        "CTA PLAN:",
+        "FUNNEL FIX:"
+      ],
+      "function_names": [
+        "formatCroAudit",
+        "formatOutputSync"
+      ],
+      "env_mentions": []
+    },
+    {
+      "legacy_file": "71-digital-products.js",
+      "path": "legacy\\serena-skills\\71-digital-products.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "ecommerce_woocommerce_store",
+        "marketing_communications",
+        "analytics_reporting",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content"
+      ],
+      "line_count": 119,
+      "character_count": 4510,
+      "triggers": [
+        "DIGITAL PRODUCT:",
+        "PRODUCT CATALOG",
+        "PRODUCT LAUNCH:",
+        "PRODUCT PAGE:"
+      ],
+      "function_names": [
+        "cleanPayload",
+        "formatOutputSync",
+        "formatProductPlan",
+        "shouldPublish"
+      ],
+      "env_mentions": [
+        "WORDPRESS_DEFAULT_PAGE_STATUS"
+      ]
+    },
+    {
+      "legacy_file": "72-affiliate-engine.js",
+      "path": "legacy\\serena-skills\\72-affiliate-engine.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "ecommerce_woocommerce_store",
+        "marketing_communications",
+        "analytics_reporting",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content"
+      ],
+      "line_count": 131,
+      "character_count": 5075,
+      "triggers": [
+        "AFFILIATE ENGINE:",
+        "AFFILIATE PAGE:",
+        "AFFILIATE PLAN:",
+        "PARTNER OFFERS:"
+      ],
+      "function_names": [
+        "formatAffiliatePlan",
+        "formatOutputSync",
+        "stripPublish",
+        "wantsPublish"
+      ],
+      "env_mentions": [
+        "WORDPRESS_AFFILIATE_PAGE_SLUG",
+        "WORDPRESS_AFFILIATE_PAGE_TITLE",
+        "WORDPRESS_DEFAULT_PAGE_STATUS"
+      ]
+    },
+    {
+      "legacy_file": "73-website-revenue-audit.js",
+      "path": "legacy\\serena-skills\\73-website-revenue-audit.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "membership_programmes_subscriptions",
+        "ecommerce_woocommerce_store",
+        "crm_patient_records",
+        "marketing_communications",
+        "analytics_reporting",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content"
+      ],
+      "line_count": 108,
+      "character_count": 3956,
+      "triggers": [
+        "MONETIZATION AUDIT:",
+        "REVENUE AUDIT:",
+        "SITE MONETIZATION:",
+        "WEBSITE REVENUE AUDIT"
+      ],
+      "function_names": [
+        "formatAudit",
+        "formatOutputSync"
+      ],
+      "env_mentions": [
+        "WORDPRESS_URL"
+      ]
+    },
+    {
+      "legacy_file": "74-freelance-services.js",
+      "path": "legacy\\serena-skills\\74-freelance-services.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "crm_patient_records",
+        "marketing_communications",
+        "clinical_health_patient_ops"
+      ],
+      "line_count": 108,
+      "character_count": 4010,
+      "triggers": [
+        "CLIENT SERVICE:",
+        "FREELANCE SERVICE:",
+        "REMOTE OFFER:",
+        "SERVICE PACKAGE:"
+      ],
+      "function_names": [
+        "formatOutputSync",
+        "formatServicePack"
+      ],
+      "env_mentions": [
+        "CLIENT"
+      ]
+    },
+    {
+      "legacy_file": "75-agency-offers.js",
+      "path": "legacy\\serena-skills\\75-agency-offers.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "marketing_communications",
+        "clinical_health_patient_ops",
+        "assistant_core_admin"
+      ],
+      "line_count": 106,
+      "character_count": 3890,
+      "triggers": [
+        "AGENCY OFFER:",
+        "AGENCY PACKAGE:",
+        "CONSULTING OFFER:",
+        "SERVICE PROPOSAL:"
+      ],
+      "function_names": [
+        "formatAgencyOffer",
+        "formatOutputSync"
+      ],
+      "env_mentions": []
+    },
+    {
+      "legacy_file": "75-research-operator.js",
+      "path": "legacy\\serena-skills\\75-research-operator.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "crm_patient_records",
+        "marketing_communications",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content",
+        "assistant_core_admin"
+      ],
+      "line_count": 85,
+      "character_count": 2725,
+      "triggers": [
+        "RESEARCH COMPARE:",
+        "RESEARCH PAGE:",
+        "RESEARCH STATUS",
+        "RESEARCH:",
+        "SEARCH STATUS",
+        "SEARXNG STATUS"
+      ],
+      "function_names": [
+        "cleanText",
+        "formatResearchErrorResponse",
+        "getOperator"
+      ],
+      "env_mentions": []
+    },
+    {
+      "legacy_file": "76-knowledge-business.js",
+      "path": "legacy\\serena-skills\\76-knowledge-business.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "membership_programmes_subscriptions",
+        "ecommerce_woocommerce_store",
+        "marketing_communications",
+        "clinical_health_patient_ops"
+      ],
+      "line_count": 94,
+      "character_count": 3601,
+      "triggers": [
+        "COURSE PLAN:",
+        "KNOWLEDGE BUSINESS:",
+        "MEMBERSHIP MODEL:",
+        "NEWSLETTER BUSINESS:"
+      ],
+      "function_names": [
+        "formatKnowledgeBusiness",
+        "formatOutputSync"
+      ],
+      "env_mentions": [
+        "MEMBERSHIP"
+      ]
+    },
+    {
+      "legacy_file": "77-ecommerce-operations.js",
+      "path": "legacy\\serena-skills\\77-ecommerce-operations.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "ecommerce_woocommerce_store",
+        "clinical_health_patient_ops"
+      ],
+      "line_count": 81,
+      "character_count": 3060,
+      "triggers": [
+        "ECOMMERCE OPS:",
+        "PRODUCT OPS:",
+        "SHOP STRATEGY:",
+        "STORE PLAN:"
+      ],
+      "function_names": [
+        "formatEcommerceOps"
+      ],
+      "env_mentions": []
+    },
+    {
+      "legacy_file": "78-fullstack-builder.js",
+      "path": "legacy\\serena-skills\\78-fullstack-builder.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "ecommerce_woocommerce_store",
+        "marketing_communications",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content"
+      ],
+      "line_count": 131,
+      "character_count": 5207,
+      "triggers": [
+        "APP PLAN:",
+        "FULLSTACK BUILD:",
+        "SAAS BUILD:",
+        "WEBSITE BUILD:"
+      ],
+      "function_names": [
+        "formatBuildPlan",
+        "formatSection"
+      ],
+      "env_mentions": [
+        "API"
+      ]
+    },
+    {
+      "legacy_file": "79-uiux-architect.js",
+      "path": "legacy\\serena-skills\\79-uiux-architect.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "ecommerce_woocommerce_store",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content",
+        "assistant_core_admin"
+      ],
+      "line_count": 82,
+      "character_count": 3130,
+      "triggers": [
+        "APP UX:",
+        "DESIGN SYSTEM:",
+        "LANDING PAGE UX:",
+        "UIUX ARCHITECT:"
+      ],
+      "function_names": [
+        "formatUiUx"
+      ],
+      "env_mentions": []
+    },
+    {
+      "legacy_file": "80-dependency-manager.js",
+      "path": "legacy\\serena-skills\\80-dependency-manager.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "ecommerce_woocommerce_store",
+        "clinical_health_patient_ops"
+      ],
+      "line_count": 95,
+      "character_count": 3533,
+      "triggers": [
+        "DEPENDENCY PLAN:",
+        "INSTALL REVIEW:",
+        "PACKAGE GAP:",
+        "STACK CHECK:"
+      ],
+      "function_names": [
+        "formatDependencyPlan"
+      ],
+      "env_mentions": []
+    },
+    {
+      "legacy_file": "81-project-scaffold.js",
+      "path": "legacy\\serena-skills\\81-project-scaffold.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "ecommerce_woocommerce_store",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content"
+      ],
+      "line_count": 111,
+      "character_count": 4044,
+      "triggers": [
+        "PROJECT SCAFFOLD:",
+        "SCAFFOLD APP:",
+        "SCAFFOLD SITE:",
+        "STACK BLUEPRINT:"
+      ],
+      "function_names": [
+        "cleanPayload",
+        "formatScaffold",
+        "wantsWrite"
+      ],
+      "env_mentions": []
+    },
+    {
+      "legacy_file": "82-app-launch-manager.js",
+      "path": "legacy\\serena-skills\\82-app-launch-manager.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "ecommerce_woocommerce_store",
+        "marketing_communications",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content"
+      ],
+      "line_count": 107,
+      "character_count": 4146,
+      "triggers": [
+        "APP LAUNCH:",
+        "DEPLOYMENT PLAN:",
+        "GO LIVE:",
+        "LAUNCH CHECKLIST:"
+      ],
+      "function_names": [
+        "fmt",
+        "formatLaunchPlan"
+      ],
+      "env_mentions": []
+    },
+    {
+      "legacy_file": "83-vscode-builder.js",
+      "path": "legacy\\serena-skills\\83-vscode-builder.js",
+      "status": "converted_or_merged",
+      "groups": [
+        "uncategorized_review_required"
+      ],
+      "line_count": 93,
+      "character_count": 3185,
+      "triggers": [
+        "ANALYZE PROJECT:",
+        "BUILD AGENT:",
+        "BUILD AI APP:",
+        "BUILD APP:",
+        "BUILD BACKEND:",
+        "BUILD CLOUD APP:",
+        "BUILD DESKTOP APP:",
+        "BUILD MOBILE APP:",
+        "CREATE TEMPLATE:",
+        "PATCH WORKSPACE:",
+        "RUN WORKSPACE:",
+        "VSCODE BUILDER STATUS"
+      ],
+      "function_names": [],
+      "env_mentions": []
+    },
+    {
+      "legacy_file": "84-github-orchestrator.js",
+      "path": "legacy\\serena-skills\\84-github-orchestrator.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "ecommerce_woocommerce_store",
+        "crm_patient_records",
+        "marketing_communications",
+        "analytics_reporting",
+        "websites_wordpress_content"
+      ],
+      "line_count": 93,
+      "character_count": 3147,
+      "triggers": [
+        "GITHUB PLATFORM STATUS",
+        "GITHUB REPO MAP",
+        "GITHUB SAVE ARTIFACT:"
+      ],
+      "function_names": [
+        "repoDefaults"
+      ],
+      "env_mentions": [
+        "GITHUB_TOKEN"
+      ]
+    },
+    {
+      "legacy_file": "85-esignature.js",
+      "path": "legacy\\serena-skills\\85-esignature.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "ecommerce_woocommerce_store",
+        "crm_patient_records",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content"
+      ],
+      "line_count": 932,
+      "character_count": 33280,
+      "triggers": [
+        "ESIGN:",
+        "SIGN PDF:",
+        "SIGNATURE ARCHIVE:",
+        "SIGNATURE CANCEL:",
+        "SIGNATURE REMINDER:",
+        "SIGNATURE REQUEST:",
+        "SIGNATURE STATUS:"
+      ],
+      "function_names": [
+        "archiveCompletedSubmission",
+        "buildDocusealFailureMessage",
+        "buildOwnerOnlyMessage",
+        "ensureRecordForRequest",
+        "executeLiveCancel",
+        "executeLiveCreate",
+        "fetchStatusFromProvider",
+        "getDocusealClient",
+        "getDocusealConfig",
+        "handleArchiveRequest",
+        "handleCancelRequest",
+        "handleCreateRequest",
+        "handleDirectApprovalExecution",
+        "handleReminderRequest",
+        "handleStatusRequest",
+        "hasDocuSealConfig",
+        "install",
+        "isApprovalQueueAvailable",
+        "isDocusealReady",
+        "isLiveModeEnabled",
+        "loadRecord",
+        "logDocusealConfig",
+        "normalizeStatusText",
+        "parseBool",
+        "prepareLiveSubmission",
+        "queueApprovalForLiveAction",
+        "remindPendingSigners",
+        "resolveDocusealArtifacts",
+        "sanitizeNameForExternalId"
+      ],
+      "env_mentions": [
+        "DOCUSEAL_API_KEY",
+        "DOCUSEAL_API_URL",
+        "GOOGLE_DRIVE_TIMEOUT_MS"
+      ]
+    },
+    {
+      "legacy_file": "98-lead-funnel.js",
+      "path": "legacy\\serena-skills\\98-lead-funnel.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "membership_programmes_subscriptions",
+        "crm_patient_records",
+        "marketing_communications",
+        "clinical_health_patient_ops",
+        "websites_wordpress_content",
+        "assistant_core_admin"
+      ],
+      "line_count": 98,
+      "character_count": 6446,
+      "triggers": [
+        "ABANDONED BOOKING:",
+        "LEAD MAGNET:",
+        "PATIENT FUNNEL:",
+        "RE-ENGAGE:",
+        "WELCOME SEQUENCE:"
+      ],
+      "function_names": [
+        "safe"
+      ],
+      "env_mentions": [
+        "PATIENT"
+      ]
+    },
+    {
+      "legacy_file": "99-self-evolve.js",
+      "path": "legacy\\serena-skills\\99-self-evolve.js",
+      "status": "remaining_or_unconfirmed",
+      "groups": [
+        "membership_programmes_subscriptions",
+        "ecommerce_woocommerce_store",
+        "marketing_communications",
+        "analytics_reporting",
+        "clinical_health_patient_ops",
+        "assistant_core_admin"
+      ],
+      "line_count": 524,
+      "character_count": 16536,
+      "triggers": [
+        "ACTIVATE SKILL:",
+        "EVOLVE:",
+        "GAP ANALYSIS",
+        "ROLLBACK SKILL:",
+        "SKILL STATUS",
+        "TEST SKILL:"
+      ],
+      "function_names": [
+        "activateSkill",
+        "backupExistingSkill",
+        "buildMockContext",
+        "ensureState",
+        "evolveSkill",
+        "extractCodeBlock",
+        "findRequiredPackages",
+        "generateSkillCode",
+        "getOwnerIds",
+        "handleSkillStatus",
+        "incrementVersion",
+        "inferSkillFileName",
+        "isOwner",
+        "listAvailablePackages",
+        "normaliseFileName",
+        "readManifest",
+        "readState",
+        "rollbackSkill",
+        "runGapAnalysis",
+        "scanRecentLogs",
+        "testSkill",
+        "validateGeneratedCode",
+        "writeManifest",
+        "writeState"
+      ],
+      "env_mentions": []
+    }
+  ],
+  "groups": {
+    "crm_patient_records": [
+      "01-crm.js",
+      "02-reporting.js",
+      "04-calendar.js",
+      "05-social.js",
+      "06-notebook.js",
+      "08-google-docs.js",
+      "09-finance.js",
+      "10-payfast.js",
+      "12-analytics.js",
+      "15-video-script.js",
+      "16-ebook.js",
+      "17-newsletter.js",
+      "19-email-marketing.js",
+      "20-booking.js",
+      "21-membership.js",
+      "22-leadmagnet.js",
+      "23-telehealth.js",
+      "24-compliance-guard.js",
+      "25-compliance.js",
+      "26-canva.js",
+      "28-email-funnel.js",
+      "34-voice-out.js",
+      "36-voice-in.js",
+      "38-summarise.js",
+      "42-automation.js",
+      "44-hubspot.js",
+      "46-database.js",
+      "47-health-monitor.js",
+      "51-ai-teacher.js",
+      "52-corporate-wellness.js",
+      "56-CrmSync.js",
+      "57-LabResultsInterpreter.js",
+      "58-ApptReminders.js",
+      "59-ContentRepurposeEngine.js",
+      "60-browser.js",
+      "62-memory.js",
+      "63-files.js",
+      "64-github.js",
+      "65-location.js",
+      "66-mcp-status.js",
+      "67-documents.js",
+      "70-conversion-optimizer.js",
+      "73-website-revenue-audit.js",
+      "74-freelance-services.js",
+      "75-research-operator.js",
+      "84-github-orchestrator.js",
+      "85-esignature.js",
+      "98-lead-funnel.js"
+    ],
+    "clinical_health_patient_ops": [
+      "01-crm.js",
+      "02-reporting.js",
+      "04-calendar.js",
+      "05-social.js",
+      "06-notebook.js",
+      "09-finance.js",
+      "10-payfast.js",
+      "11-whatsapp.js",
+      "12-analytics.js",
+      "14-podcast.js",
+      "15-video-script.js",
+      "16-ebook.js",
+      "17-newsletter.js",
+      "18-blog.js",
+      "19-email-marketing.js",
+      "20-booking.js",
+      "21-membership.js",
+      "22-leadmagnet.js",
+      "23-telehealth.js",
+      "24-compliance-guard.js",
+      "25-compliance.js",
+      "26-canva.js",
+      "27-gemini.js",
+      "28-email-funnel.js",
+      "29-ecommerce.js",
+      "30-seo-audit.js",
+      "31-flux-image.js",
+      "32-video-generator.js",
+      "33-mistral.js",
+      "35-translate.js",
+      "37-ocr.js",
+      "38-summarise.js",
+      "41-vscode.js",
+      "42-automation.js",
+      "43-clickup.js",
+      "46-database.js",
+      "47-health-monitor.js",
+      "48-notifications.js",
+      "51-ai-teacher.js",
+      "52-corporate-wellness.js",
+      "53-affiliate.js",
+      "55-Research.js",
+      "56-CrmSync.js",
+      "57-LabResultsInterpreter.js",
+      "58-ApptReminders.js",
+      "59-ContentRepurposeEngine.js",
+      "61-web-search.js",
+      "62-memory.js",
+      "64-github.js",
+      "65-location.js",
+      "66-mcp-status.js",
+      "67-documents.js",
+      "68-autonomous-mode.js",
+      "69-monetization-orchestrator.js",
+      "70-conversion-optimizer.js",
+      "71-digital-products.js",
+      "72-affiliate-engine.js",
+      "73-website-revenue-audit.js",
+      "74-freelance-services.js",
+      "75-agency-offers.js",
+      "75-research-operator.js",
+      "76-knowledge-business.js",
+      "77-ecommerce-operations.js",
+      "78-fullstack-builder.js",
+      "79-uiux-architect.js",
+      "80-dependency-manager.js",
+      "81-project-scaffold.js",
+      "82-app-launch-manager.js",
+      "85-esignature.js",
+      "98-lead-funnel.js",
+      "99-self-evolve.js"
+    ],
+    "assistant_core_admin": [
+      "01-crm.js",
+      "05-social.js",
+      "06-notebook.js",
+      "07-assets.js",
+      "08-google-docs.js",
+      "09-finance.js",
+      "12-analytics.js",
+      "14-podcast.js",
+      "15-video-script.js",
+      "16-ebook.js",
+      "17-newsletter.js",
+      "18-blog.js",
+      "19-email-marketing.js",
+      "20-booking.js",
+      "21-membership.js",
+      "22-leadmagnet.js",
+      "23-telehealth.js",
+      "24-compliance-guard.js",
+      "25-compliance.js",
+      "26-canva.js",
+      "27-gemini.js",
+      "28-email-funnel.js",
+      "29-ecommerce.js",
+      "30-seo-audit.js",
+      "32-video-generator.js",
+      "33-mistral.js",
+      "34-voice-out.js",
+      "35-translate.js",
+      "36-voice-in.js",
+      "37-ocr.js",
+      "38-summarise.js",
+      "40-image-caption.js",
+      "42-automation.js",
+      "43-clickup.js",
+      "45-payflow.js",
+      "47-health-monitor.js",
+      "48-notifications.js",
+      "49-security.js",
+      "51-ai-teacher.js",
+      "52-corporate-wellness.js",
+      "54-video-edit.js",
+      "55-Research.js",
+      "57-LabResultsInterpreter.js",
+      "58-ApptReminders.js",
+      "59-ContentRepurposeEngine.js",
+      "60-browser.js",
+      "61-web-search.js",
+      "62-memory.js",
+      "63-files.js",
+      "64-github.js",
+      "65-location.js",
+      "66-mcp-status.js",
+      "67-documents.js",
+      "69-monetization-orchestrator.js",
+      "75-agency-offers.js",
+      "75-research-operator.js",
+      "79-uiux-architect.js",
+      "98-lead-funnel.js",
+      "99-self-evolve.js"
+    ],
+    "analytics_reporting": [
+      "02-reporting.js",
+      "12-analytics.js",
+      "25-compliance.js",
+      "29-ecommerce.js",
+      "30-seo-audit.js",
+      "37-ocr.js",
+      "38-summarise.js",
+      "42-automation.js",
+      "43-clickup.js",
+      "45-payflow.js",
+      "49-security.js",
+      "53-affiliate.js",
+      "63-files.js",
+      "64-github.js",
+      "67-documents.js",
+      "68-autonomous-mode.js",
+      "69-monetization-orchestrator.js",
+      "70-conversion-optimizer.js",
+      "71-digital-products.js",
+      "72-affiliate-engine.js",
+      "73-website-revenue-audit.js",
+      "84-github-orchestrator.js",
+      "99-self-evolve.js"
+    ],
+    "membership_programmes_subscriptions": [
+      "02-reporting.js",
+      "12-analytics.js",
+      "21-membership.js",
+      "28-email-funnel.js",
+      "45-payflow.js",
+      "52-corporate-wellness.js",
+      "62-memory.js",
+      "69-monetization-orchestrator.js",
+      "70-conversion-optimizer.js",
+      "73-website-revenue-audit.js",
+      "76-knowledge-business.js",
+      "98-lead-funnel.js",
+      "99-self-evolve.js"
+    ],
+    "ecommerce_woocommerce_store": [
+      "02-reporting.js",
+      "04-calendar.js",
+      "06-notebook.js",
+      "10-payfast.js",
+      "11-whatsapp.js",
+      "12-analytics.js",
+      "20-booking.js",
+      "21-membership.js",
+      "27-gemini.js",
+      "29-ecommerce.js",
+      "32-video-generator.js",
+      "38-summarise.js",
+      "45-payflow.js",
+      "49-security.js",
+      "52-corporate-wellness.js",
+      "53-affiliate.js",
+      "54-video-edit.js",
+      "58-ApptReminders.js",
+      "67-documents.js",
+      "69-monetization-orchestrator.js",
+      "70-conversion-optimizer.js",
+      "71-digital-products.js",
+      "72-affiliate-engine.js",
+      "73-website-revenue-audit.js",
+      "76-knowledge-business.js",
+      "77-ecommerce-operations.js",
+      "78-fullstack-builder.js",
+      "79-uiux-architect.js",
+      "80-dependency-manager.js",
+      "81-project-scaffold.js",
+      "82-app-launch-manager.js",
+      "84-github-orchestrator.js",
+      "85-esignature.js",
+      "99-self-evolve.js"
+    ],
+    "marketing_communications": [
+      "02-reporting.js",
+      "03-gdrive.js",
+      "05-social.js",
+      "06-notebook.js",
+      "07-assets.js",
+      "08-google-docs.js",
+      "11-whatsapp.js",
+      "14-podcast.js",
+      "15-video-script.js",
+      "16-ebook.js",
+      "17-newsletter.js",
+      "18-blog.js",
+      "19-email-marketing.js",
+      "21-membership.js",
+      "22-leadmagnet.js",
+      "23-telehealth.js",
+      "24-compliance-guard.js",
+      "25-compliance.js",
+      "26-canva.js",
+      "27-gemini.js",
+      "28-email-funnel.js",
+      "29-ecommerce.js",
+      "30-seo-audit.js",
+      "31-flux-image.js",
+      "32-video-generator.js",
+      "33-mistral.js",
+      "35-translate.js",
+      "37-ocr.js",
+      "38-summarise.js",
+      "39-remove-bg.js",
+      "40-image-caption.js",
+      "41-vscode.js",
+      "42-automation.js",
+      "44-hubspot.js",
+      "49-security.js",
+      "51-ai-teacher.js",
+      "52-corporate-wellness.js",
+      "54-video-edit.js",
+      "57-LabResultsInterpreter.js",
+      "59-ContentRepurposeEngine.js",
+      "60-browser.js",
+      "62-memory.js",
+      "63-files.js",
+      "64-github.js",
+      "65-location.js",
+      "66-mcp-status.js",
+      "67-documents.js",
+      "69-monetization-orchestrator.js",
+      "70-conversion-optimizer.js",
+      "71-digital-products.js",
+      "72-affiliate-engine.js",
+      "73-website-revenue-audit.js",
+      "74-freelance-services.js",
+      "75-agency-offers.js",
+      "75-research-operator.js",
+      "76-knowledge-business.js",
+      "78-fullstack-builder.js",
+      "82-app-launch-manager.js",
+      "84-github-orchestrator.js",
+      "98-lead-funnel.js",
+      "99-self-evolve.js"
+    ],
+    "websites_wordpress_content": [
+      "05-social.js",
+      "10-payfast.js",
+      "11-whatsapp.js",
+      "12-analytics.js",
+      "14-podcast.js",
+      "15-video-script.js",
+      "18-blog.js",
+      "22-leadmagnet.js",
+      "24-compliance-guard.js",
+      "27-gemini.js",
+      "28-email-funnel.js",
+      "29-ecommerce.js",
+      "30-seo-audit.js",
+      "31-flux-image.js",
+      "32-video-generator.js",
+      "33-mistral.js",
+      "37-ocr.js",
+      "38-summarise.js",
+      "39-remove-bg.js",
+      "42-automation.js",
+      "44-hubspot.js",
+      "47-health-monitor.js",
+      "49-security.js",
+      "51-ai-teacher.js",
+      "52-corporate-wellness.js",
+      "53-affiliate.js",
+      "54-video-edit.js",
+      "59-ContentRepurposeEngine.js",
+      "60-browser.js",
+      "61-web-search.js",
+      "65-location.js",
+      "70-conversion-optimizer.js",
+      "71-digital-products.js",
+      "72-affiliate-engine.js",
+      "73-website-revenue-audit.js",
+      "75-research-operator.js",
+      "78-fullstack-builder.js",
+      "79-uiux-architect.js",
+      "81-project-scaffold.js",
+      "82-app-launch-manager.js",
+      "84-github-orchestrator.js",
+      "85-esignature.js",
+      "98-lead-funnel.js"
+    ],
+    "uncategorized_review_required": [
+      "50-deployment.js",
+      "83-vscode-builder.js"
+    ]
+  }
+}
