@@ -12,6 +12,10 @@ from openjarvis.tools.serena_analytics import (
     SerenaAnalyticsSourceInfoTool,
     SerenaAnalyticsSourceListTool,
     SerenaAnalyticsStatusTool,
+    SerenaAnalyticsWebsiteSummaryTool,
+    SerenaAnalyticsGA4PlanTool,
+    SerenaAnalyticsWordpressSummaryTool,
+    SerenaAnalyticsWordpressPlanTool,
     SerenaAnalyticsCompareTool,
     SerenaAnalyticsSnapshotTool,
     SerenaAnalyticsFromFolderTool,
@@ -166,6 +170,59 @@ def compare(
         title=title,
         business=business,
         source=source,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@analytics.command("wordpress-plan")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--date-range", default="last 30 days", help="Date range.")
+@click.option("--goal", default="Analyze WordPress website performance.", help="Analytics goal.")
+def wordpress_plan(business: str, date_range: str, goal: str) -> None:
+    """Create a WordPress analytics plan."""
+    console = Console()
+    result = SerenaAnalyticsWordpressPlanTool().execute(business=business, date_range=date_range, goal=goal)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@analytics.command("wordpress-summary")
+@click.option("--metrics", required=True, help="WordPress/WooCommerce/Jetpack metrics as JSON or JSON-like text.")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--date-range", default="unspecified", help="Date range.")
+@click.option("--notes", default="", help="Optional notes.")
+def wordpress_summary(metrics: str, business: str, date_range: str, notes: str) -> None:
+    """Create a WordPress analytics summary from metrics."""
+    console = Console()
+    result = SerenaAnalyticsWordpressSummaryTool().execute(metrics=metrics, business=business, date_range=date_range, notes=notes)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@analytics.command("ga4-plan")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--date-range", default="last 30 days", help="Date range.")
+@click.option("--goal", default="Analyze GA4 website performance.", help="Analytics goal.")
+def ga4_plan(business: str, date_range: str, goal: str) -> None:
+    """Create a GA4 analytics plan."""
+    console = Console()
+    result = SerenaAnalyticsGA4PlanTool().execute(business=business, date_range=date_range, goal=goal)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@analytics.command("website-summary")
+@click.option("--metrics", required=True, help="Website metrics as JSON or JSON-like text.")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--date-range", default="unspecified", help="Date range.")
+@click.option("--source", default="website", help="Website analytics source.")
+@click.option("--notes", default="", help="Optional notes.")
+def website_summary(metrics: str, business: str, date_range: str, source: str, notes: str) -> None:
+    """Create a website analytics summary from metrics."""
+    console = Console()
+    result = SerenaAnalyticsWebsiteSummaryTool().execute(
+        metrics=metrics,
+        business=business,
+        date_range=date_range,
+        source=source,
+        notes=notes,
     )
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 

@@ -1045,6 +1045,298 @@ class SerenaAnalyticsCompareTool(_AnalyticsBaseTool):
             )
 
 
+def _source_plan_response(
+    title: str,
+    source_id: str,
+    business: str,
+    date_range: str,
+    goal: str,
+    extra_steps: list[str] | None = None,
+) -> ToolResult:
+    sources = _analytics_sources()
+    source = sources.get(source_id, {})
+    env = _env_status().get(source_id, {})
+    configured = bool(env.get("configured"))
+
+    steps = [
+        f"Confirm the business context: {business}.",
+        f"Confirm the date range: {date_range}.",
+        f"Check {source.get('name', source_id)} credentials without exposing secrets.",
+        "Identify available metrics and missing credentials.",
+        "Collect source data only when credentials and permissions are ready.",
+        "Create a local analytics snapshot.",
+        "Compare against previous period when possible.",
+        "Create recommendations and hand off to Reporting/Docs/Drive only with approval.",
+    ]
+
+    if extra_steps:
+        steps.extend(extra_steps)
+
+    plan = {
+        "report_type": f"serena_analytics_{source_id}_plan",
+        "created_at": _timestamp(),
+        "title": title,
+        "source_id": source_id,
+        "source": source,
+        "business": business,
+        "date_range": date_range,
+        "goal": goal,
+        "configured": configured,
+        "env_status": env,
+        "steps": steps,
+        "external_api_called": False,
+        "snapshot_created": False,
+        "changes_made": False,
+        "secret_values_exposed": False,
+        "hub_adapter": _hub_adapter_contract(),
+    }
+    report_path = _save_json("reports", f"{source_id}-plan-{business}", plan)
+
+    lines = [
+        title,
+        "",
+        f"- Business: {business}",
+        f"- Source: {source_id}",
+        f"- Source name: {source.get('name', source_id)}",
+        f"- Date range: {date_range}",
+        f"- Configured: {'yes' if configured else 'no'}",
+        f"- Plan: {report_path}",
+        "- External API called: no",
+        "- Snapshot created: no",
+        "- Changes made: no",
+        "- Secret values exposed: no",
+        "- Hub adapter: pending future dashboard",
+        "",
+        "Required environment:",
+    ]
+
+    required = env.get("required", [])
+    if required:
+        for item in required:
+            lines.append(f"- {item['name']} | present={'yes' if item['present'] else 'no'} | length={item['length']}")
+    else:
+        lines.append("- none")
+
+    lines.extend(["", "Metric targets:"])
+    for metric in source.get("metrics", []):
+        lines.append(f"- {metric}")
+
+    lines.extend(["", "Steps:"])
+    for step in steps:
+        lines.append(f"- {step}")
+
+    return ToolResult(
+        tool_name=f"serena_analytics_{source_id}_plan",
+        success=True,
+        content="\n".join(lines),
+        metadata={**plan, "report_path": str(report_path)},
+    )
+
+
+def _website_summary_data(
+    business: str,
+    date_range: str,
+    source: str,
+    metrics: dict[str, Any],
+    notes: str = "",
+) -> dict[str, Any]:
+    return {
+        "business": business,
+        "date_range": date_range,
+        "source": source,
+        "metrics": metrics,
+        "notes": notes,
+        "analysis_focus": [
+            "traffic",
+            "content performance",
+            "engagement",
+            "conversion signals",
+            "revenue signals",
+            "recommendations",
+        ],
+    }
+
+
+@ToolRegistry.register("serena_analytics_wordpress_plan")
+class SerenaAnalyticsWordpressPlanTool(_AnalyticsBaseTool):
+    tool_id = "serena_analytics_wordpress_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a WordPress/WooCommerce/Jetpack analytics collection plan without external API calls.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                    "date_range": {"type": "string"},
+                    "goal": {"type": "string"},
+                },
+            },
+            category="serena_analytics",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "General Business").strip()
+        date_range = str(params.get("date_range") or "last 30 days").strip()
+        goal = str(params.get("goal") or "Analyze WordPress website performance.").strip()
+        return _source_plan_response(
+            "Serena WordPress analytics plan",
+            "wordpress",
+            business,
+            date_range,
+            goal,
+            [
+                "Check whether WordPress uses Jetpack Stats, GA4, WooCommerce, or another analytics plugin.",
+                "Collect top pages/posts, referrers, clicks, downloads, countries, and WooCommerce revenue if available.",
+                "Connect content performance to future WordPress/content strategy.",
+            ],
+        )
+
+
+@ToolRegistry.register("serena_analytics_wordpress_summary")
+class SerenaAnalyticsWordpressSummaryTool(_AnalyticsBaseTool):
+    tool_id = "serena_analytics_wordpress_summary"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a WordPress analytics summary from provided or pasted metrics.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "metrics": {"type": "string"},
+                    "business": {"type": "string"},
+                    "date_range": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["metrics"],
+            },
+            category="serena_analytics",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        metrics_text = str(params.get("metrics") or "")
+        business = str(params.get("business") or "General Business").strip()
+        date_range = str(params.get("date_range") or "unspecified").strip()
+        notes = str(params.get("notes") or "").strip()
+
+        try:
+            metrics = _parse_jsonish(metrics_text)
+            data = _website_summary_data(business, date_range, "wordpress", metrics, notes)
+            return _save_analytics_snapshot(
+                "Serena WordPress Analytics Summary",
+                data,
+                "wordpress",
+                business,
+                date_range,
+                "provided WordPress/WooCommerce/Jetpack metrics",
+                "wordpress-summary",
+            )
+        except Exception as exc:
+            return self._result(
+                "Serena WordPress analytics summary failed\n\n"
+                f"- Error: {exc}\n"
+                "- Snapshot created: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_analytics_ga4_plan")
+class SerenaAnalyticsGA4PlanTool(_AnalyticsBaseTool):
+    tool_id = "serena_analytics_ga4_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a GA4 analytics collection plan without external API calls.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                    "date_range": {"type": "string"},
+                    "goal": {"type": "string"},
+                },
+            },
+            category="serena_analytics",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "General Business").strip()
+        date_range = str(params.get("date_range") or "last 30 days").strip()
+        goal = str(params.get("goal") or "Analyze GA4 website performance.").strip()
+        return _source_plan_response(
+            "Serena GA4 analytics plan",
+            "ga4",
+            business,
+            date_range,
+            goal,
+            [
+                "Confirm GA4 property ID and Google token scopes.",
+                "Collect sessions, users, page views, events, conversions, acquisition source, landing pages, countries, and devices.",
+                "Compare against the previous period and identify conversion bottlenecks.",
+            ],
+        )
+
+
+@ToolRegistry.register("serena_analytics_website_summary")
+class SerenaAnalyticsWebsiteSummaryTool(_AnalyticsBaseTool):
+    tool_id = "serena_analytics_website_summary"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a combined website analytics summary from pasted WordPress/GA4/website metrics.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "metrics": {"type": "string"},
+                    "business": {"type": "string"},
+                    "date_range": {"type": "string"},
+                    "source": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["metrics"],
+            },
+            category="serena_analytics",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        metrics_text = str(params.get("metrics") or "")
+        business = str(params.get("business") or "General Business").strip()
+        date_range = str(params.get("date_range") or "unspecified").strip()
+        source = str(params.get("source") or "website").strip()
+        notes = str(params.get("notes") or "").strip()
+
+        try:
+            metrics = _parse_jsonish(metrics_text)
+            data = _website_summary_data(business, date_range, source, metrics, notes)
+            return _save_analytics_snapshot(
+                "Serena Website Analytics Summary",
+                data,
+                source,
+                business,
+                date_range,
+                "provided website analytics metrics",
+                "website-summary",
+            )
+        except Exception as exc:
+            return self._result(
+                "Serena website analytics summary failed\n\n"
+                f"- Error: {exc}\n"
+                "- Snapshot created: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+
 __all__ = [
     "SerenaAnalyticsStatusTool",
     "SerenaAnalyticsEnvCheckTool",
@@ -1052,6 +1344,10 @@ __all__ = [
     "SerenaAnalyticsSourceListTool",
     "SerenaAnalyticsSourceInfoTool",
     "SerenaAnalyticsCompareTool",
+    "SerenaAnalyticsWebsiteSummaryTool",
+    "SerenaAnalyticsGA4PlanTool",
+    "SerenaAnalyticsWordpressSummaryTool",
+    "SerenaAnalyticsWordpressPlanTool",
     "SerenaAnalyticsSnapshotTool",
     "SerenaAnalyticsFromFolderTool",
     "SerenaAnalyticsFromFileTool",
