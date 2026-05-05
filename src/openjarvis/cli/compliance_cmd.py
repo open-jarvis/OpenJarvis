@@ -12,6 +12,13 @@ from openjarvis.tools.serena_compliance import (
     SerenaCompliancePolicyListTool,
     SerenaComplianceSourceListTool,
     SerenaComplianceStatusTool,
+    SerenaComplianceDocumentCheckTool,
+    SerenaComplianceMarketingCheckTool,
+    SerenaCompliancePatientDataCheckTool,
+    SerenaComplianceHpcsaCheckTool,
+    SerenaCompliancePopiaCheckTool,
+    SerenaComplianceFullCheckTool,
+    SerenaComplianceQuickCheckTool,
 )
 
 
@@ -62,6 +69,76 @@ def plan(goal: str, operation: str, context: str) -> None:
     """Create a compliance operation plan."""
     console = Console()
     result = SerenaCompliancePlanTool().execute(goal=goal, operation=operation, context=context)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@compliance.command("quick-check")
+@click.option("--text", required=True, help="Text/action/content to check.")
+@click.option("--context", default="", help="Compliance context.")
+def quick_check(text: str, context: str) -> None:
+    """Run a quick compliance check."""
+    console = Console()
+    result = SerenaComplianceQuickCheckTool().execute(text=text, context=context)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@compliance.command("full-check")
+@click.option("--text", required=True, help="Text/action/content to check.")
+@click.option("--context", default="", help="Compliance context.")
+def full_check(text: str, context: str) -> None:
+    """Run a full compliance check."""
+    console = Console()
+    result = SerenaComplianceFullCheckTool().execute(text=text, context=context)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@compliance.command("popia-check")
+@click.option("--text", required=True, help="Text/action/content to check.")
+@click.option("--context", default="", help="Compliance context.")
+def popia_check(text: str, context: str) -> None:
+    """Run a POPIA/privacy compliance check."""
+    console = Console()
+    result = SerenaCompliancePopiaCheckTool().execute(text=text, context=context)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@compliance.command("hpcsa-check")
+@click.option("--text", required=True, help="Text/action/content to check.")
+@click.option("--context", default="", help="Compliance context.")
+def hpcsa_check(text: str, context: str) -> None:
+    """Run an HPCSA/clinical/marketing compliance check."""
+    console = Console()
+    result = SerenaComplianceHpcsaCheckTool().execute(text=text, context=context)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@compliance.command("patient-data-check")
+@click.option("--text", required=True, help="Text/action/content to check.")
+@click.option("--context", default="", help="Compliance context.")
+def patient_data_check(text: str, context: str) -> None:
+    """Check patient/client/health data risk."""
+    console = Console()
+    result = SerenaCompliancePatientDataCheckTool().execute(text=text, context=context)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@compliance.command("marketing-check")
+@click.option("--text", required=True, help="Marketing/social/content text to check.")
+@click.option("--context", default="", help="Compliance context.")
+def marketing_check(text: str, context: str) -> None:
+    """Check marketing content risk."""
+    console = Console()
+    result = SerenaComplianceMarketingCheckTool().execute(text=text, context=context)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@compliance.command("document-check")
+@click.option("--text", required=True, help="Document text to check.")
+@click.option("--context", default="", help="Compliance context.")
+def document_check(text: str, context: str) -> None:
+    """Check document text risk."""
+    console = Console()
+    result = SerenaComplianceDocumentCheckTool().execute(text=text, context=context)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 
