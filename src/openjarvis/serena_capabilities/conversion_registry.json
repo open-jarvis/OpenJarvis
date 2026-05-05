@@ -1251,13 +1251,179 @@
         },
         {
           "legacy_file": "20-bookings.js",
-          "status": "pending",
-          "name": "Bookings"
+          "status": "complete_v1_hub_adapter_pending",
+          "name": "Bookings",
+          "tested": true,
+          "native_tool_complete": true,
+          "hub_adapter_pending": true,
+          "merged_into": "serena_bookings",
+          "completion_level": "bookings_appointments_reminders_full_operator_v1",
+          "capabilities": [
+            "status",
+            "env_check",
+            "plan",
+            "source_list",
+            "source_info",
+            "availability_plan",
+            "booking_request",
+            "create_booking",
+            "booking_info",
+            "booking_list",
+            "reschedule_booking",
+            "cancel_booking",
+            "cancellation_policy",
+            "no_show_policy",
+            "reminder_plan",
+            "reminder_schedule",
+            "reminder_status",
+            "no_show_risk",
+            "follow_up_plan",
+            "calendar_handoff",
+            "calendar_create_plan",
+            "calendar_update_plan",
+            "calendar_cancel_plan",
+            "docs_handoff",
+            "drive_handoff",
+            "reporting_handoff",
+            "appointment_summary",
+            "audit",
+            "blocked_bulk_cancel",
+            "blocked_unapproved_reminder_send",
+            "blocked_patient_data_exposure",
+            "blocked_silent_calendar_change",
+            "hub_adapter_metadata"
+          ],
+          "hub_adapter": {
+            "status": "pending_future_dashboard",
+            "widgets": [
+              "bookings_overview_widget",
+              "calendar_schedule_widget",
+              "appointment_detail_widget",
+              "reminders_widget",
+              "no_show_risk_widget",
+              "followups_widget",
+              "booking_requests_widget",
+              "booking_approval_widget"
+            ],
+            "events": [
+              "booking_request_created",
+              "booking_created",
+              "booking_reschedule_planned",
+              "booking_cancel_planned",
+              "reminder_plan_created",
+              "followup_plan_created",
+              "booking_calendar_handoff_created",
+              "booking_report_created",
+              "booking_action_blocked"
+            ],
+            "operator_state": [
+              "current_business_id",
+              "current_patient_or_client_id",
+              "current_booking_id",
+              "current_calendar_event_id",
+              "current_appointment_status",
+              "current_reminder_status",
+              "current_required_approval",
+              "current_report_path"
+            ]
+          },
+          "notes": [
+            "Converted legacy Bookings and Appointment Reminders into one Bookings / Appointments / Reminders Full Operator.",
+            "Google Calendar remains the raw scheduling engine.",
+            "Bookings is the workflow layer above Calendar.",
+            "Built local booking request, appointment, reminder, follow-up, handoff, report, and audit evidence.",
+            "Built safety blocks for bulk cancellation, unapproved reminder sending, patient data exposure, and silent Calendar changes.",
+            "Sensitive appointment Docs/Drive/Reporting handoffs require approval.",
+            "Hub Adapter pending."
+          ]
         },
         {
           "legacy_file": "58-appointment-reminders.js",
-          "status": "pending",
-          "name": "Appointment Reminders"
+          "status": "complete_v1_hub_adapter_pending",
+          "name": "Appointment Reminders",
+          "tested": true,
+          "native_tool_complete": true,
+          "hub_adapter_pending": true,
+          "merged_into": "serena_bookings",
+          "completion_level": "bookings_appointments_reminders_full_operator_v1",
+          "capabilities": [
+            "status",
+            "env_check",
+            "plan",
+            "source_list",
+            "source_info",
+            "availability_plan",
+            "booking_request",
+            "create_booking",
+            "booking_info",
+            "booking_list",
+            "reschedule_booking",
+            "cancel_booking",
+            "cancellation_policy",
+            "no_show_policy",
+            "reminder_plan",
+            "reminder_schedule",
+            "reminder_status",
+            "no_show_risk",
+            "follow_up_plan",
+            "calendar_handoff",
+            "calendar_create_plan",
+            "calendar_update_plan",
+            "calendar_cancel_plan",
+            "docs_handoff",
+            "drive_handoff",
+            "reporting_handoff",
+            "appointment_summary",
+            "audit",
+            "blocked_bulk_cancel",
+            "blocked_unapproved_reminder_send",
+            "blocked_patient_data_exposure",
+            "blocked_silent_calendar_change",
+            "hub_adapter_metadata"
+          ],
+          "hub_adapter": {
+            "status": "pending_future_dashboard",
+            "widgets": [
+              "bookings_overview_widget",
+              "calendar_schedule_widget",
+              "appointment_detail_widget",
+              "reminders_widget",
+              "no_show_risk_widget",
+              "followups_widget",
+              "booking_requests_widget",
+              "booking_approval_widget"
+            ],
+            "events": [
+              "booking_request_created",
+              "booking_created",
+              "booking_reschedule_planned",
+              "booking_cancel_planned",
+              "reminder_plan_created",
+              "followup_plan_created",
+              "booking_calendar_handoff_created",
+              "booking_report_created",
+              "booking_action_blocked"
+            ],
+            "operator_state": [
+              "current_business_id",
+              "current_patient_or_client_id",
+              "current_booking_id",
+              "current_calendar_event_id",
+              "current_appointment_status",
+              "current_reminder_status",
+              "current_required_approval",
+              "current_report_path"
+            ]
+          },
+          "notes": [
+            "Converted legacy Bookings and Appointment Reminders into one Bookings / Appointments / Reminders Full Operator.",
+            "Google Calendar remains the raw scheduling engine.",
+            "Bookings is the workflow layer above Calendar.",
+            "Built local booking request, appointment, reminder, follow-up, handoff, report, and audit evidence.",
+            "Built safety blocks for bulk cancellation, unapproved reminder sending, patient data exposure, and silent Calendar changes.",
+            "Sensitive appointment Docs/Drive/Reporting handoffs require approval.",
+            "Hub Adapter pending."
+          ]
         },
         {
           "legacy_file": "21-membership.js",
@@ -1273,6 +1439,36 @@
           "legacy_file": "77-ecommerce-ops.js",
           "status": "pending",
           "name": "E-commerce Ops"
+        },
+        {
+          "legacy_file": "04-calendar.js",
+          "status": "pending",
+          "name": "Calendar"
+        },
+        {
+          "legacy_file": "01-crm.js",
+          "status": "pending",
+          "name": "CRM"
+        },
+        {
+          "legacy_file": "25-compliance.js",
+          "status": "pending",
+          "name": "Compliance"
+        },
+        {
+          "legacy_file": "02-reporting.js",
+          "status": "pending",
+          "name": "Reporting"
+        },
+        {
+          "legacy_file": "03-gdrive.js",
+          "status": "pending",
+          "name": "Google Drive"
+        },
+        {
+          "legacy_file": "08-google-docs.js",
+          "status": "pending",
+          "name": "Google Docs"
         }
       ]
     }
