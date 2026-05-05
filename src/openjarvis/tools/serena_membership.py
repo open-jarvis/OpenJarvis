@@ -59,6 +59,15 @@ def _save_json(kind: str, name: str, payload: dict[str, Any]) -> Path:
     return path
 
 
+def _save_text(kind: str, name: str, content: str, suffix: str = ".md") -> Path:
+    root = _membership_root()
+    folder = root / kind
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{_timestamp()}-{_safe_slug(name)}{suffix}"
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
 def _hub_adapter_contract() -> dict[str, Any]:
     return {
         "hub_adapter_status": "pending_future_dashboard",
@@ -2666,6 +2675,447 @@ class SerenaMembershipProgrammeFollowUpTool(_MembershipBaseTool):
         )
 
 
+def _member_summary_markdown(member: dict[str, Any], title: str, notes: str = "") -> str:
+    sensitive = bool(member.get("sensitive"))
+    lines = [
+        f"# {title}",
+        "",
+        "Created by: Serena Membership / Subscriptions / Patient Programmes Full Operator v1",
+        f"Created at: {_timestamp()}",
+        "",
+        "## Member / Programme",
+        "",
+        f"- Member ID: {member.get('member_id')}",
+        f"- Business: {member.get('business')}",
+        f"- Membership plan: {member.get('membership_plan')}",
+        f"- Programme: {member.get('programme')}",
+        f"- Payment status: {member.get('payment_status')}",
+        f"- Status: {member.get('status')}",
+        f"- Sensitive: {'yes' if sensitive else 'no'}",
+        "",
+        "## Patient/client handling",
+        "",
+    ]
+
+    if sensitive:
+        lines.extend([
+            "- Patient/client details are sensitive.",
+            "- Avoid sharing externally without Compliance review and approval.",
+            "- Use minimal public-facing wording.",
+        ])
+    else:
+        lines.append(f"- Member: {member.get('member_name')}")
+
+    lines.extend([
+        "",
+        "## Safety",
+        "",
+        "- External API called: no",
+        "- Google Doc created: no",
+        "- Drive upload performed: no",
+        "- Report created locally: yes",
+        "- Medical advice given: no",
+        "- Secret values exposed: no",
+        "",
+    ])
+
+    if notes:
+        lines.extend(["## Notes", "", notes, ""])
+
+    return "\n".join(lines)
+
+
+@ToolRegistry.register("serena_membership_docs_handoff")
+class SerenaMembershipDocsHandoffTool(_MembershipBaseTool):
+    tool_id = "serena_membership_docs_handoff"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a Google Docs handoff plan for a member/programme. Does not create a Google Doc.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "member_id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["member_id"],
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        member_id = str(params.get("member_id") or "").strip()
+        title = str(params.get("title") or f"Member Summary {member_id}").strip()
+        approved = bool(params.get("approved") or False)
+        notes = str(params.get("notes") or "").strip()
+
+        member = _find_member_profile(member_id)
+        if not member:
+            return self._result(
+                "Serena Membership Docs handoff failed\n\n"
+                f"- Member ID: {member_id}\n"
+                "- Error: member not found\n"
+                "- Google Doc created: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        if bool(member.get("sensitive")) and not approved:
+            return self._result(
+                "Serena Membership Docs handoff blocked\n\n"
+                f"- Member ID: {member_id}\n"
+                "- Reason: sensitive member/programme Docs handoff requires approval and Compliance review.\n"
+                "- Google Doc created: no\n"
+                "- External API called: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        payload = {
+            "record_type": "membership_docs_handoff",
+            "created_at": _timestamp(),
+            "member_id": member_id,
+            "title": title,
+            "approved": approved,
+            "business": member.get("business"),
+            "member_name": member.get("member_name"),
+            "membership_plan": member.get("membership_plan"),
+            "programme": member.get("programme"),
+            "payment_status": member.get("payment_status"),
+            "sensitive": bool(member.get("sensitive")),
+            "notes": notes,
+            "target_operator": "serena_google_docs",
+            "handoff_created": True,
+            "external_api_called": False,
+            "google_doc_created": False,
+            "drive_upload_performed": False,
+            "medical_advice_given": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        record_path = _save_json("handoff", f"docs-handoff-{member_id}", payload)
+
+        return self._result(
+            "Serena Membership Docs handoff created\n\n"
+            f"- Member ID: {member_id}\n"
+            f"- Title: {title}\n"
+            f"- Approved: {'yes' if approved else 'no'}\n"
+            f"- Sensitive: {'yes' if member.get('sensitive') else 'no'}\n"
+            f"- Target operator: serena_google_docs\n"
+            f"- Record: {record_path}\n"
+            "- Handoff created: yes\n"
+            "- External API called: no\n"
+            "- Google Doc created: no\n"
+            "- Drive upload performed: no\n"
+            "- Medical advice given: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Next safe step:\n"
+            "- Use Google Docs operator only after approval when sensitive member/programme data is included.",
+            metadata={**payload, "record_path": str(record_path)},
+        )
+
+
+@ToolRegistry.register("serena_membership_drive_handoff")
+class SerenaMembershipDriveHandoffTool(_MembershipBaseTool):
+    tool_id = "serena_membership_drive_handoff"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a Google Drive evidence/storage handoff plan for a member/programme. Does not upload to Drive.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "member_id": {"type": "string"},
+                    "folder": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["member_id"],
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        member_id = str(params.get("member_id") or "").strip()
+        folder = str(params.get("folder") or "Membership").strip()
+        approved = bool(params.get("approved") or False)
+        notes = str(params.get("notes") or "").strip()
+
+        member = _find_member_profile(member_id)
+        if not member:
+            return self._result(
+                "Serena Membership Drive handoff failed\n\n"
+                f"- Member ID: {member_id}\n"
+                "- Error: member not found\n"
+                "- Drive upload performed: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        if bool(member.get("sensitive")) and not approved:
+            return self._result(
+                "Serena Membership Drive handoff blocked\n\n"
+                f"- Member ID: {member_id}\n"
+                "- Reason: sensitive member/programme Drive handoff requires approval and Compliance review.\n"
+                "- Drive upload performed: no\n"
+                "- External API called: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        payload = {
+            "record_type": "membership_drive_handoff",
+            "created_at": _timestamp(),
+            "member_id": member_id,
+            "folder": folder,
+            "approved": approved,
+            "business": member.get("business"),
+            "member_name": member.get("member_name"),
+            "membership_plan": member.get("membership_plan"),
+            "programme": member.get("programme"),
+            "payment_status": member.get("payment_status"),
+            "sensitive": bool(member.get("sensitive")),
+            "notes": notes,
+            "target_operator": "serena_gdrive",
+            "handoff_created": True,
+            "external_api_called": False,
+            "drive_upload_performed": False,
+            "google_doc_created": False,
+            "medical_advice_given": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        record_path = _save_json("handoff", f"drive-handoff-{member_id}", payload)
+
+        return self._result(
+            "Serena Membership Drive handoff created\n\n"
+            f"- Member ID: {member_id}\n"
+            f"- Folder: {folder}\n"
+            f"- Approved: {'yes' if approved else 'no'}\n"
+            f"- Sensitive: {'yes' if member.get('sensitive') else 'no'}\n"
+            f"- Target operator: serena_gdrive\n"
+            f"- Record: {record_path}\n"
+            "- Handoff created: yes\n"
+            "- External API called: no\n"
+            "- Drive upload performed: no\n"
+            "- Google Doc created: no\n"
+            "- Medical advice given: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Next safe step:\n"
+            "- Use Google Drive operator only after approval when sensitive member/programme data is included.",
+            metadata={**payload, "record_path": str(record_path)},
+        )
+
+
+@ToolRegistry.register("serena_membership_reporting_handoff")
+class SerenaMembershipReportingHandoffTool(_MembershipBaseTool):
+    tool_id = "serena_membership_reporting_handoff"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a Reporting handoff plan for membership/programme data. Does not export externally.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "member_id": {"type": "string"},
+                    "report_type": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["member_id"],
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        member_id = str(params.get("member_id") or "").strip()
+        report_type = str(params.get("report_type") or "member-summary").strip()
+        approved = bool(params.get("approved") or False)
+        notes = str(params.get("notes") or "").strip()
+
+        member = _find_member_profile(member_id)
+        if not member:
+            return self._result(
+                "Serena Membership Reporting handoff failed\n\n"
+                f"- Member ID: {member_id}\n"
+                "- Error: member not found\n"
+                "- Report exported: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        if bool(member.get("sensitive")) and not approved:
+            return self._result(
+                "Serena Membership Reporting handoff blocked\n\n"
+                f"- Member ID: {member_id}\n"
+                "- Reason: sensitive member/programme Reporting handoff requires approval and Compliance review.\n"
+                "- Report exported: no\n"
+                "- External API called: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        payload = {
+            "record_type": "membership_reporting_handoff",
+            "created_at": _timestamp(),
+            "member_id": member_id,
+            "report_type": report_type,
+            "approved": approved,
+            "business": member.get("business"),
+            "member_name": member.get("member_name"),
+            "membership_plan": member.get("membership_plan"),
+            "programme": member.get("programme"),
+            "payment_status": member.get("payment_status"),
+            "sensitive": bool(member.get("sensitive")),
+            "notes": notes,
+            "target_operator": "serena_reporting",
+            "handoff_created": True,
+            "external_api_called": False,
+            "report_exported": False,
+            "drive_upload_performed": False,
+            "google_doc_created": False,
+            "medical_advice_given": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        record_path = _save_json("handoff", f"reporting-handoff-{member_id}", payload)
+
+        return self._result(
+            "Serena Membership Reporting handoff created\n\n"
+            f"- Member ID: {member_id}\n"
+            f"- Report type: {report_type}\n"
+            f"- Approved: {'yes' if approved else 'no'}\n"
+            f"- Sensitive: {'yes' if member.get('sensitive') else 'no'}\n"
+            f"- Target operator: serena_reporting\n"
+            f"- Record: {record_path}\n"
+            "- Handoff created: yes\n"
+            "- External API called: no\n"
+            "- Report exported: no\n"
+            "- Drive upload performed: no\n"
+            "- Google Doc created: no\n"
+            "- Medical advice given: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Next safe step:\n"
+            "- Use Reporting operator only after approval when sensitive member/programme data is included.",
+            metadata={**payload, "record_path": str(record_path)},
+        )
+
+
+@ToolRegistry.register("serena_membership_member_summary")
+class SerenaMembershipMemberSummaryTool(_MembershipBaseTool):
+    tool_id = "serena_membership_member_summary"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local member/programme summary in JSON and Markdown.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "member_id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "notes": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                },
+                "required": ["member_id"],
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        member_id = str(params.get("member_id") or "").strip()
+        title = str(params.get("title") or f"Member Summary {member_id}").strip()
+        notes = str(params.get("notes") or "").strip()
+        approved = bool(params.get("approved") or False)
+
+        member = _find_member_profile(member_id)
+        if not member:
+            return self._result(
+                "Serena member summary failed\n\n"
+                f"- Member ID: {member_id}\n"
+                "- Error: member not found\n"
+                "- Summary created: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        if bool(member.get("sensitive")) and not approved:
+            return self._result(
+                "Serena member summary blocked\n\n"
+                f"- Member ID: {member_id}\n"
+                "- Reason: sensitive member summary requires approval.\n"
+                "- Summary created: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        payload = {
+            "report_type": "serena_membership_member_summary",
+            "created_at": _timestamp(),
+            "member": member,
+            "title": title,
+            "notes": notes,
+            "approved": approved,
+            "summary_created": True,
+            "external_api_called": False,
+            "drive_upload_performed": False,
+            "google_doc_created": False,
+            "report_exported": False,
+            "medical_advice_given": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        json_path = _save_json("reports", f"member-summary-{member_id}", payload)
+        md_path = _save_text("reports", f"member-summary-{member_id}", _member_summary_markdown(member, title, notes), ".md")
+
+        return self._result(
+            "Serena member summary created\n\n"
+            f"- Member ID: {member_id}\n"
+            f"- Title: {title}\n"
+            f"- Approved: {'yes' if approved else 'no'}\n"
+            f"- Sensitive: {'yes' if member.get('sensitive') else 'no'}\n"
+            f"- JSON report: {json_path}\n"
+            f"- Markdown report: {md_path}\n"
+            "- Summary created: yes\n"
+            "- External API called: no\n"
+            "- Drive upload performed: no\n"
+            "- Google Doc created: no\n"
+            "- Report exported: no\n"
+            "- Medical advice given: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={**payload, "json_path": str(json_path), "markdown_path": str(md_path)},
+        )
+
+
 __all__ = [
     "SerenaMembershipStatusTool",
     "SerenaMembershipEnvCheckTool",
@@ -2676,6 +3126,10 @@ __all__ = [
     "SerenaMembershipRenewalPlanTool",
     "SerenaMembershipBookingHandoffTool",
     "SerenaMembershipProgrammeFollowUpTool",
+    "SerenaMembershipMemberSummaryTool",
+    "SerenaMembershipReportingHandoffTool",
+    "SerenaMembershipDriveHandoffTool",
+    "SerenaMembershipDocsHandoffTool",
     "SerenaMembershipProgrammeProgressTool",
     "SerenaMembershipProgrammeEnrollTool",
     "SerenaMembershipProgrammePlanTool",

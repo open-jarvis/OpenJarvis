@@ -12,6 +12,10 @@ from openjarvis.tools.serena_membership import (
     SerenaMembershipSourceInfoTool,
     SerenaMembershipSourceListTool,
     SerenaMembershipStatusTool,
+    SerenaMembershipMemberSummaryTool,
+    SerenaMembershipReportingHandoffTool,
+    SerenaMembershipDriveHandoffTool,
+    SerenaMembershipDocsHandoffTool,
     SerenaMembershipProgrammeFollowUpTool,
     SerenaMembershipProgrammeProgressTool,
     SerenaMembershipProgrammeEnrollTool,
@@ -473,6 +477,74 @@ def programme_follow_up(member_id: str, programme_id: str, reason: str, timing: 
         timing=timing,
         channel=channel,
         notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("docs-handoff")
+@click.option("--member-id", required=True, help="Member ID.")
+@click.option("--title", default="", help="Document title.")
+@click.option("--approved", is_flag=True, help="Approval flag for sensitive data.")
+@click.option("--notes", default="", help="Notes.")
+def docs_handoff(member_id: str, title: str, approved: bool, notes: str) -> None:
+    """Create Google Docs handoff plan for a member/programme."""
+    console = Console()
+    result = SerenaMembershipDocsHandoffTool().execute(
+        member_id=member_id,
+        title=title,
+        approved=approved,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("drive-handoff")
+@click.option("--member-id", required=True, help="Member ID.")
+@click.option("--folder", default="Membership", help="Drive folder label.")
+@click.option("--approved", is_flag=True, help="Approval flag for sensitive data.")
+@click.option("--notes", default="", help="Notes.")
+def drive_handoff(member_id: str, folder: str, approved: bool, notes: str) -> None:
+    """Create Google Drive handoff plan for a member/programme."""
+    console = Console()
+    result = SerenaMembershipDriveHandoffTool().execute(
+        member_id=member_id,
+        folder=folder,
+        approved=approved,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("reporting-handoff")
+@click.option("--member-id", required=True, help="Member ID.")
+@click.option("--report-type", default="member-summary", help="Report type.")
+@click.option("--approved", is_flag=True, help="Approval flag for sensitive data.")
+@click.option("--notes", default="", help="Notes.")
+def reporting_handoff(member_id: str, report_type: str, approved: bool, notes: str) -> None:
+    """Create Reporting handoff plan for a member/programme."""
+    console = Console()
+    result = SerenaMembershipReportingHandoffTool().execute(
+        member_id=member_id,
+        report_type=report_type,
+        approved=approved,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("member-summary")
+@click.option("--member-id", required=True, help="Member ID.")
+@click.option("--title", default="", help="Summary title.")
+@click.option("--notes", default="", help="Notes.")
+@click.option("--approved", is_flag=True, help="Approval flag for sensitive data.")
+def member_summary(member_id: str, title: str, notes: str, approved: bool) -> None:
+    """Create local member/programme summary."""
+    console = Console()
+    result = SerenaMembershipMemberSummaryTool().execute(
+        member_id=member_id,
+        title=title,
+        notes=notes,
+        approved=approved,
     )
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
