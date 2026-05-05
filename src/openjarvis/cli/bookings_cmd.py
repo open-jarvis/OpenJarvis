@@ -12,6 +12,10 @@ from openjarvis.tools.serena_bookings import (
     SerenaBookingsSourceInfoTool,
     SerenaBookingsSourceListTool,
     SerenaBookingsStatusTool,
+    SerenaBookingsCalendarCancelPlanTool,
+    SerenaBookingsCalendarUpdatePlanTool,
+    SerenaBookingsCalendarCreatePlanTool,
+    SerenaBookingsCalendarHandoffTool,
     SerenaBookingsFollowUpPlanTool,
     SerenaBookingsNoShowRiskTool,
     SerenaBookingsReminderStatusTool,
@@ -325,6 +329,72 @@ def follow_up_plan(booking_id: str, reason: str, timing: str, channel: str, note
         timing=timing,
         channel=channel,
         notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@bookings.command("calendar-handoff")
+@click.option("--booking-id", required=True, help="Booking ID.")
+@click.option("--operation", default="create", help="Calendar operation: create/update/cancel.")
+@click.option("--approved", is_flag=True, help="Approval flag.")
+@click.option("--notes", default="", help="Notes.")
+def calendar_handoff(booking_id: str, operation: str, approved: bool, notes: str) -> None:
+    """Create Calendar handoff record for a booking."""
+    console = Console()
+    result = SerenaBookingsCalendarHandoffTool().execute(
+        booking_id=booking_id,
+        operation=operation,
+        approved=approved,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@bookings.command("calendar-create-plan")
+@click.option("--booking-id", required=True, help="Booking ID.")
+@click.option("--add-meet", is_flag=True, help="Plan a Google Meet link.")
+@click.option("--approved", is_flag=True, help="Approval flag.")
+def calendar_create_plan(booking_id: str, add_meet: bool, approved: bool) -> None:
+    """Create Calendar event creation plan."""
+    console = Console()
+    result = SerenaBookingsCalendarCreatePlanTool().execute(
+        booking_id=booking_id,
+        add_meet=add_meet,
+        approved=approved,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@bookings.command("calendar-update-plan")
+@click.option("--booking-id", required=True, help="Booking ID.")
+@click.option("--new-date", default="", help="New date.")
+@click.option("--new-time", default="", help="New time.")
+@click.option("--reason", default="Calendar update requested.", help="Reason.")
+@click.option("--approved", is_flag=True, help="Required approval flag.")
+def calendar_update_plan(booking_id: str, new_date: str, new_time: str, reason: str, approved: bool) -> None:
+    """Create Calendar event update/reschedule plan."""
+    console = Console()
+    result = SerenaBookingsCalendarUpdatePlanTool().execute(
+        booking_id=booking_id,
+        new_date=new_date,
+        new_time=new_time,
+        reason=reason,
+        approved=approved,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@bookings.command("calendar-cancel-plan")
+@click.option("--booking-id", required=True, help="Booking ID.")
+@click.option("--reason", default="Calendar cancellation requested.", help="Reason.")
+@click.option("--approved", is_flag=True, help="Required approval flag.")
+def calendar_cancel_plan(booking_id: str, reason: str, approved: bool) -> None:
+    """Create Calendar event cancellation plan."""
+    console = Console()
+    result = SerenaBookingsCalendarCancelPlanTool().execute(
+        booking_id=booking_id,
+        reason=reason,
+        approved=approved,
     )
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 

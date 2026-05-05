@@ -1794,6 +1794,398 @@ class SerenaBookingsFollowUpPlanTool(_BookingsBaseTool):
         )
 
 
+def _get_booking_or_fail(booking_id: str) -> dict[str, Any] | None:
+    records = _load_json_records("appointments")
+    return next((r for r in records if str(r.get("booking_id") or "") == booking_id), None)
+
+
+@ToolRegistry.register("serena_bookings_calendar_handoff")
+class SerenaBookingsCalendarHandoffTool(_BookingsBaseTool):
+    tool_id = "serena_bookings_calendar_handoff"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a Google Calendar handoff record for a booking. Does not write to Calendar.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "booking_id": {"type": "string"},
+                    "operation": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["booking_id"],
+            },
+            category="serena_bookings",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        booking_id = str(params.get("booking_id") or "").strip()
+        operation = str(params.get("operation") or "create").strip().lower()
+        approved = bool(params.get("approved") or False)
+        notes = str(params.get("notes") or "").strip()
+
+        booking = _get_booking_or_fail(booking_id)
+        if not booking:
+            return self._result(
+                "Serena Calendar handoff failed\n\n"
+                f"- Booking ID: {booking_id}\n"
+                "- Error: booking not found\n"
+                "- Calendar write performed: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        event_title = f"{booking.get('appointment_type', 'Appointment')} - {booking.get('patient_or_client', 'Client')}"
+        safe_event_title = f"{booking.get('appointment_type', 'Appointment')}"
+        event_description = (
+            "Created from Serena Bookings handoff. "
+            "Avoid sensitive patient/client details in public calendar fields."
+        )
+
+        payload = {
+            "record_type": "calendar_handoff",
+            "created_at": _timestamp(),
+            "booking_id": booking_id,
+            "operation": operation,
+            "approved": approved,
+            "business": booking.get("business"),
+            "patient_or_client": booking.get("patient_or_client"),
+            "appointment_type": booking.get("appointment_type"),
+            "date": booking.get("date"),
+            "time": booking.get("time"),
+            "duration_minutes": booking.get("duration_minutes"),
+            "location": booking.get("location"),
+            "calendar_event_id": booking.get("calendar_event_id"),
+            "sensitive": bool(booking.get("sensitive")),
+            "recommended_calendar_title": safe_event_title if booking.get("sensitive") else event_title,
+            "calendar_description": event_description,
+            "notes": notes,
+            "handoff_created": True,
+            "external_api_called": False,
+            "calendar_write_performed": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        record_path = _save_json("handoff", f"calendar-handoff-{booking_id}-{operation}", payload)
+
+        return self._result(
+            "Serena Calendar handoff created\n\n"
+            f"- Booking ID: {booking_id}\n"
+            f"- Operation: {operation}\n"
+            f"- Approved: {'yes' if approved else 'no'}\n"
+            f"- Appointment: {booking.get('appointment_type')} | {booking.get('date')} {booking.get('time')}\n"
+            f"- Sensitive: {'yes' if booking.get('sensitive') else 'no'}\n"
+            f"- Recommended Calendar title: {payload['recommended_calendar_title']}\n"
+            f"- Calendar event ID: {booking.get('calendar_event_id') or 'not linked'}\n"
+            f"- Record: {record_path}\n"
+            "- Handoff created: yes\n"
+            "- External API called: no\n"
+            "- Calendar write performed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Next safe step:\n"
+            "- Use the completed Calendar operator with explicit approval if a live Calendar write is required.",
+            metadata={**payload, "record_path": str(record_path)},
+        )
+
+
+@ToolRegistry.register("serena_bookings_calendar_create_plan")
+class SerenaBookingsCalendarCreatePlanTool(_BookingsBaseTool):
+    tool_id = "serena_bookings_calendar_create_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a Calendar event creation plan for a booking. Does not write to Calendar.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "booking_id": {"type": "string"},
+                    "add_meet": {"type": "boolean"},
+                    "approved": {"type": "boolean"},
+                },
+                "required": ["booking_id"],
+            },
+            category="serena_bookings",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        booking_id = str(params.get("booking_id") or "").strip()
+        add_meet = bool(params.get("add_meet") or False)
+        approved = bool(params.get("approved") or False)
+
+        booking = _get_booking_or_fail(booking_id)
+        if not booking:
+            return self._result(
+                "Serena Calendar create plan failed\n\n"
+                f"- Booking ID: {booking_id}\n"
+                "- Error: booking not found\n"
+                "- Calendar write performed: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        steps = [
+            "Confirm booking details and Calendar target.",
+            "Use minimal Calendar title if sensitive patient/client data is involved.",
+            "Create event only with explicit approval.",
+            "Attach Google Meet link only when useful and approved.",
+            "Report event title, date, time, calendar, attendees, Meet link, and event ID.",
+            "Store Calendar event ID back into booking record in a future approved update workflow.",
+        ]
+
+        payload = {
+            "report_type": "serena_bookings_calendar_create_plan",
+            "created_at": _timestamp(),
+            "booking_id": booking_id,
+            "business": booking.get("business"),
+            "patient_or_client": booking.get("patient_or_client"),
+            "appointment_type": booking.get("appointment_type"),
+            "date": booking.get("date"),
+            "time": booking.get("time"),
+            "duration_minutes": booking.get("duration_minutes"),
+            "location": booking.get("location"),
+            "sensitive": bool(booking.get("sensitive")),
+            "add_google_meet": add_meet,
+            "approved": approved,
+            "steps": steps,
+            "external_api_called": False,
+            "calendar_write_performed": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"calendar-create-plan-{booking_id}", payload)
+
+        return self._result(
+            "Serena Calendar create plan\n\n"
+            f"- Booking ID: {booking_id}\n"
+            f"- Appointment: {booking.get('appointment_type')} | {booking.get('date')} {booking.get('time')}\n"
+            f"- Add Google Meet: {'yes' if add_meet else 'no'}\n"
+            f"- Approved: {'yes' if approved else 'no'}\n"
+            f"- Sensitive: {'yes' if booking.get('sensitive') else 'no'}\n"
+            f"- Plan: {report_path}\n"
+            "- External API called: no\n"
+            "- Calendar write performed: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Steps:\n"
+            + "\n".join(f"- {step}" for step in steps),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_bookings_calendar_update_plan")
+class SerenaBookingsCalendarUpdatePlanTool(_BookingsBaseTool):
+    tool_id = "serena_bookings_calendar_update_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a Calendar event update/reschedule plan for a booking. Does not write to Calendar.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "booking_id": {"type": "string"},
+                    "new_date": {"type": "string"},
+                    "new_time": {"type": "string"},
+                    "reason": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                },
+                "required": ["booking_id"],
+            },
+            category="serena_bookings",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        booking_id = str(params.get("booking_id") or "").strip()
+        new_date = str(params.get("new_date") or "").strip()
+        new_time = str(params.get("new_time") or "").strip()
+        reason = str(params.get("reason") or "Calendar update requested.").strip()
+        approved = bool(params.get("approved") or False)
+
+        booking = _get_booking_or_fail(booking_id)
+        if not booking:
+            return self._result(
+                "Serena Calendar update plan failed\n\n"
+                f"- Booking ID: {booking_id}\n"
+                "- Error: booking not found\n"
+                "- Calendar write performed: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        if not approved:
+            return self._result(
+                "Serena Calendar update plan blocked\n\n"
+                f"- Booking ID: {booking_id}\n"
+                "- Reason: Calendar update/reschedule requires explicit approval.\n"
+                "- Calendar write performed: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        steps = [
+            "Confirm exact Calendar event ID before update.",
+            "Confirm new date/time and duration.",
+            "Avoid sensitive details in public Calendar fields.",
+            "Update only one exact event.",
+            "Report old and new time and event ID.",
+            "Create reminder/follow-up adjustment plan after update.",
+        ]
+
+        payload = {
+            "report_type": "serena_bookings_calendar_update_plan",
+            "created_at": _timestamp(),
+            "booking_id": booking_id,
+            "calendar_event_id": booking.get("calendar_event_id"),
+            "old_date": booking.get("date"),
+            "old_time": booking.get("time"),
+            "new_date": new_date,
+            "new_time": new_time,
+            "reason": reason,
+            "approved": approved,
+            "steps": steps,
+            "external_api_called": False,
+            "calendar_write_performed": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"calendar-update-plan-{booking_id}", payload)
+
+        return self._result(
+            "Serena Calendar update plan\n\n"
+            f"- Booking ID: {booking_id}\n"
+            f"- Calendar event ID: {booking.get('calendar_event_id') or 'not linked'}\n"
+            f"- Old time: {booking.get('date')} {booking.get('time')}\n"
+            f"- New time: {new_date or 'not specified'} {new_time or 'not specified'}\n"
+            f"- Reason: {reason}\n"
+            f"- Approved: yes\n"
+            f"- Plan: {report_path}\n"
+            "- External API called: no\n"
+            "- Calendar write performed: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Steps:\n"
+            + "\n".join(f"- {step}" for step in steps),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_bookings_calendar_cancel_plan")
+class SerenaBookingsCalendarCancelPlanTool(_BookingsBaseTool):
+    tool_id = "serena_bookings_calendar_cancel_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a Calendar event cancellation plan for a booking. Does not cancel Calendar.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "booking_id": {"type": "string"},
+                    "reason": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                },
+                "required": ["booking_id"],
+            },
+            category="serena_bookings",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        booking_id = str(params.get("booking_id") or "").strip()
+        reason = str(params.get("reason") or "Calendar cancellation requested.").strip()
+        approved = bool(params.get("approved") or False)
+
+        booking = _get_booking_or_fail(booking_id)
+        if not booking:
+            return self._result(
+                "Serena Calendar cancel plan failed\n\n"
+                f"- Booking ID: {booking_id}\n"
+                "- Error: booking not found\n"
+                "- Calendar write performed: no\n"
+                "- Delete performed: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        if not approved:
+            return self._result(
+                "Serena Calendar cancel plan blocked\n\n"
+                f"- Booking ID: {booking_id}\n"
+                "- Reason: Calendar cancellation requires explicit approval.\n"
+                "- Calendar write performed: no\n"
+                "- Delete performed: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        steps = [
+            "Confirm exact Calendar event ID before cancellation.",
+            "Cancel only one exact event.",
+            "Do not bulk-cancel appointments.",
+            "Do not delete local booking evidence.",
+            "Report cancellation reason and event ID.",
+            "Create follow-up plan if needed.",
+        ]
+
+        payload = {
+            "report_type": "serena_bookings_calendar_cancel_plan",
+            "created_at": _timestamp(),
+            "booking_id": booking_id,
+            "calendar_event_id": booking.get("calendar_event_id"),
+            "reason": reason,
+            "approved": approved,
+            "steps": steps,
+            "external_api_called": False,
+            "calendar_write_performed": False,
+            "calendar_cancelled": False,
+            "appointment_deleted": False,
+            "delete_performed": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"calendar-cancel-plan-{booking_id}", payload)
+
+        return self._result(
+            "Serena Calendar cancel plan\n\n"
+            f"- Booking ID: {booking_id}\n"
+            f"- Calendar event ID: {booking.get('calendar_event_id') or 'not linked'}\n"
+            f"- Reason: {reason}\n"
+            f"- Approved: yes\n"
+            f"- Plan: {report_path}\n"
+            "- External API called: no\n"
+            "- Calendar write performed: no\n"
+            "- Calendar cancelled: no\n"
+            "- Appointment deleted: no\n"
+            "- Delete performed: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Steps:\n"
+            + "\n".join(f"- {step}" for step in steps),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
 __all__ = [
     "SerenaBookingsStatusTool",
     "SerenaBookingsEnvCheckTool",
@@ -1803,6 +2195,10 @@ __all__ = [
     "SerenaBookingsBookingListTool",
     "SerenaBookingsNoShowPolicyTool",
     "SerenaBookingsFollowUpPlanTool",
+    "SerenaBookingsCalendarCancelPlanTool",
+    "SerenaBookingsCalendarUpdatePlanTool",
+    "SerenaBookingsCalendarCreatePlanTool",
+    "SerenaBookingsCalendarHandoffTool",
     "SerenaBookingsNoShowRiskTool",
     "SerenaBookingsReminderStatusTool",
     "SerenaBookingsReminderScheduleTool",
