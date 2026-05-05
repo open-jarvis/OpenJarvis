@@ -211,3 +211,65 @@ pearl_gateway_blocks_found_total 1
     assert stats.shares_submitted == 42
     assert stats.shares_accepted == 40
     assert stats.blocks_found == 1
+
+
+@pytest.mark.live
+@pytest.mark.slow
+def test_provider_runs_end_to_end_on_this_host(tmp_path, monkeypatch):
+    """Live test: start provider, run for ~30 s, assert is_running was True.
+
+    Requires that py-pearl-mining, miner-base, and pearl-gateway are installed
+    in the venv (e.g., via the build-from-pin path) AND that pearld is running
+    locally. Otherwise the test is skipped via importorskip.
+
+    Use a non-default port pair (18337/19109) so it doesn't collide with a real
+    cpu-pearl session.
+    """
+    pytest.importorskip("pearl_mining")
+    pytest.importorskip("pearl_gateway")
+
+    from openjarvis.mining._stubs import MiningConfig, SoloTarget
+    from openjarvis.mining.cpu_pearl import CpuPearlProvider
+
+    sidecar = tmp_path / "mining.json"
+    log_dir = tmp_path / "logs"
+    monkeypatch.setattr("openjarvis.mining.cpu_pearl._sidecar_path", lambda: sidecar)
+    monkeypatch.setattr("openjarvis.mining.cpu_pearl._log_dir", lambda: log_dir)
+    monkeypatch.setenv("TEST_PEARLD_PASSWORD", "test")
+
+    cfg = MiningConfig(
+        provider="cpu-pearl",
+        wallet_address="prl1q" + "0" * 32,
+        submit_target=SoloTarget(pearld_rpc_url="http://localhost:44107"),
+        fee_bps=0,
+        fee_payout_address=None,
+        extra={
+            "gateway_host": "127.0.0.1",
+            "gateway_port": 18337,
+            "metrics_port": 19109,
+            "pearld_rpc_url": "http://localhost:44107",
+            "pearld_rpc_user": "rpcuser",
+            "pearld_rpc_password_env": "TEST_PEARLD_PASSWORD",
+        },
+    )
+
+    provider = CpuPearlProvider()
+    asyncio.run(provider.start(cfg))
+    try:
+        import time as _time
+
+        deadline = _time.monotonic() + 30
+        saw_running = False
+        while _time.monotonic() < deadline:
+            if provider.is_running():
+                saw_running = True
+            _time.sleep(1.0)
+    finally:
+        asyncio.run(provider.stop())
+
+    if log_dir.exists():
+        for log_file in log_dir.glob("*.log"):
+            print(f"--- {log_file.name} ---")
+            print(log_file.read_text()[:2000])
+
+    assert saw_running, "provider never reported is_running"
