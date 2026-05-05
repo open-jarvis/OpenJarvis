@@ -12,6 +12,10 @@ from openjarvis.tools.serena_analytics import (
     SerenaAnalyticsSourceInfoTool,
     SerenaAnalyticsSourceListTool,
     SerenaAnalyticsStatusTool,
+    SerenaAnalyticsRecommendationsTool,
+    SerenaAnalyticsContentPerformanceTool,
+    SerenaAnalyticsMarketingFunnelTool,
+    SerenaAnalyticsBusinessOverviewTool,
     SerenaAnalyticsSocialSummaryTool,
     SerenaAnalyticsFacebookPageSummaryTool,
     SerenaAnalyticsFacebookPagesTool,
@@ -335,6 +339,82 @@ def social_summary(metrics: str, business: str, date_range: str, source: str, no
     """Create a combined social analytics summary."""
     console = Console()
     result = SerenaAnalyticsSocialSummaryTool().execute(
+        metrics=metrics,
+        business=business,
+        date_range=date_range,
+        source=source,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@analytics.command("business-overview")
+@click.option("--metrics", required=True, help="Business analytics metrics as JSON or JSON-like text.")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--date-range", default="unspecified", help="Date range.")
+@click.option("--source", default="multi-source", help="Analytics source.")
+@click.option("--notes", default="", help="Optional notes.")
+def business_overview(metrics: str, business: str, date_range: str, source: str, notes: str) -> None:
+    """Create a business analytics overview."""
+    console = Console()
+    result = SerenaAnalyticsBusinessOverviewTool().execute(
+        metrics=metrics,
+        business=business,
+        date_range=date_range,
+        source=source,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@analytics.command("marketing-funnel")
+@click.option("--metrics", required=True, help="Marketing funnel metrics as JSON or JSON-like text.")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--date-range", default="unspecified", help="Date range.")
+@click.option("--source", default="marketing-funnel", help="Analytics source.")
+@click.option("--notes", default="", help="Optional notes.")
+def marketing_funnel(metrics: str, business: str, date_range: str, source: str, notes: str) -> None:
+    """Analyze a marketing funnel."""
+    console = Console()
+    result = SerenaAnalyticsMarketingFunnelTool().execute(
+        metrics=metrics,
+        business=business,
+        date_range=date_range,
+        source=source,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@analytics.command("content-performance")
+@click.option("--metrics", required=True, help="Content performance metrics as JSON or JSON-like text.")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--date-range", default="unspecified", help="Date range.")
+@click.option("--source", default="content", help="Analytics source.")
+@click.option("--notes", default="", help="Optional notes.")
+def content_performance(metrics: str, business: str, date_range: str, source: str, notes: str) -> None:
+    """Analyze content performance."""
+    console = Console()
+    result = SerenaAnalyticsContentPerformanceTool().execute(
+        metrics=metrics,
+        business=business,
+        date_range=date_range,
+        source=source,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@analytics.command("recommendations")
+@click.option("--metrics", required=True, help="Analytics metrics as JSON or JSON-like text.")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--date-range", default="unspecified", help="Date range.")
+@click.option("--source", default="multi-source", help="Analytics source.")
+@click.option("--notes", default="", help="Optional notes.")
+def recommendations(metrics: str, business: str, date_range: str, source: str, notes: str) -> None:
+    """Create analytics recommendations."""
+    console = Console()
+    result = SerenaAnalyticsRecommendationsTool().execute(
         metrics=metrics,
         business=business,
         date_range=date_range,

@@ -1828,6 +1828,378 @@ class SerenaAnalyticsSocialSummaryTool(_AnalyticsBaseTool):
             )
 
 
+def _analytics_insight_payload(
+    kind: str,
+    business: str,
+    date_range: str,
+    metrics_text: str,
+    source: str,
+    notes: str = "",
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    metrics = _parse_jsonish(metrics_text)
+    numeric = _numeric_values_from_obj(metrics)
+
+    top_metrics = sorted(numeric.items(), key=lambda item: abs(item[1]), reverse=True)[:15]
+
+    wins = []
+    risks = []
+    opportunities = []
+    next_actions = []
+
+    lower_source = source.lower()
+
+    if numeric:
+        opportunities.append("Compare these metrics against the previous period to confirm growth or decline.")
+        next_actions.append("Create a Reporting summary if this insight should be shared with Kyle or Dr Piet.")
+    else:
+        risks.append("No numeric metrics detected, so trend analysis is limited.")
+
+    metric_keys = " ".join(numeric.keys()).lower()
+
+    if any(term in metric_keys for term in ["lead", "booking", "call", "message", "conversion"]):
+        wins.append("Lead or conversion signals are present.")
+        next_actions.append("Connect these metrics to Calendar/CRM once Serena Hub is available.")
+
+    if any(term in metric_keys for term in ["reach", "impression", "views", "sessions", "users", "traffic"]):
+        opportunities.append("Traffic and visibility signals are present; evaluate which channels convert best.")
+
+    if any(term in metric_keys for term in ["click", "website_click", "link_click"]):
+        opportunities.append("Click metrics are present; review landing pages and calls-to-action.")
+
+    if any(term in metric_keys for term in ["revenue", "orders", "sales"]):
+        opportunities.append("Revenue/order metrics are present; finance/accounting linkage should be added later.")
+        risks.append("Revenue metrics are business-sensitive and should be guarded before external export.")
+
+    if "facebook" in lower_source or "social" in lower_source:
+        next_actions.append("Identify best-performing posts and create future content ideas from them.")
+
+    if "gbp" in lower_source or "business-profile" in lower_source or "google-business" in lower_source:
+        next_actions.append("Use high-intent GBP keywords to guide service-page SEO and Google Business posts.")
+
+    if "website" in lower_source or "wordpress" in lower_source or "ga4" in lower_source:
+        next_actions.append("Review landing pages, referral sources, and booking/call-to-action flow.")
+
+    if not wins:
+        wins.append("Snapshot created successfully for analysis.")
+    if not risks:
+        risks.append("No immediate analytics risk detected from provided metrics.")
+    if not opportunities:
+        opportunities.append("Add more structured metrics for stronger insight generation.")
+    if not next_actions:
+        next_actions.append("Collect more source data and compare against previous period.")
+
+    summary = {
+        "kind": kind,
+        "business": business,
+        "date_range": date_range,
+        "source": source,
+        "notes": notes,
+        "metric_count": len(numeric),
+        "top_metrics": [{"metric": key, "value": value} for key, value in top_metrics],
+        "wins": wins,
+        "risks": risks,
+        "opportunities": opportunities,
+        "next_actions": next_actions,
+    }
+
+    data = {
+        "business": business,
+        "date_range": date_range,
+        "source": source,
+        "kind": kind,
+        "metrics": metrics,
+        "summary": summary,
+        "analysis_focus": [
+            "wins",
+            "risks",
+            "opportunities",
+            "next actions",
+            "business impact",
+            "future Serena Hub integration",
+        ],
+    }
+
+    return data, summary
+
+
+@ToolRegistry.register("serena_analytics_business_overview")
+class SerenaAnalyticsBusinessOverviewTool(_AnalyticsBaseTool):
+    tool_id = "serena_analytics_business_overview"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a business analytics overview from multi-source metrics.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "metrics": {"type": "string"},
+                    "business": {"type": "string"},
+                    "date_range": {"type": "string"},
+                    "source": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["metrics"],
+            },
+            category="serena_analytics",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            data, _summary = _analytics_insight_payload(
+                kind="business-overview",
+                business=str(params.get("business") or "General Business").strip(),
+                date_range=str(params.get("date_range") or "unspecified").strip(),
+                metrics_text=str(params.get("metrics") or ""),
+                source=str(params.get("source") or "multi-source").strip(),
+                notes=str(params.get("notes") or "").strip(),
+            )
+            return _save_analytics_snapshot(
+                "Serena Business Analytics Overview",
+                data,
+                data["source"],
+                data["business"],
+                data["date_range"],
+                "provided business analytics metrics",
+                "business-overview",
+            )
+        except Exception as exc:
+            return self._result(
+                "Serena business analytics overview failed\n\n"
+                f"- Error: {exc}\n"
+                "- Snapshot created: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_analytics_marketing_funnel")
+class SerenaAnalyticsMarketingFunnelTool(_AnalyticsBaseTool):
+    tool_id = "serena_analytics_marketing_funnel"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Analyze marketing funnel metrics from awareness to leads/bookings/revenue.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "metrics": {"type": "string"},
+                    "business": {"type": "string"},
+                    "date_range": {"type": "string"},
+                    "source": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["metrics"],
+            },
+            category="serena_analytics",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            metrics_text = str(params.get("metrics") or "")
+            business = str(params.get("business") or "General Business").strip()
+            date_range = str(params.get("date_range") or "unspecified").strip()
+            source = str(params.get("source") or "marketing-funnel").strip()
+            notes = str(params.get("notes") or "").strip()
+
+            metrics = _parse_jsonish(metrics_text)
+            numeric = _numeric_values_from_obj(metrics)
+
+            funnel = {
+                "awareness": {
+                    "terms": ["reach", "impressions", "views", "sessions", "users"],
+                    "metrics": {},
+                },
+                "engagement": {
+                    "terms": ["engagement", "clicks", "link_clicks", "website_clicks"],
+                    "metrics": {},
+                },
+                "lead_capture": {
+                    "terms": ["leads", "messages", "calls", "form", "booking_clicks"],
+                    "metrics": {},
+                },
+                "conversion": {
+                    "terms": ["bookings", "orders", "sales", "revenue", "conversions"],
+                    "metrics": {},
+                },
+            }
+
+            for metric, value in numeric.items():
+                lower = metric.lower()
+                for stage, stage_info in funnel.items():
+                    if any(term in lower for term in stage_info["terms"]):
+                        stage_info["metrics"][metric] = value
+
+            data = {
+                "business": business,
+                "date_range": date_range,
+                "source": source,
+                "metrics": metrics,
+                "funnel": funnel,
+                "notes": notes,
+                "analysis_focus": [
+                    "awareness",
+                    "engagement",
+                    "lead capture",
+                    "conversion",
+                    "bottlenecks",
+                    "next actions",
+                ],
+            }
+
+            return _save_analytics_snapshot(
+                "Serena Marketing Funnel Analytics",
+                data,
+                source,
+                business,
+                date_range,
+                "provided marketing funnel metrics",
+                "marketing-funnel",
+            )
+        except Exception as exc:
+            return self._result(
+                "Serena marketing funnel analytics failed\n\n"
+                f"- Error: {exc}\n"
+                "- Snapshot created: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_analytics_content_performance")
+class SerenaAnalyticsContentPerformanceTool(_AnalyticsBaseTool):
+    tool_id = "serena_analytics_content_performance"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Analyze content performance metrics from posts/pages/social/website data.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "metrics": {"type": "string"},
+                    "business": {"type": "string"},
+                    "date_range": {"type": "string"},
+                    "source": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["metrics"],
+            },
+            category="serena_analytics",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            metrics = _parse_jsonish(str(params.get("metrics") or ""))
+            business = str(params.get("business") or "General Business").strip()
+            date_range = str(params.get("date_range") or "unspecified").strip()
+            source = str(params.get("source") or "content").strip()
+            notes = str(params.get("notes") or "").strip()
+
+            data = {
+                "business": business,
+                "date_range": date_range,
+                "source": source,
+                "metrics": metrics,
+                "notes": notes,
+                "analysis_focus": [
+                    "top content",
+                    "weak content",
+                    "engagement",
+                    "click-through",
+                    "lead generation",
+                    "repurposing opportunities",
+                    "next content ideas",
+                ],
+            }
+
+            return _save_analytics_snapshot(
+                "Serena Content Performance Analytics",
+                data,
+                source,
+                business,
+                date_range,
+                "provided content performance metrics",
+                "content-performance",
+            )
+        except Exception as exc:
+            return self._result(
+                "Serena content performance analytics failed\n\n"
+                f"- Error: {exc}\n"
+                "- Snapshot created: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_analytics_recommendations")
+class SerenaAnalyticsRecommendationsTool(_AnalyticsBaseTool):
+    tool_id = "serena_analytics_recommendations"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create analytics recommendations from provided metrics.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "metrics": {"type": "string"},
+                    "business": {"type": "string"},
+                    "date_range": {"type": "string"},
+                    "source": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["metrics"],
+            },
+            category="serena_analytics",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            data, summary = _analytics_insight_payload(
+                kind="recommendations",
+                business=str(params.get("business") or "General Business").strip(),
+                date_range=str(params.get("date_range") or "unspecified").strip(),
+                metrics_text=str(params.get("metrics") or ""),
+                source=str(params.get("source") or "multi-source").strip(),
+                notes=str(params.get("notes") or "").strip(),
+            )
+
+            data["recommendation_summary"] = {
+                "wins": summary["wins"],
+                "risks": summary["risks"],
+                "opportunities": summary["opportunities"],
+                "next_actions": summary["next_actions"],
+            }
+
+            return _save_analytics_snapshot(
+                "Serena Analytics Recommendations",
+                data,
+                data["source"],
+                data["business"],
+                data["date_range"],
+                "provided analytics metrics",
+                "recommendations",
+            )
+        except Exception as exc:
+            return self._result(
+                "Serena analytics recommendations failed\n\n"
+                f"- Error: {exc}\n"
+                "- Snapshot created: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+
 __all__ = [
     "SerenaAnalyticsStatusTool",
     "SerenaAnalyticsEnvCheckTool",
@@ -1838,6 +2210,10 @@ __all__ = [
     "SerenaAnalyticsWebsiteSummaryTool",
     "SerenaAnalyticsGBPKeywordsTool",
     "SerenaAnalyticsSocialSummaryTool",
+    "SerenaAnalyticsRecommendationsTool",
+    "SerenaAnalyticsContentPerformanceTool",
+    "SerenaAnalyticsMarketingFunnelTool",
+    "SerenaAnalyticsBusinessOverviewTool",
     "SerenaAnalyticsFacebookPageSummaryTool",
     "SerenaAnalyticsFacebookPagesTool",
     "SerenaAnalyticsMetaEnvCheckTool",
