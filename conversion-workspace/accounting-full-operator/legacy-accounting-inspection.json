@@ -1,0 +1,428 @@
+{
+  "status": "inspected",
+  "target_native_skill": "Serena Accounting / Payments / Payroll / Tax Full Operator v1",
+  "missing_files": [
+    "legacy\\serena-skills\\20-bookings.js",
+    "legacy\\serena-skills\\58-appointment-reminders.js",
+    "legacy\\serena-skills\\77-ecommerce-ops.js"
+  ],
+  "files": [
+    {
+      "file": "legacy\\serena-skills\\09-finance.js",
+      "exists": true,
+      "line_count": 171,
+      "character_count": 6730,
+      "triggers": [
+        "GENERATE INVOICE:",
+        "INVOICE SUMMARY",
+        "PAID",
+        "PENDING",
+        "RECORD PAYMENT:"
+      ],
+      "function_names": [
+        "totalAmount",
+        "vatAmount"
+      ],
+      "dependencies": [
+        "../helpers/logger",
+        "../helpers/structured-output"
+      ],
+      "accounting_terms": [
+        "finance",
+        "invoice",
+        "invoices",
+        "patient",
+        "payfast",
+        "payment",
+        "payments",
+        "summary",
+        "vat"
+      ],
+      "env_mentions": [
+        "FINANCE",
+        "INVOICE",
+        "PAYFAST_ENABLED",
+        "PAYMENT",
+        "VAT"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\10-payfast.js",
+      "exists": true,
+      "line_count": 120,
+      "character_count": 4830,
+      "triggers": [
+        "PAYMENT LINK:",
+        "PAYMENT STATUS:"
+      ],
+      "function_names": [
+        "buildPayfastUrl"
+      ],
+      "dependencies": [
+        "../helpers/logger",
+        "crypto"
+      ],
+      "accounting_terms": [
+        "order",
+        "patient",
+        "payfast",
+        "payment",
+        "payments"
+      ],
+      "env_mentions": [
+        "PAYFAST",
+        "PAYFAST_ENABLED",
+        "PAYFAST_MERCHANT_ID",
+        "PAYFAST_MERCHANT_KEY",
+        "PAYFAST_PASSPHRASE",
+        "PAYFAST_SANDBOX",
+        "PAYMENT"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\45-payflow.js",
+      "exists": true,
+      "line_count": 77,
+      "character_count": 2706,
+      "triggers": [
+        "PAYFLOW:",
+        "SUBSCRIPTION:"
+      ],
+      "function_names": [
+        "parsePayload"
+      ],
+      "dependencies": [
+        "../helpers/logger"
+      ],
+      "accounting_terms": [
+        "membership",
+        "order",
+        "payfast",
+        "payflow",
+        "payment",
+        "revenue",
+        "subscription"
+      ],
+      "env_mentions": [
+        "PAYMENT"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\21-membership.js",
+      "exists": true,
+      "line_count": 204,
+      "character_count": 7650,
+      "triggers": [
+        "CREATE MEMBERSHIP:",
+        "ENROL MEMBER:",
+        "MEMBER STATUS:",
+        "MEMBERSHIP PLANS"
+      ],
+      "function_names": [],
+      "dependencies": [
+        "../helpers/logger",
+        "../helpers/structured-output"
+      ],
+      "accounting_terms": [
+        "booking",
+        "membership",
+        "patient",
+        "payment",
+        "subscription",
+        "woocommerce"
+      ],
+      "env_mentions": [
+        "PAYMENT"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\29-ecommerce.js",
+      "exists": true,
+      "line_count": 152,
+      "character_count": 6105,
+      "triggers": [
+        "POST",
+        "WC ORDER:",
+        "WC ORDERS",
+        "WC PRODUCT:",
+        "WC PRODUCTS",
+        "WC REVENUE"
+      ],
+      "function_names": [
+        "base",
+        "items",
+        "wcGet",
+        "wcPost",
+        "wcUrl"
+      ],
+      "dependencies": [
+        "../helpers/logger"
+      ],
+      "accounting_terms": [
+        "bill",
+        "order",
+        "refund",
+        "revenue",
+        "summary",
+        "woocommerce"
+      ],
+      "env_mentions": [
+        "ECOMMERCE",
+        "WOOCOMMERCE_KEY",
+        "WOOCOMMERCE_SECRET"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\02-reporting.js",
+      "exists": true,
+      "line_count": 105,
+      "character_count": 3818,
+      "triggers": [
+        "KPI REPORT",
+        "MORNING BRIEF",
+        "WEEKLY REPORT"
+      ],
+      "function_names": [],
+      "dependencies": [
+        "../helpers/logger"
+      ],
+      "accounting_terms": [
+        "booking",
+        "membership",
+        "patient",
+        "report",
+        "revenue",
+        "summary",
+        "woocommerce"
+      ],
+      "env_mentions": []
+    },
+    {
+      "file": "legacy\\serena-skills\\12-analytics.js",
+      "exists": true,
+      "line_count": 134,
+      "character_count": 5395,
+      "triggers": [
+        "ANALYTICS REPORT",
+        "N/A",
+        "SITE ANALYTICS"
+      ],
+      "function_names": [
+        "fetchTelemetrySummary",
+        "fetchWooMetrics"
+      ],
+      "dependencies": [
+        "../helpers/logger",
+        "../helpers/revenue-engine"
+      ],
+      "accounting_terms": [
+        "booking",
+        "invoice",
+        "invoices",
+        "membership",
+        "order",
+        "patient",
+        "report",
+        "revenue",
+        "summary",
+        "woocommerce"
+      ],
+      "env_mentions": [
+        "WOOCOMMERCE_KEY",
+        "WOOCOMMERCE_SECRET"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\25-compliance.js",
+      "exists": true,
+      "line_count": 98,
+      "character_count": 4160,
+      "triggers": [
+        "ANALYSE CONTENT:",
+        "COMPLIANCE CHECK:",
+        "FULL COMPLIANCE:",
+        "HPCSA CHECK:"
+      ],
+      "function_names": [],
+      "dependencies": [
+        "../helpers/logger"
+      ],
+      "accounting_terms": [
+        "patient",
+        "report"
+      ],
+      "env_mentions": []
+    },
+    {
+      "file": "legacy\\serena-skills\\03-gdrive.js",
+      "exists": true,
+      "line_count": 96,
+      "character_count": 3508,
+      "triggers": [
+        "DRIVE FOLDER:",
+        "DRIVE LIST:",
+        "DRIVE SAVE:",
+        "DRIVE UPLOAD:"
+      ],
+      "function_names": [],
+      "dependencies": [
+        "../helpers/google-drive",
+        "../helpers/logger"
+      ],
+      "accounting_terms": [],
+      "env_mentions": []
+    },
+    {
+      "file": "legacy\\serena-skills\\08-google-docs.js",
+      "exists": true,
+      "line_count": 100,
+      "character_count": 3259,
+      "triggers": [
+        "CREATE DOC:",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        "GOOGLE_REFRESH_TOKEN",
+        "UPDATE DOC:"
+      ],
+      "function_names": [
+        "generateDocContent",
+        "parsePayload",
+        "replaceExisting"
+      ],
+      "dependencies": [
+        "../helpers/google-docs-service",
+        "../helpers/logger"
+      ],
+      "accounting_terms": [
+        "client"
+      ],
+      "env_mentions": [
+        "GOOGLE_CLIENT_SECRET",
+        "GOOGLE_REFRESH_TOKEN"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\37-ocr.js",
+      "exists": true,
+      "line_count": 148,
+      "character_count": 5369,
+      "triggers": [
+        "EXTRACT TEXT:",
+        "HUGGINGFACE_API_KEY",
+        "MISTRAL_API_KEY",
+        "MODEL_LOADING",
+        "OCR:",
+        "POST",
+        "SCAN DOC:"
+      ],
+      "function_names": [
+        "ocrViaHuggingFace",
+        "ocrViaMistral"
+      ],
+      "dependencies": [
+        "../helpers/logger",
+        "fs",
+        "path"
+      ],
+      "accounting_terms": [
+        "report",
+        "vat"
+      ],
+      "env_mentions": [
+        "HUGGINGFACE_API_KEY",
+        "MISTRAL_API_KEY",
+        "TELEGRAM_TOKEN"
+      ]
+    }
+  ],
+  "target_workflow": [
+    "status",
+    "env-check",
+    "plan",
+    "source-list",
+    "source-info",
+    "xero-env-check",
+    "xero-connect-check",
+    "xero-tenant-list",
+    "xero-plan",
+    "xero-chart-plan",
+    "payfast-env-check",
+    "payfast-plan",
+    "payfast-verify-itn",
+    "payfast-payment-record",
+    "payfast-reconcile-plan",
+    "invoice-plan",
+    "create-invoice",
+    "record-payment",
+    "payment-match",
+    "unpaid-invoices",
+    "payment-summary",
+    "expense-record",
+    "receipt-capture",
+    "supplier-bill-plan",
+    "document-to-expense",
+    "ocr-receipt-handoff",
+    "bank-reconcile-plan",
+    "transaction-classify",
+    "exceptions",
+    "month-end-checklist",
+    "books-summary",
+    "payroll-plan",
+    "payroll-summary",
+    "payroll-checklist",
+    "blocked-payroll-submit",
+    "vat-plan",
+    "vat-summary",
+    "tax-checklist",
+    "blocked-tax-submit",
+    "daily-money-report",
+    "weekly-finance-report",
+    "monthly-management-report",
+    "cashflow-summary",
+    "debtor-creditor-summary",
+    "profitability-summary",
+    "audit",
+    "blocked-bank-change",
+    "blocked-tax-filing",
+    "blocked-payroll-submit",
+    "blocked-delete-ledger",
+    "blocked-secret-exposure"
+  ],
+  "hub_adapter": {
+    "future_widgets": [
+      "accounting_overview_widget",
+      "payments_widget",
+      "invoices_widget",
+      "expenses_widget",
+      "receipts_widget",
+      "reconciliation_widget",
+      "payroll_widget",
+      "tax_widget",
+      "cashflow_widget",
+      "exceptions_widget",
+      "accounting_approval_widget"
+    ],
+    "future_events": [
+      "accounting_snapshot_created",
+      "payment_recorded",
+      "invoice_created",
+      "payment_matched",
+      "expense_recorded",
+      "receipt_captured",
+      "reconciliation_exception_created",
+      "accounting_report_created",
+      "accounting_action_blocked"
+    ],
+    "operator_state": [
+      "current_business_id",
+      "current_accounting_source",
+      "current_xero_tenant_id",
+      "current_payment_provider",
+      "current_invoice_id",
+      "current_payment_id",
+      "current_contact_id",
+      "current_report_path",
+      "current_required_approval"
+    ]
+  }
+}
