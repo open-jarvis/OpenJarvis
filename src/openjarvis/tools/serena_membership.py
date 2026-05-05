@@ -609,10 +609,538 @@ class SerenaMembershipPlanTool(_MembershipBaseTool):
         )
 
 
+def _load_json_records(folder: str) -> list[dict[str, Any]]:
+    root = MEMBERSHIP_OUTPUT_ROOT / folder
+    if not root.exists():
+        return []
+
+    records: list[dict[str, Any]] = []
+    for path in sorted(root.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
+            if isinstance(data, dict):
+                data["_path"] = str(path)
+                records.append(data)
+        except Exception:
+            continue
+    return records
+
+
+def _default_membership_plans() -> dict[str, dict[str, Any]]:
+    return {
+        "basic-care": {
+            "plan_id": "basic-care",
+            "name": "Basic Care Membership",
+            "category": "care",
+            "billing_model": "monthly",
+            "default_price": 0.0,
+            "programme_length": "ongoing",
+            "includes": [
+                "member profile",
+                "basic follow-up planning",
+                "booking handoff",
+                "reporting handoff",
+            ],
+            "guardrails": [
+                "payment changes require approval",
+                "patient/client data is sensitive",
+                "external exports require Compliance review",
+            ],
+        },
+        "twelve-week-care": {
+            "plan_id": "twelve-week-care",
+            "name": "12-Week Care Programme",
+            "category": "patient programme",
+            "billing_model": "monthly subscription or once-off package",
+            "default_price": 0.0,
+            "programme_length": "12 weeks",
+            "includes": [
+                "programme enrollment",
+                "progress tracking",
+                "appointment/booking handoff",
+                "follow-up planning",
+                "reporting handoff",
+            ],
+            "guardrails": [
+                "medical advice remains outside Membership v1",
+                "payment changes require Accounting handoff and approval",
+                "programme changes require visible audit trail",
+            ],
+        },
+        "corporate-wellness": {
+            "plan_id": "corporate-wellness",
+            "name": "Corporate Wellness Programme",
+            "category": "business programme",
+            "billing_model": "package or subscription",
+            "default_price": 0.0,
+            "programme_length": "custom",
+            "includes": [
+                "member/group profile",
+                "programme planning",
+                "reporting handoff",
+                "booking handoff",
+            ],
+            "guardrails": [
+                "health data must be protected",
+                "external reporting requires Compliance review",
+                "bulk member actions remain guarded",
+            ],
+        },
+    }
+
+
+def _member_summary_line(record: dict[str, Any]) -> str:
+    return (
+        f"{record.get('member_id')} | "
+        f"{record.get('member_name', 'unknown')} | "
+        f"{record.get('membership_plan', 'no plan')} | "
+        f"status={record.get('status', 'unknown')} | "
+        f"payment={record.get('payment_status', 'unknown')}"
+    )
+
+
+@ToolRegistry.register("serena_membership_plan_list")
+class SerenaMembershipPlanListTool(_MembershipBaseTool):
+    tool_id = "serena_membership_plan_list"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="List available local membership/programme plan templates.",
+            parameters={"type": "object", "properties": {}},
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        plans = _default_membership_plans()
+        payload = {
+            "report_type": "serena_membership_plan_list",
+            "created_at": _timestamp(),
+            "plans": plans,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("snapshots", "membership-plan-list", payload)
+
+        lines = [
+            "Serena Membership plan list",
+            "",
+            f"- Plans available: {len(plans)}",
+            f"- Snapshot: {report_path}",
+            "- Changes made: no",
+            "- Secret values exposed: no",
+            "- Hub adapter: pending future dashboard",
+            "",
+            "Plans:",
+        ]
+
+        for plan_id, plan in plans.items():
+            lines.append(f"- {plan_id} | {plan['name']} | {plan['billing_model']} | length={plan['programme_length']}")
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+@ToolRegistry.register("serena_membership_plan_info")
+class SerenaMembershipPlanInfoTool(_MembershipBaseTool):
+    tool_id = "serena_membership_plan_info"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Show details for one local membership/programme plan template.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "plan_id": {"type": "string"},
+                },
+                "required": ["plan_id"],
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        plan_id = str(params.get("plan_id") or "").strip()
+        plans = _default_membership_plans()
+
+        if plan_id not in plans:
+            return self._result(
+                "Serena Membership plan-info failed\n\n"
+                f"- Plan ID: {plan_id}\n"
+                "- Error: plan not found\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        plan = plans[plan_id]
+        payload = {
+            "report_type": "serena_membership_plan_info",
+            "created_at": _timestamp(),
+            "plan": plan,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("snapshots", f"membership-plan-info-{plan_id}", payload)
+
+        lines = [
+            "Serena Membership plan info",
+            "",
+            f"- Plan ID: {plan['plan_id']}",
+            f"- Name: {plan['name']}",
+            f"- Category: {plan['category']}",
+            f"- Billing model: {plan['billing_model']}",
+            f"- Default price: {plan['default_price']}",
+            f"- Programme length: {plan['programme_length']}",
+            f"- Snapshot: {report_path}",
+            "- Changes made: no",
+            "- Secret values exposed: no",
+            "- Hub adapter: pending future dashboard",
+            "",
+            "Includes:",
+        ]
+
+        lines.extend(f"- {item}" for item in plan["includes"])
+        lines.extend(["", "Guardrails:"])
+        lines.extend(f"- {item}" for item in plan["guardrails"])
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+@ToolRegistry.register("serena_membership_create_member_profile")
+class SerenaMembershipCreateMemberProfileTool(_MembershipBaseTool):
+    tool_id = "serena_membership_create_member_profile"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local member/patient/client profile for membership/programme workflows.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "member_id": {"type": "string"},
+                    "business": {"type": "string"},
+                    "member_name": {"type": "string"},
+                    "contact": {"type": "string"},
+                    "membership_plan": {"type": "string"},
+                    "programme": {"type": "string"},
+                    "payment_status": {"type": "string"},
+                    "status": {"type": "string"},
+                    "notes": {"type": "string"},
+                    "sensitive": {"type": "boolean"},
+                },
+                "required": ["member_name"],
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        member_id = str(params.get("member_id") or f"MEM-{_timestamp()}").strip()
+        business = str(params.get("business") or "General Business").strip()
+        member_name = str(params.get("member_name") or "").strip()
+        contact = str(params.get("contact") or "").strip()
+        membership_plan = str(params.get("membership_plan") or "not assigned").strip()
+        programme = str(params.get("programme") or "not assigned").strip()
+        payment_status = str(params.get("payment_status") or "not started").strip()
+        status = str(params.get("status") or "profile_created").strip()
+        notes = str(params.get("notes") or "").strip()
+        sensitive = bool(params.get("sensitive") or False)
+
+        record = {
+            "record_type": "member_profile",
+            "created_at": _timestamp(),
+            "member_id": member_id,
+            "business": business,
+            "member_name": member_name,
+            "contact": contact,
+            "membership_plan": membership_plan,
+            "programme": programme,
+            "payment_status": payment_status,
+            "status": status,
+            "notes": notes,
+            "sensitive": sensitive,
+            "member_profile_created": True,
+            "external_api_called": False,
+            "payment_action_performed": False,
+            "accounting_write_performed": False,
+            "booking_write_performed": False,
+            "programme_changed": False,
+            "delete_performed": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        record_path = _save_json("members", f"member-{member_id}", record)
+
+        return self._result(
+            "Serena member profile created\n\n"
+            f"- Member ID: {member_id}\n"
+            f"- Business: {business}\n"
+            f"- Member: {member_name}\n"
+            f"- Membership plan: {membership_plan}\n"
+            f"- Programme: {programme}\n"
+            f"- Payment status: {payment_status}\n"
+            f"- Status: {status}\n"
+            f"- Sensitive: {'yes' if sensitive else 'no'}\n"
+            f"- Record: {record_path}\n"
+            "- Member profile created: yes\n"
+            "- External API called: no\n"
+            "- Payment action performed: no\n"
+            "- Accounting write performed: no\n"
+            "- Booking write performed: no\n"
+            "- Programme changed: no\n"
+            "- Delete performed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={**record, "record_path": str(record_path)},
+        )
+
+
+@ToolRegistry.register("serena_membership_member_info")
+class SerenaMembershipMemberInfoTool(_MembershipBaseTool):
+    tool_id = "serena_membership_member_info"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Show local member profile details by member ID.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "member_id": {"type": "string"},
+                },
+                "required": ["member_id"],
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        member_id = str(params.get("member_id") or "").strip()
+        records = _load_json_records("members")
+
+        match = None
+        for record in records:
+            if str(record.get("member_id") or "") == member_id:
+                match = record
+                break
+
+        if not match:
+            return self._result(
+                "Serena member info failed\n\n"
+                f"- Member ID: {member_id}\n"
+                "- Error: member not found\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        return self._result(
+            "Serena member info\n\n"
+            f"- Member ID: {match.get('member_id')}\n"
+            f"- Business: {match.get('business')}\n"
+            f"- Member: {match.get('member_name')}\n"
+            f"- Membership plan: {match.get('membership_plan')}\n"
+            f"- Programme: {match.get('programme')}\n"
+            f"- Payment status: {match.get('payment_status')}\n"
+            f"- Status: {match.get('status')}\n"
+            f"- Sensitive: {'yes' if match.get('sensitive') else 'no'}\n"
+            f"- Record: {match.get('_path')}\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata=match,
+        )
+
+
+@ToolRegistry.register("serena_membership_member_list")
+class SerenaMembershipMemberListTool(_MembershipBaseTool):
+    tool_id = "serena_membership_member_list"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="List local member profiles.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                    "status": {"type": "string"},
+                    "limit": {"type": "integer"},
+                },
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "").strip()
+        status_filter = str(params.get("status") or "").strip()
+        limit = int(params.get("limit") or 20)
+
+        records = _load_json_records("members")
+        selected = []
+
+        for record in records:
+            if business and str(record.get("business") or "") != business:
+                continue
+            if status_filter and str(record.get("status") or "") != status_filter:
+                continue
+            selected.append(record)
+
+        payload = {
+            "report_type": "serena_membership_member_list",
+            "created_at": _timestamp(),
+            "business": business or "all",
+            "status_filter": status_filter or "all",
+            "member_count": len(selected),
+            "member_paths": [item.get("_path") for item in selected],
+            "external_api_called": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"member-list-{business or 'all'}", payload)
+
+        lines = [
+            "Serena member list",
+            "",
+            f"- Business: {business or 'all'}",
+            f"- Status filter: {status_filter or 'all'}",
+            f"- Members found: {len(selected)}",
+            f"- Report: {report_path}",
+            "- External API called: no",
+            "- Changes made: no",
+            "- Secret values exposed: no",
+            "- Hub adapter: pending future dashboard",
+            "",
+            "Members:",
+        ]
+
+        if selected:
+            for record in selected[:limit]:
+                lines.append(f"- {_member_summary_line(record)}")
+        else:
+            lines.append("- none")
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+@ToolRegistry.register("serena_membership_update_member_status")
+class SerenaMembershipUpdateMemberStatusTool(_MembershipBaseTool):
+    tool_id = "serena_membership_update_member_status"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local member status update record. Does not overwrite/delete original profile.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "member_id": {"type": "string"},
+                    "new_status": {"type": "string"},
+                    "reason": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                },
+                "required": ["member_id", "new_status"],
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        member_id = str(params.get("member_id") or "").strip()
+        new_status = str(params.get("new_status") or "").strip()
+        reason = str(params.get("reason") or "Status update requested.").strip()
+        approved = bool(params.get("approved") or False)
+
+        records = _load_json_records("members")
+        match = next((r for r in records if str(r.get("member_id") or "") == member_id), None)
+
+        if not match:
+            return self._result(
+                "Serena member status update failed\n\n"
+                f"- Member ID: {member_id}\n"
+                "- Error: member not found\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        guarded_statuses = {"cancelled", "paused", "payment_changed", "programme_changed"}
+        if new_status.lower() in guarded_statuses and not approved:
+            return self._result(
+                "Serena member status update blocked\n\n"
+                f"- Member ID: {member_id}\n"
+                f"- Requested status: {new_status}\n"
+                "- Reason: guarded status changes require approval.\n"
+                "- Status update created: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        record = {
+            "record_type": "member_status_update",
+            "created_at": _timestamp(),
+            "member_id": member_id,
+            "business": match.get("business"),
+            "member_name": match.get("member_name"),
+            "old_status": match.get("status"),
+            "new_status": new_status,
+            "reason": reason,
+            "approved": approved,
+            "sensitive": bool(match.get("sensitive")),
+            "status_update_created": True,
+            "external_api_called": False,
+            "payment_action_performed": False,
+            "accounting_write_performed": False,
+            "booking_write_performed": False,
+            "programme_changed": new_status.lower() == "programme_changed",
+            "delete_performed": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        record_path = _save_json("members", f"member-status-update-{member_id}", record)
+
+        return self._result(
+            "Serena member status update created\n\n"
+            f"- Member ID: {member_id}\n"
+            f"- Member: {match.get('member_name')}\n"
+            f"- Old status: {match.get('status')}\n"
+            f"- New status: {new_status}\n"
+            f"- Reason: {reason}\n"
+            f"- Approved: {'yes' if approved else 'no'}\n"
+            f"- Record: {record_path}\n"
+            "- Status update created: yes\n"
+            "- External API called: no\n"
+            "- Payment action performed: no\n"
+            "- Accounting write performed: no\n"
+            "- Booking write performed: no\n"
+            "- Delete performed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={**record, "record_path": str(record_path)},
+        )
+
+
 __all__ = [
     "SerenaMembershipStatusTool",
     "SerenaMembershipEnvCheckTool",
     "SerenaMembershipPlanTool",
     "SerenaMembershipSourceListTool",
     "SerenaMembershipSourceInfoTool",
+    "SerenaMembershipUpdateMemberStatusTool",
+    "SerenaMembershipMemberListTool",
+    "SerenaMembershipMemberInfoTool",
+    "SerenaMembershipCreateMemberProfileTool",
+    "SerenaMembershipPlanInfoTool",
+    "SerenaMembershipPlanListTool",
 ]
