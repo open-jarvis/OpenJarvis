@@ -17,6 +17,7 @@ Check for logic errors, edge cases, and off-by-one errors. Pay particular attent
 - **Rust-Python bridge (PyO3) boundaries** — type conversions, error propagation, GIL handling
 - **Async/await patterns** — missing awaits, unclosed resources, blocking calls in async contexts
 - **Registry pattern compliance** — new components (engines, tools, agents, channels) must register via `ToolRegistry`, `EngineRegistry`, `AgentRegistry`, `ChannelRegistry`, etc. in `src/openjarvis/core/registry.py`
+- **Mining provider compliance** — new mining providers must register via `MinerRegistry` and expose an idempotent `ensure_registered()` for the autouse-clear test convention
 - **Event bus integration** — new lifecycle events should use `EventBus` from `src/openjarvis/core/events.py`
 
 ### 4. Testing
