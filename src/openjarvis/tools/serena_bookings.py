@@ -582,10 +582,445 @@ class SerenaBookingsPlanTool(_BookingsBaseTool):
         )
 
 
+def _load_json_records(folder: str) -> list[dict[str, Any]]:
+    root = BOOKINGS_OUTPUT_ROOT / folder
+    if not root.exists():
+        return []
+
+    records: list[dict[str, Any]] = []
+    for path in sorted(root.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
+            if isinstance(data, dict):
+                data["_path"] = str(path)
+                records.append(data)
+        except Exception:
+            continue
+    return records
+
+
+def _booking_record_summary(record: dict[str, Any]) -> str:
+    return (
+        f"{record.get('booking_id') or record.get('request_id')} | "
+        f"{record.get('patient_or_client', 'unknown')} | "
+        f"{record.get('appointment_type', 'appointment')} | "
+        f"{record.get('date', 'date?')} {record.get('time', 'time?')} | "
+        f"status={record.get('status', 'unknown')}"
+    )
+
+
+@ToolRegistry.register("serena_bookings_availability_plan")
+class SerenaBookingsAvailabilityPlanTool(_BookingsBaseTool):
+    tool_id = "serena_bookings_availability_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create an availability checking plan without calling Calendar.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                    "date": {"type": "string"},
+                    "days": {"type": "integer"},
+                    "duration_minutes": {"type": "integer"},
+                    "work_start": {"type": "string"},
+                    "work_end": {"type": "string"},
+                    "appointment_type": {"type": "string"},
+                },
+            },
+            category="serena_bookings",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "General Business").strip()
+        date = str(params.get("date") or "today").strip()
+        days = int(params.get("days") or 1)
+        duration = int(params.get("duration_minutes") or 60)
+        work_start = str(params.get("work_start") or "08:00").strip()
+        work_end = str(params.get("work_end") or "17:00").strip()
+        appointment_type = str(params.get("appointment_type") or "appointment").strip()
+
+        steps = [
+            "Confirm business/calendar context.",
+            "Confirm appointment type and required duration.",
+            "Use Google Calendar availability when live scheduling is required.",
+            "Avoid exposing patient/client context in public calendar details.",
+            "Prepare candidate slots and required approvals.",
+            "Create local booking request before calendar write.",
+        ]
+
+        payload = {
+            "report_type": "serena_bookings_availability_plan",
+            "created_at": _timestamp(),
+            "business": business,
+            "date": date,
+            "days": days,
+            "duration_minutes": duration,
+            "work_start": work_start,
+            "work_end": work_end,
+            "appointment_type": appointment_type,
+            "steps": steps,
+            "external_api_called": False,
+            "calendar_read_performed": False,
+            "calendar_write_performed": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"availability-plan-{business}-{date}", payload)
+
+        return self._result(
+            "Serena availability plan\n\n"
+            f"- Business: {business}\n"
+            f"- Date: {date}\n"
+            f"- Days: {days}\n"
+            f"- Duration minutes: {duration}\n"
+            f"- Work window: {work_start}-{work_end}\n"
+            f"- Appointment type: {appointment_type}\n"
+            f"- Plan: {report_path}\n"
+            "- External API called: no\n"
+            "- Calendar read performed: no\n"
+            "- Calendar write performed: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Steps:\n"
+            + "\n".join(f"- {step}" for step in steps),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_bookings_booking_request")
+class SerenaBookingsBookingRequestTool(_BookingsBaseTool):
+    tool_id = "serena_bookings_booking_request"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local booking request record.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "request_id": {"type": "string"},
+                    "business": {"type": "string"},
+                    "patient_or_client": {"type": "string"},
+                    "appointment_type": {"type": "string"},
+                    "date": {"type": "string"},
+                    "time": {"type": "string"},
+                    "duration_minutes": {"type": "integer"},
+                    "contact": {"type": "string"},
+                    "notes": {"type": "string"},
+                    "sensitive": {"type": "boolean"},
+                },
+                "required": ["patient_or_client"],
+            },
+            category="serena_bookings",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        request_id = str(params.get("request_id") or f"BR-{_timestamp()}").strip()
+        business = str(params.get("business") or "General Business").strip()
+        patient_or_client = str(params.get("patient_or_client") or "").strip()
+        appointment_type = str(params.get("appointment_type") or "appointment").strip()
+        date = str(params.get("date") or "not specified").strip()
+        time_value = str(params.get("time") or "not specified").strip()
+        duration = int(params.get("duration_minutes") or 60)
+        contact = str(params.get("contact") or "").strip()
+        notes = str(params.get("notes") or "").strip()
+        sensitive = bool(params.get("sensitive") or False)
+
+        record = {
+            "record_type": "booking_request",
+            "created_at": _timestamp(),
+            "request_id": request_id,
+            "business": business,
+            "patient_or_client": patient_or_client,
+            "appointment_type": appointment_type,
+            "date": date,
+            "time": time_value,
+            "duration_minutes": duration,
+            "contact": contact,
+            "notes": notes,
+            "sensitive": sensitive,
+            "status": "requested",
+            "booking_request_created": True,
+            "external_api_called": False,
+            "calendar_write_performed": False,
+            "reminder_sent": False,
+            "delete_performed": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        record_path = _save_json("requests", f"booking-request-{request_id}", record)
+
+        return self._result(
+            "Serena booking request created\n\n"
+            f"- Request ID: {request_id}\n"
+            f"- Business: {business}\n"
+            f"- Patient/client: {patient_or_client}\n"
+            f"- Appointment type: {appointment_type}\n"
+            f"- Date: {date}\n"
+            f"- Time: {time_value}\n"
+            f"- Duration minutes: {duration}\n"
+            f"- Sensitive: {'yes' if sensitive else 'no'}\n"
+            f"- Record: {record_path}\n"
+            "- Booking request created: yes\n"
+            "- External API called: no\n"
+            "- Calendar write performed: no\n"
+            "- Reminder sent: no\n"
+            "- Delete performed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={**record, "record_path": str(record_path)},
+        )
+
+
+@ToolRegistry.register("serena_bookings_create_booking")
+class SerenaBookingsCreateBookingTool(_BookingsBaseTool):
+    tool_id = "serena_bookings_create_booking"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local appointment/booking record. Does not write to Calendar.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "booking_id": {"type": "string"},
+                    "business": {"type": "string"},
+                    "patient_or_client": {"type": "string"},
+                    "appointment_type": {"type": "string"},
+                    "date": {"type": "string"},
+                    "time": {"type": "string"},
+                    "duration_minutes": {"type": "integer"},
+                    "location": {"type": "string"},
+                    "contact": {"type": "string"},
+                    "calendar_event_id": {"type": "string"},
+                    "status": {"type": "string"},
+                    "notes": {"type": "string"},
+                    "sensitive": {"type": "boolean"},
+                },
+                "required": ["patient_or_client", "date", "time"],
+            },
+            category="serena_bookings",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        booking_id = str(params.get("booking_id") or f"BK-{_timestamp()}").strip()
+        business = str(params.get("business") or "General Business").strip()
+        patient_or_client = str(params.get("patient_or_client") or "").strip()
+        appointment_type = str(params.get("appointment_type") or "appointment").strip()
+        date = str(params.get("date") or "").strip()
+        time_value = str(params.get("time") or "").strip()
+        duration = int(params.get("duration_minutes") or 60)
+        location = str(params.get("location") or "").strip()
+        contact = str(params.get("contact") or "").strip()
+        calendar_event_id = str(params.get("calendar_event_id") or "").strip()
+        status = str(params.get("status") or "scheduled_local").strip()
+        notes = str(params.get("notes") or "").strip()
+        sensitive = bool(params.get("sensitive") or False)
+
+        record = {
+            "record_type": "booking",
+            "created_at": _timestamp(),
+            "booking_id": booking_id,
+            "business": business,
+            "patient_or_client": patient_or_client,
+            "appointment_type": appointment_type,
+            "date": date,
+            "time": time_value,
+            "duration_minutes": duration,
+            "location": location,
+            "contact": contact,
+            "calendar_event_id": calendar_event_id,
+            "status": status,
+            "notes": notes,
+            "sensitive": sensitive,
+            "booking_created": True,
+            "calendar_write_performed": False,
+            "reminder_sent": False,
+            "delete_performed": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        record_path = _save_json("appointments", f"booking-{booking_id}", record)
+
+        return self._result(
+            "Serena local booking created\n\n"
+            f"- Booking ID: {booking_id}\n"
+            f"- Business: {business}\n"
+            f"- Patient/client: {patient_or_client}\n"
+            f"- Appointment type: {appointment_type}\n"
+            f"- Date: {date}\n"
+            f"- Time: {time_value}\n"
+            f"- Duration minutes: {duration}\n"
+            f"- Location: {location or 'not specified'}\n"
+            f"- Calendar event ID: {calendar_event_id or 'not linked'}\n"
+            f"- Status: {status}\n"
+            f"- Sensitive: {'yes' if sensitive else 'no'}\n"
+            f"- Record: {record_path}\n"
+            "- Booking created: yes\n"
+            "- Calendar write performed: no\n"
+            "- Reminder sent: no\n"
+            "- Delete performed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={**record, "record_path": str(record_path)},
+        )
+
+
+@ToolRegistry.register("serena_bookings_booking_info")
+class SerenaBookingsBookingInfoTool(_BookingsBaseTool):
+    tool_id = "serena_bookings_booking_info"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Show local booking details by booking ID.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "booking_id": {"type": "string"},
+                },
+                "required": ["booking_id"],
+            },
+            category="serena_bookings",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        booking_id = str(params.get("booking_id") or "").strip()
+        records = _load_json_records("appointments")
+
+        match = None
+        for record in records:
+            if str(record.get("booking_id") or "") == booking_id:
+                match = record
+                break
+
+        if not match:
+            return self._result(
+                "Serena booking info failed\n\n"
+                f"- Booking ID: {booking_id}\n"
+                "- Error: booking not found\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        return self._result(
+            "Serena booking info\n\n"
+            f"- Booking ID: {match.get('booking_id')}\n"
+            f"- Business: {match.get('business')}\n"
+            f"- Patient/client: {match.get('patient_or_client')}\n"
+            f"- Appointment type: {match.get('appointment_type')}\n"
+            f"- Date: {match.get('date')}\n"
+            f"- Time: {match.get('time')}\n"
+            f"- Duration minutes: {match.get('duration_minutes')}\n"
+            f"- Location: {match.get('location') or 'not specified'}\n"
+            f"- Calendar event ID: {match.get('calendar_event_id') or 'not linked'}\n"
+            f"- Status: {match.get('status')}\n"
+            f"- Sensitive: {'yes' if match.get('sensitive') else 'no'}\n"
+            f"- Record: {match.get('_path')}\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata=match,
+        )
+
+
+@ToolRegistry.register("serena_bookings_booking_list")
+class SerenaBookingsBookingListTool(_BookingsBaseTool):
+    tool_id = "serena_bookings_booking_list"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="List local booking records.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                    "status": {"type": "string"},
+                    "limit": {"type": "integer"},
+                },
+            },
+            category="serena_bookings",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "").strip()
+        status_filter = str(params.get("status") or "").strip()
+        limit = int(params.get("limit") or 20)
+
+        records = _load_json_records("appointments")
+
+        selected = []
+        for record in records:
+            if business and str(record.get("business") or "") != business:
+                continue
+            if status_filter and str(record.get("status") or "") != status_filter:
+                continue
+            selected.append(record)
+
+        payload = {
+            "report_type": "serena_bookings_booking_list",
+            "created_at": _timestamp(),
+            "business": business or "all",
+            "status_filter": status_filter or "all",
+            "booking_count": len(selected),
+            "booking_paths": [item.get("_path") for item in selected],
+            "external_api_called": False,
+            "calendar_read_performed": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"booking-list-{business or 'all'}", payload)
+
+        lines = [
+            "Serena booking list",
+            "",
+            f"- Business: {business or 'all'}",
+            f"- Status filter: {status_filter or 'all'}",
+            f"- Bookings found: {len(selected)}",
+            f"- Report: {report_path}",
+            "- External API called: no",
+            "- Calendar read performed: no",
+            "- Changes made: no",
+            "- Secret values exposed: no",
+            "- Hub adapter: pending future dashboard",
+            "",
+            "Bookings:",
+        ]
+
+        if selected:
+            for record in selected[:limit]:
+                lines.append(f"- {_booking_record_summary(record)}")
+        else:
+            lines.append("- none")
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
 __all__ = [
     "SerenaBookingsStatusTool",
     "SerenaBookingsEnvCheckTool",
     "SerenaBookingsPlanTool",
     "SerenaBookingsSourceListTool",
     "SerenaBookingsSourceInfoTool",
+    "SerenaBookingsBookingListTool",
+    "SerenaBookingsBookingInfoTool",
+    "SerenaBookingsCreateBookingTool",
+    "SerenaBookingsBookingRequestTool",
+    "SerenaBookingsAvailabilityPlanTool",
 ]
