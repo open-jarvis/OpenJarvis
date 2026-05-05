@@ -7,9 +7,13 @@ section 7 for the design.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from openjarvis.mining._stubs import MiningConfig
 
 from openjarvis.mining._constants import (
     PEARL_CACHE_DIR,
@@ -21,6 +25,10 @@ from openjarvis.mining._constants import (
 
 class ImageAcquisitionError(RuntimeError):
     """Raised when an image can be neither found, pulled, nor built."""
+
+
+class ConfigurationError(RuntimeError):
+    """Raised when required env vars or config fields are missing."""
 
 
 class PearlDockerLauncher:
@@ -134,6 +142,105 @@ class PearlDockerLauncher:
                 + " | ".join(stderr_tail)
             ) from exc
         return tag
+
+    # -----------------------------------------------------------------
+    # Container lifecycle
+    # -----------------------------------------------------------------
+
+    def start(self, config: "MiningConfig", image: str) -> Any:
+        """Launch the Pearl miner container.
+
+        ``image`` must already be resolved by ``ensure_image()``.
+        Returns the docker.models.containers.Container object.
+        """
+        extra = config.extra
+        # Resolve secret env vars (we hold the *name*, not the value).
+        password_env = extra.get("pearld_rpc_password_env", "PEARLD_RPC_PASSWORD")
+        password = os.environ.get(password_env)
+        if password is None:
+            raise ConfigurationError(
+                f"environment variable {password_env!r} is not set; "
+                f"set it before running `jarvis mine start`"
+            )
+
+        hf_token_env = extra.get("hf_token_env", "HF_TOKEN")
+        hf_token = os.environ.get(hf_token_env, "")
+
+        model = extra.get("model", "pearl-ai/Llama-3.3-70B-Instruct-pearl")
+        vllm_port = int(extra.get("vllm_port", 8000))
+        gpu_mem = float(extra.get("gpu_memory_utilization", 0.9))
+        max_len = int(extra.get("max_model_len", 8192))
+
+        command = [
+            model,
+            "--host", "0.0.0.0",
+            "--port", str(vllm_port),
+            "--gpu-memory-utilization", str(gpu_mem),
+            "--enforce-eager",
+            "--max-model-len", str(max_len),
+        ]
+
+        environment = {
+            "PEARLD_RPC_URL": extra.get("pearld_rpc_url", "http://localhost:44107"),
+            "PEARLD_RPC_USER": extra.get("pearld_rpc_user", "rpcuser"),
+            "PEARLD_RPC_PASSWORD": password,
+            "PEARLD_MINING_ADDRESS": config.wallet_address,
+            "HF_TOKEN": hf_token,
+            "MINER_RPC_TRANSPORT": "tcp",
+        }
+
+        # Dynamic import so tests don't need the real `docker` package shape.
+        try:
+            from docker.types import DeviceRequest
+            device_requests = [DeviceRequest(count=-1, capabilities=[["gpu"]])]
+        except ImportError:  # pragma: no cover
+            device_requests = None
+
+        hf_cache = Path.home() / ".cache" / "huggingface"
+        volumes = {
+            str(hf_cache): {"bind": "/root/.cache/huggingface", "mode": "rw"},
+        }
+
+        self._container = self._client.containers.run(
+            image=image,
+            command=command,
+            name="openjarvis-pearl-miner",
+            detach=True,
+            auto_remove=False,
+            restart_policy={"Name": "unless-stopped"},
+            device_requests=device_requests,
+            shm_size="8g",
+            network_mode="host",
+            volumes=volumes,
+            environment=environment,
+        )
+        return self._container
+
+    def stop(self, timeout: int = 30) -> None:
+        if self._container is None:
+            return
+        try:
+            self._container.stop(timeout=timeout)
+        except Exception:  # noqa: BLE001 - best-effort
+            pass
+        self._container = None
+
+    def is_running(self) -> bool:
+        if self._container is None:
+            return False
+        try:
+            self._container.reload()
+        except Exception:  # noqa: BLE001
+            return False
+        return getattr(self._container, "status", "") == "running"
+
+    def get_logs(self, tail: int = 200) -> str:
+        if self._container is None:
+            return ""
+        raw = self._container.logs(tail=tail)
+        if isinstance(raw, bytes):
+            return raw.decode("utf-8", errors="replace")
+        return str(raw)
 
     @staticmethod
     def _git(*args: str, cwd: Path | None) -> None:
