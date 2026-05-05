@@ -19,6 +19,51 @@ Run this on a Linux machine with:
 Do not run this on macOS, Apple Silicon, AMD, RTX 4090, or CPU-only hosts.
 Those are separate providers.
 
+## Wallet Address Setup
+
+Create the wallet from the Pearl repo root:
+
+```bash
+./bin/oyster -u rpcuser -P rpcpass --create
+```
+
+If you choose the optional public-data encryption prompt, Oyster will require
+that public passphrase on startup via `--walletpass`. Keep private and public
+passphrases out of shell history where possible.
+
+Start Oyster:
+
+```bash
+./bin/oyster \
+  -u rpcuser \
+  -P rpcpass \
+  --walletpass '<public-wallet-passphrase-if-configured>' \
+  &
+```
+
+Then generate a mining address through the wallet RPC:
+
+```bash
+./bin/prlctl \
+  --wallet \
+  --skipverify \
+  -u rpcuser \
+  -P rpcpass \
+  -s localhost:44207 \
+  getnewaddress
+```
+
+Notes:
+
+- `--wallet` is required. Without it, `prlctl` talks to `pearld` instead of
+  Oyster and may look for `Pearld/pearld.conf`.
+- Use `-s localhost:44207`, not `-s https://localhost:44207`. `prlctl` expects
+  host and port, not a URL.
+- `--skipverify` is acceptable for this local validation flow unless you have
+  configured the Oyster RPC certificate path.
+- If a mnemonic has been pasted into logs, chat, or a PR, discard that wallet
+  and create a fresh one before mining.
+
 ## Environment
 
 ```bash

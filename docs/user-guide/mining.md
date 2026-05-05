@@ -16,6 +16,11 @@ integration point is the `MiningProvider` registry.
 | Pearl node | Reachable `pearld` JSON-RPC endpoint, default `http://localhost:44107` |
 | Wallet | Pearl Taproot address beginning with `prl1q` |
 
+To generate a wallet address with Pearl's Oyster wallet, run Pearl's wallet
+daemon and query it with `prlctl --wallet --skipverify -s localhost:44207
+getnewaddress`. Do not reuse a wallet whose mnemonic has been pasted into logs,
+chat, or issue trackers.
+
 ## Quick Start
 
 ```bash
