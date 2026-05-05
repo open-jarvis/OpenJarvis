@@ -1008,6 +1008,408 @@ class SerenaReportingBusinessSummaryTool(_ReportingBaseTool):
         return _standard_report_from_sources(title, "business-summary", [folder], "business-summary", limit)
 
 
+def _latest_draft() -> Path:
+    drafts = sorted(
+        [path for path in (REPORTING_OUTPUT_ROOT / "drafts").glob("*.md") if path.is_file()],
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if not drafts:
+        raise RuntimeError("No reporting draft found.")
+    return drafts[0]
+
+
+def _resolve_report_path(path_value: str | None = None) -> Path:
+    raw = str(path_value or "").strip()
+    if not raw or raw.lower() == "latest":
+        return _latest_draft()
+    path = Path(raw)
+    if not path.exists() or not path.is_file():
+        raise RuntimeError(f"Report file not found: {path}")
+    return path
+
+
+def _read_report(path_value: str | None = None) -> tuple[Path, str]:
+    path = _resolve_report_path(path_value)
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    return path, text
+
+
+@ToolRegistry.register("serena_reporting_save_report")
+class SerenaReportingSaveReportTool(_ReportingBaseTool):
+    tool_id = "serena_reporting_save_report"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Save provided report markdown/text as a Serena report draft.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "content": {"type": "string"},
+                    "report_type": {"type": "string"},
+                },
+                "required": ["content"],
+            },
+            category="serena_reporting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        title = str(params.get("title") or "Saved Serena Report").strip()
+        content = str(params.get("content") or "")
+        report_type = str(params.get("report_type") or "saved-report").strip()
+
+        if not content.strip():
+            return self._result(
+                "Serena Reporting save-report failed\n\n"
+                "- Error: content is empty\n"
+                "- Report saved: no\n"
+                "- Changes made: no",
+                success=False,
+            )
+
+        if not content.lstrip().startswith("#"):
+            content = f"# {title}\n\nReport type: {report_type}\nCreated by: Serena Reporting Full Operator v1\nCreated at: {_timestamp()}\n\n{content}"
+
+        draft_path = _save_text("drafts", title, content, ".md")
+        payload = {
+            "report_type": "serena_reporting_save_report",
+            "created_at": _timestamp(),
+            "title": title,
+            "requested_report_type": report_type,
+            "draft_path": str(draft_path),
+            "report_saved": True,
+            "export_performed": False,
+            "delete_performed": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"save-report-{title}", payload)
+
+        return self._result(
+            "Serena Reporting report saved\n\n"
+            f"- Title: {title}\n"
+            f"- Report type: {report_type}\n"
+            f"- Draft report: {draft_path}\n"
+            f"- Metadata report: {report_path}\n"
+            "- Report saved: yes\n"
+            "- Export performed: no\n"
+            "- Delete performed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_reporting_export_md")
+class SerenaReportingExportMdTool(_ReportingBaseTool):
+    tool_id = "serena_reporting_export_md"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Export a reporting draft to outputs/reporting/exports as markdown.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "name": {"type": "string"},
+                },
+            },
+            category="serena_reporting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            source_path, text = _read_report(str(params.get("path") or "latest"))
+            name = str(params.get("name") or source_path.stem).strip()
+            export_path = _save_text("exports", name, text, ".md")
+            payload = {
+                "report_type": "serena_reporting_export_md",
+                "created_at": _timestamp(),
+                "source_path": str(source_path),
+                "export_path": str(export_path),
+                "export_format": "markdown",
+                "export_performed": True,
+                "delete_performed": False,
+                "changes_made": True,
+                "secret_values_exposed": False,
+                "hub_adapter": _hub_adapter_contract(),
+            }
+            report_path = _save_json("reports", f"export-md-{name}", payload)
+
+            return self._result(
+                "Serena Reporting markdown export complete\n\n"
+                f"- Source report: {source_path}\n"
+                f"- Export path: {export_path}\n"
+                f"- Metadata report: {report_path}\n"
+                "- Export performed: yes\n"
+                "- Delete performed: no\n"
+                "- Changes made: yes\n"
+                "- Secret values exposed: no\n"
+                "- Hub adapter: pending future dashboard",
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(
+                "Serena Reporting export-md failed\n\n"
+                f"- Error: {exc}\n"
+                "- Export performed: no\n"
+                "- Changes made: no\n"
+                "- Delete performed: no",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_reporting_export_json")
+class SerenaReportingExportJsonTool(_ReportingBaseTool):
+    tool_id = "serena_reporting_export_json"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Export a reporting draft and metadata to JSON.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "name": {"type": "string"},
+                },
+            },
+            category="serena_reporting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        try:
+            source_path, text = _read_report(str(params.get("path") or "latest"))
+            name = str(params.get("name") or source_path.stem).strip()
+            export_payload = {
+                "title": name,
+                "source_path": str(source_path),
+                "content": text,
+                "content_characters": len(text),
+                "created_at": _timestamp(),
+                "created_by": "Serena Reporting Full Operator v1",
+            }
+            export_path = _save_json("exports", name, export_payload)
+            metadata = {
+                "report_type": "serena_reporting_export_json",
+                "created_at": _timestamp(),
+                "source_path": str(source_path),
+                "export_path": str(export_path),
+                "export_format": "json",
+                "export_performed": True,
+                "delete_performed": False,
+                "changes_made": True,
+                "secret_values_exposed": False,
+                "hub_adapter": _hub_adapter_contract(),
+            }
+            report_path = _save_json("reports", f"export-json-{name}", metadata)
+
+            return self._result(
+                "Serena Reporting JSON export complete\n\n"
+                f"- Source report: {source_path}\n"
+                f"- Export path: {export_path}\n"
+                f"- Metadata report: {report_path}\n"
+                "- Export performed: yes\n"
+                "- Delete performed: no\n"
+                "- Changes made: yes\n"
+                "- Secret values exposed: no\n"
+                "- Hub adapter: pending future dashboard",
+                metadata={**metadata, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(
+                "Serena Reporting export-json failed\n\n"
+                f"- Error: {exc}\n"
+                "- Export performed: no\n"
+                "- Changes made: no\n"
+                "- Delete performed: no",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_reporting_to_google_doc")
+class SerenaReportingToGoogleDocTool(_ReportingBaseTool):
+    tool_id = "serena_reporting_to_google_doc"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a Google Doc from a reporting draft using Serena Google Docs operator.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "title": {"type": "string"},
+                    "drive_folder": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                },
+            },
+            category="serena_reporting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        approved = bool(params.get("approved") or False)
+        if not approved:
+            return self._result(
+                "Serena Reporting Google Docs handoff blocked\n\n"
+                "- Reason: explicit approval is required before external Google Docs handoff.\n"
+                "- Google Doc created: no\n"
+                "- Export performed: no\n"
+                "- Changes made: no\n"
+                "- Delete performed: no",
+                success=False,
+            )
+
+        try:
+            source_path, text = _read_report(str(params.get("path") or "latest"))
+            title = str(params.get("title") or source_path.stem).strip()
+            drive_folder = str(params.get("drive_folder") or "Serena Reports").strip()
+
+            from openjarvis.tools.serena_google_docs import SerenaGoogleDocsCreateTool
+
+            result = SerenaGoogleDocsCreateTool().execute(
+                title=title,
+                content=text,
+                drive_folder=drive_folder,
+                doc_type="report",
+            )
+
+            payload = {
+                "report_type": "serena_reporting_to_google_doc",
+                "created_at": _timestamp(),
+                "source_path": str(source_path),
+                "title": title,
+                "drive_folder": drive_folder,
+                "approved": True,
+                "google_docs_result": result.metadata,
+                "handoff_performed": bool(result.success),
+                "changes_made": bool(result.success),
+                "delete_performed": False,
+                "secret_values_exposed": False,
+                "hub_adapter": _hub_adapter_contract(),
+            }
+            report_path = _save_json("handoff", f"to-google-doc-{title}", payload)
+
+            return self._result(
+                "Serena Reporting Google Docs handoff complete\n\n"
+                f"- Source report: {source_path}\n"
+                f"- Title: {title}\n"
+                f"- Drive folder: {drive_folder}\n"
+                f"- Handoff report: {report_path}\n"
+                f"- Google Docs success: {'yes' if result.success else 'no'}\n"
+                "- Delete performed: no\n"
+                "- Secret values exposed: no\n\n"
+                f"{result.content}",
+                success=result.success,
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(
+                "Serena Reporting Google Docs handoff failed safely\n\n"
+                f"- Error: {exc}\n"
+                "- Google Doc created: no\n"
+                "- Changes made: no\n"
+                "- Delete performed: no",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_reporting_to_drive")
+class SerenaReportingToDriveTool(_ReportingBaseTool):
+    tool_id = "serena_reporting_to_drive"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Save a reporting draft into Google Drive using Serena Google Drive operator.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "name": {"type": "string"},
+                    "drive_folder": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                },
+            },
+            category="serena_reporting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        approved = bool(params.get("approved") or False)
+        if not approved:
+            return self._result(
+                "Serena Reporting Google Drive handoff blocked\n\n"
+                "- Reason: explicit approval is required before external Google Drive handoff.\n"
+                "- Drive upload/save performed: no\n"
+                "- Export performed: no\n"
+                "- Changes made: no\n"
+                "- Delete performed: no",
+                success=False,
+            )
+
+        try:
+            source_path, text = _read_report(str(params.get("path") or "latest"))
+            name = str(params.get("name") or f"{source_path.stem}.md").strip()
+            drive_folder = str(params.get("drive_folder") or "Serena Reports").strip()
+
+            from openjarvis.tools.serena_gdrive import SerenaGDriveSaveTextTool
+
+            result = SerenaGDriveSaveTextTool().execute(
+                name=name,
+                content=text,
+                drive_folder=drive_folder,
+            )
+
+            payload = {
+                "report_type": "serena_reporting_to_drive",
+                "created_at": _timestamp(),
+                "source_path": str(source_path),
+                "name": name,
+                "drive_folder": drive_folder,
+                "approved": True,
+                "gdrive_result": result.metadata,
+                "handoff_performed": bool(result.success),
+                "changes_made": bool(result.success),
+                "delete_performed": False,
+                "secret_values_exposed": False,
+                "hub_adapter": _hub_adapter_contract(),
+            }
+            report_path = _save_json("handoff", f"to-drive-{name}", payload)
+
+            return self._result(
+                "Serena Reporting Google Drive handoff complete\n\n"
+                f"- Source report: {source_path}\n"
+                f"- Name: {name}\n"
+                f"- Drive folder: {drive_folder}\n"
+                f"- Handoff report: {report_path}\n"
+                f"- Google Drive success: {'yes' if result.success else 'no'}\n"
+                "- Delete performed: no\n"
+                "- Secret values exposed: no\n\n"
+                f"{result.content}",
+                success=result.success,
+                metadata={**payload, "report_path": str(report_path)},
+            )
+        except Exception as exc:
+            return self._result(
+                "Serena Reporting Google Drive handoff failed safely\n\n"
+                f"- Error: {exc}\n"
+                "- Drive upload/save performed: no\n"
+                "- Changes made: no\n"
+                "- Delete performed: no",
+                success=False,
+            )
+
+
 __all__ = [
     "SerenaReportingStatusTool",
     "SerenaReportingPlanTool",
@@ -1015,6 +1417,11 @@ __all__ = [
     "SerenaReportingTemplateInfoTool",
     "SerenaReportingFromFolderTool",
     "SerenaReportingBusinessSummaryTool",
+    "SerenaReportingToDriveTool",
+    "SerenaReportingToGoogleDocTool",
+    "SerenaReportingExportJsonTool",
+    "SerenaReportingExportMdTool",
+    "SerenaReportingSaveReportTool",
     "SerenaReportingOperatorSummaryTool",
     "SerenaReportingComplianceSummaryTool",
     "SerenaReportingActivitySummaryTool",

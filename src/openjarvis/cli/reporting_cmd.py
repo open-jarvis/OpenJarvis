@@ -11,6 +11,11 @@ from openjarvis.tools.serena_reporting import (
     SerenaReportingStatusTool,
     SerenaReportingTemplateInfoTool,
     SerenaReportingTemplatesTool,
+    SerenaReportingToDriveTool,
+    SerenaReportingToGoogleDocTool,
+    SerenaReportingExportJsonTool,
+    SerenaReportingExportMdTool,
+    SerenaReportingSaveReportTool,
     SerenaReportingBusinessSummaryTool,
     SerenaReportingOperatorSummaryTool,
     SerenaReportingComplianceSummaryTool,
@@ -179,6 +184,61 @@ def business_summary(title: str, business: str, folder: str, limit: int) -> None
     """Create a business summary report."""
     console = Console()
     result = SerenaReportingBusinessSummaryTool().execute(title=title, business=business, folder=folder, limit=limit)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@reporting.command("save-report")
+@click.option("--title", default="Saved Serena Report", help="Report title.")
+@click.option("--content", required=True, help="Report content.")
+@click.option("--report-type", default="saved-report", help="Report type.")
+def save_report(title: str, content: str, report_type: str) -> None:
+    """Save provided report content as a local draft."""
+    console = Console()
+    result = SerenaReportingSaveReportTool().execute(title=title, content=content, report_type=report_type)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@reporting.command("export-md")
+@click.option("--path", default="latest", help="Report draft path or latest.")
+@click.option("--name", default="", help="Export name.")
+def export_md(path: str, name: str) -> None:
+    """Export a reporting draft as markdown."""
+    console = Console()
+    result = SerenaReportingExportMdTool().execute(path=path, name=name)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@reporting.command("export-json")
+@click.option("--path", default="latest", help="Report draft path or latest.")
+@click.option("--name", default="", help="Export name.")
+def export_json(path: str, name: str) -> None:
+    """Export a reporting draft as JSON."""
+    console = Console()
+    result = SerenaReportingExportJsonTool().execute(path=path, name=name)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@reporting.command("to-google-doc")
+@click.option("--path", default="latest", help="Report draft path or latest.")
+@click.option("--title", default="", help="Google Doc title.")
+@click.option("--drive-folder", default="Serena Reports", help="Drive folder path under configured root.")
+@click.option("--approved", is_flag=True, help="Required approval for Google Docs handoff.")
+def to_google_doc(path: str, title: str, drive_folder: str, approved: bool) -> None:
+    """Create a Google Doc from a reporting draft."""
+    console = Console()
+    result = SerenaReportingToGoogleDocTool().execute(path=path, title=title, drive_folder=drive_folder, approved=approved)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@reporting.command("to-drive")
+@click.option("--path", default="latest", help="Report draft path or latest.")
+@click.option("--name", default="", help="Drive file name.")
+@click.option("--drive-folder", default="Serena Reports", help="Drive folder path under configured root.")
+@click.option("--approved", is_flag=True, help="Required approval for Google Drive handoff.")
+def to_drive(path: str, name: str, drive_folder: str, approved: bool) -> None:
+    """Save a reporting draft into Google Drive."""
+    console = Console()
+    result = SerenaReportingToDriveTool().execute(path=path, name=name, drive_folder=drive_folder, approved=approved)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 
