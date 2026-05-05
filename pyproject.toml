@@ -107,6 +107,7 @@ channel-gmail = [
 ]
 browser = ["playwright>=1.40"]
 media = ["openai>=1.30"]
+mining-pearl-vllm = ["docker>=7.0", "httpx>=0.27"]
 pdf = ["pdfplumber>=0.10"]
 scheduler = ["croniter>=2.0"]
 security-signing = ["cryptography>=43"]
@@ -144,14 +145,15 @@ packages = ["src/openjarvis"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "live: requires running inference engine",
-    "cloud: requires cloud API keys",
-    "nvidia: requires NVIDIA GPU",
     "amd: requires AMD GPU",
     "apple: requires Apple Silicon",
+    "cloud: requires cloud API keys",
+    "docker: requires a working Docker daemon (no GPU required)",
+    "live: requires running inference engine",
     "macos15: requires macOS 15+ (Sequoia) for Apple FM",
-    "slow: long-running test",
     "live_channel: requires real channel credentials (env vars)",
+    "nvidia: requires NVIDIA GPU",
+    "slow: long-running test",
 ]
 
 [tool.ruff]

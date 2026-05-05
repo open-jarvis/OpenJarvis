@@ -5127,6 +5127,10 @@ memory-faiss = [
 memory-pdf = [
     { name = "pdfplumber" },
 ]
+mining-pearl-vllm = [
+    { name = "docker" },
+    { name = "httpx" },
+]
 openhands = [
     { name = "openhands-sdk", marker = "python_full_version >= '3.12'" },
 ]
@@ -5186,6 +5190,7 @@ requires-dist = [
     { name = "ddgs", marker = "extra == 'tools-search'", specifier = ">=9.11.4" },
     { name = "deepgram-sdk", marker = "extra == 'speech-deepgram'", specifier = ">=3.0" },
     { name = "discord-py", marker = "extra == 'channel-discord'", specifier = ">=2.3" },
+    { name = "docker", marker = "extra == 'mining-pearl-vllm'", specifier = ">=7.0" },
     { name = "docker", marker = "extra == 'sandbox-docker'", specifier = ">=7.0" },
     { name = "dspy", marker = "extra == 'learning-dspy'", specifier = ">=2.6" },
     { name = "faiss-cpu", marker = "extra == 'memory-faiss'", specifier = ">=1.7" },
@@ -5200,6 +5205,7 @@ requires-dist = [
     { name = "gspread", marker = "extra == 'eval-sheets'", specifier = ">=6.0" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "httpx", marker = "extra == 'channel-twitter'", specifier = ">=0.27" },
+    { name = "httpx", marker = "extra == 'mining-pearl-vllm'", specifier = ">=0.27" },
     { name = "line-bot-sdk", marker = "extra == 'channel-line'", specifier = ">=3.0" },
     { name = "litellm", marker = "extra == 'inference-litellm'", specifier = ">=1.40" },
     { name = "mastodon-py", marker = "extra == 'channel-mastodon'", specifier = ">=1.8" },
@@ -5258,7 +5264,7 @@ requires-dist = [
     { name = "zeus-ml", extras = ["apple"], marker = "extra == 'energy-apple'" },
     { name = "zulip", marker = "extra == 'channel-zulip'", specifier = ">=0.9" },
 ]
-provides-extras = ["dev", "inference-mlx", "inference-vllm", "inference-cloud", "inference-google", "inference-litellm", "inference-gemma", "tools-search", "memory-faiss", "memory-colbert", "memory-pdf", "memory-bm25", "server", "openhands", "gpu-metrics", "energy-amd", "energy-apple", "energy-all", "orchestrator-training", "learning-dspy", "learning-gepa", "channel-telegram", "channel-discord", "channel-slack", "channel-line", "channel-viber", "channel-messenger", "channel-reddit", "channel-mastodon", "channel-xmpp", "channel-rocketchat", "channel-zulip", "channel-twitter", "channel-twitch", "channel-nostr", "channel-twilio", "channel-gmail", "browser", "media", "pdf", "scheduler", "security-signing", "sandbox-wasm", "sandbox-docker", "dashboard", "speech", "speech-deepgram", "eval-wandb", "eval-sheets", "docs"]
+provides-extras = ["dev", "inference-mlx", "inference-vllm", "inference-cloud", "inference-google", "inference-litellm", "inference-gemma", "tools-search", "memory-faiss", "memory-colbert", "memory-pdf", "memory-bm25", "server", "openhands", "gpu-metrics", "energy-amd", "energy-apple", "energy-all", "orchestrator-training", "learning-dspy", "learning-gepa", "channel-telegram", "channel-discord", "channel-slack", "channel-line", "channel-viber", "channel-messenger", "channel-reddit", "channel-mastodon", "channel-xmpp", "channel-rocketchat", "channel-zulip", "channel-twitter", "channel-twitch", "channel-nostr", "channel-twilio", "channel-gmail", "browser", "media", "mining-pearl-vllm", "pdf", "scheduler", "security-signing", "sandbox-wasm", "sandbox-docker", "dashboard", "speech", "speech-deepgram", "eval-wandb", "eval-sheets", "docs"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "maturin", specifier = ">=1.12.6" }]
