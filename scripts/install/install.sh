@@ -123,7 +123,7 @@ install_uv() {
 }
 
 clone_repo() {
-    if [[ -d "$SRC_DIR/.git" ]]; then
+    if [[ "$FORCE" -ne 1 ]] && [[ -d "$SRC_DIR/.git" ]]; then
         echo "    repo already at $SRC_DIR"
         return 0
     fi

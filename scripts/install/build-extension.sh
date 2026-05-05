@@ -9,6 +9,9 @@
 set -euo pipefail
 
 OPENJARVIS_HOME="${OPENJARVIS_HOME:-$HOME/.openjarvis}"
+# Self-heal PATH for cargo: install-rust.sh installs to ~/.cargo/bin, but
+# its export doesn't propagate to subsequent subprocess invocations.
+export PATH="$HOME/.cargo/bin:$PATH"
 SRC_DIR="$OPENJARVIS_HOME/src"
 STATE_DIR="$OPENJARVIS_HOME/.state"
 LOG="$STATE_DIR/extension-build.log"

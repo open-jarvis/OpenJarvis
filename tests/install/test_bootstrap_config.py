@@ -45,6 +45,7 @@ def test_writes_cloud_config(tmp_openjarvis_home: Path) -> None:
     assert data["engine"]["default"] == "cloud"
     assert data["intelligence"]["default_model"] == "claude-opus-4-6"
     assert data["intelligence"]["provider"] == "anthropic"
+    assert "sk-ant-test" not in (tmp_openjarvis_home / "config.toml").read_text()
 
 
 def test_includes_install_provenance(tmp_openjarvis_home: Path, monkeypatch) -> None:

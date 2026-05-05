@@ -154,3 +154,22 @@ IDEOF
     [ "$status" -ne 0 ]
     echo "$output" | grep -qi "git"
 }
+
+@test "--force re-runs completed steps" {
+    run bash "$SCRIPT" --no-bg-orchestrator
+    [ "$status" -eq 0 ]
+    : > "$GIT_STUB_LOG"
+    run bash "$SCRIPT" --no-bg-orchestrator --force
+    [ "$status" -eq 0 ]
+    # With --force, second run re-clones (clone is in git.log again).
+    grep -q "clone" "$GIT_STUB_LOG"
+}
+
+@test "--minimal skips foreground model pull" {
+    run bash "$SCRIPT" --no-bg-orchestrator --minimal
+    [ "$status" -eq 0 ]
+    # Ollama 'pull' should NOT have been called.
+    if [ -s "$OLLAMA_STUB_LOG" ]; then
+        ! grep -q "^pull " "$OLLAMA_STUB_LOG"
+    fi
+}
