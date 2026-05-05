@@ -1914,6 +1914,419 @@ class SerenaAccountingPaymentSummaryTool(_AccountingBaseTool):
         return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
 
 
+@ToolRegistry.register("serena_accounting_expense_record")
+class SerenaAccountingExpenseRecordTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_expense_record"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local expense record. Does not write to Xero.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "expense_id": {"type": "string"},
+                    "business": {"type": "string"},
+                    "supplier": {"type": "string"},
+                    "category": {"type": "string"},
+                    "description": {"type": "string"},
+                    "amount": {"type": "number"},
+                    "vat_rate": {"type": "number"},
+                    "date": {"type": "string"},
+                    "receipt_path": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["supplier", "amount"],
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        expense_id = str(params.get("expense_id") or f"EXP-{_timestamp()}").strip()
+        business = str(params.get("business") or "General Business").strip()
+        supplier = str(params.get("supplier") or "").strip()
+        category = str(params.get("category") or "uncategorized").strip()
+        description = str(params.get("description") or "Expense").strip()
+        amount = _money(params.get("amount") or 0)
+        vat_rate = float(params.get("vat_rate") or 0)
+        date = str(params.get("date") or "not specified").strip()
+        receipt_path = str(params.get("receipt_path") or "").strip()
+        notes = str(params.get("notes") or "").strip()
+
+        subtotal, vat_amount, total = _invoice_total(amount, vat_rate)
+
+        record = {
+            "record_type": "expense",
+            "created_at": _timestamp(),
+            "expense_id": expense_id,
+            "business": business,
+            "supplier": supplier,
+            "category": category,
+            "description": description,
+            "subtotal": subtotal,
+            "vat_rate": vat_rate,
+            "vat_amount": vat_amount,
+            "total": total,
+            "date": date,
+            "receipt_path": receipt_path,
+            "notes": notes,
+            "expense_record_created": True,
+            "external_api_called": False,
+            "live_accounting_write": False,
+            "delete_performed": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        record_path = _save_json("expenses", f"expense-{expense_id}", record)
+
+        return self._result(
+            "Serena local expense record created\n\n"
+            f"- Expense ID: {expense_id}\n"
+            f"- Business: {business}\n"
+            f"- Supplier: {supplier}\n"
+            f"- Category: {category}\n"
+            f"- Description: {description}\n"
+            f"- Subtotal: {subtotal}\n"
+            f"- VAT: {vat_amount}\n"
+            f"- Total: {total}\n"
+            f"- Date: {date}\n"
+            f"- Receipt path: {receipt_path or 'not linked'}\n"
+            f"- Record: {record_path}\n"
+            "- Expense record created: yes\n"
+            "- External API called: no\n"
+            "- Live accounting write: no\n"
+            "- Delete performed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={**record, "record_path": str(record_path)},
+        )
+
+
+@ToolRegistry.register("serena_accounting_receipt_capture")
+class SerenaAccountingReceiptCaptureTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_receipt_capture"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local receipt capture/evidence record. Does not delete or move evidence.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "receipt_id": {"type": "string"},
+                    "business": {"type": "string"},
+                    "path": {"type": "string"},
+                    "supplier": {"type": "string"},
+                    "amount": {"type": "number"},
+                    "date": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["path"],
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        receipt_id = str(params.get("receipt_id") or f"RCT-{_timestamp()}").strip()
+        business = str(params.get("business") or "General Business").strip()
+        path_value = str(params.get("path") or "").strip()
+        supplier = str(params.get("supplier") or "").strip()
+        amount = _money(params.get("amount") or 0)
+        date = str(params.get("date") or "not specified").strip()
+        notes = str(params.get("notes") or "").strip()
+
+        path = Path(path_value)
+        exists = path.exists()
+
+        record = {
+            "record_type": "receipt_capture",
+            "created_at": _timestamp(),
+            "receipt_id": receipt_id,
+            "business": business,
+            "source_path": path_value,
+            "source_exists": exists,
+            "supplier": supplier,
+            "amount": amount,
+            "date": date,
+            "notes": notes,
+            "receipt_capture_created": True,
+            "ocr_performed": False,
+            "external_api_called": False,
+            "live_accounting_write": False,
+            "delete_performed": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        record_path = _save_json("receipts", f"receipt-{receipt_id}", record)
+
+        return self._result(
+            "Serena receipt capture record created\n\n"
+            f"- Receipt ID: {receipt_id}\n"
+            f"- Business: {business}\n"
+            f"- Source path: {path_value}\n"
+            f"- Source exists: {'yes' if exists else 'no'}\n"
+            f"- Supplier: {supplier or 'not provided'}\n"
+            f"- Amount: {amount}\n"
+            f"- Date: {date}\n"
+            f"- Record: {record_path}\n"
+            "- Receipt capture created: yes\n"
+            "- OCR performed: no\n"
+            "- External API called: no\n"
+            "- Live accounting write: no\n"
+            "- Delete performed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={**record, "record_path": str(record_path)},
+        )
+
+
+@ToolRegistry.register("serena_accounting_supplier_bill_plan")
+class SerenaAccountingSupplierBillPlanTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_supplier_bill_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a supplier bill workflow plan without live accounting writes.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                    "supplier": {"type": "string"},
+                    "description": {"type": "string"},
+                    "amount": {"type": "number"},
+                    "vat_rate": {"type": "number"},
+                    "due_date": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "General Business").strip()
+        supplier = str(params.get("supplier") or "Supplier").strip()
+        description = str(params.get("description") or "Supplier bill").strip()
+        amount = _money(params.get("amount") or 0)
+        vat_rate = float(params.get("vat_rate") or 0)
+        due_date = str(params.get("due_date") or "not specified").strip()
+        subtotal, vat_amount, total = _invoice_total(amount, vat_rate)
+
+        steps = [
+            "Confirm supplier identity and bill details.",
+            "Capture receipt/invoice evidence.",
+            "Classify expense category.",
+            "Check VAT treatment.",
+            "Create local expense/bill plan first.",
+            "Prepare Xero bill only after credentials and approval exist.",
+            "Report exact values and evidence paths.",
+        ]
+
+        payload = {
+            "report_type": "serena_accounting_supplier_bill_plan",
+            "created_at": _timestamp(),
+            "business": business,
+            "supplier": supplier,
+            "description": description,
+            "subtotal": subtotal,
+            "vat_rate": vat_rate,
+            "vat_amount": vat_amount,
+            "total": total,
+            "due_date": due_date,
+            "steps": steps,
+            "external_api_called": False,
+            "live_accounting_write": False,
+            "supplier_bill_created": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"supplier-bill-plan-{supplier}", payload)
+
+        return self._result(
+            "Serena supplier bill plan\n\n"
+            f"- Business: {business}\n"
+            f"- Supplier: {supplier}\n"
+            f"- Description: {description}\n"
+            f"- Subtotal: {subtotal}\n"
+            f"- VAT rate: {vat_rate}%\n"
+            f"- VAT amount: {vat_amount}\n"
+            f"- Total: {total}\n"
+            f"- Due date: {due_date}\n"
+            f"- Plan: {report_path}\n"
+            "- External API called: no\n"
+            "- Live accounting write: no\n"
+            "- Supplier bill created: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Steps:\n"
+            + "\n".join(f"- {step}" for step in steps),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_accounting_document_to_expense")
+class SerenaAccountingDocumentToExpenseTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_document_to_expense"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create an expense draft from document/OCR text. Does not write to Xero.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "business": {"type": "string"},
+                    "source_path": {"type": "string"},
+                    "supplier": {"type": "string"},
+                    "category": {"type": "string"},
+                    "amount": {"type": "number"},
+                    "date": {"type": "string"},
+                },
+                "required": ["text"],
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        text = str(params.get("text") or "")
+        business = str(params.get("business") or "General Business").strip()
+        source_path = str(params.get("source_path") or "").strip()
+        supplier = str(params.get("supplier") or "unknown supplier").strip()
+        category = str(params.get("category") or "document-derived").strip()
+        amount = _money(params.get("amount") or 0)
+        date = str(params.get("date") or "not specified").strip()
+
+        # Basic amount suggestion if not provided.
+        suggested_amount = amount
+        if suggested_amount <= 0:
+            import re
+            money_matches = re.findall(r"(?:R|ZAR)?\s*([0-9]+(?:[.,][0-9]{2})?)", text)
+            if money_matches:
+                suggested_amount = max(_money(item) for item in money_matches)
+
+        draft = {
+            "record_type": "document_to_expense_draft",
+            "created_at": _timestamp(),
+            "business": business,
+            "source_path": source_path,
+            "supplier": supplier,
+            "category": category,
+            "suggested_amount": suggested_amount,
+            "date": date,
+            "text_preview": text[:1000],
+            "expense_record_created": False,
+            "ocr_performed": False,
+            "external_api_called": False,
+            "live_accounting_write": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        draft_path = _save_json("expenses", f"document-expense-draft-{supplier}", draft)
+
+        return self._result(
+            "Serena document-to-expense draft created\n\n"
+            f"- Business: {business}\n"
+            f"- Source path: {source_path or 'not provided'}\n"
+            f"- Supplier: {supplier}\n"
+            f"- Category: {category}\n"
+            f"- Suggested amount: {suggested_amount}\n"
+            f"- Date: {date}\n"
+            f"- Draft: {draft_path}\n"
+            "- Expense record created: no\n"
+            "- OCR performed: no\n"
+            "- External API called: no\n"
+            "- Live accounting write: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={**draft, "draft_path": str(draft_path)},
+        )
+
+
+@ToolRegistry.register("serena_accounting_ocr_receipt_handoff")
+class SerenaAccountingOCRReceiptHandoffTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_ocr_receipt_handoff"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Plan OCR receipt handoff into Accounting. Does not perform OCR or live accounting writes.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "business": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["path"],
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        path_value = str(params.get("path") or "").strip()
+        business = str(params.get("business") or "General Business").strip()
+        notes = str(params.get("notes") or "").strip()
+        exists = Path(path_value).exists()
+
+        steps = [
+            "Run Serena OCR inspect-image/readability/extract-image or extract-pdf on the receipt.",
+            "Review extracted text for supplier, date, VAT, amount, and payment method.",
+            "Create document-to-expense draft from extracted text.",
+            "Create expense-record only after review.",
+            "Attach source receipt path as evidence.",
+            "Prepare Xero bill/expense only after approval and Xero readiness.",
+        ]
+
+        payload = {
+            "report_type": "serena_accounting_ocr_receipt_handoff",
+            "created_at": _timestamp(),
+            "business": business,
+            "path": path_value,
+            "source_exists": exists,
+            "notes": notes,
+            "steps": steps,
+            "ocr_performed": False,
+            "expense_record_created": False,
+            "external_api_called": False,
+            "live_accounting_write": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"ocr-receipt-handoff-{Path(path_value).stem or 'receipt'}", payload)
+
+        return self._result(
+            "Serena OCR receipt handoff plan\n\n"
+            f"- Business: {business}\n"
+            f"- Path: {path_value}\n"
+            f"- Source exists: {'yes' if exists else 'no'}\n"
+            f"- Plan: {report_path}\n"
+            "- OCR performed: no\n"
+            "- Expense record created: no\n"
+            "- External API called: no\n"
+            "- Live accounting write: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Steps:\n"
+            + "\n".join(f"- {step}" for step in steps),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
 __all__ = [
     "SerenaAccountingStatusTool",
     "SerenaAccountingEnvCheckTool",
@@ -1923,6 +2336,11 @@ __all__ = [
     "SerenaAccountingXeroChartPlanTool",
     "SerenaAccountingPayFastReconcilePlanTool",
     "SerenaAccountingPaymentSummaryTool",
+    "SerenaAccountingOCRReceiptHandoffTool",
+    "SerenaAccountingDocumentToExpenseTool",
+    "SerenaAccountingSupplierBillPlanTool",
+    "SerenaAccountingReceiptCaptureTool",
+    "SerenaAccountingExpenseRecordTool",
     "SerenaAccountingUnpaidInvoicesTool",
     "SerenaAccountingPaymentMatchTool",
     "SerenaAccountingRecordPaymentTool",

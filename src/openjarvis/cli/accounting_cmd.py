@@ -12,6 +12,11 @@ from openjarvis.tools.serena_accounting import (
     SerenaAccountingSourceInfoTool,
     SerenaAccountingSourceListTool,
     SerenaAccountingStatusTool,
+    SerenaAccountingOCRReceiptHandoffTool,
+    SerenaAccountingDocumentToExpenseTool,
+    SerenaAccountingSupplierBillPlanTool,
+    SerenaAccountingReceiptCaptureTool,
+    SerenaAccountingExpenseRecordTool,
     SerenaAccountingPaymentSummaryTool,
     SerenaAccountingUnpaidInvoicesTool,
     SerenaAccountingPaymentMatchTool,
@@ -310,6 +315,113 @@ def payment_summary(business: str) -> None:
     """Summarize local payment records."""
     console = Console()
     result = SerenaAccountingPaymentSummaryTool().execute(business=business)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("expense-record")
+@click.option("--expense-id", default="", help="Expense ID.")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--supplier", required=True, help="Supplier name.")
+@click.option("--category", default="uncategorized", help="Expense category.")
+@click.option("--description", default="Expense", help="Expense description.")
+@click.option("--amount", required=True, type=float, help="Expense subtotal amount.")
+@click.option("--vat-rate", default=0.0, type=float, help="VAT rate percentage.")
+@click.option("--date", default="not specified", help="Expense date.")
+@click.option("--receipt-path", default="", help="Linked receipt path.")
+@click.option("--notes", default="", help="Notes.")
+def expense_record(expense_id: str, business: str, supplier: str, category: str, description: str, amount: float, vat_rate: float, date: str, receipt_path: str, notes: str) -> None:
+    """Create a local expense record."""
+    console = Console()
+    result = SerenaAccountingExpenseRecordTool().execute(
+        expense_id=expense_id,
+        business=business,
+        supplier=supplier,
+        category=category,
+        description=description,
+        amount=amount,
+        vat_rate=vat_rate,
+        date=date,
+        receipt_path=receipt_path,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("receipt-capture")
+@click.option("--receipt-id", default="", help="Receipt ID.")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--path", required=True, help="Receipt/image/document path.")
+@click.option("--supplier", default="", help="Supplier name.")
+@click.option("--amount", default=0.0, type=float, help="Receipt amount.")
+@click.option("--date", default="not specified", help="Receipt date.")
+@click.option("--notes", default="", help="Notes.")
+def receipt_capture(receipt_id: str, business: str, path: str, supplier: str, amount: float, date: str, notes: str) -> None:
+    """Create a local receipt capture record."""
+    console = Console()
+    result = SerenaAccountingReceiptCaptureTool().execute(
+        receipt_id=receipt_id,
+        business=business,
+        path=path,
+        supplier=supplier,
+        amount=amount,
+        date=date,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("supplier-bill-plan")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--supplier", default="Supplier", help="Supplier name.")
+@click.option("--description", default="Supplier bill", help="Bill description.")
+@click.option("--amount", default=0.0, type=float, help="Bill subtotal.")
+@click.option("--vat-rate", default=0.0, type=float, help="VAT rate percentage.")
+@click.option("--due-date", default="not specified", help="Bill due date.")
+def supplier_bill_plan(business: str, supplier: str, description: str, amount: float, vat_rate: float, due_date: str) -> None:
+    """Create a supplier bill workflow plan."""
+    console = Console()
+    result = SerenaAccountingSupplierBillPlanTool().execute(
+        business=business,
+        supplier=supplier,
+        description=description,
+        amount=amount,
+        vat_rate=vat_rate,
+        due_date=due_date,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("document-to-expense")
+@click.option("--text", required=True, help="Document/OCR text.")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--source-path", default="", help="Source document path.")
+@click.option("--supplier", default="unknown supplier", help="Supplier name.")
+@click.option("--category", default="document-derived", help="Expense category.")
+@click.option("--amount", default=0.0, type=float, help="Amount if known.")
+@click.option("--date", default="not specified", help="Date if known.")
+def document_to_expense(text: str, business: str, source_path: str, supplier: str, category: str, amount: float, date: str) -> None:
+    """Create an expense draft from document/OCR text."""
+    console = Console()
+    result = SerenaAccountingDocumentToExpenseTool().execute(
+        text=text,
+        business=business,
+        source_path=source_path,
+        supplier=supplier,
+        category=category,
+        amount=amount,
+        date=date,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("ocr-receipt-handoff")
+@click.option("--path", required=True, help="Receipt image/PDF path.")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--notes", default="", help="Notes.")
+def ocr_receipt_handoff(path: str, business: str, notes: str) -> None:
+    """Plan OCR receipt handoff into Accounting."""
+    console = Console()
+    result = SerenaAccountingOCRReceiptHandoffTool().execute(path=path, business=business, notes=notes)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 
