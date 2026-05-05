@@ -1,0 +1,408 @@
+{
+  "status": "inspected",
+  "target_native_skill": "Serena Reporting Full Operator v1",
+  "missing_files": [],
+  "files": [
+    {
+      "file": "legacy\\serena-skills\\02-reporting.js",
+      "exists": true,
+      "line_count": 105,
+      "character_count": 3818,
+      "triggers": [
+        "KPI REPORT",
+        "MORNING BRIEF",
+        "WEEKLY REPORT"
+      ],
+      "function_names": [],
+      "dependencies": [
+        "../helpers/logger"
+      ],
+      "reporting_terms": [
+        "calendar",
+        "daily",
+        "dashboard",
+        "export",
+        "kpi",
+        "metric",
+        "patient",
+        "report",
+        "revenue",
+        "summary",
+        "task",
+        "weekly"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\12-analytics.js",
+      "exists": true,
+      "line_count": 134,
+      "character_count": 5395,
+      "triggers": [
+        "ANALYTICS REPORT",
+        "N/A",
+        "SITE ANALYTICS"
+      ],
+      "function_names": [
+        "fetchTelemetrySummary",
+        "fetchWooMetrics"
+      ],
+      "dependencies": [
+        "../helpers/logger",
+        "../helpers/revenue-engine"
+      ],
+      "reporting_terms": [
+        "analytics",
+        "export",
+        "json",
+        "metric",
+        "patient",
+        "report",
+        "revenue",
+        "summary",
+        "task"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\25-compliance.js",
+      "exists": true,
+      "line_count": 98,
+      "character_count": 4160,
+      "triggers": [
+        "ANALYSE CONTENT:",
+        "COMPLIANCE CHECK:",
+        "FULL COMPLIANCE:",
+        "HPCSA CHECK:"
+      ],
+      "function_names": [],
+      "dependencies": [
+        "../helpers/logger"
+      ],
+      "reporting_terms": [
+        "compliance",
+        "export",
+        "patient",
+        "report"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\24-compliance-guard.js",
+      "exists": true,
+      "line_count": 113,
+      "character_count": 4932,
+      "triggers": [
+        "QUICK CHECK:"
+      ],
+      "function_names": [],
+      "dependencies": [
+        "../helpers/logger"
+      ],
+      "reporting_terms": [
+        "compliance",
+        "doc",
+        "export",
+        "patient"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\03-gdrive.js",
+      "exists": true,
+      "line_count": 96,
+      "character_count": 3508,
+      "triggers": [
+        "DRIVE FOLDER:",
+        "DRIVE LIST:",
+        "DRIVE SAVE:",
+        "DRIVE UPLOAD:"
+      ],
+      "function_names": [],
+      "dependencies": [
+        "../helpers/google-drive",
+        "../helpers/logger"
+      ],
+      "reporting_terms": [
+        "doc",
+        "drive",
+        "export",
+        "pdf"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\08-google-docs.js",
+      "exists": true,
+      "line_count": 100,
+      "character_count": 3259,
+      "triggers": [
+        "CREATE DOC:",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        "GOOGLE_REFRESH_TOKEN",
+        "UPDATE DOC:"
+      ],
+      "function_names": [
+        "generateDocContent",
+        "parsePayload",
+        "replaceExisting"
+      ],
+      "dependencies": [
+        "../helpers/google-docs-service",
+        "../helpers/logger"
+      ],
+      "reporting_terms": [
+        "doc",
+        "export",
+        "google docs",
+        "task"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\37-ocr.js",
+      "exists": true,
+      "line_count": 148,
+      "character_count": 5369,
+      "triggers": [
+        "EXTRACT TEXT:",
+        "HUGGINGFACE_API_KEY",
+        "MISTRAL_API_KEY",
+        "MODEL_LOADING",
+        "OCR:",
+        "POST",
+        "SCAN DOC:"
+      ],
+      "function_names": [
+        "ocrViaHuggingFace",
+        "ocrViaMistral"
+      ],
+      "dependencies": [
+        "../helpers/logger",
+        "fs",
+        "path"
+      ],
+      "reporting_terms": [
+        "doc",
+        "export",
+        "json",
+        "report"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\04-calendar.js",
+      "exists": true,
+      "line_count": 183,
+      "character_count": 6910,
+      "triggers": [
+        "BOOK SLOT:",
+        "CANCEL APPOINTMENT:",
+        "CHECK AVAILABILITY:",
+        "TODAY SCHEDULE"
+      ],
+      "function_names": [
+        "getCalendarClient"
+      ],
+      "dependencies": [
+        "../helpers/logger",
+        "googleapis"
+      ],
+      "reporting_terms": [
+        "calendar",
+        "export",
+        "patient",
+        "summary"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\09-finance.js",
+      "exists": true,
+      "line_count": 171,
+      "character_count": 6730,
+      "triggers": [
+        "GENERATE INVOICE:",
+        "INVOICE SUMMARY",
+        "PAID",
+        "PENDING",
+        "RECORD PAYMENT:"
+      ],
+      "function_names": [
+        "totalAmount",
+        "vatAmount"
+      ],
+      "dependencies": [
+        "../helpers/logger",
+        "../helpers/structured-output"
+      ],
+      "reporting_terms": [
+        "export",
+        "json",
+        "patient",
+        "summary"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\43-clickup.js",
+      "exists": true,
+      "line_count": 840,
+      "character_count": 35816,
+      "triggers": [
+        "CU ASK:",
+        "CU CREATE FOLDER:",
+        "CU CREATE LIST:",
+        "CU CREATE SPACE:",
+        "CU CREATE TASK:",
+        "CU DELETE FOLDER:",
+        "CU DELETE LIST:",
+        "CU DELETE SPACE:",
+        "CU DELETE TASK:",
+        "CU FOLDERS",
+        "CU FOLDERS:",
+        "CU LIST",
+        "CU LIST SPACES",
+        "CU LIST SPACES:",
+        "CU LIST TASKS",
+        "CU LIST TASKS:",
+        "CU LIST:",
+        "CU LISTS",
+        "CU LISTS:",
+        "CU MCP COMMENT:",
+        "CU MCP REPORT:",
+        "CU MCP SEARCH:",
+        "CU MCP TIME:",
+        "CU SETUP",
+        "CU SPACES:",
+        "CU STRUCTURE",
+        "CU STRUCTURE:",
+        "CU SUBTASK:",
+        "CU TASK:",
+        "CU UPDATE FOLDER:",
+        "CU UPDATE LIST:",
+        "CU UPDATE SPACE:",
+        "CU UPDATE:",
+        "CU WORKSPACES",
+        "CU WORKSPACES:",
+        "TASK:"
+      ],
+      "function_names": [
+        "buildRestFallback",
+        "configMessage",
+        "formatMcpResultForTelegram",
+        "formatRestFallback",
+        "formatSingleMcpItem",
+        "formatSpaces",
+        "formatTimestamp",
+        "formatTree",
+        "formatWorkspaces",
+        "humanizeHierarchy",
+        "inferMcpIntent",
+        "isConfigured",
+        "maybeCallClickUpMcp",
+        "mergeRequest",
+        "normalizeTriggerPayload",
+        "parseLooseFields",
+        "parseOperationRequest",
+        "resolveFolder",
+        "resolveList",
+        "resolveSpace",
+        "resolveTask",
+        "resolveWorkspaceId",
+        "safeParseMcpJson",
+        "sanitizeLine",
+        "searchTasksAcrossWorkspace",
+        "stripCodeFences",
+        "summarizeItem"
+      ],
+      "dependencies": [
+        "../helpers/clickup",
+        "../helpers/clickup-mcp",
+        "../helpers/logger",
+        "../helpers/structured-output"
+      ],
+      "reporting_terms": [
+        "export",
+        "json",
+        "report",
+        "summary",
+        "task"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\73-website-revenue-audit.js",
+      "exists": true,
+      "line_count": 108,
+      "character_count": 3956,
+      "triggers": [
+        "MONETIZATION AUDIT:",
+        "REVENUE AUDIT:",
+        "SITE MONETIZATION:",
+        "WEBSITE REVENUE AUDIT"
+      ],
+      "function_names": [
+        "formatAudit",
+        "formatOutputSync"
+      ],
+      "dependencies": [
+        "../helpers/github-content-sync",
+        "../helpers/logger",
+        "../helpers/revenue-engine"
+      ],
+      "reporting_terms": [
+        "audit",
+        "export",
+        "json",
+        "revenue",
+        "summary",
+        "task"
+      ]
+    }
+  ],
+  "target_workflow": [
+    "status",
+    "plan",
+    "templates",
+    "template-info",
+    "daily",
+    "weekly",
+    "activity-summary",
+    "compliance-summary",
+    "operator-summary",
+    "business-summary",
+    "from-file",
+    "from-folder",
+    "from-json",
+    "from-text",
+    "save-report",
+    "to-google-doc",
+    "to-drive",
+    "export-md",
+    "export-json",
+    "audit",
+    "blocked-sensitive-report",
+    "blocked-unredacted-export"
+  ],
+  "hub_adapter": {
+    "future_widgets": [
+      "report_viewer_widget",
+      "daily_report_widget",
+      "weekly_report_widget",
+      "compliance_report_widget",
+      "activity_feed_summary_widget",
+      "approval_summary_widget",
+      "business_kpi_report_widget",
+      "export_status_widget"
+    ],
+    "future_events": [
+      "report_created",
+      "report_exported",
+      "report_handoff_created",
+      "report_blocked",
+      "reporting_audit_completed",
+      "sensitive_report_detected"
+    ],
+    "operator_state": [
+      "current_business_id",
+      "current_report_type",
+      "current_report_path",
+      "current_report_sources",
+      "current_report_risk_level",
+      "current_export_target",
+      "current_required_approval"
+    ]
+  }
+}
