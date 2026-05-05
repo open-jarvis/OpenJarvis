@@ -8,7 +8,6 @@ Implements Option C Hybrid: wait 2-4s for fast responses, fallback to 10s timeou
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 from typing import Any
@@ -87,7 +86,7 @@ async def call_anthropic(
 ) -> dict[str, Any]:
     """Call Anthropic Claude API with messages format."""
     if not ENABLED["anthropic_api"]:
-        return None
+        return {"model": "claude", "text": "Error: Anthropic API not enabled"}
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -139,7 +138,7 @@ async def call_gemini_api(
 ) -> dict[str, Any]:
     """Call Google Gemini API with messages format."""
     if not ENABLED["gemini_api"]:
-        return None
+        return {"model": "gemini", "text": "Error: Gemini API not enabled"}
 
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -193,7 +192,7 @@ async def call_deepseek(
 ) -> dict[str, Any]:
     """Call DeepSeek API."""
     if not ENABLED["deepseek_api"]:
-        return None
+        return {"model": "deepseek", "text": "Error: DeepSeek API not enabled"}
 
     api_key = os.environ.get("DEEPSEEK_API_KEY")
     if not api_key:
@@ -221,7 +220,7 @@ async def call_groq(
 ) -> dict[str, Any]:
     """Call Groq API."""
     if not ENABLED["groq_api"]:
-        return None
+        return {"model": "groq", "text": "Error: Groq API not enabled"}
 
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
@@ -249,7 +248,7 @@ async def call_cerebras(
 ) -> dict[str, Any]:
     """Call Cerebras API."""
     if not ENABLED["cerebras_api"]:
-        return None
+        return {"model": "cerebras", "text": "Error: Cerebras API not enabled"}
 
     api_key = os.environ.get("CEREBRAS_API_KEY")
     if not api_key:
@@ -277,7 +276,7 @@ async def call_sambanova(
 ) -> dict[str, Any]:
     """Call SambaNova API."""
     if not ENABLED["sambanova_api"]:
-        return None
+        return {"model": "sambanova", "text": "Error: SambaNova API not enabled"}
 
     api_key = os.environ.get("SAMBANOVA_API_KEY")
     if not api_key:
@@ -305,7 +304,7 @@ async def call_kimi(
 ) -> dict[str, Any]:
     """Call Kimi API."""
     if not ENABLED["kimi_api"]:
-        return None
+        return {"model": "kimi", "text": "Error: Kimi API not enabled"}
 
     api_key = os.environ.get("KIMI_API_KEY")
     if not api_key:
@@ -333,7 +332,7 @@ async def call_github(
 ) -> dict[str, Any]:
     """Call GitHub Models API."""
     if not ENABLED["github_api"]:
-        return None
+        return {"model": "github", "text": "Error: GitHub API not enabled"}
 
     api_key = os.environ.get("GITHUB_TOKEN")
     if not api_key:
@@ -361,7 +360,7 @@ async def call_glm(
 ) -> dict[str, Any]:
     """Call GLM (Zhipu) API."""
     if not ENABLED["glm_api"]:
-        return None
+        return {"model": "glm", "text": "Error: GLM API not enabled"}
 
     api_key = os.environ.get("GLM_API_KEY")
     if not api_key:
@@ -389,7 +388,7 @@ async def call_openrouter(
 ) -> dict[str, Any]:
     """Call OpenRouter API."""
     if not ENABLED["openrouter_api"]:
-        return None
+        return {"model": "openrouter", "text": "Error: OpenRouter API not enabled"}
 
     api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
@@ -446,39 +445,42 @@ async def call_ollama(
 
 
 async def call_claude_cli(user_message: str) -> dict[str, Any]:
-    """Call Claude via CLI if installed."""
+    """Call Claude via CLI if installed (async, non-blocking)."""
     try:
-        import subprocess
-
-        result = subprocess.run(
-            ["claude", user_message],
-            capture_output=True,
-            text=True,
-            timeout=10,
+        proc = await asyncio.create_subprocess_exec(
+            "claude",
+            "-p",  # Print output, non-interactive
+            user_message,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
-        if result.returncode == 0:
-            return {"model": "claude-cli", "text": result.stdout}
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+        if proc.returncode == 0:
+            return {"model": "claude-cli", "text": stdout.decode("utf-8", errors="ignore")}
         else:
-            return {"model": "claude-cli", "text": f"Error: {result.stderr}"}
+            return {"model": "claude-cli", "text": f"Error: {stderr.decode('utf-8', errors='ignore')}"}
+    except asyncio.TimeoutError:
+        return {"model": "claude-cli", "text": "Error: Claude CLI timeout"}
     except Exception as e:
         return {"model": "claude-cli", "text": f"Error: {str(e)}"}
 
 
 async def call_gemini_cli(user_message: str) -> dict[str, Any]:
-    """Call Gemini via CLI if installed."""
+    """Call Gemini via CLI if installed (async, non-blocking)."""
     try:
-        import subprocess
-
-        result = subprocess.run(
-            ["gemini", user_message],
-            capture_output=True,
-            text=True,
-            timeout=10,
+        proc = await asyncio.create_subprocess_exec(
+            "gemini",
+            user_message,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
-        if result.returncode == 0:
-            return {"model": "gemini-cli", "text": result.stdout}
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+        if proc.returncode == 0:
+            return {"model": "gemini-cli", "text": stdout.decode("utf-8", errors="ignore")}
         else:
-            return {"model": "gemini-cli", "text": f"Error: {result.stderr}"}
+            return {"model": "gemini-cli", "text": f"Error: {stderr.decode('utf-8', errors='ignore')}"}
+    except asyncio.TimeoutError:
+        return {"model": "gemini-cli", "text": "Error: Gemini CLI timeout"}
     except Exception as e:
         return {"model": "gemini-cli", "text": f"Error: {str(e)}"}
 
@@ -492,21 +494,10 @@ async def call_openjarvis_default(
     messages: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Call the default OpenJarvis LLM handler."""
-    try:
-        # Import the original OpenJarvis LLM handler
-        from openjarvis.engine import Engine
-
-        engine = Engine()
-        # Format messages for engine
-        text = engine.generate(
-            messages,
-            model="default",
-            temperature=0.7,
-            max_tokens=1024,
-        )
-        return {"model": "openjarvis-default", "text": text.get("content", "")}
-    except Exception as e:
-        return {"model": "openjarvis-default", "text": f"Error: {str(e)}"}
+    return {
+        "model": "openjarvis-default",
+        "text": "Error: Default engine not wired yet. Please configure OpenJarvis engine backend.",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -539,6 +530,9 @@ def pick_best(responses: list[dict[str, Any]]) -> dict[str, Any]:
 
 async def run_all(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Run all LLM providers in parallel using Option C Hybrid.
+
+    Waits 4 seconds to collect ALL responses, then picks the best one.
+    Falls back to 10s timeout if no responses arrive in 4s.
 
     Args:
         messages: List of message dicts with 'role' and 'content' keys
@@ -588,7 +582,7 @@ async def run_all(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         # Local models
         tasks.append(call_ollama(session, messages))
 
-        # CLI-based (synchronous, run last message only)
+        # CLI-based (non-blocking async)
         if messages:
             last_user_msg = ""
             for m in reversed(messages):
@@ -602,27 +596,21 @@ async def run_all(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         # Default OpenJarvis model
         tasks.append(call_openjarvis_default(messages))
 
-        # OPTION C: Wait 2-4s for initial responses, fallback to 10s for slower models
-        try:
-            done, pending = await asyncio.wait(
-                tasks, timeout=4.0, return_when=asyncio.FIRST_COMPLETED
-            )
-        except asyncio.TimeoutError:
-            done = set()
-            pending = set(tasks)
+        # OPTION C HYBRID: Wait 4s to gather ALL responses (not just the first)
+        done, pending = await asyncio.wait(
+            tasks, timeout=4.0, return_when=asyncio.ALL_COMPLETED
+        )
 
-        # If we have some quick responses, return immediately; otherwise wait longer
+        # If we have some responses, use them; otherwise wait longer
         if done:
             for t in pending:
                 t.cancel()
         else:
-            # No fast responses, wait up to 10s more for at least one complete response
-            try:
-                done, pending = await asyncio.wait(
-                    pending, timeout=10.0, return_when=asyncio.FIRST_COMPLETED
-                )
-            except asyncio.TimeoutError:
-                pass
+            # No responses in 4s, wait up to 10s more
+            done_2, pending = await asyncio.wait(
+                pending, timeout=10.0, return_when=asyncio.FIRST_COMPLETED
+            )
+            done.update(done_2)
             for t in pending:
                 t.cancel()
 
