@@ -114,9 +114,12 @@ def load_results(glob_pattern: str) -> ResultsFrame:
         )
         for row in commit_groups.iter_rows(named=True):
             if len(row["commits"]) > 1:
+                # Sort commits for deterministic error message; polars'
+                # unique() does not guarantee insertion order across runs.
+                commits = sorted(row["commits"])
                 raise MixedCommitError(
                     f"{row['framework']}/{row['model']}/{row['benchmark']}: "
-                    f"multiple commits {row['commits']}"
+                    f"multiple commits {commits}"
                 )
 
     return ResultsFrame(df=df, unloadable_count=unloadable)
