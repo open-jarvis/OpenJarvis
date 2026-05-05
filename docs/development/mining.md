@@ -69,3 +69,10 @@ The Apple Silicon effort should add its own provider module and reuse:
 
 That work should not need to rewrite the NVIDIA provider, CLI group, telemetry
 collector, or engine sidecar handoff.
+
+## NVIDIA Release Gate
+
+The NVIDIA provider is not considered economically proven until the H100/H200
+runbook passes on real hardware. See
+[`mining-nvidia-validation.md`](./mining-nvidia-validation.md) for the required
+commands, artifacts, and pass criteria.

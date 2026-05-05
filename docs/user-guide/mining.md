@@ -69,3 +69,9 @@ uv run jarvis mine doctor
 Read the rows top-down. Fix the first failing dependency before retrying
 `mine start`. A Mac or AMD machine should fail honestly at provider capability;
 those paths are expected to land as separate providers.
+
+## Production Readiness
+
+The NVIDIA path requires one real H100/H200 validation run before it should be
+marketed as a proven earning path. The developer runbook is
+[`../development/mining-nvidia-validation.md`](../development/mining-nvidia-validation.md).
