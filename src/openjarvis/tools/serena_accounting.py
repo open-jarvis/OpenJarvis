@@ -933,6 +933,438 @@ class SerenaAccountingXeroChartPlanTool(_AccountingBaseTool):
         return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
 
 
+def _parse_jsonish(text: str) -> Any:
+    """Parse strict JSON first, then tolerate common PowerShell/pasted object forms."""
+    raw = str(text or "").strip()
+    if not raw:
+        raise ValueError("empty JSON text")
+
+    try:
+        return json.loads(raw)
+    except Exception:
+        pass
+
+    import re
+    fixed = raw
+    fixed = re.sub(r'([{,]\s*)([A-Za-z_][A-Za-z0-9_\-]*)(\s*:)', r'\1"\2"\3', fixed)
+    fixed = fixed.replace("'", '"')
+
+    try:
+        return json.loads(fixed)
+    except Exception as exc:
+        raise ValueError(f"could not parse JSON or relaxed JSON-like text: {exc}") from exc
+
+
+def _money(value: Any) -> float:
+    try:
+        return round(float(str(value).replace(",", "").strip()), 2)
+    except Exception:
+        return 0.0
+
+
+@ToolRegistry.register("serena_accounting_payfast_env_check")
+class SerenaAccountingPayFastEnvCheckTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_payfast_env_check"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Check PayFast environment without exposing secrets.",
+            parameters={"type": "object", "properties": {}},
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        env = _env_status().get("payfast", {})
+        configured = bool(env.get("configured"))
+        payload = {
+            "report_type": "serena_accounting_payfast_env_check",
+            "created_at": _timestamp(),
+            "source": "payfast",
+            "configured": configured,
+            "env_status": env,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", "payfast-env-check", payload)
+
+        lines = [
+            "Serena PayFast env check",
+            "",
+            f"- Configured: {'yes' if configured else 'no'}",
+            f"- Report: {report_path}",
+            "- Changes made: no",
+            "- Secret values exposed: no",
+            "- Hub adapter: pending future dashboard",
+            "",
+            "Required environment:",
+        ]
+
+        for item in env.get("required", []):
+            lines.append(f"- {item['name']} | present={'yes' if item['present'] else 'no'} | length={item['length']}")
+
+        lines.extend([
+            "",
+            "Notes:",
+            "- PayFast is a payment-event source, not the accounting ledger.",
+            "- Browser return_url must not be trusted as payment proof.",
+            "- ITN/server confirmation or manual approval is required before marking paid.",
+            "- Merchant key/passphrase must never be exposed.",
+        ])
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+@ToolRegistry.register("serena_accounting_payfast_plan")
+class SerenaAccountingPayFastPlanTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_payfast_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a PayFast payment intake plan without external writes.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "goal": {"type": "string"},
+                    "business": {"type": "string"},
+                    "period": {"type": "string"},
+                    "mode": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        goal = str(params.get("goal") or "Prepare PayFast payment intake workflow.").strip()
+        business = str(params.get("business") or "General Business").strip()
+        period = str(params.get("period") or "current period").strip()
+        mode = str(params.get("mode") or "sandbox/readiness").strip()
+        env = _env_status().get("payfast", {})
+
+        steps = [
+            "Confirm PayFast merchant credentials without exposing secrets.",
+            "Confirm sandbox/live mode.",
+            "Define payment reference format for invoice/order/client matching.",
+            "Require ITN/server confirmation or manual approval before marking payment paid.",
+            "Record local payment evidence first.",
+            "Match payment to invoice/order/contact.",
+            "Prepare Xero payment record only after approval and Xero readiness.",
+            "Write report of exact payment status and reconciliation outcome.",
+            "Block refunds, secret exposure, and destructive payment evidence changes.",
+        ]
+
+        payload = {
+            "report_type": "serena_accounting_payfast_plan",
+            "created_at": _timestamp(),
+            "goal": goal,
+            "business": business,
+            "period": period,
+            "mode": mode,
+            "env_status": env,
+            "steps": steps,
+            "external_api_called": False,
+            "live_payment_action": False,
+            "live_accounting_write": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"payfast-plan-{business}", payload)
+
+        return self._result(
+            "Serena PayFast payment intake plan\n\n"
+            f"- Goal: {goal}\n"
+            f"- Business: {business}\n"
+            f"- Period: {period}\n"
+            f"- Mode: {mode}\n"
+            f"- PayFast configured: {'yes' if env.get('configured') else 'no'}\n"
+            f"- Plan: {report_path}\n"
+            "- External API called: no\n"
+            "- Live payment action: no\n"
+            "- Live accounting write: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Steps:\n"
+            + "\n".join(f"- {step}" for step in steps),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_accounting_payfast_verify_itn")
+class SerenaAccountingPayFastVerifyITNTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_payfast_verify_itn"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Validate a PayFast ITN-like payload locally and create a verification report. Does not call PayFast.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "payload": {"type": "string"},
+                    "expected_amount": {"type": "number"},
+                    "expected_reference": {"type": "string"},
+                },
+                "required": ["payload"],
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        payload_text = str(params.get("payload") or "")
+        expected_amount = params.get("expected_amount")
+        expected_reference = str(params.get("expected_reference") or "").strip()
+
+        try:
+            data = _parse_jsonish(payload_text)
+            status = str(data.get("payment_status") or data.get("status") or "").strip().upper()
+            reference = str(data.get("m_payment_id") or data.get("merchant_reference") or data.get("reference") or "").strip()
+            amount = _money(data.get("amount_gross") or data.get("amount") or data.get("gross") or 0)
+
+            checks = []
+            checks.append({"check": "payload_parse", "passed": True})
+            checks.append({"check": "payment_status_complete", "passed": status in {"COMPLETE", "PAID", "SUCCESS"}})
+
+            if expected_reference:
+                checks.append({"check": "reference_match", "passed": reference == expected_reference})
+
+            if expected_amount is not None:
+                checks.append({"check": "amount_match", "passed": amount == _money(expected_amount)})
+
+            signature_present = bool(str(data.get("signature") or "").strip())
+            checks.append({"check": "signature_present", "passed": signature_present})
+
+            verified = all(item["passed"] for item in checks)
+
+            payload_out = {
+                "report_type": "serena_accounting_payfast_verify_itn",
+                "created_at": _timestamp(),
+                "payment_status": status,
+                "reference": reference,
+                "amount": amount,
+                "expected_reference": expected_reference,
+                "expected_amount": _money(expected_amount) if expected_amount is not None else None,
+                "checks": checks,
+                "verified_local": verified,
+                "server_confirmation_performed": False,
+                "external_api_called": False,
+                "live_payment_action": False,
+                "live_accounting_write": False,
+                "changes_made": False,
+                "secret_values_exposed": False,
+                "hub_adapter": _hub_adapter_contract(),
+            }
+            report_path = _save_json("payments", f"payfast-itn-verify-{reference or 'unknown'}", payload_out)
+
+            lines = [
+                "Serena PayFast ITN local verification",
+                "",
+                f"- Reference: {reference or 'unknown'}",
+                f"- Payment status: {status or 'unknown'}",
+                f"- Amount: {amount}",
+                f"- Verified locally: {'yes' if verified else 'no'}",
+                f"- Report: {report_path}",
+                "- Server confirmation performed: no",
+                "- External API called: no",
+                "- Live payment action: no",
+                "- Live accounting write: no",
+                "- Changes made: no",
+                "- Secret values exposed: no",
+                "- Hub adapter: pending future dashboard",
+                "",
+                "Checks:",
+            ]
+
+            for check in checks:
+                lines.append(f"- {check['check']} | passed={'yes' if check['passed'] else 'no'}")
+
+            lines.extend([
+                "",
+                "Important:",
+                "- Local payload checks are not final proof of payment.",
+                "- Use PayFast server validation/ITN confirmation or manual approval before recording payment as paid.",
+            ])
+
+            return self._result("\n".join(lines), success=verified, metadata={**payload_out, "report_path": str(report_path)})
+        except Exception as exc:
+            return self._result(
+                "Serena PayFast ITN verification failed\n\n"
+                f"- Error: {exc}\n"
+                "- Verified locally: no\n"
+                "- External API called: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_accounting_payfast_payment_record")
+class SerenaAccountingPayFastPaymentRecordTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_payfast_payment_record"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local PayFast payment evidence record. Does not write to Xero.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "reference": {"type": "string"},
+                    "payer": {"type": "string"},
+                    "amount": {"type": "number"},
+                    "status": {"type": "string"},
+                    "business": {"type": "string"},
+                    "invoice_id": {"type": "string"},
+                    "notes": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                },
+                "required": ["reference", "amount"],
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        reference = str(params.get("reference") or "").strip()
+        payer = str(params.get("payer") or "").strip()
+        amount = _money(params.get("amount") or 0)
+        status = str(params.get("status") or "pending").strip()
+        business = str(params.get("business") or "General Business").strip()
+        invoice_id = str(params.get("invoice_id") or "").strip()
+        notes = str(params.get("notes") or "").strip()
+        approved = bool(params.get("approved") or False)
+
+        paid_like = status.lower() in {"paid", "complete", "success", "confirmed"}
+        if paid_like and not approved:
+            return self._result(
+                "Serena PayFast payment record blocked\n\n"
+                f"- Reference: {reference}\n"
+                "- Reason: paid/complete status requires explicit approval or verified ITN evidence.\n"
+                "- Payment record created: no\n"
+                "- Live accounting write: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+        record = {
+            "record_type": "payfast_payment_record",
+            "created_at": _timestamp(),
+            "business": business,
+            "reference": reference,
+            "payer": payer,
+            "amount": amount,
+            "status": status,
+            "invoice_id": invoice_id,
+            "notes": notes,
+            "approved": approved,
+            "payment_record_created": True,
+            "external_api_called": False,
+            "live_payment_action": False,
+            "live_accounting_write": False,
+            "delete_performed": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        record_path = _save_json("payments", f"payfast-payment-{reference}", record)
+
+        return self._result(
+            "Serena PayFast payment record created\n\n"
+            f"- Business: {business}\n"
+            f"- Reference: {reference}\n"
+            f"- Payer: {payer or 'not provided'}\n"
+            f"- Amount: {amount}\n"
+            f"- Status: {status}\n"
+            f"- Invoice ID: {invoice_id or 'not linked'}\n"
+            f"- Record: {record_path}\n"
+            "- Payment record created: yes\n"
+            "- External API called: no\n"
+            "- Live payment action: no\n"
+            "- Live accounting write: no\n"
+            "- Delete performed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={**record, "record_path": str(record_path)},
+        )
+
+
+@ToolRegistry.register("serena_accounting_payfast_reconcile_plan")
+class SerenaAccountingPayFastReconcilePlanTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_payfast_reconcile_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a PayFast to Xero/local ledger reconciliation plan.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                    "period": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "General Business").strip()
+        period = str(params.get("period") or "current period").strip()
+        notes = str(params.get("notes") or "").strip()
+
+        steps = [
+            "Export or collect PayFast payment records for the period.",
+            "Collect local invoice records and Xero invoices when available.",
+            "Match using merchant reference, invoice ID, amount, date, and payer details.",
+            "Identify unmatched payments and unmatched invoices.",
+            "Flag amount mismatches and duplicate references.",
+            "Prepare Xero payment records only after approval.",
+            "Create reconciliation exception report.",
+            "Do not mark payments as paid from return_url alone.",
+        ]
+
+        payload = {
+            "report_type": "serena_accounting_payfast_reconcile_plan",
+            "created_at": _timestamp(),
+            "business": business,
+            "period": period,
+            "notes": notes,
+            "steps": steps,
+            "external_api_called": False,
+            "live_payment_action": False,
+            "live_accounting_write": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"payfast-reconcile-plan-{business}-{period}", payload)
+
+        return self._result(
+            "Serena PayFast reconciliation plan\n\n"
+            f"- Business: {business}\n"
+            f"- Period: {period}\n"
+            f"- Plan: {report_path}\n"
+            "- External API called: no\n"
+            "- Live payment action: no\n"
+            "- Live accounting write: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Steps:\n"
+            + "\n".join(f"- {step}" for step in steps),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
 __all__ = [
     "SerenaAccountingStatusTool",
     "SerenaAccountingEnvCheckTool",
@@ -940,6 +1372,11 @@ __all__ = [
     "SerenaAccountingSourceListTool",
     "SerenaAccountingSourceInfoTool",
     "SerenaAccountingXeroChartPlanTool",
+    "SerenaAccountingPayFastReconcilePlanTool",
+    "SerenaAccountingPayFastPaymentRecordTool",
+    "SerenaAccountingPayFastVerifyITNTool",
+    "SerenaAccountingPayFastPlanTool",
+    "SerenaAccountingPayFastEnvCheckTool",
     "SerenaAccountingXeroPlanTool",
     "SerenaAccountingXeroTenantListTool",
     "SerenaAccountingXeroConnectCheckTool",

@@ -12,6 +12,11 @@ from openjarvis.tools.serena_accounting import (
     SerenaAccountingSourceInfoTool,
     SerenaAccountingSourceListTool,
     SerenaAccountingStatusTool,
+    SerenaAccountingPayFastReconcilePlanTool,
+    SerenaAccountingPayFastPaymentRecordTool,
+    SerenaAccountingPayFastVerifyITNTool,
+    SerenaAccountingPayFastPlanTool,
+    SerenaAccountingPayFastEnvCheckTool,
     SerenaAccountingXeroChartPlanTool,
     SerenaAccountingXeroPlanTool,
     SerenaAccountingXeroTenantListTool,
@@ -114,6 +119,86 @@ def xero_chart_plan(business: str, industry: str, notes: str) -> None:
     """Create a Xero chart of accounts plan without modifying accounts."""
     console = Console()
     result = SerenaAccountingXeroChartPlanTool().execute(business=business, industry=industry, notes=notes)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("payfast-env-check")
+def payfast_env_check() -> None:
+    """Check PayFast env without exposing secrets."""
+    console = Console()
+    result = SerenaAccountingPayFastEnvCheckTool().execute()
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("payfast-plan")
+@click.option("--goal", default="Prepare PayFast payment intake workflow.", help="PayFast goal.")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--period", default="current period", help="Accounting period.")
+@click.option("--mode", default="sandbox/readiness", help="PayFast mode.")
+def payfast_plan(goal: str, business: str, period: str, mode: str) -> None:
+    """Create a PayFast payment intake plan."""
+    console = Console()
+    result = SerenaAccountingPayFastPlanTool().execute(goal=goal, business=business, period=period, mode=mode)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("payfast-verify-itn")
+@click.option("--payload", required=True, help="PayFast ITN-like payload as JSON or JSON-like text.")
+@click.option("--expected-amount", default=None, type=float, help="Expected payment amount.")
+@click.option("--expected-reference", default="", help="Expected merchant/reference ID.")
+def payfast_verify_itn(payload: str, expected_amount: float | None, expected_reference: str) -> None:
+    """Verify a PayFast ITN-like payload locally."""
+    console = Console()
+    result = SerenaAccountingPayFastVerifyITNTool().execute(
+        payload=payload,
+        expected_amount=expected_amount,
+        expected_reference=expected_reference,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("payfast-payment-record")
+@click.option("--reference", required=True, help="Payment/reference ID.")
+@click.option("--payer", default="", help="Payer name/email.")
+@click.option("--amount", required=True, type=float, help="Payment amount.")
+@click.option("--status", default="pending", help="Payment status.")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--invoice-id", default="", help="Linked invoice ID.")
+@click.option("--notes", default="", help="Notes.")
+@click.option("--approved", is_flag=True, help="Required when marking paid/complete.")
+def payfast_payment_record(
+    reference: str,
+    payer: str,
+    amount: float,
+    status: str,
+    business: str,
+    invoice_id: str,
+    notes: str,
+    approved: bool,
+) -> None:
+    """Create a local PayFast payment record."""
+    console = Console()
+    result = SerenaAccountingPayFastPaymentRecordTool().execute(
+        reference=reference,
+        payer=payer,
+        amount=amount,
+        status=status,
+        business=business,
+        invoice_id=invoice_id,
+        notes=notes,
+        approved=approved,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("payfast-reconcile-plan")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--period", default="current period", help="Accounting period.")
+@click.option("--notes", default="", help="Optional notes.")
+def payfast_reconcile_plan(business: str, period: str, notes: str) -> None:
+    """Create a PayFast reconciliation plan."""
+    console = Console()
+    result = SerenaAccountingPayFastReconcilePlanTool().execute(business=business, period=period, notes=notes)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 
