@@ -689,6 +689,18 @@ def _default_membership_plans() -> dict[str, dict[str, Any]]:
     }
 
 
+
+def _find_member_profile(member_id: str) -> dict[str, Any] | None:
+    records = _load_json_records("members")
+    profiles = [
+        r for r in records
+        if str(r.get("member_id") or "") == member_id
+        and str(r.get("record_type") or "") == "member_profile"
+    ]
+    if profiles:
+        return profiles[0]
+    return next((r for r in records if str(r.get("member_id") or "") == member_id), None)
+
 def _member_summary_line(record: dict[str, Any]) -> str:
     return (
         f"{record.get('member_id')} | "
@@ -922,13 +934,7 @@ class SerenaMembershipMemberInfoTool(_MembershipBaseTool):
 
     def execute(self, **params: Any) -> ToolResult:
         member_id = str(params.get("member_id") or "").strip()
-        records = _load_json_records("members")
-
-        match = None
-        for record in records:
-            if str(record.get("member_id") or "") == member_id:
-                match = record
-                break
+        match = _find_member_profile(member_id)
 
         if not match:
             return self._result(
@@ -1059,8 +1065,7 @@ class SerenaMembershipUpdateMemberStatusTool(_MembershipBaseTool):
         reason = str(params.get("reason") or "Status update requested.").strip()
         approved = bool(params.get("approved") or False)
 
-        records = _load_json_records("members")
-        match = next((r for r in records if str(r.get("member_id") or "") == member_id), None)
+        match = _find_member_profile(member_id)
 
         if not match:
             return self._result(
