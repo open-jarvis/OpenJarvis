@@ -14,7 +14,10 @@ import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+if TYPE_CHECKING:
+    from openjarvis.mining._stubs import MiningConfig
 
 try:
     import tomllib  # Python 3.11+
@@ -1378,6 +1381,7 @@ class JarvisConfig:
     compression: CompressionConfig = field(default_factory=CompressionConfig)
     skills: SkillsConfig = field(default_factory=SkillsConfig)
     digest: DigestConfig = field(default_factory=DigestConfig)
+    mining: Optional["MiningConfig"] = None
 
     @property
     def memory(self) -> StorageConfig:
@@ -1537,6 +1541,45 @@ def _migrate_toml_data(data: Dict[str, Any], cfg: "JarvisConfig") -> None:
                 )
 
 
+def _parse_mining_section(data: dict) -> Optional["MiningConfig"]:
+    """Parse the ``[mining]`` TOML section into a ``MiningConfig``.
+
+    Returns None if the section is absent. Resolves the ``submit_target``
+    string into a ``SoloTarget`` or ``PoolTarget`` tagged union.
+    """
+    if "mining" not in data:
+        return None
+
+    # Lazy import to avoid circular: mining/__init__.py imports core/config
+    # transitively via _stubs, but only at runtime.
+    from openjarvis.mining._stubs import MiningConfig, PoolTarget, SoloTarget
+
+    section = data["mining"]
+    extra = section.get("extra", {}) or {}
+
+    target_str = section.get("submit_target", "solo")
+    submit_target: Any
+    if target_str == "solo":
+        submit_target = SoloTarget(
+            pearld_rpc_url=extra.get("pearld_rpc_url", "http://localhost:44107")
+        )
+    elif isinstance(target_str, str) and target_str.startswith("pool:"):
+        submit_target = PoolTarget(url=target_str[len("pool:"):])
+    else:
+        raise ValueError(
+            f"[mining].submit_target must be 'solo' or 'pool:<url>', got {target_str!r}"
+        )
+
+    return MiningConfig(
+        provider=section["provider"],
+        wallet_address=section["wallet_address"],
+        submit_target=submit_target,
+        fee_bps=int(section.get("fee_bps", 0)),
+        fee_payout_address=section.get("fee_payout_address") or None,
+        extra={k: v for k, v in extra.items()},
+    )
+
+
 @functools.lru_cache(maxsize=1)
 def load_config(path: Optional[Path] = None) -> JarvisConfig:
     """Detect hardware, build defaults, overlay TOML overrides.
@@ -1603,6 +1646,9 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
         # Expand security profile (user TOML overrides take precedence)
         _user_security_keys = set(data.get("security", {}).keys())
         apply_security_profile(cfg.security, cfg.server, overrides=_user_security_keys)
+
+        # Mining: dedicated parser for tagged-union submit_target
+        cfg.mining = _parse_mining_section(data)
 
     # Apply profile even without a config file (in case defaults set one)
     if not config_path.exists() and cfg.security.profile:
