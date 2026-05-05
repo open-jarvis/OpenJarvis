@@ -1,0 +1,618 @@
+"""Native Serena Membership / Subscriptions / Patient Programmes Full Operator tools.
+
+Layer 1 foundation:
+- status
+- env-check
+- plan
+- source-list
+- source-info
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import time
+from pathlib import Path
+from typing import Any
+
+from openjarvis.core.registry import ToolRegistry
+from openjarvis.tools._stubs import BaseTool, ToolResult, ToolSpec
+
+
+MEMBERSHIP_OUTPUT_ROOT = Path("outputs/membership")
+
+
+def _timestamp() -> str:
+    return time.strftime("%Y%m%d-%H%M%S")
+
+
+def _safe_slug(value: str) -> str:
+    import re
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", str(value or "").strip().lower()).strip("-")
+    return slug or "membership"
+
+
+def _membership_root() -> Path:
+    MEMBERSHIP_OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
+    for child in [
+        "reports",
+        "snapshots",
+        "plans",
+        "members",
+        "enrollments",
+        "subscriptions",
+        "programmes",
+        "handoff",
+        "audits",
+    ]:
+        (MEMBERSHIP_OUTPUT_ROOT / child).mkdir(parents=True, exist_ok=True)
+    return MEMBERSHIP_OUTPUT_ROOT
+
+
+def _save_json(kind: str, name: str, payload: dict[str, Any]) -> Path:
+    root = _membership_root()
+    folder = root / kind
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{_timestamp()}-{_safe_slug(name)}.json"
+    path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+    return path
+
+
+def _hub_adapter_contract() -> dict[str, Any]:
+    return {
+        "hub_adapter_status": "pending_future_dashboard",
+        "future_widgets": [
+            "membership_overview_widget",
+            "member_profile_widget",
+            "subscription_status_widget",
+            "programme_progress_widget",
+            "renewal_pipeline_widget",
+            "membership_payment_widget",
+            "membership_approval_widget",
+            "membership_exceptions_widget",
+        ],
+        "future_events": [
+            "membership_plan_created",
+            "member_profile_created",
+            "member_enrolled",
+            "membership_status_updated",
+            "subscription_record_created",
+            "programme_progress_updated",
+            "membership_handoff_created",
+            "membership_report_created",
+            "membership_action_blocked",
+        ],
+        "operator_state": [
+            "current_business_id",
+            "current_member_id",
+            "current_patient_or_client_id",
+            "current_membership_plan_id",
+            "current_subscription_id",
+            "current_programme_id",
+            "current_payment_status",
+            "current_required_approval",
+            "current_report_path",
+        ],
+    }
+
+
+def _safety_policy() -> dict[str, Any]:
+    return {
+        "allowed": [
+            "Create local membership plans.",
+            "Create local member profiles.",
+            "Create local enrollment records.",
+            "Create local subscription records.",
+            "Prepare payment/accounting handoff.",
+            "Prepare booking handoff.",
+            "Create programme progress records.",
+            "Create follow-up plans.",
+            "Prepare Docs/Drive/Reporting handoff.",
+            "Audit membership state.",
+            "Report exact changes.",
+        ],
+        "guarded": [
+            "Patient/client data.",
+            "Health programme context.",
+            "Subscription/payment changes.",
+            "Cancellation/pause/renewal workflows.",
+            "External exports.",
+            "Marketing or reminder use of member data.",
+            "Docs/Drive/Reporting handoff.",
+            "Accounting/payment handoff.",
+        ],
+        "blocked": [
+            "Bulk membership cancellation.",
+            "Silent programme changes.",
+            "Unapproved payment amount changes.",
+            "Changing subscription price silently.",
+            "Exposing patient/client data.",
+            "Destructive membership cleanup.",
+            "Deleting membership evidence.",
+            "Committing credentials.",
+            "Final medical, legal, tax, or financial advice.",
+        ],
+    }
+
+
+def _membership_sources() -> dict[str, dict[str, Any]]:
+    return {
+        "local-membership": {
+            "name": "Local Serena Membership Records",
+            "status": "active_local",
+            "role": "Local member profiles, plans, enrollments, subscriptions, programmes, handoffs, reports, and audit evidence.",
+            "required_env": [],
+            "objects": [
+                "membership_plans",
+                "member_profiles",
+                "enrollments",
+                "subscription_records",
+                "programme_records",
+                "handoff_records",
+                "audit_reports",
+            ],
+            "notes": [
+                "Available without external credentials.",
+                "This is the v1 membership/programme evidence layer.",
+            ],
+        },
+        "accounting-payments": {
+            "name": "Serena Accounting / PayFast / Xero Handoff",
+            "status": "active_local_guarded",
+            "role": "Invoices, payments, PayFast intake, subscription payment records, Xero readiness, and guarded accounting handoff.",
+            "required_env": [],
+            "objects": [
+                "invoice_plan",
+                "payment_record",
+                "payfast_payment_record",
+                "subscription_payment_context",
+                "xero_readiness",
+                "payment_summary",
+                "blocked_payment_change",
+            ],
+            "notes": [
+                "Payflow is not a standalone skill.",
+                "Legacy Payflow concepts are handled here as subscription/payment flow context.",
+                "Accounting operator is already complete.",
+                "Live PayFast/Xero credentials remain future setup items.",
+            ],
+        },
+        "bookings": {
+            "name": "Serena Bookings",
+            "status": "active_local",
+            "role": "Appointment workflow for programme sessions, member bookings, reminders, no-show risk, and Calendar handoff.",
+            "required_env": [],
+            "objects": [
+                "booking_request",
+                "appointment_record",
+                "reminder_plan",
+                "follow_up_plan",
+                "calendar_handoff",
+            ],
+            "notes": [
+                "Bookings operator is already complete.",
+                "Calendar writes remain approval-gated through Calendar/Bookings handoff.",
+            ],
+        },
+        "compliance": {
+            "name": "Serena Compliance",
+            "status": "active_local",
+            "role": "Guard patient/client/health/privacy/POPIA/HPCSA-sensitive membership and programme workflows.",
+            "required_env": [],
+            "objects": [
+                "sensitivity_checks",
+                "patient_data_guards",
+                "external_share_review",
+                "marketing_or_reminder_review",
+            ],
+            "notes": [
+                "Run Compliance before external exports or messages containing patient/client/programme data.",
+            ],
+        },
+        "docs-drive": {
+            "name": "Google Docs / Google Drive",
+            "status": "active_google_ready",
+            "role": "Membership summaries, programme documents, consent packs, evidence storage, and handoff exports.",
+            "required_env": [
+                "GOOGLE_CLIENT_ID",
+                "GOOGLE_CLIENT_SECRET",
+                "GOOGLE_REFRESH_TOKEN",
+                "GDRIVE_ROOT_FOLDER_ID",
+            ],
+            "objects": [
+                "member_summary_docs",
+                "programme_reports",
+                "drive_evidence_files",
+                "handoff_documents",
+            ],
+            "notes": [
+                "Docs/Drive handoff must be approval-gated when patient/client/programme data is included.",
+            ],
+        },
+        "reporting": {
+            "name": "Serena Reporting",
+            "status": "active_local",
+            "role": "Membership, subscription, programme progress, renewal, cancellation, and exception reports.",
+            "required_env": [],
+            "objects": [
+                "membership_summary",
+                "programme_report",
+                "renewal_report",
+                "subscription_report",
+            ],
+            "notes": [
+                "Use Reporting for local and shareable operational summaries.",
+            ],
+        },
+        "woocommerce": {
+            "name": "WooCommerce / Ecommerce",
+            "status": "future_external",
+            "role": "Future ecommerce membership purchases, products, orders, subscriptions, revenue, and programme sales.",
+            "required_env": [
+                "WOOCOMMERCE_URL",
+                "WOOCOMMERCE_CONSUMER_KEY",
+                "WOOCOMMERCE_CONSUMER_SECRET",
+            ],
+            "objects": [
+                "orders",
+                "products",
+                "memberships",
+                "subscriptions",
+                "revenue",
+            ],
+            "notes": [
+                "Future live ecommerce connector.",
+                "Do not call WooCommerce APIs in Membership v1.",
+                "Ecommerce will be its own later operator and will plug into Membership + Accounting.",
+            ],
+        },
+    }
+
+
+def _env_status() -> dict[str, Any]:
+    sources = _membership_sources()
+    env = {}
+    for source_id, source in sources.items():
+        required = source.get("required_env", [])
+        env[source_id] = {
+            "required": [
+                {
+                    "name": name,
+                    "present": bool(os.getenv(name)),
+                    "length": len(os.getenv(name, "")),
+                }
+                for name in required
+            ],
+            "configured": all(bool(os.getenv(name)) for name in required) if required else True,
+        }
+    return env
+
+
+class _MembershipBaseTool(BaseTool):
+    def _result(self, content: str, success: bool = True, metadata: dict[str, Any] | None = None) -> ToolResult:
+        return ToolResult(
+            tool_name=getattr(self, "tool_id", self.__class__.__name__),
+            success=success,
+            content=content,
+            metadata=metadata or {},
+        )
+
+
+@ToolRegistry.register("serena_membership_status")
+class SerenaMembershipStatusTool(_MembershipBaseTool):
+    tool_id = "serena_membership_status"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Show Serena Membership / Subscriptions / Patient Programmes operator status.",
+            parameters={"type": "object", "properties": {}},
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        root = _membership_root()
+        sources = _membership_sources()
+        env = _env_status()
+        configured = [sid for sid, item in env.items() if item.get("configured")]
+
+        return self._result(
+            "Serena Membership status\n\n"
+            "- Status: active\n"
+            "- Role: memberships, subscriptions, patient/client programmes, enrollments, renewals, payment handoff, booking handoff, programme progress, and audit operator\n"
+            f"- Sources registered: {len(sources)}\n"
+            f"- Configured sources: {len(configured)}\n"
+            "- Local membership records: active\n"
+            "- Accounting/Payment handoff: active/guarded\n"
+            "- Payflow standalone skill: not required\n"
+            "- Booking handoff: active/guarded\n"
+            "- Docs/Drive handoff: ready/guarded\n"
+            "- Compliance guardrails: active\n"
+            "- Reporting handoff: active\n"
+            "- Bulk membership cancellation: blocked\n"
+            "- Silent programme changes: blocked\n"
+            "- Unapproved payment changes: blocked\n"
+            "- Patient/client data exposure: blocked\n"
+            "- Secret values exposed: no\n"
+            f"- Output root: {root}\n"
+            f"- Reports: {root / 'reports'}\n"
+            f"- Plans: {root / 'plans'}\n"
+            f"- Members: {root / 'members'}\n"
+            f"- Enrollments: {root / 'enrollments'}\n"
+            f"- Subscriptions: {root / 'subscriptions'}\n"
+            f"- Programmes: {root / 'programmes'}\n"
+            f"- Handoff: {root / 'handoff'}\n"
+            f"- Audits: {root / 'audits'}\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={
+                "sources": sources,
+                "env_status": env,
+                "safety_policy": _safety_policy(),
+                "hub_adapter": _hub_adapter_contract(),
+                "secret_values_exposed": False,
+            },
+        )
+
+
+@ToolRegistry.register("serena_membership_env_check")
+class SerenaMembershipEnvCheckTool(_MembershipBaseTool):
+    tool_id = "serena_membership_env_check"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Check membership environment without exposing secrets.",
+            parameters={"type": "object", "properties": {}},
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        env = _env_status()
+        payload = {
+            "report_type": "serena_membership_env_check",
+            "created_at": _timestamp(),
+            "env_status": env,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", "env-check", payload)
+
+        lines = [
+            "Serena Membership env check",
+            "",
+            f"- Report: {report_path}",
+            "- Changes made: no",
+            "- Secret values exposed: no",
+            "- Hub adapter: pending future dashboard",
+            "",
+            "Sources:",
+        ]
+
+        for source_id, item in env.items():
+            lines.append(f"- {source_id} | configured={'yes' if item['configured'] else 'no'}")
+            for var in item["required"]:
+                lines.append(f"  - {var['name']} | present={'yes' if var['present'] else 'no'} | length={var['length']}")
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+@ToolRegistry.register("serena_membership_source_list")
+class SerenaMembershipSourceListTool(_MembershipBaseTool):
+    tool_id = "serena_membership_source_list"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="List registered membership/subscription/programme sources.",
+            parameters={"type": "object", "properties": {}},
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        sources = _membership_sources()
+        payload = {
+            "report_type": "serena_membership_source_list",
+            "created_at": _timestamp(),
+            "sources": sources,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("snapshots", "source-list", payload)
+
+        lines = [
+            "Serena Membership source list",
+            "",
+            f"- Sources registered: {len(sources)}",
+            f"- Snapshot: {report_path}",
+            "- Changes made: no",
+            "- Secret values exposed: no",
+            "- Hub adapter: pending future dashboard",
+            "",
+            "Sources:",
+        ]
+
+        for source_id, source in sources.items():
+            lines.append(f"- {source_id} | {source['name']} | status={source['status']} | objects={len(source['objects'])}")
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+@ToolRegistry.register("serena_membership_source_info")
+class SerenaMembershipSourceInfoTool(_MembershipBaseTool):
+    tool_id = "serena_membership_source_info"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Show details for one membership/subscription/programme source.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string"},
+                },
+                "required": ["source"],
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        source_id = str(params.get("source") or "").strip()
+        sources = _membership_sources()
+
+        if source_id not in sources:
+            return self._result(
+                "Serena Membership source-info failed\n\n"
+                f"- Source: {source_id}\n"
+                "- Error: source not found\n"
+                "- Changes made: no",
+                success=False,
+            )
+
+        source = sources[source_id]
+        env = _env_status().get(source_id, {})
+        payload = {
+            "report_type": "serena_membership_source_info",
+            "created_at": _timestamp(),
+            "source_id": source_id,
+            "source": source,
+            "env_status": env,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("snapshots", f"source-info-{source_id}", payload)
+
+        lines = [
+            "Serena Membership source info",
+            "",
+            f"- Source: {source_id}",
+            f"- Name: {source['name']}",
+            f"- Status: {source['status']}",
+            f"- Role: {source['role']}",
+            f"- Objects: {len(source['objects'])}",
+            f"- Required env vars: {len(source['required_env'])}",
+            f"- Snapshot: {report_path}",
+            "- Changes made: no",
+            "- Secret values exposed: no",
+            "- Hub adapter: pending future dashboard",
+            "",
+            "Objects:",
+        ]
+
+        lines.extend(f"- {item}" for item in source["objects"])
+
+        lines.extend(["", "Required env:"])
+        if source["required_env"]:
+            for item in env.get("required", []):
+                lines.append(f"- {item['name']} | present={'yes' if item['present'] else 'no'} | length={item['length']}")
+        else:
+            lines.append("- none")
+
+        lines.extend(["", "Notes:"])
+        lines.extend(f"- {note}" for note in source["notes"])
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+@ToolRegistry.register("serena_membership_plan")
+class SerenaMembershipPlanTool(_MembershipBaseTool):
+    tool_id = "serena_membership_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a membership/subscription/programme operation plan without external writes.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "goal": {"type": "string"},
+                    "business": {"type": "string"},
+                    "member": {"type": "string"},
+                    "membership_plan": {"type": "string"},
+                    "programme": {"type": "string"},
+                    "payment_context": {"type": "string"},
+                },
+                "required": ["goal"],
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        goal = str(params.get("goal") or "").strip()
+        business = str(params.get("business") or "General Business").strip()
+        member = str(params.get("member") or "not specified").strip()
+        membership_plan = str(params.get("membership_plan") or "not specified").strip()
+        programme = str(params.get("programme") or "not specified").strip()
+        payment_context = str(params.get("payment_context") or "not specified").strip()
+
+        steps = [
+            "Identify business, member/patient/client, membership plan, programme, and payment context.",
+            "Classify whether patient/client/health-sensitive information is included.",
+            "Create local membership plan/profile/enrollment/subscription evidence first.",
+            "Use Accounting handoff for payments, invoices, PayFast, Xero readiness, and legacy Payflow-style subscription events.",
+            "Use Bookings handoff for appointments, reminders, and Calendar workflows.",
+            "Use Compliance before external exports/messages involving sensitive member/programme data.",
+            "Prepare Docs/Drive/Reporting handoff only after approval when sensitive data is included.",
+            "Report exact membership status, payment status, programme state, and required approvals.",
+            "Block bulk cancellations, silent programme changes, unapproved payment changes, and patient data exposure.",
+        ]
+
+        payload = {
+            "report_type": "serena_membership_plan",
+            "created_at": _timestamp(),
+            "goal": goal,
+            "business": business,
+            "member": member,
+            "membership_plan": membership_plan,
+            "programme": programme,
+            "payment_context": payment_context,
+            "steps": steps,
+            "external_api_called": False,
+            "payment_action_performed": False,
+            "accounting_write_performed": False,
+            "booking_write_performed": False,
+            "programme_changed": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("plans", goal or "membership-plan", payload)
+
+        return self._result(
+            "Serena Membership operation plan\n\n"
+            f"- Goal: {goal}\n"
+            f"- Business: {business}\n"
+            f"- Member: {member}\n"
+            f"- Membership plan: {membership_plan}\n"
+            f"- Programme: {programme}\n"
+            f"- Payment context: {payment_context}\n"
+            f"- Plan: {report_path}\n"
+            "- External API called: no\n"
+            "- Payment action performed: no\n"
+            "- Accounting write performed: no\n"
+            "- Booking write performed: no\n"
+            "- Programme changed: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Steps:\n"
+            + "\n".join(f"- {step}" for step in steps),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+__all__ = [
+    "SerenaMembershipStatusTool",
+    "SerenaMembershipEnvCheckTool",
+    "SerenaMembershipPlanTool",
+    "SerenaMembershipSourceListTool",
+    "SerenaMembershipSourceInfoTool",
+]
