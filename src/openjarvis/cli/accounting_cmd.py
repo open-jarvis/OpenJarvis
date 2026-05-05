@@ -12,6 +12,10 @@ from openjarvis.tools.serena_accounting import (
     SerenaAccountingSourceInfoTool,
     SerenaAccountingSourceListTool,
     SerenaAccountingStatusTool,
+    SerenaAccountingBlockedTaxSubmitTool,
+    SerenaAccountingTaxChecklistTool,
+    SerenaAccountingVATSummaryTool,
+    SerenaAccountingVATPlanTool,
     SerenaAccountingBlockedPayrollSubmitTool,
     SerenaAccountingPayrollChecklistTool,
     SerenaAccountingPayrollSummaryTool,
@@ -552,6 +556,63 @@ def blocked_payroll_submit(action: str, reason: str) -> None:
     """Deliberately blocked payroll submission/payment command."""
     console = Console()
     result = SerenaAccountingBlockedPayrollSubmitTool().execute(action=action, reason=reason)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("vat-plan")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--period", default="current VAT period", help="VAT period.")
+@click.option("--vat-number", default="", help="VAT number, only length/presence is reported.")
+@click.option("--notes", default="", help="Notes.")
+def vat_plan(business: str, period: str, vat_number: str, notes: str) -> None:
+    """Create VAT preparation plan."""
+    console = Console()
+    result = SerenaAccountingVATPlanTool().execute(
+        business=business,
+        period=period,
+        vat_number=vat_number,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("vat-summary")
+@click.option("--business", default="", help="Optional business filter.")
+@click.option("--period", default="current records", help="VAT period.")
+@click.option("--notes", default="", help="Notes.")
+def vat_summary(business: str, period: str, notes: str) -> None:
+    """Create local VAT summary."""
+    console = Console()
+    result = SerenaAccountingVATSummaryTool().execute(
+        business=business,
+        period=period,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("tax-checklist")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--period", default="current tax period", help="Tax period.")
+@click.option("--tax-type", default="VAT / income tax / payroll tax review", help="Tax type.")
+def tax_checklist(business: str, period: str, tax_type: str) -> None:
+    """Create tax preparation checklist."""
+    console = Console()
+    result = SerenaAccountingTaxChecklistTool().execute(
+        business=business,
+        period=period,
+        tax_type=tax_type,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("blocked-tax-submit")
+@click.option("--action", default="submit tax/VAT return", help="Requested action.")
+@click.option("--reason", default="Tax submission requested.", help="Reason.")
+def blocked_tax_submit(action: str, reason: str) -> None:
+    """Deliberately blocked tax/VAT/SARS submission command."""
+    console = Console()
+    result = SerenaAccountingBlockedTaxSubmitTool().execute(action=action, reason=reason)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 

@@ -3089,6 +3089,308 @@ class SerenaAccountingBlockedPayrollSubmitTool(_AccountingBaseTool):
         )
 
 
+@ToolRegistry.register("serena_accounting_vat_plan")
+class SerenaAccountingVATPlanTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_vat_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create VAT preparation plan without VAT submission.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                    "period": {"type": "string"},
+                    "vat_number": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "General Business").strip()
+        period = str(params.get("period") or "current VAT period").strip()
+        vat_number = str(params.get("vat_number") or "").strip()
+        notes = str(params.get("notes") or "").strip()
+
+        steps = [
+            "Collect all VAT-relevant invoices, payments, expenses, supplier bills, receipts, and credit notes.",
+            "Separate output VAT from sales/income and input VAT from supplier expenses.",
+            "Check invoices and receipts for valid VAT evidence.",
+            "Identify zero-rated, exempt, non-vatable, and standard-rated transactions.",
+            "Prepare VAT summary locally only.",
+            "Flag missing receipts, missing VAT numbers, mismatches, and unusual VAT claims.",
+            "Review with accountant before submission.",
+            "Do not submit VAT/SARS/eFiling returns from Accounting v1.",
+        ]
+
+        payload = {
+            "report_type": "serena_accounting_vat_plan",
+            "created_at": _timestamp(),
+            "business": business,
+            "period": period,
+            "vat_number_present": bool(vat_number),
+            "vat_number_length": len(vat_number),
+            "notes": notes,
+            "steps": steps,
+            "external_api_called": False,
+            "tax_submitted": False,
+            "vat_submitted": False,
+            "live_accounting_write": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("tax", f"vat-plan-{business}-{period}", payload)
+
+        return self._result(
+            "Serena VAT preparation plan\n\n"
+            f"- Business: {business}\n"
+            f"- Period: {period}\n"
+            f"- VAT number present: {'yes' if vat_number else 'no'}\n"
+            f"- VAT number length: {len(vat_number)}\n"
+            f"- Plan: {report_path}\n"
+            "- External API called: no\n"
+            "- VAT submitted: no\n"
+            "- Tax submitted: no\n"
+            "- Live accounting write: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Steps:\n"
+            + "\n".join(f"- {step}" for step in steps),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_accounting_vat_summary")
+class SerenaAccountingVATSummaryTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_vat_summary"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create local VAT summary from invoices and expenses. Does not submit VAT.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                    "period": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "").strip()
+        period = str(params.get("period") or "current records").strip()
+        notes = str(params.get("notes") or "").strip()
+
+        invoices = _load_json_records("invoices")
+        expenses = _load_json_records("expenses")
+
+        if business:
+            invoices = [x for x in invoices if str(x.get("business") or "") == business]
+            expenses = [x for x in expenses if str(x.get("business") or "") == business]
+
+        output_vat = sum(_money(inv.get("vat_amount") or 0) for inv in invoices)
+        input_vat = sum(_money(exp.get("vat_amount") or 0) for exp in expenses)
+        net_vat = round(output_vat - input_vat, 2)
+
+        payload = {
+            "report_type": "serena_accounting_vat_summary",
+            "created_at": _timestamp(),
+            "business": business or "all",
+            "period": period,
+            "invoice_count": len(invoices),
+            "expense_count": len(expenses),
+            "output_vat": round(output_vat, 2),
+            "input_vat": round(input_vat, 2),
+            "net_vat_estimate": net_vat,
+            "notes": notes,
+            "external_api_called": False,
+            "vat_submitted": False,
+            "tax_submitted": False,
+            "live_accounting_write": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("tax", f"vat-summary-{business or 'all'}-{period}", payload)
+
+        return self._result(
+            "Serena VAT summary created\n\n"
+            f"- Business: {business or 'all'}\n"
+            f"- Period: {period}\n"
+            f"- Invoice count: {len(invoices)}\n"
+            f"- Expense count: {len(expenses)}\n"
+            f"- Output VAT estimate: {round(output_vat, 2)}\n"
+            f"- Input VAT estimate: {round(input_vat, 2)}\n"
+            f"- Net VAT estimate: {net_vat}\n"
+            f"- Report: {report_path}\n"
+            "- External API called: no\n"
+            "- VAT submitted: no\n"
+            "- Tax submitted: no\n"
+            "- Live accounting write: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Important:\n"
+            "- This is a local preparation estimate only.\n"
+            "- VAT treatment must be reviewed before any SARS/eFiling submission.",
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_accounting_tax_checklist")
+class SerenaAccountingTaxChecklistTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_tax_checklist"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create tax preparation checklist without tax submission.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                    "period": {"type": "string"},
+                    "tax_type": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "General Business").strip()
+        period = str(params.get("period") or "current tax period").strip()
+        tax_type = str(params.get("tax_type") or "VAT / income tax / payroll tax review").strip()
+
+        checklist = [
+            "Confirm business entity and tax registration details.",
+            "Confirm reporting period and applicable tax type.",
+            "Collect sales invoices, payment records, expense records, receipts, bank statements, payroll summaries, and previous submissions.",
+            "Review VAT treatment, deductible expenses, non-deductible expenses, and missing evidence.",
+            "Review payroll/PAYE/UIF/SDL responsibilities where applicable.",
+            "Create accountant review pack.",
+            "Run Compliance before sharing externally.",
+            "Owner/accountant must approve any submission.",
+            "Serena Accounting v1 must not submit tax/VAT/SARS/eFiling returns.",
+        ]
+
+        payload = {
+            "report_type": "serena_accounting_tax_checklist",
+            "created_at": _timestamp(),
+            "business": business,
+            "period": period,
+            "tax_type": tax_type,
+            "checklist": checklist,
+            "external_api_called": False,
+            "tax_submitted": False,
+            "vat_submitted": False,
+            "live_accounting_write": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("tax", f"tax-checklist-{business}-{period}", payload)
+
+        return self._result(
+            "Serena tax preparation checklist\n\n"
+            f"- Business: {business}\n"
+            f"- Period: {period}\n"
+            f"- Tax type: {tax_type}\n"
+            f"- Report: {report_path}\n"
+            "- External API called: no\n"
+            "- Tax submitted: no\n"
+            "- VAT submitted: no\n"
+            "- Live accounting write: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Checklist:\n"
+            + "\n".join(f"- {item}" for item in checklist),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_accounting_blocked_tax_submit")
+class SerenaAccountingBlockedTaxSubmitTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_blocked_tax_submit"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked tax/VAT/SARS submission command.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        action = str(params.get("action") or "submit tax/VAT return").strip()
+        reason = str(params.get("reason") or "Tax submission requested.").strip()
+
+        payload = {
+            "report_type": "serena_accounting_blocked_tax_submit",
+            "created_at": _timestamp(),
+            "action": action,
+            "reason": reason,
+            "blocked_reason": "Tax, VAT, SARS, eFiling, statutory returns, and final tax submissions are blocked in Accounting v1.",
+            "risk_level": "BLOCKED",
+            "allowed_to_continue": False,
+            "approval_required": True,
+            "owner_review_required": True,
+            "accountant_review_required": True,
+            "external_api_called": False,
+            "tax_submitted": False,
+            "vat_submitted": False,
+            "live_accounting_write": False,
+            "delete_performed": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("tax", "blocked-tax-submit", payload)
+
+        return ToolResult(
+            tool_name=self.tool_id,
+            success=False,
+            content=(
+                "Tax/VAT submission blocked by Serena Accounting v1 policy\n\n"
+                f"- Action: {action}\n"
+                f"- Reason: {reason}\n"
+                "- Risk level: BLOCKED\n"
+                "- Allowed to continue: no\n"
+                "- Approval required: yes\n"
+                "- Owner review required: yes\n"
+                "- Accountant review required: yes\n"
+                f"- Report: {report_path}\n"
+                "- External API called: no\n"
+                "- Tax submitted: no\n"
+                "- VAT submitted: no\n"
+                "- Live accounting write: no\n"
+                "- Delete performed: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no\n"
+                "- Hub adapter: pending future dashboard"
+            ),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
 __all__ = [
     "SerenaAccountingStatusTool",
     "SerenaAccountingEnvCheckTool",
@@ -3101,6 +3403,10 @@ __all__ = [
     "SerenaAccountingOCRReceiptHandoffTool",
     "SerenaAccountingBooksSummaryTool",
     "SerenaAccountingBlockedPayrollSubmitTool",
+    "SerenaAccountingBlockedTaxSubmitTool",
+    "SerenaAccountingTaxChecklistTool",
+    "SerenaAccountingVATSummaryTool",
+    "SerenaAccountingVATPlanTool",
     "SerenaAccountingPayrollChecklistTool",
     "SerenaAccountingPayrollSummaryTool",
     "SerenaAccountingPayrollPlanTool",
