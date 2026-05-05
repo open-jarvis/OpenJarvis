@@ -1,0 +1,337 @@
+{
+  "status": "inspected",
+  "target_native_skill": "Serena Bookings / Appointments / Reminders Full Operator v1",
+  "missing_files": [
+    "legacy\\serena-skills\\20-bookings.js",
+    "legacy\\serena-skills\\58-appointment-reminders.js"
+  ],
+  "files": [
+    {
+      "file": "legacy\\serena-skills\\04-calendar.js",
+      "exists": true,
+      "line_count": 183,
+      "character_count": 6910,
+      "triggers": [
+        "BOOK SLOT:",
+        "CANCEL APPOINTMENT:",
+        "CHECK AVAILABILITY:",
+        "TODAY SCHEDULE"
+      ],
+      "function_names": [
+        "getCalendarClient"
+      ],
+      "dependencies": [
+        "../helpers/logger",
+        "googleapis"
+      ],
+      "booking_terms": [
+        "appointment",
+        "appointments",
+        "availability",
+        "calendar",
+        "cancel",
+        "client",
+        "consultation",
+        "patient",
+        "reminder",
+        "schedule",
+        "slot"
+      ],
+      "env_mentions": [
+        "BOOK",
+        "CALENDAR",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        "GOOGLE_REFRESH_TOKEN"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\25-compliance.js",
+      "exists": true,
+      "line_count": 98,
+      "character_count": 4160,
+      "triggers": [
+        "ANALYSE CONTENT:",
+        "COMPLIANCE CHECK:",
+        "FULL COMPLIANCE:",
+        "HPCSA CHECK:"
+      ],
+      "function_names": [],
+      "dependencies": [
+        "../helpers/logger"
+      ],
+      "booking_terms": [
+        "compliance",
+        "consent",
+        "health",
+        "hpcsa",
+        "patient",
+        "popia",
+        "privacy",
+        "report"
+      ],
+      "env_mentions": []
+    },
+    {
+      "file": "legacy\\serena-skills\\02-reporting.js",
+      "exists": true,
+      "line_count": 105,
+      "character_count": 3818,
+      "triggers": [
+        "KPI REPORT",
+        "MORNING BRIEF",
+        "WEEKLY REPORT"
+      ],
+      "function_names": [],
+      "dependencies": [
+        "../helpers/logger"
+      ],
+      "booking_terms": [
+        "appointment",
+        "appointments",
+        "booking",
+        "bookings",
+        "calendar",
+        "membership",
+        "patient",
+        "report"
+      ],
+      "env_mentions": []
+    },
+    {
+      "file": "legacy\\serena-skills\\03-gdrive.js",
+      "exists": true,
+      "line_count": 96,
+      "character_count": 3508,
+      "triggers": [
+        "DRIVE FOLDER:",
+        "DRIVE LIST:",
+        "DRIVE SAVE:",
+        "DRIVE UPLOAD:"
+      ],
+      "function_names": [],
+      "dependencies": [
+        "../helpers/google-drive",
+        "../helpers/logger"
+      ],
+      "booking_terms": [
+        "drive"
+      ],
+      "env_mentions": [
+        "GDRIVE",
+        "GDRIVE_ROOT_FOLDER_ID"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\08-google-docs.js",
+      "exists": true,
+      "line_count": 100,
+      "character_count": 3259,
+      "triggers": [
+        "CREATE DOC:",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        "GOOGLE_REFRESH_TOKEN",
+        "UPDATE DOC:"
+      ],
+      "function_names": [
+        "generateDocContent",
+        "parsePayload",
+        "replaceExisting"
+      ],
+      "dependencies": [
+        "../helpers/google-docs-service",
+        "../helpers/logger"
+      ],
+      "booking_terms": [
+        "client",
+        "docs"
+      ],
+      "env_mentions": [
+        "DOCS",
+        "GOOGLE",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        "GOOGLE_REFRESH_TOKEN"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\01-crm.js",
+      "exists": true,
+      "line_count": 205,
+      "character_count": 7663,
+      "triggers": [
+        "ADD PATIENT:",
+        "GET PATIENT:",
+        "UPDATE PATIENT:"
+      ],
+      "function_names": [],
+      "dependencies": [
+        "../helpers/logger",
+        "../helpers/structured-output"
+      ],
+      "booking_terms": [
+        "crm",
+        "health",
+        "patient"
+      ],
+      "env_mentions": [
+        "CRM",
+        "PATIENT"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\09-finance.js",
+      "exists": true,
+      "line_count": 171,
+      "character_count": 6730,
+      "triggers": [
+        "GENERATE INVOICE:",
+        "INVOICE SUMMARY",
+        "PAID",
+        "PENDING",
+        "RECORD PAYMENT:"
+      ],
+      "function_names": [
+        "totalAmount",
+        "vatAmount"
+      ],
+      "dependencies": [
+        "../helpers/logger",
+        "../helpers/structured-output"
+      ],
+      "booking_terms": [
+        "consultation",
+        "invoice",
+        "patient",
+        "payfast",
+        "payment"
+      ],
+      "env_mentions": [
+        "PAYFAST_ENABLED"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\10-payfast.js",
+      "exists": true,
+      "line_count": 120,
+      "character_count": 4830,
+      "triggers": [
+        "PAYMENT LINK:",
+        "PAYMENT STATUS:"
+      ],
+      "function_names": [
+        "buildPayfastUrl"
+      ],
+      "dependencies": [
+        "../helpers/logger",
+        "crypto"
+      ],
+      "booking_terms": [
+        "cancel",
+        "consultation",
+        "docs",
+        "patient",
+        "payfast",
+        "payment"
+      ],
+      "env_mentions": [
+        "PAYFAST",
+        "PAYFAST_ENABLED",
+        "PAYFAST_MERCHANT_ID",
+        "PAYFAST_MERCHANT_KEY",
+        "PAYFAST_PASSPHRASE",
+        "PAYFAST_SANDBOX"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\45-payflow.js",
+      "exists": true,
+      "line_count": 77,
+      "character_count": 2706,
+      "triggers": [
+        "PAYFLOW:",
+        "SUBSCRIPTION:"
+      ],
+      "function_names": [
+        "parsePayload"
+      ],
+      "dependencies": [
+        "../helpers/logger"
+      ],
+      "booking_terms": [
+        "membership",
+        "payfast",
+        "payment"
+      ],
+      "env_mentions": []
+    }
+  ],
+  "target_workflow": [
+    "status",
+    "env-check",
+    "plan",
+    "source-list",
+    "source-info",
+    "availability-plan",
+    "booking-request",
+    "create-booking",
+    "booking-info",
+    "booking-list",
+    "reschedule-booking",
+    "cancel-booking",
+    "cancellation-policy",
+    "no-show-policy",
+    "reminder-plan",
+    "reminder-schedule",
+    "reminder-status",
+    "no-show-risk",
+    "follow-up-plan",
+    "calendar-handoff",
+    "calendar-create-plan",
+    "calendar-update-plan",
+    "calendar-cancel-plan",
+    "docs-handoff",
+    "drive-handoff",
+    "reporting-handoff",
+    "appointment-summary",
+    "audit",
+    "blocked-bulk-cancel",
+    "blocked-unapproved-reminder-send",
+    "blocked-patient-data-exposure",
+    "blocked-silent-calendar-change"
+  ],
+  "hub_adapter": {
+    "future_widgets": [
+      "bookings_overview_widget",
+      "calendar_schedule_widget",
+      "appointment_detail_widget",
+      "reminders_widget",
+      "no_show_risk_widget",
+      "followups_widget",
+      "booking_requests_widget",
+      "booking_approval_widget"
+    ],
+    "future_events": [
+      "booking_request_created",
+      "booking_created",
+      "booking_reschedule_planned",
+      "booking_cancel_planned",
+      "reminder_plan_created",
+      "followup_plan_created",
+      "booking_calendar_handoff_created",
+      "booking_report_created",
+      "booking_action_blocked"
+    ],
+    "operator_state": [
+      "current_business_id",
+      "current_patient_or_client_id",
+      "current_booking_id",
+      "current_calendar_event_id",
+      "current_appointment_status",
+      "current_reminder_status",
+      "current_required_approval",
+      "current_report_path"
+    ]
+  }
+}
