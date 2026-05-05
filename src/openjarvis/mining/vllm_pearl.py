@@ -23,7 +23,7 @@ from openjarvis.mining._constants import (
 )
 from openjarvis.mining._discovery import detect_for_engine_model
 from openjarvis.mining._docker import PearlDockerLauncher
-from openjarvis.mining._metrics import parse_gateway_metrics
+from openjarvis.mining._metrics import parse_gateway_metrics, parse_vllm_metrics
 from openjarvis.mining._stubs import (
     MiningCapabilities,
     MiningConfig,
@@ -109,22 +109,39 @@ class VllmPearlProvider(MiningProvider):
         sidecar = Sidecar.read(SIDECAR_PATH)
         if sidecar is None:
             return MiningStats(provider_id=self.provider_id)
-        url = sidecar.get("gateway_metrics_url")
-        if not url:
-            return MiningStats(provider_id=self.provider_id)
+        gateway_url = sidecar.get("gateway_metrics_url")
         try:
-            resp = httpx.get(f"{url}/metrics", timeout=5.0)
-            if resp.status_code != 200:
+            if gateway_url:
+                resp = httpx.get(f"{gateway_url}/metrics", timeout=2.0)
+                if resp.status_code == 200:
+                    return parse_gateway_metrics(
+                        resp.text,
+                        provider_id=self.provider_id,
+                    )
+        except Exception:  # noqa: BLE001 - vLLM fallback below.
+            pass
+
+        vllm_endpoint = sidecar.get("vllm_endpoint")
+        if vllm_endpoint:
+            metrics_url = vllm_endpoint.removesuffix("/v1") + "/metrics"
+            try:
+                resp = httpx.get(metrics_url, timeout=5.0)
+                if resp.status_code == 200:
+                    return parse_vllm_metrics(resp.text, provider_id=self.provider_id)
                 return MiningStats(
                     provider_id=self.provider_id,
-                    last_error=f"gateway HTTP {resp.status_code}",
+                    last_error=f"vLLM metrics HTTP {resp.status_code}",
                 )
-            return parse_gateway_metrics(resp.text, provider_id=self.provider_id)
-        except Exception as e:  # noqa: BLE001
-            return MiningStats(
-                provider_id=self.provider_id,
-                last_error=str(e).splitlines()[0],
-            )
+            except Exception as e:  # noqa: BLE001
+                return MiningStats(
+                    provider_id=self.provider_id,
+                    last_error=str(e).splitlines()[0],
+                )
+
+        return MiningStats(
+            provider_id=self.provider_id,
+            last_error="no gateway or vLLM metrics URL in sidecar",
+        )
 
 
 def ensure_registered() -> None:

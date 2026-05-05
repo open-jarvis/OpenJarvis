@@ -133,6 +133,27 @@ def test_vllm_pearl_stats_reads_gateway(monkeypatch, written_sidecar):
         assert stats.blocks_found == 1
 
 
+def test_vllm_pearl_stats_falls_back_to_vllm_metrics(monkeypatch, written_sidecar):
+    from openjarvis.mining.vllm_pearl import VllmPearlProvider
+
+    monkeypatch.setattr("openjarvis.mining.vllm_pearl.SIDECAR_PATH", written_sidecar)
+
+    def fake_get(url: str, timeout: float):
+        resp = MagicMock()
+        if url == "http://127.0.0.1:8339/metrics":
+            raise OSError("connection refused")
+        assert url == "http://127.0.0.1:8000/metrics"
+        resp.status_code = 200
+        resp.text = "process_start_time_seconds 1\n"
+        return resp
+
+    with patch("openjarvis.mining.vllm_pearl.httpx.get", side_effect=fake_get):
+        provider = VllmPearlProvider(docker_client=MagicMock())
+        stats = provider.stats()
+        assert stats.uptime_seconds > 0
+        assert stats.last_error is None
+
+
 def test_ensure_registered_is_idempotent():
     from openjarvis.core.registry import MinerRegistry
     from openjarvis.mining.vllm_pearl import (

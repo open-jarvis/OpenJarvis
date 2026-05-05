@@ -1,9 +1,11 @@
 # src/openjarvis/mining/_metrics.py
-"""Pearl gateway Prometheus → MiningStats adapter.
+"""Pearl/vLLM Prometheus → MiningStats adapter.
 
-The gateway exposes ``:8339/metrics`` in plain Prometheus exposition format.
-This is the most stable contract Pearl publishes; deeper RPC introspection
-on ``:8337`` is deferred to v2 (where it's needed for pool share accounting).
+The original v1 design expected Pearl gateway metrics on ``:8339/metrics``.
+The live Pearl miner currently exposes the vLLM Prometheus endpoint on
+``:8000/metrics`` instead, while the gateway listens on a Unix socket for miner
+RPC. Keep both parsers here so ``jarvis mine status`` can report a healthy
+runtime even when share/block counters are not exposed by the gateway yet.
 
 If Pearl renames metrics, change the ``PROM_*`` constants here — that's the
 only place the metric names live.
@@ -78,3 +80,17 @@ def parse_gateway_metrics(text: str, *, provider_id: str) -> MiningStats:
         last_share_at=last_share_ts,
         last_error=last_error,
     )
+
+
+def parse_vllm_metrics(text: str, *, provider_id: str) -> MiningStats:
+    """Convert vLLM Prometheus metrics into best-effort mining runtime stats.
+
+    vLLM does not expose Pearl share/block counters, but its metrics endpoint
+    proves the mining-backed inference server is alive and can provide uptime.
+    """
+    proc_start = _parse_simple_metric(text, "process_start_time_seconds")
+    uptime = 0.0
+    if proc_start is not None:
+        uptime = max(0.0, time.time() - proc_start)
+
+    return MiningStats(provider_id=provider_id, uptime_seconds=uptime)

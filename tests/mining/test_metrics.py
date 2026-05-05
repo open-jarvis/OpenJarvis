@@ -39,3 +39,16 @@ def test_parse_gateway_metrics_ignores_comment_lines():
         provider_id="vllm-pearl",
     )
     assert stats.shares_submitted == 0  # 'something' isn't a Pearl metric
+
+
+def test_parse_vllm_metrics_reports_runtime_uptime():
+    from openjarvis.mining._metrics import parse_vllm_metrics
+
+    stats = parse_vllm_metrics(
+        "process_start_time_seconds 1\n"
+        'vllm:request_success_total{finished_reason="stop"} 1\n',
+        provider_id="vllm-pearl",
+    )
+    assert stats.provider_id == "vllm-pearl"
+    assert stats.uptime_seconds > 0
+    assert stats.last_error is None
