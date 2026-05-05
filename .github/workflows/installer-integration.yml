@@ -41,18 +41,17 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
-          path: /home/testuser/openjarvis-src
+          path: openjarvis-src
 
       - name: Install Ollama mock
-        run: |
-          install -m 755 /home/testuser/openjarvis-src/tests/install/bash/stubs/ollama-mock /usr/local/bin/ollama
+        run: install -m 755 "$GITHUB_WORKSPACE/openjarvis-src/tests/install/bash/stubs/ollama-mock" /usr/local/bin/ollama
 
       - name: Run installer
         run: |
-          chown -R testuser:testuser /home/testuser
+          chown -R testuser:testuser /home/testuser "$GITHUB_WORKSPACE/openjarvis-src"
           su testuser -c '
-            export OPENJARVIS_REPO_URL=file:///home/testuser/openjarvis-src
-            cd /home/testuser/openjarvis-src
+            export OPENJARVIS_REPO_URL=file://'"$GITHUB_WORKSPACE"'/openjarvis-src
+            cd '"$GITHUB_WORKSPACE"'/openjarvis-src
             bash scripts/install/install.sh --no-bg-orchestrator
           '
 
