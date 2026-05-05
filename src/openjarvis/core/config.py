@@ -17,6 +17,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:
+    # Only used by type-checkers (mypy/pyright) for the ``JarvisConfig.mining``
+    # field annotation. The runtime import is deferred inside
+    # ``_parse_mining_section()`` to break the import cycle:
+    # ``mining/_stubs.py`` imports ``HardwareInfo`` from this module at its
+    # top level.
     from openjarvis.mining._stubs import MiningConfig
 
 try:
@@ -1400,7 +1405,7 @@ class JarvisConfig:
 
 # Sections that users may set via ``jarvis config set``.
 # ``hardware`` is auto-detected and not user-settable.
-_SETTABLE_SECTIONS = frozenset(JarvisConfig.__dataclass_fields__.keys()) - {"hardware"}
+_SETTABLE_SECTIONS = frozenset(JarvisConfig.__dataclass_fields__.keys()) - {"hardware", "mining"}
 
 
 def validate_config_key(dotted_key: str) -> type:
@@ -1550,8 +1555,10 @@ def _parse_mining_section(data: dict) -> Optional["MiningConfig"]:
     if "mining" not in data:
         return None
 
-    # Lazy import to avoid circular: mining/__init__.py imports core/config
-    # transitively via _stubs, but only at runtime.
+    # Lazy runtime import to break the import cycle: ``mining/_stubs.py``
+    # imports ``HardwareInfo`` from this module at its top level. By the
+    # time ``_parse_mining_section`` is called, ``core.config`` is already
+    # fully initialized in ``sys.modules``, so the cycle is harmless.
     from openjarvis.mining._stubs import MiningConfig, PoolTarget, SoloTarget
 
     section = data["mining"]
