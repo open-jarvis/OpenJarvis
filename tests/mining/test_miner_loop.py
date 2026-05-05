@@ -1,0 +1,46 @@
+"""Tests for openjarvis.mining._miner_loop_main."""
+from __future__ import annotations
+
+import base64
+from unittest.mock import MagicMock
+
+import pytest
+
+
+@pytest.fixture
+def fake_mining_info_result():
+    """Mock getMiningInfo result — base64-encoded incomplete header + target."""
+    return {
+        "incomplete_header_bytes": base64.b64encode(b"\x00" * 76).decode(),
+        "target": 0x1D2FFFFF,
+    }
+
+
+def test_decode_mining_info_returns_header_bytes_and_target(fake_mining_info_result):
+    from openjarvis.mining._miner_loop_main import _decode_mining_info
+
+    header_bytes, target = _decode_mining_info(fake_mining_info_result)
+    assert isinstance(header_bytes, (bytes, bytearray))
+    assert len(header_bytes) == 76
+    assert target == 0x1D2FFFFF
+
+
+def test_encode_plain_proof_round_trips():
+    """We can encode a PlainProof to base64 and the bytes are non-empty."""
+    from openjarvis.mining._miner_loop_main import _encode_plain_proof
+
+    fake_proof = MagicMock()
+    fake_proof.serialize.return_value = b"PROOF_BYTES_DUMMY"
+    encoded = _encode_plain_proof(fake_proof)
+    assert encoded == base64.b64encode(b"PROOF_BYTES_DUMMY").decode()
+
+
+def test_jsonrpc_envelope_shape():
+    """The JSON-RPC envelope conforms to gateway's JSON_RPC_SCHEMA."""
+    from openjarvis.mining._miner_loop_main import _make_request
+
+    req = _make_request("getMiningInfo", {}, request_id=42)
+    assert req["jsonrpc"] == "2.0"
+    assert req["method"] == "getMiningInfo"
+    assert req["id"] == 42
+    assert req["params"] == {}
