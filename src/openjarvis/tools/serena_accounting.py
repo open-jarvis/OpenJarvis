@@ -2773,6 +2773,322 @@ class SerenaAccountingBooksSummaryTool(_AccountingBaseTool):
         )
 
 
+@ToolRegistry.register("serena_accounting_payroll_plan")
+class SerenaAccountingPayrollPlanTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_payroll_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a payroll preparation plan without payroll submission.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                    "period": {"type": "string"},
+                    "staff_count": {"type": "integer"},
+                    "notes": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "General Business").strip()
+        period = str(params.get("period") or "current payroll period").strip()
+        staff_count = int(params.get("staff_count") or 0)
+        notes = str(params.get("notes") or "").strip()
+
+        steps = [
+            "Collect approved employee/contractor list for the payroll period.",
+            "Collect hours, salaries, commissions, bonuses, deductions, reimbursements, and leave changes.",
+            "Confirm PAYE/UIF/SDL/VAT/tax responsibilities with accountant/payroll provider where applicable.",
+            "Prepare payroll summary locally only.",
+            "Flag missing staff data, unusual changes, or approval requirements.",
+            "Do not submit payroll, pay staff, alter payroll records, or file statutory returns from v1.",
+            "Send summary to Reporting/Docs/Drive only with approval and Compliance review.",
+        ]
+
+        payload = {
+            "report_type": "serena_accounting_payroll_plan",
+            "created_at": _timestamp(),
+            "business": business,
+            "period": period,
+            "staff_count": staff_count,
+            "notes": notes,
+            "steps": steps,
+            "external_api_called": False,
+            "payroll_submitted": False,
+            "live_accounting_write": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("payroll", f"payroll-plan-{business}-{period}", payload)
+
+        return self._result(
+            "Serena payroll preparation plan\n\n"
+            f"- Business: {business}\n"
+            f"- Period: {period}\n"
+            f"- Staff count: {staff_count}\n"
+            f"- Plan: {report_path}\n"
+            "- External API called: no\n"
+            "- Payroll submitted: no\n"
+            "- Live accounting write: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Steps:\n"
+            + "\n".join(f"- {step}" for step in steps),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_accounting_payroll_summary")
+class SerenaAccountingPayrollSummaryTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_payroll_summary"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local payroll summary from provided JSON/JSON-like staff payroll data.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "payroll_data": {"type": "string"},
+                    "business": {"type": "string"},
+                    "period": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["payroll_data"],
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        payroll_text = str(params.get("payroll_data") or "")
+        business = str(params.get("business") or "General Business").strip()
+        period = str(params.get("period") or "current payroll period").strip()
+        notes = str(params.get("notes") or "").strip()
+
+        try:
+            data = _parse_jsonish(payroll_text)
+            staff_items = data if isinstance(data, list) else data.get("staff", []) if isinstance(data, dict) else []
+            if not isinstance(staff_items, list):
+                staff_items = []
+
+            total_gross = 0.0
+            total_deductions = 0.0
+            total_net = 0.0
+
+            normalized = []
+            for item in staff_items:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("name") or item.get("employee") or "unknown").strip()
+                gross = _money(item.get("gross") or item.get("salary") or item.get("amount") or 0)
+                deductions = _money(item.get("deductions") or item.get("deduction") or 0)
+                net = _money(item.get("net") or (gross - deductions))
+                total_gross += gross
+                total_deductions += deductions
+                total_net += net
+                normalized.append({
+                    "name": name,
+                    "gross": gross,
+                    "deductions": deductions,
+                    "net": net,
+                })
+
+            payload = {
+                "report_type": "serena_accounting_payroll_summary",
+                "created_at": _timestamp(),
+                "business": business,
+                "period": period,
+                "staff_count": len(normalized),
+                "total_gross": round(total_gross, 2),
+                "total_deductions": round(total_deductions, 2),
+                "total_net": round(total_net, 2),
+                "staff": normalized,
+                "notes": notes,
+                "external_api_called": False,
+                "payroll_submitted": False,
+                "live_accounting_write": False,
+                "changes_made": True,
+                "secret_values_exposed": False,
+                "hub_adapter": _hub_adapter_contract(),
+            }
+            report_path = _save_json("payroll", f"payroll-summary-{business}-{period}", payload)
+
+            lines = [
+                "Serena payroll summary created",
+                "",
+                f"- Business: {business}",
+                f"- Period: {period}",
+                f"- Staff count: {len(normalized)}",
+                f"- Total gross: {round(total_gross, 2)}",
+                f"- Total deductions: {round(total_deductions, 2)}",
+                f"- Total net: {round(total_net, 2)}",
+                f"- Report: {report_path}",
+                "- External API called: no",
+                "- Payroll submitted: no",
+                "- Live accounting write: no",
+                "- Changes made: yes",
+                "- Secret values exposed: no",
+                "- Hub adapter: pending future dashboard",
+                "",
+                "Important:",
+                "- This is a local preparation summary only.",
+                "- Payroll submission/payment/statutory filing remains blocked without future explicit approval workflow.",
+            ]
+
+            return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+        except Exception as exc:
+            return self._result(
+                "Serena payroll summary failed\n\n"
+                f"- Error: {exc}\n"
+                "- Payroll submitted: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_accounting_payroll_checklist")
+class SerenaAccountingPayrollChecklistTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_payroll_checklist"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create payroll checklist for review and approval.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                    "period": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "General Business").strip()
+        period = str(params.get("period") or "current payroll period").strip()
+
+        checklist = [
+            "Confirm employee/contractor master list.",
+            "Confirm salaries, hours, overtime, commissions, and bonuses.",
+            "Confirm leave, unpaid leave, sick leave, and public holiday adjustments.",
+            "Confirm reimbursements and expense claims.",
+            "Confirm deductions and statutory treatment with accountant/payroll provider.",
+            "Confirm banking/payment file separately; Serena must not change banking details.",
+            "Confirm owner approval before any payment or payroll submission.",
+            "Confirm payroll reports are stored safely and not exported without Compliance review.",
+            "Block payroll submission from Accounting v1.",
+        ]
+
+        payload = {
+            "report_type": "serena_accounting_payroll_checklist",
+            "created_at": _timestamp(),
+            "business": business,
+            "period": period,
+            "checklist": checklist,
+            "external_api_called": False,
+            "payroll_submitted": False,
+            "live_accounting_write": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("payroll", f"payroll-checklist-{business}-{period}", payload)
+
+        return self._result(
+            "Serena payroll checklist\n\n"
+            f"- Business: {business}\n"
+            f"- Period: {period}\n"
+            f"- Report: {report_path}\n"
+            "- External API called: no\n"
+            "- Payroll submitted: no\n"
+            "- Live accounting write: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Checklist:\n"
+            + "\n".join(f"- {item}" for item in checklist),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_accounting_blocked_payroll_submit")
+class SerenaAccountingBlockedPayrollSubmitTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_blocked_payroll_submit"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked payroll submission/payment command.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        action = str(params.get("action") or "submit payroll").strip()
+        reason = str(params.get("reason") or "Payroll submission requested.").strip()
+
+        payload = {
+            "report_type": "serena_accounting_blocked_payroll_submit",
+            "created_at": _timestamp(),
+            "action": action,
+            "reason": reason,
+            "blocked_reason": "Payroll submission, salary payment execution, statutory payroll filing, and payroll bank file changes are blocked in Accounting v1.",
+            "risk_level": "BLOCKED",
+            "allowed_to_continue": False,
+            "approval_required": True,
+            "owner_review_required": True,
+            "external_api_called": False,
+            "payroll_submitted": False,
+            "live_accounting_write": False,
+            "delete_performed": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("payroll", "blocked-payroll-submit", payload)
+
+        return ToolResult(
+            tool_name=self.tool_id,
+            success=False,
+            content=(
+                "Payroll submission blocked by Serena Accounting v1 policy\n\n"
+                f"- Action: {action}\n"
+                f"- Reason: {reason}\n"
+                "- Risk level: BLOCKED\n"
+                "- Allowed to continue: no\n"
+                "- Approval required: yes\n"
+                "- Owner review required: yes\n"
+                f"- Report: {report_path}\n"
+                "- External API called: no\n"
+                "- Payroll submitted: no\n"
+                "- Live accounting write: no\n"
+                "- Delete performed: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no\n"
+                "- Hub adapter: pending future dashboard"
+            ),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
 __all__ = [
     "SerenaAccountingStatusTool",
     "SerenaAccountingEnvCheckTool",
@@ -2784,6 +3100,10 @@ __all__ = [
     "SerenaAccountingPaymentSummaryTool",
     "SerenaAccountingOCRReceiptHandoffTool",
     "SerenaAccountingBooksSummaryTool",
+    "SerenaAccountingBlockedPayrollSubmitTool",
+    "SerenaAccountingPayrollChecklistTool",
+    "SerenaAccountingPayrollSummaryTool",
+    "SerenaAccountingPayrollPlanTool",
     "SerenaAccountingMonthEndChecklistTool",
     "SerenaAccountingExceptionsTool",
     "SerenaAccountingTransactionClassifyTool",

@@ -12,6 +12,10 @@ from openjarvis.tools.serena_accounting import (
     SerenaAccountingSourceInfoTool,
     SerenaAccountingSourceListTool,
     SerenaAccountingStatusTool,
+    SerenaAccountingBlockedPayrollSubmitTool,
+    SerenaAccountingPayrollChecklistTool,
+    SerenaAccountingPayrollSummaryTool,
+    SerenaAccountingPayrollPlanTool,
     SerenaAccountingBooksSummaryTool,
     SerenaAccountingMonthEndChecklistTool,
     SerenaAccountingExceptionsTool,
@@ -494,6 +498,60 @@ def books_summary(business: str, period: str) -> None:
     """Create local books summary."""
     console = Console()
     result = SerenaAccountingBooksSummaryTool().execute(business=business, period=period)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("payroll-plan")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--period", default="current payroll period", help="Payroll period.")
+@click.option("--staff-count", default=0, type=int, help="Expected staff count.")
+@click.option("--notes", default="", help="Notes.")
+def payroll_plan(business: str, period: str, staff_count: int, notes: str) -> None:
+    """Create payroll preparation plan."""
+    console = Console()
+    result = SerenaAccountingPayrollPlanTool().execute(
+        business=business,
+        period=period,
+        staff_count=staff_count,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("payroll-summary")
+@click.option("--payroll-data", required=True, help="Payroll data as JSON or JSON-like text.")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--period", default="current payroll period", help="Payroll period.")
+@click.option("--notes", default="", help="Notes.")
+def payroll_summary(payroll_data: str, business: str, period: str, notes: str) -> None:
+    """Create local payroll summary."""
+    console = Console()
+    result = SerenaAccountingPayrollSummaryTool().execute(
+        payroll_data=payroll_data,
+        business=business,
+        period=period,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("payroll-checklist")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--period", default="current payroll period", help="Payroll period.")
+def payroll_checklist(business: str, period: str) -> None:
+    """Create payroll checklist."""
+    console = Console()
+    result = SerenaAccountingPayrollChecklistTool().execute(business=business, period=period)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("blocked-payroll-submit")
+@click.option("--action", default="submit payroll", help="Requested action.")
+@click.option("--reason", default="Payroll submission requested.", help="Reason.")
+def blocked_payroll_submit(action: str, reason: str) -> None:
+    """Deliberately blocked payroll submission/payment command."""
+    console = Console()
+    result = SerenaAccountingBlockedPayrollSubmitTool().execute(action=action, reason=reason)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 
