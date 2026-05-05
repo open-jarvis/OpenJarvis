@@ -12,6 +12,12 @@ from openjarvis.tools.serena_accounting import (
     SerenaAccountingSourceInfoTool,
     SerenaAccountingSourceListTool,
     SerenaAccountingStatusTool,
+    SerenaAccountingProfitabilitySummaryTool,
+    SerenaAccountingDebtorCreditorSummaryTool,
+    SerenaAccountingCashflowSummaryTool,
+    SerenaAccountingMonthlyManagementReportTool,
+    SerenaAccountingWeeklyFinanceReportTool,
+    SerenaAccountingDailyMoneyReportTool,
     SerenaAccountingBlockedTaxSubmitTool,
     SerenaAccountingTaxChecklistTool,
     SerenaAccountingVATSummaryTool,
@@ -613,6 +619,69 @@ def blocked_tax_submit(action: str, reason: str) -> None:
     """Deliberately blocked tax/VAT/SARS submission command."""
     console = Console()
     result = SerenaAccountingBlockedTaxSubmitTool().execute(action=action, reason=reason)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("daily-money-report")
+@click.option("--business", default="", help="Optional business filter.")
+@click.option("--date", default="today", help="Report date.")
+@click.option("--notes", default="", help="Notes.")
+def daily_money_report(business: str, date: str, notes: str) -> None:
+    """Create daily money report."""
+    console = Console()
+    result = SerenaAccountingDailyMoneyReportTool().execute(business=business, date=date, notes=notes)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("weekly-finance-report")
+@click.option("--business", default="", help="Optional business filter.")
+@click.option("--week", default="current week", help="Report week.")
+@click.option("--notes", default="", help="Notes.")
+def weekly_finance_report(business: str, week: str, notes: str) -> None:
+    """Create weekly finance report."""
+    console = Console()
+    result = SerenaAccountingWeeklyFinanceReportTool().execute(business=business, week=week, notes=notes)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("monthly-management-report")
+@click.option("--business", default="", help="Optional business filter.")
+@click.option("--month", default="current month", help="Report month.")
+@click.option("--notes", default="", help="Notes.")
+def monthly_management_report(business: str, month: str, notes: str) -> None:
+    """Create monthly management accounting report."""
+    console = Console()
+    result = SerenaAccountingMonthlyManagementReportTool().execute(business=business, month=month, notes=notes)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("cashflow-summary")
+@click.option("--business", default="", help="Optional business filter.")
+@click.option("--period", default="current records", help="Accounting period.")
+def cashflow_summary(business: str, period: str) -> None:
+    """Create cashflow summary."""
+    console = Console()
+    result = SerenaAccountingCashflowSummaryTool().execute(business=business, period=period)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("debtor-creditor-summary")
+@click.option("--business", default="", help="Optional business filter.")
+@click.option("--period", default="current records", help="Accounting period.")
+def debtor_creditor_summary(business: str, period: str) -> None:
+    """Create debtor/creditor summary."""
+    console = Console()
+    result = SerenaAccountingDebtorCreditorSummaryTool().execute(business=business, period=period)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("profitability-summary")
+@click.option("--business", default="", help="Optional business filter.")
+@click.option("--period", default="current records", help="Accounting period.")
+def profitability_summary(business: str, period: str) -> None:
+    """Create profitability summary."""
+    console = Console()
+    result = SerenaAccountingProfitabilitySummaryTool().execute(business=business, period=period)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 

@@ -3391,6 +3391,423 @@ class SerenaAccountingBlockedTaxSubmitTool(_AccountingBaseTool):
         )
 
 
+def _money_report_markdown(title: str, payload: dict[str, Any]) -> str:
+    totals = payload.get("totals", {})
+    lines = [
+        f"# {title}",
+        "",
+        "Created by: Serena Accounting / Payments / Payroll / Tax Full Operator v1",
+        f"Created at: {payload.get('created_at')}",
+        "",
+        "## Scope",
+        "",
+        f"- Business: {payload.get('business')}",
+        f"- Period: {payload.get('period')}",
+        "",
+        "## Totals",
+        "",
+        f"- Invoice count: {totals.get('invoice_count', 0)}",
+        f"- Payment count: {totals.get('payment_count', 0)}",
+        f"- Expense count: {totals.get('expense_count', 0)}",
+        f"- Invoice total: {totals.get('invoice_total', 0)}",
+        f"- Unpaid total: {totals.get('unpaid_total', 0)}",
+        f"- Payment total: {totals.get('payment_total', 0)}",
+        f"- Expense total: {totals.get('expense_total', 0)}",
+        f"- Cash basis net: {totals.get('cash_basis_net', 0)}",
+        f"- Accrual basis net before other costs: {totals.get('accrual_basis_net_before_other_costs', 0)}",
+        "",
+        "## Safety",
+        "",
+        "- External API called: no",
+        "- Live accounting write: no",
+        "- Tax/payroll submission: no",
+        "- Secret values exposed: no",
+        "",
+    ]
+
+    notes = payload.get("notes")
+    if notes:
+        lines.extend(["## Notes", "", str(notes), ""])
+
+    return "\n".join(lines)
+
+
+def _create_finance_report(
+    report_type: str,
+    title: str,
+    business: str,
+    period: str,
+    notes: str = "",
+) -> ToolResult:
+    totals = _local_money_totals(business)
+    payload = {
+        "report_type": report_type,
+        "created_at": _timestamp(),
+        "business": business or "all",
+        "period": period,
+        "totals": totals,
+        "notes": notes,
+        "external_api_called": False,
+        "live_accounting_write": False,
+        "tax_submitted": False,
+        "payroll_submitted": False,
+        "report_created": True,
+        "changes_made": True,
+        "secret_values_exposed": False,
+        "hub_adapter": _hub_adapter_contract(),
+    }
+    json_path = _save_json("reports", f"{report_type}-{business or 'all'}-{period}", payload)
+    md_path = _save_text("reports", f"{report_type}-{business or 'all'}-{period}", _money_report_markdown(title, payload), ".md")
+
+    return ToolResult(
+        tool_name=f"serena_accounting_{report_type}",
+        success=True,
+        content=(
+            f"{title} created\n\n"
+            f"- Business: {business or 'all'}\n"
+            f"- Period: {period}\n"
+            f"- Invoice total: {totals['invoice_total']}\n"
+            f"- Unpaid total: {totals['unpaid_total']}\n"
+            f"- Payment total: {totals['payment_total']}\n"
+            f"- Expense total: {totals['expense_total']}\n"
+            f"- Cash basis net: {totals['cash_basis_net']}\n"
+            f"- Accrual basis net before other costs: {totals['accrual_basis_net_before_other_costs']}\n"
+            f"- JSON report: {json_path}\n"
+            f"- Markdown report: {md_path}\n"
+            "- External API called: no\n"
+            "- Live accounting write: no\n"
+            "- Tax submitted: no\n"
+            "- Payroll submitted: no\n"
+            "- Report created: yes\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard"
+        ),
+        metadata={**payload, "json_path": str(json_path), "markdown_path": str(md_path)},
+    )
+
+
+@ToolRegistry.register("serena_accounting_daily_money_report")
+class SerenaAccountingDailyMoneyReportTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_daily_money_report"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local daily money report.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                    "date": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "").strip()
+        date = str(params.get("date") or "today").strip()
+        notes = str(params.get("notes") or "").strip()
+        return _create_finance_report(
+            "daily-money-report",
+            "Serena daily money report",
+            business,
+            date,
+            notes,
+        )
+
+
+@ToolRegistry.register("serena_accounting_weekly_finance_report")
+class SerenaAccountingWeeklyFinanceReportTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_weekly_finance_report"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local weekly finance report.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                    "week": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "").strip()
+        week = str(params.get("week") or "current week").strip()
+        notes = str(params.get("notes") or "").strip()
+        return _create_finance_report(
+            "weekly-finance-report",
+            "Serena weekly finance report",
+            business,
+            week,
+            notes,
+        )
+
+
+@ToolRegistry.register("serena_accounting_monthly_management_report")
+class SerenaAccountingMonthlyManagementReportTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_monthly_management_report"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local monthly management accounting report.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                    "month": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "").strip()
+        month = str(params.get("month") or "current month").strip()
+        notes = str(params.get("notes") or "").strip()
+        return _create_finance_report(
+            "monthly-management-report",
+            "Serena monthly management report",
+            business,
+            month,
+            notes,
+        )
+
+
+@ToolRegistry.register("serena_accounting_cashflow_summary")
+class SerenaAccountingCashflowSummaryTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_cashflow_summary"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local cashflow summary from payment and expense records.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                    "period": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "").strip()
+        period = str(params.get("period") or "current records").strip()
+        totals = _local_money_totals(business)
+
+        payload = {
+            "report_type": "cashflow-summary",
+            "created_at": _timestamp(),
+            "business": business or "all",
+            "period": period,
+            "cash_in": totals["payment_total"],
+            "cash_out": totals["expense_total"],
+            "net_cashflow": totals["cash_basis_net"],
+            "totals": totals,
+            "external_api_called": False,
+            "live_accounting_write": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"cashflow-summary-{business or 'all'}-{period}", payload)
+
+        return self._result(
+            "Serena cashflow summary created\n\n"
+            f"- Business: {business or 'all'}\n"
+            f"- Period: {period}\n"
+            f"- Cash in: {totals['payment_total']}\n"
+            f"- Cash out: {totals['expense_total']}\n"
+            f"- Net cashflow: {totals['cash_basis_net']}\n"
+            f"- Report: {report_path}\n"
+            "- External API called: no\n"
+            "- Live accounting write: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_accounting_debtor_creditor_summary")
+class SerenaAccountingDebtorCreditorSummaryTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_debtor_creditor_summary"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create local debtor/creditor summary from invoices and expenses.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                    "period": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "").strip()
+        period = str(params.get("period") or "current records").strip()
+
+        invoices = _load_json_records("invoices")
+        expenses = _load_json_records("expenses")
+
+        if business:
+            invoices = [x for x in invoices if str(x.get("business") or "") == business]
+            expenses = [x for x in expenses if str(x.get("business") or "") == business]
+
+        debtors = []
+        for inv in invoices:
+            status = str(inv.get("status") or "").lower()
+            due = _money(inv.get("amount_due") or inv.get("total") or 0)
+            if status not in {"paid", "settled"} and due > 0:
+                debtors.append({
+                    "invoice_id": inv.get("invoice_id"),
+                    "client": inv.get("client"),
+                    "amount_due": due,
+                    "due_date": inv.get("due_date"),
+                    "path": inv.get("_path"),
+                })
+
+        # In v1, supplier bills are represented by expense records; no live AP ledger is written.
+        creditors = []
+        for exp in expenses:
+            creditors.append({
+                "expense_id": exp.get("expense_id"),
+                "supplier": exp.get("supplier"),
+                "amount": _money(exp.get("total") or 0),
+                "date": exp.get("date"),
+                "path": exp.get("_path"),
+            })
+
+        payload = {
+            "report_type": "debtor-creditor-summary",
+            "created_at": _timestamp(),
+            "business": business or "all",
+            "period": period,
+            "debtor_count": len(debtors),
+            "creditor_record_count": len(creditors),
+            "debtor_total": round(sum(item["amount_due"] for item in debtors), 2),
+            "creditor_record_total": round(sum(item["amount"] for item in creditors), 2),
+            "debtors": debtors,
+            "creditor_records": creditors,
+            "external_api_called": False,
+            "live_accounting_write": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"debtor-creditor-summary-{business or 'all'}-{period}", payload)
+
+        return self._result(
+            "Serena debtor/creditor summary created\n\n"
+            f"- Business: {business or 'all'}\n"
+            f"- Period: {period}\n"
+            f"- Debtors: {len(debtors)}\n"
+            f"- Debtor total: {payload['debtor_total']}\n"
+            f"- Creditor/expense records: {len(creditors)}\n"
+            f"- Creditor/expense record total: {payload['creditor_record_total']}\n"
+            f"- Report: {report_path}\n"
+            "- External API called: no\n"
+            "- Live accounting write: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_accounting_profitability_summary")
+class SerenaAccountingProfitabilitySummaryTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_profitability_summary"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create local profitability summary from invoice/payment/expense records.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                    "period": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "").strip()
+        period = str(params.get("period") or "current records").strip()
+        totals = _local_money_totals(business)
+
+        revenue = totals["invoice_total"]
+        cash_revenue = totals["payment_total"]
+        expenses = totals["expense_total"]
+        accrual_profit = round(revenue - expenses, 2)
+        cash_profit = round(cash_revenue - expenses, 2)
+        margin = round((accrual_profit / revenue) * 100, 2) if revenue else 0.0
+
+        payload = {
+            "report_type": "profitability-summary",
+            "created_at": _timestamp(),
+            "business": business or "all",
+            "period": period,
+            "revenue_accrual": revenue,
+            "revenue_cash_collected": cash_revenue,
+            "expenses": expenses,
+            "accrual_profit_estimate": accrual_profit,
+            "cash_profit_estimate": cash_profit,
+            "accrual_margin_percent": margin,
+            "totals": totals,
+            "external_api_called": False,
+            "live_accounting_write": False,
+            "final_accounting_advice": False,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"profitability-summary-{business or 'all'}-{period}", payload)
+
+        return self._result(
+            "Serena profitability summary created\n\n"
+            f"- Business: {business or 'all'}\n"
+            f"- Period: {period}\n"
+            f"- Revenue accrual estimate: {revenue}\n"
+            f"- Revenue cash collected: {cash_revenue}\n"
+            f"- Expenses: {expenses}\n"
+            f"- Accrual profit estimate: {accrual_profit}\n"
+            f"- Cash profit estimate: {cash_profit}\n"
+            f"- Accrual margin estimate: {margin}%\n"
+            f"- Report: {report_path}\n"
+            "- External API called: no\n"
+            "- Live accounting write: no\n"
+            "- Final accounting advice: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
 __all__ = [
     "SerenaAccountingStatusTool",
     "SerenaAccountingEnvCheckTool",
@@ -3404,6 +3821,12 @@ __all__ = [
     "SerenaAccountingBooksSummaryTool",
     "SerenaAccountingBlockedPayrollSubmitTool",
     "SerenaAccountingBlockedTaxSubmitTool",
+    "SerenaAccountingProfitabilitySummaryTool",
+    "SerenaAccountingDebtorCreditorSummaryTool",
+    "SerenaAccountingCashflowSummaryTool",
+    "SerenaAccountingMonthlyManagementReportTool",
+    "SerenaAccountingWeeklyFinanceReportTool",
+    "SerenaAccountingDailyMoneyReportTool",
     "SerenaAccountingTaxChecklistTool",
     "SerenaAccountingVATSummaryTool",
     "SerenaAccountingVATPlanTool",
