@@ -162,6 +162,31 @@ def _parse_date(date_str: str) -> datetime:
         return datetime.now()
 
 
+def _normalize_addresses(raw: str) -> List[str]:
+    """Extract lowercase email addresses from a comma-separated header value.
+
+    Uses :func:`email.utils.getaddresses` so multi-recipient ``To``/``Cc``
+    headers are handled correctly. Addresses that fail to parse are dropped.
+    """
+    if not raw:
+        return []
+    return [addr.lower() for _, addr in email.utils.getaddresses([raw]) if addr]
+
+
+# Order matters: a message tagged both SENT and INBOX (rare) reads as SENT,
+# the more specific origin. INBOX is last so it acts as the default.
+_PRIMARY_LABELS = ("SENT", "DRAFT", "SPAM", "TRASH", "INBOX")
+
+
+def _select_channel(label_ids: List[str]) -> Optional[str]:
+    """Pick the most specific Gmail system folder this message lives in."""
+    label_set = set(label_ids)
+    for label in _PRIMARY_LABELS:
+        if label in label_set:
+            return label
+    return None
+
+
 # ---------------------------------------------------------------------------
 # GmailConnector
 # ---------------------------------------------------------------------------
@@ -278,34 +303,50 @@ class GmailConnector(BaseConnector):
                 headers: List[Dict[str, str]] = payload.get("headers", [])
 
                 from_header = _extract_header(headers, "From")
+                to_header = _extract_header(headers, "To")
+                cc_header = _extract_header(headers, "Cc")
                 subject = _extract_header(headers, "Subject")
                 date_str = _extract_header(headers, "Date")
-                to_header = _extract_header(headers, "To")
+                rfc_message_id = _extract_header(headers, "Message-ID")
 
                 body = _decode_body(payload)
                 timestamp = _parse_date(date_str)
 
+                # Raw header values, exactly as Gmail returned them — preserved
+                # so re-normalisation against an updated alias map doesn't need
+                # a re-fetch from the API.
+                participants_raw: List[str] = [
+                    h for h in (from_header, to_header, cc_header) if h
+                ]
+                # Lowercase email addresses, multi-recipient-aware.
                 participants: List[str] = []
-                if from_header:
-                    participants.append(from_header)
-                if to_header:
-                    participants.append(to_header)
+                for header in (from_header, to_header, cc_header):
+                    participants.extend(_normalize_addresses(header))
 
+                label_ids: List[str] = msg.get("labelIds", [])
+                channel = _select_channel(label_ids)
                 thread_id: Optional[str] = msg.get("threadId")
 
                 doc = Document(
                     doc_id=f"gmail:{msg_id}",
                     source="gmail",
+                    source_id=msg_id,
                     doc_type="email",
                     content=body,
                     title=subject,
                     author=from_header,
                     participants=participants,
+                    participants_raw=participants_raw,
                     timestamp=timestamp,
                     thread_id=thread_id,
+                    channel=channel,
                     metadata={
                         "message_id": msg_id,
-                        "labels": msg.get("labelIds", []),
+                        "rfc_message_id": rfc_message_id,
+                        "labels": label_ids,
+                        "snippet": msg.get("snippet", ""),
+                        "history_id": msg.get("historyId", ""),
+                        "size_estimate": msg.get("sizeEstimate", 0),
                     },
                 )
                 synced += 1
