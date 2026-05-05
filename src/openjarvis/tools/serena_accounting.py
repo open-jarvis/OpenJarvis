@@ -2327,6 +2327,452 @@ class SerenaAccountingOCRReceiptHandoffTool(_AccountingBaseTool):
         )
 
 
+def _record_counts() -> dict[str, int]:
+    return {
+        "invoices": len(_load_json_records("invoices")),
+        "payments": len(_load_json_records("payments")),
+        "expenses": len(_load_json_records("expenses")),
+        "receipts": len(_load_json_records("receipts")),
+        "reports": len(_load_json_records("reports")),
+    }
+
+
+def _local_money_totals(business: str = "") -> dict[str, Any]:
+    invoices = _load_json_records("invoices")
+    payments = _load_json_records("payments")
+    expenses = _load_json_records("expenses")
+
+    if business:
+        invoices = [x for x in invoices if str(x.get("business") or "") == business]
+        payments = [x for x in payments if str(x.get("business") or "") == business]
+        expenses = [x for x in expenses if str(x.get("business") or "") == business]
+
+    invoice_total = sum(_money(x.get("total") or 0) for x in invoices)
+    unpaid_total = sum(
+        _money(x.get("amount_due") or x.get("total") or 0)
+        for x in invoices
+        if str(x.get("status") or "").lower() not in {"paid", "settled"}
+    )
+    payment_total = sum(_money(x.get("amount") or 0) for x in payments)
+    expense_total = sum(_money(x.get("total") or 0) for x in expenses)
+
+    return {
+        "business": business or "all",
+        "invoice_count": len(invoices),
+        "payment_count": len(payments),
+        "expense_count": len(expenses),
+        "invoice_total": round(invoice_total, 2),
+        "unpaid_total": round(unpaid_total, 2),
+        "payment_total": round(payment_total, 2),
+        "expense_total": round(expense_total, 2),
+        "cash_basis_net": round(payment_total - expense_total, 2),
+        "accrual_basis_net_before_other_costs": round(invoice_total - expense_total, 2),
+    }
+
+
+@ToolRegistry.register("serena_accounting_bank_reconcile_plan")
+class SerenaAccountingBankReconcilePlanTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_bank_reconcile_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a bank reconciliation workflow plan without bank or ledger writes.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                    "period": {"type": "string"},
+                    "bank_account": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "General Business").strip()
+        period = str(params.get("period") or "current period").strip()
+        bank_account = str(params.get("bank_account") or "not specified").strip()
+        notes = str(params.get("notes") or "").strip()
+
+        steps = [
+            "Collect bank statement/export for the period.",
+            "Collect local payment, PayFast, invoice, expense, and receipt records.",
+            "Match deposits to PayFast/payment records and invoices.",
+            "Match withdrawals to expense/receipt records.",
+            "Identify duplicate payments, unmatched deposits, unmatched expenses, and amount/date mismatches.",
+            "Create exception report before any ledger change.",
+            "Prepare Xero reconciliation suggestions only after Xero credentials and approval exist.",
+            "Do not change bank account details or delete ledger/evidence records.",
+        ]
+
+        payload = {
+            "report_type": "serena_accounting_bank_reconcile_plan",
+            "created_at": _timestamp(),
+            "business": business,
+            "period": period,
+            "bank_account": bank_account,
+            "notes": notes,
+            "steps": steps,
+            "record_counts": _record_counts(),
+            "external_api_called": False,
+            "bank_action_performed": False,
+            "live_accounting_write": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"bank-reconcile-plan-{business}-{period}", payload)
+
+        return self._result(
+            "Serena bank reconciliation plan\n\n"
+            f"- Business: {business}\n"
+            f"- Period: {period}\n"
+            f"- Bank account: {bank_account}\n"
+            f"- Plan: {report_path}\n"
+            "- External API called: no\n"
+            "- Bank action performed: no\n"
+            "- Live accounting write: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Steps:\n"
+            + "\n".join(f"- {step}" for step in steps),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_accounting_transaction_classify")
+class SerenaAccountingTransactionClassifyTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_transaction_classify"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Classify a transaction locally without ledger writes.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "description": {"type": "string"},
+                    "amount": {"type": "number"},
+                    "direction": {"type": "string"},
+                    "business": {"type": "string"},
+                    "date": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["description", "amount"],
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        description = str(params.get("description") or "").strip()
+        amount = _money(params.get("amount") or 0)
+        direction = str(params.get("direction") or "unknown").strip().lower()
+        business = str(params.get("business") or "General Business").strip()
+        date = str(params.get("date") or "not specified").strip()
+        notes = str(params.get("notes") or "").strip()
+
+        lower = description.lower()
+        category = "uncategorized"
+        confidence = "low"
+
+        if any(term in lower for term in ["payfast", "payment", "card", "eft", "deposit"]):
+            category = "payment / receipt"
+            confidence = "medium"
+        if any(term in lower for term in ["rent", "lease"]):
+            category = "rent / premises"
+            confidence = "medium"
+        if any(term in lower for term in ["google", "facebook", "meta", "ads", "marketing"]):
+            category = "marketing / advertising"
+            confidence = "medium"
+        if any(term in lower for term in ["salary", "payroll", "wage"]):
+            category = "payroll"
+            confidence = "medium"
+        if any(term in lower for term in ["supplies", "medical", "lab", "consumables"]):
+            category = "medical supplies / consumables"
+            confidence = "medium"
+        if any(term in lower for term in ["consultation", "patient", "client invoice"]):
+            category = "consultation revenue"
+            confidence = "medium"
+
+        record = {
+            "record_type": "transaction_classification",
+            "created_at": _timestamp(),
+            "business": business,
+            "description": description,
+            "amount": amount,
+            "direction": direction,
+            "date": date,
+            "suggested_category": category,
+            "confidence": confidence,
+            "notes": notes,
+            "external_api_called": False,
+            "live_accounting_write": False,
+            "classification_created": True,
+            "changes_made": True,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        record_path = _save_json("snapshots", f"transaction-classify-{description[:40]}", record)
+
+        return self._result(
+            "Serena transaction classification created\n\n"
+            f"- Business: {business}\n"
+            f"- Description: {description}\n"
+            f"- Amount: {amount}\n"
+            f"- Direction: {direction}\n"
+            f"- Date: {date}\n"
+            f"- Suggested category: {category}\n"
+            f"- Confidence: {confidence}\n"
+            f"- Record: {record_path}\n"
+            "- External API called: no\n"
+            "- Live accounting write: no\n"
+            "- Classification created: yes\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={**record, "record_path": str(record_path)},
+        )
+
+
+@ToolRegistry.register("serena_accounting_exceptions")
+class SerenaAccountingExceptionsTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_exceptions"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local accounting exceptions report.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "").strip()
+        invoices = _load_json_records("invoices")
+        payments = _load_json_records("payments")
+        expenses = _load_json_records("expenses")
+        receipts = _load_json_records("receipts")
+
+        if business:
+            invoices = [x for x in invoices if str(x.get("business") or "") == business]
+            payments = [x for x in payments if str(x.get("business") or "") == business]
+            expenses = [x for x in expenses if str(x.get("business") or "") == business]
+            receipts = [x for x in receipts if str(x.get("business") or "") == business]
+
+        exceptions = []
+
+        invoice_ids = {str(inv.get("invoice_id") or "") for inv in invoices}
+        receipt_paths = {str(r.get("source_path") or "") for r in receipts}
+
+        for pay in payments:
+            inv_id = str(pay.get("invoice_id") or "")
+            if inv_id and inv_id not in invoice_ids:
+                exceptions.append({
+                    "type": "payment_linked_to_missing_invoice",
+                    "payment_id": pay.get("payment_id") or pay.get("reference"),
+                    "invoice_id": inv_id,
+                    "path": pay.get("_path"),
+                })
+
+        for exp in expenses:
+            receipt_path = str(exp.get("receipt_path") or "")
+            if receipt_path and receipt_path not in receipt_paths and not Path(receipt_path).exists():
+                exceptions.append({
+                    "type": "expense_receipt_missing",
+                    "expense_id": exp.get("expense_id"),
+                    "receipt_path": receipt_path,
+                    "path": exp.get("_path"),
+                })
+
+        for inv in invoices:
+            status = str(inv.get("status") or "").lower()
+            if status not in {"paid", "settled"} and _money(inv.get("amount_due") or inv.get("total") or 0) > 0:
+                exceptions.append({
+                    "type": "unpaid_invoice",
+                    "invoice_id": inv.get("invoice_id"),
+                    "amount_due": _money(inv.get("amount_due") or inv.get("total") or 0),
+                    "path": inv.get("_path"),
+                })
+
+        payload = {
+            "report_type": "serena_accounting_exceptions",
+            "created_at": _timestamp(),
+            "business": business or "all",
+            "exception_count": len(exceptions),
+            "exceptions": exceptions,
+            "external_api_called": False,
+            "live_accounting_write": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"exceptions-{business or 'all'}", payload)
+
+        lines = [
+            "Serena accounting exceptions report",
+            "",
+            f"- Business: {business or 'all'}",
+            f"- Exceptions: {len(exceptions)}",
+            f"- Report: {report_path}",
+            "- External API called: no",
+            "- Live accounting write: no",
+            "- Changes made: no",
+            "- Secret values exposed: no",
+            "- Hub adapter: pending future dashboard",
+            "",
+            "Exceptions:",
+        ]
+
+        if exceptions:
+            for item in exceptions[:30]:
+                lines.append(f"- {item.get('type')} | {item}")
+        else:
+            lines.append("- none")
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+@ToolRegistry.register("serena_accounting_month_end_checklist")
+class SerenaAccountingMonthEndChecklistTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_month_end_checklist"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a month-end accounting checklist.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                    "period": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "General Business").strip()
+        period = str(params.get("period") or "current month").strip()
+
+        totals = _local_money_totals(business)
+
+        checklist = [
+            "Confirm all invoices for the month are captured.",
+            "Confirm all PayFast/bank payments are captured.",
+            "Match payments to invoices.",
+            "Capture all supplier bills and expenses.",
+            "Attach receipts/evidence to expense records.",
+            "Run accounting exceptions report.",
+            "Prepare bank reconciliation plan.",
+            "Review VAT/tax treatment with accountant.",
+            "Create monthly management report.",
+            "Do not submit tax/payroll or modify ledger without approval.",
+        ]
+
+        payload = {
+            "report_type": "serena_accounting_month_end_checklist",
+            "created_at": _timestamp(),
+            "business": business,
+            "period": period,
+            "local_totals": totals,
+            "checklist": checklist,
+            "external_api_called": False,
+            "live_accounting_write": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"month-end-checklist-{business}-{period}", payload)
+
+        return self._result(
+            "Serena month-end accounting checklist\n\n"
+            f"- Business: {business}\n"
+            f"- Period: {period}\n"
+            f"- Report: {report_path}\n"
+            "- External API called: no\n"
+            "- Live accounting write: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Checklist:\n"
+            + "\n".join(f"- {item}" for item in checklist),
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
+@ToolRegistry.register("serena_accounting_books_summary")
+class SerenaAccountingBooksSummaryTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_books_summary"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local books summary from invoices, payments, and expenses.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                    "period": {"type": "string"},
+                },
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "").strip()
+        period = str(params.get("period") or "current records").strip()
+        totals = _local_money_totals(business)
+
+        payload = {
+            "report_type": "serena_accounting_books_summary",
+            "created_at": _timestamp(),
+            "business": business or "all",
+            "period": period,
+            "totals": totals,
+            "external_api_called": False,
+            "live_accounting_write": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+            "hub_adapter": _hub_adapter_contract(),
+        }
+        report_path = _save_json("reports", f"books-summary-{business or 'all'}-{period}", payload)
+
+        return self._result(
+            "Serena books summary\n\n"
+            f"- Business: {business or 'all'}\n"
+            f"- Period: {period}\n"
+            f"- Invoice count: {totals['invoice_count']}\n"
+            f"- Payment count: {totals['payment_count']}\n"
+            f"- Expense count: {totals['expense_count']}\n"
+            f"- Invoice total: {totals['invoice_total']}\n"
+            f"- Unpaid total: {totals['unpaid_total']}\n"
+            f"- Payment total: {totals['payment_total']}\n"
+            f"- Expense total: {totals['expense_total']}\n"
+            f"- Cash basis net: {totals['cash_basis_net']}\n"
+            f"- Accrual basis net before other costs: {totals['accrual_basis_net_before_other_costs']}\n"
+            f"- Report: {report_path}\n"
+            "- External API called: no\n"
+            "- Live accounting write: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={**payload, "report_path": str(report_path)},
+        )
+
+
 __all__ = [
     "SerenaAccountingStatusTool",
     "SerenaAccountingEnvCheckTool",
@@ -2337,6 +2783,11 @@ __all__ = [
     "SerenaAccountingPayFastReconcilePlanTool",
     "SerenaAccountingPaymentSummaryTool",
     "SerenaAccountingOCRReceiptHandoffTool",
+    "SerenaAccountingBooksSummaryTool",
+    "SerenaAccountingMonthEndChecklistTool",
+    "SerenaAccountingExceptionsTool",
+    "SerenaAccountingTransactionClassifyTool",
+    "SerenaAccountingBankReconcilePlanTool",
     "SerenaAccountingDocumentToExpenseTool",
     "SerenaAccountingSupplierBillPlanTool",
     "SerenaAccountingReceiptCaptureTool",

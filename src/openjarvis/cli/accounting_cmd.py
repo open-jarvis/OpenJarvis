@@ -12,6 +12,11 @@ from openjarvis.tools.serena_accounting import (
     SerenaAccountingSourceInfoTool,
     SerenaAccountingSourceListTool,
     SerenaAccountingStatusTool,
+    SerenaAccountingBooksSummaryTool,
+    SerenaAccountingMonthEndChecklistTool,
+    SerenaAccountingExceptionsTool,
+    SerenaAccountingTransactionClassifyTool,
+    SerenaAccountingBankReconcilePlanTool,
     SerenaAccountingOCRReceiptHandoffTool,
     SerenaAccountingDocumentToExpenseTool,
     SerenaAccountingSupplierBillPlanTool,
@@ -422,6 +427,73 @@ def ocr_receipt_handoff(path: str, business: str, notes: str) -> None:
     """Plan OCR receipt handoff into Accounting."""
     console = Console()
     result = SerenaAccountingOCRReceiptHandoffTool().execute(path=path, business=business, notes=notes)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("bank-reconcile-plan")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--period", default="current period", help="Accounting period.")
+@click.option("--bank-account", default="not specified", help="Bank account label.")
+@click.option("--notes", default="", help="Notes.")
+def bank_reconcile_plan(business: str, period: str, bank_account: str, notes: str) -> None:
+    """Create a bank reconciliation workflow plan."""
+    console = Console()
+    result = SerenaAccountingBankReconcilePlanTool().execute(
+        business=business,
+        period=period,
+        bank_account=bank_account,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("transaction-classify")
+@click.option("--description", required=True, help="Transaction description.")
+@click.option("--amount", required=True, type=float, help="Transaction amount.")
+@click.option("--direction", default="unknown", help="inflow/outflow/unknown.")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--date", default="not specified", help="Transaction date.")
+@click.option("--notes", default="", help="Notes.")
+def transaction_classify(description: str, amount: float, direction: str, business: str, date: str, notes: str) -> None:
+    """Classify a transaction locally."""
+    console = Console()
+    result = SerenaAccountingTransactionClassifyTool().execute(
+        description=description,
+        amount=amount,
+        direction=direction,
+        business=business,
+        date=date,
+        notes=notes,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("exceptions")
+@click.option("--business", default="", help="Optional business filter.")
+def exceptions(business: str) -> None:
+    """Create accounting exceptions report."""
+    console = Console()
+    result = SerenaAccountingExceptionsTool().execute(business=business)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("month-end-checklist")
+@click.option("--business", default="General Business", help="Business/context.")
+@click.option("--period", default="current month", help="Accounting period.")
+def month_end_checklist(business: str, period: str) -> None:
+    """Create month-end accounting checklist."""
+    console = Console()
+    result = SerenaAccountingMonthEndChecklistTool().execute(business=business, period=period)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@accounting.command("books-summary")
+@click.option("--business", default="", help="Optional business filter.")
+@click.option("--period", default="current records", help="Accounting period.")
+def books_summary(business: str, period: str) -> None:
+    """Create local books summary."""
+    console = Console()
+    result = SerenaAccountingBooksSummaryTool().execute(business=business, period=period)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 
