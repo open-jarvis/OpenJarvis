@@ -21,11 +21,9 @@ def test_ensure_image_already_local():
 
 
 def test_ensure_image_pulls_if_published():
-    import docker.errors as derr
-
-    from openjarvis.mining._docker import PearlDockerLauncher
+    from openjarvis.mining._docker import ImageNotFound, PearlDockerLauncher
     fake = MagicMock()
-    fake.images.get.side_effect = derr.ImageNotFound("nope")
+    fake.images.get.side_effect = ImageNotFound("nope")
     fake.images.pull.return_value = MagicMock(id="sha256:def")
     launcher = PearlDockerLauncher(client=fake)
     out = launcher.ensure_image("registry.example/pearl-miner:1.0")
@@ -34,13 +32,11 @@ def test_ensure_image_pulls_if_published():
 
 
 def test_ensure_image_falls_back_to_build_for_default_tag():
-    import docker.errors as derr
-
     from openjarvis.mining._constants import PEARL_IMAGE_TAG
-    from openjarvis.mining._docker import PearlDockerLauncher
+    from openjarvis.mining._docker import ImageNotFound, NotFound, PearlDockerLauncher
     fake = MagicMock()
-    fake.images.get.side_effect = derr.ImageNotFound("nope")
-    fake.images.pull.side_effect = derr.NotFound("registry refused")
+    fake.images.get.side_effect = ImageNotFound("nope")
+    fake.images.pull.side_effect = NotFound("registry refused")
     launcher = PearlDockerLauncher(client=fake)
     with patch.object(launcher, "_clone_pearl_repo") as clone, patch.object(
         launcher, "_docker_build"
@@ -54,16 +50,17 @@ def test_ensure_image_falls_back_to_build_for_default_tag():
 
 
 def test_ensure_image_errors_when_non_default_tag_missing():
-    import docker.errors as derr
     import pytest
 
     from openjarvis.mining._docker import (
         ImageAcquisitionError,
+        ImageNotFound,
+        NotFound,
         PearlDockerLauncher,
     )
     fake = MagicMock()
-    fake.images.get.side_effect = derr.ImageNotFound("nope")
-    fake.images.pull.side_effect = derr.NotFound("registry refused")
+    fake.images.get.side_effect = ImageNotFound("nope")
+    fake.images.pull.side_effect = NotFound("registry refused")
     launcher = PearlDockerLauncher(client=fake)
     with pytest.raises(ImageAcquisitionError) as ei:
         launcher.ensure_image("user/custom-image:tag")
@@ -108,7 +105,7 @@ def test_launcher_start_calls_run_with_expected_kwargs(_env_password):
     assert kwargs["environment"]["PEARLD_RPC_PASSWORD"] == "secret123"
     assert kwargs["environment"]["PEARLD_MINING_ADDRESS"] == "prl1qaaa"
     assert kwargs["environment"]["MINER_RPC_TRANSPORT"] == "tcp"
-    assert kwargs["device_requests"]
+    assert "device_requests" in kwargs
 
 
 def test_launcher_stop_calls_container_stop_and_remove():

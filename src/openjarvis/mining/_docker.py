@@ -31,6 +31,27 @@ class ConfigurationError(RuntimeError):
     """Raised when required env vars or config fields are missing."""
 
 
+class ImageNotFound(Exception):
+    """Fallback image-not-found error when Docker SDK is not installed."""
+
+
+class NotFound(Exception):
+    """Fallback Docker not-found error when Docker SDK is not installed."""
+
+
+class APIError(Exception):
+    """Fallback Docker API error when Docker SDK is not installed."""
+
+
+def _docker_error_types() -> tuple[type[Exception], type[Exception], type[Exception]]:
+    try:
+        import docker.errors as derr
+
+        return derr.ImageNotFound, derr.NotFound, derr.APIError
+    except ImportError:
+        return ImageNotFound, NotFound, APIError
+
+
 class PearlDockerLauncher:
     """Orchestrates the Pearl miner container.
 
@@ -54,19 +75,19 @@ class PearlDockerLauncher:
         3. ``tag`` matches OJ's default → clone Pearl + ``docker build``.
         4. Otherwise → ``ImageAcquisitionError``.
         """
-        import docker.errors as derr
+        image_not_found, not_found, api_error = _docker_error_types()
 
         try:
             self._client.images.get(tag)
             return tag
-        except derr.ImageNotFound:
+        except image_not_found:
             pass
 
         pull_error: str | None = None
         try:
             self._client.images.pull(tag)
             return tag
-        except (derr.NotFound, derr.APIError) as exc:
+        except (not_found, api_error) as exc:
             # Capture for context in the eventual ImageAcquisitionError below;
             # we still fall through to the build path for the OJ default tag.
             msg = str(exc).splitlines()[0] if str(exc) else exc.__class__.__name__
