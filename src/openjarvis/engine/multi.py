@@ -56,14 +56,15 @@ class MultiEngine(InferenceEngine):
                 if key == "cloud":
                     logger.info("Routing cloud model %r to cloud engine", model)
                     return eng
-        logger.warning(
-            "Model %r not found in any engine (known: %s)",
-            model,
-            ", ".join(sorted(self._model_map.keys())),
+        # Non-cloud models: do NOT silently fall back to cloud. A transient
+        # vLLM outage during a long agentic run would otherwise route every
+        # call to cloud, producing confusing "invalid model ID" errors
+        # across all tasks.
+        raise ValueError(
+            f"Model {model!r} not found in any engine "
+            f"(known: {', '.join(sorted(self._model_map.keys())) or '<none>'}). "
+            f"Check that the expected backend (e.g. vLLM server) is reachable."
         )
-        # Fall back to the first engine — caller will see the
-        # downstream error if the model doesn't exist there.
-        return self._engines[0][1]
 
     def generate(
         self,

@@ -14,7 +14,7 @@ max_tokens = 4096
 
 [run]
 max_workers = 1
-output_dir = "results/gaia-gpt54/"
+output_dir = "results/neurips-2026/baselines/gpt54/gaia/"
 seed = 42
 
 [[models]]
@@ -25,5 +25,5 @@ engine = "cloud"
 name = "gaia"
 backend = "jarvis-agent"
 agent = "monitor_operative"
-max_samples = 50
+max_samples = 165
 tools = ["think", "calculator", "code_interpreter", "web_search", "file_read"]

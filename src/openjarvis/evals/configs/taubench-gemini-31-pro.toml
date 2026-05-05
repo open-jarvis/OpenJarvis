@@ -16,7 +16,7 @@ engine = "cloud"
 
 [run]
 max_workers = 1
-output_dir = "results/taubench-gemini-31-pro/"
+output_dir = "results/neurips-2026/baselines/gemini-31-pro/taubench/"
 seed = 42
 
 [[models]]
@@ -25,5 +25,6 @@ engine = "cloud"
 
 [[benchmarks]]
 name = "taubench"
+max_samples = 60
 backend = "jarvis-direct"
 split = "airline,retail"
