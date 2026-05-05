@@ -201,19 +201,31 @@ class PearlDockerLauncher:
             str(hf_cache): {"bind": "/root/.cache/huggingface", "mode": "rw"},
         }
 
-        self._container = self._client.containers.run(
-            image=image,
-            command=command,
-            name="openjarvis-pearl-miner",
-            detach=True,
-            auto_remove=False,
-            restart_policy={"Name": "unless-stopped"},
-            device_requests=device_requests,
-            shm_size="8g",
-            network_mode="host",
-            volumes=volumes,
-            environment=environment,
-        )
+        # Sanitize wrap so an APIError from the daemon doesn't surface the
+        # full container spec (which contains the resolved password) in a
+        # bubbled-up traceback. Docker's APIError __str__ embeds the request
+        # body verbatim. We surface the image name and exit reason only.
+        try:
+            self._container = self._client.containers.run(
+                image=image,
+                command=command,
+                name="openjarvis-pearl-miner",
+                detach=True,
+                auto_remove=False,
+                restart_policy={"Name": "unless-stopped"},
+                device_requests=device_requests,
+                shm_size="8g",
+                network_mode="host",
+                volumes=volumes,
+                environment=environment,
+            )
+        except Exception as exc:  # noqa: BLE001 - intentional broad sanitize
+            cls = exc.__class__.__name__
+            raise ConfigurationError(
+                f"failed to launch container from image {image!r} ({cls}); "
+                f"check `docker ps -a` and `docker logs openjarvis-pearl-miner` "
+                f"for daemon-side details"
+            ) from None
         return self._container
 
     def stop(self, timeout: int = 30) -> None:

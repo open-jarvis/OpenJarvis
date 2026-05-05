@@ -119,6 +119,8 @@ def test_launcher_stop_calls_container_stop_and_remove():
     launcher._container = fake_container
     launcher.stop()
     fake_container.stop.assert_called_once()
+    # Reference cleared unconditionally so a future start() isn't blocked.
+    assert launcher._container is None
 
 
 def test_launcher_is_running_when_container_running():
