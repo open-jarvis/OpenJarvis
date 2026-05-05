@@ -22,6 +22,8 @@ from openjarvis.mining._constants import (
     PEARL_REPO,
 )
 
+CONTAINER_NAME = "openjarvis-pearl-miner"
+
 
 class ImageAcquisitionError(RuntimeError):
     """Raised when an image can be neither found, pulled, nor built."""
@@ -289,7 +291,7 @@ class PearlDockerLauncher:
             self._container = self._client.containers.run(
                 image=image,
                 command=command,
-                name="openjarvis-pearl-miner",
+                name=CONTAINER_NAME,
                 detach=True,
                 auto_remove=False,
                 restart_policy={"Name": "unless-stopped"},
@@ -303,33 +305,49 @@ class PearlDockerLauncher:
             cls = exc.__class__.__name__
             raise ConfigurationError(
                 f"failed to launch container from image {image!r} ({cls}); "
-                f"check `docker ps -a` and `docker logs openjarvis-pearl-miner` "
+                f"check `docker ps -a` and `docker logs {CONTAINER_NAME}` "
                 f"for daemon-side details"
             ) from None
         return self._container
 
+    def _current_container(self) -> Any | None:
+        if self._container is not None:
+            return self._container
+
+        _, not_found, _ = _docker_error_types()
+        try:
+            self._container = self._client.containers.get(CONTAINER_NAME)
+        except not_found:
+            return None
+        except Exception:  # noqa: BLE001 - daemon unavailable means no session state.
+            return None
+        return self._container
+
     def stop(self, timeout: int = 30) -> None:
-        if self._container is None:
+        container = self._current_container()
+        if container is None:
             return
         try:
-            self._container.stop(timeout=timeout)
+            container.stop(timeout=timeout)
         except Exception:  # noqa: BLE001 - best-effort
             pass
         self._container = None
 
     def is_running(self) -> bool:
-        if self._container is None:
+        container = self._current_container()
+        if container is None:
             return False
         try:
-            self._container.reload()
+            container.reload()
         except Exception:  # noqa: BLE001
             return False
-        return getattr(self._container, "status", "") == "running"
+        return getattr(container, "status", "") == "running"
 
     def get_logs(self, tail: int = 200) -> str:
-        if self._container is None:
+        container = self._current_container()
+        if container is None:
             return ""
-        raw = self._container.logs(tail=tail)
+        raw = container.logs(tail=tail)
         if isinstance(raw, bytes):
             return raw.decode("utf-8", errors="replace")
         return str(raw)

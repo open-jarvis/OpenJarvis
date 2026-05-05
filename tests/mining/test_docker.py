@@ -184,6 +184,19 @@ def test_launcher_stop_calls_container_stop_and_remove():
     assert launcher._container is None
 
 
+def test_launcher_stop_finds_named_container_without_in_memory_reference():
+    from openjarvis.mining._docker import PearlDockerLauncher
+
+    fake_client = MagicMock()
+    fake_container = MagicMock()
+    fake_client.containers.get.return_value = fake_container
+    launcher = PearlDockerLauncher(client=fake_client)
+    launcher.stop()
+    fake_client.containers.get.assert_called_once_with("openjarvis-pearl-miner")
+    fake_container.stop.assert_called_once()
+    assert launcher._container is None
+
+
 def test_launcher_is_running_when_container_running():
     from openjarvis.mining._docker import PearlDockerLauncher
 
@@ -193,6 +206,18 @@ def test_launcher_is_running_when_container_running():
     launcher = PearlDockerLauncher(client=fake_client)
     launcher._container = fake_container
     assert launcher.is_running() is True
+
+
+def test_launcher_is_running_finds_named_container():
+    from openjarvis.mining._docker import PearlDockerLauncher
+
+    fake_client = MagicMock()
+    fake_container = MagicMock(status="running")
+    fake_container.reload.return_value = None
+    fake_client.containers.get.return_value = fake_container
+    launcher = PearlDockerLauncher(client=fake_client)
+    assert launcher.is_running() is True
+    fake_client.containers.get.assert_called_once_with("openjarvis-pearl-miner")
 
 
 def test_launcher_is_running_false_when_container_exited():
