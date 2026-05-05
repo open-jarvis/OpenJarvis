@@ -135,8 +135,7 @@ def test_check_docker_available_false_when_sdk_missing():
 
     with patch("openjarvis.mining._discovery._docker_client") as fake:
         fake.side_effect = RuntimeError(
-            "Docker SDK not installed; install with "
-            "`uv sync --extra mining-pearl-vllm`"
+            "Docker SDK not installed; install with `uv sync --extra mining-pearl-vllm`"
         )
         ok, info = check_docker_available()
         assert ok is False

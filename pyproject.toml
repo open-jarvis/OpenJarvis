@@ -118,6 +118,16 @@ speech = ["faster-whisper>=1.0"]
 speech-deepgram = ["deepgram-sdk>=3.0"]
 eval-wandb = ["wandb>=0.17"]
 eval-sheets = ["gspread>=6.0", "google-auth>=2.0"]
+mining-pearl-cpu = [
+    # Pearl Python packages (py-pearl-mining, miner-base, pearl-gateway) are
+    # not on PyPI yet. They are installed at first `mine init` via the
+    # build-from-pin path in src/openjarvis/mining/_install.py:build_from_pin().
+    # When Pearl publishes wheels, replace the line below with version pins.
+    #
+    # The extra remains as a feature-flag namespace so users can run
+    # `uv sync --extra mining-pearl-cpu` to opt-in (it succeeds with no
+    # additional resolution today; the actual install happens on demand).
+]
 docs = [
     "mkdocs>=1.6",
     "mkdocs-material>=9.5",

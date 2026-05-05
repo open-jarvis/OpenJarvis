@@ -34,6 +34,20 @@ try:
 except ImportError:
     pass
 
+try:
+    from openjarvis.mining import cpu_pearl  # noqa: F401
+
+    cpu_pearl.ensure_registered()
+except ImportError:
+    pass
+
+try:
+    from openjarvis.mining import apple_mps_pearl  # noqa: F401
+
+    apple_mps_pearl.ensure_registered()
+except ImportError:
+    pass
+
 __all__ = [
     "MiningCapabilities",
     "MiningConfig",

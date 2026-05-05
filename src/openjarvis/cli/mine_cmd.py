@@ -4,14 +4,19 @@ from __future__ import annotations
 
 import asyncio
 import os
+import signal
 import time
+import urllib.request
 from pathlib import Path
+from typing import Any
 
 import click
 
 from openjarvis.core.config import HardwareInfo, detect_hardware, load_config
 from openjarvis.core.registry import MinerRegistry
 from openjarvis.mining._constants import (
+    DEFAULT_GATEWAY_METRICS_PORT,
+    DEFAULT_GATEWAY_RPC_PORT,
     DEFAULT_PEARL_MODEL,
     DEFAULT_PEARLD_RPC_URL,
     PEARL_IMAGE_TAG,
@@ -25,6 +30,7 @@ from openjarvis.mining._discovery import (
     detect_for_engine_model,
 )
 from openjarvis.mining._docker import PearlDockerLauncher
+from openjarvis.mining._metrics import parse_gateway_metrics
 from openjarvis.mining._stubs import Sidecar
 from openjarvis.mining.vllm_pearl import ensure_registered as ensure_vllm_registered
 
@@ -41,6 +47,73 @@ def _docker_from_env():
     return docker.from_env()
 
 
+def _ensure_providers_registered() -> None:
+    ensure_vllm_registered()
+    from openjarvis.mining.cpu_pearl import ensure_registered as ensure_cpu_registered
+
+    ensure_cpu_registered()
+    try:
+        from openjarvis.mining.apple_mps_pearl import (
+            ensure_registered as ensure_mps_registered,
+        )
+
+        ensure_mps_registered()
+    except ImportError:
+        pass
+
+
+def _provider_ids() -> tuple[str, ...]:
+    _ensure_providers_registered()
+    return tuple(MinerRegistry.keys())
+
+
+def _select_provider(provider: str) -> str:
+    if provider != "auto":
+        return provider
+    hw = _detect_hardware()
+    gpu_vendor = hw.gpu.vendor.lower() if hw.gpu else ""
+    if hw.platform == "darwin" and gpu_vendor == "apple":
+        return "apple-mps-pearl"
+    if hw.platform == "linux" and gpu_vendor == "nvidia":
+        return "vllm-pearl"
+    return "cpu-pearl"
+
+
+def _stats_from_metrics_url(
+    metrics_url: str,
+    provider_id: str,
+) -> tuple[Any | None, str | None]:
+    try:
+        with urllib.request.urlopen(metrics_url, timeout=2.0) as resp:
+            text = resp.read().decode()
+    except Exception as exc:  # noqa: BLE001
+        return None, str(exc)
+    return parse_gateway_metrics(text, provider_id=provider_id), None
+
+
+def _pid_alive(pid: int | None) -> bool:
+    if not pid:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _terminate_pid(pid: int | None, *, grace_seconds: float = 3.0) -> None:
+    if not pid or not _pid_alive(pid):
+        return
+    os.kill(pid, signal.SIGTERM)
+    deadline = time.monotonic() + grace_seconds
+    while time.monotonic() < deadline:
+        if not _pid_alive(pid):
+            return
+        time.sleep(0.05)
+    if _pid_alive(pid):
+        os.kill(pid, signal.SIGKILL)
+
+
 def _row(name: str, ok: bool, info: str) -> None:
     marker = "OK" if ok else "FAIL"
     click.echo(f"  {name:<22} {info:<45} {marker}")
@@ -48,17 +121,19 @@ def _row(name: str, ok: bool, info: str) -> None:
 
 @click.group()
 def mine() -> None:
-    """Pearl PoUW mining commands."""
+    """Configure and run Pearl mining."""
 
 
 @mine.command()
 def doctor() -> None:
     """Diagnose mining capability with one row per check."""
-    ensure_vllm_registered()
+    _ensure_providers_registered()
     hw = _detect_hardware()
+    load_config.cache_clear()
     cfg = load_config()
     mining_cfg = cfg.mining
 
+    click.echo("Pearl Mining Doctor")
     click.echo("Hardware")
     gpu = hw.gpu
     _row(
@@ -130,49 +205,88 @@ def doctor() -> None:
 
 
 @mine.command()
-@click.option("--wallet", prompt="Pearl Taproot wallet address (prl1q...)")
-@click.option("--pearld-url", default=DEFAULT_PEARLD_RPC_URL, prompt="pearld RPC URL")
-@click.option("--pearld-user", default="rpcuser", prompt="pearld RPC user")
+@click.option(
+    "--provider",
+    type=click.Choice(["auto", "vllm-pearl", "cpu-pearl", "apple-mps-pearl"]),
+    default="vllm-pearl",
+    show_default=True,
+)
+@click.option(
+    "--wallet",
+    "--wallet-address",
+    prompt="Pearl wallet address (prl1q/prl1p...)",
+)
+@click.option(
+    "--pearld-url",
+    "--pearld-rpc-url",
+    default=DEFAULT_PEARLD_RPC_URL,
+    prompt="pearld RPC URL",
+)
+@click.option(
+    "--pearld-user",
+    "--pearld-rpc-user",
+    default="rpcuser",
+    prompt="pearld RPC user",
+)
 @click.option(
     "--pearld-password-env",
+    "--pearld-rpc-password-env",
     default="PEARLD_RPC_PASSWORD",
     prompt="env var holding pearld password",
 )
 @click.option("--model", default=DEFAULT_PEARL_MODEL)
 @click.option("--image", default=PEARL_IMAGE_TAG)
+@click.option("--gateway-host", default="127.0.0.1", show_default=True)
+@click.option("--gateway-port", default=DEFAULT_GATEWAY_RPC_PORT, show_default=True)
+@click.option(
+    "--gateway-metrics-port",
+    "--metrics-port",
+    default=DEFAULT_GATEWAY_METRICS_PORT,
+    show_default=True,
+)
 def init(
+    provider: str,
     wallet: str,
     pearld_url: str,
     pearld_user: str,
     pearld_password_env: str,
     model: str,
     image: str,
+    gateway_host: str,
+    gateway_port: int,
+    gateway_metrics_port: int,
 ) -> None:
-    """Interactive setup for the v1 vllm-pearl provider."""
-    hw = _detect_hardware()
-    cap = detect_for_engine_model(
-        hw=hw,
-        engine_id="vllm",
-        model=model,
-        provider_id="vllm-pearl",
-    )
-    if not cap.supported:
-        raise click.ClickException(
-            f"vllm-pearl not supported on this host: {cap.reason}\n"
-            "See `jarvis mine doctor` for details."
-        )
-
-    ok, info = check_docker_available()
-    if not ok:
-        raise click.ClickException(f"Docker unavailable: {info}")
-
-    ok, info = check_disk_free(Path.home())
-    if not ok:
-        raise click.ClickException(f"Insufficient disk: {info}")
+    """Interactive setup for the v1 Pearl mining providers."""
+    _ensure_providers_registered()
+    selected_provider = _select_provider(provider)
+    if not MinerRegistry.contains(selected_provider):
+        raise click.ClickException(f"Unknown mining provider: {selected_provider}")
 
     ok, info = check_wallet_address_format(wallet)
     if not ok:
         raise click.ClickException(f"Invalid wallet address: {info}")
+
+    if selected_provider == "vllm-pearl":
+        hw = _detect_hardware()
+        cap = detect_for_engine_model(
+            hw=hw,
+            engine_id="vllm",
+            model=model,
+            provider_id="vllm-pearl",
+        )
+        if not cap.supported:
+            raise click.ClickException(
+                f"vllm-pearl not supported on this host: {cap.reason}\n"
+                "See `jarvis mine doctor` for details."
+            )
+
+        ok, info = check_docker_available()
+        if not ok:
+            raise click.ClickException(f"Docker unavailable: {info}")
+
+        ok, info = check_disk_free(Path.home())
+        if not ok:
+            raise click.ClickException(f"Insufficient disk: {info}")
 
     if pearld_password_env not in os.environ:
         click.echo(
@@ -196,8 +310,8 @@ fee_payout_address = ""
 [mining.extra]
 docker_image_tag = "{image}"
 model = "{model}"
-gateway_port = 8337
-gateway_metrics_port = 8339
+gateway_port = {gateway_port}
+gateway_metrics_port = {gateway_metrics_port}
 vllm_port = 8000
 gpu_memory_utilization = 0.96
 max_model_len = 8192
@@ -205,6 +319,23 @@ pearld_rpc_url = "{pearld_url}"
 pearld_rpc_user = "{pearld_user}"
 pearld_rpc_password_env = "{pearld_password_env}"
 hf_token_env = "HF_TOKEN"
+"""
+    if selected_provider != "vllm-pearl":
+        section = f"""
+[mining]
+provider = "{selected_provider}"
+wallet_address = "{wallet}"
+submit_target = "solo"
+fee_bps = 0
+fee_payout_address = ""
+
+[mining.extra]
+gateway_host = "{gateway_host}"
+gateway_port = {gateway_port}
+metrics_port = {gateway_metrics_port}
+pearld_rpc_url = "{pearld_url}"
+pearld_rpc_user = "{pearld_user}"
+pearld_rpc_password_env = "{pearld_password_env}"
 """
     if config_path.exists():
         existing = config_path.read_text()
@@ -214,16 +345,19 @@ hf_token_env = "HF_TOKEN"
         config_path.write_text(existing.rstrip() + "\n" + section)
     else:
         config_path.write_text(section.lstrip())
+    load_config.cache_clear()
 
-    click.echo(f"Resolving image {image}...")
-    PearlDockerLauncher(client=_docker_from_env()).ensure_image(image)
+    if selected_provider == "vllm-pearl":
+        click.echo(f"Resolving image {image}...")
+        PearlDockerLauncher(client=_docker_from_env()).ensure_image(image)
     click.echo("Done. Run `jarvis mine start` to begin mining.")
 
 
 @mine.command()
 def start() -> None:
     """Launch the configured mining provider."""
-    ensure_vllm_registered()
+    _ensure_providers_registered()
+    load_config.cache_clear()
     cfg = load_config().mining
     if cfg is None:
         raise click.ClickException(
@@ -231,13 +365,21 @@ def start() -> None:
         )
     provider = MinerRegistry.get(cfg.provider)()
     asyncio.run(provider.start(cfg))
-    click.echo("Mining started. Run `jarvis mine status` for live stats.")
+    click.echo(f"Started {cfg.provider}. Run `jarvis mine status` for live stats.")
 
 
 @mine.command()
 def stop() -> None:
     """Stop the configured mining provider."""
-    ensure_vllm_registered()
+    _ensure_providers_registered()
+    sidecar = Sidecar.read(SIDECAR_PATH)
+    if sidecar and (sidecar.get("gateway_pid") or sidecar.get("miner_loop_pid")):
+        _terminate_pid(sidecar.get("miner_loop_pid"), grace_seconds=2.0)
+        _terminate_pid(sidecar.get("gateway_pid"), grace_seconds=5.0)
+        Sidecar.remove(SIDECAR_PATH)
+        click.echo("Mining stopped.")
+        return
+    load_config.cache_clear()
     cfg = load_config().mining
     if cfg is None:
         click.echo("no [mining] section - nothing to stop")
@@ -250,10 +392,39 @@ def stop() -> None:
 @mine.command()
 def status() -> None:
     """Print live mining stats."""
-    ensure_vllm_registered()
+    _ensure_providers_registered()
+    sidecar = Sidecar.read(SIDECAR_PATH)
+    if sidecar is not None:
+        provider_id = str(sidecar.get("provider", "unknown"))
+        click.echo(f"provider:           {provider_id}")
+        if "gateway_pid" in sidecar:
+            gateway_pid = sidecar.get("gateway_pid")
+            miner_pid = sidecar.get("miner_loop_pid")
+            click.echo(
+                f"gateway pid:        {gateway_pid} "
+                f"({'alive' if _pid_alive(gateway_pid) else 'dead'})"
+            )
+            click.echo(
+                f"miner pid:          {miner_pid} "
+                f"({'alive' if _pid_alive(miner_pid) else 'dead'})"
+            )
+        metrics_url = sidecar.get("metrics_url")
+        if metrics_url:
+            stats, error = _stats_from_metrics_url(str(metrics_url), provider_id)
+            if error:
+                click.echo(f"metrics error:      {error}")
+                return
+            if stats is not None:
+                click.echo(f"Shares submitted:   {stats.shares_submitted}")
+                click.echo(f"Shares accepted:    {stats.shares_accepted}")
+                click.echo(f"Blocks found:       {stats.blocks_found}")
+                return
+
+    load_config.cache_clear()
     cfg = load_config().mining
     if cfg is None:
-        raise click.ClickException("no [mining] section - run `jarvis mine init`")
+        click.echo("No active mining session")
+        return
     provider = MinerRegistry.get(cfg.provider)()
     stats = provider.stats()
     click.echo(f"provider:           {stats.provider_id}")

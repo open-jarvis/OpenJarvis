@@ -25,6 +25,21 @@ DEFAULT_VLLM_PORT = 8000
 DEFAULT_GATEWAY_RPC_PORT = 8337
 DEFAULT_GATEWAY_METRICS_PORT = 8339
 
+# CPU/Apple subprocess provider defaults. These mirror the conservative v1
+# shape used by Pearl's Python miner loop and can be overridden in config.
+CPU_PEARL_DEFAULT_M = 256
+CPU_PEARL_DEFAULT_N = 128
+CPU_PEARL_DEFAULT_K = 1024
+CPU_PEARL_DEFAULT_RANK = 32
+CPU_PEARL_DEFAULT_ROWS_PATTERN = (0, 8, 64, 72)
+CPU_PEARL_DEFAULT_COLS_PATTERN = (0, 1, 8, 9, 32, 33, 40, 41)
+PEARL_CPU_PACKAGES = (
+    "py-pearl-mining",
+    "miner-utils",
+    "pearl-gateway",
+    "miner-base",
+)
+
 # Default pearld RPC endpoint (mainnet).
 DEFAULT_PEARLD_RPC_URL = "http://localhost:44107"
 
