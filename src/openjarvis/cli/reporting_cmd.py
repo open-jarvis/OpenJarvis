@@ -11,6 +11,9 @@ from openjarvis.tools.serena_reporting import (
     SerenaReportingStatusTool,
     SerenaReportingTemplateInfoTool,
     SerenaReportingTemplatesTool,
+    SerenaReportingBlockedUnredactedExportTool,
+    SerenaReportingBlockedSensitiveReportTool,
+    SerenaReportingAuditTool,
     SerenaReportingToDriveTool,
     SerenaReportingToGoogleDocTool,
     SerenaReportingExportJsonTool,
@@ -239,6 +242,34 @@ def to_drive(path: str, name: str, drive_folder: str, approved: bool) -> None:
     """Save a reporting draft into Google Drive."""
     console = Console()
     result = SerenaReportingToDriveTool().execute(path=path, name=name, drive_folder=drive_folder, approved=approved)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@reporting.command("audit")
+def audit() -> None:
+    """Audit Reporting outputs and safety posture."""
+    console = Console()
+    result = SerenaReportingAuditTool().execute()
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@reporting.command("blocked-sensitive-report")
+@click.option("--action", default="sensitive report export", help="Requested action.")
+@click.option("--reason", default="Sensitive report requested.", help="Reason.")
+def blocked_sensitive_report(action: str, reason: str) -> None:
+    """Deliberately blocked sensitive report command."""
+    console = Console()
+    result = SerenaReportingBlockedSensitiveReportTool().execute(action=action, reason=reason)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@reporting.command("blocked-unredacted-export")
+@click.option("--action", default="unredacted export", help="Requested action.")
+@click.option("--reason", default="Unredacted export requested.", help="Reason.")
+def blocked_unredacted_export(action: str, reason: str) -> None:
+    """Deliberately blocked unredacted export command."""
+    console = Console()
+    result = SerenaReportingBlockedUnredactedExportTool().execute(action=action, reason=reason)
     console.print(result.content if result.success else f"[red]{result.content}[/red]")
 
 

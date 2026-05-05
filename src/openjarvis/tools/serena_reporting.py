@@ -1410,6 +1410,202 @@ class SerenaReportingToDriveTool(_ReportingBaseTool):
             )
 
 
+@ToolRegistry.register("serena_reporting_audit")
+class SerenaReportingAuditTool(_ReportingBaseTool):
+    tool_id = "serena_reporting_audit"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Audit Serena Reporting outputs, templates, handoff readiness, and safety posture.",
+            parameters={"type": "object", "properties": {}},
+            category="serena_reporting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        root = _reporting_root()
+        templates = _templates()
+        safety = _safety_policy()
+        hub = _hub_adapter_contract()
+
+        counts = {}
+        for folder_name in ["reports", "drafts", "exports", "snapshots", "handoff"]:
+            folder = root / folder_name
+            counts[folder_name] = len([p for p in folder.glob("*") if p.is_file()]) if folder.exists() else 0
+
+        issues = []
+        recommendations = []
+
+        if not templates:
+            issues.append("No reporting templates are available.")
+        if counts["drafts"] == 0:
+            recommendations.append("Create at least one draft report before export/handoff workflows.")
+        if counts["handoff"] == 0:
+            recommendations.append("No handoff reports found yet. Use approved Docs/Drive handoff when needed.")
+
+        recommendations.extend([
+            "Run Compliance checks before exporting or sharing sensitive reports.",
+            "Use Reporting for daily, weekly, compliance, operator, and business summaries.",
+            "Keep Hub adapter pending until Serena Hub dashboard/event bus exists.",
+        ])
+
+        payload = {
+            "report_type": "serena_reporting_audit",
+            "created_at": _timestamp(),
+            "output_root": str(root),
+            "template_count": len(templates),
+            "artifact_counts": counts,
+            "safety_policy": safety,
+            "hub_adapter": hub,
+            "issues": issues,
+            "recommendations": recommendations,
+            "changes_made": False,
+            "delete_performed": False,
+            "export_performed": False,
+            "secret_values_exposed": False,
+        }
+        report_path = _save_json("reports", "reporting-audit", payload)
+
+        lines = [
+            "Serena Reporting audit",
+            "",
+            f"- Templates: {len(templates)}",
+            f"- Reports metadata files: {counts['reports']}",
+            f"- Draft reports: {counts['drafts']}",
+            f"- Exports: {counts['exports']}",
+            f"- Snapshots: {counts['snapshots']}",
+            f"- Handoff reports: {counts['handoff']}",
+            f"- Audit report: {report_path}",
+            "- Changes made: no",
+            "- Delete performed: no",
+            "- Export performed: no",
+            "- Secret values exposed: no",
+            "- Hub adapter: pending future dashboard",
+            "",
+            "Issues:",
+        ]
+
+        lines.extend(f"- {item}" for item in issues) if issues else lines.append("- none")
+
+        lines.extend(["", "Recommendations:"])
+        lines.extend(f"- {item}" for item in recommendations)
+
+        lines.extend(["", "Blocked operations:"])
+        for item in safety["blocked"]:
+            lines.append(f"- {item}")
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+def _blocked_reporting_response(
+    title: str,
+    action: str,
+    reason: str,
+    blocked_reason: str,
+    report_name: str,
+) -> ToolResult:
+    payload = {
+        "report_type": f"serena_reporting_{report_name}",
+        "created_at": _timestamp(),
+        "action": action,
+        "reason": reason,
+        "blocked_reason": blocked_reason,
+        "risk_level": "BLOCKED",
+        "allowed_to_continue": False,
+        "approval_required": True,
+        "owner_review_required": True,
+        "report_created": False,
+        "export_performed": False,
+        "delete_performed": False,
+        "changes_made": False,
+        "secret_values_exposed": False,
+        "hub_adapter": _hub_adapter_contract(),
+    }
+    report_path = _save_json("reports", report_name, payload)
+
+    return ToolResult(
+        tool_name=f"serena_reporting_{report_name}",
+        success=False,
+        content=(
+            f"{title}\n\n"
+            f"- Action: {action}\n"
+            f"- Reason: {reason}\n"
+            f"- Blocked reason: {blocked_reason}\n"
+            "- Risk level: BLOCKED\n"
+            "- Allowed to continue: no\n"
+            "- Approval required: yes\n"
+            "- Owner review required: yes\n"
+            f"- Report: {report_path}\n"
+            "- Report created: no\n"
+            "- Export performed: no\n"
+            "- Delete performed: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard"
+        ),
+        metadata={**payload, "report_path": str(report_path)},
+    )
+
+
+@ToolRegistry.register("serena_reporting_blocked_sensitive_report")
+class SerenaReportingBlockedSensitiveReportTool(_ReportingBaseTool):
+    tool_id = "serena_reporting_blocked_sensitive_report"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked unsafe sensitive report creation/export.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+            },
+            category="serena_reporting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        return _blocked_reporting_response(
+            "Sensitive report blocked by Serena Reporting v1 policy",
+            str(params.get("action") or "sensitive report export").strip(),
+            str(params.get("reason") or "Sensitive report requested.").strip(),
+            "Serena may not silently create or export sensitive patient/client/health/financial reports without review and approval.",
+            "blocked-sensitive-report",
+        )
+
+
+@ToolRegistry.register("serena_reporting_blocked_unredacted_export")
+class SerenaReportingBlockedUnredactedExportTool(_ReportingBaseTool):
+    tool_id = "serena_reporting_blocked_unredacted_export"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Deliberately blocked unredacted sensitive report export.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+            },
+            category="serena_reporting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        return _blocked_reporting_response(
+            "Unredacted report export blocked by Serena Reporting v1 policy",
+            str(params.get("action") or "unredacted export").strip(),
+            str(params.get("reason") or "Unredacted export requested.").strip(),
+            "Serena may not export unredacted patient/client/health/financial reports without explicit approval and compliance review.",
+            "blocked-unredacted-export",
+        )
+
+
 __all__ = [
     "SerenaReportingStatusTool",
     "SerenaReportingPlanTool",
@@ -1418,6 +1614,9 @@ __all__ = [
     "SerenaReportingFromFolderTool",
     "SerenaReportingBusinessSummaryTool",
     "SerenaReportingToDriveTool",
+    "SerenaReportingBlockedUnredactedExportTool",
+    "SerenaReportingBlockedSensitiveReportTool",
+    "SerenaReportingAuditTool",
     "SerenaReportingToGoogleDocTool",
     "SerenaReportingExportJsonTool",
     "SerenaReportingExportMdTool",
