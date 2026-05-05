@@ -561,10 +561,470 @@ class SerenaAnalyticsPlanTool(_AnalyticsBaseTool):
         )
 
 
+def _numeric_values_from_obj(obj: Any, prefix: str = "") -> dict[str, float]:
+    values: dict[str, float] = {}
+
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            next_key = f"{prefix}.{key}" if prefix else str(key)
+            values.update(_numeric_values_from_obj(value, next_key))
+    elif isinstance(obj, list):
+        for idx, value in enumerate(obj):
+            next_key = f"{prefix}[{idx}]" if prefix else f"[{idx}]"
+            values.update(_numeric_values_from_obj(value, next_key))
+    elif isinstance(obj, (int, float)) and not isinstance(obj, bool):
+        values[prefix or "value"] = float(obj)
+
+    return values
+
+
+def _summarize_analytics_payload(data: Any, source: str, business: str, date_range: str) -> dict[str, Any]:
+    metrics = _numeric_values_from_obj(data)
+    top_metrics = sorted(metrics.items(), key=lambda item: abs(item[1]), reverse=True)[:20]
+
+    recommendations = []
+    if not metrics:
+        recommendations.append("No numeric metrics detected. Add structured metric fields for stronger analysis.")
+    else:
+        recommendations.append("Review the top metrics and compare against previous period.")
+        recommendations.append("Create a Reporting summary if this snapshot should be shared.")
+        recommendations.append("Run Compliance before external export if business-sensitive, patient/client, or financial data is present.")
+
+    return {
+        "business": business,
+        "source": source,
+        "date_range": date_range,
+        "metric_count": len(metrics),
+        "top_metrics": [{"metric": key, "value": value} for key, value in top_metrics],
+        "recommendations": recommendations,
+    }
+
+
+def _analytics_report_markdown(title: str, summary: dict[str, Any], raw_source_label: str) -> str:
+    lines = [
+        f"# {title}",
+        "",
+        "Created by: Serena Analytics Full Operator v1",
+        f"Created at: {_timestamp()}",
+        "",
+        "## Scope",
+        "",
+        f"- Business: {summary.get('business')}",
+        f"- Source: {summary.get('source')}",
+        f"- Date range: {summary.get('date_range')}",
+        f"- Source evidence: {raw_source_label}",
+        "",
+        "## Metric Summary",
+        "",
+        f"- Numeric metrics detected: {summary.get('metric_count')}",
+        "",
+        "## Top Metrics",
+        "",
+    ]
+
+    top_metrics = summary.get("top_metrics") or []
+    if top_metrics:
+        for item in top_metrics:
+            lines.append(f"- {item['metric']}: {item['value']}")
+    else:
+        lines.append("- No numeric metrics detected.")
+
+    lines.extend([
+        "",
+        "## Recommendations",
+        "",
+    ])
+
+    for rec in summary.get("recommendations") or []:
+        lines.append(f"- {rec}")
+
+    lines.extend([
+        "",
+        "## Safety",
+        "",
+        "- Analytics snapshot generated locally.",
+        "- External API was not called unless explicitly stated in metadata.",
+        "- Tokens/secrets were not exposed.",
+        "- External export should require approval and Compliance review.",
+        "",
+    ])
+
+    return "\n".join(lines)
+
+
+def _save_analytics_snapshot(
+    title: str,
+    data: Any,
+    source: str,
+    business: str,
+    date_range: str,
+    raw_source_label: str,
+    report_name: str,
+) -> ToolResult:
+    summary = _summarize_analytics_payload(data, source=source, business=business, date_range=date_range)
+    markdown = _analytics_report_markdown(title, summary, raw_source_label=raw_source_label)
+
+    snapshot_payload = {
+        "report_type": "serena_analytics_snapshot",
+        "created_at": _timestamp(),
+        "title": title,
+        "business": business,
+        "source": source,
+        "date_range": date_range,
+        "summary": summary,
+        "raw_data": data,
+        "raw_source_label": raw_source_label,
+        "external_api_called": False,
+        "snapshot_created": True,
+        "report_created": True,
+        "export_performed": False,
+        "delete_performed": False,
+        "changes_made": True,
+        "secret_values_exposed": False,
+        "hub_adapter": _hub_adapter_contract(),
+    }
+
+    snapshot_path = _save_json("snapshots", report_name, snapshot_payload)
+
+    report_path = ANALYTICS_OUTPUT_ROOT / "reports" / f"{_timestamp()}-{_safe_slug(report_name)}.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(markdown, encoding="utf-8")
+
+    metadata = {
+        **snapshot_payload,
+        "snapshot_path": str(snapshot_path),
+        "report_path": str(report_path),
+    }
+
+    return ToolResult(
+        tool_name=f"serena_analytics_{report_name}",
+        success=True,
+        content=(
+            f"{title} created\n\n"
+            f"- Business: {business}\n"
+            f"- Source: {source}\n"
+            f"- Date range: {date_range}\n"
+            f"- Metrics detected: {summary['metric_count']}\n"
+            f"- Snapshot: {snapshot_path}\n"
+            f"- Report: {report_path}\n"
+            "- External API called: no\n"
+            "- Snapshot created: yes\n"
+            "- Report created: yes\n"
+            "- Export performed: no\n"
+            "- Delete performed: no\n"
+            "- Changes made: yes\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard"
+        ),
+        metadata=metadata,
+    )
+
+
+def _read_json_file(path_value: str) -> tuple[Path, Any]:
+    path = Path(path_value)
+    if not path.exists() or not path.is_file():
+        raise RuntimeError(f"JSON file not found: {path}")
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    return path, json.loads(text)
+
+
+@ToolRegistry.register("serena_analytics_from_json")
+class SerenaAnalyticsFromJsonTool(_AnalyticsBaseTool):
+    tool_id = "serena_analytics_from_json"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local analytics snapshot/report from JSON text.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "json_text": {"type": "string"},
+                    "title": {"type": "string"},
+                    "source": {"type": "string"},
+                    "business": {"type": "string"},
+                    "date_range": {"type": "string"},
+                },
+                "required": ["json_text"],
+            },
+            category="serena_analytics",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        json_text = str(params.get("json_text") or "")
+        title = str(params.get("title") or "Serena Analytics JSON Snapshot").strip()
+        source = str(params.get("source") or "provided-json").strip()
+        business = str(params.get("business") or "General Business").strip()
+        date_range = str(params.get("date_range") or "unspecified").strip()
+
+        try:
+            data = json.loads(json_text)
+            return _save_analytics_snapshot(title, data, source, business, date_range, "provided JSON text", f"from-json-{title}")
+        except Exception as exc:
+            return self._result(
+                "Serena Analytics from-json failed\n\n"
+                f"- Error: {exc}\n"
+                "- Snapshot created: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_analytics_from_file")
+class SerenaAnalyticsFromFileTool(_AnalyticsBaseTool):
+    tool_id = "serena_analytics_from_file"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local analytics snapshot/report from a JSON file.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "title": {"type": "string"},
+                    "source": {"type": "string"},
+                    "business": {"type": "string"},
+                    "date_range": {"type": "string"},
+                },
+                "required": ["path"],
+            },
+            category="serena_analytics",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        path_value = str(params.get("path") or "").strip()
+        title = str(params.get("title") or "Serena Analytics File Snapshot").strip()
+        source = str(params.get("source") or "file").strip()
+        business = str(params.get("business") or "General Business").strip()
+        date_range = str(params.get("date_range") or "unspecified").strip()
+
+        try:
+            path, data = _read_json_file(path_value)
+            return _save_analytics_snapshot(title, data, source, business, date_range, str(path), f"from-file-{path.stem}")
+        except Exception as exc:
+            return self._result(
+                "Serena Analytics from-file failed\n\n"
+                f"- Path: {path_value}\n"
+                f"- Error: {exc}\n"
+                "- Snapshot created: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_analytics_from_folder")
+class SerenaAnalyticsFromFolderTool(_AnalyticsBaseTool):
+    tool_id = "serena_analytics_from_folder"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a combined analytics snapshot/report from recent JSON files in a folder.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "folder": {"type": "string"},
+                    "title": {"type": "string"},
+                    "source": {"type": "string"},
+                    "business": {"type": "string"},
+                    "date_range": {"type": "string"},
+                    "limit": {"type": "integer"},
+                },
+                "required": ["folder"],
+            },
+            category="serena_analytics",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        folder_value = str(params.get("folder") or "").strip()
+        title = str(params.get("title") or "Serena Analytics Folder Snapshot").strip()
+        source = str(params.get("source") or "folder").strip()
+        business = str(params.get("business") or "General Business").strip()
+        date_range = str(params.get("date_range") or "unspecified").strip()
+        limit = int(params.get("limit") or 10)
+
+        try:
+            folder = Path(folder_value)
+            if not folder.exists() or not folder.is_dir():
+                raise RuntimeError(f"Folder not found or not directory: {folder}")
+
+            files = sorted(
+                [path for path in folder.rglob("*.json") if path.is_file()],
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )[:limit]
+
+            combined = {"folder": str(folder), "files": []}
+            for path in files:
+                try:
+                    combined["files"].append({
+                        "path": str(path),
+                        "data": json.loads(path.read_text(encoding="utf-8", errors="ignore")),
+                    })
+                except Exception as exc:
+                    combined["files"].append({"path": str(path), "error": str(exc)})
+
+            return _save_analytics_snapshot(title, combined, source, business, date_range, str(folder), f"from-folder-{folder.name}")
+        except Exception as exc:
+            return self._result(
+                "Serena Analytics from-folder failed\n\n"
+                f"- Folder: {folder_value}\n"
+                f"- Error: {exc}\n"
+                "- Snapshot created: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+
+@ToolRegistry.register("serena_analytics_snapshot")
+class SerenaAnalyticsSnapshotTool(_AnalyticsBaseTool):
+    tool_id = "serena_analytics_snapshot"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a local Serena operator analytics snapshot from local outputs.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "business": {"type": "string"},
+                    "date_range": {"type": "string"},
+                },
+            },
+            category="serena_analytics",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        business = str(params.get("business") or "Serena Local Operator").strip()
+        date_range = str(params.get("date_range") or "current local outputs").strip()
+
+        root = Path("outputs")
+        counts: dict[str, int] = {}
+        if root.exists():
+            for path in root.rglob("*"):
+                if path.is_file():
+                    parts = path.parts
+                    key = parts[1] if len(parts) > 1 else "root"
+                    counts[key] = counts.get(key, 0) + 1
+
+        data = {
+            "business": business,
+            "date_range": date_range,
+            "output_file_counts": counts,
+            "total_output_files": sum(counts.values()),
+            "available_operators": sorted(counts.keys()),
+        }
+
+        return _save_analytics_snapshot(
+            "Serena Local Operator Analytics Snapshot",
+            data,
+            "serena-operator",
+            business,
+            date_range,
+            "outputs folder",
+            "operator-snapshot",
+        )
+
+
+@ToolRegistry.register("serena_analytics_compare")
+class SerenaAnalyticsCompareTool(_AnalyticsBaseTool):
+    tool_id = "serena_analytics_compare"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Compare two analytics JSON payloads or snapshot files.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "current_json": {"type": "string"},
+                    "previous_json": {"type": "string"},
+                    "current_file": {"type": "string"},
+                    "previous_file": {"type": "string"},
+                    "title": {"type": "string"},
+                    "business": {"type": "string"},
+                    "source": {"type": "string"},
+                },
+            },
+            category="serena_analytics",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        title = str(params.get("title") or "Serena Analytics Comparison").strip()
+        business = str(params.get("business") or "General Business").strip()
+        source = str(params.get("source") or "comparison").strip()
+
+        try:
+            if params.get("current_file"):
+                current_path, current_data = _read_json_file(str(params.get("current_file")))
+                current_label = str(current_path)
+            else:
+                current_data = json.loads(str(params.get("current_json") or "{}"))
+                current_label = "current JSON text"
+
+            if params.get("previous_file"):
+                previous_path, previous_data = _read_json_file(str(params.get("previous_file")))
+                previous_label = str(previous_path)
+            else:
+                previous_data = json.loads(str(params.get("previous_json") or "{}"))
+                previous_label = "previous JSON text"
+
+            current_metrics = _numeric_values_from_obj(current_data)
+            previous_metrics = _numeric_values_from_obj(previous_data)
+
+            comparisons = []
+            for metric, current_value in sorted(current_metrics.items()):
+                if metric in previous_metrics:
+                    prev = previous_metrics[metric]
+                    change = current_value - prev
+                    pct = None if prev == 0 else (change / prev) * 100
+                    comparisons.append({
+                        "metric": metric,
+                        "current": current_value,
+                        "previous": prev,
+                        "change": change,
+                        "percent_change": pct,
+                    })
+
+            comparisons = sorted(comparisons, key=lambda item: abs(item["change"]), reverse=True)[:50]
+
+            data = {
+                "current_label": current_label,
+                "previous_label": previous_label,
+                "matched_metric_count": len(comparisons),
+                "comparisons": comparisons,
+            }
+
+            return _save_analytics_snapshot(title, data, source, business, "comparison", f"{previous_label} -> {current_label}", f"compare-{title}")
+        except Exception as exc:
+            return self._result(
+                "Serena Analytics compare failed\n\n"
+                f"- Error: {exc}\n"
+                "- Snapshot created: no\n"
+                "- Changes made: no\n"
+                "- Secret values exposed: no",
+                success=False,
+            )
+
+
 __all__ = [
     "SerenaAnalyticsStatusTool",
     "SerenaAnalyticsEnvCheckTool",
     "SerenaAnalyticsPlanTool",
     "SerenaAnalyticsSourceListTool",
     "SerenaAnalyticsSourceInfoTool",
+    "SerenaAnalyticsCompareTool",
+    "SerenaAnalyticsSnapshotTool",
+    "SerenaAnalyticsFromFolderTool",
+    "SerenaAnalyticsFromFileTool",
+    "SerenaAnalyticsFromJsonTool",
 ]
