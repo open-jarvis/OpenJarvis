@@ -1,0 +1,598 @@
+"""Native Serena Accounting / Payments / Payroll / Tax Full Operator tools.
+
+Layer 1 foundation:
+- status
+- env-check
+- plan
+- source-list
+- source-info
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import time
+from pathlib import Path
+from typing import Any
+
+from openjarvis.core.registry import ToolRegistry
+from openjarvis.tools._stubs import BaseTool, ToolResult, ToolSpec
+
+
+ACCOUNTING_OUTPUT_ROOT = Path("outputs/accounting")
+
+
+def _timestamp() -> str:
+    return time.strftime("%Y%m%d-%H%M%S")
+
+
+def _safe_slug(value: str) -> str:
+    import re
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", str(value or "").strip().lower()).strip("-")
+    return slug or "accounting"
+
+
+def _accounting_root() -> Path:
+    ACCOUNTING_OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
+    for child in [
+        "reports",
+        "snapshots",
+        "exports",
+        "payments",
+        "invoices",
+        "expenses",
+        "receipts",
+        "payroll",
+        "tax",
+        "handoff",
+    ]:
+        (ACCOUNTING_OUTPUT_ROOT / child).mkdir(parents=True, exist_ok=True)
+    return ACCOUNTING_OUTPUT_ROOT
+
+
+def _save_json(kind: str, name: str, payload: dict[str, Any]) -> Path:
+    root = _accounting_root()
+    folder = root / kind
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{_timestamp()}-{_safe_slug(name)}.json"
+    path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+    return path
+
+
+def _save_text(kind: str, name: str, content: str, suffix: str = ".md") -> Path:
+    root = _accounting_root()
+    folder = root / kind
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{_timestamp()}-{_safe_slug(name)}{suffix}"
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+def _hub_adapter_contract() -> dict[str, Any]:
+    return {
+        "hub_adapter_status": "pending_future_dashboard",
+        "future_widgets": [
+            "accounting_overview_widget",
+            "payments_widget",
+            "invoices_widget",
+            "expenses_widget",
+            "receipts_widget",
+            "reconciliation_widget",
+            "payroll_widget",
+            "tax_widget",
+            "cashflow_widget",
+            "exceptions_widget",
+            "accounting_approval_widget",
+        ],
+        "future_events": [
+            "accounting_snapshot_created",
+            "payment_recorded",
+            "invoice_created",
+            "payment_matched",
+            "expense_recorded",
+            "receipt_captured",
+            "reconciliation_exception_created",
+            "accounting_report_created",
+            "accounting_action_blocked",
+        ],
+        "operator_state": [
+            "current_business_id",
+            "current_accounting_source",
+            "current_xero_tenant_id",
+            "current_payment_provider",
+            "current_invoice_id",
+            "current_payment_id",
+            "current_contact_id",
+            "current_report_path",
+            "current_required_approval",
+        ],
+    }
+
+
+def _safety_policy() -> dict[str, Any]:
+    return {
+        "allowed": [
+            "Inspect finance/payment/accounting environment.",
+            "Create local accounting plans.",
+            "Create local invoice/payment/expense/receipt records.",
+            "Create local accounting snapshots.",
+            "Create finance reports.",
+            "Prepare Xero/PayFast handoff plans.",
+            "Reconcile and match using local evidence.",
+            "Prepare VAT/tax/payroll checklists.",
+            "Report exactly what changed.",
+        ],
+        "guarded": [
+            "Creating live Xero objects.",
+            "Recording live payments.",
+            "Invoice changes.",
+            "Bank reconciliation changes.",
+            "Payroll calculations.",
+            "VAT/tax summaries.",
+            "Revenue and patient/client-linked reports.",
+            "External exports.",
+            "Integrations involving PayFast/Xero credentials.",
+        ],
+        "blocked": [
+            "Exposing Xero/PayFast/API secrets.",
+            "Changing bank account details.",
+            "Submitting tax/VAT returns.",
+            "Submitting payroll.",
+            "Deleting ledger records.",
+            "Voiding invoices.",
+            "Refunding payments.",
+            "Modifying chart of accounts.",
+            "Creating manual journals.",
+            "Destructive or bulk accounting changes.",
+            "Final accounting/tax/legal advice.",
+        ],
+    }
+
+
+def _accounting_sources() -> dict[str, dict[str, Any]]:
+    return {
+        "xero": {
+            "name": "Xero Accounting",
+            "status": "planned",
+            "role": "Accounting ledger/source of truth for contacts, invoices, payments, bills, bank transactions, reports, VAT/tax prep, and evidence attachments.",
+            "required_env": [
+                "XERO_CLIENT_ID",
+                "XERO_CLIENT_SECRET",
+                "XERO_REFRESH_TOKEN",
+                "XERO_TENANT_ID",
+            ],
+            "metrics_or_objects": [
+                "contacts",
+                "invoices",
+                "payments",
+                "bills",
+                "expenses",
+                "bank_transactions",
+                "accounts",
+                "items",
+                "reports",
+                "attachments",
+                "tax_rates",
+            ],
+            "notes": [
+                "Live Xero write actions must stay approval-gated.",
+                "Tax/payroll submissions are blocked unless a future explicit approval workflow exists.",
+            ],
+        },
+        "payfast": {
+            "name": "PayFast",
+            "status": "planned",
+            "role": "Payment-event source for payment links, ITN verification, payment records, matching, and reconciliation handoff.",
+            "required_env": [
+                "PAYFAST_MERCHANT_ID",
+                "PAYFAST_MERCHANT_KEY",
+                "PAYFAST_PASSPHRASE",
+                "PAYFAST_SANDBOX",
+            ],
+            "metrics_or_objects": [
+                "payment_link",
+                "payment_status",
+                "itn_payload",
+                "merchant_reference",
+                "amount_gross",
+                "payment_status",
+                "signature",
+                "reconcile_plan",
+            ],
+            "notes": [
+                "Do not trust browser return_url as proof of payment.",
+                "Use ITN/server confirmation or manual approval before recording payment as paid.",
+            ],
+        },
+        "local-ledger": {
+            "name": "Local Serena Accounting Records",
+            "status": "active_local",
+            "role": "Local JSON records, snapshots, reports, payments, invoices, expenses, receipts, payroll/tax prep, and audit evidence.",
+            "required_env": [],
+            "metrics_or_objects": [
+                "local_invoices",
+                "local_payments",
+                "local_expenses",
+                "local_receipts",
+                "local_reports",
+                "exceptions",
+                "audit_records",
+            ],
+            "notes": [
+                "Available without external credentials.",
+                "Should later sync or hand off to Xero when approved.",
+            ],
+        },
+        "ocr-drive-docs": {
+            "name": "OCR / Google Drive / Google Docs Evidence",
+            "status": "active_local_and_google_ready",
+            "role": "Receipt capture, evidence intake, invoice/expense document storage, reporting handoff, and document audit trails.",
+            "required_env": [
+                "GOOGLE_CLIENT_ID",
+                "GOOGLE_CLIENT_SECRET",
+                "GOOGLE_REFRESH_TOKEN",
+                "GDRIVE_ROOT_FOLDER_ID",
+            ],
+            "metrics_or_objects": [
+                "receipts",
+                "invoices",
+                "documents",
+                "drive_files",
+                "google_docs_reports",
+                "ocr_text",
+            ],
+            "notes": [
+                "Google token is shared with Drive, Docs, Calendar, Analytics.",
+                "Sensitive finance exports require Compliance review.",
+            ],
+        },
+        "reporting-analytics": {
+            "name": "Reporting / Analytics",
+            "status": "active_local",
+            "role": "Finance reports, business summaries, analytics insight, cashflow and revenue reports.",
+            "required_env": [],
+            "metrics_or_objects": [
+                "daily_money_report",
+                "weekly_finance_report",
+                "monthly_management_report",
+                "cashflow_summary",
+                "profitability_summary",
+                "analytics_snapshot",
+            ],
+            "notes": [
+                "Use Reporting for shareable reports.",
+                "Use Analytics for trend/funnel/profitability insight.",
+            ],
+        },
+    }
+
+
+def _env_status() -> dict[str, Any]:
+    sources = _accounting_sources()
+    env = {}
+    for source_id, source in sources.items():
+        required = source.get("required_env", [])
+        env[source_id] = {
+            "required": [
+                {
+                    "name": name,
+                    "present": bool(os.getenv(name)),
+                    "length": len(os.getenv(name, "")),
+                }
+                for name in required
+            ],
+            "configured": all(bool(os.getenv(name)) for name in required) if required else True,
+        }
+    return env
+
+
+class _AccountingBaseTool(BaseTool):
+    def _result(self, content: str, success: bool = True, metadata: dict[str, Any] | None = None) -> ToolResult:
+        return ToolResult(
+            tool_name=getattr(self, "tool_id", self.__class__.__name__),
+            success=success,
+            content=content,
+            metadata=metadata or {},
+        )
+
+
+@ToolRegistry.register("serena_accounting_status")
+class SerenaAccountingStatusTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_status"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Show Serena Accounting / Payments / Payroll / Tax operator status.",
+            parameters={"type": "object", "properties": {}},
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        root = _accounting_root()
+        sources = _accounting_sources()
+        env = _env_status()
+        configured_external = [
+            sid for sid, item in env.items()
+            if item["configured"] and sources[sid].get("required_env")
+        ]
+
+        return self._result(
+            "Serena Accounting status\n\n"
+            "- Status: active\n"
+            "- Role: accounting, payments, bookkeeping, payroll-prep, VAT/tax-prep, reconciliation, and finance reporting operator\n"
+            f"- Sources registered: {len(sources)}\n"
+            f"- Configured external sources: {len(configured_external)}\n"
+            "- Xero ledger: planned\n"
+            "- PayFast payment intake: planned\n"
+            "- Local accounting records: active\n"
+            "- OCR/Drive/Docs evidence support: active/ready\n"
+            "- Payroll/tax submissions: blocked without future explicit approval layer\n"
+            "- Bank changes / ledger deletion / secret exposure: blocked\n"
+            "- Secret values exposed: no\n"
+            f"- Output root: {root}\n"
+            f"- Reports: {root / 'reports'}\n"
+            f"- Payments: {root / 'payments'}\n"
+            f"- Invoices: {root / 'invoices'}\n"
+            f"- Expenses: {root / 'expenses'}\n"
+            f"- Receipts: {root / 'receipts'}\n"
+            f"- Payroll: {root / 'payroll'}\n"
+            f"- Tax: {root / 'tax'}\n"
+            "- Hub adapter: pending future dashboard",
+            metadata={
+                "sources": sources,
+                "env_status": env,
+                "safety_policy": _safety_policy(),
+                "hub_adapter": _hub_adapter_contract(),
+                "secret_values_exposed": False,
+            },
+        )
+
+
+@ToolRegistry.register("serena_accounting_env_check")
+class SerenaAccountingEnvCheckTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_env_check"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Check accounting/payment environment configuration without exposing secrets.",
+            parameters={"type": "object", "properties": {}},
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        env = _env_status()
+        payload = {
+            "report_type": "serena_accounting_env_check",
+            "created_at": _timestamp(),
+            "env_status": env,
+            "changes_made": False,
+            "secret_values_exposed": False,
+        }
+        report_path = _save_json("reports", "env-check", payload)
+
+        lines = [
+            "Serena Accounting env check",
+            "",
+            f"- Report: {report_path}",
+            "- Changes made: no",
+            "- Secret values exposed: no",
+            "",
+            "Sources:",
+        ]
+
+        for source_id, item in env.items():
+            lines.append(f"- {source_id} | configured={'yes' if item['configured'] else 'no'}")
+            for var in item["required"]:
+                lines.append(f"  - {var['name']} | present={'yes' if var['present'] else 'no'} | length={var['length']}")
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+@ToolRegistry.register("serena_accounting_source_list")
+class SerenaAccountingSourceListTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_source_list"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="List registered accounting/payment sources.",
+            parameters={"type": "object", "properties": {}},
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        sources = _accounting_sources()
+        payload = {
+            "report_type": "serena_accounting_source_list",
+            "created_at": _timestamp(),
+            "sources": sources,
+            "changes_made": False,
+            "secret_values_exposed": False,
+        }
+        report_path = _save_json("snapshots", "source-list", payload)
+
+        lines = [
+            "Serena Accounting source list",
+            "",
+            f"- Sources registered: {len(sources)}",
+            f"- Snapshot: {report_path}",
+            "- Changes made: no",
+            "- Secret values exposed: no",
+            "",
+            "Sources:",
+        ]
+
+        for source_id, source in sources.items():
+            lines.append(f"- {source_id} | {source['name']} | status={source['status']} | objects={len(source['metrics_or_objects'])}")
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+@ToolRegistry.register("serena_accounting_source_info")
+class SerenaAccountingSourceInfoTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_source_info"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Show details for one accounting/payment source.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string"},
+                },
+                "required": ["source"],
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        source_id = str(params.get("source") or "").strip()
+        sources = _accounting_sources()
+
+        if source_id not in sources:
+            return self._result(
+                "Serena Accounting source-info failed\n\n"
+                f"- Source: {source_id}\n"
+                "- Error: source not found\n"
+                "- Changes made: no",
+                success=False,
+            )
+
+        source = sources[source_id]
+        env = _env_status().get(source_id, {})
+        payload = {
+            "report_type": "serena_accounting_source_info",
+            "created_at": _timestamp(),
+            "source_id": source_id,
+            "source": source,
+            "env_status": env,
+            "changes_made": False,
+            "secret_values_exposed": False,
+        }
+        report_path = _save_json("snapshots", f"source-info-{source_id}", payload)
+
+        lines = [
+            "Serena Accounting source info",
+            "",
+            f"- Source: {source_id}",
+            f"- Name: {source['name']}",
+            f"- Status: {source['status']}",
+            f"- Role: {source['role']}",
+            f"- Objects/metrics: {len(source['metrics_or_objects'])}",
+            f"- Required env vars: {len(source['required_env'])}",
+            f"- Snapshot: {report_path}",
+            "- Changes made: no",
+            "- Secret values exposed: no",
+            "",
+            "Objects / metrics:",
+        ]
+
+        lines.extend(f"- {item}" for item in source["metrics_or_objects"])
+
+        lines.extend(["", "Required env:"])
+        if source["required_env"]:
+            for item in env.get("required", []):
+                lines.append(f"- {item['name']} | present={'yes' if item['present'] else 'no'} | length={item['length']}")
+        else:
+            lines.append("- none")
+
+        lines.extend(["", "Notes:"])
+        lines.extend(f"- {note}" for note in source["notes"])
+
+        return self._result("\n".join(lines), metadata={**payload, "report_path": str(report_path)})
+
+
+@ToolRegistry.register("serena_accounting_plan")
+class SerenaAccountingPlanTool(_AccountingBaseTool):
+    tool_id = "serena_accounting_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create an accounting/payment operation plan without external writes.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "goal": {"type": "string"},
+                    "source": {"type": "string"},
+                    "business": {"type": "string"},
+                    "period": {"type": "string"},
+                },
+                "required": ["goal"],
+            },
+            category="serena_accounting",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        goal = str(params.get("goal") or "").strip()
+        source = str(params.get("source") or "local-ledger").strip()
+        business = str(params.get("business") or "General Business").strip()
+        period = str(params.get("period") or "current period").strip()
+
+        sources = _accounting_sources()
+        source_known = source in sources
+
+        plan = {
+            "report_type": "serena_accounting_plan",
+            "created_at": _timestamp(),
+            "goal": goal,
+            "business": business,
+            "period": period,
+            "source": source,
+            "source_known": source_known,
+            "safety_policy": _safety_policy(),
+            "hub_adapter": _hub_adapter_contract(),
+            "steps": [
+                "Identify business and accounting source.",
+                "Verify required credentials without exposing secrets.",
+                "Identify whether this is invoice, payment, expense, receipt, payroll, tax, or report work.",
+                "Collect supporting evidence and source documents.",
+                "Create local accounting record or plan first.",
+                "Match payments/invoices/contacts/orders where possible.",
+                "Flag exceptions and approval requirements.",
+                "Prepare Xero/PayFast actions only when credentials and approval are ready.",
+                "Write report of exactly what changed.",
+                "Block dangerous actions such as tax filing, payroll submission, ledger deletion, bank changes, or secret exposure.",
+            ],
+            "external_api_called": False,
+            "live_accounting_write": False,
+            "changes_made": False,
+            "secret_values_exposed": False,
+        }
+        report_path = _save_json("reports", goal or "accounting-plan", plan)
+
+        return self._result(
+            "Serena Accounting operation plan\n\n"
+            f"- Goal: {goal}\n"
+            f"- Business: {business}\n"
+            f"- Period: {period}\n"
+            f"- Source: {source}\n"
+            f"- Source known: {'yes' if source_known else 'no'}\n"
+            f"- Plan: {report_path}\n"
+            "- External API called: no\n"
+            "- Live accounting write: no\n"
+            "- Changes made: no\n"
+            "- Secret values exposed: no\n"
+            "- Hub adapter: pending future dashboard\n\n"
+            "Steps:\n"
+            + "\n".join(f"- {step}" for step in plan["steps"]),
+            metadata={**plan, "report_path": str(report_path)},
+        )
+
+
+__all__ = [
+    "SerenaAccountingStatusTool",
+    "SerenaAccountingEnvCheckTool",
+    "SerenaAccountingPlanTool",
+    "SerenaAccountingSourceListTool",
+    "SerenaAccountingSourceInfoTool",
+]

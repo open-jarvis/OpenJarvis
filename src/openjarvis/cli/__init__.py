@@ -60,6 +60,7 @@ from openjarvis.cli.google_calendar_cmd import calendar
 from openjarvis.cli.compliance_cmd import compliance
 from openjarvis.cli.reporting_cmd import reporting
 from openjarvis.cli.analytics_cmd import analytics
+from openjarvis.cli.accounting_cmd import accounting
 from openjarvis.learning.distillation.cli import learning_group
 
 
@@ -123,6 +124,7 @@ cli.add_command(calendar, "calendar")
 cli.add_command(compliance, "compliance")
 cli.add_command(reporting, "reporting")
 cli.add_command(analytics, "analytics")
+cli.add_command(accounting, "accounting")
 cli.add_command(skill, "skill")
 cli.add_command(start, "start")
 cli.add_command(stop, "stop")
