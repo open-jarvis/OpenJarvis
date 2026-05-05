@@ -21,9 +21,12 @@ from openjarvis.mining._stubs import (
     SubmitTarget,
 )
 
-# Soft-import provider implementations to trigger registration. Each provider
-# defines an idempotent ``ensure_registered()`` so it survives the autouse
-# registry clear in ``tests/conftest.py``.
+# Soft-import provider implementations to trigger registration at first
+# package import. Each provider defines ``ensure_registered()`` for idempotent
+# re-registration. Because module-level code only runs once per process, tests
+# that need a registered provider after the autouse registry clear in
+# ``tests/conftest.py`` must call ``ensure_registered()`` explicitly in a
+# fixture or test body — see ``tests/bench/test_energy.py`` for the pattern.
 try:
     from openjarvis.mining import vllm_pearl  # noqa: F401
 
