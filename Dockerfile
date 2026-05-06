@@ -15,7 +15,7 @@ COPY pyproject.toml README.md ./
 COPY src/ src/
 
 # Copy built frontend into the server static directory
-COPY --from=frontend /frontend/dist src/openjarvis/server/static/
+COPY --from=frontend /frontend/../src/openjarvis/server/static src/openjarvis/server/static/
 
 RUN pip install --no-cache-dir uv && \
     uv pip install --system ".[server]"
