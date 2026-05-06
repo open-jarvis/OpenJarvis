@@ -55,6 +55,45 @@ The Qwen and Gemma targets remain planned:
      by vLLM's Gemma4 multimodal profiler.
    - Publish under the planned `pearl-ai/*-pearl` id or a staging namespace.
 
+   OpenJarvis includes an experimental local converter for this work:
+
+   ```bash
+   python scripts/mining/pearl_model_converter.py \
+     Qwen/Qwen3.5-9B \
+     /tmp/pearl-ai-Qwen3.5-9B-pearl \
+     --device cuda
+   ```
+
+   The converter copies Hugging Face metadata, emits
+   `quantization_config.quant_method = "pearl"`, writes a safetensors index,
+   converts attention q/k/v and MLP down projections to int8 non-mining layers,
+   and converts the remaining text linear weights to int7 mining layers. Treat
+   its output as a staging artifact until `jarvis mine inspect-model` and
+   `jarvis mine validate-model` pass on H100/H200 hardware.
+
+   Local staging artifacts can be inspected before upload:
+
+   ```bash
+   jarvis mine inspect-model \
+     --model /tmp/pearl-ai-Qwen3.5-9B-pearl
+   ```
+
+   To run a local staging artifact through the Docker miner, keep `--model` as
+   the intended served model name and point `--local-model-path` at the
+   converted checkpoint directory:
+
+   ```bash
+   jarvis mine init \
+     --provider vllm-pearl \
+     --wallet-address <prl1...> \
+     --model pearl-ai/Qwen3.5-9B-pearl \
+     --local-model-path /tmp/pearl-ai-Qwen3.5-9B-pearl \
+     --cuda-visible-devices 1 \
+     --vllm-arg=--language-model-only \
+     --vllm-arg=--skip-mm-profiling
+   jarvis mine start
+   ```
+
 3. Validate the Pearl vLLM plugin path.
    - Run `jarvis mine inspect-model --model <pearl-model-id>
      --allow-planned` before starting the miner.

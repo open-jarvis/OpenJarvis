@@ -190,6 +190,68 @@ def test_launcher_start_calls_run_with_expected_kwargs(_env_password):
         assert kwargs["device_requests"][0].device_ids == ["0", "1"]
 
 
+def test_launcher_start_maps_host_gpu_ids_to_container_local_cuda_ids(
+    _env_password,
+) -> None:
+    from openjarvis.mining._docker import PearlDockerLauncher
+    from openjarvis.mining._stubs import MiningConfig, SoloTarget
+
+    fake = MagicMock()
+    fake.containers.run.return_value = MagicMock(id="cid-1", status="running")
+    launcher = PearlDockerLauncher(client=fake)
+    cfg = MiningConfig(
+        provider="vllm-pearl",
+        wallet_address="prl1qaaa",
+        submit_target=SoloTarget(pearld_rpc_url="http://localhost:44107"),
+        extra={
+            "pearld_rpc_password_env": "PEARLD_RPC_PASSWORD",
+            "cuda_visible_devices": "1",
+        },
+    )
+
+    launcher.start(cfg, image="openjarvis/pearl-miner:main")
+
+    kwargs = fake.containers.run.call_args.kwargs
+    assert kwargs["environment"]["NVIDIA_VISIBLE_DEVICES"] == "1"
+    assert kwargs["environment"]["CUDA_VISIBLE_DEVICES"] == "0"
+    assert kwargs["device_requests"][0].device_ids == ["1"]
+
+
+def test_launcher_start_mounts_local_model_path(_env_password, tmp_path):
+    from openjarvis.mining._docker import LOCAL_MODEL_BIND_PATH, PearlDockerLauncher
+    from openjarvis.mining._stubs import MiningConfig, SoloTarget
+
+    local_model = tmp_path / "qwen-pearl"
+    local_model.mkdir()
+    fake = MagicMock()
+    fake.containers.run.return_value = MagicMock(id="cid-1", status="running")
+    launcher = PearlDockerLauncher(client=fake)
+    cfg = MiningConfig(
+        provider="vllm-pearl",
+        wallet_address="prl1qaaa",
+        submit_target=SoloTarget(pearld_rpc_url="http://localhost:44107"),
+        extra={
+            "model": "pearl-ai/Qwen3.5-9B-pearl",
+            "local_model_path": str(local_model),
+            "pearld_rpc_password_env": "PEARLD_RPC_PASSWORD",
+            "vllm_args": ["--language-model-only", "--skip-mm-profiling"],
+        },
+    )
+
+    launcher.start(cfg, image="openjarvis/pearl-miner:main")
+
+    kwargs = fake.containers.run.call_args.kwargs
+    assert kwargs["command"][0] == LOCAL_MODEL_BIND_PATH
+    assert "--served-model-name" in kwargs["command"]
+    assert "pearl-ai/Qwen3.5-9B-pearl" in kwargs["command"]
+    assert "--language-model-only" in kwargs["command"]
+    assert "--skip-mm-profiling" in kwargs["command"]
+    assert kwargs["volumes"][str(local_model.resolve())] == {
+        "bind": LOCAL_MODEL_BIND_PATH,
+        "mode": "ro",
+    }
+
+
 def test_launcher_stop_calls_container_stop_and_remove():
     from openjarvis.mining._docker import PearlDockerLauncher
 

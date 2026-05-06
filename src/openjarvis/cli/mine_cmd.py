@@ -166,7 +166,7 @@ def _artifact_has_weights(paths: set[str]) -> bool:
 def _artifact_quant_method(model_payload: Any) -> str:
     if not isinstance(model_payload, dict):
         return ""
-    config = model_payload.get("config")
+    config = model_payload.get("config", model_payload)
     if not isinstance(config, dict):
         return ""
     quant_config = config.get("quantization_config")
@@ -178,13 +178,26 @@ def _artifact_quant_method(model_payload: Any) -> str:
 def _artifact_architectures(model_payload: Any) -> list[str]:
     if not isinstance(model_payload, dict):
         return []
-    config = model_payload.get("config")
+    config = model_payload.get("config", model_payload)
     if not isinstance(config, dict):
         return []
     architectures = config.get("architectures")
     if not isinstance(architectures, list):
         return []
     return [str(item) for item in architectures if isinstance(item, str)]
+
+
+def _local_artifact_payload_and_paths(path: Path) -> tuple[dict[str, Any], set[str]]:
+    config_path = path / "config.json"
+    if not config_path.exists():
+        raise FileNotFoundError(f"missing {config_path}")
+    payload = json.loads(config_path.read_text())
+    paths = {
+        str(item.relative_to(path))
+        for item in path.rglob("*")
+        if item.is_file() and ".git" not in item.parts
+    }
+    return payload, paths
 
 
 def _pid_alive(pid: int | None) -> bool:
@@ -359,6 +372,18 @@ def doctor() -> None:
     prompt="env var holding pearld password",
 )
 @click.option("--model", default=DEFAULT_PEARL_MODEL)
+@click.option(
+    "--local-model-path",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="Local converted Pearl checkpoint directory to mount into the container.",
+)
+@click.option(
+    "--vllm-arg",
+    "vllm_args",
+    multiple=True,
+    help="Extra argument to pass through to `vllm serve`; repeat as needed.",
+)
 @click.option("--image", default=PEARL_IMAGE_TAG)
 @click.option(
     "--cuda-visible-devices",
@@ -380,6 +405,8 @@ def init(
     pearld_user: str,
     pearld_password_env: str,
     model: str,
+    local_model_path: Path | None,
+    vllm_args: tuple[str, ...],
     image: str,
     cuda_visible_devices: str,
     gateway_host: str,
@@ -398,16 +425,21 @@ def init(
 
     if selected_provider == "vllm-pearl":
         hw = _detect_hardware()
-        cap = detect_for_engine_model(
-            hw=hw,
-            engine_id="vllm",
-            model=model,
-            provider_id="vllm-pearl",
-        )
-        if not cap.supported:
+        if local_model_path is None:
+            cap = detect_for_engine_model(
+                hw=hw,
+                engine_id="vllm",
+                model=model,
+                provider_id="vllm-pearl",
+            )
+            if not cap.supported:
+                raise click.ClickException(
+                    f"vllm-pearl not supported on this host: {cap.reason}\n"
+                    "See `jarvis mine models` and `jarvis mine doctor` for details."
+                )
+        elif not local_model_path.exists():
             raise click.ClickException(
-                f"vllm-pearl not supported on this host: {cap.reason}\n"
-                "See `jarvis mine models` and `jarvis mine doctor` for details."
+                f"local Pearl model path does not exist: {local_model_path}"
             )
         model_spec = get_pearl_model_spec(model)
         max_model_len = (
@@ -463,6 +495,12 @@ pearld_rpc_user = "{pearld_user}"
 pearld_rpc_password_env = "{pearld_password_env}"
 hf_token_env = "HF_TOKEN"
 """
+    if local_model_path is not None:
+        path = local_model_path.expanduser().resolve()
+        section += f'local_model_path = "{path}"\n'
+    if vllm_args:
+        encoded_args = ", ".join(json.dumps(arg) for arg in vllm_args)
+        section += f"vllm_args = [{encoded_args}]\n"
     if selected_provider != "vllm-pearl":
         section = f"""
 [mining]
@@ -801,13 +839,17 @@ def inspect_model(
     click.echo(f"model:              {model}")
     results: list[bool] = []
     records: list[dict[str, Any]] = []
+    local_path = Path(model)
+    is_local = local_path.exists()
 
     def record(name: str, ok: bool, info: str) -> None:
         records.append({"name": name, "ok": ok, "info": info})
         _validation_row(results, name, ok, info)
 
-    spec = get_pearl_model_spec(model)
-    if spec is None:
+    spec = None if is_local else get_pearl_model_spec(model)
+    if is_local:
+        record("Model registry", True, "local artifact (not registered)")
+    elif spec is None:
         planned = pearl_variant_for_base_model(model)
         info = f"raw model; planned Pearl variant {planned}" if planned else "unknown"
         record("Model registry", False, info)
@@ -819,20 +861,27 @@ def inspect_model(
     token = os.environ.get(hf_token_env, "")
     model_payload: Any = None
     paths: set[str] = set()
-    try:
-        model_payload = _hf_json(
-            _hf_model_path(model, ""),
-            token=token,
-            timeout=timeout,
-        )
-        record("HF model", True, "accessible")
-    except urllib.error.HTTPError as exc:
-        info = f"HTTP {exc.code}"
-        if exc.code in {401, 403} and not token:
-            info += f"; set ${hf_token_env} for gated/private models"
-        record("HF model", False, info)
-    except Exception as exc:  # noqa: BLE001
-        record("HF model", False, str(exc).splitlines()[0])
+    if is_local:
+        try:
+            model_payload, paths = _local_artifact_payload_and_paths(local_path)
+            record("Local artifact", True, str(local_path))
+        except Exception as exc:  # noqa: BLE001
+            record("Local artifact", False, str(exc).splitlines()[0])
+    else:
+        try:
+            model_payload = _hf_json(
+                _hf_model_path(model, ""),
+                token=token,
+                timeout=timeout,
+            )
+            record("HF model", True, "accessible")
+        except urllib.error.HTTPError as exc:
+            info = f"HTTP {exc.code}"
+            if exc.code in {401, 403} and not token:
+                info += f"; set ${hf_token_env} for gated/private models"
+            record("HF model", False, info)
+        except Exception as exc:  # noqa: BLE001
+            record("HF model", False, str(exc).splitlines()[0])
 
     if model_payload is not None:
         quant_method = _artifact_quant_method(model_payload)
@@ -842,16 +891,19 @@ def inspect_model(
             quant_method or "missing quantization_config.quant_method",
         )
 
-        try:
-            tree_payload = _hf_json(
-                _hf_model_path(model, "/tree/main?recursive=false"),
-                token=token,
-                timeout=timeout,
-            )
-            paths = _artifact_file_paths(tree_payload)
-            record("HF file list", bool(paths), f"{len(paths)} files")
-        except Exception as exc:  # noqa: BLE001
-            record("HF file list", False, str(exc).splitlines()[0])
+        if is_local:
+            record("File list", bool(paths), f"{len(paths)} files")
+        else:
+            try:
+                tree_payload = _hf_json(
+                    _hf_model_path(model, "/tree/main?recursive=false"),
+                    token=token,
+                    timeout=timeout,
+                )
+                paths = _artifact_file_paths(tree_payload)
+                record("HF file list", bool(paths), f"{len(paths)} files")
+            except Exception as exc:  # noqa: BLE001
+                record("HF file list", False, str(exc).splitlines()[0])
 
     if paths:
         has_config = "config.json" in paths

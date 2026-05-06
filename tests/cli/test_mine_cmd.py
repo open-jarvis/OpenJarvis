@@ -89,6 +89,30 @@ def test_mine_inspect_model_gemma4_requires_processor_metadata(monkeypatch) -> N
     assert "missing preprocessor_config.json" in result.output
 
 
+def test_mine_inspect_model_accepts_local_artifact(tmp_path: Path) -> None:
+    artifact = tmp_path / "qwen-pearl"
+    artifact.mkdir()
+    (artifact / "config.json").write_text(
+        json.dumps(
+            {
+                "architectures": ["Qwen3_5ForConditionalGeneration"],
+                "quantization_config": {"quant_method": "pearl"},
+            }
+        )
+    )
+    (artifact / "tokenizer.json").write_text("{}")
+    (artifact / "model.safetensors").write_text("placeholder")
+
+    result = CliRunner().invoke(
+        cli,
+        ["mine", "inspect-model", "--model", str(artifact)],
+    )
+
+    assert result.exit_code == 0
+    assert "local artifact" in result.output
+    assert "Artifact inspection passed" in result.output
+
+
 def test_mine_init_writes_mining_config(tmp_path: Path) -> None:
     config_path = tmp_path / "config.toml"
 
@@ -168,6 +192,58 @@ def test_mine_init_writes_cuda_visible_devices_for_vllm(
     content = config_path.read_text()
     assert 'provider = "vllm-pearl"' in content
     assert 'cuda_visible_devices = "0,1"' in content
+
+
+def test_mine_init_writes_local_model_path_for_vllm(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.toml"
+    local_model = tmp_path / "converted-qwen"
+    local_model.mkdir()
+
+    with (
+        patch("openjarvis.cli.mine_cmd._detect_hardware"),
+        patch(
+            "openjarvis.cli.mine_cmd.check_docker_available",
+            return_value=(True, ""),
+        ),
+        patch("openjarvis.cli.mine_cmd.check_disk_free", return_value=(True, "")),
+        patch("openjarvis.cli.mine_cmd._docker_from_env", return_value=MagicMock()),
+        patch(
+            "openjarvis.cli.mine_cmd.PearlDockerLauncher.ensure_image",
+            return_value="openjarvis/pearl-miner:master",
+        ),
+    ):
+        result = CliRunner().invoke(
+            cli,
+            [
+                "mine",
+                "init",
+                "--provider",
+                "vllm-pearl",
+                "--wallet-address",
+                "prl1qtestingaddr",
+                "--pearld-rpc-url",
+                "http://127.0.0.1:44107",
+                "--pearld-rpc-user",
+                "rpcuser",
+                "--pearld-rpc-password-env",
+                "TEST_PEARLD_PASSWORD",
+                "--model",
+                "pearl-ai/Qwen3.5-9B-pearl",
+                "--local-model-path",
+                str(local_model),
+                "--vllm-arg=--language-model-only",
+                "--vllm-arg=--skip-mm-profiling",
+            ],
+            env={"OPENJARVIS_CONFIG": str(config_path)},
+        )
+
+    assert result.exit_code == 0
+    content = config_path.read_text()
+    assert 'model = "pearl-ai/Qwen3.5-9B-pearl"' in content
+    assert f'local_model_path = "{local_model.resolve()}"' in content
+    assert 'vllm_args = ["--language-model-only", "--skip-mm-profiling"]' in content
 
 
 def test_mine_start_uses_configured_provider(tmp_path: Path, monkeypatch) -> None:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -24,6 +25,7 @@ from openjarvis.mining._constants import (
 )
 
 CONTAINER_NAME = "openjarvis-pearl-miner"
+LOCAL_MODEL_BIND_PATH = "/models/openjarvis-local-pearl-model"
 
 _SECRET_LOG_PATTERNS = (
     (re.compile(r"(rpc_password:\s*)\S+", re.IGNORECASE), r"\1[REDACTED]"),
@@ -265,13 +267,29 @@ class PearlDockerLauncher:
         hf_token_env = extra.get("hf_token_env", "HF_TOKEN")
         hf_token = os.environ.get(hf_token_env, "")
 
-        model = extra.get("model", "pearl-ai/Llama-3.3-70B-Instruct-pearl")
+        model = str(extra.get("model", "pearl-ai/Llama-3.3-70B-Instruct-pearl"))
+        local_model_path = extra.get("local_model_path")
         vllm_port = int(extra.get("vllm_port", 8000))
         gpu_mem = float(extra.get("gpu_memory_utilization", 0.96))
         max_len = int(extra.get("max_model_len", 8192))
 
+        model_arg = model
+        local_model_host_path: Path | None = None
+        if local_model_path:
+            local_model_host_path = Path(str(local_model_path)).expanduser().resolve()
+            if not local_model_host_path.exists():
+                raise ConfigurationError(
+                    f"local Pearl model path does not exist: {local_model_host_path}"
+                )
+            if not local_model_host_path.is_dir():
+                raise ConfigurationError(
+                    "local Pearl model path must be a directory: "
+                    f"{local_model_host_path}"
+                )
+            model_arg = LOCAL_MODEL_BIND_PATH
+
         command = [
-            model,
+            model_arg,
             "--host",
             "0.0.0.0",
             "--port",
@@ -282,6 +300,9 @@ class PearlDockerLauncher:
             "--max-model-len",
             str(max_len),
         ]
+        if local_model_host_path is not None:
+            command.extend(["--served-model-name", model])
+        command.extend(_extra_vllm_args(extra.get("vllm_args", [])))
 
         environment = {
             "PEARLD_RPC_URL": extra.get("pearld_rpc_url", "http://localhost:44107"),
@@ -296,7 +317,12 @@ class PearlDockerLauncher:
         cuda_devices = str(extra.get("cuda_visible_devices", "")).strip()
         device_ids = [part.strip() for part in cuda_devices.split(",") if part.strip()]
         if device_ids:
-            environment["CUDA_VISIBLE_DEVICES"] = ",".join(device_ids)
+            # Docker's device request exposes the selected host GPUs inside
+            # the container as a compact 0..N-1 list. Keep host IDs for the
+            # NVIDIA runtime and use container-local IDs for CUDA/vLLM.
+            environment["CUDA_VISIBLE_DEVICES"] = ",".join(
+                str(idx) for idx, _ in enumerate(device_ids)
+            )
             environment["NVIDIA_VISIBLE_DEVICES"] = ",".join(device_ids)
 
         # Dynamic import so tests don't need the real `docker` package shape.
@@ -316,6 +342,11 @@ class PearlDockerLauncher:
         volumes = {
             str(hf_cache): {"bind": "/root/.cache/huggingface", "mode": "rw"},
         }
+        if local_model_host_path is not None:
+            volumes[str(local_model_host_path)] = {
+                "bind": LOCAL_MODEL_BIND_PATH,
+                "mode": "ro",
+            }
 
         # Sanitize wrap so an APIError from the daemon doesn't surface the
         # full container spec (which contains the resolved password) in a
@@ -418,3 +449,13 @@ def _redact_container_logs(text: str) -> str:
     for pattern, replacement in _SECRET_LOG_PATTERNS:
         redacted = pattern.sub(replacement, redacted)
     return redacted
+
+
+def _extra_vllm_args(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return shlex.split(value)
+    if isinstance(value, (list, tuple)):
+        return [str(item) for item in value]
+    raise ConfigurationError("[mining.extra].vllm_args must be a string or list")
