@@ -82,3 +82,9 @@ A model is `validated` only when all of these pass on real hardware:
 
 Do not mark a model validated based only on vLLM load success. It must exercise
 Pearl's NoisyGEMM and submission path.
+
+## Tracking
+
+Use the `Pearl Model Validation` GitHub issue template for each candidate model.
+The issue should hold the quantization recipe, hardware details, command output,
+metrics excerpts, and the PR that changes the model status to `validated`.
