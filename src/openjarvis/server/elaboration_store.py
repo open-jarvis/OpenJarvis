@@ -1,4 +1,4 @@
-"""In-memory store for pending and completed proactive elaborations.
+"""Store for pending and completed proactive elaborations.
 
 An elaboration is born when a chat request kicks off the slow Claude-CLI track.
 It progresses pending -> complete (claude returned) -> proposed (materially
@@ -8,13 +8,19 @@ failed (claude error / timeout).
 This module also owns a tiny pub/sub for the SSE stream — subscribers receive
 events when elaborations are proposed or accepted.
 
-v1: in-memory. v2: persist to Postgres via DATABASE_URL.
+Persistence is dual-mode: when `DATABASE_URL` is set in env AND `psycopg` is
+installed, every state mutation is mirrored to Postgres so a Railway restart
+mid-elaboration doesn't drop pending records. The in-memory dict is kept as
+the read path (Postgres writes are lazy/best-effort, never block subscribers).
+If `DATABASE_URL` is unset or psycopg is missing, the store falls back to
+in-memory only and logs once at boot.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass, field, asdict
@@ -22,6 +28,134 @@ from enum import Enum
 from typing import Any, AsyncIterator, Optional
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Optional Postgres persistence
+# ---------------------------------------------------------------------------
+
+_PG_DSN_ENV = "DATABASE_URL"
+_pg_available: Optional[bool] = None  # lazily resolved on first use
+_pg_pool = None  # psycopg AsyncConnectionPool, lazily created
+
+
+_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS elaborations (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT,
+    original_question TEXT NOT NULL,
+    spoken_answer TEXT,
+    claude_answer TEXT,
+    status TEXT NOT NULL,
+    error TEXT,
+    created_at DOUBLE PRECISION NOT NULL,
+    updated_at DOUBLE PRECISION NOT NULL
+);
+CREATE INDEX IF NOT EXISTS elaborations_status_idx ON elaborations(status);
+"""
+
+
+async def _pg_init() -> bool:
+    """Open a pool and ensure the schema. Returns True if Postgres is usable."""
+    global _pg_available, _pg_pool
+    if _pg_available is not None:
+        return _pg_available
+    dsn = os.environ.get(_PG_DSN_ENV)
+    if not dsn:
+        logger.info(
+            "Elaboration persistence: %s not set — running in-memory only",
+            _PG_DSN_ENV,
+        )
+        _pg_available = False
+        return False
+    try:
+        from psycopg_pool import AsyncConnectionPool  # type: ignore
+    except ImportError:
+        logger.info(
+            "Elaboration persistence: psycopg not installed — running in-memory only"
+        )
+        _pg_available = False
+        return False
+    try:
+        _pg_pool = AsyncConnectionPool(conninfo=dsn, min_size=1, max_size=2, open=False)
+        await _pg_pool.open()
+        async with _pg_pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(_SCHEMA_SQL)
+        logger.info("Elaboration persistence: Postgres ready")
+        _pg_available = True
+        return True
+    except Exception as exc:
+        logger.warning(
+            "Elaboration persistence: failed to init Postgres (%s) — in-memory only",
+            exc,
+        )
+        _pg_available = False
+        return False
+
+
+async def _pg_upsert(elab: "Elaboration") -> None:
+    """Mirror an Elaboration record to Postgres. Best-effort, never raises."""
+    if not await _pg_init() or _pg_pool is None:
+        return
+    try:
+        async with _pg_pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    INSERT INTO elaborations
+                        (id, conversation_id, original_question, spoken_answer,
+                         claude_answer, status, error, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (id) DO UPDATE SET
+                        spoken_answer = EXCLUDED.spoken_answer,
+                        claude_answer = EXCLUDED.claude_answer,
+                        status = EXCLUDED.status,
+                        error = EXCLUDED.error,
+                        updated_at = EXCLUDED.updated_at
+                    """,
+                    (
+                        elab.id,
+                        elab.conversation_id,
+                        elab.original_question,
+                        elab.spoken_answer,
+                        elab.claude_answer,
+                        elab.status.value,
+                        elab.error,
+                        elab.created_at,
+                        elab.updated_at,
+                    ),
+                )
+    except Exception as exc:
+        logger.warning("Elaboration upsert failed for %s: %s", elab.id, exc)
+
+
+async def _pg_load_recent(limit: int = 100) -> list[dict[str, Any]]:
+    """Return recent records from Postgres for in-memory hydration on boot."""
+    if not await _pg_init() or _pg_pool is None:
+        return []
+    try:
+        async with _pg_pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    SELECT id, conversation_id, original_question, spoken_answer,
+                           claude_answer, status, error, created_at, updated_at
+                    FROM elaborations
+                    WHERE status IN ('pending', 'proposed')
+                    ORDER BY created_at DESC LIMIT %s
+                    """,
+                    (limit,),
+                )
+                rows = await cur.fetchall()
+        cols = [
+            "id", "conversation_id", "original_question", "spoken_answer",
+            "claude_answer", "status", "error", "created_at", "updated_at",
+        ]
+        return [dict(zip(cols, r)) for r in rows]
+    except Exception as exc:
+        logger.warning("Elaboration load failed: %s", exc)
+        return []
 
 
 class ElaborationStatus(str, Enum):
@@ -91,6 +225,8 @@ class _ElaborationStore:
         )
         async with self._lock:
             self._items[elab.id] = elab
+        # Fire-and-forget Postgres mirror so SSE subscribers aren't blocked.
+        asyncio.create_task(_pg_upsert(elab))
         return elab
 
     async def update(self, elab_id: str, **fields: Any) -> Optional[Elaboration]:
@@ -102,7 +238,36 @@ class _ElaborationStore:
                 if hasattr(elab, k):
                     setattr(elab, k, v)
             elab.updated_at = time.time()
-            return elab
+        asyncio.create_task(_pg_upsert(elab))
+        return elab
+
+    async def hydrate_from_postgres(self) -> int:
+        """Load pending/proposed elaborations from Postgres into the in-memory
+        dict. Called once at boot. Returns count loaded."""
+        rows = await _pg_load_recent(limit=200)
+        if not rows:
+            return 0
+        async with self._lock:
+            for row in rows:
+                if row["id"] in self._items:
+                    continue
+                try:
+                    status = ElaborationStatus(row["status"])
+                except ValueError:
+                    continue
+                self._items[row["id"]] = Elaboration(
+                    id=row["id"],
+                    conversation_id=row["conversation_id"],
+                    original_question=row["original_question"] or "",
+                    spoken_answer=row["spoken_answer"],
+                    claude_answer=row["claude_answer"],
+                    status=status,
+                    created_at=row["created_at"],
+                    updated_at=row["updated_at"],
+                    error=row["error"],
+                )
+        logger.info("Elaboration store hydrated %d records from Postgres", len(rows))
+        return len(rows)
 
     async def get(self, elab_id: str) -> Optional[Elaboration]:
         async with self._lock:

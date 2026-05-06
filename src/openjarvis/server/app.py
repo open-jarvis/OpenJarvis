@@ -254,6 +254,15 @@ def create_app(
     # Restore SendBlue channel bindings from database on startup
     _restore_sendblue_bindings(app)
 
+    # Hydrate the elaboration store from Postgres if persistence is configured
+    @app.on_event("startup")
+    async def _hydrate_elaborations() -> None:
+        try:
+            from openjarvis.server.elaboration_store import get_store
+            await get_store().hydrate_from_postgres()
+        except Exception as exc:
+            logger.warning("Elaboration hydration skipped: %s", exc)
+
     # Add security headers middleware
     try:
         from openjarvis.server.middleware import create_security_middleware
