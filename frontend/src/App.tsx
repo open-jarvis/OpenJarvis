@@ -80,6 +80,14 @@ export default function App() {
       .catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Subscribe to the proactive elaborations SSE channel once on boot.
+  useEffect(() => {
+    import('./lib/elaborations').then((m) => m.startElaborationStream());
+    return () => {
+      import('./lib/elaborations').then((m) => m.stopElaborationStream());
+    };
+  }, []);
+
   // Poll savings and optionally share to Supabase
   useEffect(() => {
     const refresh = () =>

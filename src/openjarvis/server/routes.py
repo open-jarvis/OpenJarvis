@@ -310,6 +310,8 @@ async def _handle_stream(
         stream_cloud,
         stream_local,
     )
+    from openjarvis.server import elaboration_worker, tier_cascade
+    from openjarvis.server.elaboration_store import get_store as _elab_store
 
     messages = _to_messages(req.messages)
     chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
@@ -317,6 +319,34 @@ async def _handle_stream(
     # Route directly to the right backend — bypasses engine routing entirely
     # so broken MultiEngine state can never misdirect requests.
     use_cloud = is_cloud_model(model)
+    use_cascade = tier_cascade.is_auto_model(model)
+
+    # If the cascade is active, kick off the slow Claude-CLI elaboration
+    # track in parallel. The chat handler keeps a reference to the record so
+    # the spoken_answer can be written back when this stream finishes.
+    elaboration = None
+    if use_cascade:
+        # Original question is the most recent user message
+        original_question = ""
+        for m in reversed(req.messages):
+            if m.role == "user" and m.content:
+                original_question = m.content
+                break
+        try:
+            messages_json = [
+                {"role": m.role, "content": m.content or ""}
+                for m in req.messages
+            ]
+            elaboration = await elaboration_worker.spawn_elaboration(
+                messages=messages_json,
+                original_question=original_question,
+                conversation_id=None,
+            )
+        except Exception as exc:
+            import logging as _logging
+            _logging.getLogger("openjarvis.server").debug(
+                "Elaboration spawn failed (non-fatal): %s", exc,
+            )
 
     async def generate():
         # Send role chunk first
@@ -331,14 +361,25 @@ async def _handle_stream(
         )
         yield f"data: {first_chunk.model_dump_json()}\n\n"
 
+        # Accumulate the streamed text so we can write it back into the
+        # elaboration record when the stream finishes.
+        spoken_buffer: list[str] = []
+
         try:
             # Cloud models → direct cloud API (reads keys from disk).
+            # Cascade ("auto" model) → run the 3-tier race.
             # Local models → engine.stream() first so mock engines work in
             # tests.  Fall back to stream_local() only when the engine would
             # mis-route the request to a cloud backend (MultiEngine routing
             # confusion), which is detected by checking the routed engine's
             # is_cloud attribute.
-            if use_cloud:
+            if use_cascade:
+                token_iter = tier_cascade.cascade(
+                    messages,
+                    temperature=req.temperature,
+                    max_tokens=req.max_tokens,
+                )
+            elif use_cloud:
                 token_iter = stream_cloud(
                     model, messages, req.temperature, req.max_tokens
                 )
@@ -371,6 +412,7 @@ async def _handle_stream(
                         max_tokens=req.max_tokens,
                     )
             async for token in token_iter:
+                spoken_buffer.append(token)
                 chunk = ChatCompletionChunk(
                     id=chunk_id,
                     model=model,
@@ -426,7 +468,20 @@ async def _handle_stream(
         # We use the routing decision (use_cloud) directly rather than
         # unwrapping the engine chain, which can be in a broken state.
         finish_dict.setdefault("telemetry", {})
-        finish_dict["telemetry"]["engine"] = "cloud" if use_cloud else "ollama"
+        if use_cascade:
+            finish_dict["telemetry"]["engine"] = "cascade"
+        else:
+            finish_dict["telemetry"]["engine"] = "cloud" if use_cloud else "ollama"
+
+        # Write the spoken text into the elaboration record so the worker
+        # can compare it against Claude-CLI's eventual answer.
+        if elaboration is not None:
+            try:
+                await _elab_store().set_spoken_answer(
+                    elaboration.id, "".join(spoken_buffer),
+                )
+            except Exception:
+                pass
 
         if complexity_info is not None:
             finish_dict["complexity"] = complexity_info.model_dump()

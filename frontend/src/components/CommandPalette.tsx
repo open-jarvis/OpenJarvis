@@ -29,6 +29,17 @@ interface CloudProvider {
 
 const CLOUD_PROVIDERS: CloudProvider[] = [
   {
+    name: 'OpenJarvis (auto-cascade)',
+    envKey: 'OPENJARVIS_AUTO',
+    storageKey: 'openjarvis-auto-key',
+    models: [
+      {
+        id: 'auto',
+        desc: 'Fast race (Groq/Cerebras/SambaNova) → Tier 2 fallback → Claude-CLI elaborates',
+      },
+    ],
+  },
+  {
     name: 'OpenAI',
     envKey: 'OPENAI_API_KEY',
     storageKey: 'openjarvis-openai-key',
@@ -529,7 +540,10 @@ export function CommandPalette() {
 
               {CLOUD_PROVIDERS.map((provider) => {
                 const key = apiKeys[provider.storageKey] || '';
-                const hasKey = !!key;
+                const isAuto = provider.envKey === 'OPENJARVIS_AUTO';
+                // The auto-cascade entry uses backend env vars; no per-user
+                // key needed, so always show its models.
+                const hasKey = isAuto || !!key;
                 const isVisible = showKeys[provider.storageKey];
 
                 return (
@@ -539,12 +553,13 @@ export function CommandPalette() {
                       <span className="text-xs font-medium" style={{ color: 'var(--color-text)' }}>{provider.name}</span>
                       {hasKey && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'color-mix(in srgb, var(--color-success) 10%, transparent)', color: 'var(--color-success)' }}>
-                          Connected
+                          {isAuto ? 'Always on' : 'Connected'}
                         </span>
                       )}
                     </div>
 
-                    {/* API key input */}
+                    {/* API key input — hidden for auto-cascade entry */}
+                    {!isAuto && (
                     <div className="flex gap-1.5 mb-2">
                       <div className="flex-1 flex items-center rounded-lg" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}>
                         <Key size={12} className="ml-2.5 shrink-0" style={{ color: 'var(--color-text-tertiary)' }} />
@@ -574,8 +589,9 @@ export function CommandPalette() {
                         </button>
                       )}
                     </div>
+                    )}
 
-                    {/* Models for this provider (only show if key is set) */}
+                    {/* Models for this provider (only show if key is set or this is auto) */}
                     {hasKey && (
                       <div className="ml-5 flex flex-col gap-1">
                         {provider.models.map((model) => {

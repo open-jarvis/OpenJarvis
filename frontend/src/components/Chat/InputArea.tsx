@@ -5,6 +5,7 @@ import { streamChat } from '../../lib/sse';
 import { fetchSavings, getBase } from '../../lib/api';
 import { MicButton } from './MicButton';
 import { useSpeech } from '../../hooks/useSpeech';
+import * as tts from '../../lib/tts';
 import type { ChatMessage, ToolCallInfo, TokenUsage, MessageTelemetry } from '../../types';
 
 export function InputArea() {
@@ -88,6 +89,9 @@ export function InputArea() {
     if (!content || streamState.isStreaming) return;
 
     setInput('');
+    // Stop any in-flight TTS before starting a new turn so the assistant
+    // doesn't keep talking over the user.
+    if (tts.isSupported()) tts.cancel();
 
     let convId = activeId;
     if (!convId) {
@@ -219,6 +223,10 @@ export function InputArea() {
               accumulatedContent += delta.content;
               setStreamState({ content: accumulatedContent, phase: '' });
 
+              if (speechEnabled && tts.isSupported()) {
+                tts.onTokenStream(delta.content);
+              }
+
               const now = Date.now();
               if (now - lastFlush >= 80) {
                 updateLastAssistant(
@@ -229,7 +237,10 @@ export function InputArea() {
                 lastFlush = now;
               }
             }
-            if (data.choices?.[0]?.finish_reason === 'stop') break;
+            if (data.choices?.[0]?.finish_reason === 'stop') {
+              if (speechEnabled && tts.isSupported()) tts.flush();
+              break;
+            }
           } catch {}
         }
       }

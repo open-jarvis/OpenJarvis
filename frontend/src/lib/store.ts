@@ -143,6 +143,9 @@ interface AppState {
   optInModalSeen: boolean;
   optInModalOpen: boolean;
 
+  // Proactive elaborations (Claude-CLI slow track)
+  proposedElaborations: ElaborationProposal[];
+
   // Actions: conversations
   loadConversations: () => void;
   importOverlayConversation: () => Promise<void>;
@@ -211,7 +214,28 @@ interface AppState {
   // Model loading
   modelLoading: boolean;
   setModelLoading: (loading: boolean) => void;
+
+  // Actions: elaborations
+  addProposedElaboration: (proposal: ElaborationProposal) => void;
+  resolveElaboration: (accepted: ElaborationAccepted) => void;
+  removeElaboration: (id: string) => void;
 }
+
+export interface ElaborationProposal {
+  id: string;
+  conversation_id: string | null;
+  status: string;
+  original_question_excerpt: string;
+  created_at: number;
+  updated_at: number;
+  // Local UI state
+  ui_state?: 'proposed' | 'accepting' | 'resolved';
+  claude_answer?: string;
+}
+
+export type ElaborationAccepted = ElaborationProposal & {
+  claude_answer: string;
+};
 
 export const useAppStore = create<AppState>((set, get) => {
   const initial = loadConversations();
@@ -246,6 +270,8 @@ export const useAppStore = create<AppState>((set, get) => {
     optInAnonId: localStorage.getItem(OPTIN_ANONID_KEY) || crypto.randomUUID(),
     optInModalSeen: localStorage.getItem(OPTIN_SEEN_KEY) === 'true',
     optInModalOpen: false,
+
+    proposedElaborations: [],
 
     // ── Conversations ───────────────────────────────────────────────
 
@@ -459,6 +485,39 @@ export const useAppStore = create<AppState>((set, get) => {
     // ── Model loading ───────────────────────────────────────────────
     modelLoading: false,
     setModelLoading: (loading) => set({ modelLoading: loading }),
+
+    // ── Elaborations (Claude-CLI proactive prompts) ─────────────────
+    addProposedElaboration: (proposal: ElaborationProposal) => {
+      const existing = get().proposedElaborations;
+      // De-dup by id in case the SSE replays
+      if (existing.some((e) => e.id === proposal.id)) return;
+      set({
+        proposedElaborations: [
+          ...existing,
+          { ...proposal, ui_state: 'proposed' },
+        ],
+      });
+    },
+    resolveElaboration: (accepted: ElaborationAccepted) => {
+      set({
+        proposedElaborations: get().proposedElaborations.map((e) =>
+          e.id === accepted.id
+            ? {
+                ...e,
+                ui_state: 'resolved',
+                claude_answer: accepted.claude_answer,
+              }
+            : e,
+        ),
+      });
+    },
+    removeElaboration: (id: string) => {
+      set({
+        proposedElaborations: get().proposedElaborations.filter(
+          (e) => e.id !== id,
+        ),
+      });
+    },
 
     // ── Opt-in sharing ──────────────────────────────────────────────
 
