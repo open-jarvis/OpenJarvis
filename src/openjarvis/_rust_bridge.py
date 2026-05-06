@@ -1,38 +1,58 @@
 """Single point of contact between Python and the Rust ``openjarvis_rust`` module.
 
 Every Python module that wants to delegate to Rust should import helpers from
-here rather than importing ``openjarvis_rust`` directly.  The Rust backend is
-mandatory — if it cannot be imported, a hard ``ImportError`` is raised.
+here rather than importing ``openjarvis_rust`` directly.  The Rust extension is
+optional — if it cannot be imported, ``get_rust_module()`` returns ``None`` and
+``RUST_AVAILABLE`` is set to ``False`` so callers can fall back to Python
+implementations.
 """
 
 from __future__ import annotations
 
 import functools
 import json
-from typing import TYPE_CHECKING, List
+import logging
+from typing import TYPE_CHECKING, List, Optional
 
 if TYPE_CHECKING:
     import types as _types
 
+logger = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
-# Mandatory import — Rust backend is required
+# Optional import — Rust backend is not required
 # ---------------------------------------------------------------------------
 
 
 @functools.lru_cache(maxsize=1)
-def get_rust_module() -> _types.ModuleType:
-    """Return the ``openjarvis_rust`` module.
+def get_rust_module() -> Optional[_types.ModuleType]:
+    """Return the ``openjarvis_rust`` module, or ``None`` if unavailable.
 
-    Raises ``ImportError`` if the compiled extension is not available.
-    The Rust backend is mandatory for all modules that have Rust
-    implementations — there is no Python fallback.
+    The Rust extension is optional.  Callers should check the return value
+    and fall back to a pure-Python implementation when ``None`` is returned.
     """
-    import openjarvis_rust  # type: ignore[import-untyped]
+    try:
+        import openjarvis_rust  # type: ignore[import-untyped]
 
-    return openjarvis_rust
+        return openjarvis_rust
+    except ImportError:
+        return None
 
 
-RUST_AVAILABLE: bool = True
+def _check_rust_available() -> bool:
+    try:
+        import openjarvis_rust  # type: ignore[import-untyped]  # noqa: F401
+
+        return True
+    except ImportError:
+        logger.info(
+            "Rust extension (openjarvis_rust) not available — "
+            "using pure-Python fallbacks for memory and security backends"
+        )
+        return False
+
+
+RUST_AVAILABLE: bool = _check_rust_available()
 
 
 # ---------------------------------------------------------------------------

@@ -348,7 +348,7 @@ class SystemBuilder:
             if MemoryRegistry.contains(key):
                 return MemoryRegistry.create(key, db_path=config.memory.db_path)
         except Exception as exc:
-            logger.warning("Failed to resolve memory backend: %s", exc)
+            logger.info("Memory backend unavailable, running without persistence: %s", exc)
         return None
 
     def _resolve_channel(self, config, bus):
