@@ -186,3 +186,6 @@ nav:
       - Learning & Distillation: user-guide/learning-distillation.md
   - Leaderboard: leaderboard.md
   - Roadmap: development/roadmap.md
+  - Development:
+      - Mining: development/mining.md
+      - Pearl Model Enablement: development/pearl-model-enablement.md

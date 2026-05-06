@@ -21,6 +21,17 @@ def test_mine_help() -> None:
     assert "doctor" in result.output
 
 
+def test_mine_models_lists_validated_and_planned_models() -> None:
+    result = CliRunner().invoke(cli, ["mine", "models"])
+
+    assert result.exit_code == 0
+    assert "Pearl Mining Models" in result.output
+    assert "pearl-ai/Llama-3.3-70B-Instruct-pearl" in result.output
+    assert "pearl-ai/Qwen3.5-9B-pearl" in result.output
+    assert "validated" in result.output
+    assert "planned" in result.output
+
+
 def test_mine_init_writes_mining_config(tmp_path: Path) -> None:
     config_path = tmp_path / "config.toml"
 

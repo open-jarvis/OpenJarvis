@@ -76,3 +76,9 @@ The NVIDIA provider is not considered economically proven until the H100/H200
 runbook passes on real hardware. See
 [`mining-nvidia-validation.md`](./mining-nvidia-validation.md) for the required
 commands, artifacts, and pass criteria.
+
+## Model Enablement
+
+New Pearl-compatible language models are tracked separately from provider
+support. See [`pearl-model-enablement.md`](./pearl-model-enablement.md) for the
+conversion and validation checklist.

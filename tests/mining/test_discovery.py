@@ -85,6 +85,35 @@ def test_detect_unsupported_for_non_pearl_model(hopper_hw):
     assert "pearl" in cap.reason.lower()
 
 
+def test_detect_raw_planned_model_points_to_pearl_variant(hopper_hw):
+    from openjarvis.mining._discovery import detect_for_engine_model
+
+    cap = detect_for_engine_model(
+        hw=hopper_hw,
+        engine_id="vllm",
+        model="Qwen/Qwen3.5-9B",
+        provider_id="vllm-pearl",
+    )
+
+    assert cap.supported is False
+    assert "pearl-ai/Qwen3.5-9B-pearl" in cap.reason
+
+
+def test_detect_planned_pearl_model_is_not_enabled_yet(hopper_hw):
+    from openjarvis.mining._discovery import detect_for_engine_model
+
+    cap = detect_for_engine_model(
+        hw=hopper_hw,
+        engine_id="vllm",
+        model="pearl-ai/Qwen3.5-9B-pearl",
+        provider_id="vllm-pearl",
+    )
+
+    assert cap.supported is False
+    assert "planned" in cap.reason
+    assert "validation" in cap.reason
+
+
 def test_detect_unsupported_for_low_vram():
     from openjarvis.core.config import GpuInfo, HardwareInfo
     from openjarvis.mining._discovery import detect_for_engine_model

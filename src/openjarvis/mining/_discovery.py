@@ -15,6 +15,7 @@ from typing import Tuple
 import httpx
 
 from openjarvis.core.config import HardwareInfo
+from openjarvis.mining._models import get_pearl_model_spec, pearl_variant_for_base_model
 from openjarvis.mining._stubs import MiningCapabilities
 
 # ---------------------------------------------------------------------------
@@ -63,19 +64,33 @@ def detect_for_engine_model(
             reason=f"needs compute_capability 9.0 (sm_90a / H100/H200); detected "
             f"{hw.gpu.compute_capability!r} ({hw.gpu.name})",
         )
-    if hw.gpu.vram_gb < REQUIRED_VRAM_GB:
+    spec = get_pearl_model_spec(model)
+    required_vram_gb = spec.min_vram_gb if spec else REQUIRED_VRAM_GB
+    if hw.gpu.vram_gb < required_vram_gb:
         return MiningCapabilities(
             False,
-            reason=f"needs ≥{REQUIRED_VRAM_GB:.0f} GB VRAM for the Pearl 70B model; "
+            reason=f"needs ≥{required_vram_gb:.0f} GB VRAM for {model}; "
             f"detected {hw.gpu.vram_gb:.0f} GB",
         )
 
     # Model
-    if "-pearl" not in model.lower():
+    pearl_variant = pearl_variant_for_base_model(model)
+    if pearl_variant:
         return MiningCapabilities(
             False,
-            reason=f"model {model!r} has no Pearl-blessed variant — use a "
-            f"'pearl-ai/*-pearl' model",
+            reason=f"model {model!r} is a raw base model; planned Pearl variant is "
+            f"{pearl_variant!r}",
+        )
+    if spec is None:
+        return MiningCapabilities(
+            False,
+            reason=f"model {model!r} is not in OpenJarvis' Pearl model registry",
+        )
+    if not spec.is_validated:
+        return MiningCapabilities(
+            False,
+            reason=f"model {model!r} is {spec.status}; it needs Pearl quantization "
+            "and H100/H200 validation before mining is enabled",
         )
 
     return MiningCapabilities(supported=True)

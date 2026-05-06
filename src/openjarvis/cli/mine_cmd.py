@@ -31,6 +31,11 @@ from openjarvis.mining._discovery import (
 )
 from openjarvis.mining._docker import PearlDockerLauncher
 from openjarvis.mining._metrics import parse_gateway_metrics
+from openjarvis.mining._models import (
+    get_pearl_model_spec,
+    iter_pearl_model_specs,
+    pearl_variant_for_base_model,
+)
 from openjarvis.mining._stubs import Sidecar
 from openjarvis.mining.vllm_pearl import ensure_registered as ensure_vllm_registered
 
@@ -124,6 +129,22 @@ def mine() -> None:
     """Configure and run Pearl mining."""
 
 
+@mine.command("models")
+def models() -> None:
+    """List Pearl model support status."""
+    click.echo("Pearl Mining Models")
+    click.echo(
+        f"{'Status':<10} {'Model':<42} {'Base model':<28} {'VRAM':<8} {'Context':<8}"
+    )
+    for spec in iter_pearl_model_specs():
+        click.echo(
+            f"{spec.status:<10} {spec.model_id:<42} {spec.base_model_id:<28} "
+            f"{spec.min_vram_gb:.0f} GB   {spec.default_max_model_len:<8}"
+        )
+        if spec.notes:
+            click.echo(f"  {spec.notes}")
+
+
 @mine.command()
 def doctor() -> None:
     """Diagnose mining capability with one row per check."""
@@ -185,6 +206,13 @@ def doctor() -> None:
     if mining_cfg is not None:
         model = mining_cfg.extra.get("model", DEFAULT_PEARL_MODEL)
         configured_provider = mining_cfg.provider
+    spec = get_pearl_model_spec(model)
+    if spec is None:
+        planned = pearl_variant_for_base_model(model)
+        info = f"raw model; planned Pearl variant {planned}" if planned else "unknown"
+        _row("Model registry", False, info)
+    else:
+        _row("Model registry", spec.is_validated, f"{spec.status}: {spec.model_id}")
 
     for provider_id, provider_cls in MinerRegistry.items():
         cap = provider_cls.detect(hw, engine_id, model)
@@ -277,8 +305,17 @@ def init(
         if not cap.supported:
             raise click.ClickException(
                 f"vllm-pearl not supported on this host: {cap.reason}\n"
-                "See `jarvis mine doctor` for details."
+                "See `jarvis mine models` and `jarvis mine doctor` for details."
             )
+        model_spec = get_pearl_model_spec(model)
+        max_model_len = (
+            model_spec.default_max_model_len if model_spec is not None else 8192
+        )
+        gpu_memory_utilization = (
+            model_spec.default_gpu_memory_utilization
+            if model_spec is not None
+            else 0.96
+        )
 
         ok, info = check_docker_available()
         if not ok:
@@ -287,6 +324,9 @@ def init(
         ok, info = check_disk_free(Path.home())
         if not ok:
             raise click.ClickException(f"Insufficient disk: {info}")
+    else:
+        max_model_len = 8192
+        gpu_memory_utilization = 0.96
 
     if pearld_password_env not in os.environ:
         click.echo(
@@ -313,8 +353,8 @@ model = "{model}"
 gateway_port = {gateway_port}
 gateway_metrics_port = {gateway_metrics_port}
 vllm_port = 8000
-gpu_memory_utilization = 0.96
-max_model_len = 8192
+gpu_memory_utilization = {gpu_memory_utilization}
+max_model_len = {max_model_len}
 pearld_rpc_url = "{pearld_url}"
 pearld_rpc_user = "{pearld_user}"
 pearld_rpc_password_env = "{pearld_password_env}"

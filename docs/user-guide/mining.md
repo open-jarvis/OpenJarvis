@@ -44,6 +44,7 @@ builds can take 30-60 minutes.
 
 ## Commands
 
+- `jarvis mine models` lists Pearl model support status.
 - `jarvis mine doctor` prints hardware, Docker, Pearl node, wallet, provider,
   and session checks.
 - `jarvis mine init` writes the local mining config and resolves the image.
@@ -53,6 +54,28 @@ builds can take 30-60 minutes.
 - `jarvis mine status` reads live gateway metrics.
 - `jarvis mine attach` writes a sidecar for a miner you launched manually.
 - `jarvis mine logs` prints the Docker container log tail.
+
+## Model Support
+
+Run:
+
+```bash
+jarvis mine models
+```
+
+OpenJarvis only enables models that have Pearl-compatible quantized artifacts
+and real hardware validation. Raw Hugging Face models such as
+`Qwen/Qwen3.5-9B` or `google/gemma-4-E4B-it` are not mineable by themselves;
+they need corresponding `pearl-ai/*-pearl` variants.
+
+The default validated model is:
+
+```text
+pearl-ai/Llama-3.3-70B-Instruct-pearl
+```
+
+The Qwen and Gemma targets are tracked in the model registry as planned until
+Pearl quantization and H100/H200 validation are complete.
 
 ## v1 Scope
 
