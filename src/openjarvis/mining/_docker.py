@@ -365,6 +365,10 @@ class PearlDockerLauncher:
             container.stop(timeout=timeout)
         except Exception:  # noqa: BLE001 - best-effort
             pass
+        try:
+            container.remove()
+        except Exception:  # noqa: BLE001 - best-effort
+            pass
         self._container = None
 
     def is_running(self) -> bool:

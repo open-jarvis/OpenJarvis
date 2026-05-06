@@ -199,6 +199,7 @@ def test_launcher_stop_calls_container_stop_and_remove():
     launcher._container = fake_container
     launcher.stop()
     fake_container.stop.assert_called_once()
+    fake_container.remove.assert_called_once()
     # Reference cleared unconditionally so a future start() isn't blocked.
     assert launcher._container is None
 
@@ -213,6 +214,7 @@ def test_launcher_stop_finds_named_container_without_in_memory_reference():
     launcher.stop()
     fake_client.containers.get.assert_called_once_with("openjarvis-pearl-miner")
     fake_container.stop.assert_called_once()
+    fake_container.remove.assert_called_once()
     assert launcher._container is None
 
 
