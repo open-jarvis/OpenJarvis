@@ -285,6 +285,27 @@ def create_app(
         except Exception as exc:
             logger.debug("Auth middleware init skipped: %s", exc)
 
+    # HTTP Basic Auth gate (defense-in-depth at the network edge).
+    # Activates iff both OPENJARVIS_BASIC_AUTH_USER and
+    # OPENJARVIS_BASIC_AUTH_PASSWORD are set in env. Skips /health, /, and
+    # static asset paths so Railway probes and the SPA shell stay reachable.
+    try:
+        from openjarvis.server.basic_auth_middleware import (
+            BasicAuthMiddleware,
+            is_enabled as basic_auth_is_enabled,
+        )
+
+        if basic_auth_is_enabled():
+            app.add_middleware(BasicAuthMiddleware)
+            logger.info("HTTP Basic Auth gate ENABLED")
+        else:
+            logger.info(
+                "HTTP Basic Auth gate disabled "
+                "(set OPENJARVIS_BASIC_AUTH_USER + _PASSWORD in env to enable)"
+            )
+    except Exception as exc:
+        logger.warning("Basic auth middleware init failed: %s", exc)
+
     # Mount webhook routes (always — SendBlue may be configured dynamically)
     if webhook_config:
         try:
