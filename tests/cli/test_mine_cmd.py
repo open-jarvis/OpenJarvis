@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -278,3 +279,54 @@ def test_mine_validate_model_allows_planned_with_runtime_evidence(
     assert "Validation checks passed" in result.output
     assert "Chat completion" in result.output
     assert "submitted=2 accepted=1" in result.output
+
+
+def test_mine_validate_model_writes_json_artifact(tmp_path: Path, monkeypatch) -> None:
+    sidecar_path = tmp_path / "mining.json"
+    output_path = tmp_path / "artifacts" / "qwen-validation.json"
+    model = "pearl-ai/Qwen3.5-9B-pearl"
+    Sidecar.write(
+        sidecar_path,
+        {
+            "provider": "vllm-pearl",
+            "model": model,
+            "vllm_endpoint": "http://127.0.0.1:8000/v1",
+            "gateway_metrics_url": "http://127.0.0.1:8339",
+        },
+    )
+    monkeypatch.setattr("openjarvis.cli.mine_cmd.SIDECAR_PATH", sidecar_path)
+    monkeypatch.setattr(
+        "openjarvis.cli.mine_cmd._get_json",
+        lambda url, *, timeout: {"data": [{"id": model}]},
+    )
+    stats = MagicMock()
+    stats.shares_submitted = 2
+    stats.shares_accepted = 1
+    monkeypatch.setattr(
+        "openjarvis.cli.mine_cmd._stats_from_metrics_url",
+        lambda url, provider_id: (stats, None),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "mine",
+            "validate-model",
+            "--allow-planned",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(output_path.read_text())
+    assert payload["schema_version"] == 1
+    assert payload["model"] == model
+    assert payload["status"] == "passed"
+    assert payload["prompt_ran"] is False
+    assert {check["name"] for check in payload["checks"]} >= {
+        "Model registry",
+        "Sidecar",
+        "vLLM /models",
+        "Gateway metrics",
+    }

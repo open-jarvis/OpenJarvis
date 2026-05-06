@@ -536,6 +536,12 @@ def status() -> None:
     default=None,
     help="Optional chat-completion smoke prompt to run through vLLM.",
 )
+@click.option(
+    "--output",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Write a JSON validation artifact.",
+)
 @click.option("--timeout", default=10.0, show_default=True, type=float)
 def validate_model(
     model: str | None,
@@ -543,6 +549,7 @@ def validate_model(
     gateway_metrics_url: str | None,
     allow_planned: bool,
     prompt: str | None,
+    output: Path | None,
     timeout: float,
 ) -> None:
     """Collect runtime evidence for Pearl model validation."""
@@ -557,40 +564,42 @@ def validate_model(
     click.echo("Pearl Model Validation")
     click.echo(f"model:              {model_id}")
     results: list[bool] = []
+    records: list[dict[str, Any]] = []
+
+    def record(name: str, ok: bool, info: str) -> None:
+        records.append({"name": name, "ok": ok, "info": info})
+        _validation_row(results, name, ok, info)
 
     spec = get_pearl_model_spec(str(model_id))
     if spec is None:
         planned = pearl_variant_for_base_model(str(model_id))
         info = f"raw model; planned Pearl variant {planned}" if planned else "unknown"
-        _validation_row(results, "Model registry", False, info)
+        record("Model registry", False, info)
     elif spec.is_validated:
-        _validation_row(results, "Model registry", True, f"validated: {spec.model_id}")
+        record("Model registry", True, f"validated: {spec.model_id}")
     else:
-        _validation_row(
-            results,
+        record(
             "Model registry",
             allow_planned,
             f"{spec.status}: {spec.model_id}",
         )
 
     if sidecar is None:
-        _validation_row(
-            results,
+        record(
             "Sidecar",
             False,
             "absent - run `jarvis mine start` first",
         )
     else:
-        _validation_row(results, "Sidecar", True, f"present ({SIDECAR_PATH})")
-        _validation_row(
-            results,
+        record("Sidecar", True, f"present ({SIDECAR_PATH})")
+        record(
             "Sidecar model",
             sidecar_model == model_id,
             str(sidecar_model or "missing"),
         )
 
     if endpoint is None:
-        _validation_row(results, "vLLM endpoint", False, "missing")
+        record("vLLM endpoint", False, "missing")
     else:
         endpoint = endpoint.rstrip("/")
         try:
@@ -599,14 +608,13 @@ def validate_model(
             models_info = (
                 str(model_id) if str(model_id) in model_ids else f"{len(model_ids)} ids"
             )
-            _validation_row(
-                results,
+            record(
                 "vLLM /models",
                 str(model_id) in model_ids,
                 models_info,
             )
         except Exception as exc:  # noqa: BLE001
-            _validation_row(results, "vLLM /models", False, str(exc).splitlines()[0])
+            record("vLLM /models", False, str(exc).splitlines()[0])
 
         if prompt:
             try:
@@ -622,15 +630,13 @@ def validate_model(
                     timeout=timeout,
                 )
                 choices = response.get("choices")
-                _validation_row(
-                    results,
+                record(
                     "Chat completion",
                     bool(choices),
                     "choices returned" if choices else "no choices",
                 )
             except Exception as exc:  # noqa: BLE001
-                _validation_row(
-                    results,
+                record(
                     "Chat completion",
                     False,
                     str(exc).splitlines()[0],
@@ -639,25 +645,41 @@ def validate_model(
             click.echo("  Chat completion        skipped (pass --prompt to run)")
 
     if metrics_url is None:
-        _validation_row(results, "Gateway metrics", False, "missing")
+        record("Gateway metrics", False, "missing")
     else:
         metrics_url = str(metrics_url).rstrip("/")
         if not metrics_url.endswith("/metrics"):
             metrics_url = f"{metrics_url}/metrics"
         stats, error = _stats_from_metrics_url(metrics_url, "vllm-pearl")
         if error:
-            _validation_row(results, "Gateway metrics", False, error)
+            record("Gateway metrics", False, error)
         else:
             submitted = stats.shares_submitted if stats is not None else 0
             accepted = stats.shares_accepted if stats is not None else 0
-            _validation_row(
-                results,
+            record(
                 "Gateway metrics",
                 True,
                 f"submitted={submitted} accepted={accepted}",
             )
 
-    if not all(results):
+    passed = bool(results) and all(results)
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        artifact = {
+            "schema_version": 1,
+            "model": str(model_id),
+            "status": "passed" if passed else "failed",
+            "allow_planned": allow_planned,
+            "prompt_ran": bool(prompt),
+            "vllm_endpoint": endpoint,
+            "gateway_metrics_url": metrics_url,
+            "sidecar_path": str(SIDECAR_PATH),
+            "checks": records,
+        }
+        output.write_text(json.dumps(artifact, indent=2, sort_keys=True) + "\n")
+        click.echo(f"Validation artifact written to {output}")
+
+    if not passed:
         raise click.ClickException("Pearl model validation checks failed.")
     click.echo("Validation checks passed.")
 

@@ -78,7 +78,7 @@ A model is `validated` only when all of these pass on real hardware:
 - `jarvis ask "Say hello in one sentence."`
 - `jarvis mine status`
 - `jarvis mine validate-model --model <pearl-model-id> --allow-planned --prompt
-  "Say hello in one sentence."`
+  "Say hello in one sentence." --output <artifact>.json`
 - Pearl gateway metrics show the mining path is active.
 - No block/share submission errors appear in gateway or miner logs.
 
@@ -90,3 +90,4 @@ Pearl's NoisyGEMM and submission path.
 Use the `Pearl Model Validation` GitHub issue template for each candidate model.
 The issue should hold the quantization recipe, hardware details, command output,
 metrics excerpts, and the PR that changes the model status to `validated`.
+Attach the JSON artifact from `jarvis mine validate-model --output` to the issue.

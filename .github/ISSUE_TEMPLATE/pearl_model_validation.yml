@@ -90,6 +90,7 @@ body:
       placeholder: |
         - /v1/models output:
         - `jarvis mine status` output:
+        - `jarvis mine validate-model --output` JSON:
         - gateway metrics excerpt:
         - miner logs:
         - PR/commit that flips status to validated:

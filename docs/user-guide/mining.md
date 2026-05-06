@@ -85,11 +85,12 @@ When validating a newly converted Pearl model on a mining host, run:
 jarvis mine validate-model \
   --model pearl-ai/Qwen3.5-9B-pearl \
   --allow-planned \
-  --prompt "Say hello in one sentence."
+  --prompt "Say hello in one sentence." \
+  --output qwen3.5-9b-pearl-validation.json
 ```
 
 Remove `--allow-planned` only after the model is promoted to validated in the
-OpenJarvis registry.
+OpenJarvis registry. Attach the JSON artifact to the validation issue.
 
 ## v1 Scope
 
