@@ -310,13 +310,19 @@ async def _stream_google(
         },
     }
 
+    # Auth via header (not URL query param) so the key never appears in
+    # error messages, logs, or HTTP referrers if anything goes wrong.
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{model}:streamGenerateContent?alt=sse&key={api_key}"
+        f"{model}:streamGenerateContent?alt=sse"
     )
+    headers = {
+        "x-goog-api-key": api_key,
+        "Content-Type": "application/json",
+    }
 
     async with httpx.AsyncClient(timeout=180) as client:
-        async with client.stream("POST", url, json=payload) as resp:
+        async with client.stream("POST", url, json=payload, headers=headers) as resp:
             resp.raise_for_status()
             async for line in resp.aiter_lines():
                 if not line.startswith("data: "):
