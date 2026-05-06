@@ -33,6 +33,9 @@ _CEREBRAS_PREFIXES = ("cerebras/",)
 _SAMBANOVA_PREFIXES = ("sambanova/",)
 _KIMI_PREFIXES = ("moonshot-", "kimi-",)
 _V0_PREFIXES = ("v0-",)
+_GLM_PREFIXES = ("glm-", "glm/", "chatglm-")
+_HF_PREFIXES = ("huggingface/", "hf/")
+_GITHUB_PREFIXES = ("github/",)
 
 # HuggingFace orgs that host local-only quantised models — never route to cloud.
 _LOCAL_HF_ORGS = (
@@ -55,8 +58,18 @@ _CLOUD_KEY_NAMES = (
     "CEREBRAS_API_KEY",
     "SAMBANOVA_API_KEY",
     "KIMI_API_KEY",
+    "MOONSHOT_API_KEY",
     "V0_API_KEY",
     "MINIMAX_API_KEY",
+    "GLM_API_KEY",
+    "ZHIPUAI_API_KEY",
+    "Bridge_Zbigmodel_api",
+    "HF_API_KEY",
+    "HUGGINGFACE_API_KEY",
+    "HF_TOKEN",
+    "GITHUB_MODELS_TOKEN",
+    "GITHUB_PAT",
+    "GITHUB_TOKEN",
     # Feature-flag env vars
     "GROQ_ENABLED",
     "DEEPSEEK_ENABLED",
@@ -64,8 +77,11 @@ _CLOUD_KEY_NAMES = (
     "CEREBRAS_ENABLED",
     "SAMBANOVA_ENABLED",
     "KIMI_ENABLED",
+    "V0_ENABLED",
     "HF_ENABLED",
     "GLM_ENABLED",
+    "GITHUB_MODELS_ENABLED",
+    "MINIMAX_ENABLED",
 )
 
 
@@ -109,6 +125,12 @@ def get_provider(model: str) -> str | None:
         return "kimi"
     if any(model.startswith(p) for p in _V0_PREFIXES):
         return "v0"
+    if any(model.startswith(p) for p in _GLM_PREFIXES):
+        return "glm"
+    if any(model.startswith(p) for p in _GITHUB_PREFIXES):
+        return "github"
+    if any(model.startswith(p) for p in _HF_PREFIXES):
+        return "hf"
     if any(model.startswith(org) for org in _LOCAL_HF_ORGS):
         return None  # local model, never route to cloud
     if "/" in model:  # openrouter format: "meta-llama/llama-3-8b"
@@ -499,6 +521,66 @@ async def stream_cloud(
             max_tokens,
             base_url="https://api.v0.dev/v1",
             api_key_name="V0_API_KEY",
+        ):
+            yield token
+
+    elif provider == "glm":
+        # Strip an optional "glm/" namespace prefix; the upstream API uses
+        # bare model names like "glm-4-plus".
+        bare_model = model.removeprefix("glm/")
+        # GLM key fallback chain: GLM_API_KEY -> ZHIPUAI_API_KEY -> Bridge_Zbigmodel_api
+        keys = _load_keys()
+        resolved_key_name = next(
+            (n for n in ("GLM_API_KEY", "ZHIPUAI_API_KEY", "Bridge_Zbigmodel_api")
+             if keys.get(n)),
+            "GLM_API_KEY",
+        )
+        async for token in _stream_openai(
+            bare_model,
+            messages,
+            temperature,
+            max_tokens,
+            base_url="https://open.bigmodel.cn/api/paas/v4",
+            api_key_name=resolved_key_name,
+        ):
+            yield token
+
+    elif provider == "github":
+        # GitHub Models — Azure-hosted, OpenAI-compatible. Strip "github/" prefix.
+        bare_model = model.removeprefix("github/")
+        keys = _load_keys()
+        resolved_key_name = next(
+            (n for n in ("GITHUB_MODELS_TOKEN", "GITHUB_PAT", "GITHUB_TOKEN")
+             if keys.get(n)),
+            "GITHUB_PAT",
+        )
+        async for token in _stream_openai(
+            bare_model,
+            messages,
+            temperature,
+            max_tokens,
+            base_url="https://models.inference.ai.azure.com",
+            api_key_name=resolved_key_name,
+        ):
+            yield token
+
+    elif provider == "hf":
+        # HuggingFace router (OpenAI-compatible). Strip the "hf/" or
+        # "huggingface/" prefix; the upstream model id includes the org/repo.
+        bare_model = model.removeprefix("hf/").removeprefix("huggingface/")
+        keys = _load_keys()
+        resolved_key_name = next(
+            (n for n in ("HF_API_KEY", "HUGGINGFACE_API_KEY", "HF_TOKEN")
+             if keys.get(n)),
+            "HF_API_KEY",
+        )
+        async for token in _stream_openai(
+            bare_model,
+            messages,
+            temperature,
+            max_tokens,
+            base_url="https://router.huggingface.co/v1",
+            api_key_name=resolved_key_name,
         ):
             yield token
 

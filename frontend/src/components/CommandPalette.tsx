@@ -68,6 +68,99 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
       { id: 'openrouter/deepseek/deepseek-r1', desc: 'DeepSeek R1 via OpenRouter' },
     ],
   },
+  {
+    name: 'Groq',
+    envKey: 'GROQ_API_KEY',
+    storageKey: 'openjarvis-groq-key',
+    models: [
+      { id: 'llama-3.3-70b-versatile', desc: 'Llama 3.3 70B — fastest, versatile' },
+      { id: 'llama-3.1-8b-instant', desc: 'Llama 3.1 8B — instant' },
+      { id: 'mixtral-8x7b-32768', desc: 'Mixtral 8x7B — 32k ctx' },
+      { id: 'gemma2-9b-it', desc: 'Gemma 2 9B Instruct' },
+    ],
+  },
+  {
+    name: 'DeepSeek',
+    envKey: 'DEEPSEEK_API_KEY',
+    storageKey: 'openjarvis-deepseek-key',
+    models: [
+      { id: 'deepseek-chat', desc: 'DeepSeek-V3 chat' },
+      { id: 'deepseek-reasoner', desc: 'DeepSeek-R1 reasoning' },
+    ],
+  },
+  {
+    name: 'Cerebras',
+    envKey: 'CEREBRAS_API_KEY',
+    storageKey: 'openjarvis-cerebras-key',
+    models: [
+      { id: 'cerebras/llama-3.3-70b', desc: 'Llama 3.3 70B on Cerebras WSE' },
+      { id: 'cerebras/llama-4-scout-17b-16e-instruct', desc: 'Llama 4 Scout 17B' },
+      { id: 'cerebras/llama3.1-8b', desc: 'Llama 3.1 8B' },
+    ],
+  },
+  {
+    name: 'SambaNova',
+    envKey: 'SAMBANOVA_API_KEY',
+    storageKey: 'openjarvis-sambanova-key',
+    models: [
+      { id: 'sambanova/Meta-Llama-3.3-70B-Instruct', desc: 'Llama 3.3 70B' },
+      { id: 'sambanova/Meta-Llama-3.1-405B-Instruct', desc: 'Llama 3.1 405B' },
+      { id: 'sambanova/DeepSeek-R1', desc: 'DeepSeek R1 reasoning' },
+    ],
+  },
+  {
+    name: 'Kimi (Moonshot)',
+    envKey: 'KIMI_API_KEY',
+    storageKey: 'openjarvis-kimi-key',
+    models: [
+      { id: 'moonshot-v1-8k', desc: 'Moonshot v1 — 8k context' },
+      { id: 'moonshot-v1-32k', desc: 'Moonshot v1 — 32k context' },
+      { id: 'moonshot-v1-128k', desc: 'Moonshot v1 — 128k context' },
+      { id: 'kimi-k2-0905-preview', desc: 'Kimi K2 (preview)' },
+    ],
+  },
+  {
+    name: 'GLM (Zhipu)',
+    envKey: 'GLM_API_KEY',
+    storageKey: 'openjarvis-glm-key',
+    models: [
+      { id: 'glm-4-plus', desc: 'GLM-4 Plus — flagship' },
+      { id: 'glm-4-flash', desc: 'GLM-4 Flash — fast' },
+      { id: 'glm-4.6', desc: 'GLM-4.6 — latest' },
+      { id: 'glm-4-air', desc: 'GLM-4 Air — light' },
+    ],
+  },
+  {
+    name: 'HuggingFace',
+    envKey: 'HF_API_KEY',
+    storageKey: 'openjarvis-hf-key',
+    models: [
+      { id: 'hf/meta-llama/Llama-3.3-70B-Instruct', desc: 'Llama 3.3 70B' },
+      { id: 'hf/Qwen/Qwen2.5-72B-Instruct', desc: 'Qwen 2.5 72B' },
+      { id: 'hf/mistralai/Mistral-Large-Instruct-2411', desc: 'Mistral Large 2411' },
+    ],
+  },
+  {
+    name: 'V0 (Vercel)',
+    envKey: 'V0_API_KEY',
+    storageKey: 'openjarvis-v0-key',
+    models: [
+      { id: 'v0-1.5-md', desc: 'V0 1.5 — generate UIs/sites' },
+      { id: 'v0-1.0-md', desc: 'V0 1.0' },
+    ],
+  },
+  {
+    name: 'GitHub Models',
+    envKey: 'GITHUB_PAT',
+    storageKey: 'openjarvis-github-key',
+    models: [
+      { id: 'github/gpt-4o', desc: 'GPT-4o via GitHub Models' },
+      { id: 'github/gpt-4o-mini', desc: 'GPT-4o Mini' },
+      { id: 'github/Phi-3.5-MoE-instruct', desc: 'Phi 3.5 MoE' },
+      { id: 'github/Mistral-large', desc: 'Mistral Large' },
+      { id: 'github/Meta-Llama-3.1-405B-Instruct', desc: 'Llama 3.1 405B' },
+    ],
+  },
 ];
 
 function getStoredKey(storageKey: string): string {
