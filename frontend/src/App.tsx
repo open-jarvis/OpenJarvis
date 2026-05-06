@@ -67,7 +67,17 @@ export default function App() {
 
   // Fetch server info
   useEffect(() => {
-    fetchServerInfo().then(setServerInfo).catch(() => {});
+    fetchServerInfo()
+      .then((info) => {
+        setServerInfo(info);
+        // Seed the model selector with the server's default if the user
+        // hasn't picked one yet — otherwise chat requests go out with
+        // model="" and the backend can't dispatch to any provider.
+        if (info?.model && !useAppStore.getState().selectedModel) {
+          setSelectedModel(info.model);
+        }
+      })
+      .catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Poll savings and optionally share to Supabase

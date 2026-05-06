@@ -148,9 +148,17 @@ export function InputArea() {
       message: `Request: "${content.slice(0, 80)}${content.length > 80 ? '...' : ''}" → ${selectedModel}`,
     });
 
+    // Defensive fallback: if the user hasn't picked a model, use the
+    // server's default (visible in the sidebar) so the request goes to a
+    // real provider instead of being dispatched as model="".
+    const effectiveModel =
+      selectedModel ||
+      useAppStore.getState().serverInfo?.model ||
+      'openrouter/auto';
+
     try {
       for await (const sseEvent of streamChat(
-        { model: selectedModel, messages: apiMessages, stream: true, temperature, max_tokens: maxTokens },
+        { model: effectiveModel, messages: apiMessages, stream: true, temperature, max_tokens: maxTokens },
         controller.signal,
       )) {
         const eventName = sseEvent.event;
