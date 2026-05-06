@@ -1,7 +1,6 @@
 {
   "$schema": "https://railway.app/railway.schema.json",
   "deploy": {
-    "startCommand": "/app/entrypoint.sh",
     "restartPolicyType": "always"
   }
 }
