@@ -166,6 +166,18 @@ export async function deleteModel(modelName: string): Promise<void> {
 
 const _CLOUD_PREFIXES = ['gpt-', 'o1-', 'o3-', 'o4-', 'claude-', 'gemini-', 'openrouter/'];
 
+export interface CloudProviderAvailability {
+  available: boolean;
+  reason?: string;
+}
+
+export async function fetchCloudProviders(): Promise<Record<string, CloudProviderAvailability>> {
+  const res = await fetch(`${getBase()}/v1/cloud/providers`, { headers: getAuthHeaders() });
+  if (!res.ok) throw new Error(`fetchCloudProviders failed: ${res.status}`);
+  const data = await res.json();
+  return data.providers || {};
+}
+
 export async function preloadModel(modelName: string): Promise<void> {
   // Cloud models don't need Ollama preloading
   if (_CLOUD_PREFIXES.some(p => modelName.startsWith(p))) {

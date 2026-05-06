@@ -1,7 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
 import { Search, Cpu, X, Download, Loader2, Trash2, Check, Cloud, Key, Eye, EyeOff } from 'lucide-react';
 import { useAppStore } from '../lib/store';
-import { pullModel, deleteModel, fetchModels, preloadModel, isTauri } from '../lib/api';
+import {
+  pullModel,
+  deleteModel,
+  fetchModels,
+  preloadModel,
+  isTauri,
+  fetchCloudProviders,
+} from '../lib/api';
 
 /** Popular models that users can download from the catalogue. */
 const CATALOGUE_MODELS = [
@@ -24,6 +31,10 @@ interface CloudProvider {
   name: string;
   envKey: string;
   storageKey: string;
+  /** Matches keys in `GET /v1/cloud/providers`. When the backend reports
+   * `available=true`, the tile auto-unlocks even if no localStorage key is
+   * set. */
+  backendId: string;
   models: Array<{ id: string; desc: string }>;
 }
 
@@ -32,6 +43,7 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
     name: 'OpenJarvis (auto-cascade)',
     envKey: 'OPENJARVIS_AUTO',
     storageKey: 'openjarvis-auto-key',
+    backendId: 'openjarvis-auto',
     models: [
       {
         id: 'auto',
@@ -43,6 +55,7 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
     name: 'OpenAI',
     envKey: 'OPENAI_API_KEY',
     storageKey: 'openjarvis-openai-key',
+    backendId: 'openai',
     models: [
       { id: 'gpt-4o', desc: 'GPT-4o — fast, multimodal' },
       { id: 'gpt-4o-mini', desc: 'GPT-4o Mini — cheap, fast' },
@@ -53,6 +66,7 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
     name: 'Anthropic',
     envKey: 'ANTHROPIC_API_KEY',
     storageKey: 'openjarvis-anthropic-key',
+    backendId: 'anthropic',
     models: [
       { id: 'claude-sonnet-4-6', desc: 'Claude Sonnet 4.6 — balanced' },
       { id: 'claude-opus-4-6', desc: 'Claude Opus 4.6 — most capable' },
@@ -63,6 +77,7 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
     name: 'Google',
     envKey: 'GEMINI_API_KEY',
     storageKey: 'openjarvis-gemini-key',
+    backendId: 'google',
     models: [
       { id: 'gemini-2.5-pro', desc: 'Gemini 2.5 Pro — flagship' },
       { id: 'gemini-2.5-flash', desc: 'Gemini 2.5 Flash — fast' },
@@ -73,6 +88,7 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
     name: 'OpenRouter',
     envKey: 'OPENROUTER_API_KEY',
     storageKey: 'openjarvis-openrouter-key',
+    backendId: 'openrouter',
     models: [
       { id: 'openrouter/auto', desc: 'Auto — best model for the task' },
       { id: 'openrouter/anthropic/claude-sonnet-4', desc: 'Claude Sonnet 4 via OpenRouter' },
@@ -83,6 +99,7 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
     name: 'Groq',
     envKey: 'GROQ_API_KEY',
     storageKey: 'openjarvis-groq-key',
+    backendId: 'groq',
     models: [
       { id: 'llama-3.3-70b-versatile', desc: 'Llama 3.3 70B — fastest, versatile' },
       { id: 'llama-3.1-8b-instant', desc: 'Llama 3.1 8B — instant' },
@@ -94,6 +111,7 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
     name: 'DeepSeek',
     envKey: 'DEEPSEEK_API_KEY',
     storageKey: 'openjarvis-deepseek-key',
+    backendId: 'deepseek',
     models: [
       { id: 'deepseek-chat', desc: 'DeepSeek-V3 chat' },
       { id: 'deepseek-reasoner', desc: 'DeepSeek-R1 reasoning' },
@@ -103,6 +121,7 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
     name: 'Cerebras',
     envKey: 'CEREBRAS_API_KEY',
     storageKey: 'openjarvis-cerebras-key',
+    backendId: 'cerebras',
     models: [
       { id: 'cerebras/llama-3.3-70b', desc: 'Llama 3.3 70B on Cerebras WSE' },
       { id: 'cerebras/llama-4-scout-17b-16e-instruct', desc: 'Llama 4 Scout 17B' },
@@ -113,6 +132,7 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
     name: 'SambaNova',
     envKey: 'SAMBANOVA_API_KEY',
     storageKey: 'openjarvis-sambanova-key',
+    backendId: 'sambanova',
     models: [
       { id: 'sambanova/Meta-Llama-3.3-70B-Instruct', desc: 'Llama 3.3 70B' },
       { id: 'sambanova/Meta-Llama-3.1-405B-Instruct', desc: 'Llama 3.1 405B' },
@@ -123,6 +143,7 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
     name: 'Kimi (Moonshot)',
     envKey: 'KIMI_API_KEY',
     storageKey: 'openjarvis-kimi-key',
+    backendId: 'kimi',
     models: [
       { id: 'moonshot-v1-8k', desc: 'Moonshot v1 — 8k context' },
       { id: 'moonshot-v1-32k', desc: 'Moonshot v1 — 32k context' },
@@ -134,6 +155,7 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
     name: 'GLM (Zhipu)',
     envKey: 'GLM_API_KEY',
     storageKey: 'openjarvis-glm-key',
+    backendId: 'glm',
     models: [
       { id: 'glm-4-plus', desc: 'GLM-4 Plus — flagship' },
       { id: 'glm-4-flash', desc: 'GLM-4 Flash — fast' },
@@ -145,6 +167,7 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
     name: 'HuggingFace',
     envKey: 'HF_API_KEY',
     storageKey: 'openjarvis-hf-key',
+    backendId: 'huggingface',
     models: [
       { id: 'hf/meta-llama/Llama-3.3-70B-Instruct', desc: 'Llama 3.3 70B' },
       { id: 'hf/Qwen/Qwen2.5-72B-Instruct', desc: 'Qwen 2.5 72B' },
@@ -155,6 +178,7 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
     name: 'V0 (Vercel)',
     envKey: 'V0_API_KEY',
     storageKey: 'openjarvis-v0-key',
+    backendId: 'v0',
     models: [
       { id: 'v0-1.5-md', desc: 'V0 1.5 — generate UIs/sites' },
       { id: 'v0-1.0-md', desc: 'V0 1.0' },
@@ -164,6 +188,7 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
     name: 'GitHub Models',
     envKey: 'GITHUB_PAT',
     storageKey: 'openjarvis-github-key',
+    backendId: 'github-models',
     models: [
       { id: 'github/gpt-4o', desc: 'GPT-4o via GitHub Models' },
       { id: 'github/gpt-4o-mini', desc: 'GPT-4o Mini' },
@@ -201,6 +226,25 @@ export function CommandPalette() {
     for (const p of CLOUD_PROVIDERS) keys[p.storageKey] = getStoredKey(p.storageKey);
     return keys;
   });
+  // backend-side provider availability (key/flag set in Railway env);
+  // when true, the tile auto-unlocks even with no localStorage key.
+  const [backendAvailable, setBackendAvailable] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchCloudProviders()
+      .then((data) => {
+        if (cancelled) return;
+        const map: Record<string, boolean> = {};
+        for (const [pid, info] of Object.entries(data)) {
+          map[pid] = !!info?.available;
+        }
+        setBackendAvailable(map);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
   const inputRef = useRef<HTMLInputElement>(null);
 
   const models = useAppStore((s) => s.models);
@@ -541,9 +585,12 @@ export function CommandPalette() {
               {CLOUD_PROVIDERS.map((provider) => {
                 const key = apiKeys[provider.storageKey] || '';
                 const isAuto = provider.envKey === 'OPENJARVIS_AUTO';
-                // The auto-cascade entry uses backend env vars; no per-user
-                // key needed, so always show its models.
-                const hasKey = isAuto || !!key;
+                const backendHasKey = !!backendAvailable[provider.backendId];
+                // Provider tile unlocks if: it's the auto-cascade entry, OR
+                // a localStorage key is set, OR the backend has the key in
+                // its env (auto-unlock — saves the user pasting placeholder
+                // strings for keys Railway already has).
+                const hasKey = isAuto || !!key || backendHasKey;
                 const isVisible = showKeys[provider.storageKey];
 
                 return (
@@ -553,7 +600,7 @@ export function CommandPalette() {
                       <span className="text-xs font-medium" style={{ color: 'var(--color-text)' }}>{provider.name}</span>
                       {hasKey && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'color-mix(in srgb, var(--color-success) 10%, transparent)', color: 'var(--color-success)' }}>
-                          {isAuto ? 'Always on' : 'Connected'}
+                          {isAuto ? 'Always on' : (backendHasKey && !key ? 'Server key' : 'Connected')}
                         </span>
                       )}
                     </div>
