@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y curl build-essential && rm -rf /var/lib
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
     . $HOME/.cargo/env && \
     uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml && \
-    pip install --no-cache-dir /tmp/.tmp*/openjarvis_rust-*.whl 2>/dev/null || true
+    find /tmp -name "openjarvis_rust-*.whl" -type f -exec pip install --no-cache-dir {} \;
 
 # Stage 3: Runtime
 FROM python:3.12-slim-bookworm
