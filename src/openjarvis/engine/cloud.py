@@ -1,14 +1,47 @@
-"""Cloud inference engine — OpenAI, Anthropic, Google, and MiniMax API backends."""
+"""Cloud inference engine — OpenAI, Anthropic, Google, MiniMax, OpenRouter, Codex,
+and OpenAI-compatible providers (Groq, DeepSeek, Cerebras, SambaNova, Kimi,
+HuggingFace, GLM/Zhipu, V0, GitHub Models)."""
 
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from collections.abc import AsyncIterator, Sequence
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
+
+logger = logging.getLogger(__name__)
+
+
+def _env_truthy(name: str) -> bool:
+    val = os.environ.get(name)
+    return val is not None and val.strip().lower() in ("true", "1", "yes", "on")
+
+
+def _provider_enabled(enabled_env: Optional[str]) -> bool:
+    """Return True if the provider should be initialized.
+
+    No `enabled_env` means always-on. If the env var is unset, default to True
+    (key-presence is sufficient). If it's set, it must be truthy — set-but-empty
+    counts as "explicitly disabled" so users can opt out without unsetting keys.
+    """
+    if not enabled_env:
+        return True
+    val = os.environ.get(enabled_env)
+    if val is None:
+        return True
+    return val.strip().lower() in ("true", "1", "yes", "on")
+
+
+def _first_env(*names: str) -> Optional[str]:
+    for name in names:
+        v = os.environ.get(name)
+        if v:
+            return v
+    return None
 
 from openjarvis.core.registry import EngineRegistry
 from openjarvis.core.types import Message
@@ -104,6 +137,125 @@ _CODEX_MODELS = [
 ]
 
 
+# OpenAI-compatible cloud providers — same chat/completions surface, only the
+# base_url and key differ. Listed once; init, list_models, dispatch, and close
+# are all driven from this table.
+_OPENAI_COMPAT_PROVIDERS: List[Dict[str, Any]] = [
+    {
+        "id": "groq",
+        "key_envs": ("GROQ_API_KEY",),
+        "enabled_env": "GROQ_ENABLED",
+        "base_url": "https://api.groq.com/openai/v1",
+        "models": [
+            "groq/llama-3.3-70b-versatile",
+            "groq/llama-3.1-8b-instant",
+            "groq/mixtral-8x7b-32768",
+            "groq/gemma2-9b-it",
+        ],
+    },
+    {
+        "id": "deepseek",
+        "key_envs": ("DEEPSEEK_API_KEY",),
+        "enabled_env": "DEEPSEEK_ENABLED",
+        "base_url": "https://api.deepseek.com/v1",
+        "models": [
+            "deepseek/deepseek-chat",
+            "deepseek/deepseek-reasoner",
+        ],
+    },
+    {
+        "id": "cerebras",
+        "key_envs": ("CEREBRAS_API_KEY",),
+        "enabled_env": "CEREBRAS_ENABLED",
+        "base_url": "https://api.cerebras.ai/v1",
+        "models": [
+            "cerebras/llama-3.3-70b",
+            "cerebras/llama-4-scout-17b-16e-instruct",
+            "cerebras/llama3.1-8b",
+        ],
+    },
+    {
+        "id": "sambanova",
+        "key_envs": ("SAMBANOVA_API_KEY",),
+        "enabled_env": "SAMBANOVA_ENABLED",
+        "base_url": "https://api.sambanova.ai/v1",
+        "models": [
+            "sambanova/Meta-Llama-3.3-70B-Instruct",
+            "sambanova/Meta-Llama-3.1-405B-Instruct",
+            "sambanova/DeepSeek-R1",
+        ],
+    },
+    {
+        "id": "kimi",
+        "key_envs": ("KIMI_API_KEY", "MOONSHOT_API_KEY"),
+        "enabled_env": "KIMI_ENABLED",
+        "base_url": "https://api.moonshot.cn/v1",
+        "models": [
+            "kimi/moonshot-v1-8k",
+            "kimi/moonshot-v1-32k",
+            "kimi/moonshot-v1-128k",
+            "kimi/kimi-k2-0905-preview",
+        ],
+    },
+    {
+        "id": "hf",
+        "key_envs": ("HF_API_KEY", "HUGGINGFACE_API_KEY", "HF_TOKEN"),
+        "enabled_env": "HF_ENABLED",
+        "base_url": "https://router.huggingface.co/v1",
+        "models": [
+            "hf/meta-llama/Llama-3.3-70B-Instruct",
+            "hf/Qwen/Qwen2.5-72B-Instruct",
+            "hf/mistralai/Mistral-Large-Instruct-2411",
+        ],
+    },
+    {
+        "id": "glm",
+        # `Bridge_Zbigmodel_api` is the user's non-standard env name for the Zhipu/GLM key.
+        "key_envs": ("GLM_API_KEY", "ZHIPUAI_API_KEY", "Bridge_Zbigmodel_api"),
+        "enabled_env": "GLM_ENABLED",
+        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "models": [
+            "glm/glm-4-plus",
+            "glm/glm-4-flash",
+            "glm/glm-4.6",
+            "glm/glm-4-air",
+        ],
+    },
+    {
+        "id": "v0",
+        "key_envs": ("V0_API_KEY",),
+        "enabled_env": "V0_ENABLED",
+        "base_url": "https://api.v0.dev/v1",
+        "models": [
+            "v0/v0-1.5-md",
+            "v0/v0-1.0-md",
+        ],
+    },
+    {
+        "id": "github",
+        "key_envs": ("GITHUB_MODELS_TOKEN", "GITHUB_PAT", "GITHUB_TOKEN"),
+        "enabled_env": "GITHUB_MODELS_ENABLED",
+        "base_url": "https://models.inference.ai.azure.com",
+        "models": [
+            "github/gpt-4o",
+            "github/gpt-4o-mini",
+            "github/Phi-3.5-MoE-instruct",
+            "github/Mistral-large",
+            "github/Meta-Llama-3.1-405B-Instruct",
+        ],
+    },
+]
+
+_COMPAT_PREFIXES = tuple(f"{cfg['id']}/" for cfg in _OPENAI_COMPAT_PROVIDERS)
+
+
+def _compat_prefix(model: str) -> Optional[str]:
+    for prefix in _COMPAT_PREFIXES:
+        if model.startswith(prefix):
+            return prefix[:-1]
+    return None
+
+
 def _is_minimax_model(model: str) -> bool:
     return model.lower().startswith("minimax")
 
@@ -117,11 +269,19 @@ def _is_codex_model(model: str) -> bool:
 
 
 def _is_anthropic_model(model: str) -> bool:
-    return "claude" in model.lower() and not _is_openrouter_model(model)
+    return (
+        "claude" in model.lower()
+        and not _is_openrouter_model(model)
+        and _compat_prefix(model) is None
+    )
 
 
 def _is_google_model(model: str) -> bool:
-    return "gemini" in model.lower() and not _is_openrouter_model(model)
+    return (
+        "gemini" in model.lower()
+        and not _is_openrouter_model(model)
+        and _compat_prefix(model) is None
+    )
 
 
 def _is_openai_reasoning_model(model: str) -> bool:
@@ -210,7 +370,9 @@ def _convert_tools_to_google(
 
 @EngineRegistry.register("cloud")
 class CloudEngine(InferenceEngine):
-    """Cloud inference via OpenAI, Anthropic, Google, and MiniMax SDKs."""
+    """Cloud inference via OpenAI, Anthropic, Google, MiniMax, OpenRouter, Codex,
+    and OpenAI-compatible providers (Groq, DeepSeek, Cerebras, SambaNova, Kimi,
+    HuggingFace, GLM/Zhipu, V0, GitHub Models)."""
 
     engine_id = "cloud"
     is_cloud = True
@@ -222,6 +384,9 @@ class CloudEngine(InferenceEngine):
         self._openrouter_client: Any = None
         self._minimax_client: Any = None
         self._codex_client: Any = None
+        # OpenAI-compatible providers keyed by id (groq, deepseek, ...).
+        self._compat_clients: Dict[str, Any] = {}
+        self._compat_models: Dict[str, List[str]] = {}
         # Gemini thought_signatures: tool_call_id -> signature bytes
         self._thought_sigs: Dict[str, bytes] = {}
         self._init_clients()
@@ -252,7 +417,7 @@ class CloudEngine(InferenceEngine):
             except ImportError:
                 pass
         openrouter_key = os.environ.get("OPENROUTER_API_KEY")
-        if openrouter_key:
+        if openrouter_key and _provider_enabled("OPENROUTER_ENABLED"):
             try:
                 import openai
 
@@ -263,7 +428,7 @@ class CloudEngine(InferenceEngine):
             except ImportError:
                 pass
         minimax_key = os.environ.get("MINIMAX_API_KEY")
-        if minimax_key:
+        if minimax_key and _provider_enabled("MINIMAX_ENABLED"):
             try:
                 import openai
 
@@ -273,6 +438,44 @@ class CloudEngine(InferenceEngine):
                 )
             except ImportError:
                 pass
+        # OpenAI-compatible providers (Groq, DeepSeek, Cerebras, SambaNova,
+        # Kimi, HuggingFace, GLM/Zhipu, V0, GitHub Models). Each requires both
+        # an API key and `<ID>_ENABLED` truthy (default-on if env unset).
+        for cfg in _OPENAI_COMPAT_PROVIDERS:
+            if not _provider_enabled(cfg.get("enabled_env")):
+                continue
+            api_key = _first_env(*cfg["key_envs"])
+            if not api_key:
+                continue
+            try:
+                import openai
+
+                self._compat_clients[cfg["id"]] = openai.OpenAI(
+                    base_url=cfg["base_url"],
+                    api_key=api_key,
+                )
+                self._compat_models[cfg["id"]] = list(cfg["models"])
+            except ImportError:
+                pass
+
+        enabled: List[str] = []
+        if self._openai_client is not None:
+            enabled.append("openai")
+        if self._anthropic_client is not None:
+            enabled.append("anthropic")
+        if self._google_client is not None:
+            enabled.append("gemini")
+        if self._openrouter_client is not None:
+            enabled.append("openrouter")
+        if self._minimax_client is not None:
+            enabled.append("minimax")
+        if self._codex_client is not None:
+            enabled.append("codex")
+        enabled.extend(sorted(self._compat_clients.keys()))
+        if enabled:
+            logger.info("Cloud: enabled providers (%d): %s", len(enabled), ", ".join(enabled))
+        else:
+            logger.info("Cloud: no providers enabled — set provider API keys in env")
         # Codex — uses the OpenAI Responses API.
         # Supports both standard API keys (api.openai.com) and ChatGPT
         # OAuth tokens (chatgpt.com) via OPENAI_CODEX_BASE_URL override.
@@ -863,6 +1066,59 @@ class CloudEngine(InferenceEngine):
             ]
         return result
 
+    def _generate_compat(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        """Generate via an OpenAI-compatible provider (Groq/DeepSeek/etc.)."""
+        prefix = _compat_prefix(model)
+        client = self._compat_clients.get(prefix) if prefix else None
+        if client is None:
+            raise EngineConnectionError(
+                f"No client for compat provider {prefix!r} — check API key and *_ENABLED"
+            )
+        actual_model = model[len(prefix) + 1 :]
+        kwargs.pop("response_format", None)
+        create_kwargs: Dict[str, Any] = {
+            "model": actual_model,
+            "messages": messages_to_dicts(messages),
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        t0 = time.monotonic()
+        resp = client.chat.completions.create(**create_kwargs)
+        elapsed = time.monotonic() - t0
+        choice = resp.choices[0]
+        usage = resp.usage
+        prompt_tokens = usage.prompt_tokens if usage else 0
+        completion_tokens = usage.completion_tokens if usage else 0
+        result: Dict[str, Any] = {
+            "content": choice.message.content or "",
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": (usage.total_tokens if usage else 0),
+            },
+            "model": getattr(resp, "model", actual_model),
+            "finish_reason": choice.finish_reason or "stop",
+            "ttft": elapsed,
+        }
+        if hasattr(choice.message, "tool_calls") and choice.message.tool_calls:
+            result["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "name": tc.function.name,
+                    "arguments": tc.function.arguments,
+                }
+                for tc in choice.message.tool_calls
+            ]
+        return result
+
     def generate(
         self,
         messages: Sequence[Message],
@@ -882,6 +1138,8 @@ class CloudEngine(InferenceEngine):
             return self._generate_codex(messages, **kw)
         if _is_openrouter_model(model):
             return self._generate_openrouter(messages, **kw)
+        if _compat_prefix(model) is not None:
+            return self._generate_compat(messages, **kw)
         if _is_minimax_model(model):
             return self._generate_minimax(messages, **kw)
         if _is_anthropic_model(model):
@@ -910,6 +1168,9 @@ class CloudEngine(InferenceEngine):
                 yield token
         elif _is_openrouter_model(model):
             async for token in self._stream_openrouter(messages, **kw):
+                yield token
+        elif _compat_prefix(model) is not None:
+            async for token in self._stream_compat(messages, **kw):
                 yield token
         elif _is_minimax_model(model):
             async for token in self._stream_minimax(messages, **kw):
@@ -1125,6 +1386,35 @@ class CloudEngine(InferenceEngine):
             if delta and delta.content:
                 yield delta.content
 
+    async def _stream_compat(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        **kwargs: Any,
+    ) -> AsyncIterator[str]:
+        prefix = _compat_prefix(model)
+        client = self._compat_clients.get(prefix) if prefix else None
+        if client is None:
+            raise EngineConnectionError(
+                f"No client for compat provider {prefix!r}"
+            )
+        actual_model = model[len(prefix) + 1 :]
+        create_kwargs: Dict[str, Any] = {
+            "model": actual_model,
+            "messages": messages_to_dicts(messages),
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": True,
+        }
+        resp = client.chat.completions.create(**create_kwargs)
+        for chunk in resp:
+            delta = chunk.choices[0].delta if chunk.choices else None
+            if delta and delta.content:
+                yield delta.content
+
     # -- stream_full: rich streaming with tool_calls support ----------------
 
     async def _stream_full_openai(
@@ -1157,6 +1447,22 @@ class CloudEngine(InferenceEngine):
                 raise EngineConnectionError("OpenRouter client not available")
             actual_model = model.removeprefix("openrouter/")
             create_kwargs: Dict[str, Any] = {
+                "model": actual_model,
+                "messages": messages_to_dicts(messages),
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "stream": True,
+                **kwargs,
+            }
+        elif _compat_prefix(model) is not None:
+            prefix = _compat_prefix(model)
+            client = self._compat_clients.get(prefix) if prefix else None
+            if client is None:
+                raise EngineConnectionError(
+                    f"No client for compat provider {prefix!r}"
+                )
+            actual_model = model[len(prefix) + 1 :]
+            create_kwargs = {
                 "model": actual_model,
                 "messages": messages_to_dicts(messages),
                 "max_tokens": max_tokens,
@@ -1321,6 +1627,9 @@ class CloudEngine(InferenceEngine):
             models.extend(_MINIMAX_MODELS)
         if self._codex_client is not None:
             models.extend(_CODEX_MODELS)
+        for prefix, model_list in self._compat_models.items():
+            if self._compat_clients.get(prefix) is not None:
+                models.extend(model_list)
         return models
 
     def health(self) -> bool:
@@ -1331,6 +1640,7 @@ class CloudEngine(InferenceEngine):
             or self._openrouter_client is not None
             or self._minimax_client is not None
             or self._codex_client is not None
+            or bool(self._compat_clients)
         )
 
     def close(self) -> None:
@@ -1354,6 +1664,13 @@ class CloudEngine(InferenceEngine):
             self._minimax_client = None
         if self._codex_client is not None:
             self._codex_client = None
+        for prefix, client in list(self._compat_clients.items()):
+            if hasattr(client, "close"):
+                try:
+                    client.close()
+                except Exception:
+                    pass
+        self._compat_clients.clear()
 
 
 __all__ = ["CloudEngine", "PRICING", "_annotate_anthropic_cache", "estimate_cost"]
