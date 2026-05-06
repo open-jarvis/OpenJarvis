@@ -42,6 +42,15 @@ image. If Pearl has not published a suitable image for the pinned ref,
 OpenJarvis falls back to building from the pinned Pearl source checkout. First
 builds can take 30-60 minutes.
 
+On a shared NVIDIA host, restrict the miner to idle GPUs:
+
+```bash
+uv run jarvis mine init --cuda-visible-devices 0
+```
+
+This writes `[mining.extra].cuda_visible_devices`, which `mine start` passes to
+Docker instead of exposing every GPU on the machine.
+
 ## Commands
 
 - `jarvis mine models` lists Pearl model support status.

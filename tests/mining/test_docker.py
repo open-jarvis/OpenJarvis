@@ -168,6 +168,7 @@ def test_launcher_start_calls_run_with_expected_kwargs(_env_password):
             "pearld_rpc_user": "rpcuser",
             "pearld_rpc_password_env": "PEARLD_RPC_PASSWORD",
             "hf_token_env": "HF_TOKEN",
+            "cuda_visible_devices": "0,1",
         },
     )
     container = launcher.start(cfg, image="openjarvis/pearl-miner:main")
@@ -182,7 +183,11 @@ def test_launcher_start_calls_run_with_expected_kwargs(_env_password):
     assert kwargs["environment"]["PEARLD_MINING_ADDRESS"] == "prl1qaaa"
     assert kwargs["environment"]["MINER_RPC_TRANSPORT"] == "uds"
     assert kwargs["environment"]["MINER_RPC_SOCKET_PATH"] == "/tmp/pearlgw.sock"
+    assert kwargs["environment"]["CUDA_VISIBLE_DEVICES"] == "0,1"
+    assert kwargs["environment"]["NVIDIA_VISIBLE_DEVICES"] == "0,1"
     assert "device_requests" in kwargs
+    if kwargs["device_requests"] is not None:
+        assert kwargs["device_requests"][0].device_ids == ["0", "1"]
 
 
 def test_launcher_stop_calls_container_stop_and_remove():

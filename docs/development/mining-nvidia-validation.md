@@ -93,6 +93,17 @@ Expected:
 - Docker can run a CUDA container with GPU access.
 - `~/.cache` or the Hugging Face cache volume has at least 200 GB free.
 
+On shared hosts, select only idle GPUs during `mine init`:
+
+```bash
+uv run jarvis mine init --cuda-visible-devices 0
+```
+
+This writes `[mining.extra].cuda_visible_devices`. `mine start` passes that
+device list to Docker and sets `CUDA_VISIBLE_DEVICES` /
+`NVIDIA_VISIBLE_DEVICES` inside the container. Omit the option only on a
+dedicated host where the miner may use all GPUs.
+
 ## Configure Mining
 
 Run:
@@ -118,6 +129,7 @@ Use:
 - Password env: `PEARLD_RPC_PASSWORD`
 - Model: `pearl-ai/Llama-3.3-70B-Instruct-pearl`
 - Image: default unless validating a custom Pearl image
+- CUDA devices: an idle GPU ID such as `0` on shared hosts
 
 Expected:
 

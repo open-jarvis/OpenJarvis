@@ -298,6 +298,11 @@ def doctor() -> None:
 )
 @click.option("--model", default=DEFAULT_PEARL_MODEL)
 @click.option("--image", default=PEARL_IMAGE_TAG)
+@click.option(
+    "--cuda-visible-devices",
+    default="",
+    help="Comma-separated NVIDIA GPU IDs to expose to the vLLM Pearl container.",
+)
 @click.option("--gateway-host", default="127.0.0.1", show_default=True)
 @click.option("--gateway-port", default=DEFAULT_GATEWAY_RPC_PORT, show_default=True)
 @click.option(
@@ -314,6 +319,7 @@ def init(
     pearld_password_env: str,
     model: str,
     image: str,
+    cuda_visible_devices: str,
     gateway_host: str,
     gateway_port: int,
     gateway_metrics_port: int,
@@ -384,6 +390,7 @@ fee_payout_address = ""
 [mining.extra]
 docker_image_tag = "{image}"
 model = "{model}"
+cuda_visible_devices = "{cuda_visible_devices.strip()}"
 gateway_port = {gateway_port}
 gateway_metrics_port = {gateway_metrics_port}
 vllm_port = 8000

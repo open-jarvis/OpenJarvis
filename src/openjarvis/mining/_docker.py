@@ -286,11 +286,22 @@ class PearlDockerLauncher:
             "MINER_RPC_SOCKET_PATH": "/tmp/pearlgw.sock",
         }
 
+        cuda_devices = str(extra.get("cuda_visible_devices", "")).strip()
+        device_ids = [part.strip() for part in cuda_devices.split(",") if part.strip()]
+        if device_ids:
+            environment["CUDA_VISIBLE_DEVICES"] = ",".join(device_ids)
+            environment["NVIDIA_VISIBLE_DEVICES"] = ",".join(device_ids)
+
         # Dynamic import so tests don't need the real `docker` package shape.
         try:
             from docker.types import DeviceRequest
 
-            device_requests = [DeviceRequest(count=-1, capabilities=[["gpu"]])]
+            if device_ids:
+                device_requests = [
+                    DeviceRequest(device_ids=device_ids, capabilities=[["gpu"]])
+                ]
+            else:
+                device_requests = [DeviceRequest(count=-1, capabilities=[["gpu"]])]
         except ImportError:  # pragma: no cover
             device_requests = None
 

@@ -63,6 +63,56 @@ def test_mine_init_writes_mining_config(tmp_path: Path) -> None:
     assert 'pearld_rpc_password_env = "TEST_PEARLD_PASSWORD"' in content
 
 
+def test_mine_init_writes_cuda_visible_devices_for_vllm(
+    tmp_path: Path,
+) -> None:
+    from openjarvis.mining._stubs import MiningCapabilities
+
+    config_path = tmp_path / "config.toml"
+
+    with (
+        patch("openjarvis.cli.mine_cmd._detect_hardware"),
+        patch(
+            "openjarvis.cli.mine_cmd.detect_for_engine_model",
+            return_value=MiningCapabilities(supported=True),
+        ),
+        patch(
+            "openjarvis.cli.mine_cmd.check_docker_available",
+            return_value=(True, ""),
+        ),
+        patch("openjarvis.cli.mine_cmd.check_disk_free", return_value=(True, "")),
+        patch(
+            "openjarvis.cli.mine_cmd.PearlDockerLauncher.ensure_image",
+            return_value="openjarvis/pearl-miner:master",
+        ),
+    ):
+        result = CliRunner().invoke(
+            cli,
+            [
+                "mine",
+                "init",
+                "--provider",
+                "vllm-pearl",
+                "--wallet-address",
+                "prl1qtestingaddr",
+                "--pearld-rpc-url",
+                "http://127.0.0.1:44107",
+                "--pearld-rpc-user",
+                "rpcuser",
+                "--pearld-rpc-password-env",
+                "TEST_PEARLD_PASSWORD",
+                "--cuda-visible-devices",
+                "0,1",
+            ],
+            env={"OPENJARVIS_CONFIG": str(config_path)},
+        )
+
+    assert result.exit_code == 0
+    content = config_path.read_text()
+    assert 'provider = "vllm-pearl"' in content
+    assert 'cuda_visible_devices = "0,1"' in content
+
+
 def test_mine_start_uses_configured_provider(tmp_path: Path, monkeypatch) -> None:
     config_path = tmp_path / "config.toml"
     config_path.write_text(
