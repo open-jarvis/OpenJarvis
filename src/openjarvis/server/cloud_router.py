@@ -27,7 +27,7 @@ _OPENAI_PREFIXES = ("gpt-", "o1-", "o3-", "o4-", "chatgpt-")
 _ANTHROPIC_PREFIXES = ("claude-",)
 _GOOGLE_PREFIXES = ("gemini-",)
 _MINIMAX_PREFIXES = ("MiniMax-",)
-_GROQ_PREFIXES = ("llama-3", "llama3-", "mixtral-", "gemma2-", "whisper-large-v3")
+_GROQ_PREFIXES = ("llama-3", "llama3-", "mixtral-", "gemma2-", "whisper-large-v3", "groq/")
 _DEEPSEEK_PREFIXES = ("deepseek-",)
 _CEREBRAS_PREFIXES = ("cerebras/",)
 _SAMBANOVA_PREFIXES = ("sambanova/",)
@@ -455,8 +455,11 @@ async def stream_cloud(
             yield token
 
     elif provider == "groq":
+        # Strip an optional "groq/" namespace prefix so users can disambiguate
+        # Groq from OpenRouter when the model id contains a slash.
+        bare_model = model.removeprefix("groq/")
         async for token in _stream_openai(
-            model,
+            bare_model,
             messages,
             temperature,
             max_tokens,
