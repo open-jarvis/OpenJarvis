@@ -20,14 +20,10 @@ COPY --from=frontend /app/src/openjarvis/server/static src/openjarvis/server/sta
 RUN pip install --no-cache-dir uv && \
     uv pip install --system ".[server]"
 
-# Build Rust extension for memory backend
-RUN uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml
-
-# Generate API key if not provided
-RUN if [ -z "$OPENJARVIS_API_KEY" ]; then \
-      python -c "import secrets; print('OPENJARVIS_API_KEY=' + secrets.token_urlsafe(32))" > /tmp/apikey.env; \
-      cat /tmp/apikey.env; \
-    fi
+# Install Rust toolchain and build extension in single RUN
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
+    . $HOME/.cargo/env && \
+    uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml
 
 # Stage 3: Runtime
 FROM python:3.12-slim-bookworm
@@ -37,7 +33,7 @@ COPY --from=builder /app /app
 WORKDIR /app
 
 # Set default API key if not provided at runtime
-ENV OPENJARVIS_API_KEY=${OPENJARVIS_API_KEY:-default-key-change-me}
+ENV OPENJARVIS_API_KEY=default-key-change-me
 
 EXPOSE 8000
 
