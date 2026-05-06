@@ -38,6 +38,10 @@ class MixedCommitError(TableGenError):
     """Raised when one (framework, model, benchmark) cell has multiple commits."""
 
 
+class NoResultsError(TableGenError):
+    """Raised when no valid summary files were loaded."""
+
+
 class _MetricStats(BaseModel):
     mean: float
     std: float
@@ -395,6 +399,11 @@ def main(results_glob: str, tables: str, output_dir: Optional[Path]) -> None:
     click.echo(
         f"Loaded {len(frame.df)} metric rows; {frame.unloadable_count} files skipped."
     )
+    if frame.df.is_empty():
+        raise click.ClickException(
+            "No valid summary files matched --results-glob; refusing to emit empty "
+            "tables."
+        )
 
     requested = [t.strip() for t in tables.split(",") if t.strip()]
     for name in requested:

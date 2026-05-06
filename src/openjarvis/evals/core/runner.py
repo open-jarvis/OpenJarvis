@@ -307,6 +307,38 @@ class EvalRunner:
     def _process_one(self, record: EvalRecord) -> EvalResult:
         """Process a single evaluation sample."""
         cfg = self._config
+
+        def _backend_error_result(full: dict, message: str) -> EvalResult:
+            usage = full.get("usage", {}) or {}
+            energy_j = full.get("energy_joules", 0.0) or 0.0
+            power_w = full.get("power_watts") or full.get("peak_power_w") or 0.0
+            return EvalResult(
+                record_id=record.record_id,
+                model_answer=full.get("content", "") or "",
+                error=message,
+                latency_seconds=full.get("latency_seconds", 0.0) or 0.0,
+                prompt_tokens=usage.get("prompt_tokens", 0),
+                completion_tokens=usage.get("completion_tokens", 0),
+                cost_usd=full.get("cost_usd", 0.0) or 0.0,
+                ttft=full.get("ttft", 0.0) or 0.0,
+                energy_joules=energy_j,
+                power_watts=power_w,
+                gpu_utilization_pct=full.get("gpu_utilization_pct", 0.0) or 0.0,
+                throughput_tok_per_sec=full.get("throughput_tok_per_sec", 0.0)
+                or 0.0,
+                trace_data=full.get("trace_data"),
+                framework=full.get(
+                    "framework",
+                    getattr(self._backend, "framework_name", "openjarvis"),
+                ),
+                framework_commit=full.get(
+                    "framework_commit",
+                    getattr(self._backend, "framework_commit_value", "") or "",
+                ),
+                tool_calls=int(full.get("tool_calls", 0) or 0),
+                turn_count=int(full.get("turn_count", 0) or 0),
+            )
+
         try:
             gen_kwargs: dict = dict(
                 model=cfg.model,
@@ -327,6 +359,8 @@ class EvalRunner:
                         **gen_kwargs,
                     )
                     full = full or {}
+                    if full.get("error"):
+                        return _backend_error_result(full, str(full["error"]))
                     all_tool_results = list(
                         full.get(
                             "tool_results",
@@ -346,6 +380,8 @@ class EvalRunner:
                                 **gen_kwargs,
                             )
                             sfull = sfull or {}
+                            if sfull.get("error"):
+                                return _backend_error_result(sfull, str(sfull["error"]))
                             all_tool_results.extend(
                                 sfull.get("tool_results", []),
                             )
@@ -363,6 +399,8 @@ class EvalRunner:
                     **gen_kwargs,
                 )
                 full = full or {}
+                if full.get("error"):
+                    return _backend_error_result(full, str(full["error"]))
                 content = full.get("content", "")
                 is_correct, scoring_meta = self._scorer.score(
                     record,
@@ -378,7 +416,7 @@ class EvalRunner:
             # 'or 0.0' handles the case where the key is present but the
             # value is None -- .get(default) only kicks in when missing.
             energy_j = full.get("energy_joules", 0.0) or 0.0
-            power_w = full.get("power_watts", 0.0) or 0.0
+            power_w = full.get("power_watts") or full.get("peak_power_w") or 0.0
             throughput = full.get("throughput_tok_per_sec", 0.0) or 0.0
             accuracy_score = 1.0 if is_correct else 0.0
 

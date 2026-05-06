@@ -122,7 +122,7 @@ class TestSummaryToDictEmitsRequiredFields:
                 completion_tokens=50,
                 cost_usd=0.001,
                 energy_joules=10.0,
-                power_watts=20.0,
+                power_watts=30.0,
                 framework="hermes",
                 framework_commit="5d3be898a",
                 tool_calls=2,
@@ -156,6 +156,7 @@ class TestSummaryToDictEmitsRequiredFields:
         assert d["n_tasks"] == 5
         assert "accuracy" in d["metrics"]
         assert "latency_seconds" in d["metrics"]
+        assert d["metrics"]["peak_power_w"]["mean"] == 30.0
         assert d["metrics"]["accuracy"]["n"] == 5
         assert d["metrics"]["latency_seconds"]["n"] == 5
         # Existing rich schema also present (unchanged)

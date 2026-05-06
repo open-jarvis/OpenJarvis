@@ -9,6 +9,7 @@ happy-path EvalResult construction.
 
 from __future__ import annotations
 
+import json
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from openjarvis.evals.core.dataset import DatasetProvider
@@ -28,6 +29,57 @@ class _FailingBackend:
 
     def generate_full(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
         raise RuntimeError("simulated backend failure")
+
+    def close(self) -> None:
+        pass
+
+
+class _PeakOnlyBackend:
+    """Mock external-style backend that reports peak_power_w but no power_watts."""
+
+    backend_id = "hermes"
+    framework_name = "hermes"
+    framework_commit_value = "abc12345"
+
+    def generate(self, *args: Any, **kwargs: Any) -> str:
+        return "hi"
+
+    def generate_full(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
+        return {
+            "content": "hi",
+            "usage": {},
+            "latency_seconds": 1.0,
+            "energy_joules": 10.0,
+            "peak_power_w": 42.0,
+            "framework": "hermes",
+            "framework_commit": "abc12345",
+        }
+
+    def close(self) -> None:
+        pass
+
+
+class _BackendErrorPayload:
+    """Mock external backend that returns an error payload instead of raising."""
+
+    backend_id = "hermes"
+    framework_name = "hermes"
+    framework_commit_value = "abc12345"
+
+    def generate(self, *args: Any, **kwargs: Any) -> str:
+        return ""
+
+    def generate_full(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
+        return {
+            "content": "",
+            "usage": {"prompt_tokens": 3, "completion_tokens": 0},
+            "latency_seconds": 1.5,
+            "energy_joules": None,
+            "peak_power_w": 17.0,
+            "framework": "hermes",
+            "framework_commit": "abc12345",
+            "error": "backend reported failure",
+        }
 
     def close(self) -> None:
         pass
@@ -139,6 +191,70 @@ class TestErrorPathFrameworkPropagation:
         # the conservative "openjarvis" tag rather than crashing.
         assert results[0].framework == "openjarvis"
         assert results[0].error is not None
+
+
+class TestExternalTelemetryPropagation:
+    def test_peak_power_falls_back_to_power_watts(self, tmp_path: Any) -> None:
+        """External backends report peak_power_w; runner should preserve it
+        in EvalResult.power_watts so summary/table metrics are populated."""
+        cfg = RunConfig(
+            benchmark="mock",
+            backend="hermes",
+            model="mock-model",
+            max_samples=1,
+            max_workers=1,
+            output_path=str(tmp_path / "out.jsonl"),
+        )
+        runner = EvalRunner(
+            config=cfg,
+            dataset=_SingleRecordDataset(),
+            backend=_PeakOnlyBackend(),  # type: ignore[arg-type]
+            scorer=_NoopScorer(),
+        )
+        runner.run()
+
+        assert runner.results[0].power_watts == 42.0
+        summary = json.loads((tmp_path / "out.summary.json").read_text())
+        assert summary["metrics"]["peak_power_w"]["mean"] == 42.0
+
+
+class TestBackendErrorPayloadPropagation:
+    def test_backend_error_payload_marks_result_error(self, tmp_path: Any) -> None:
+        """Backends can return structured error payloads without raising;
+        those must count as errors rather than scored empty answers."""
+        cfg = RunConfig(
+            benchmark="mock",
+            backend="hermes",
+            model="mock-model",
+            max_samples=1,
+            max_workers=1,
+            output_path=str(tmp_path / "out.jsonl"),
+        )
+        runner = EvalRunner(
+            config=cfg,
+            dataset=_SingleRecordDataset(),
+            backend=_BackendErrorPayload(),  # type: ignore[arg-type]
+            scorer=_NoopScorer(),
+        )
+        summary = runner.run()
+
+        result = runner.results[0]
+        assert result.error == "backend reported failure"
+        assert result.is_correct is None
+        assert result.framework == "hermes"
+        assert result.framework_commit == "abc12345"
+        assert result.power_watts == 17.0
+        assert result.prompt_tokens == 3
+        assert summary.errors == 1
+        assert summary.scored_samples == 0
+
+        summary_data = json.loads((tmp_path / "out.summary.json").read_text())
+        assert summary_data["errors"] == 1
+        assert summary_data["metrics"]["accuracy"] == {
+            "mean": 0.0,
+            "std": 0.0,
+            "n": 0,
+        }
 
 
 class _MockBackendWithCommit:

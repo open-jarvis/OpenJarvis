@@ -6,13 +6,14 @@
 //     --task <prompt> --model <m> --base-url <url> --api-key <k> \
 //     --output-json <path> [--workspace <path>]
 //
-// Loads OpenClaw from $OPENCLAW_PATH and runs `openclaw chat --message <task> --json`
-// (or equivalent non-interactive entry). Emits a JSON dict matching the
+// Loads OpenClaw from $OPENCLAW_PATH and runs `openclaw agent --local
+// --message <task> --json`. Emits a JSON dict matching the
 // _RunnerOutput Pydantic schema in _subprocess_runner.py.
 
-import { writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { argv, env, exit, chdir } from 'node:process';
 
 function parseArgs(args) {
@@ -47,12 +48,30 @@ async function main() {
     return 3;
   }
 
+  const requestedModel = String(args.model || '').includes('/')
+    ? String(args.model || '')
+    : `ollama/${args.model}`;
+  const runDir = mkdtempSync(join(tmpdir(), 'openjarvis-openclaw-'));
+  const configPath = join(runDir, 'openclaw.json');
+  writeFileSync(configPath, JSON.stringify({
+    agents: {
+      defaults: {
+        model: { primary: requestedModel },
+        models: { [requestedModel]: {} },
+      },
+    },
+  }));
+
   const childEnv = {
     ...env,
     OPENCLAW_MODEL: args.model,
     OPENCLAW_BASE_URL: args.base_url,
     OPENCLAW_API_KEY: args.api_key,
+    OPENCLAW_CONFIG_PATH: configPath,
   };
+  if (requestedModel.startsWith('ollama/')) {
+    childEnv.OLLAMA_API_KEY = args.api_key || 'ollama';
+  }
 
   // Use the SAME node executable that's running this script — picking up
   // 'node' from PATH can resolve to a system Node too old for OpenClaw
@@ -95,11 +114,18 @@ async function main() {
   //   { response: str, usage: {...}, messages: [{...}], tool_calls: int }
   try {
     const parsed = JSON.parse(stdout);
-    output.content = parsed.response || '';
-    output.usage = parsed.usage || {};
-    output.trajectory = parsed.messages || [];
+    const payloads = Array.isArray(parsed.payloads) ? parsed.payloads : [];
+    const messages = Array.isArray(parsed.messages) ? parsed.messages : [];
+    const usage = parsed.usage || parsed.meta?.agentMeta?.usage || {};
+    output.content = parsed.response || payloads.map((p) => p.text || '').join('\n');
+    output.usage = {
+      prompt_tokens: usage.prompt_tokens ?? usage.input ?? 0,
+      completion_tokens: usage.completion_tokens ?? usage.output ?? 0,
+      total_tokens: usage.total_tokens ?? usage.total ?? 0,
+    };
+    output.trajectory = messages;
     output.tool_calls = parsed.tool_calls || 0;
-    output.turn_count = (parsed.messages || []).filter(
+    output.turn_count = messages.filter(
       (m) => m.role === 'assistant'
     ).length;
   } catch (e) {

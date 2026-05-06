@@ -13,6 +13,7 @@ from openjarvis.evals.comparison.table_gen import (  # noqa: E402
     MixedCommitError,
     ResultsFrame,
     load_results,
+    main,
 )
 
 
@@ -69,6 +70,23 @@ class TestLoadResults:
         _write_summary(tmp_path / "b" / "summary.json", framework_commit="zzz999")
         with pytest.raises(MixedCommitError, match="abc123.*zzz999"):
             load_results(str(tmp_path / "**" / "summary.json"))
+
+    def test_cli_refuses_empty_result_set(self, tmp_path: Path) -> None:
+        from click.testing import CliRunner
+
+        result = CliRunner().invoke(
+            main,
+            [
+                "--results-glob",
+                str(tmp_path / "**" / "summary.json"),
+                "--tables",
+                "T1",
+                "--output-dir",
+                str(tmp_path / "tables"),
+            ],
+        )
+        assert result.exit_code != 0
+        assert "No valid summary files matched" in result.output
 
 
 class TestRenderBooktabs:

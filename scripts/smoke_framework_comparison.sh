@@ -47,27 +47,45 @@ print('  all pins OK')
 
 echo "==> Running one-task smoke per (framework, benchmark)"
 mkdir -p results/smoke
+CONFIG_DIR="results/smoke/configs"
+mkdir -p "$CONFIG_DIR"
 SMOKE_BENCHES=(toolcall15 pinchbench gaia)
 SMOKE_FRAMEWORKS=(hermes openclaw openjarvis)
 SMOKE_MODEL="qwen-9b"
 
 for fwk in "${SMOKE_FRAMEWORKS[@]}"; do
   for bench in "${SMOKE_BENCHES[@]}"; do
-    config="src/openjarvis/evals/configs/framework_comparison/${bench}-${fwk}-${SMOKE_MODEL}.toml"
-    if [ ! -f "$config" ]; then
-      echo "  ! missing config: $config (run make_configs --all-tier1 (or materialize the configs you need))"
-      continue
-    fi
+    uv run python -m openjarvis.evals.comparison.make_configs \
+      --framework "$fwk" \
+      --model "$SMOKE_MODEL" \
+      --benchmark "$bench" \
+      --output-dir "$CONFIG_DIR" >/dev/null
+    config="${CONFIG_DIR}/${bench}-${fwk}-${SMOKE_MODEL}.toml"
+    run_dir="results/smoke/${fwk}/${SMOKE_MODEL}/${bench}/"
+    JARVIS_BACKEND_BASE_URL="$JARVIS_MOCK_LLM_URL" uv run python - "$config" "$run_dir" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+path = Path(sys.argv[1])
+run_dir = sys.argv[2]
+text = path.read_text()
+text = re.sub(r'^output_dir = ".*"$', f'output_dir = "{run_dir}"', text, flags=re.M)
+text = re.sub(r"^max_samples = \d+$", "max_samples = 1", text, flags=re.M)
+path.write_text(text)
+PY
     echo "  ▸ $fwk × $bench"
-    uv run python -m openjarvis.evals run --config "$config" --max-samples 1 \
-      --output-dir "results/smoke/${fwk}/${SMOKE_MODEL}/${bench}/" \
+    mkdir -p "$run_dir"
+    JARVIS_BACKEND_BASE_URL="$JARVIS_MOCK_LLM_URL" \
+    JARVIS_BACKEND_API_KEY="${JARVIS_BACKEND_API_KEY:-smoke}" \
+    uv run python -m openjarvis.evals run --config "$config" \
       || echo "    FAILED (continuing)"
   done
 done
 
 echo "==> Generating T1 from smoke results"
 uv run python -m openjarvis.evals.comparison.table_gen \
-    --results-glob "results/smoke/**/summary.json" \
+    --results-glob "results/smoke/**/*.summary.json" \
     --tables T1 \
     --output-dir results/smoke/tables/
 
