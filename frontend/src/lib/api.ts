@@ -1,6 +1,21 @@
 import type { ModelInfo, SavingsData, ServerInfo } from '../types';
 
 // ---------------------------------------------------------------------------
+// Auth helpers
+// ---------------------------------------------------------------------------
+
+export function getAuthHeaders(): Record<string, string> {
+  const apiKey = import.meta.env.VITE_OPENJARVIS_API_KEY;
+  if (!apiKey) {
+    console.warn('VITE_OPENJARVIS_API_KEY not set; API requests may fail with 401');
+    return {};
+  }
+  return {
+    Authorization: `Bearer ${apiKey}`,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Supabase config — safe to embed (RLS protects writes)
 // ---------------------------------------------------------------------------
 
@@ -94,14 +109,14 @@ export async function fetchModels(): Promise<ModelInfo[]> {
       // Fall through to fetch
     }
   }
-  const res = await fetch(`${getBase()}/v1/models`);
+  const res = await fetch(`${getBase()}/v1/models`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed to fetch models: ${res.status}`);
   const data = await res.json();
   return data.data || [];
 }
 
 export async function fetchRecommendedModel(): Promise<{ model: string; reason: string }> {
-  const res = await fetch(`${getBase()}/v1/recommended-model`);
+  const res = await fetch(`${getBase()}/v1/recommended-model`, { headers: getAuthHeaders() });
   if (!res.ok) return { model: '', reason: 'Failed to fetch' };
   return res.json();
 }
@@ -120,7 +135,7 @@ export async function pullModel(modelName: string): Promise<void> {
   }
   const res = await fetch(`${getBase()}/v1/models/pull`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
     body: JSON.stringify({ model: modelName }),
   });
   if (!res.ok) {
@@ -141,6 +156,7 @@ export async function deleteModel(modelName: string): Promise<void> {
   }
   const res = await fetch(`${getBase()}/v1/models/${encodeURIComponent(modelName)}`, {
     method: 'DELETE',
+    headers: getAuthHeaders(),
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => res.statusText);
@@ -172,13 +188,13 @@ export async function preloadModel(modelName: string): Promise<void> {
 }
 
 export async function fetchSavings(): Promise<SavingsData> {
-  const res = await fetch(`${getBase()}/v1/savings`);
+  const res = await fetch(`${getBase()}/v1/savings`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed to fetch savings: ${res.status}`);
   return res.json();
 }
 
 export async function fetchServerInfo(): Promise<ServerInfo> {
-  const res = await fetch(`${getBase()}/v1/info`);
+  const res = await fetch(`${getBase()}/v1/info`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed to fetch server info: ${res.status}`);
   return res.json();
 }
@@ -206,7 +222,7 @@ export async function fetchEnergy(): Promise<unknown> {
       return await tauriInvoke('fetch_energy', { apiUrl: getBase() });
     } catch {}
   }
-  const res = await fetch(`${getBase()}/v1/telemetry/energy`);
+  const res = await fetch(`${getBase()}/v1/telemetry/energy`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   return res.json();
 }
@@ -217,7 +233,7 @@ export async function fetchTelemetry(): Promise<unknown> {
       return await tauriInvoke('fetch_telemetry', { apiUrl: getBase() });
     } catch {}
   }
-  const res = await fetch(`${getBase()}/v1/telemetry/stats`);
+  const res = await fetch(`${getBase()}/v1/telemetry/stats`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   return res.json();
 }
@@ -228,7 +244,7 @@ export async function fetchTraces(limit: number = 50): Promise<unknown> {
       return await tauriInvoke('fetch_traces', { apiUrl: getBase(), limit });
     } catch {}
   }
-  const res = await fetch(`${getBase()}/v1/traces?limit=${limit}`);
+  const res = await fetch(`${getBase()}/v1/traces?limit=${limit}`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   return res.json();
 }
@@ -266,6 +282,7 @@ export async function transcribeAudio(audioBlob: Blob, filename = 'recording.web
   formData.append('file', audioBlob, filename);
   const res = await fetch(`${getBase()}/v1/speech/transcribe`, {
     method: 'POST',
+    headers: getAuthHeaders(),
     body: formData,
   });
   if (!res.ok) throw new Error(`Transcription failed: ${res.status}`);
@@ -280,7 +297,7 @@ export async function fetchSpeechHealth(): Promise<SpeechHealth> {
       return { available: false };
     }
   }
-  const res = await fetch(`${getBase()}/v1/speech/health`);
+  const res = await fetch(`${getBase()}/v1/speech/health`, { headers: getAuthHeaders() });
   if (!res.ok) return { available: false };
   return res.json();
 }
@@ -364,14 +381,14 @@ export interface AgentMessage {
 }
 
 export async function fetchManagedAgents(): Promise<ManagedAgent[]> {
-  const res = await fetch(`${getBase()}/v1/managed-agents`);
+  const res = await fetch(`${getBase()}/v1/managed-agents`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   const data = await res.json();
   return data.agents || [];
 }
 
 export async function fetchManagedAgent(agentId: string): Promise<ManagedAgent> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}`);
+  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   return res.json();
 }
@@ -384,7 +401,7 @@ export async function createManagedAgent(body: {
 }): Promise<ManagedAgent> {
   const res = await fetch(`${getBase()}/v1/managed-agents`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
@@ -397,7 +414,7 @@ export async function updateManagedAgent(
 ): Promise<ManagedAgent> {
   const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
@@ -405,22 +422,22 @@ export async function updateManagedAgent(
 }
 
 export async function deleteManagedAgent(agentId: string): Promise<void> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}`, { method: 'DELETE' });
+  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}`, { method: 'DELETE', headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
 }
 
 export async function pauseManagedAgent(agentId: string): Promise<void> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/pause`, { method: 'POST' });
+  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/pause`, { method: 'POST', headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
 }
 
 export async function resumeManagedAgent(agentId: string): Promise<void> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/resume`, { method: 'POST' });
+  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/resume`, { method: 'POST', headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
 }
 
 export async function fetchAgentTasks(agentId: string): Promise<AgentTask[]> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/tasks`);
+  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/tasks`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   const data = await res.json();
   return data.tasks || [];
@@ -429,7 +446,7 @@ export async function fetchAgentTasks(agentId: string): Promise<AgentTask[]> {
 export async function createAgentTask(agentId: string, description: string): Promise<AgentTask> {
   const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/tasks`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
     body: JSON.stringify({ description }),
   });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
@@ -437,7 +454,7 @@ export async function createAgentTask(agentId: string, description: string): Pro
 }
 
 export async function fetchAgentChannels(agentId: string): Promise<ChannelBinding[]> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/channels`);
+  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/channels`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   const data = await res.json();
   return data.bindings || [];
@@ -452,7 +469,7 @@ export async function bindAgentChannel(
     `${getBase()}/v1/managed-agents/${agentId}/channels`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body: JSON.stringify({
         channel_type: channelType,
         config: config || {},
@@ -470,7 +487,7 @@ export async function unbindAgentChannel(
 ): Promise<void> {
   const res = await fetch(
     `${getBase()}/v1/managed-agents/${agentId}/channels/${bindingId}`,
-    { method: 'DELETE' },
+    { method: 'DELETE', headers: getAuthHeaders() },
   );
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
 }
@@ -483,7 +500,7 @@ export async function sendblueVerify(
 ): Promise<{ valid: boolean; numbers: string[]; raw: unknown }> {
   const res = await fetch(`${getBase()}/v1/channels/sendblue/verify`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
     body: JSON.stringify({ api_key_id: apiKeyId, api_secret_key: apiSecretKey }),
   });
   if (!res.ok) {
@@ -500,7 +517,7 @@ export async function sendblueRegisterWebhook(
 ): Promise<{ registered: boolean; status: number }> {
   const res = await fetch(`${getBase()}/v1/channels/sendblue/register-webhook`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
     body: JSON.stringify({
       api_key_id: apiKeyId,
       api_secret_key: apiSecretKey,
@@ -522,7 +539,7 @@ export async function sendblueTest(
 ): Promise<{ sent: boolean; status: number }> {
   const res = await fetch(`${getBase()}/v1/channels/sendblue/test`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
     body: JSON.stringify({
       api_key_id: apiKeyId,
       api_secret_key: apiSecretKey,
@@ -538,20 +555,20 @@ export async function sendblueTest(
 }
 
 export async function sendblueHealth(): Promise<{ channel_connected: boolean; bridge_wired: boolean; ready: boolean }> {
-  const res = await fetch(`${getBase()}/v1/channels/sendblue/health`);
+  const res = await fetch(`${getBase()}/v1/channels/sendblue/health`, { headers: getAuthHeaders() });
   if (!res.ok) return { channel_connected: false, bridge_wired: false, ready: false };
   return res.json();
 }
 
 export async function fetchTemplates(): Promise<AgentTemplate[]> {
-  const res = await fetch(`${getBase()}/v1/templates`);
+  const res = await fetch(`${getBase()}/v1/templates`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   const data = await res.json();
   return data.templates || [];
 }
 
 export async function runManagedAgent(agentId: string): Promise<void> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/run`, { method: 'POST' });
+  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/run`, { method: 'POST', headers: getAuthHeaders() });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(body.detail || `Failed: ${res.status}`);
@@ -559,7 +576,7 @@ export async function runManagedAgent(agentId: string): Promise<void> {
 }
 
 export async function recoverManagedAgent(agentId: string): Promise<{ recovered: boolean; checkpoint: unknown }> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/recover`, { method: 'POST' });
+  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/recover`, { method: 'POST', headers: getAuthHeaders() });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(body.detail || `Failed: ${res.status}`);
@@ -574,7 +591,7 @@ export async function fetchAgentState(agentId: string): Promise<{
   messages: AgentMessage[];
   checkpoint: unknown;
 }> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/state`);
+  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/state`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   return res.json();
 }
@@ -605,7 +622,7 @@ export async function sendAgentMessage(
 ): Promise<AgentMessage> {
   const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/messages`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
     body: JSON.stringify({ content, mode, stream: true }),
   });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
@@ -709,14 +726,14 @@ export async function sendAgentMessage(
 }
 
 export async function fetchAgentMessages(agentId: string): Promise<AgentMessage[]> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/messages`);
+  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/messages`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   const data = await res.json();
   return data.messages || [];
 }
 
 export async function fetchErrorAgents(): Promise<ManagedAgent[]> {
-  const res = await fetch(`${getBase()}/v1/agents/errors`);
+  const res = await fetch(`${getBase()}/v1/agents/errors`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   const data = await res.json();
   return data.agents || [];
@@ -756,7 +773,7 @@ export interface ToolInfo {
 }
 
 export async function fetchAvailableTools(): Promise<ToolInfo[]> {
-  const res = await fetch(`${getBase()}/v1/tools`);
+  const res = await fetch(`${getBase()}/v1/tools`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   const data = await res.json();
   return data.tools || [];
@@ -768,7 +785,7 @@ export async function saveToolCredentials(
 ): Promise<void> {
   const res = await fetch(`${getBase()}/v1/tools/${toolName}/credentials`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
     body: JSON.stringify(credentials),
   });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
@@ -790,26 +807,26 @@ export interface AgentTraceDetail {
 }
 
 export async function fetchLearningLog(agentId: string): Promise<LearningLogEntry[]> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/learning`);
+  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/learning`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   const data = await res.json();
   return data.learning_log || [];
 }
 
 export async function triggerLearning(agentId: string): Promise<void> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/learning/run`, { method: 'POST' });
+  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/learning/run`, { method: 'POST', headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
 }
 
 export async function fetchAgentTraces(agentId: string, limit = 20): Promise<AgentTrace[]> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/traces?limit=${limit}`);
+  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/traces?limit=${limit}`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   const data = await res.json();
   return data.traces || [];
 }
 
 export async function fetchAgentTrace(agentId: string, traceId: string): Promise<AgentTraceDetail> {
-  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/traces/${traceId}`);
+  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/traces/${traceId}`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   return res.json();
 }
@@ -877,7 +894,7 @@ export interface MemoryConfig {
 }
 
 export async function getMemoryStats(): Promise<MemoryStats> {
-  const res = await fetch(`${getBase()}/v1/memory/stats`);
+  const res = await fetch(`${getBase()}/v1/memory/stats`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error('Failed to fetch memory stats');
   return res.json();
 }
@@ -885,7 +902,7 @@ export async function getMemoryStats(): Promise<MemoryStats> {
 export async function searchMemory(query: string, topK: number = 5): Promise<MemorySearchResult[]> {
   const res = await fetch(`${getBase()}/v1/memory/search`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
     body: JSON.stringify({ query, top_k: topK }),
   });
   if (!res.ok) throw new Error('Failed to search memory');
@@ -896,7 +913,7 @@ export async function searchMemory(query: string, topK: number = 5): Promise<Mem
 export async function storeMemory(content: string, metadata?: Record<string, unknown>): Promise<void> {
   const res = await fetch(`${getBase()}/v1/memory/store`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
     body: JSON.stringify({ content, metadata }),
   });
   if (!res.ok) throw new Error('Failed to store memory');
@@ -905,7 +922,7 @@ export async function storeMemory(content: string, metadata?: Record<string, unk
 export async function indexMemoryPath(path: string): Promise<{ chunks_indexed: number }> {
   const res = await fetch(`${getBase()}/v1/memory/index`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
     body: JSON.stringify({ path }),
   });
   if (!res.ok) throw new Error('Failed to index path');
@@ -913,7 +930,7 @@ export async function indexMemoryPath(path: string): Promise<{ chunks_indexed: n
 }
 
 export async function getMemoryConfig(): Promise<MemoryConfig> {
-  const res = await fetch(`${getBase()}/v1/memory/config`);
+  const res = await fetch(`${getBase()}/v1/memory/config`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error('Failed to fetch memory config');
   return res.json();
 }
