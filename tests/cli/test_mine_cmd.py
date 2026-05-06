@@ -81,6 +81,7 @@ def test_mine_init_writes_cuda_visible_devices_for_vllm(
             return_value=(True, ""),
         ),
         patch("openjarvis.cli.mine_cmd.check_disk_free", return_value=(True, "")),
+        patch("openjarvis.cli.mine_cmd._docker_from_env", return_value=MagicMock()),
         patch(
             "openjarvis.cli.mine_cmd.PearlDockerLauncher.ensure_image",
             return_value="openjarvis/pearl-miner:master",
@@ -380,3 +381,39 @@ def test_mine_validate_model_writes_json_artifact(tmp_path: Path, monkeypatch) -
         "vLLM /models",
         "Gateway metrics",
     }
+
+
+def test_mine_validate_model_falls_back_to_vllm_metrics(
+    tmp_path: Path, monkeypatch
+) -> None:
+    sidecar_path = tmp_path / "mining.json"
+    model = "pearl-ai/Llama-3.3-70B-Instruct-pearl"
+    Sidecar.write(
+        sidecar_path,
+        {
+            "provider": "vllm-pearl",
+            "model": model,
+            "vllm_endpoint": "http://127.0.0.1:8000/v1",
+            "gateway_metrics_url": "http://127.0.0.1:8339",
+        },
+    )
+    monkeypatch.setattr("openjarvis.cli.mine_cmd.SIDECAR_PATH", sidecar_path)
+    monkeypatch.setattr(
+        "openjarvis.cli.mine_cmd._get_json",
+        lambda url, *, timeout: {"data": [{"id": model}]},
+    )
+    stats = MagicMock()
+    stats.shares_submitted = 0
+    stats.shares_accepted = 0
+
+    def fake_stats(url, provider_id):
+        if url == "http://127.0.0.1:8339/metrics":
+            return None, "connection refused"
+        return stats, None
+
+    monkeypatch.setattr("openjarvis.cli.mine_cmd._stats_from_metrics_url", fake_stats)
+
+    result = CliRunner().invoke(cli, ["mine", "validate-model"])
+
+    assert result.exit_code == 0
+    assert "vLLM submitted=0 accepted=0" in result.output

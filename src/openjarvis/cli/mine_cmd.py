@@ -651,23 +651,37 @@ def validate_model(
         else:
             click.echo("  Chat completion        skipped (pass --prompt to run)")
 
-    if metrics_url is None:
+    metrics_candidates: list[tuple[str, str]] = []
+    if metrics_url is not None:
+        gateway_metrics_url = str(metrics_url).rstrip("/")
+        if not gateway_metrics_url.endswith("/metrics"):
+            gateway_metrics_url = f"{gateway_metrics_url}/metrics"
+        metrics_candidates.append(("gateway", gateway_metrics_url))
+        metrics_url = gateway_metrics_url
+    if endpoint is not None:
+        vllm_metrics_url = str(endpoint).rstrip("/").removesuffix("/v1") + "/metrics"
+        if not any(url == vllm_metrics_url for _, url in metrics_candidates):
+            metrics_candidates.append(("vLLM", vllm_metrics_url))
+
+    if not metrics_candidates:
         record("Gateway metrics", False, "missing")
     else:
-        metrics_url = str(metrics_url).rstrip("/")
-        if not metrics_url.endswith("/metrics"):
-            metrics_url = f"{metrics_url}/metrics"
-        stats, error = _stats_from_metrics_url(metrics_url, "vllm-pearl")
-        if error:
-            record("Gateway metrics", False, error)
-        else:
+        errors: list[str] = []
+        for label, candidate_url in metrics_candidates:
+            stats, error = _stats_from_metrics_url(candidate_url, "vllm-pearl")
+            if error:
+                errors.append(f"{label}: {error}")
+                continue
             submitted = stats.shares_submitted if stats is not None else 0
             accepted = stats.shares_accepted if stats is not None else 0
             record(
                 "Gateway metrics",
                 True,
-                f"submitted={submitted} accepted={accepted}",
+                f"{label} submitted={submitted} accepted={accepted}",
             )
+            break
+        else:
+            record("Gateway metrics", False, " | ".join(errors))
 
     passed = bool(results) and all(results)
     if output is not None:
