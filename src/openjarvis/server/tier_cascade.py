@@ -62,7 +62,8 @@ def load_tiers() -> tuple[TierSpec, ...]:
                 "TIER1_PROVIDERS",
                 "groq/llama-3.1-8b-instant,"
                 "cerebras/llama3.1-8b,"
-                "sambanova/Meta-Llama-3.3-70B-Instruct",
+                "sambanova/Meta-Llama-3.3-70B-Instruct,"
+                "gpt-4o-mini",
             ),
             deadline_s=_float_env("TIER1_DEADLINE_S", 2.0),
         ),
@@ -72,7 +73,8 @@ def load_tiers() -> tuple[TierSpec, ...]:
                 "TIER2_PROVIDERS",
                 "claude-cli,"
                 "deepseek-chat,"
-                "gemini-2.5-flash",
+                "gemini-2.5-flash,"
+                "gpt-4o",
             ),
             deadline_s=_float_env("TIER2_DEADLINE_S", 5.0),
         ),
@@ -82,7 +84,8 @@ def load_tiers() -> tuple[TierSpec, ...]:
                 "TIER3_PROVIDERS",
                 "openrouter/anthropic/claude-sonnet-4,"
                 "kimi/moonshot-v1-32k,"
-                "groq/llama-3.3-70b-versatile",
+                "groq/llama-3.3-70b-versatile,"
+                "gpt-5",
             ),
             deadline_s=None,
         ),

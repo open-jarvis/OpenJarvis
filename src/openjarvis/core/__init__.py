@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from openjarvis.core.registry import (
+# Run env-var alias pass before anything else imports cloud/engine code so
+# canonical names (e.g. OPENAI_API_KEY) are populated from aliases (e.g.
+# OpenAI_API) before SDKs and engines read os.environ.
+from openjarvis.core.env import apply_aliases as _apply_env_aliases
+
+_apply_env_aliases()
+
+from openjarvis.core.registry import (  # noqa: E402  — must follow alias pass
     AgentRegistry,
     EngineRegistry,
     MemoryRegistry,
