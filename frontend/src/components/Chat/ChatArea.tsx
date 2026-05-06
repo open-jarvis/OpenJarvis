@@ -2,6 +2,7 @@ import { useRef, useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router';
 import { MessageBubble } from './MessageBubble';
 import { InputArea } from './InputArea';
+import { ElaborationBanner } from '../ElaborationBanner';
 import { StreamingDots } from './StreamingDots';
 import { useAppStore } from '../../lib/store';
 import { Sparkles, PanelRightOpen, PanelRightClose, Database, MessageSquare, X } from 'lucide-react';
@@ -157,6 +158,7 @@ export function ChatArea() {
           </div>
         )}
       </div>
+      <ElaborationBanner />
       <InputArea />
     </div>
   );
