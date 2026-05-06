@@ -146,6 +146,7 @@ _OPENAI_COMPAT_PROVIDERS: List[Dict[str, Any]] = [
         "key_envs": ("GROQ_API_KEY",),
         "enabled_env": "GROQ_ENABLED",
         "base_url": "https://api.groq.com/openai/v1",
+        "bare_prefixes": ("llama-3", "llama3-", "mixtral-", "gemma2-"),
         "models": [
             "groq/llama-3.3-70b-versatile",
             "groq/llama-3.1-8b-instant",
@@ -158,6 +159,7 @@ _OPENAI_COMPAT_PROVIDERS: List[Dict[str, Any]] = [
         "key_envs": ("DEEPSEEK_API_KEY",),
         "enabled_env": "DEEPSEEK_ENABLED",
         "base_url": "https://api.deepseek.com/v1",
+        "bare_prefixes": ("deepseek-",),
         "models": [
             "deepseek/deepseek-chat",
             "deepseek/deepseek-reasoner",
@@ -190,6 +192,7 @@ _OPENAI_COMPAT_PROVIDERS: List[Dict[str, Any]] = [
         "key_envs": ("KIMI_API_KEY", "MOONSHOT_API_KEY"),
         "enabled_env": "KIMI_ENABLED",
         "base_url": "https://api.moonshot.cn/v1",
+        "bare_prefixes": ("moonshot-", "kimi-"),
         "models": [
             "kimi/moonshot-v1-8k",
             "kimi/moonshot-v1-32k",
@@ -214,6 +217,7 @@ _OPENAI_COMPAT_PROVIDERS: List[Dict[str, Any]] = [
         "key_envs": ("GLM_API_KEY", "ZHIPUAI_API_KEY", "Bridge_Zbigmodel_api"),
         "enabled_env": "GLM_ENABLED",
         "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "bare_prefixes": ("glm-", "chatglm-"),
         "models": [
             "glm/glm-4-plus",
             "glm/glm-4-flash",
@@ -226,6 +230,7 @@ _OPENAI_COMPAT_PROVIDERS: List[Dict[str, Any]] = [
         "key_envs": ("V0_API_KEY",),
         "enabled_env": "V0_ENABLED",
         "base_url": "https://api.v0.dev/v1",
+        "bare_prefixes": ("v0-",),
         "models": [
             "v0/v0-1.5-md",
             "v0/v0-1.0-md",
@@ -250,10 +255,31 @@ _COMPAT_PREFIXES = tuple(f"{cfg['id']}/" for cfg in _OPENAI_COMPAT_PROVIDERS)
 
 
 def _compat_prefix(model: str) -> Optional[str]:
+    """Return the compat provider id for a model id, or None.
+
+    Checks both path-style (`glm/glm-4-plus`) and bare-style (`glm-4-plus`)
+    so non-streaming code paths receive the same routing as streaming.
+    """
     for prefix in _COMPAT_PREFIXES:
         if model.startswith(prefix):
             return prefix[:-1]
+    for cfg in _OPENAI_COMPAT_PROVIDERS:
+        for bare in cfg.get("bare_prefixes", ()):
+            if model.startswith(bare):
+                return cfg["id"]
     return None
+
+
+def _compat_strip(model: str, provider_id: str) -> str:
+    """Return the upstream-ready model name for a compat-routed call.
+
+    If the model id is path-style (`glm/glm-4-plus`) strip the namespace.
+    If it's bare (`glm-4-plus`) leave it as-is.
+    """
+    path_prefix = f"{provider_id}/"
+    if model.startswith(path_prefix):
+        return model[len(path_prefix):]
+    return model
 
 
 def _is_minimax_model(model: str) -> bool:
@@ -1082,7 +1108,7 @@ class CloudEngine(InferenceEngine):
             raise EngineConnectionError(
                 f"No client for compat provider {prefix!r} — check API key and *_ENABLED"
             )
-        actual_model = model[len(prefix) + 1 :]
+        actual_model = _compat_strip(model, prefix)
         kwargs.pop("response_format", None)
         create_kwargs: Dict[str, Any] = {
             "model": actual_model,
@@ -1401,7 +1427,7 @@ class CloudEngine(InferenceEngine):
             raise EngineConnectionError(
                 f"No client for compat provider {prefix!r}"
             )
-        actual_model = model[len(prefix) + 1 :]
+        actual_model = _compat_strip(model, prefix)
         create_kwargs: Dict[str, Any] = {
             "model": actual_model,
             "messages": messages_to_dicts(messages),
@@ -1461,7 +1487,7 @@ class CloudEngine(InferenceEngine):
                 raise EngineConnectionError(
                     f"No client for compat provider {prefix!r}"
                 )
-            actual_model = model[len(prefix) + 1 :]
+            actual_model = _compat_strip(model, prefix)
             create_kwargs = {
                 "model": actual_model,
                 "messages": messages_to_dicts(messages),

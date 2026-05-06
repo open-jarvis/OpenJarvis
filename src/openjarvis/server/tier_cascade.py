@@ -155,14 +155,14 @@ async def _stream_via_claude_cli(
 async def _producer_to_queue(
     name: str,
     gen: AsyncIterator[str],
-    queue: asyncio.Queue[tuple[str, Optional[str]]],
+    queue: asyncio.Queue[tuple[str, str, Optional[str]]],
 ) -> None:
     """Drain a provider's chunk stream into a shared queue.
 
-    Item shape:
-      ("first" | "chunk", text)   normal flow
-      ("done", None)              end of this provider's stream
-      ("error", repr(exc))        failure
+    Item shape: (kind, producer_name, payload)
+      ("first" | "chunk", name, text)   normal flow
+      ("done", name, None)              end of this provider's stream
+      ("error", name, repr(exc))        failure
     """
     seen_first = False
     try:
@@ -171,16 +171,19 @@ async def _producer_to_queue(
                 continue
             if not seen_first:
                 seen_first = True
-                await queue.put(("first", tok))
-                # subsequent tokens treated as continuation chunks
+                await queue.put(("first", name, tok))
             else:
-                await queue.put(("chunk", tok))
-        await queue.put(("done", None))
+                await queue.put(("chunk", name, tok))
+        await queue.put(("done", name, None))
     except asyncio.CancelledError:
+        # Normal cancellation — losing the race. Don't enqueue, just exit.
         raise
     except Exception as exc:
         logger.warning("Race producer %r failed: %s", name, exc)
-        await queue.put(("error", repr(exc)))
+        try:
+            await queue.put(("error", name, repr(exc)))
+        except Exception:
+            pass
 
 
 async def _race_within_tier(
@@ -193,13 +196,15 @@ async def _race_within_tier(
 ) -> Optional[AsyncIterator[str]]:
     """Run a single tier's race; return the winning token stream or None.
 
-    On first-token from any provider, cancels the others. On deadline hit
-    with zero first-tokens, cancels everyone and returns None.
+    Once any provider produces its first usable token, cancel all the
+    losers (they cost real money/credits if left to run) and stream from
+    the winner. If the deadline elapses with no first token, cancel
+    everyone and return None so the cascade falls through to the next tier.
     """
     if not tier.providers:
         return None
 
-    queue: asyncio.Queue[tuple[str, Optional[str]]] = asyncio.Queue()
+    queue: asyncio.Queue[tuple[str, str, Optional[str]]] = asyncio.Queue()
     tasks: dict[str, asyncio.Task] = {}
 
     for name in tier.providers:
@@ -214,7 +219,7 @@ async def _race_within_tier(
 
     winner: Optional[str] = None
     first_token: Optional[str] = None
-    pending_first_count = len(tasks)
+    failed_or_done = 0
 
     deadline = tier.deadline_s
     deadline_at = (
@@ -222,7 +227,7 @@ async def _race_within_tier(
         if deadline is not None else None
     )
 
-    while pending_first_count > 0 and winner is None:
+    while winner is None and failed_or_done < len(tasks):
         try:
             timeout = (
                 max(0.0, deadline_at - asyncio.get_event_loop().time())
@@ -230,26 +235,26 @@ async def _race_within_tier(
             )
             if timeout is not None and timeout <= 0:
                 break
-            kind, payload = await asyncio.wait_for(queue.get(), timeout=timeout)
+            kind, name, payload = await asyncio.wait_for(
+                queue.get(), timeout=timeout,
+            )
         except asyncio.TimeoutError:
             break
 
         if kind == "first":
-            winner = next(  # find which task it came from — see note below
-                iter(tasks),
-            )
+            winner = name
             first_token = payload
             break
-        elif kind == "error":
-            pending_first_count -= 1
-        elif kind == "done":
-            pending_first_count -= 1
-        # "chunk" can't appear before any "first" in normal flow
+        elif kind in ("error", "done"):
+            failed_or_done += 1
+        # "chunk" before "first" cannot occur per producer logic
 
     if winner is None:
-        # No first token from any provider in this tier — cancel everyone
+        # Deadline hit OR every provider failed/finished with no usable
+        # token — cancel any still-running and fall through.
         for t in tasks.values():
-            t.cancel()
+            if not t.done():
+                t.cancel()
         await asyncio.gather(*tasks.values(), return_exceptions=True)
         logger.info(
             "Tier %s: no first token within %s; falling through",
@@ -257,66 +262,48 @@ async def _race_within_tier(
         )
         return None
 
-    # We have a winner — cancel the losers, keep the winning task alive.
-    # Note: the `winner` lookup above is approximate (queue items don't carry
-    # task identity in the simple impl). We instead consume the queue going
-    # forward — the winning producer will keep enqueuing chunks; cancelled
-    # losers will produce CancelledError on their generators which our
-    # producer wrapper turns into "error". Frontend sees only "first" + chunks.
+    # Cancel every loser NOW so we don't burn tokens generating output
+    # nobody will read.
+    cancelled = 0
     for name, t in tasks.items():
-        # Best-effort: cancel all *non-winning* by checking whether the task
-        # has produced data. We don't know yet which one won, but the queue
-        # discipline ensures only one "first" was emitted; remaining tasks
-        # have not yet emitted theirs — cancel them.
-        pass  # see below: we cancel after relaying first chunk.
-    logger.info("Tier %s: race winner produced first token", tier.name)
+        if name != winner and not t.done():
+            t.cancel()
+            cancelled += 1
+    logger.info(
+        "Tier %s: winner=%s, cancelled %d loser(s)",
+        tier.name, winner, cancelled,
+    )
+
+    winner_task = tasks[winner]
 
     async def relay() -> AsyncIterator[str]:
-        # Yield the winning first token; then drain remaining chunks from the
-        # queue from the winning producer until "done" or "error".
         assert first_token is not None
         yield first_token
-
-        # Cancel the losers now that we know one has produced a first token.
-        # We can't tell which task is the winner, so we let all of them run
-        # but we only consume one stream from the queue. Cancellation of the
-        # losers is implicit when the request handler eventually returns —
-        # asyncio will GC the orphan tasks. That's acceptable for v1.
-        # (For production we'd track task identity through the queue.)
-        first_winner_seen = True
-        first_chunk_relayed = False
-        while True:
-            kind, payload = await queue.get()
-            if kind == "first" and first_winner_seen and not first_chunk_relayed:
-                # A second producer raced in too late — ignore its first.
-                first_chunk_relayed = True
-                continue
-            if kind == "chunk":
-                if payload:
-                    yield payload
-            elif kind == "done":
-                # End of this stream — but with multi-producer queue we don't
-                # know if it's the winner's done or a loser's done. Heuristic:
-                # if we haven't received any chunks for a while, assume done.
-                # Simpler: stop on first "done". This may truncate if the
-                # losers finished before the winner; in practice "done" from a
-                # loser comes AFTER its CancelledError -> "error", so the
-                # first "done" is the winner's.
-                return
-            elif kind == "error":
-                # Loser failed — keep going for the winner.
-                continue
-
-    # Cancel siblings now (after we've captured the first_token).
-    # The relay() generator will continue receiving from queue.
-    cancel_targets = list(tasks.values())
-    for t in cancel_targets:
-        # We can't cancel just the losers — we don't know which is which.
-        # So we let them all run. The losers' streams will raise CancelledError
-        # once the request handler exits, which naturally happens after the
-        # winner finishes streaming. Acceptable v1 trade-off; comment kept
-        # honest about the cost.
-        pass
+        try:
+            while True:
+                kind, name, payload = await queue.get()
+                # Items from cancelled losers are silently dropped.
+                if name != winner:
+                    continue
+                if kind == "chunk":
+                    if payload:
+                        yield payload
+                elif kind == "done":
+                    return
+                elif kind == "error":
+                    logger.warning(
+                        "Race winner %s errored mid-stream: %s",
+                        winner, payload,
+                    )
+                    return
+        finally:
+            # Best-effort cleanup if the consumer exits early (client
+            # disconnect, etc.) — make sure the winner task isn't left
+            # running indefinitely.
+            if not winner_task.done():
+                winner_task.cancel()
+            # Also drain the gather to surface CancelledError from losers
+            await asyncio.gather(*tasks.values(), return_exceptions=True)
 
     return relay()
 
