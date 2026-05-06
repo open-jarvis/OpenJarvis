@@ -53,9 +53,12 @@ runtime validation. Current local evidence:
 - `Qwen/Qwen3.5-9B` converted to
   `/tmp/openjarvis-h100/converted/Qwen3.5-9B-pearl-experimental`.
   The local artifact passes `jarvis mine inspect-model`, starts Pearl gateway,
-  resolves `Qwen3_5ForConditionalGeneration`, selects Pearl kernels, and loads
-  all four safetensors shards. It does not yet pass validation: vLLM stalls
-  after model loading before `/v1/models` becomes reachable.
+  resolves `Qwen3_5ForConditionalGeneration`, selects Pearl kernels, loads all
+  four safetensors shards, exposes `pearl-ai/Qwen3.5-9B-pearl` at `/v1/models`,
+  completes a chat prompt, and passes `jarvis mine validate-model
+  --allow-planned`. Required validation flags: `--gdn-prefill-backend triton`
+  and a 4096-token context. Validation artifact:
+  `/tmp/openjarvis-h100/converted/Qwen3.5-9B-pearl-experimental-validate.json`.
 
 ## Enablement Checklist
 
@@ -107,9 +110,13 @@ runtime validation. Current local evidence:
      --local-model-path /tmp/pearl-ai-Qwen3.5-9B-pearl \
      --cuda-visible-devices 1 \
      --vllm-arg=--language-model-only \
-     --vllm-arg=--skip-mm-profiling
+     --vllm-arg=--skip-mm-profiling \
+     --vllm-arg=--gdn-prefill-backend \
+     --vllm-arg=triton
    jarvis mine start
    ```
+
+   For Qwen3.5 validation, set `max_model_len = 4096` in `[mining.extra]`.
 
 3. Validate the Pearl vLLM plugin path.
    - Run `jarvis mine inspect-model --model <pearl-model-id>
