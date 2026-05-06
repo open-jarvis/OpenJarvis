@@ -56,6 +56,8 @@ The Qwen and Gemma targets remain planned:
    - Publish under the planned `pearl-ai/*-pearl` id or a staging namespace.
 
 3. Validate the Pearl vLLM plugin path.
+   - Run `jarvis mine inspect-model --model <pearl-model-id>
+     --allow-planned` before starting the miner.
    - Model loads in Pearl's `vllm-miner` container.
    - vLLM registers Pearl's quantization plugin.
    - Mining layers use int7 NoisyGEMM.
@@ -91,6 +93,7 @@ validation exist.
 
 A model is `validated` only when all of these pass on real hardware:
 
+- `jarvis mine inspect-model --model <pearl-model-id> --allow-planned`
 - `jarvis mine init --model <pearl-model-id>`
 - `jarvis mine start`
 - `curl http://127.0.0.1:8000/v1/models`

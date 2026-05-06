@@ -33,6 +33,62 @@ def test_mine_models_lists_validated_and_planned_models() -> None:
     assert "planned" in result.output
 
 
+def test_mine_inspect_model_validated_artifact_passes(monkeypatch) -> None:
+    model = "pearl-ai/Llama-3.3-70B-Instruct-pearl"
+
+    def fake_hf_json(path: str, *, token: str = "", timeout: float = 10.0):
+        if path.endswith("/tree/main?recursive=false"):
+            return [
+                {"path": "config.json"},
+                {"path": "tokenizer.json"},
+                {"path": "model.safetensors"},
+            ]
+        return {
+            "config": {
+                "architectures": ["LlamaForCausalLM"],
+                "quantization_config": {"quant_method": "pearl"},
+            }
+        }
+
+    monkeypatch.setattr("openjarvis.cli.mine_cmd._hf_json", fake_hf_json)
+
+    result = CliRunner().invoke(cli, ["mine", "inspect-model", "--model", model])
+
+    assert result.exit_code == 0
+    assert "Artifact inspection passed" in result.output
+    assert "Pearl quantization" in result.output
+
+
+def test_mine_inspect_model_gemma4_requires_processor_metadata(monkeypatch) -> None:
+    model = "pearl-ai/Gemma-4-31B-it-pearl"
+
+    def fake_hf_json(path: str, *, token: str = "", timeout: float = 10.0):
+        if path.endswith("/tree/main?recursive=false"):
+            return [
+                {"path": "config.json"},
+                {"path": "processor_config.json"},
+                {"path": "tokenizer.json"},
+                {"path": "model.safetensors"},
+            ]
+        return {
+            "config": {
+                "architectures": ["Gemma4ForConditionalGeneration"],
+                "quantization_config": {"quant_method": "pearl"},
+            }
+        }
+
+    monkeypatch.setattr("openjarvis.cli.mine_cmd._hf_json", fake_hf_json)
+
+    result = CliRunner().invoke(
+        cli,
+        ["mine", "inspect-model", "--model", model, "--allow-planned"],
+    )
+
+    assert result.exit_code != 0
+    assert "Gemma4 processor metadata" in result.output
+    assert "missing preprocessor_config.json" in result.output
+
+
 def test_mine_init_writes_mining_config(tmp_path: Path) -> None:
     config_path = tmp_path / "config.toml"
 

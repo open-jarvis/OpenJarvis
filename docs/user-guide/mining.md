@@ -54,6 +54,7 @@ Docker instead of exposing every GPU on the machine.
 ## Commands
 
 - `jarvis mine models` lists Pearl model support status.
+- `jarvis mine inspect-model` checks a Pearl model artifact before GPU launch.
 - `jarvis mine doctor` prints hardware, Docker, Pearl node, wallet, provider,
   and session checks.
 - `jarvis mine init` writes the local mining config and resolves the image.
@@ -97,6 +98,10 @@ need to be published and validated.
 When validating a newly converted Pearl model on a mining host, run:
 
 ```bash
+jarvis mine inspect-model \
+  --model pearl-ai/Qwen3.5-9B-pearl \
+  --allow-planned
+
 jarvis mine validate-model \
   --model pearl-ai/Qwen3.5-9B-pearl \
   --allow-planned \

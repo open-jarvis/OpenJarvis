@@ -7,6 +7,8 @@ import json
 import os
 import signal
 import time
+import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -113,6 +115,21 @@ def _post_json(url: str, payload: dict[str, Any], *, timeout: float) -> dict[str
         return json.loads(resp.read().decode())
 
 
+def _hf_json(
+    path: str,
+    *,
+    token: str = "",
+    timeout: float = 10.0,
+) -> dict[str, Any] | list[dict[str, Any]]:
+    """Fetch JSON from the Hugging Face API with an optional token."""
+
+    request = urllib.request.Request(f"https://huggingface.co{path}")
+    if token:
+        request.add_header("authorization", f"Bearer {token}")
+    with urllib.request.urlopen(request, timeout=timeout) as resp:
+        return json.loads(resp.read().decode())
+
+
 def _extract_model_ids(models_payload: dict[str, Any]) -> set[str]:
     data = models_payload.get("data", [])
     ids: set[str] = set()
@@ -123,6 +140,51 @@ def _extract_model_ids(models_payload: dict[str, Any]) -> set[str]:
             elif isinstance(item, str):
                 ids.add(item)
     return ids
+
+
+def _hf_model_path(model_id: str, suffix: str) -> str:
+    encoded = urllib.parse.quote(model_id, safe="/")
+    return f"/api/models/{encoded}{suffix}"
+
+
+def _artifact_file_paths(tree_payload: Any) -> set[str]:
+    paths: set[str] = set()
+    if isinstance(tree_payload, list):
+        for item in tree_payload:
+            if isinstance(item, dict) and isinstance(item.get("path"), str):
+                paths.add(item["path"])
+    return paths
+
+
+def _artifact_has_weights(paths: set[str]) -> bool:
+    return any(
+        path.endswith(".safetensors") or path.endswith(".bin") or path.endswith(".gguf")
+        for path in paths
+    )
+
+
+def _artifact_quant_method(model_payload: Any) -> str:
+    if not isinstance(model_payload, dict):
+        return ""
+    config = model_payload.get("config")
+    if not isinstance(config, dict):
+        return ""
+    quant_config = config.get("quantization_config")
+    if not isinstance(quant_config, dict):
+        return ""
+    return str(quant_config.get("quant_method") or "")
+
+
+def _artifact_architectures(model_payload: Any) -> list[str]:
+    if not isinstance(model_payload, dict):
+        return []
+    config = model_payload.get("config")
+    if not isinstance(config, dict):
+        return []
+    architectures = config.get("architectures")
+    if not isinstance(architectures, list):
+        return []
+    return [str(item) for item in architectures if isinstance(item, str)]
 
 
 def _pid_alive(pid: int | None) -> bool:
@@ -703,6 +765,147 @@ def validate_model(
     if not passed:
         raise click.ClickException("Pearl model validation checks failed.")
     click.echo("Validation checks passed.")
+
+
+@mine.command("inspect-model")
+@click.option("--model", default=DEFAULT_PEARL_MODEL, help="Pearl model id to inspect.")
+@click.option(
+    "--allow-planned",
+    is_flag=True,
+    default=False,
+    help="Inspect planned models even though they are not enabled for mining yet.",
+)
+@click.option(
+    "--hf-token-env",
+    default="HF_TOKEN",
+    show_default=True,
+    help="Environment variable containing a Hugging Face token.",
+)
+@click.option(
+    "--output",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Write a JSON artifact inspection report.",
+)
+@click.option("--timeout", default=10.0, show_default=True, type=float)
+def inspect_model(
+    model: str,
+    allow_planned: bool,
+    hf_token_env: str,
+    output: Path | None,
+    timeout: float,
+) -> None:
+    """Inspect a Pearl model artifact before spending GPU time."""
+
+    click.echo("Pearl Model Artifact Inspection")
+    click.echo(f"model:              {model}")
+    results: list[bool] = []
+    records: list[dict[str, Any]] = []
+
+    def record(name: str, ok: bool, info: str) -> None:
+        records.append({"name": name, "ok": ok, "info": info})
+        _validation_row(results, name, ok, info)
+
+    spec = get_pearl_model_spec(model)
+    if spec is None:
+        planned = pearl_variant_for_base_model(model)
+        info = f"raw model; planned Pearl variant {planned}" if planned else "unknown"
+        record("Model registry", False, info)
+    elif spec.is_validated:
+        record("Model registry", True, f"validated: {spec.model_id}")
+    else:
+        record("Model registry", allow_planned, f"{spec.status}: {spec.model_id}")
+
+    token = os.environ.get(hf_token_env, "")
+    model_payload: Any = None
+    paths: set[str] = set()
+    try:
+        model_payload = _hf_json(
+            _hf_model_path(model, ""),
+            token=token,
+            timeout=timeout,
+        )
+        record("HF model", True, "accessible")
+    except urllib.error.HTTPError as exc:
+        info = f"HTTP {exc.code}"
+        if exc.code in {401, 403} and not token:
+            info += f"; set ${hf_token_env} for gated/private models"
+        record("HF model", False, info)
+    except Exception as exc:  # noqa: BLE001
+        record("HF model", False, str(exc).splitlines()[0])
+
+    if model_payload is not None:
+        quant_method = _artifact_quant_method(model_payload)
+        record(
+            "Pearl quantization",
+            quant_method == "pearl",
+            quant_method or "missing quantization_config.quant_method",
+        )
+
+        try:
+            tree_payload = _hf_json(
+                _hf_model_path(model, "/tree/main?recursive=false"),
+                token=token,
+                timeout=timeout,
+            )
+            paths = _artifact_file_paths(tree_payload)
+            record("HF file list", bool(paths), f"{len(paths)} files")
+        except Exception as exc:  # noqa: BLE001
+            record("HF file list", False, str(exc).splitlines()[0])
+
+    if paths:
+        has_config = "config.json" in paths
+        record(
+            "config.json",
+            has_config,
+            "present" if has_config else "missing",
+        )
+        tokenizer_ok = bool({"tokenizer.json", "tokenizer_config.json"} & paths)
+        record(
+            "Tokenizer metadata",
+            tokenizer_ok,
+            "present"
+            if tokenizer_ok
+            else "missing tokenizer.json/tokenizer_config.json",
+        )
+        has_weights = _artifact_has_weights(paths)
+        record(
+            "Weights",
+            has_weights,
+            "present" if has_weights else "missing",
+        )
+
+        architectures = _artifact_architectures(model_payload)
+        is_gemma4 = any("Gemma4" in arch for arch in architectures)
+        if is_gemma4:
+            missing = [
+                name
+                for name in ("processor_config.json", "preprocessor_config.json")
+                if name not in paths
+            ]
+            record(
+                "Gemma4 processor metadata",
+                not missing,
+                "present" if not missing else "missing " + ", ".join(missing),
+            )
+
+    passed = bool(results) and all(results)
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        artifact = {
+            "schema_version": 1,
+            "model": model,
+            "status": "passed" if passed else "failed",
+            "allow_planned": allow_planned,
+            "hf_token_env": hf_token_env,
+            "checks": records,
+        }
+        output.write_text(json.dumps(artifact, indent=2, sort_keys=True) + "\n")
+        click.echo(f"Inspection artifact written to {output}")
+
+    if not passed:
+        raise click.ClickException("Pearl model artifact inspection failed.")
+    click.echo("Artifact inspection passed.")
 
 
 @mine.command()
