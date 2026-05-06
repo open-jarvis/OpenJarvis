@@ -78,6 +78,8 @@ body:
           required: true
         - label: `jarvis mine status` reports gateway/mining metrics
           required: true
+        - label: `jarvis mine validate-model --allow-planned` passes
+          required: true
         - label: Gateway/miner logs show no submission errors
           required: true
   - type: textarea

@@ -77,6 +77,8 @@ A model is `validated` only when all of these pass on real hardware:
 - `curl http://127.0.0.1:8000/v1/models`
 - `jarvis ask "Say hello in one sentence."`
 - `jarvis mine status`
+- `jarvis mine validate-model --model <pearl-model-id> --allow-planned --prompt
+  "Say hello in one sentence."`
 - Pearl gateway metrics show the mining path is active.
 - No block/share submission errors appear in gateway or miner logs.
 

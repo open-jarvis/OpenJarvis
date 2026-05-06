@@ -196,3 +196,85 @@ def test_mine_status_no_session(tmp_path: Path, monkeypatch) -> None:
 
     assert result.exit_code == 0
     assert "No active mining session" in result.output
+
+
+def test_mine_validate_model_blocks_planned_without_allow(
+    tmp_path: Path, monkeypatch
+) -> None:
+    sidecar_path = tmp_path / "mining.json"
+    model = "pearl-ai/Qwen3.5-9B-pearl"
+    Sidecar.write(
+        sidecar_path,
+        {
+            "provider": "vllm-pearl",
+            "model": model,
+            "vllm_endpoint": "http://127.0.0.1:8000/v1",
+            "gateway_metrics_url": "http://127.0.0.1:8339",
+        },
+    )
+    monkeypatch.setattr("openjarvis.cli.mine_cmd.SIDECAR_PATH", sidecar_path)
+    monkeypatch.setattr(
+        "openjarvis.cli.mine_cmd._get_json",
+        lambda url, *, timeout: {"data": [{"id": model}]},
+    )
+    stats = MagicMock()
+    stats.shares_submitted = 1
+    stats.shares_accepted = 1
+    monkeypatch.setattr(
+        "openjarvis.cli.mine_cmd._stats_from_metrics_url",
+        lambda url, provider_id: (stats, None),
+    )
+
+    result = CliRunner().invoke(cli, ["mine", "validate-model"])
+
+    assert result.exit_code != 0
+    assert "planned" in result.output
+    assert "validation checks failed" in result.output.lower()
+
+
+def test_mine_validate_model_allows_planned_with_runtime_evidence(
+    tmp_path: Path, monkeypatch
+) -> None:
+    sidecar_path = tmp_path / "mining.json"
+    model = "pearl-ai/Qwen3.5-9B-pearl"
+    Sidecar.write(
+        sidecar_path,
+        {
+            "provider": "vllm-pearl",
+            "model": model,
+            "vllm_endpoint": "http://127.0.0.1:8000/v1",
+            "gateway_metrics_url": "http://127.0.0.1:8339",
+        },
+    )
+    monkeypatch.setattr("openjarvis.cli.mine_cmd.SIDECAR_PATH", sidecar_path)
+    monkeypatch.setattr(
+        "openjarvis.cli.mine_cmd._get_json",
+        lambda url, *, timeout: {"data": [{"id": model}]},
+    )
+    monkeypatch.setattr(
+        "openjarvis.cli.mine_cmd._post_json",
+        lambda url, payload, *, timeout: {"choices": [{"message": {"content": "ok"}}]},
+    )
+    stats = MagicMock()
+    stats.shares_submitted = 2
+    stats.shares_accepted = 1
+    monkeypatch.setattr(
+        "openjarvis.cli.mine_cmd._stats_from_metrics_url",
+        lambda url, provider_id: (stats, None),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "mine",
+            "validate-model",
+            "--allow-planned",
+            "--prompt",
+            "hello",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Validation checks passed" in result.output
+    assert "Chat completion" in result.output
+    assert "submitted=2 accepted=1" in result.output

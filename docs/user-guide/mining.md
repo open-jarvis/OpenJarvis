@@ -54,6 +54,8 @@ builds can take 30-60 minutes.
 - `jarvis mine status` reads live gateway metrics.
 - `jarvis mine attach` writes a sidecar for a miner you launched manually.
 - `jarvis mine logs` prints the Docker container log tail.
+- `jarvis mine validate-model` probes the active vLLM miner and gateway before
+  promoting a planned Pearl model to validated.
 
 ## Model Support
 
@@ -76,6 +78,18 @@ pearl-ai/Llama-3.3-70B-Instruct-pearl
 
 The Qwen and Gemma targets are tracked in the model registry as planned until
 Pearl quantization and H100/H200 validation are complete.
+
+When validating a newly converted Pearl model on a mining host, run:
+
+```bash
+jarvis mine validate-model \
+  --model pearl-ai/Qwen3.5-9B-pearl \
+  --allow-planned \
+  --prompt "Say hello in one sentence."
+```
+
+Remove `--allow-planned` only after the model is promoted to validated in the
+OpenJarvis registry.
 
 ## v1 Scope
 

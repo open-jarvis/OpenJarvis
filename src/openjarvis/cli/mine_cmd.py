@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import signal
 import time
@@ -96,6 +97,34 @@ def _stats_from_metrics_url(
     return parse_gateway_metrics(text, provider_id=provider_id), None
 
 
+def _get_json(url: str, *, timeout: float) -> dict[str, Any]:
+    with urllib.request.urlopen(url, timeout=timeout) as resp:
+        return json.loads(resp.read().decode())
+
+
+def _post_json(url: str, payload: dict[str, Any], *, timeout: float) -> dict[str, Any]:
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode(),
+        headers={"content-type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as resp:
+        return json.loads(resp.read().decode())
+
+
+def _extract_model_ids(models_payload: dict[str, Any]) -> set[str]:
+    data = models_payload.get("data", [])
+    ids: set[str] = set()
+    if isinstance(data, list):
+        for item in data:
+            if isinstance(item, dict) and isinstance(item.get("id"), str):
+                ids.add(item["id"])
+            elif isinstance(item, str):
+                ids.add(item)
+    return ids
+
+
 def _pid_alive(pid: int | None) -> bool:
     if not pid:
         return False
@@ -122,6 +151,11 @@ def _terminate_pid(pid: int | None, *, grace_seconds: float = 3.0) -> None:
 def _row(name: str, ok: bool, info: str) -> None:
     marker = "OK" if ok else "FAIL"
     click.echo(f"  {name:<22} {info:<45} {marker}")
+
+
+def _validation_row(results: list[bool], name: str, ok: bool, info: str) -> None:
+    results.append(ok)
+    _row(name, ok, info)
 
 
 @click.group()
@@ -477,6 +511,155 @@ def status() -> None:
     click.echo(f"last error:         {stats.last_error or '-'}")
     click.echo(f"payout target:      {stats.payout_target}")
     click.echo(f"fees owed:          {stats.fees_owed}")
+
+
+@mine.command("validate-model")
+@click.option("--model", default=None, help="Pearl model id to validate.")
+@click.option(
+    "--vllm-endpoint",
+    default=None,
+    help="OpenAI-compatible vLLM endpoint, defaults to the mining sidecar.",
+)
+@click.option(
+    "--gateway-metrics-url",
+    default=None,
+    help="Pearl gateway metrics URL, defaults to the mining sidecar.",
+)
+@click.option(
+    "--allow-planned",
+    is_flag=True,
+    default=False,
+    help="Allow planned models while collecting validation evidence.",
+)
+@click.option(
+    "--prompt",
+    default=None,
+    help="Optional chat-completion smoke prompt to run through vLLM.",
+)
+@click.option("--timeout", default=10.0, show_default=True, type=float)
+def validate_model(
+    model: str | None,
+    vllm_endpoint: str | None,
+    gateway_metrics_url: str | None,
+    allow_planned: bool,
+    prompt: str | None,
+    timeout: float,
+) -> None:
+    """Collect runtime evidence for Pearl model validation."""
+    sidecar = Sidecar.read(SIDECAR_PATH)
+    sidecar_model = sidecar.get("model") if sidecar else None
+    model_id = model or sidecar_model or DEFAULT_PEARL_MODEL
+    endpoint = vllm_endpoint or (sidecar.get("vllm_endpoint") if sidecar else None)
+    metrics_url = gateway_metrics_url or (
+        sidecar.get("gateway_metrics_url") if sidecar else None
+    )
+
+    click.echo("Pearl Model Validation")
+    click.echo(f"model:              {model_id}")
+    results: list[bool] = []
+
+    spec = get_pearl_model_spec(str(model_id))
+    if spec is None:
+        planned = pearl_variant_for_base_model(str(model_id))
+        info = f"raw model; planned Pearl variant {planned}" if planned else "unknown"
+        _validation_row(results, "Model registry", False, info)
+    elif spec.is_validated:
+        _validation_row(results, "Model registry", True, f"validated: {spec.model_id}")
+    else:
+        _validation_row(
+            results,
+            "Model registry",
+            allow_planned,
+            f"{spec.status}: {spec.model_id}",
+        )
+
+    if sidecar is None:
+        _validation_row(
+            results,
+            "Sidecar",
+            False,
+            "absent - run `jarvis mine start` first",
+        )
+    else:
+        _validation_row(results, "Sidecar", True, f"present ({SIDECAR_PATH})")
+        _validation_row(
+            results,
+            "Sidecar model",
+            sidecar_model == model_id,
+            str(sidecar_model or "missing"),
+        )
+
+    if endpoint is None:
+        _validation_row(results, "vLLM endpoint", False, "missing")
+    else:
+        endpoint = endpoint.rstrip("/")
+        try:
+            models_payload = _get_json(f"{endpoint}/models", timeout=timeout)
+            model_ids = _extract_model_ids(models_payload)
+            models_info = (
+                str(model_id) if str(model_id) in model_ids else f"{len(model_ids)} ids"
+            )
+            _validation_row(
+                results,
+                "vLLM /models",
+                str(model_id) in model_ids,
+                models_info,
+            )
+        except Exception as exc:  # noqa: BLE001
+            _validation_row(results, "vLLM /models", False, str(exc).splitlines()[0])
+
+        if prompt:
+            try:
+                payload = {
+                    "model": model_id,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 16,
+                    "stream": False,
+                }
+                response = _post_json(
+                    f"{endpoint}/chat/completions",
+                    payload,
+                    timeout=timeout,
+                )
+                choices = response.get("choices")
+                _validation_row(
+                    results,
+                    "Chat completion",
+                    bool(choices),
+                    "choices returned" if choices else "no choices",
+                )
+            except Exception as exc:  # noqa: BLE001
+                _validation_row(
+                    results,
+                    "Chat completion",
+                    False,
+                    str(exc).splitlines()[0],
+                )
+        else:
+            click.echo("  Chat completion        skipped (pass --prompt to run)")
+
+    if metrics_url is None:
+        _validation_row(results, "Gateway metrics", False, "missing")
+    else:
+        metrics_url = str(metrics_url).rstrip("/")
+        if not metrics_url.endswith("/metrics"):
+            metrics_url = f"{metrics_url}/metrics"
+        stats, error = _stats_from_metrics_url(metrics_url, "vllm-pearl")
+        if error:
+            _validation_row(results, "Gateway metrics", False, error)
+        else:
+            submitted = stats.shares_submitted if stats is not None else 0
+            accepted = stats.shares_accepted if stats is not None else 0
+            _validation_row(
+                results,
+                "Gateway metrics",
+                True,
+                f"submitted={submitted} accepted={accepted}",
+            )
+
+    if not all(results):
+        raise click.ClickException("Pearl model validation checks failed.")
+    click.echo("Validation checks passed.")
 
 
 @mine.command()
