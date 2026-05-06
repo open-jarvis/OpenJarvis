@@ -27,6 +27,12 @@ _OPENAI_PREFIXES = ("gpt-", "o1-", "o3-", "o4-", "chatgpt-")
 _ANTHROPIC_PREFIXES = ("claude-",)
 _GOOGLE_PREFIXES = ("gemini-",)
 _MINIMAX_PREFIXES = ("MiniMax-",)
+_GROQ_PREFIXES = ("llama-3", "llama3-", "mixtral-", "gemma2-", "whisper-large-v3")
+_DEEPSEEK_PREFIXES = ("deepseek-",)
+_CEREBRAS_PREFIXES = ("cerebras/",)
+_SAMBANOVA_PREFIXES = ("sambanova/",)
+_KIMI_PREFIXES = ("moonshot-", "kimi-",)
+_V0_PREFIXES = ("v0-",)
 
 # HuggingFace orgs that host local-only quantised models — never route to cloud.
 _LOCAL_HF_ORGS = (
@@ -34,6 +40,32 @@ _LOCAL_HF_ORGS = (
     "bartowski/",
     "unsloth/",
     "lmstudio-community/",
+)
+
+# All env-var names the cloud router may need — read from os.environ at startup.
+_CLOUD_KEY_NAMES = (
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "GEMINI_API_KEY",
+    "GEMINI_API_KEY_B",
+    "GOOGLE_API_KEY",
+    "GROQ_API_KEY",
+    "DEEPSEEK_API_KEY",
+    "OPENROUTER_API_KEY",
+    "CEREBRAS_API_KEY",
+    "SAMBANOVA_API_KEY",
+    "KIMI_API_KEY",
+    "V0_API_KEY",
+    "MINIMAX_API_KEY",
+    # Feature-flag env vars
+    "GROQ_ENABLED",
+    "DEEPSEEK_ENABLED",
+    "OPENROUTER_ENABLED",
+    "CEREBRAS_ENABLED",
+    "SAMBANOVA_ENABLED",
+    "KIMI_ENABLED",
+    "HF_ENABLED",
+    "GLM_ENABLED",
 )
 
 
@@ -47,15 +79,8 @@ def _load_keys() -> dict[str, str]:
             if line and not line.startswith("#") and "=" in line:
                 k, v = line.split("=", 1)
                 keys[k.strip()] = v.strip()
-    # Process env can override (e.g. during testing)
-    for name in (
-        "OPENAI_API_KEY",
-        "ANTHROPIC_API_KEY",
-        "GEMINI_API_KEY",
-        "GOOGLE_API_KEY",
-        "OPENROUTER_API_KEY",
-        "MINIMAX_API_KEY",
-    ):
+    # Process env overrides file values (Railway / Docker env vars take precedence)
+    for name in _CLOUD_KEY_NAMES:
         val = os.environ.get(name)
         if val:
             keys[name] = val
@@ -72,6 +97,18 @@ def get_provider(model: str) -> str | None:
         return "google"
     if any(model.startswith(p) for p in _MINIMAX_PREFIXES):
         return "minimax"
+    if any(model.startswith(p) for p in _DEEPSEEK_PREFIXES):
+        return "deepseek"
+    if any(model.startswith(p) for p in _GROQ_PREFIXES):
+        return "groq"
+    if any(model.startswith(p) for p in _CEREBRAS_PREFIXES):
+        return "cerebras"
+    if any(model.startswith(p) for p in _SAMBANOVA_PREFIXES):
+        return "sambanova"
+    if any(model.startswith(p) for p in _KIMI_PREFIXES):
+        return "kimi"
+    if any(model.startswith(p) for p in _V0_PREFIXES):
+        return "v0"
     if any(model.startswith(org) for org in _LOCAL_HF_ORGS):
         return None  # local model, never route to cloud
     if "/" in model:  # openrouter format: "meta-llama/llama-3-8b"
@@ -392,6 +429,76 @@ async def stream_cloud(
             max_tokens,
             base_url="https://api.minimax.io/v1",
             api_key_name="MINIMAX_API_KEY",
+        ):
+            yield token
+
+    elif provider == "groq":
+        async for token in _stream_openai(
+            model,
+            messages,
+            temperature,
+            max_tokens,
+            base_url="https://api.groq.com/openai/v1",
+            api_key_name="GROQ_API_KEY",
+        ):
+            yield token
+
+    elif provider == "deepseek":
+        async for token in _stream_openai(
+            model,
+            messages,
+            temperature,
+            max_tokens,
+            base_url="https://api.deepseek.com/v1",
+            api_key_name="DEEPSEEK_API_KEY",
+        ):
+            yield token
+
+    elif provider == "cerebras":
+        # Strip the "cerebras/" namespace prefix before sending to the API
+        bare_model = model.removeprefix("cerebras/")
+        async for token in _stream_openai(
+            bare_model,
+            messages,
+            temperature,
+            max_tokens,
+            base_url="https://api.cerebras.ai/v1",
+            api_key_name="CEREBRAS_API_KEY",
+        ):
+            yield token
+
+    elif provider == "sambanova":
+        # Strip the "sambanova/" namespace prefix before sending to the API
+        bare_model = model.removeprefix("sambanova/")
+        async for token in _stream_openai(
+            bare_model,
+            messages,
+            temperature,
+            max_tokens,
+            base_url="https://api.sambanova.ai/v1",
+            api_key_name="SAMBANOVA_API_KEY",
+        ):
+            yield token
+
+    elif provider == "kimi":
+        async for token in _stream_openai(
+            model,
+            messages,
+            temperature,
+            max_tokens,
+            base_url="https://api.moonshot.cn/v1",
+            api_key_name="KIMI_API_KEY",
+        ):
+            yield token
+
+    elif provider == "v0":
+        async for token in _stream_openai(
+            model,
+            messages,
+            temperature,
+            max_tokens,
+            base_url="https://api.v0.dev/v1",
+            api_key_name="V0_API_KEY",
         ):
             yield token
 

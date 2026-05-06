@@ -32,3 +32,9 @@ Register OpenJarvis as a launch agent on macOS.
 Run OpenJarvis as an OpenAI-compatible HTTP server via `jarvis serve`.
 
 [:octicons-arrow-right-24: API server guide](api-server.md)
+
+## Cloud Provider API Keys
+
+Configure API keys for OpenAI, Anthropic, Google Gemini, Groq, DeepSeek, OpenRouter, Cerebras, SambaNova, Kimi, and more.
+
+[:octicons-arrow-right-24: Provider API keys](providers.md)
