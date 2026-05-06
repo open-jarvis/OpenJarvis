@@ -61,7 +61,7 @@ def load_tiers() -> tuple[TierSpec, ...]:
             providers=_split(
                 "TIER1_PROVIDERS",
                 "groq/llama-3.1-8b-instant,"
-                "cerebras/llama-3.3-70b,"
+                "cerebras/llama3.1-8b,"
                 "sambanova/Meta-Llama-3.3-70B-Instruct",
             ),
             deadline_s=_float_env("TIER1_DEADLINE_S", 2.0),
