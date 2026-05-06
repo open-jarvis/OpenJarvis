@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import pathlib
 import time
 
@@ -260,7 +261,10 @@ def create_app(
         logger.debug("Security middleware init skipped: %s", exc)
 
     # API key authentication middleware
-    if api_key:
+    # Auth is gated behind OPENJARVIS_AUTH_ENABLED=true so the app stays
+    # accessible by default.  Re-enable once a network gate (Cloudflare
+    # Access, basic auth, etc.) is in place.
+    if api_key and os.getenv("OPENJARVIS_AUTH_ENABLED") == "true":
         try:
             from openjarvis.server.auth_middleware import AuthMiddleware
 
