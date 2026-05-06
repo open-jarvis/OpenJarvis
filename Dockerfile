@@ -26,7 +26,8 @@ RUN apt-get update && apt-get install -y curl build-essential && rm -rf /var/lib
 # Install Rust toolchain and build extension in single RUN
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
     . $HOME/.cargo/env && \
-    uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml
+    uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml && \
+    pip install --no-cache-dir /tmp/.tmp*/openjarvis_rust-*.whl 2>/dev/null || true
 
 # Stage 3: Runtime
 FROM python:3.12-slim-bookworm
