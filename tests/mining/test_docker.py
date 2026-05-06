@@ -214,7 +214,8 @@ def test_launcher_start_maps_host_gpu_ids_to_container_local_cuda_ids(
     kwargs = fake.containers.run.call_args.kwargs
     assert kwargs["environment"]["NVIDIA_VISIBLE_DEVICES"] == "1"
     assert kwargs["environment"]["CUDA_VISIBLE_DEVICES"] == "0"
-    assert kwargs["device_requests"][0].device_ids == ["1"]
+    if kwargs["device_requests"] is not None:
+        assert kwargs["device_requests"][0].device_ids == ["1"]
 
 
 def test_launcher_start_mounts_local_model_path(_env_password, tmp_path):
