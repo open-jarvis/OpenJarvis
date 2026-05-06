@@ -10,12 +10,12 @@ for the vanilla Pearl GEMM path.
 
 ## Target Models
 
-| Raw model | Planned Pearl model | Status |
-|---|---|---|
-| `Qwen/Qwen3.5-9B` | `pearl-ai/Qwen3.5-9B-pearl` | Planned |
-| `Qwen/Qwen3.6-27B` | `pearl-ai/Qwen3.6-27B-pearl` | Planned |
-| `google/gemma-4-E4B-it` | `pearl-ai/Gemma-4-E4B-it-pearl` | Planned |
-| `google/gemma-4-31B-it` | `pearl-ai/Gemma-4-31B-it-pearl` | Planned |
+| Raw model | Planned Pearl model | Status | Tracking |
+|---|---|---|---|
+| `Qwen/Qwen3.5-9B` | `pearl-ai/Qwen3.5-9B-pearl` | Planned | [#316](https://github.com/open-jarvis/OpenJarvis/issues/316) |
+| `Qwen/Qwen3.6-27B` | `pearl-ai/Qwen3.6-27B-pearl` | Planned | [#317](https://github.com/open-jarvis/OpenJarvis/issues/317) |
+| `google/gemma-4-E4B-it` | `pearl-ai/Gemma-4-E4B-it-pearl` | Planned | [#318](https://github.com/open-jarvis/OpenJarvis/issues/318) |
+| `google/gemma-4-31B-it` | `pearl-ai/Gemma-4-31B-it-pearl` | Planned | [#319](https://github.com/open-jarvis/OpenJarvis/issues/319) |
 
 The current validated model remains:
 
