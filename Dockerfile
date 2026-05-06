@@ -12,6 +12,7 @@ FROM python:3.12-slim-bookworm AS builder
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src/ src/
+COPY rust/ rust/
 
 # Copy built frontend into the server static directory
 COPY --from=frontend /app/src/openjarvis/server/static src/openjarvis/server/static/
@@ -19,12 +20,24 @@ COPY --from=frontend /app/src/openjarvis/server/static src/openjarvis/server/sta
 RUN pip install --no-cache-dir uv && \
     uv pip install --system ".[server]"
 
+# Build Rust extension for memory backend
+RUN uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml
+
+# Generate API key if not provided
+RUN if [ -z "$OPENJARVIS_API_KEY" ]; then \
+      python -c "import secrets; print('OPENJARVIS_API_KEY=' + secrets.token_urlsafe(32))" > /tmp/apikey.env; \
+      cat /tmp/apikey.env; \
+    fi
+
 # Stage 3: Runtime
 FROM python:3.12-slim-bookworm
 
 COPY --from=builder /usr/local /usr/local
 COPY --from=builder /app /app
 WORKDIR /app
+
+# Set default API key if not provided at runtime
+ENV OPENJARVIS_API_KEY=${OPENJARVIS_API_KEY:-default-key-change-me}
 
 EXPOSE 8000
 
