@@ -71,6 +71,7 @@ memory-colbert = [
 ]
 memory-pdf = ["pdfplumber>=0.10"]
 memory-bm25 = ["rank-bm25>=0.2.2"]
+memory-obsidian = ["mcp>=1.0.0"]
 server = [
     "fastapi>=0.110",
     "uvicorn>=0.30",

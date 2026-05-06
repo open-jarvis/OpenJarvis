@@ -31,6 +31,14 @@ try:
 except ImportError:
     pass
 
+# Remote Obsidian vault as a memory backend (uses the optional `mcp` dep
+# via the integrations.obsidian_vault client; the import itself is cheap
+# and does not establish a connection).
+try:
+    import openjarvis.tools.storage.obsidian_vault_backend  # noqa: F401
+except ImportError:
+    pass
+
 from openjarvis.tools.storage._stubs import MemoryBackend, RetrievalResult
 from openjarvis.tools.storage.chunking import Chunk, ChunkConfig, chunk_text
 from openjarvis.tools.storage.context import ContextConfig, inject_context

@@ -14,6 +14,11 @@ __all__ = ["Attachment", "BaseConnector", "Document", "KnowledgeStore", "SyncSta
 import openjarvis.connectors.obsidian  # noqa: F401
 
 try:
+    import openjarvis.connectors.obsidian_remote  # noqa: F401
+except ImportError:
+    pass  # mcp / httpx may not be installed
+
+try:
     import openjarvis.connectors.gmail  # noqa: F401
 except ImportError:
     pass

@@ -141,4 +141,43 @@ try:
 except ImportError:
     pass
 
+# Integration tool surfaces (Obsidian vault, n8n, Railway, GitHub,
+# Cloudinary, V0, SMTP). Each registers its BaseTool subclasses via
+# @ToolRegistry.register and is gated on the relevant env-vars +
+# optional dependencies — soft-skip if anything is missing.
+try:
+    import openjarvis.tools.obsidian_vault_tools  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.n8n_tools  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.email_tools  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.railway_tools  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.github_tools  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.cloudinary_tools  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.v0_tools  # noqa: F401
+except ImportError:
+    pass
+
 __all__ = ["BaseTool", "ToolExecutor", "ToolSpec"]
