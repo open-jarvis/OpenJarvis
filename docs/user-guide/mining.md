@@ -88,6 +88,12 @@ pearl-ai/Llama-3.3-70B-Instruct-pearl
 The Qwen and Gemma targets are tracked in the model registry as planned until
 Pearl quantization and H100/H200 validation are complete.
 
+Current status: the default Llama Pearl model is the only validated model.
+The Gemma 31B Pearl artifact has been seen by OpenJarvis on H100, but it is not
+promoted because the published artifact is missing Gemma4 processor metadata
+needed for clean vLLM startup. The Qwen and smaller Gemma Pearl artifacts still
+need to be published and validated.
+
 When validating a newly converted Pearl model on a mining host, run:
 
 ```bash

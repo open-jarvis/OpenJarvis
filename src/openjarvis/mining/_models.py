@@ -43,7 +43,10 @@ PEARL_MODEL_SPECS: tuple[PearlModelSpec, ...] = (
         status="planned",
         min_vram_gb=24.0,
         default_max_model_len=8192,
-        notes="Planned target; validation tracked in open-jarvis/OpenJarvis#316.",
+        notes=(
+            "Planned target; Pearl artifact is not publicly available yet. "
+            "Validation tracked in open-jarvis/OpenJarvis#316."
+        ),
     ),
     PearlModelSpec(
         model_id="pearl-ai/Qwen3.6-27B-pearl",
@@ -51,7 +54,10 @@ PEARL_MODEL_SPECS: tuple[PearlModelSpec, ...] = (
         status="planned",
         min_vram_gb=80.0,
         default_max_model_len=8192,
-        notes="Planned target; validation tracked in open-jarvis/OpenJarvis#317.",
+        notes=(
+            "Planned target; Pearl artifact is not publicly available yet. "
+            "Validation tracked in open-jarvis/OpenJarvis#317."
+        ),
     ),
     PearlModelSpec(
         model_id="pearl-ai/Gemma-4-E4B-it-pearl",
@@ -59,7 +65,10 @@ PEARL_MODEL_SPECS: tuple[PearlModelSpec, ...] = (
         status="planned",
         min_vram_gb=24.0,
         default_max_model_len=8192,
-        notes="Planned target; validation tracked in open-jarvis/OpenJarvis#318.",
+        notes=(
+            "Planned target; Pearl artifact is not publicly available yet. "
+            "Validation tracked in open-jarvis/OpenJarvis#318."
+        ),
     ),
     PearlModelSpec(
         model_id="pearl-ai/Gemma-4-31B-it-pearl",
@@ -67,7 +76,11 @@ PEARL_MODEL_SPECS: tuple[PearlModelSpec, ...] = (
         status="planned",
         min_vram_gb=80.0,
         default_max_model_len=8192,
-        notes="Planned target; validation tracked in open-jarvis/OpenJarvis#319.",
+        notes=(
+            "Artifact exists but H100 validation is blocked by missing Gemma4 "
+            "processor/preprocessor metadata in the published Pearl artifact. "
+            "Validation tracked in open-jarvis/OpenJarvis#319."
+        ),
     ),
 )
 
