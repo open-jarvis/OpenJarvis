@@ -111,8 +111,16 @@ def serve(
         os.environ.get("OPENAI_API_KEY")
         or os.environ.get("ANTHROPIC_API_KEY")
         or os.environ.get("GEMINI_API_KEY")
+        or os.environ.get("GEMINI_API_KEY_B")
         or os.environ.get("GOOGLE_API_KEY")
+        or os.environ.get("GROQ_API_KEY")
+        or os.environ.get("DEEPSEEK_API_KEY")
         or os.environ.get("OPENROUTER_API_KEY")
+        or os.environ.get("CEREBRAS_API_KEY")
+        or os.environ.get("SAMBANOVA_API_KEY")
+        or os.environ.get("KIMI_API_KEY")
+        or os.environ.get("V0_API_KEY")
+        or os.environ.get("MINIMAX_API_KEY")
     )
     if _has_cloud and engine_name != "cloud":
         try:
