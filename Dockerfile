@@ -20,6 +20,9 @@ COPY --from=frontend /app/src/openjarvis/server/static src/openjarvis/server/sta
 RUN pip install --no-cache-dir uv && \
     uv pip install --system ".[server]"
 
+# Install curl and build dependencies for Rust
+RUN apt-get update && apt-get install -y curl build-essential && rm -rf /var/lib/apt/lists/*
+
 # Install Rust toolchain and build extension in single RUN
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
     . $HOME/.cargo/env && \
