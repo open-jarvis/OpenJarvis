@@ -8,6 +8,7 @@ section 7 for the design.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -23,6 +24,12 @@ from openjarvis.mining._constants import (
 )
 
 CONTAINER_NAME = "openjarvis-pearl-miner"
+
+_SECRET_LOG_PATTERNS = (
+    (re.compile(r"(rpc_password:\s*)\S+", re.IGNORECASE), r"\1[REDACTED]"),
+    (re.compile(r"(PEARLD_RPC_PASSWORD=)\S+"), r"\1[REDACTED]"),
+    (re.compile(r'("PEARLD_RPC_PASSWORD"\s*:\s*")[^"]+(")'), r"\1[REDACTED]\2"),
+)
 
 
 class ImageAcquisitionError(RuntimeError):
@@ -376,8 +383,10 @@ class PearlDockerLauncher:
             return ""
         raw = container.logs(tail=tail)
         if isinstance(raw, bytes):
-            return raw.decode("utf-8", errors="replace")
-        return str(raw)
+            text = raw.decode("utf-8", errors="replace")
+        else:
+            text = str(raw)
+        return _redact_container_logs(text)
 
     @staticmethod
     def _git(*args: str, cwd: Path | None) -> None:
@@ -397,3 +406,11 @@ class PearlDockerLauncher:
                 f"`{' '.join(cmd)}` failed (exit {exc.returncode}): "
                 + " | ".join(stderr_tail)
             ) from exc
+
+
+def _redact_container_logs(text: str) -> str:
+    """Redact secrets known to appear in upstream Pearl container logs."""
+    redacted = text
+    for pattern, replacement in _SECRET_LOG_PATTERNS:
+        redacted = pattern.sub(replacement, redacted)
+    return redacted

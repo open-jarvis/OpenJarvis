@@ -262,6 +262,23 @@ def test_launcher_get_logs_returns_decoded_string():
     assert "hello" in launcher.get_logs(tail=100)
 
 
+def test_launcher_get_logs_redacts_rpc_passwords():
+    from openjarvis.mining._docker import PearlDockerLauncher
+
+    fake_client = MagicMock()
+    fake_container = MagicMock()
+    fake_container.logs.return_value = (
+        b"PearlNodeClient initialized with rpc_password: secret123\n"
+        b"PEARLD_RPC_PASSWORD=secret123\n"
+        b'{"PEARLD_RPC_PASSWORD": "secret123"}\n'
+    )
+    launcher = PearlDockerLauncher(client=fake_client)
+    launcher._container = fake_container
+    logs = launcher.get_logs(tail=100)
+    assert "secret123" not in logs
+    assert logs.count("[REDACTED]") == 3
+
+
 def test_launcher_start_errors_when_password_env_missing():
     from openjarvis.mining._docker import (
         ConfigurationError,
