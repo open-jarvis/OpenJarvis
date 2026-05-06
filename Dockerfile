@@ -1,6 +1,9 @@
 # Stage 1: Build frontend SPA
 FROM node:22-slim AS frontend
 
+ARG VITE_OPENJARVIS_API_KEY
+ENV VITE_OPENJARVIS_API_KEY=${VITE_OPENJARVIS_API_KEY}
+
 WORKDIR /app
 COPY frontend/ ./frontend/
 RUN cd frontend && npm ci --ignore-scripts 2>/dev/null || npm install
