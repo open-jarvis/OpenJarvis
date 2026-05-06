@@ -23,6 +23,23 @@ The current validated model remains:
 pearl-ai/Llama-3.3-70B-Instruct-pearl
 ```
 
+## Current Validation Findings
+
+The H100 smoke run validated the default Llama Pearl model end to end through
+`jarvis mine start`, vLLM `/v1/models`, OpenJarvis inference routing, Pearl
+gateway template refresh, and `jarvis mine validate-model`.
+
+The Qwen and Gemma targets remain planned:
+
+- `pearl-ai/Qwen3.5-9B-pearl`, `pearl-ai/Qwen3.6-27B-pearl`, and
+  `pearl-ai/Gemma-4-E4B-it-pearl` are not publicly available artifacts yet.
+- `pearl-ai/Gemma-4-31B-it-pearl` exists and selects Pearl mining kernels on
+  H100, but vLLM fails during Gemma4 multimodal profiling because the published
+  artifact is missing processor/preprocessor metadata required by Transformers.
+  A local cache experiment proved the processor can be loaded only after
+  injecting metadata from `google/gemma-4-31B-it`; that is not sufficient for
+  OpenJarvis promotion because a clean user install would still fail.
+
 ## Enablement Checklist
 
 1. Reproduce the current Llama Pearl model recipe.
@@ -34,6 +51,8 @@ pearl-ai/Llama-3.3-70B-Instruct-pearl
 2. Convert the target model.
    - Start with `Qwen/Qwen3.5-9B`; it is the smallest target.
    - Generate Pearl-compatible quantized weights and metadata.
+   - For Gemma4 artifacts, include the base model's processor metadata required
+     by vLLM's Gemma4 multimodal profiler.
    - Publish under the planned `pearl-ai/*-pearl` id or a staging namespace.
 
 3. Validate the Pearl vLLM plugin path.
