@@ -27,7 +27,10 @@ RUN apt-get update && apt-get install -y curl build-essential && rm -rf /var/lib
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
     . $HOME/.cargo/env && \
     uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml && \
-    find /tmp -name "openjarvis_rust-*.whl" -type f -exec pip install --no-cache-dir {} \;
+    echo "Looking for wheel..." && \
+    find /tmp -name "openjarvis_rust-*.whl" -type f && \
+    find /tmp -name "openjarvis_rust-*.whl" -type f -exec pip install -v --no-cache-dir {} \; && \
+    python -c "import openjarvis_rust; print('✓ Rust extension imported successfully')"
 
 # Stage 3: Runtime
 FROM python:3.12-slim-bookworm
