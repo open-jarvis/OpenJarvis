@@ -18,7 +18,7 @@ COPY rust/ rust/
 COPY --from=frontend /app/src/openjarvis/server/static src/openjarvis/server/static/
 
 RUN pip install --no-cache-dir uv && \
-    uv pip install --system ".[server]"
+    uv pip install --system ".[server,memory-obsidian]"
 
 # Stage 3: Runtime
 FROM python:3.12-slim-bookworm
