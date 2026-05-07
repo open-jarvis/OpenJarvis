@@ -31,6 +31,8 @@ from openjarvis.tools.serena_hub import (
     hub_execution_runner_plan,
     hub_execution_gate_list,
     hub_finance_rollup,
+    hub_final_patch_execution_gate,
+    hub_final_execution_gate_list,
     hub_operator_rollup,
     hub_patch_prep_list,
     hub_patch_prep,
@@ -224,6 +226,32 @@ def approval_decision(approval_id, decision, reason, decided_by):
 def execution_gate_list(gate_status):
     """List local execution gate records. No execution occurs."""
     _print(hub_execution_gate_list(status=gate_status))
+
+
+@hub.command("final-patch-execution-gate")
+@click.option("--approval-id", required=True)
+@click.option("--final-confirmation", is_flag=True)
+@click.option("--secret-scan-status", default="not_run")
+@click.option("--smoke-test-command", default="")
+@click.option("--execute", is_flag=True)
+def final_patch_execution_gate(approval_id, final_confirmation, secret_scan_status, smoke_test_command, execute):
+    """Validate final CLI-only patch execution gate. Executes only with explicit flags."""
+    _print(
+        hub_final_patch_execution_gate(
+            approval_id=approval_id,
+            final_confirmation=final_confirmation,
+            secret_scan_status=secret_scan_status,
+            smoke_test_command=smoke_test_command,
+            execute=execute,
+        )
+    )
+
+
+@hub.command("final-execution-gate-list")
+@click.option("--status", "gate_status", default="all")
+def final_execution_gate_list(gate_status):
+    """List final execution gate artifacts."""
+    _print(hub_final_execution_gate_list(status=gate_status))
 
 
 @hub.command("patch-prep")
