@@ -1,48 +1,16 @@
-"""Serena Hub / Command Center local-first operator.
-
-Hub v1 is a read-only local aggregator and local web-state generator.
-It indexes local operator outputs, creates local rollups, creates local
-Hub state files, and generates a static local command-center web shell.
-
-Hub v1 does not mutate upstream operators or external systems.
-"""
-
-from __future__ import annotations
-
-import json
-import os
-from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
+ROOT = Path.cwd()
+tool_path = ROOT / "src" / "openjarvis" / "tools" / "serena_hub.py"
+cli_path = ROOT / "src" / "openjarvis" / "cli" / "hub_cmd.py"
 
-HUB_VERSION = "0.1.0"
-DEFAULT_ROOT = Path("outputs")
-HUB_ROOT = Path("outputs/hub")
+tool = tool_path.read_text(encoding="utf-8")
+cli = cli_path.read_text(encoding="utf-8")
 
-KNOWN_SOURCES = {
-    "ecommerce": "outputs/ecommerce",
-    "wordpress": "outputs/wordpress",
-    "reporting": "outputs/reporting",
-    "analytics": "outputs/analytics",
-    "bookings": "outputs/bookings",
-    "documents": "outputs/documents",
-    "files": "outputs/files",
-    "gdrive": "outputs/gdrive",
-    "google-docs": "outputs/google-docs",
-    "google-calendar": "outputs/google-calendar",
-    "accounting": "outputs/accounting",
-    "membership": "outputs/membership",
-    "crm": "outputs/crm",
-    "compliance": "outputs/compliance",
-    "ocr": "outputs/ocr",
-    "github": "outputs/github",
-    "vscode": "outputs/vscode",
-    "health-monitor": "outputs/health-monitor",
-}
-
-SAFETY_BOUNDARY = {
+# -----------------------------
+# 1. Add Hub Batch 2 constants
+# -----------------------------
+constants_marker = '''SAFETY_BOUNDARY = {
     "local_only": True,
     "read_only_external_systems": True,
     "external_writes": False,
@@ -56,7 +24,9 @@ SAFETY_BOUNDARY = {
     "sensitive_export": False,
     "dashboard_external_create": False,
 }
+'''
 
+constants_add = constants_marker + '''
 
 ORB_STATES = {
     "idle": {
@@ -156,297 +126,18 @@ DASHBOARD_SECTIONS = [
         "widget_types": ["hub_router_widget"],
     },
 ]
+'''
 
+if "ORB_STATES =" not in tool:
+    tool = tool.replace(constants_marker, constants_add)
 
-@dataclass
-class HubArtifact:
-    path: str
-    operator: str
-    suffix: str
-    size_bytes: int
-    modified_at: str
-    artifact_type: str
-    handoff_signal: bool
-    dashboard_signal: bool
-    safety_signal: bool
-    blocked_signal: bool
-    sensitive_signal: bool
-    finance_signal: bool
-    schedule_signal: bool
-    document_signal: bool
-    customer_contact_signal: bool
-    membership_signal: bool
-    ecommerce_signal: bool
-    wordpress_signal: bool
-    reporting_analytics_signal: bool
-    local_only_signal: bool
+# -----------------------------
+# 2. Replace widget registry
+# -----------------------------
+start = tool.index("def hub_widget_registry()")
+end = tool.index("def _ensure_base_state()")
 
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-
-
-def _write_json(path: Path, payload: dict[str, Any]) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    return path
-
-
-def _safe_read_json(path: Path) -> dict[str, Any] | list[Any] | None:
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-
-
-def _guess_operator(path: Path) -> str:
-    normalized = str(path).replace("\\", "/").lower()
-    for operator, root in KNOWN_SOURCES.items():
-        if normalized.startswith(root.lower()):
-            return operator
-    parts = normalized.split("/")
-    if "outputs" in parts:
-        index = parts.index("outputs")
-        if len(parts) > index + 1:
-            return parts[index + 1]
-    return "unknown"
-
-
-def _artifact_type(path: Path) -> str:
-    name = path.name.lower()
-    suffix = path.suffix.lower()
-    if "handoff" in name:
-        return "handoff"
-    if "dashboard" in name:
-        return "dashboard"
-    if "blocked" in name or "safety" in name:
-        return "safety"
-    if "approval" in name:
-        return "approval"
-    if "rollup" in name or "summary" in name:
-        return "summary"
-    if suffix == ".json":
-        return "json"
-    if suffix in {".md", ".txt"}:
-        return "text"
-    if suffix in {".html", ".css", ".js"}:
-        return "web"
-    return suffix.replace(".", "") or "artifact"
-
-
-def _scan_artifacts(root: str | Path = DEFAULT_ROOT, limit: int = 300) -> list[HubArtifact]:
-    root_path = Path(root)
-    if not root_path.exists():
-        return []
-
-    artifacts: list[HubArtifact] = []
-    for path in sorted(root_path.rglob("*")):
-        if not path.is_file():
-            continue
-        if "outputs/hub/web" in str(path).replace("\\", "/"):
-            continue
-
-        lower = str(path).replace("\\", "/").lower()
-        name = path.name.lower()
-        stat = path.stat()
-        operator = _guess_operator(path)
-
-        artifacts.append(
-            HubArtifact(
-                path=str(path).replace("\\", "/"),
-                operator=operator,
-                suffix=path.suffix.lower(),
-                size_bytes=stat.st_size,
-                modified_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).replace(microsecond=0).isoformat(),
-                artifact_type=_artifact_type(path),
-                handoff_signal="handoff" in lower,
-                dashboard_signal="dashboard" in lower or "widget" in lower,
-                safety_signal="safety" in lower or "approval" in lower,
-                blocked_signal="blocked" in lower or "unapproved" in lower,
-                sensitive_signal="sensitive" in lower or "patient" in lower,
-                finance_signal=any(term in lower for term in ["finance", "accounting", "invoice", "payment", "revenue", "billing"]),
-                schedule_signal=any(term in lower for term in ["calendar", "schedule", "booking", "appointment"]),
-                document_signal=any(term in lower for term in ["document", "docs", "docx", "pdf", "file", "drive"]),
-                customer_contact_signal=any(term in lower for term in ["crm", "contact", "customer", "lead"]),
-                membership_signal="membership" in lower or "member" in lower,
-                ecommerce_signal="ecommerce" in lower or "order" in lower or "product" in lower,
-                wordpress_signal="wordpress" in lower or "wp" in name,
-                reporting_analytics_signal="reporting" in lower or "analytics" in lower,
-                local_only_signal="local" in lower or path.is_relative_to(root_path),
-            )
-        )
-
-        if len(artifacts) >= limit:
-            break
-
-    return artifacts
-
-
-def hub_status() -> dict[str, Any]:
-    return {
-        "hub": "serena",
-        "operator": "hub",
-        "version": HUB_VERSION,
-        "status": "ready",
-        "mode": "local_read_only",
-        "description": "Serena Hub / Command Center v1 local-first operator",
-        "safety_boundary": SAFETY_BOUNDARY,
-        "output_root": str(HUB_ROOT).replace("\\", "/"),
-        "known_sources": KNOWN_SOURCES,
-        "timestamp": _utc_now(),
-    }
-
-
-def hub_env_check() -> dict[str, Any]:
-    return {
-        "status": "ready",
-        "mode": "local_read_only",
-        "python_ok": True,
-        "cwd": str(Path.cwd()),
-        "outputs_exists": Path("outputs").exists(),
-        "hub_output_root": str(HUB_ROOT).replace("\\", "/"),
-        "external_write_keys_required": False,
-        "external_write_keys_checked": False,
-        "notes": [
-            "Hub v1 does not require external API credentials.",
-            "Hub v1 reads local outputs and writes local Hub state/web artifacts only.",
-        ],
-        "safety_boundary": SAFETY_BOUNDARY,
-        "timestamp": _utc_now(),
-    }
-
-
-def hub_source_list() -> dict[str, Any]:
-    sources = []
-    for operator, root in KNOWN_SOURCES.items():
-        path = Path(root)
-        file_count = len([p for p in path.rglob("*") if p.is_file()]) if path.exists() else 0
-        sources.append(
-            {
-                "operator": operator,
-                "root": root,
-                "exists": path.exists(),
-                "file_count": file_count,
-            }
-        )
-    return {
-        "sources": sources,
-        "source_count": len(sources),
-        "timestamp": _utc_now(),
-    }
-
-
-def hub_artifact_index(root: str = "outputs", limit: int = 300) -> dict[str, Any]:
-    artifacts = _scan_artifacts(root=root, limit=limit)
-    payload = {
-        "artifact_count": len(artifacts),
-        "root": root,
-        "limit": limit,
-        "artifacts": [asdict(a) for a in artifacts],
-        "timestamp": _utc_now(),
-    }
-    _write_json(HUB_ROOT / "indexes" / "artifact_index.json", payload)
-    return payload
-
-
-def _rollup_by_operator(artifacts: list[HubArtifact]) -> list[dict[str, Any]]:
-    by_operator: dict[str, dict[str, Any]] = {}
-    for artifact in artifacts:
-        item = by_operator.setdefault(
-            artifact.operator,
-            {
-                "operator": artifact.operator,
-                "artifact_count": 0,
-                "handoff_count": 0,
-                "dashboard_count": 0,
-                "safety_count": 0,
-                "blocked_count": 0,
-                "sensitive_count": 0,
-                "finance_count": 0,
-                "schedule_count": 0,
-                "document_count": 0,
-                "customer_contact_count": 0,
-                "last_artifact_timestamp": None,
-                "recommended_next_action": "Refresh outputs or inspect newest local artifact.",
-            },
-        )
-        item["artifact_count"] += 1
-        item["handoff_count"] += int(artifact.handoff_signal)
-        item["dashboard_count"] += int(artifact.dashboard_signal)
-        item["safety_count"] += int(artifact.safety_signal)
-        item["blocked_count"] += int(artifact.blocked_signal)
-        item["sensitive_count"] += int(artifact.sensitive_signal)
-        item["finance_count"] += int(artifact.finance_signal)
-        item["schedule_count"] += int(artifact.schedule_signal)
-        item["document_count"] += int(artifact.document_signal)
-        item["customer_contact_count"] += int(artifact.customer_contact_signal)
-        if not item["last_artifact_timestamp"] or artifact.modified_at > item["last_artifact_timestamp"]:
-            item["last_artifact_timestamp"] = artifact.modified_at
-
-    return sorted(by_operator.values(), key=lambda x: x["operator"])
-
-
-def hub_operator_rollup(root: str = "outputs", limit: int = 300) -> dict[str, Any]:
-    artifacts = _scan_artifacts(root=root, limit=limit)
-    payload = {
-        "rollup_type": "operator_rollup",
-        "operator_count": len(set(a.operator for a in artifacts)),
-        "operators": _rollup_by_operator(artifacts),
-        "timestamp": _utc_now(),
-    }
-    _write_json(HUB_ROOT / "rollups" / "operator_rollup.json", payload)
-    return payload
-
-
-def _signal_rollup(name: str, root: str, limit: int, predicate_name: str) -> dict[str, Any]:
-    artifacts = _scan_artifacts(root=root, limit=limit)
-    selected = [a for a in artifacts if getattr(a, predicate_name)]
-    payload = {
-        "rollup_type": name,
-        "artifact_count": len(selected),
-        "operators": _rollup_by_operator(selected),
-        "artifacts": [asdict(a) for a in selected[:100]],
-        "timestamp": _utc_now(),
-    }
-    _write_json(HUB_ROOT / "rollups" / f"{name}.json", payload)
-    return payload
-
-
-def hub_crm_rollup(root: str = "outputs", limit: int = 300) -> dict[str, Any]:
-    return _signal_rollup("crm_rollup", root, limit, "customer_contact_signal")
-
-
-def hub_finance_rollup(root: str = "outputs", limit: int = 300) -> dict[str, Any]:
-    return _signal_rollup("finance_rollup", root, limit, "finance_signal")
-
-
-def hub_schedule_rollup(root: str = "outputs", limit: int = 300) -> dict[str, Any]:
-    return _signal_rollup("schedule_rollup", root, limit, "schedule_signal")
-
-
-def hub_document_rollup(root: str = "outputs", limit: int = 300) -> dict[str, Any]:
-    return _signal_rollup("document_rollup", root, limit, "document_signal")
-
-
-def hub_safety_rollup(root: str = "outputs", limit: int = 300) -> dict[str, Any]:
-    artifacts = _scan_artifacts(root=root, limit=limit)
-    selected = [a for a in artifacts if a.safety_signal or a.blocked_signal or a.sensitive_signal]
-    payload = {
-        "rollup_type": "safety_rollup",
-        "artifact_count": len(selected),
-        "blocked_count": sum(1 for a in selected if a.blocked_signal),
-        "sensitive_count": sum(1 for a in selected if a.sensitive_signal),
-        "approval_or_safety_count": sum(1 for a in selected if a.safety_signal),
-        "operators": _rollup_by_operator(selected),
-        "artifacts": [asdict(a) for a in selected[:100]],
-        "safety_boundary": SAFETY_BOUNDARY,
-        "timestamp": _utc_now(),
-    }
-    _write_json(HUB_ROOT / "rollups" / "safety_rollup.json", payload)
-    return payload
-
-
-def hub_widget_registry() -> dict[str, Any]:
+new_widget_registry = r'''def hub_widget_registry() -> dict[str, Any]:
     widget_specs = [
         ("voice_orb_widget", "Voice Orb", "hub", "overview", 1),
         ("chat_widget", "Chat Command Bar", "hub", "overview", 2),
@@ -499,8 +190,18 @@ def hub_widget_registry() -> dict[str, Any]:
     return payload
 
 
-def _default_hub_state() -> dict[str, Any]:
-    return {
+'''
+
+tool = tool[:start] + new_widget_registry + tool[end:]
+
+# -----------------------------
+# 3. Replace base state
+# -----------------------------
+start = tool.index("def _ensure_base_state()")
+end = tool.index("def hub_activity_event(")
+
+new_base_state = r'''def _ensure_base_state() -> None:
+    state = {
         "hub_status": "active",
         "orb_state": "idle",
         "orb_state_label": ORB_STATES["idle"]["label"],
@@ -513,22 +214,7 @@ def _default_hub_state() -> dict[str, Any]:
         "last_updated": _utc_now(),
         "safety_boundary": SAFETY_BOUNDARY,
     }
-
-
-def _ensure_base_state() -> None:
-    state_path = HUB_ROOT / "state" / "hub_state.json"
-    existing = _safe_read_json(state_path)
-
-    if isinstance(existing, dict):
-        state = _default_hub_state()
-        state.update(existing)
-        state["available_orb_states"] = list(ORB_STATES.keys())
-        state["safety_boundary"] = SAFETY_BOUNDARY
-        state["last_updated"] = existing.get("last_updated") or _utc_now()
-    else:
-        state = _default_hub_state()
-
-    _write_json(state_path, state)
+    _write_json(HUB_ROOT / "state" / "hub_state.json", state)
 
     for name in ["activity_events", "approvals"]:
         path = HUB_ROOT / "state" / f"{name}.json"
@@ -536,86 +222,16 @@ def _ensure_base_state() -> None:
             _write_json(path, {"events" if name == "activity_events" else "approvals": []})
 
 
-def hub_activity_event(
-    operator: str,
-    event_type: str,
-    message: str,
-    status: str = "created",
-    artifact_path: str | None = None,
-) -> dict[str, Any]:
-    _ensure_base_state()
-    path = HUB_ROOT / "state" / "activity_events.json"
-    payload = _safe_read_json(path)
-    if not isinstance(payload, dict):
-        payload = {"events": []}
-    events = payload.setdefault("events", [])
-    event = {
-        "timestamp": _utc_now(),
-        "operator": operator,
-        "event_type": event_type,
-        "status": status,
-        "message": message,
-        "artifact_path": artifact_path,
-    }
-    events.append(event)
-    _write_json(path, payload)
-    return event
+'''
 
+tool = tool[:start] + new_base_state + tool[end:]
 
-def hub_chat_request(message: str, operator: str = "hub") -> dict[str, Any]:
-    _ensure_base_state()
-    safe_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    payload = {
-        "id": f"chat-request-{safe_id}",
-        "operator": operator,
-        "message": message,
-        "status": "local_record_created",
-        "external_action_taken": False,
-        "timestamp": _utc_now(),
-    }
-    path = HUB_ROOT / "requests" / f"{payload['id']}.json"
-    _write_json(path, payload)
-    hub_activity_event(operator=operator, event_type="chat_request", message="Local Hub chat request recorded.", status="created", artifact_path=str(path).replace("\\", "/"))
-    return payload
+# -----------------------------
+# 4. Add Batch 2 functions before hub_web_build
+# -----------------------------
+insert_before = tool.index("def hub_web_build()")
 
-
-def hub_action_routing_plan(scope: str, include_sensitive: bool = False) -> dict[str, Any]:
-    _ensure_base_state()
-    blocked = bool(include_sensitive)
-    payload = {
-        "scope": scope,
-        "status": "blocked" if blocked else "planned",
-        "routing_enabled": False,
-        "external_action_taken": False,
-        "include_sensitive": include_sensitive,
-        "blockers": ["Sensitive routing/export is blocked in Hub v1."] if blocked else [],
-        "safety_boundary": SAFETY_BOUNDARY,
-        "timestamp": _utc_now(),
-    }
-    path = HUB_ROOT / "action-routing-plans" / f"action_routing_plan_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.json"
-    _write_json(path, payload)
-    hub_activity_event(operator="hub", event_type="action_routing_plan", message=f"Hub action routing plan created for scope: {scope}", status=payload["status"], artifact_path=str(path).replace("\\", "/"))
-    return payload
-
-
-def hub_blocked_unapproved_action(action: str, operator: str = "hub", reason: str = "Unapproved live action blocked by Hub v1.") -> dict[str, Any]:
-    _ensure_base_state()
-    payload = {
-        "action": action,
-        "operator": operator,
-        "status": "blocked",
-        "reason": reason,
-        "external_action_taken": False,
-        "safety_boundary": SAFETY_BOUNDARY,
-        "timestamp": _utc_now(),
-    }
-    path = HUB_ROOT / "blocked-actions" / f"blocked_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.json"
-    _write_json(path, payload)
-    hub_activity_event(operator=operator, event_type="blocked_action", message=reason, status="blocked", artifact_path=str(path).replace("\\", "/"))
-    return payload
-
-
-def hub_artifact_summary(root: str = "outputs", limit: int = 300) -> dict[str, Any]:
+batch2_functions = r'''def hub_artifact_summary(root: str = "outputs", limit: int = 300) -> dict[str, Any]:
     artifacts = _scan_artifacts(root=root, limit=limit)
     total_size = sum(a.size_bytes for a in artifacts)
     by_type: dict[str, int] = {}
@@ -729,7 +345,17 @@ def hub_open_web() -> dict[str, Any]:
     return payload
 
 
-def hub_web_build() -> dict[str, Any]:
+'''
+
+tool = tool[:insert_before] + batch2_functions + tool[insert_before:]
+
+# -----------------------------
+# 5. Replace web build
+# -----------------------------
+start = tool.index("def hub_web_build()")
+end = tool.index("\n\n__all__ = [")
+
+new_web_build = r'''def hub_web_build() -> dict[str, Any]:
     _ensure_base_state()
     widget_registry = hub_widget_registry()
     dashboard_sections = hub_dashboard_sections()
@@ -1032,27 +658,84 @@ def hub_web_build() -> dict[str, Any]:
         "dashboard_sections_path": str(HUB_ROOT / "state" / "dashboard_sections.json").replace("\\", "/"),
         "timestamp": _utc_now(),
     }
+'''
 
+tool = tool[:start] + new_web_build + tool[end:]
 
-__all__ = [
-    "hub_status",
-    "hub_env_check",
-    "hub_source_list",
-    "hub_artifact_index",
-    "hub_operator_rollup",
-    "hub_crm_rollup",
-    "hub_finance_rollup",
-    "hub_schedule_rollup",
-    "hub_document_rollup",
-    "hub_safety_rollup",
-    "hub_widget_registry",
+# -----------------------------
+# 6. Update __all__
+# -----------------------------
+for name in [
     "hub_artifact_summary",
     "hub_dashboard_sections",
     "hub_orb_state",
     "hub_open_web",
-    "hub_web_build",
-    "hub_chat_request",
-    "hub_activity_event",
-    "hub_action_routing_plan",
-    "hub_blocked_unapproved_action",
-]
+]:
+    if f'"{name}",' not in tool:
+        tool = tool.replace('    "hub_web_build",\n', f'    "{name}",\n    "hub_web_build",\n')
+
+tool_path.write_text(tool, encoding="utf-8")
+
+# -----------------------------
+# 7. Patch CLI imports
+# -----------------------------
+import_marker = "    hub_artifact_index,\n"
+for name in [
+    "    hub_artifact_summary,\n",
+    "    hub_dashboard_sections,\n",
+    "    hub_open_web,\n",
+    "    hub_orb_state,\n",
+]:
+    if name not in cli:
+        cli = cli.replace(import_marker, import_marker + name)
+
+# -----------------------------
+# 8. Add CLI commands before web-build
+# -----------------------------
+web_marker = '@hub.command("web-build")\ndef web_build():\n'
+commands = r'''@hub.command("artifact-summary")
+@click.option("--root", default="outputs")
+@click.option("--limit", default=300, type=int)
+def artifact_summary(root, limit):
+    """Create safer compact local artifact summary."""
+    _print(hub_artifact_summary(root=root, limit=limit))
+
+
+@hub.command("dashboard-sections")
+def dashboard_sections():
+    """Create local Hub dashboard section registry."""
+    _print(hub_dashboard_sections())
+
+
+@hub.command("orb-state")
+@click.option("--state", "orb_state", required=True)
+@click.option("--active-operator", default="hub")
+@click.option("--active-task", default=None)
+@click.option("--active-section", default="overview")
+def orb_state(orb_state, active_operator, active_task, active_section):
+    """Set local Hub orb state for visual/demo testing."""
+    _print(
+        hub_orb_state(
+            orb_state=orb_state,
+            active_operator=active_operator,
+            active_task=active_task,
+            active_section=active_section,
+        )
+    )
+
+
+@hub.command("open")
+def open_web():
+    """Open local Serena Hub web shell."""
+    _print(hub_open_web())
+
+
+'''
+
+if '@hub.command("artifact-summary")' not in cli:
+    cli = cli.replace(web_marker, commands + web_marker)
+
+cli_path.write_text(cli, encoding="utf-8")
+
+print("[OK] Patched Serena Hub Batch 2 state/web functions")
+print("[OK] Added artifact-summary, dashboard-sections, orb-state, and open CLI commands")

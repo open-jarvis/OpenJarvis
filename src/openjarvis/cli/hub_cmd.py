@@ -14,6 +14,10 @@ from openjarvis.tools.serena_hub import (
     hub_action_routing_plan,
     hub_activity_event,
     hub_artifact_index,
+    hub_orb_state,
+    hub_open_web,
+    hub_dashboard_sections,
+    hub_artifact_summary,
     hub_blocked_unapproved_action,
     hub_chat_request,
     hub_crm_rollup,
@@ -118,6 +122,43 @@ def safety_rollup(root, limit):
 def widget_registry():
     """Create local Hub widget registry."""
     _print(hub_widget_registry())
+
+
+@hub.command("artifact-summary")
+@click.option("--root", default="outputs")
+@click.option("--limit", default=300, type=int)
+def artifact_summary(root, limit):
+    """Create safer compact local artifact summary."""
+    _print(hub_artifact_summary(root=root, limit=limit))
+
+
+@hub.command("dashboard-sections")
+def dashboard_sections():
+    """Create local Hub dashboard section registry."""
+    _print(hub_dashboard_sections())
+
+
+@hub.command("orb-state")
+@click.option("--state", "orb_state", required=True)
+@click.option("--active-operator", default="hub")
+@click.option("--active-task", default=None)
+@click.option("--active-section", default="overview")
+def orb_state(orb_state, active_operator, active_task, active_section):
+    """Set local Hub orb state for visual/demo testing."""
+    _print(
+        hub_orb_state(
+            orb_state=orb_state,
+            active_operator=active_operator,
+            active_task=active_task,
+            active_section=active_section,
+        )
+    )
+
+
+@hub.command("open")
+def open_web():
+    """Open local Serena Hub web shell."""
+    _print(hub_open_web())
 
 
 @hub.command("web-build")
