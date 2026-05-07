@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import {
-  Settings,
   Palette,
   Globe,
   Cpu,
@@ -16,9 +15,10 @@ import {
   Mic,
   Key,
   Search,
+  Brain,
 } from 'lucide-react';
 import { useAppStore, type ThemeMode } from '../lib/store';
-import { checkHealth, fetchSpeechHealth } from '../lib/api';
+import { checkHealth, fetchSpeechHealth, getMemoryStats } from '../lib/api';
 
 function OllamaModelList() {
   const [models, setModels] = useState<Array<{ name: string; size: number }>>([]);
@@ -34,7 +34,7 @@ function OllamaModelList() {
       {models.map(m => (
         <span key={m.name} className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px]"
           style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text)' }}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--color-success)', display: 'inline-block' }} />
           {m.name} ({(m.size / 1e9).toFixed(1)} GB)
         </span>
       ))}
@@ -58,7 +58,7 @@ function ApiKeyInput({ storageKey, placeholder }: { storageKey: string; placehol
       <input type="password" value={value} onChange={e => save(e.target.value)} placeholder={placeholder}
         className="w-48 px-2 py-1 rounded text-xs"
         style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }} />
-      {saved && <span className="text-[10px]" style={{ color: '#22c55e' }}>Saved</span>}
+      {saved && <span className="text-[10px]" style={{ color: 'var(--color-success)' }}>Saved</span>}
     </div>
   );
 }
@@ -72,7 +72,7 @@ function CloudProviderStatus({ label, storageKey }: { label: string; storageKey:
     <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
       <span style={{
         width: 6, height: 6, borderRadius: '50%', display: 'inline-block',
-        background: hasKey ? '#22c55e' : 'var(--color-text-tertiary)',
+        background: hasKey ? 'var(--color-success)' : 'var(--color-text-tertiary)',
       }} />
       {label}
     </span>
@@ -122,11 +122,31 @@ export function SettingsPage() {
   const [speechBackendAvailable, setSpeechBackendAvailable] = useState<boolean | null>(null);
   const [saved, setSaved] = useState(false);
 
+  const [memoryStats, setMemoryStats] = useState<{ entries: number; backend: string } | null>(null);
+  const [memoryEnabled, setMemoryEnabled] = useState(() => {
+    try { return localStorage.getItem('openjarvis-memory-enabled') !== 'false'; } catch { return true; }
+  });
+  const [memoryBackend, setMemoryBackend] = useState(() => {
+    try { return localStorage.getItem('openjarvis-memory-backend') || 'sqlite'; } catch { return 'sqlite'; }
+  });
+  const [memoryTopK, setMemoryTopK] = useState(() => {
+    try { return parseInt(localStorage.getItem('openjarvis-memory-top-k') || '5'); } catch { return 5; }
+  });
+  const [memoryMinScore, setMemoryMinScore] = useState(() => {
+    try { return parseFloat(localStorage.getItem('openjarvis-memory-min-score') || '0.1'); } catch { return 0.1; }
+  });
+  const [memoryMaxTokens, setMemoryMaxTokens] = useState(() => {
+    try { return parseInt(localStorage.getItem('openjarvis-memory-max-tokens') || '2048'); } catch { return 2048; }
+  });
+
   useEffect(() => {
     checkHealth().then(setHealthy);
     fetchSpeechHealth()
       .then((h) => setSpeechBackendAvailable(h.available))
       .catch(() => setSpeechBackendAvailable(false));
+    getMemoryStats()
+      .then(setMemoryStats)
+      .catch(() => setMemoryStats(null));
   }, []);
 
   const showSaved = () => {
@@ -182,22 +202,26 @@ export function SettingsPage() {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto p-6">
+    <div className="flex-1 overflow-y-auto px-6 py-10">
       <div className="max-w-2xl mx-auto">
-        <div className="flex items-center gap-3 mb-6">
-          <Settings size={24} style={{ color: 'var(--color-accent)' }} />
-          <h1 className="text-xl font-semibold" style={{ color: 'var(--color-text)' }}>
-            Settings
-          </h1>
-          {saved && (
-            <span className="flex items-center gap-1 text-xs px-2 py-1 rounded-full" style={{
-              background: 'var(--color-accent-subtle)',
-              color: 'var(--color-success)',
-            }}>
-              <Check size={12} /> Saved
-            </span>
-          )}
-        </div>
+        <header className="mb-6">
+          <div className="flex items-center justify-between gap-3">
+            <h1 className="text-lg font-semibold" style={{ color: 'var(--color-text)' }}>
+              Settings
+            </h1>
+            {saved && (
+              <span className="flex items-center gap-1 text-xs px-2 py-1 rounded-full" style={{
+                background: 'var(--color-accent-subtle)',
+                color: 'var(--color-success)',
+              }}>
+                <Check size={12} /> Saved
+              </span>
+            )}
+          </div>
+          <p className="text-sm mt-2 max-w-2xl" style={{ color: 'var(--color-text-secondary)' }}>
+            App preferences — appearance, model defaults, keyboard shortcuts, and data management.
+          </p>
+        </header>
 
         <div className="flex flex-col gap-4">
           {/* Appearance */}
@@ -309,6 +333,110 @@ export function SettingsPage() {
           <Section title="Tools">
             <SettingRow label="Web Search" description="SerpAPI or Tavily key for web search tool">
               <ApiKeyInput storageKey="openjarvis-search-key" placeholder="API key..." />
+            </SettingRow>
+          </Section>
+
+          {/* Memory */}
+          <Section title="Memory">
+            <SettingRow label="Memory status" description={memoryStats ? `${memoryStats.backend} backend — ${memoryStats.entries} entries` : 'Unable to reach memory service'}>
+              <div className="flex items-center gap-2">
+                <Brain size={14} style={{ color: memoryStats ? 'var(--color-accent)' : 'var(--color-text-tertiary)' }} />
+                <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                  {memoryStats ? `${memoryStats.entries} entries` : 'Unavailable'}
+                </span>
+              </div>
+            </SettingRow>
+            <SettingRow label="Use memory context" description="Automatically inject relevant memories into conversations">
+              <button
+                onClick={() => {
+                  const next = !memoryEnabled;
+                  setMemoryEnabled(next);
+                  try { localStorage.setItem('openjarvis-memory-enabled', String(next)); } catch {}
+                  showSaved();
+                }}
+                className="relative w-11 h-6 rounded-full transition-colors cursor-pointer"
+                style={{
+                  background: memoryEnabled ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
+                }}
+              >
+                <span
+                  className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full transition-transform bg-white"
+                  style={{
+                    transform: memoryEnabled ? 'translateX(20px)' : 'translateX(0)',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  }}
+                />
+              </button>
+            </SettingRow>
+            <SettingRow label="Memory backend" description="Which retrieval engine to use">
+              <select
+                value={memoryBackend}
+                onChange={(e) => {
+                  setMemoryBackend(e.target.value);
+                  try { localStorage.setItem('openjarvis-memory-backend', e.target.value); } catch {}
+                  showSaved();
+                }}
+                className="text-sm px-3 py-1.5 rounded-lg outline-none cursor-pointer"
+                style={{
+                  background: 'var(--color-bg-secondary)',
+                  color: 'var(--color-text)',
+                  border: '1px solid var(--color-border)',
+                }}
+              >
+                <option value="sqlite">sqlite</option>
+                <option value="faiss">faiss</option>
+                <option value="bm25">bm25</option>
+                <option value="colbert">colbert</option>
+                <option value="hybrid">hybrid</option>
+              </select>
+            </SettingRow>
+            <SettingRow label="Results to inject" description={`${memoryTopK}`}>
+              <input
+                type="range"
+                min="1"
+                max="20"
+                step="1"
+                value={memoryTopK}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value);
+                  setMemoryTopK(v);
+                  try { localStorage.setItem('openjarvis-memory-top-k', String(v)); } catch {}
+                  showSaved();
+                }}
+                className="w-32 cursor-pointer accent-[var(--color-accent)]"
+              />
+            </SettingRow>
+            <SettingRow label="Min relevance score" description={`${memoryMinScore}`}>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={memoryMinScore}
+                onChange={(e) => {
+                  const v = parseFloat(e.target.value);
+                  setMemoryMinScore(v);
+                  try { localStorage.setItem('openjarvis-memory-min-score', String(v)); } catch {}
+                  showSaved();
+                }}
+                className="w-32 cursor-pointer accent-[var(--color-accent)]"
+              />
+            </SettingRow>
+            <SettingRow label="Max context tokens" description={`${memoryMaxTokens}`}>
+              <input
+                type="range"
+                min="256"
+                max="8192"
+                step="256"
+                value={memoryMaxTokens}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value);
+                  setMemoryMaxTokens(v);
+                  try { localStorage.setItem('openjarvis-memory-max-tokens', String(v)); } catch {}
+                  showSaved();
+                }}
+                className="w-32 cursor-pointer accent-[var(--color-accent)]"
+              />
             </SettingRow>
           </Section>
 

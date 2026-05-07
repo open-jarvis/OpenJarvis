@@ -16,7 +16,7 @@ class ContextConfig:
 
     enabled: bool = True
     top_k: int = 5
-    min_score: float = 0.1
+    min_score: float = 0.0
     max_context_tokens: int = 2048
 
 

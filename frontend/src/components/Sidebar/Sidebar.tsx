@@ -193,7 +193,7 @@ export function Sidebar() {
                 <button
                   key={item.path}
                   onClick={() => navigate(item.path)}
-                  className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors w-full text-left cursor-pointer"
+                  className="relative flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors w-full text-left cursor-pointer"
                   style={{
                     background: isActive ? 'var(--color-accent-subtle)' : 'transparent',
                     color: isActive ? 'var(--color-text)' : 'var(--color-text-secondary)',
@@ -206,7 +206,17 @@ export function Sidebar() {
                     if (!isActive) e.currentTarget.style.background = 'transparent';
                   }}
                 >
-                  <item.icon size={16} />
+                  {isActive && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full"
+                      style={{
+                        background: 'var(--color-accent)',
+                        boxShadow: '0 0 8px var(--color-accent-glow)',
+                      }}
+                    />
+                  )}
+                  <item.icon size={16} style={isActive ? { color: 'var(--color-accent)' } : undefined} />
                   {item.label}
                 </button>
               );

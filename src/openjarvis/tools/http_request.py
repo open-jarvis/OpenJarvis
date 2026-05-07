@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Any
 
@@ -100,7 +101,10 @@ class HttpRequestTool(BaseTool):
                 success=False,
             )
 
-        headers = params.get("headers") or {}
+        headers = {
+            k: os.path.expandvars(v) if isinstance(v, str) else v
+            for k, v in (params.get("headers") or {}).items()
+        }
         body = params.get("body")
         timeout = params.get("timeout", 30)
 

@@ -1,4 +1,4 @@
-"""LiveResearchBench dataset provider — deep research benchmark.
+"""DeepResearchBench dataset provider — deep research benchmark.
 
 Clones the deep_research_bench repo at runtime and parses query + criteria
 JSONL files into EvalRecords for use with AgenticRunner.
@@ -50,14 +50,14 @@ def _build_criteria_index(
 
 
 class LiveResearchBenchDataset(DatasetProvider):
-    """LiveResearchBench — deep research with 100 expert-curated tasks.
+    """DeepResearchBench — deep research with 100 expert-curated tasks.
 
     Clones Ayanami0730/deep_research_bench from GitHub (or uses a local
     path) and parses query + criteria JSONL files into EvalRecords.
     """
 
     dataset_id = "liveresearch"
-    dataset_name = "LiveResearchBench"
+    dataset_name = "DeepResearchBench"
 
     def __init__(self, path: Optional[str] = None) -> None:
         self._local_path = Path(path) if path else None
@@ -68,7 +68,7 @@ class LiveResearchBenchDataset(DatasetProvider):
         issues: List[str] = []
         if self._local_path is None and shutil.which("git") is None:
             issues.append(
-                "git binary not found. Install git to clone LiveResearchBench."
+                "git binary not found. Install git to clone DeepResearchBench."
             )
         return issues
 
@@ -77,12 +77,12 @@ class LiveResearchBenchDataset(DatasetProvider):
         if self._local_path is not None:
             if not self._local_path.exists():
                 raise FileNotFoundError(
-                    f"LiveResearchBench path not found: {self._local_path}"
+                    f"DeepResearchBench path not found: {self._local_path}"
                 )
             return self._local_path
 
         if not self._repo_dir.exists():
-            LOGGER.info("Cloning LiveResearchBench from %s ...", LIVERESEARCH_REPO)
+            LOGGER.info("Cloning DeepResearchBench from %s ...", LIVERESEARCH_REPO)
             self._repo_dir.parent.mkdir(parents=True, exist_ok=True)
             subprocess.run(
                 [
@@ -96,7 +96,7 @@ class LiveResearchBenchDataset(DatasetProvider):
                 check=True,
                 capture_output=True,
             )
-            LOGGER.info("LiveResearchBench cloned to %s", self._repo_dir)
+            LOGGER.info("DeepResearchBench cloned to %s", self._repo_dir)
 
         return self._repo_dir
 
@@ -179,7 +179,7 @@ class LiveResearchBenchDataset(DatasetProvider):
                 )
             )
 
-        LOGGER.info("LiveResearchBench: loaded %d tasks", len(self._records))
+        LOGGER.info("DeepResearchBench: loaded %d tasks", len(self._records))
 
     def iter_records(self) -> Iterable[EvalRecord]:
         return iter(self._records)

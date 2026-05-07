@@ -1,1 +1,0 @@
-{"root":["./src/App.tsx","./src/main.tsx","./src/components/AdminPanel.tsx","./src/components/EnergyDashboard.tsx","./src/components/LearningCurve.tsx","./src/components/MemoryBrowser.tsx","./src/components/TraceDebugger.tsx","./src/components/UpdateChecker.tsx","./src/hooks/useTauriApi.ts"],"version":"5.7.3"}

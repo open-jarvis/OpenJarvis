@@ -45,7 +45,7 @@ export class ErrorBoundary extends Component<Props, State> {
             <button
               onClick={() => this.setState({ hasError: false, error: null })}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer"
-              style={{ background: 'var(--color-accent)', color: 'white' }}
+              style={{ background: 'var(--color-accent)', color: 'var(--color-on-accent)' }}
             >
               <RotateCcw size={14} />
               Try again

@@ -45,7 +45,7 @@ function ProgressRow({
           ) : status.state === 'paused' ? (
             <Loader2 size={14} style={{ color: 'var(--color-text-tertiary)' }} />
           ) : (
-            <AlertCircle size={14} style={{ color: '#ef4444' }} />
+            <AlertCircle size={14} style={{ color: 'var(--color-error)' }} />
           )}
           <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
             {status?.state === 'syncing'
@@ -68,13 +68,13 @@ function ProgressRow({
           className="h-full rounded-full transition-all duration-500"
           style={{
             background:
-              status?.state === 'error' ? '#ef4444' : 'var(--color-accent)',
+              status?.state === 'error' ? 'var(--color-error)' : 'var(--color-accent)',
             width: `${pct}%`,
           }}
         />
       </div>
       {status?.error && (
-        <p className="text-xs" style={{ color: '#ef4444' }}>
+        <p className="text-xs" style={{ color: 'var(--color-error)' }}>
           {status.error}
         </p>
       )}
@@ -162,7 +162,7 @@ export function IngestDashboard({
           className="w-full py-3 px-4 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all"
           style={{
             background: 'var(--color-accent)',
-            color: 'white',
+            color: 'var(--color-on-accent)',
           }}
         >
           {!allDone && <Loader2 size={16} className="animate-spin" />}

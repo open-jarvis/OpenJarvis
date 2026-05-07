@@ -64,12 +64,17 @@ class BaseTool(ABC):
 
     def to_openai_function(self) -> Dict[str, Any]:
         """Convert to OpenAI function-calling format."""
+        from openjarvis.tools.description_loader import (
+            get_tool_description_override,
+        )
+
         s = self.spec
+        desc = get_tool_description_override(s.name) or s.description
         return {
             "type": "function",
             "function": {
                 "name": s.name,
-                "description": s.description,
+                "description": desc,
                 "parameters": s.parameters,
             },
         }
@@ -356,10 +361,15 @@ def build_tool_descriptions(
     if not tools:
         return "No tools available."
 
+    from openjarvis.tools.description_loader import (
+        get_tool_description_override,
+    )
+
     sections: list[str] = []
     for t in tools:
         s = t.spec
-        lines = [f"### {s.name}", s.description]
+        desc = get_tool_description_override(s.name) or s.description
+        lines = [f"### {s.name}", desc]
 
         if include_category and s.category:
             lines.append(f"Category: {s.category}")

@@ -45,7 +45,7 @@ dev = [
     "ruff>=0.4",
     "pre-commit>=3.0",
 ]
-inference-mlx = ["mlx-lm>=0.19; sys_platform == 'darwin'"]
+inference-mlx = ["mlx-lm>=0.31.1; sys_platform == 'darwin'"]
 inference-vllm = ["vllm>=0.16.0"]
 inference-cloud = [
     "openai>=1.30",
@@ -96,6 +96,7 @@ channel-mastodon = ["Mastodon.py>=1.8"]
 channel-xmpp = ["slixmpp>=1.8"]
 channel-rocketchat = ["rocketchat-API>=1.30"]
 channel-zulip = ["zulip>=0.9"]
+channel-twitter = ["httpx>=0.27"]
 channel-twitch = ["twitchio>=2.6"]
 channel-nostr = ["pynostr>=0.6"]
 channel-twilio = ["twilio>=9.0"]
@@ -104,9 +105,9 @@ channel-gmail = [
     "google-auth-oauthlib>=1.0",
     "google-auth-httplib2>=0.2",
 ]
-channel-twitter = ["tweepy>=4.14"]
 browser = ["playwright>=1.40"]
 media = ["openai>=1.30"]
+mining-pearl-vllm = ["docker>=7.0", "httpx>=0.27"]
 pdf = ["pdfplumber>=0.10"]
 scheduler = ["croniter>=2.0"]
 security-signing = ["cryptography>=43"]
@@ -117,6 +118,17 @@ speech = ["faster-whisper>=1.0"]
 speech-deepgram = ["deepgram-sdk>=3.0"]
 eval-wandb = ["wandb>=0.17"]
 eval-sheets = ["gspread>=6.0", "google-auth>=2.0"]
+mining-pearl-cpu = [
+    # Pearl Python packages (py-pearl-mining, miner-base, pearl-gateway) are
+    # not on PyPI yet. They are installed at first `mine init` via the
+    # build-from-pin path in src/openjarvis/mining/_install.py:build_from_pin().
+    # When Pearl publishes wheels, replace the line below with version pins.
+    #
+    # The extra remains as a feature-flag namespace so users can run
+    # `uv sync --extra mining-pearl-cpu` to opt-in (it succeeds with no
+    # additional resolution today; the actual install happens on demand).
+]
+framework-comparison = ["polars>=1.0"]
 docs = [
     "mkdocs>=1.6",
     "mkdocs-material>=9.5",
@@ -140,18 +152,21 @@ packages = ["src/openjarvis"]
 [tool.hatch.build.targets.wheel.force-include]
 "src/openjarvis/agents/claude_code_runner" = "_node_modules/claude_code_runner"
 "src/openjarvis/channels/whatsapp_baileys_bridge" = "_node_modules/whatsapp_baileys_bridge"
+"scripts/install" = "_install_scripts"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "live: requires running inference engine",
-    "cloud: requires cloud API keys",
-    "nvidia: requires NVIDIA GPU",
     "amd: requires AMD GPU",
     "apple: requires Apple Silicon",
+    "cloud: requires cloud API keys",
+    "docker: requires a working Docker daemon (no GPU required)",
+    "live: requires running inference engine",
     "macos15: requires macOS 15+ (Sequoia) for Apple FM",
-    "slow: long-running test",
     "live_channel: requires real channel credentials (env vars)",
+    "nvidia: requires NVIDIA GPU",
+    "slow: long-running test",
+    "live_external: requires HERMES_AGENT_PATH and OPENCLAW_PATH; spawns real foreign-framework subprocesses",
 ]
 
 [tool.ruff]

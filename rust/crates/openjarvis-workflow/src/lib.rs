@@ -136,13 +136,10 @@ impl WorkflowGraph {
                 continue;
             }
             if let Some(&vi) = self.node_index.get(&edge.target) {
-                match color[vi] {
+                let c = color[vi];
+                match c {
                     1 => return true,
-                    0 => {
-                        if self.dfs_has_cycle(vi, color) {
-                            return true;
-                        }
-                    }
+                    0 if self.dfs_has_cycle(vi, color) => return true,
                     _ => {}
                 }
             }

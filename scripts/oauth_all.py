@@ -14,7 +14,7 @@ import os
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
@@ -44,16 +44,31 @@ def _load_creds(filename: str) -> Dict[str, str]:
 
 
 _google = _load_creds("google.json")
-GOOGLE_CLIENT_ID = os.environ.get("OPENJARVIS_GOOGLE_CLIENT_ID", "") or _google["client_id"]
-GOOGLE_CLIENT_SECRET = os.environ.get("OPENJARVIS_GOOGLE_CLIENT_SECRET", "") or _google["client_secret"]
+GOOGLE_CLIENT_ID = (
+    os.environ.get("OPENJARVIS_GOOGLE_CLIENT_ID", "") or _google["client_id"]
+)
+GOOGLE_CLIENT_SECRET = (
+    os.environ.get("OPENJARVIS_GOOGLE_CLIENT_SECRET", "")
+    or _google["client_secret"]
+)
 
 _strava = _load_creds("strava.json")
-STRAVA_CLIENT_ID = os.environ.get("OPENJARVIS_STRAVA_CLIENT_ID", "") or _strava["client_id"]
-STRAVA_CLIENT_SECRET = os.environ.get("OPENJARVIS_STRAVA_CLIENT_SECRET", "") or _strava["client_secret"]
+STRAVA_CLIENT_ID = (
+    os.environ.get("OPENJARVIS_STRAVA_CLIENT_ID", "") or _strava["client_id"]
+)
+STRAVA_CLIENT_SECRET = (
+    os.environ.get("OPENJARVIS_STRAVA_CLIENT_SECRET", "")
+    or _strava["client_secret"]
+)
 
 _spotify = _load_creds("spotify.json")
-SPOTIFY_CLIENT_ID = os.environ.get("OPENJARVIS_SPOTIFY_CLIENT_ID", "") or _spotify["client_id"]
-SPOTIFY_CLIENT_SECRET = os.environ.get("OPENJARVIS_SPOTIFY_CLIENT_SECRET", "") or _spotify["client_secret"]
+SPOTIFY_CLIENT_ID = (
+    os.environ.get("OPENJARVIS_SPOTIFY_CLIENT_ID", "") or _spotify["client_id"]
+)
+SPOTIFY_CLIENT_SECRET = (
+    os.environ.get("OPENJARVIS_SPOTIFY_CLIENT_SECRET", "")
+    or _spotify["client_secret"]
+)
 
 # ── Generic OAuth helpers ────────────────────────────────────────────────────
 
@@ -128,7 +143,7 @@ def do_google() -> None:
             "prompt": "consent",
         })
     )
-    print(f"  Opening browser...")
+    print("  Opening browser...")
     webbrowser.open(url)
     code = _wait_for_code()
 
@@ -176,7 +191,7 @@ def do_strava() -> None:
             "scope": "activity:read_all",
         })
     )
-    print(f"  Opening browser...")
+    print("  Opening browser...")
     webbrowser.open(url)
     code = _wait_for_code()
 
@@ -208,7 +223,6 @@ def do_strava() -> None:
 
 def _make_self_signed_cert() -> tuple[str, str]:
     """Generate a temporary self-signed cert for localhost HTTPS."""
-    import ssl
     import subprocess
     import tempfile
 
@@ -288,7 +302,7 @@ def do_spotify() -> None:
             "scope": "user-read-recently-played",
         })
     )
-    print(f"  Opening browser...")
+    print("  Opening browser...")
     webbrowser.open(url)
     code = _wait_for_code(port=spotify_port)
 
@@ -323,7 +337,9 @@ def do_spotify() -> None:
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run OAuth flows for OpenJarvis connectors")
+    parser = argparse.ArgumentParser(
+        description="Run OAuth flows for OpenJarvis connectors"
+    )
     parser.add_argument("--google", action="store_true", help="Only Google")
     parser.add_argument("--strava", action="store_true", help="Only Strava")
     parser.add_argument("--spotify", action="store_true", help="Only Spotify")

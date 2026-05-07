@@ -12,16 +12,27 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from openjarvis.channels._stubs import ChannelStatus
+from openjarvis.channels.sendblue import SendBlueChannel
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.registry import ChannelRegistry
+from tests.channels.channel_test_helpers import make_common_channel_tests
 
 
 @pytest.fixture(autouse=True)
 def _register_sendblue():
     if not ChannelRegistry.contains("sendblue"):
-        from openjarvis.channels.sendblue import SendBlueChannel
-
         ChannelRegistry.register_value("sendblue", SendBlueChannel)
+
+
+TestCommonChannel = make_common_channel_tests(
+    SendBlueChannel,
+    "sendblue",
+    constructor_kwargs={
+        "api_key_id": "test_key",
+        "api_secret_key": "test_secret",
+        "from_number": "+15551234567",
+    },
+)
 
 
 # ---------------------------------------------------------------------------
@@ -30,8 +41,6 @@ def _register_sendblue():
 
 
 def _make_channel(**overrides):
-    from openjarvis.channels.sendblue import SendBlueChannel
-
     defaults = {
         "api_key_id": "test_key",
         "api_secret_key": "test_secret",
@@ -69,16 +78,12 @@ class TestInit:
         monkeypatch.setenv("SENDBLUE_API_SECRET_KEY", "env_secret")
         monkeypatch.setenv("SENDBLUE_FROM_NUMBER", "+19998887777")
 
-        from openjarvis.channels.sendblue import SendBlueChannel
-
         ch = SendBlueChannel()
         assert ch._api_key_id == "env_key"
         assert ch._api_secret_key == "env_secret"
         assert ch._from_number == "+19998887777"
 
     def test_no_credentials(self):
-        from openjarvis.channels.sendblue import SendBlueChannel
-
         ch = SendBlueChannel()
         ch.connect()
         assert ch.status() == ChannelStatus.ERROR
@@ -141,8 +146,6 @@ class TestSend:
         assert result is False
 
     def test_send_no_credentials_returns_false(self):
-        from openjarvis.channels.sendblue import SendBlueChannel
-
         ch = SendBlueChannel()
         result = ch.send("+19998887777", "Hello!")
         assert result is False
@@ -261,7 +264,3 @@ class TestProperties:
     def test_from_number(self):
         ch = _make_channel(from_number="+15559876543")
         assert ch.from_number == "+15559876543"
-
-    def test_list_channels(self):
-        ch = _make_channel()
-        assert ch.list_channels() == ["sendblue"]

@@ -219,7 +219,7 @@ impl TrainingDataMiner {
                 }
             }
             let mut ranked: Vec<_> = tool_freq.into_iter().collect();
-            ranked.sort_by(|a, b| b.1.cmp(&a.1));
+            ranked.sort_by_key(|r| std::cmp::Reverse(r.1));
             let best_tools: Vec<String> = ranked.into_iter().map(|(name, _)| name).collect();
 
             let all_scores: Vec<f64> = agent_scores.values().flat_map(|v| v.iter().copied()).collect();

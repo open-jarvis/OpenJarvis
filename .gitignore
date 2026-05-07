@@ -45,11 +45,14 @@ Thumbs.db
 *.db
 *.jsonl
 *.npz
+*.log
 results/
 logs/
 traces/
 coding_task_*
 get-pip.py
+# Junk from mocked-path tests that write to their mock's __repr__ as a path
+MagicMock/
 
 # MkDocs build output
 site/
@@ -60,9 +63,7 @@ frontend/dist/
 src/openjarvis/server/static/
 
 # Desktop (Tauri)
-desktop/node_modules/
-desktop/dist/
-desktop/src-tauri/target/
+frontend/src-tauri/target/
 
 # Worktrees
 .worktrees/
@@ -93,15 +94,20 @@ src/openjarvis/channels/whatsapp_baileys_bridge/node_modules/
 
 # SQLite in-memory artifacts
 :memory:
-MagicMock/
 
 # Second Repos
 Inline/
 scratch/
 
-# SQLite in-memory artifacts
-:memory:
-MagicMock/
-
-# Second Repos
-Inline/
+# ---------------------------------------------------------------------------
+# Distillation runtime artifacts (defense in depth — these should always live
+# in ~/.openjarvis/, never inside the source tree, but we ignore them here in
+# case OPENJARVIS_HOME is misconfigured during dev)
+# ---------------------------------------------------------------------------
+.openjarvis/
+learning.db
+**/learning/sessions/
+**/learning/pending_review/
+**/learning/benchmarks/
+**/teacher_traces/
+*.session.json

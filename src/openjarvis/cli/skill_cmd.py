@@ -381,18 +381,118 @@ def sources():
 
 @skill.command("remove")
 @click.argument("skill_name")
-def remove(skill_name: str):
-    """Remove an installed skill."""
-    Console().print("[yellow]Skill removal not yet implemented.[/yellow]")
+@click.option(
+    "--yes",
+    "-y",
+    is_flag=True,
+    default=False,
+    help="Skip confirmation prompt.",
+)
+def remove(skill_name: str, yes: bool):
+    """Remove an installed skill by name.
+
+    Searches ``~/.openjarvis/skills/`` and ``./skills`` for a directory whose
+    name (or parsed manifest name) matches ``skill_name`` and deletes it.
+    """
+    console = Console()
+    mgr = SkillManager(bus=EventBus())
+    paths = mgr.find_installed_paths(skill_name, roots=_get_skill_paths())
+    if not paths:
+        console.print(f"[red]No installed skill named '{skill_name}' found.[/red]")
+        raise SystemExit(1)
+
+    console.print(f"[bold]Will remove {len(paths)} location(s):[/bold]")
+    for p in paths:
+        console.print(f"  - {p}")
+
+    if not yes:
+        if not click.confirm("Proceed?", default=False):
+            console.print("[dim]Aborted.[/dim]")
+            return
+
+    try:
+        removed = mgr.remove(skill_name, roots=_get_skill_paths())
+    except FileNotFoundError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1)
+    for p in removed:
+        console.print(f"[green]Removed:[/green] {p}")
 
 
 @skill.command("search")
 @click.argument("query")
-def search(query: str):
-    """Search available skills."""
-    Console().print(
-        "[yellow]Skill search not yet implemented. "
-        "Run 'jarvis skill update' first.[/yellow]"
+@click.option(
+    "--source",
+    "-s",
+    default="",
+    help="Restrict search to a single configured source.",
+)
+def search(query: str, source: str):
+    """Search available skills across configured sources.
+
+    Matches ``query`` (case-insensitive substring) against skill name,
+    description, and tags.
+    """
+    console = Console()
+    cfg = load_config()
+
+    if not cfg.skills.sources:
+        console.print(
+            "[yellow]No skill sources configured. "
+            "Add entries to [skills.sources] in config.toml.[/yellow]"
+        )
+        raise SystemExit(1)
+
+    sources_to_search = [
+        s for s in cfg.skills.sources if not source or s.source == source
+    ]
+    if source and not sources_to_search:
+        console.print(f"[red]No configured source named '{source}'.[/red]")
+        raise SystemExit(1)
+
+    q = query.lower().strip()
+    rows: list[tuple[str, str, str, str]] = []  # source, name, category, description
+    for src_cfg in sources_to_search:
+        try:
+            resolver = _get_resolver(src_cfg.source, url=src_cfg.url)
+            resolver.sync()
+        except Exception as exc:
+            console.print(f"[yellow]Skipped {src_cfg.source}: {exc}[/yellow]")
+            continue
+
+        for resolved in resolver.list_skills():
+            haystack = " ".join(
+                [
+                    resolved.name or "",
+                    resolved.description or "",
+                    resolved.category or "",
+                ]
+            ).lower()
+            if q in haystack:
+                rows.append(
+                    (
+                        src_cfg.source,
+                        resolved.name,
+                        getattr(resolved, "category", "") or "",
+                        (getattr(resolved, "description", "") or "")[:60],
+                    )
+                )
+
+    if not rows:
+        console.print(f"[dim]No skills matching '{query}'.[/dim]")
+        return
+
+    table = Table(title=f"Search results for '{query}'")
+    table.add_column("Source", style="cyan")
+    table.add_column("Name", style="bold")
+    table.add_column("Category")
+    table.add_column("Description", max_width=60)
+    for row in rows:
+        table.add_row(*row)
+    console.print(table)
+    console.print(
+        f"[dim]{len(rows)} match(es). "
+        f"Install with: jarvis skill install <source>:<name>[/dim]"
     )
 
 

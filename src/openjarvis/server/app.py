@@ -181,7 +181,22 @@ def create_app(
 
     from fastapi.middleware.cors import CORSMiddleware
 
-    _origins = cors_origins if cors_origins is not None else ["*"]
+    _origins = (
+        cors_origins
+        if cors_origins is not None
+        else [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            # Tauri 2 production webview origins:
+            #   macOS / Linux / iOS  -> tauri://localhost
+            #   Windows / Android    -> http://tauri.localhost (default),
+            #                           https://tauri.localhost when
+            #                           windows.useHttpsScheme is enabled
+            "tauri://localhost",
+            "http://tauri.localhost",
+            "https://tauri.localhost",
+        ]
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_origins,

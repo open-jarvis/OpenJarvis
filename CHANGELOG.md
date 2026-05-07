@@ -10,6 +10,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- AI stack support for evaluating other agentic frameworks via subprocess.
+  New `evals/backends/external/` subpackage wraps Hermes Agent and OpenClaw
+  as one-shot subprocess backends behind the existing `InferenceBackend`
+  ABC; new `evals/comparison/` toolkit provides path + commit-pin
+  enforcement (`third_party.py`), config templating (`make_configs.py`),
+  and LaTeX table generation (`table_gen.py`).
+- New optional extra `framework-comparison` (depends on `polars`).
+- New pytest marker `live_external` for integration tests requiring real
+  foreign-framework installations.
+
+### Changed
+
+- `JarvisAgentBackend.generate_full` and `JarvisDirectBackend.generate_full` now return
+  the spec §6.2 extended fields (`energy_joules`, `peak_power_w`, `tool_calls`,
+  `turn_count`, `framework`, `framework_commit`, `error`) for cross-framework
+  comparison parity. Existing callers that didn't read these fields are unaffected.
+- `_third_party.toml` no longer ships user-specific default paths. Set
+  `HERMES_AGENT_PATH` and `OPENCLAW_PATH` env vars to point at your local
+  checkouts before running the framework-comparison harness; missing or
+  empty paths now raise `ThirdPartyNotFoundError` with an actionable hint.
+
 #### Skills System (Plans 1, 2A, 2B)
 
 - **Skills core** — every skill is a tool. Skills appear in a system prompt catalog, agents invoke them on demand, content (pipeline results, markdown instructions, or both) gets injected into context.

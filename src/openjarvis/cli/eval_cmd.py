@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -132,7 +133,28 @@ def eval_list() -> None:
     "--backend",
     "backend",
     default="jarvis-direct",
-    help="Inference backend (jarvis-direct or jarvis-agent).",
+    type=click.Choice(
+        ["jarvis-direct", "jarvis-agent", "hermes", "openclaw", "terminalbench-native"]
+    ),
+    help=(
+        "Inference backend. For hermes/openclaw, also pass --base-url and "
+        "--api-key (or set JARVIS_BACKEND_BASE_URL/JARVIS_BACKEND_API_KEY)."
+    ),
+)
+@click.option(
+    "--base-url",
+    "base_url",
+    default=None,
+    help=(
+        "OpenAI-compat endpoint URL for hermes/openclaw backends "
+        "(env: JARVIS_BACKEND_BASE_URL)."
+    ),
+)
+@click.option(
+    "--api-key",
+    "api_key",
+    default=None,
+    help=("API key for the hermes/openclaw endpoint (env: JARVIS_BACKEND_API_KEY)."),
 )
 @click.option(
     "--agent",
@@ -256,6 +278,8 @@ def eval_run(
     model: Optional[str],
     max_samples: Optional[int],
     backend: str,
+    base_url: Optional[str],
+    api_key: Optional[str],
     agent_name: Optional[str],
     engine_key: Optional[str],
     tools: str,
@@ -375,6 +399,10 @@ def eval_run(
         sheets_spreadsheet_id=sheets_spreadsheet_id,
         sheets_worksheet=sheets_worksheet,
         sheets_credentials_path=sheets_credentials_path,
+        # Spec §6.2 — for hermes/openclaw external backends. Falls back to env vars
+        # so users can also set JARVIS_BACKEND_BASE_URL/JARVIS_BACKEND_API_KEY.
+        base_url=base_url or os.environ.get("JARVIS_BACKEND_BASE_URL"),
+        api_key=api_key or os.environ.get("JARVIS_BACKEND_API_KEY"),
     )
 
     try:

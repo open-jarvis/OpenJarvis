@@ -78,6 +78,15 @@ def _tau2_to_oj_messages(
     return oj_msgs
 
 
+def _strip_think_tags(text: str) -> str:
+    """Remove ``<think>...</think>`` blocks from model output."""
+    import re
+
+    text = re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"^.*?</think>\s*", "", text, flags=re.DOTALL | re.IGNORECASE)
+    return text.strip()
+
+
 def _oj_result_to_tau2_msg(result: dict):
     """Convert OpenJarvis engine.generate() result to a tau2 AssistantMessage."""
     from tau2.data_model.message import AssistantMessage, ToolCall
@@ -99,9 +108,12 @@ def _oj_result_to_tau2_msg(result: dict):
             for tc in raw_tool_calls
         ]
 
+    content = result.get("content") or ""
+    content = _strip_think_tags(content) if content else None
+
     return AssistantMessage(
         role="assistant",
-        content=result.get("content") or None,
+        content=content or None,
         tool_calls=tool_calls,
         cost=result.get("cost_usd", 0.0),
     )
@@ -183,9 +195,15 @@ class JarvisHalfDuplexAgent:
             "tool_choice": "auto",
         }
         # Disable thinking mode for local models (Qwen3.5 etc.)
-        # to avoid <think> tags interfering with tool call parsing
+        # to avoid <think> tags interfering with tool call parsing.
+        # vLLM >=0.8 accepts chat_template_kwargs as a top-level field.
+        # We also set it inside extra_body for compatibility with
+        # OpenAI SDK-based clients that only pass extra_body through.
         if "qwen" in self._model.lower():
             gen_kwargs["chat_template_kwargs"] = {
+                "enable_thinking": False,
+            }
+            gen_kwargs.setdefault("extra_body", {})["chat_template_kwargs"] = {
                 "enable_thinking": False,
             }
         result = self._engine.generate(oj_messages, **gen_kwargs)

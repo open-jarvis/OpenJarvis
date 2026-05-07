@@ -11,6 +11,7 @@ from openjarvis.channels._stubs import ChannelStatus
 from openjarvis.channels.email_channel import EmailChannel
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.registry import ChannelRegistry
+from tests.channels.channel_test_helpers import make_common_channel_tests
 
 
 @pytest.fixture(autouse=True)
@@ -20,16 +21,14 @@ def _register_email():
         ChannelRegistry.register_value("email", EmailChannel)
 
 
-class TestRegistration:
-    def test_registry_key(self):
-        assert ChannelRegistry.contains("email")
-
-    def test_channel_id(self):
-        ch = EmailChannel(
-            smtp_host="smtp.example.com",
-            username="user@example.com",
-        )
-        assert ch.channel_id == "email"
+TestCommonChannel = make_common_channel_tests(
+    EmailChannel,
+    "email",
+    constructor_kwargs={
+        "smtp_host": "smtp.example.com",
+        "username": "user@example.com",
+    },
+)
 
 
 class TestInit:
@@ -170,17 +169,7 @@ class TestSend:
             assert sent_msg["Subject"] == "Custom Subject"
 
 
-class TestListChannels:
-    def test_list_channels(self):
-        ch = EmailChannel(smtp_host="smtp.example.com", username="user@example.com")
-        assert ch.list_channels() == ["email"]
-
-
 class TestStatus:
-    def test_disconnected_initially(self):
-        ch = EmailChannel(smtp_host="smtp.example.com", username="user@example.com")
-        assert ch.status() == ChannelStatus.DISCONNECTED
-
     def test_no_config_connect_error(self):
         ch = EmailChannel()
         ch.connect()
@@ -197,22 +186,3 @@ class TestConnect:
         assert ch.status() == ChannelStatus.CONNECTED
         # No IMAP, so no listener thread
         assert ch._listener_thread is None
-
-
-class TestOnMessage:
-    def test_on_message(self):
-        ch = EmailChannel(smtp_host="smtp.example.com", username="user@example.com")
-        handler = MagicMock()
-        ch.on_message(handler)
-        assert handler in ch._handlers
-
-
-class TestDisconnect:
-    def test_disconnect(self):
-        ch = EmailChannel(
-            smtp_host="smtp.example.com",
-            username="user@example.com",
-        )
-        ch._status = ChannelStatus.CONNECTED
-        ch.disconnect()
-        assert ch.status() == ChannelStatus.DISCONNECTED

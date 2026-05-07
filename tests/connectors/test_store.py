@@ -333,3 +333,27 @@ def test_memory_retrieve_event_emitted(tmp_path: Path) -> None:
 
     types = [e.event_type for e in bus.history]
     assert EventType.MEMORY_RETRIEVE in types
+
+
+def test_context_manager_closes_connection(tmp_path: Path) -> None:
+    """Used as a context manager, KnowledgeStore closes its connection on exit."""
+    import sqlite3
+
+    with KnowledgeStore(db_path=tmp_path / "ctx.db") as ks:
+        _store(ks, content="inside with", source="test")
+
+    with pytest.raises(sqlite3.ProgrammingError):
+        ks._conn.execute("SELECT 1")
+
+
+def test_context_manager_closes_on_exception(tmp_path: Path) -> None:
+    """The connection is closed even when the with block raises."""
+    import sqlite3
+
+    ks = KnowledgeStore(db_path=tmp_path / "ctx_exc.db")
+    with pytest.raises(RuntimeError):
+        with ks:
+            raise RuntimeError("boom")
+
+    with pytest.raises(sqlite3.ProgrammingError):
+        ks._conn.execute("SELECT 1")

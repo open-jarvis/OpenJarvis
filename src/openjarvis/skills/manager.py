@@ -54,9 +54,7 @@ class SkillManager:
             except Exception:
                 pass
             if overlay_dir is None:
-                overlay_dir = Path(
-                    "~/.openjarvis/learning/skills/"
-                ).expanduser()
+                overlay_dir = Path("~/.openjarvis/learning/skills/").expanduser()
         self._overlay_dir = Path(overlay_dir).expanduser()
 
     # ------------------------------------------------------------------
@@ -364,16 +362,62 @@ class SkillManager:
         self._tool_executor = tool_executor
 
     # ------------------------------------------------------------------
-    # Lifecycle stubs (not yet implemented)
+    # Lifecycle
     # ------------------------------------------------------------------
 
-    def install(self, source: Any, *, verify: bool = True) -> None:
-        """Install a skill from a remote source.  Not yet implemented."""
-        raise NotImplementedError("Skill installation not yet implemented")
+    def find_installed_paths(
+        self, name: str, *, roots: Optional[List[Path]] = None
+    ) -> List[Path]:
+        """Return on-disk skill directories matching ``name``.
 
-    def remove(self, name: Any) -> None:
-        """Remove a skill by name.  Not yet implemented."""
-        raise NotImplementedError("Skill removal not yet implemented")
+        A directory matches when it contains ``skill.toml`` or ``SKILL.md``
+        and either the directory name equals ``name`` or its parsed
+        manifest's ``name`` field equals ``name``.
+        """
+        if roots is None:
+            roots = [Path("~/.openjarvis/skills/").expanduser(), Path("./skills")]
+
+        matches: List[Path] = []
+        for root in roots:
+            if not root.exists():
+                continue
+            for candidate in root.rglob("*"):
+                if not candidate.is_dir():
+                    continue
+                toml = candidate / "skill.toml"
+                md = candidate / "SKILL.md"
+                if not (toml.exists() or md.exists()):
+                    continue
+                if candidate.name == name:
+                    matches.append(candidate)
+                    continue
+                # Fall back to parsed manifest name
+                try:
+                    from openjarvis.skills.loader import load_skill_directory
+
+                    manifest = load_skill_directory(candidate)
+                    if manifest is not None and manifest.name == name:
+                        matches.append(candidate)
+                except Exception:
+                    continue
+        return matches
+
+    def remove(self, name: str, *, roots: Optional[List[Path]] = None) -> List[Path]:
+        """Remove an installed skill by name.
+
+        Returns the list of directories that were removed.  Raises
+        :class:`FileNotFoundError` when no matching skill exists on disk.
+        """
+        import shutil
+
+        paths = self.find_installed_paths(name, roots=roots)
+        if not paths:
+            raise FileNotFoundError(f"No installed skill named {name!r}")
+        for p in paths:
+            shutil.rmtree(p)
+        # Drop from in-memory catalog
+        self._skills.pop(name, None)
+        return paths
 
 
 # ---------------------------------------------------------------------------

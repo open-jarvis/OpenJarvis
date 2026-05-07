@@ -92,3 +92,20 @@ class TestRouterPolicyRegistry:
         RouterPolicyRegistry.register_value("dup", 1)
         with pytest.raises(ValueError, match="already has an entry"):
             RouterPolicyRegistry.register_value("dup", 2)
+
+
+def test_miner_registry_register_and_get():
+    from openjarvis.core.registry import MinerRegistry
+
+    class _Stub:
+        provider_id = "stub-pearl"
+
+    MinerRegistry.register_value("stub-pearl", _Stub)
+    assert MinerRegistry.contains("stub-pearl") is True
+    assert MinerRegistry.get("stub-pearl") is _Stub
+
+
+def test_miner_registry_cleared_between_tests():
+    from openjarvis.core.registry import MinerRegistry
+    # If autouse clear works, no entry from prior tests remains
+    assert MinerRegistry.contains("stub-pearl") is False

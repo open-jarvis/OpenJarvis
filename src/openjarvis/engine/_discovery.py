@@ -52,11 +52,60 @@ def _make_engine(key: str, config: JarvisConfig) -> InferenceEngine:
     return cls()
 
 
+def _maybe_register_mining_sidecar_engine() -> None:
+    """If a mining sidecar exists with a ``vllm_endpoint``, register a derived
+    vLLM engine class pointing at it.  Idempotent.  Quiet on error.
+
+    The trigger is the *shape* of the sidecar (presence of ``vllm_endpoint``),
+    not the value of its ``provider`` field — this leaves room for future
+    non-engine-replacing providers (e.g., a hypothetical cpu-pearl) whose
+    sidecars don't include ``vllm_endpoint``.
+    """
+    try:
+        from openjarvis.mining import Sidecar
+        from openjarvis.mining._constants import SIDECAR_PATH
+    except ImportError:
+        return
+
+    if EngineRegistry.contains("vllm-pearl-mining"):
+        return  # idempotent
+
+    payload = Sidecar.read(SIDECAR_PATH)
+    if payload is None:
+        return
+
+    endpoint = payload.get("vllm_endpoint")
+    model = payload.get("model")
+    if not endpoint or not model:
+        return  # data-driven gate: no vllm_endpoint → don't register
+
+    from openjarvis.engine._openai_compat import _OpenAICompatibleEngine
+
+    # Strip a trailing "/v1" path segment so _default_host is the bare
+    # base URL and _api_prefix="/v1" combines correctly in request paths.
+    api_prefix = "/v1"
+    base_url = endpoint.rstrip("/")
+    if base_url.endswith(api_prefix):
+        base_url = base_url[: -len(api_prefix)]
+
+    _cls = type(
+        "VllmPearlMiningEngine",
+        (_OpenAICompatibleEngine,),
+        {
+            "engine_id": "vllm-pearl-mining",
+            "_default_host": base_url,
+            "_api_prefix": api_prefix,
+        },
+    )
+    EngineRegistry.register_value("vllm-pearl-mining", _cls)
+
+
 def discover_engines(config: JarvisConfig) -> List[Tuple[str, InferenceEngine]]:
     """Probe registered engines and return ``[(key, instance)]`` for healthy ones.
 
     Results are sorted with the config default engine first.
     """
+    _maybe_register_mining_sidecar_engine()
     healthy: List[Tuple[str, InferenceEngine]] = []
     for key in EngineRegistry.keys():
         try:

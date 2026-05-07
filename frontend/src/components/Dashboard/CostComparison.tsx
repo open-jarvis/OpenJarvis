@@ -12,16 +12,13 @@ export function CostComparison() {
 
   if (!savings || savings.total_tokens === 0) {
     return (
-      <div
-        className="rounded-xl p-6"
-        style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
-      >
-        <h3 className="text-sm font-medium mb-4 flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
-          <DollarSign size={16} style={{ color: 'var(--color-success)' }} />
+      <div className="hud-panel p-6">
+        <h3 className="hud-label flex items-center gap-2 mb-4">
+          <DollarSign size={12} style={{ color: 'var(--color-success)' }} />
           Cost Comparison
         </h3>
         <div className="h-48 flex items-center justify-center text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
-          Start chatting to see local vs. cloud cost savings.
+          <span className="hud-mono">awaiting first inference…</span>
         </div>
       </div>
     );
@@ -31,12 +28,9 @@ export function CostComparison() {
   const completionK = savings.total_completion_tokens / 1000;
 
   return (
-    <div
-      className="rounded-xl p-6"
-      style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
-    >
-      <h3 className="text-sm font-medium mb-4 flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
-        <DollarSign size={16} style={{ color: 'var(--color-success)' }} />
+    <div className="hud-panel p-6">
+      <h3 className="hud-label flex items-center gap-2 mb-4">
+        <DollarSign size={12} style={{ color: 'var(--color-success)' }} />
         Cost Comparison*
       </h3>
 

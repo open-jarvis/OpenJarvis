@@ -7,31 +7,31 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from openjarvis.channels._stubs import ChannelStatus
+from openjarvis.channels.twilio_sms import TwilioSMSChannel
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.registry import ChannelRegistry
+from tests.channels.channel_test_helpers import make_common_channel_tests
 
 
 @pytest.fixture(autouse=True)
 def _register_twilio():
     if not ChannelRegistry.contains("twilio"):
-        from openjarvis.channels.twilio_sms import (
-            TwilioSMSChannel,
-        )
-
         ChannelRegistry.register_value("twilio", TwilioSMSChannel)
 
 
-class TestRegistration:
-    def test_registered(self):
-        assert ChannelRegistry.contains("twilio")
+TestCommonChannel = make_common_channel_tests(
+    TwilioSMSChannel,
+    "twilio",
+    constructor_kwargs={
+        "account_sid": "AC_test",
+        "auth_token": "token_test",
+        "phone_number": "+15551234567",
+    },
+)
 
 
 class TestInit:
     def test_from_params(self):
-        from openjarvis.channels.twilio_sms import (
-            TwilioSMSChannel,
-        )
-
         ch = TwilioSMSChannel(
             account_sid="AC_test",
             auth_token="token_test",
@@ -41,10 +41,6 @@ class TestInit:
         assert ch.status() == ChannelStatus.DISCONNECTED
 
     def test_from_env_vars(self, monkeypatch):
-        from openjarvis.channels.twilio_sms import (
-            TwilioSMSChannel,
-        )
-
         monkeypatch.setenv("TWILIO_ACCOUNT_SID", "AC_env")
         monkeypatch.setenv("TWILIO_AUTH_TOKEN", "token_env")
         monkeypatch.setenv("TWILIO_PHONE_NUMBER", "+15559876543")
@@ -54,10 +50,6 @@ class TestInit:
 
 class TestSend:
     def test_send_success(self):
-        from openjarvis.channels.twilio_sms import (
-            TwilioSMSChannel,
-        )
-
         ch = TwilioSMSChannel(
             account_sid="AC_test",
             auth_token="token_test",
@@ -78,10 +70,6 @@ class TestSend:
         )
 
     def test_send_failure(self):
-        from openjarvis.channels.twilio_sms import (
-            TwilioSMSChannel,
-        )
-
         ch = TwilioSMSChannel(
             account_sid="AC_test",
             auth_token="token_test",
@@ -97,10 +85,6 @@ class TestSend:
         assert result is False
 
     def test_send_publishes_event(self):
-        from openjarvis.channels.twilio_sms import (
-            TwilioSMSChannel,
-        )
-
         bus = EventBus(record_history=True)
         ch = TwilioSMSChannel(
             account_sid="AC_test",
@@ -121,10 +105,6 @@ class TestSend:
 
 class TestStatus:
     def test_connected_after_connect(self):
-        from openjarvis.channels.twilio_sms import (
-            TwilioSMSChannel,
-        )
-
         ch = TwilioSMSChannel(
             account_sid="AC_test",
             auth_token="token_test",
@@ -135,10 +115,6 @@ class TestStatus:
         assert ch.status() == ChannelStatus.CONNECTED
 
     def test_disconnected_after_disconnect(self):
-        from openjarvis.channels.twilio_sms import (
-            TwilioSMSChannel,
-        )
-
         ch = TwilioSMSChannel(
             account_sid="AC_test",
             auth_token="token_test",
@@ -148,19 +124,3 @@ class TestStatus:
             ch.connect()
             ch.disconnect()
         assert ch.status() == ChannelStatus.DISCONNECTED
-
-
-class TestOnMessage:
-    def test_registers_handler(self):
-        from openjarvis.channels.twilio_sms import (
-            TwilioSMSChannel,
-        )
-
-        ch = TwilioSMSChannel(
-            account_sid="AC_test",
-            auth_token="token_test",
-            phone_number="+15551234567",
-        )
-        handler = MagicMock()
-        ch.on_message(handler)
-        assert handler in ch._handlers

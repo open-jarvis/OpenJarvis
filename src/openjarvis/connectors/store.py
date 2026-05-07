@@ -132,6 +132,12 @@ class KnowledgeStore(MemoryBackend):
         self._conn.row_factory = sqlite3.Row
         self._setup()
 
+    def __enter__(self) -> "KnowledgeStore":
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
+
     # ------------------------------------------------------------------
     # Internal setup
     # ------------------------------------------------------------------

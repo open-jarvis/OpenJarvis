@@ -11,6 +11,7 @@ from openjarvis.channels._stubs import ChannelStatus
 from openjarvis.channels.matrix_channel import MatrixChannel
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.registry import ChannelRegistry
+from tests.channels.channel_test_helpers import make_common_channel_tests
 
 
 @pytest.fixture(autouse=True)
@@ -20,16 +21,14 @@ def _register_matrix():
         ChannelRegistry.register_value("matrix", MatrixChannel)
 
 
-class TestRegistration:
-    def test_registry_key(self):
-        assert ChannelRegistry.contains("matrix")
-
-    def test_channel_id(self):
-        ch = MatrixChannel(
-            homeserver="https://matrix.example.com",
-            access_token="test-token",
-        )
-        assert ch.channel_id == "matrix"
+TestCommonChannel = make_common_channel_tests(
+    MatrixChannel,
+    "matrix",
+    constructor_kwargs={
+        "homeserver": "https://matrix.example.com",
+        "access_token": "test-token",
+    },
+)
 
 
 class TestInit:
@@ -137,46 +136,8 @@ class TestSend:
         assert EventType.CHANNEL_MESSAGE_SENT in event_types
 
 
-class TestListChannels:
-    def test_list_channels(self):
-        ch = MatrixChannel(
-            homeserver="https://matrix.example.com",
-            access_token="test-token",
-        )
-        assert ch.list_channels() == ["matrix"]
-
-
 class TestStatus:
-    def test_disconnected_initially(self):
-        ch = MatrixChannel(
-            homeserver="https://matrix.example.com",
-            access_token="test-token",
-        )
-        assert ch.status() == ChannelStatus.DISCONNECTED
-
     def test_no_homeserver_connect_error(self):
         ch = MatrixChannel()
         ch.connect()
         assert ch.status() == ChannelStatus.ERROR
-
-
-class TestOnMessage:
-    def test_on_message(self):
-        ch = MatrixChannel(
-            homeserver="https://matrix.example.com",
-            access_token="test-token",
-        )
-        handler = MagicMock()
-        ch.on_message(handler)
-        assert handler in ch._handlers
-
-
-class TestDisconnect:
-    def test_disconnect(self):
-        ch = MatrixChannel(
-            homeserver="https://matrix.example.com",
-            access_token="test-token",
-        )
-        ch._status = ChannelStatus.CONNECTED
-        ch.disconnect()
-        assert ch.status() == ChannelStatus.DISCONNECTED

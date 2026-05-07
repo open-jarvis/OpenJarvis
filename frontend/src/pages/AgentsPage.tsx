@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { toast } from 'sonner';
 import { useAppStore } from '../lib/store';
 import {
@@ -32,6 +33,7 @@ import {
   sendblueHealth,
 } from '../lib/api';
 import type { AgentTask, ChannelBinding, AgentTemplate, AgentMessage, ManagedAgent, LearningLogEntry, AgentTrace, ToolInfo } from '../lib/api';
+import { useAgentEvents } from '../lib/useAgentEvents';
 import {
   Plus,
   Bot,
@@ -62,6 +64,8 @@ import {
 import { SOURCE_CATALOG } from '../types/connectors';
 import type { ConnectRequest } from '../types/connectors';
 import { listConnectors, connectSource } from '../lib/connectors-api';
+import type { ToolCallInfo } from '../types';
+import { ToolCallCard } from '../components/Chat/ToolCallCard';
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -78,18 +82,18 @@ type AgentStatus =
   | 'stalled';
 
 const STATUS_COLOR: Record<AgentStatus, string> = {
-  idle: '#22c55e',
-  running: '#3b82f6',
-  paused: '#6b7280',
-  error: '#ef4444',
-  archived: '#6b7280',
-  needs_attention: '#f59e0b',
-  budget_exceeded: '#f97316',
-  stalled: '#eab308',
+  idle: 'var(--color-success)',
+  running: 'var(--color-accent)',
+  paused: 'var(--color-text-tertiary)',
+  error: 'var(--color-error)',
+  archived: 'var(--color-text-tertiary)',
+  needs_attention: 'var(--color-warning)',
+  budget_exceeded: 'var(--color-warning)',
+  stalled: 'var(--color-warning)',
 };
 
 function statusColor(s: string): string {
-  return STATUS_COLOR[s as AgentStatus] || '#6b7280';
+  return STATUS_COLOR[s as AgentStatus] || 'var(--color-text-tertiary)';
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -283,6 +287,352 @@ function Tooltip({ text }: { text: string }) {
   return <span className="inline-block ml-1 cursor-help" style={{ color: 'var(--color-text-tertiary)', fontSize: 10 }} title={text}>(?)</span>;
 }
 
+// ---------------------------------------------------------------------------
+// ToolsPicker — dev-inventory style tool selector used by the launch wizard
+// ---------------------------------------------------------------------------
+
+const TOOL_CATEGORY_ORDER = [
+  'filesystem',
+  'system',
+  'code',
+  'vcs',
+  'storage',
+  'memory',
+  'knowledge',
+  'knowledge_graph',
+  'search',
+  'network',
+  'browser',
+  'database',
+  'data',
+  'math',
+  'reasoning',
+  'inference',
+  'media',
+  'audio',
+  'skill',
+  'channel',
+  'communication',
+  'other',
+];
+
+const TOOL_CATEGORY_LABELS: Record<string, string> = {
+  filesystem: 'filesystem',
+  system: 'shell & exec',
+  code: 'code & repl',
+  vcs: 'git',
+  storage: 'memory · storage',
+  memory: 'memory',
+  knowledge: 'knowledge',
+  knowledge_graph: 'knowledge graph',
+  search: 'search',
+  network: 'network',
+  browser: 'browser',
+  database: 'database',
+  data: 'data',
+  math: 'math',
+  reasoning: 'reasoning',
+  inference: 'inference',
+  media: 'media',
+  audio: 'audio',
+  skill: 'skills',
+  channel: 'channel primitives',
+  communication: 'channels',
+  other: 'other',
+};
+
+function ToolsPicker({
+  tools,
+  selected,
+  onChange,
+}: {
+  tools: ToolInfo[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const [hovered, setHovered] = useState<ToolInfo | null>(null);
+  const [pulseKey, setPulseKey] = useState(0);
+
+  // Channels (source === 'channel') live in ChannelRegistry and aren't
+  // directly callable by the LLM — the agent talks to them through the
+  // `channel_send` tool. Showing them in the tools picker is misleading,
+  // so filter them out; channel bindings are configured separately.
+  const tollableTools = tools.filter((t) => t.source !== 'channel');
+
+  // Group by category, respecting the preferred order then alphabetical.
+  const grouped = (() => {
+    const buckets: Record<string, ToolInfo[]> = {};
+    for (const t of tollableTools) {
+      const cat = TOOL_CATEGORY_ORDER.includes(t.category) ? t.category : 'other';
+      (buckets[cat] ||= []).push(t);
+    }
+    for (const cat of Object.keys(buckets)) {
+      buckets[cat].sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return TOOL_CATEGORY_ORDER
+      .filter((cat) => buckets[cat]?.length)
+      .map((cat) => ({ category: cat, items: buckets[cat] }));
+  })();
+
+  const configurable = tollableTools.filter((t) => t.configured).map((t) => t.name);
+  const allSelected =
+    configurable.length > 0 && configurable.every((n) => selected.includes(n));
+
+  const toggle = (name: string) => {
+    const next = selected.includes(name)
+      ? selected.filter((t) => t !== name)
+      : [...selected, name];
+    onChange(next);
+    setPulseKey((k) => k + 1);
+  };
+
+  const hint = hovered
+    ? hovered.configured
+      ? hovered.description || hovered.name
+      : `Needs ${hovered.credential_keys.join(', ') || 'credentials'}`
+    : 'hover a tool for details';
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-1">
+        <label
+          className="block text-[13px] font-medium"
+          style={{ color: 'var(--color-text-secondary)' }}
+        >
+          Tools
+        </label>
+        <div className="flex items-center gap-2">
+          <span
+            key={pulseKey}
+            className="tools-count"
+            style={{
+              fontFamily:
+                'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+              fontSize: 10.5,
+              color: 'var(--color-text-tertiary)',
+            }}
+          >
+            <span style={{ color: 'var(--color-accent)' }}>
+              {selected.length}
+            </span>
+            <span style={{ opacity: 0.5 }}> / {tollableTools.length}</span>
+          </span>
+          <span style={{ color: 'var(--color-text-tertiary)', opacity: 0.3 }}>·</span>
+          <button
+            type="button"
+            onClick={() => onChange(allSelected ? [] : configurable)}
+            disabled={tools.length === 0}
+            className="transition-colors"
+            style={{
+              fontFamily:
+                'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+              fontSize: 10,
+              color: 'var(--color-text-tertiary)',
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              cursor: tools.length === 0 ? 'default' : 'pointer',
+              textDecoration: 'underline',
+              textUnderlineOffset: 2,
+            }}
+            onMouseEnter={(e) =>
+              (e.currentTarget.style.color = 'var(--color-text)')
+            }
+            onMouseLeave={(e) =>
+              (e.currentTarget.style.color = 'var(--color-text-tertiary)')
+            }
+          >
+            {allSelected ? 'none' : 'all'}
+          </button>
+        </div>
+      </div>
+      <p
+        className="text-[10.5px] mb-2"
+        style={{ color: 'var(--color-text-tertiary)' }}
+      >
+        What the agent is allowed to call. An empty selection makes a
+        chat-only agent.
+      </p>
+      {tools.length === 0 ? (
+        <div
+          className="px-3 py-2 rounded-lg text-xs"
+          style={{
+            background: 'var(--color-bg-secondary)',
+            border: '1px solid var(--color-border)',
+            color: 'var(--color-text-tertiary)',
+          }}
+        >
+          Loading available tools…
+        </div>
+      ) : (
+        <div
+          className="rounded-lg overflow-hidden"
+          style={{
+            background: 'var(--color-bg-secondary)',
+            border: '1px solid var(--color-border)',
+          }}
+          onMouseLeave={() => setHovered(null)}
+        >
+          <div
+            className="px-2.5 py-2 overflow-y-auto"
+            style={{ maxHeight: 200 }}
+          >
+            {grouped.map(({ category, items }, idx) => (
+              <div key={category} style={{ marginTop: idx === 0 ? 0 : 10 }}>
+                <div
+                  className="flex items-center gap-1.5 mb-1.5"
+                  style={{
+                    fontFamily:
+                      'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+                    fontSize: 9.5,
+                    color: 'var(--color-text-tertiary)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.1em',
+                  }}
+                >
+                  <span style={{ opacity: 0.5 }}>─</span>
+                  <span>{TOOL_CATEGORY_LABELS[category] || category}</span>
+                  <span
+                    className="flex-1"
+                    style={{
+                      borderBottom: '1px dashed var(--color-border)',
+                      marginBottom: 3,
+                      opacity: 0.5,
+                    }}
+                  />
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {items.map((tool) => {
+                    const isSelected = selected.includes(tool.name);
+                    const disabled = !tool.configured;
+                    return (
+                      <button
+                        key={tool.name}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => toggle(tool.name)}
+                        onMouseEnter={() => setHovered(tool)}
+                        onFocus={() => setHovered(tool)}
+                        className="tool-chip"
+                        style={{
+                          fontFamily:
+                            'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+                          fontSize: 11,
+                          lineHeight: 1.2,
+                          padding: '3px 7px 3px 5px',
+                          borderRadius: 4,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 5,
+                          background: isSelected
+                            ? 'color-mix(in srgb, var(--color-accent) 14%, transparent)'
+                            : 'var(--color-bg)',
+                          color: disabled
+                            ? 'var(--color-text-tertiary)'
+                            : isSelected
+                              ? 'var(--color-accent)'
+                              : 'var(--color-text-secondary)',
+                          border: disabled
+                            ? '1px dashed var(--color-border)'
+                            : `1px solid ${isSelected ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                          boxShadow: isSelected
+                            ? 'inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 30%, transparent)'
+                            : 'none',
+                          cursor: disabled ? 'not-allowed' : 'pointer',
+                          opacity: disabled ? 0.55 : 1,
+                          transition:
+                            'background 120ms, color 120ms, border-color 120ms, transform 80ms',
+                        }}
+                        onMouseDown={(e) =>
+                          !disabled && (e.currentTarget.style.transform = 'scale(0.97)')
+                        }
+                        onMouseUp={(e) =>
+                          (e.currentTarget.style.transform = 'scale(1)')
+                        }
+                      >
+                        <span
+                          style={{
+                            opacity: isSelected ? 1 : 0.5,
+                            color: disabled
+                              ? 'var(--color-text-tertiary)'
+                              : isSelected
+                                ? 'var(--color-accent)'
+                                : 'var(--color-text-tertiary)',
+                            fontSize: 10.5,
+                          }}
+                        >
+                          {disabled ? '⨯' : isSelected ? '▣' : '□'}
+                        </span>
+                        <span>{tool.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* Live description strip */}
+          <div
+            className="flex items-center gap-2 px-2.5 py-1.5"
+            style={{
+              borderTop: '1px solid var(--color-border)',
+              background: 'var(--color-bg)',
+              fontFamily:
+                'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+              fontSize: 10.5,
+              color: 'var(--color-text-tertiary)',
+              minHeight: 26,
+            }}
+          >
+            <span
+              style={{
+                color: hovered
+                  ? hovered.configured
+                    ? 'var(--color-accent)'
+                    : '#f59e0b'
+                  : 'var(--color-text-tertiary)',
+                opacity: hovered ? 1 : 0.5,
+              }}
+            >
+              {hovered ? (hovered.configured ? '▸' : '!') : '·'}
+            </span>
+            {hovered && (
+              <span
+                style={{
+                  color: 'var(--color-text)',
+                  fontWeight: 500,
+                }}
+              >
+                {hovered.name}
+              </span>
+            )}
+            <span
+              className="truncate"
+              style={{
+                flex: 1,
+                color: 'var(--color-text-tertiary)',
+              }}
+            >
+              {hovered ? `— ${hint}` : hint}
+            </span>
+          </div>
+        </div>
+      )}
+      <style>{`
+        @keyframes tools-count-pulse {
+          0% { transform: scale(1); }
+          40% { transform: scale(1.18); }
+          100% { transform: scale(1); }
+        }
+        .tools-count {
+          display: inline-block;
+          animation: tools-count-pulse 220ms ease-out;
+        }
+      `}</style>
+    </div>
+  );
+}
+
 function LaunchWizard({
   templates,
   onClose,
@@ -317,6 +667,7 @@ function LaunchWizard({
   });
   const [launching, setLaunching] = useState(false);
   const [recommendedModel, setRecommendedModel] = useState('');
+  const [availableTools, setAvailableTools] = useState<ToolInfo[]>([]);
   const models = useAppStore((s) => s.models);
 
   useEffect(() => {
@@ -325,6 +676,9 @@ function LaunchWizard({
       if (!wizard.model) {
         setWizard((w) => ({ ...w, model: r.model }));
       }
+    }).catch(() => {});
+    fetchAvailableTools().then((tools) => {
+      setAvailableTools(tools);
     }).catch(() => {});
   }, []);
 
@@ -439,7 +793,7 @@ function LaunchWizard({
                 onClick={() => selectTemplate(tpl)}
                 className="text-left p-4 rounded-lg transition-all items-start"
                 style={{ border: '1px solid var(--color-border)', background: 'var(--color-bg-secondary)' }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--color-accent)'; e.currentTarget.style.background = 'rgba(124,58,237,0.06)'; }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--color-accent)'; e.currentTarget.style.background = 'color-mix(in srgb, var(--color-accent-purple) 6%, transparent)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--color-border)'; e.currentTarget.style.background = 'var(--color-bg-secondary)'; }}
               >
                 <div className="flex items-center gap-2 mb-1">
@@ -450,7 +804,7 @@ function LaunchWizard({
                 {(tpl as any).tools && (
                   <div className="flex flex-wrap gap-1 mt-2">
                     {((tpl as any).tools as string[]).slice(0, 4).map((t: string) => (
-                      <span key={t} className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(124,58,237,0.12)', color: '#a78bfa' }}>{t}</span>
+                      <span key={t} className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'color-mix(in srgb, var(--color-accent-purple) 12%, transparent)', color: 'var(--color-accent-purple)' }}>{t}</span>
                     ))}
                     {((tpl as any).tools as string[]).length > 4 && (
                       <span className="text-xs px-1.5 py-0.5 rounded" style={{ color: 'var(--color-text-tertiary)' }}>+{((tpl as any).tools as string[]).length - 4}</span>
@@ -463,7 +817,7 @@ function LaunchWizard({
               onClick={() => selectTemplate(null)}
               className="text-left p-4 rounded-lg transition-all items-start"
               style={{ border: '1px solid var(--color-border)', background: 'var(--color-bg-secondary)' }}
-              onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--color-accent)'; e.currentTarget.style.background = 'rgba(124,58,237,0.06)'; }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--color-accent)'; e.currentTarget.style.background = 'color-mix(in srgb, var(--color-accent-purple) 6%, transparent)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--color-border)'; e.currentTarget.style.background = 'var(--color-bg-secondary)'; }}
             >
               <div className="flex items-center gap-2 mb-1">
@@ -517,11 +871,20 @@ function LaunchWizard({
               style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
             />
             {wizard.instruction.includes('[') && (
-              <p className="text-[10px] mt-1" style={{ color: '#f59e0b' }}>
+              <p className="text-[10px] mt-1" style={{ color: 'var(--color-warning)' }}>
                 Replace the [bracketed text] with your own values
               </p>
             )}
           </div>
+
+          {/* Tools picker */}
+          <ToolsPicker
+            tools={availableTools}
+            selected={wizard.selectedTools}
+            onChange={(next) =>
+              setWizard((w) => ({ ...w, selectedTools: next }))
+            }
+          />
 
           {/* Model + Schedule row */}
           <div className="grid grid-cols-2 gap-3">
@@ -588,7 +951,7 @@ function LaunchWizard({
                           className="px-1.5 py-1 rounded text-xs font-medium"
                           style={{
                             background: isSelected ? 'var(--color-accent)' : 'var(--color-bg)',
-                            color: isSelected ? '#fff' : 'var(--color-text-tertiary)',
+                            color: isSelected ? 'var(--color-on-accent)' : 'var(--color-text-tertiary)',
                             border: `1px solid ${isSelected ? 'var(--color-accent)' : 'var(--color-border)'}`,
                           }}
                         >
@@ -650,7 +1013,7 @@ function LaunchWizard({
               </label>
               <div className="flex flex-wrap gap-1.5">
                 {wizard.selectedTools.map((t) => (
-                  <span key={t} className="text-xs px-2 py-1 rounded" style={{ background: 'rgba(124,58,237,0.12)', color: '#a78bfa' }}>{t}</span>
+                  <span key={t} className="text-xs px-2 py-1 rounded" style={{ background: 'color-mix(in srgb, var(--color-accent-purple) 12%, transparent)', color: 'var(--color-accent-purple)' }}>{t}</span>
                 ))}
               </div>
             </div>
@@ -739,7 +1102,7 @@ function LaunchWizard({
               onClick={handleLaunch}
               disabled={launching || !wizard.name.trim()}
               className="flex-1 py-2.5 rounded-lg text-sm font-semibold"
-              style={{ background: 'var(--color-accent)', color: '#fff', opacity: launching || !wizard.name.trim() ? 0.5 : 1 }}
+              style={{ background: 'var(--color-accent)', color: 'var(--color-on-accent)', opacity: launching || !wizard.name.trim() ? 0.5 : 1 }}
             >
               {launching ? 'Creating...' : 'Launch Agent'}
             </button>
@@ -800,7 +1163,7 @@ function OverflowMenu({
               setOpen(false);
             }}
             className="w-full text-left px-3 py-1.5 text-xs cursor-pointer flex items-center gap-2"
-            style={{ color: '#ef4444' }}
+            style={{ color: 'var(--color-error)' }}
           >
             <Trash2 size={12} /> Delete
           </button>
@@ -893,10 +1256,10 @@ function AgentCard({
                 width: `${Math.min(100, ((agent.total_cost ?? 0) / (agent.config?.max_cost as number)) * 100)}%`,
                 background:
                   ((agent.total_cost ?? 0) / (agent.config?.max_cost as number)) > 0.9
-                    ? '#ef4444'
+                    ? 'var(--color-error)'
                     : ((agent.total_cost ?? 0) / (agent.config?.max_cost as number)) > 0.75
-                      ? '#f59e0b'
-                      : '#22c55e',
+                      ? 'var(--color-warning)'
+                      : 'var(--color-success)',
               }}
             />
           </div>
@@ -943,7 +1306,7 @@ function AgentCard({
           <button
             onClick={() => onResume(agent.id)}
             className="p-1 rounded cursor-pointer"
-            style={{ color: '#22c55e' }}
+            style={{ color: 'var(--color-success)' }}
             title="Resume"
           >
             <Play size={13} />
@@ -953,7 +1316,7 @@ function AgentCard({
           <button
             onClick={() => onRecover(agent.id)}
             className="flex items-center gap-1 px-2 py-1 rounded text-xs cursor-pointer"
-            style={{ background: '#ef444420', color: '#ef4444' }}
+            style={{ background: 'var(--color-error)20', color: 'var(--color-error)' }}
             title="Recover agent"
           >
             <AlertTriangle size={11} /> Recover
@@ -1013,7 +1376,7 @@ function AgentInstructionSection({ agent, onAgentUpdated }: { agent: ManagedAgen
             style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
           />
           <div className="flex gap-2">
-            <button onClick={save} className="text-xs px-3 py-1 rounded font-medium cursor-pointer" style={{ background: 'var(--color-accent)', color: '#fff' }}>Save</button>
+            <button onClick={save} className="text-xs px-3 py-1 rounded font-medium cursor-pointer" style={{ background: 'var(--color-accent)', color: 'var(--color-on-accent)' }}>Save</button>
             <button onClick={() => setEditing(false)} className="text-xs px-3 py-1 rounded cursor-pointer" style={{ color: 'var(--color-text-tertiary)', border: '1px solid var(--color-border)' }}>Cancel</button>
           </div>
         </div>
@@ -1098,10 +1461,10 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
   }
 
   const modelStatusDot = modelAvailable === 'available'
-    ? '#22c55e'
+    ? 'var(--color-success)'
     : modelAvailable === 'unavailable'
-      ? '#ef4444'
-      : '#888';
+      ? 'var(--color-error)'
+      : 'var(--color-text-tertiary)';
 
   const rows: [string, React.ReactNode][] = [
     ['Intelligence', editingModel ? (
@@ -1119,7 +1482,7 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
           {models.map((m) => {
             const loaded = isModelLoaded(m);
             return (
-              <option key={m} value={m} style={!loaded ? { color: '#888' } : undefined}>
+              <option key={m} value={m} style={!loaded ? { color: 'var(--color-text-tertiary)' } : undefined}>
                 {m}{!loaded ? ' (not loaded)' : ''}
               </option>
             );
@@ -1145,14 +1508,14 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
         />
         <span style={{ color: 'var(--color-text)' }}>{currentModel}</span>
         {modelAvailable === 'unavailable' && (
-          <span className="text-xs" style={{ color: '#ef4444' }}>Not available</span>
+          <span className="text-xs" style={{ color: 'var(--color-error)' }}>Not available</span>
         )}
         <button
           onClick={startEditingModel}
           className="text-xs px-2 py-0.5 rounded cursor-pointer"
           style={{
-            color: modelAvailable === 'unavailable' ? '#ef4444' : 'var(--color-accent)',
-            border: `1px solid ${modelAvailable === 'unavailable' ? '#ef4444' : 'var(--color-accent)'}`,
+            color: modelAvailable === 'unavailable' ? 'var(--color-error)' : 'var(--color-accent)',
+            border: `1px solid ${modelAvailable === 'unavailable' ? 'var(--color-error)' : 'var(--color-accent)'}`,
             opacity: 0.8,
           }}
         >
@@ -1189,6 +1552,7 @@ type InteractMessage = AgentMessage & {
   _toolCalls?: number;
   _usage?: Record<string, number>;
   _telemetry?: Record<string, unknown>;
+  _toolCallDetails?: ToolCallInfo[];
 };
 
 function AgentResponseFooter({
@@ -1202,7 +1566,8 @@ function AgentResponseFooter({
   const u = msg._usage;
   const t = msg._telemetry as Record<string, unknown> | undefined;
   const elapsed = msg._elapsed;
-  const toolCalls = msg._toolCalls || 0;
+  const toolCallDetails = msg._toolCallDetails || [];
+  const toolCalls = msg._toolCalls ?? toolCallDetails.length;
 
   // Build summary line like Chat: "ollama - qwen3.5:9b - 18.3s - 50 tokens"
   const parts: string[] = [];
@@ -1224,7 +1589,15 @@ function AgentResponseFooter({
     if (u.prompt_tokens) tokenParts.push(`${u.prompt_tokens} prompt`);
     if (tokenParts.length) rows.push({ label: 'Tokens', value: tokenParts.join(' · ') });
   }
-  if (toolCalls > 0) rows.push({ label: 'Tool calls', value: `${toolCalls}` });
+  if (toolCallDetails.length > 0) {
+    toolCallDetails.forEach((tc, i) => {
+      const prefix = toolCallDetails.length > 1 ? `Tool ${i + 1}` : 'Tool';
+      const args = tc.arguments ? ` ${tc.arguments}` : '';
+      rows.push({ label: prefix, value: `${tc.tool}(${args.trim()})` });
+    });
+  } else if (toolCalls > 0) {
+    rows.push({ label: 'Tool calls', value: `${toolCalls}` });
+  }
   if (t?.tokens_per_sec) rows.push({ label: 'Speed', value: `${Math.round(Number(t.tokens_per_sec))} tok/s` });
   if (t?.total_ms) rows.push({ label: 'Latency', value: `${(Number(t.total_ms) / 1000).toFixed(1)}s total` });
 
@@ -1296,12 +1669,19 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
   const [waitingForResponse, setWaitingForResponse] = useState(false);
   const [progressLabel, setProgressLabel] = useState('');
   const [streamingContent, setStreamingContent] = useState('');
+  const [streamingToolCalls, setStreamingToolCalls] = useState<ToolCallInfo[]>([]);
   const [currentActivity, setCurrentActivity] = useState('');
   const [liveStatus, setLiveStatus] = useState(agentStatus);
   const [streamElapsedMs, setStreamElapsedMs] = useState(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Tail-mode flag: when the user is pinned to the bottom of the transcript
+  // (within NEAR_BOTTOM_THRESHOLD px) we keep auto-scrolling as new content
+  // streams in. If they manually scroll up, we stop following so the view
+  // doesn't get yanked back down.
+  const isNearBottomRef = useRef(true);
 
   // Keep a ref of local metadata so polling doesn't overwrite it
   const localMetaRef = useRef<Map<string, {
@@ -1309,6 +1689,7 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
     _toolCalls?: number;
     _usage?: Record<string, number>;
     _telemetry?: Record<string, unknown>;
+    _toolCallDetails?: ToolCallInfo[];
   }>>(new Map());
 
   const loadData = useCallback(async () => {
@@ -1317,10 +1698,24 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
         fetchAgentMessages(agentId),
         fetchManagedAgent(agentId),
       ]);
-      // Merge server messages with locally-stored metadata
+      // Merge server messages with locally-stored metadata, and hydrate
+      // server-persisted tool_calls into _toolCallDetails so they survive
+      // page reloads.
       const merged: InteractMessage[] = msgs.map((m) => {
         const meta = localMetaRef.current.get(m.content?.slice(0, 100) || '');
-        return meta ? { ...m, ...meta } : m;
+        const base = meta ? { ...m, ...meta } : { ...m };
+        if (!base._toolCallDetails && m.tool_calls && m.tool_calls.length > 0) {
+          base._toolCallDetails = m.tool_calls.map((tc, i) => ({
+            id: `${m.id}-tc-${i}`,
+            tool: tc.tool,
+            arguments: tc.arguments || '',
+            status: tc.success === false ? 'error' : 'success',
+            result: tc.result,
+            latency: tc.latency,
+          }));
+          if (base._toolCalls == null) base._toolCalls = m.tool_calls.length;
+        }
+        return base;
       });
       setMessages(merged);
       setLiveStatus(agent.status);
@@ -1332,9 +1727,20 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 2000);
+    // Fallback slow poll — WS is primary, this catches missed events / dropped sockets
+    const interval = setInterval(loadData, 30000);
     return () => clearInterval(interval);
   }, [loadData]);
+
+  // Event-driven refresh — fires when the server reports agent activity
+  useAgentEvents(agentId, loadData, [
+    'agent_tick_start',
+    'agent_tick_end',
+    'agent_tick_error',
+    'agent_message_received',
+    'tool_call_end',
+    'inference_end',
+  ]);
 
   useEffect(() => { setLiveStatus(agentStatus); }, [agentStatus]);
 
@@ -1348,18 +1754,30 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
     };
   }, []);
 
-  // Scroll to bottom only on initial load, not on every poll update.
+  // Track whether the user is near the bottom. Called on every scroll
+  // event; only flips the ref, never triggers a re-render.
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    isNearBottomRef.current = distance < 80; // px threshold
+  }, []);
+
+  // Initial landing: jump to the bottom once the first batch of messages
+  // arrives. Subsequent poll updates honor the tail-mode ref.
   const hasScrolled = useRef(false);
   useEffect(() => {
     if (!hasScrolled.current && messages.length > 0) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+      bottomRef.current?.scrollIntoView({ behavior: 'auto' });
       hasScrolled.current = true;
+      isNearBottomRef.current = true;
     }
   }, [messages]);
 
-  // Scroll to bottom when streaming content updates
+  // Stream auto-follow: only scroll while the user is pinned to the bottom.
+  // If they've scrolled up to re-read something, stay put.
   useEffect(() => {
-    if (streamingContent) {
+    if (streamingContent && isNearBottomRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [streamingContent]);
@@ -1385,6 +1803,13 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
     setWaitingForResponse(true);
     setProgressLabel('Initializing agent...');
     setStreamingContent('');
+    setStreamingToolCalls([]);
+    // Sending is explicit user intent — always scroll and re-engage
+    // tail-mode so the subsequent stream follows along.
+    isNearBottomRef.current = true;
+    requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    });
 
     // Start elapsed-time timer
     const startTime = Date.now();
@@ -1396,6 +1821,7 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
     let toolCount = 0;
     let responseUsage: Record<string, number> | undefined;
     let responseTelemetry: Record<string, unknown> | undefined;
+    const collectedToolCalls: ToolCallInfo[] = [];
     try {
       const response = await sendAgentMessage(agentId, text, mode, {
         onProgress: (label) => {
@@ -1403,6 +1829,30 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
           toolCount++;
         },
         onContentDelta: (_delta, full) => setStreamingContent(full),
+        onToolCallStart: ({ tool, arguments: args }) => {
+          toolCount++;
+          const tc: ToolCallInfo = {
+            id: `tc-${Date.now()}-${collectedToolCalls.length}`,
+            tool,
+            arguments: args,
+            status: 'running',
+          };
+          collectedToolCalls.push(tc);
+          setStreamingToolCalls([...collectedToolCalls]);
+          setProgressLabel(`Calling ${tool}...`);
+        },
+        onToolCallEnd: ({ tool, success, latency, result }) => {
+          const match = [...collectedToolCalls]
+            .reverse()
+            .find((t) => t.tool === tool && t.status === 'running');
+          if (match) {
+            match.status = success ? 'success' : 'error';
+            match.latency = latency;
+            match.result = result;
+          }
+          setStreamingToolCalls([...collectedToolCalls]);
+          setProgressLabel('');
+        },
         onDone: (_content, usage, telemetry) => {
           setStreamingContent('');
           responseUsage = usage;
@@ -1417,6 +1867,7 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
           _toolCalls: toolCount,
           _usage: responseUsage,
           _telemetry: responseTelemetry,
+          _toolCallDetails: collectedToolCalls.length > 0 ? [...collectedToolCalls] : undefined,
         };
         // Store metadata keyed by content prefix so polling preserves it
         localMetaRef.current.set(response.content.slice(0, 100), meta);
@@ -1437,6 +1888,7 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
     } finally {
       setWaitingForResponse(false);
       setStreamingContent('');
+      setStreamingToolCalls([]);
       setProgressLabel('');
       if (timerRef.current) {
         clearInterval(timerRef.current);
@@ -1453,46 +1905,59 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
     .reverse();
 
   return (
-    <div className="flex flex-col h-full" style={{ minHeight: 320 }}>
-      <div className="flex-1 overflow-y-auto space-y-3 pb-4" style={{ maxHeight: 400 }}>
+    <div className="flex flex-col" style={{ minHeight: 320 }}>
+      <div
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto space-y-3 pb-4"
+        style={{ maxHeight: 'calc(100vh - 400px)' }}
+      >
         {displayMessages.length === 0 && !waitingForResponse && (
           <div className="text-sm text-center py-8" style={{ color: 'var(--color-text-tertiary)' }}>
             No messages yet. Send a message to interact with this agent.
           </div>
         )}
         {displayMessages.map((msg) => (
-          <div
-            key={msg.id}
-            className={`flex ${msg.direction === 'user_to_agent' ? 'justify-end' : 'justify-start'}`}
-          >
-            <div
-              className="max-w-[75%] px-3 py-2 rounded-lg text-sm"
-              style={{
-                background: msg.direction === 'user_to_agent' ? 'var(--color-accent)' : 'var(--color-bg-secondary)',
-                color: msg.direction === 'user_to_agent' ? '#fff' : 'var(--color-text)',
-                border: msg.direction === 'agent_to_user' ? '1px solid var(--color-border)' : 'none',
-              }}
-            >
-              {msg.direction === 'agent_to_user' ? (
-                <div className="prose prose-sm prose-invert max-w-none"><ReactMarkdown>{msg.content}</ReactMarkdown></div>
-              ) : (
-                <p>{msg.content}</p>
-              )}
-              <p className="text-xs mt-1 opacity-70">
-                {msg.status === 'pending' ? 'sending...' : new Date(msg.created_at * 1000).toLocaleTimeString()}
-              </p>
-              {msg.direction === 'agent_to_user' && (
-                <AgentResponseFooter msg={msg} copiedId={copiedId} onCopy={(id) => {
-                  navigator.clipboard.writeText(msg.content);
-                  setCopiedId(id);
-                  setTimeout(() => setCopiedId(null), 2000);
-                }} />
-              )}
+          <div key={msg.id} className="space-y-2">
+            {/* Tool calls rendered as their own full-width entries (like Claude Code) */}
+            {msg.direction === 'agent_to_user' && msg._toolCallDetails && msg._toolCallDetails.length > 0 && (
+              <div className="flex flex-col items-start gap-2 max-w-[75%]">
+                {msg._toolCallDetails.map((tc) => (
+                  <ToolCallCard key={tc.id} toolCall={tc} />
+                ))}
+              </div>
+            )}
+            {/* Message bubble */}
+            <div className={`flex ${msg.direction === 'user_to_agent' ? 'justify-end' : 'justify-start'}`}>
+              <div
+                className="max-w-[75%] px-3 py-2 rounded-lg text-sm"
+                style={{
+                  background: msg.direction === 'user_to_agent' ? 'var(--color-accent)' : 'var(--color-bg-secondary)',
+                  color: msg.direction === 'user_to_agent' ? 'var(--color-on-accent)' : 'var(--color-text)',
+                  border: msg.direction === 'agent_to_user' ? '1px solid var(--color-border)' : 'none',
+                }}
+              >
+                {msg.direction === 'agent_to_user' ? (
+                  <div className="prose prose-sm prose-invert max-w-none"><ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown></div>
+                ) : (
+                  <p>{msg.content}</p>
+                )}
+                <p className="text-xs mt-1 opacity-70">
+                  {msg.status === 'pending' ? 'sending...' : new Date(msg.created_at * 1000).toLocaleTimeString()}
+                </p>
+                {msg.direction === 'agent_to_user' && (
+                  <AgentResponseFooter msg={msg} copiedId={copiedId} onCopy={(id) => {
+                    navigator.clipboard.writeText(msg.content);
+                    setCopiedId(id);
+                    setTimeout(() => setCopiedId(null), 2000);
+                  }} />
+                )}
+              </div>
             </div>
           </div>
         ))}
-        {/* Progress indicator — shown when waiting but no streamed content yet */}
-        {(waitingForResponse || sending) && !streamingContent && (
+        {/* Progress indicator — shown when waiting but no streamed content or tool calls yet */}
+        {(waitingForResponse || sending) && !streamingContent && streamingToolCalls.length === 0 && (
           <div className="flex justify-start">
             <div
               className="px-3 py-2 rounded-lg text-sm"
@@ -1511,7 +1976,15 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
             </div>
           </div>
         )}
-        {/* Streaming content bubble — real-time response as it arrives */}
+        {/* Live tool call cards rendered as their own entries in the flow */}
+        {waitingForResponse && streamingToolCalls.length > 0 && (
+          <div className="flex flex-col items-start gap-2 max-w-[75%]">
+            {streamingToolCalls.map((tc) => (
+              <ToolCallCard key={tc.id} toolCall={tc} />
+            ))}
+          </div>
+        )}
+        {/* Streaming content bubble — real-time response */}
         {waitingForResponse && streamingContent && (
           <div className="flex justify-start">
             <div
@@ -1528,7 +2001,9 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
                   {progressLabel}
                 </div>
               )}
-              <p className="whitespace-pre-wrap">{streamingContent}</p>
+              <div className="prose prose-sm prose-invert max-w-none">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingContent}</ReactMarkdown>
+              </div>
               <p className="text-xs mt-1 opacity-70">
                 {streamElapsedMs > 0 && `${(streamElapsedMs / 1000).toFixed(1)}s elapsed`}
               </p>
@@ -1560,7 +2035,7 @@ function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: s
             onClick={() => handleSend('immediate')}
             disabled={sending || waitingForResponse || !input.trim()}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm cursor-pointer font-medium"
-            style={{ background: 'var(--color-accent)', color: '#fff', opacity: sending || !input.trim() ? 0.5 : 1 }}
+            style={{ background: 'var(--color-accent)', color: 'var(--color-on-accent)', opacity: sending || !input.trim() ? 0.5 : 1 }}
           >
             <Send size={13} /> Send
           </button>
@@ -1667,7 +2142,7 @@ function ChannelsTab({ agentId }: { agentId: string }) {
               key={c.connector_id}
               style={{
                 background: 'var(--color-bg-secondary)',
-                border: '1px solid #2a5a3a',
+                border: '1px solid color-mix(in srgb, var(--color-success) 22%, transparent)',
                 borderRadius: 6,
                 overflow: 'hidden',
                 gridColumn: isReconnecting ? '1 / -1' : undefined,
@@ -1682,7 +2157,7 @@ function ChannelsTab({ agentId }: { agentId: string }) {
                   <div style={{ fontSize: 14, fontWeight: 600 }}>
                     {c.display_name}
                   </div>
-                  <div style={{ fontSize: 12, color: c.chunks > 0 ? '#4ade80' : '#f59e0b' }}>
+                  <div style={{ fontSize: 12, color: c.chunks > 0 ? 'var(--color-success)' : 'var(--color-warning)' }}>
                     {c.chunks > 0
                       ? `${c.chunks.toLocaleString()} ${unit}`
                       : 'Connected — no data synced yet'}
@@ -1707,7 +2182,7 @@ function ChannelsTab({ agentId }: { agentId: string }) {
                   padding: 12,
                 }}>
                   <div style={{
-                    fontSize: 12, color: '#f59e0b',
+                    fontSize: 12, color: 'var(--color-warning)',
                     marginBottom: 8,
                   }}>
                     Re-enter credentials to reconnect this source.
@@ -1723,7 +2198,7 @@ function ChannelsTab({ agentId }: { agentId: string }) {
                       }}
                     >
                       <div style={{
-                        color: '#7c3aed', fontSize: 10,
+                        color: 'var(--color-accent-purple)', fontSize: 10,
                         fontWeight: 600, marginBottom: 3,
                       }}>
                         STEP {i + 1}
@@ -1737,7 +2212,7 @@ function ChannelsTab({ agentId }: { agentId: string }) {
                           target="_blank"
                           rel="noopener noreferrer"
                           style={{
-                            color: '#60a5fa', fontSize: 11,
+                            color: 'var(--color-accent)', fontSize: 11,
                             textDecoration: 'underline',
                           }}
                         >
@@ -1805,7 +2280,7 @@ function ChannelsTab({ agentId }: { agentId: string }) {
                     </div>
                   </div>
                   <span style={{
-                    color: '#7c3aed', fontSize: 11, fontWeight: 500,
+                    color: 'var(--color-accent-purple)', fontSize: 11, fontWeight: 500,
                   }}>
                     {isExpanded ? '\u2715 Close' : '+ Add'}
                   </span>
@@ -1828,7 +2303,7 @@ function ChannelsTab({ agentId }: { agentId: string }) {
                         }}
                       >
                         <div style={{
-                          color: '#7c3aed', fontSize: 10,
+                          color: 'var(--color-accent-purple)', fontSize: 10,
                           fontWeight: 600, marginBottom: 3,
                         }}>
                           STEP {i + 1}
@@ -1844,7 +2319,7 @@ function ChannelsTab({ agentId }: { agentId: string }) {
                             target="_blank"
                             rel="noopener noreferrer"
                             style={{
-                              color: '#60a5fa', fontSize: 11,
+                              color: 'var(--color-accent)', fontSize: 11,
                               textDecoration: 'underline',
                             }}
                           >
@@ -1935,8 +2410,8 @@ function InlineConnectForm({
         disabled={loading || !allFilled}
         style={{
           width: '100%', padding: 8,
-          background: loading || !allFilled ? '#444' : '#7c3aed',
-          color: 'white', border: 'none',
+          background: loading || !allFilled ? 'var(--color-disabled-bg)' : 'var(--color-accent-purple)',
+          color: 'var(--color-on-accent)', border: 'none',
           borderRadius: 6, fontSize: 12, cursor: 'pointer',
         }}
       >
@@ -2023,19 +2498,19 @@ function SendBlueWebhookStep({
   return (
     <div style={{ borderTop: '1px solid var(--color-border)', padding: 14, background: 'var(--color-bg)' }}>
       <div style={{
-        background: '#052e16', border: '1px solid #2a5a3a',
+        background: 'color-mix(in srgb, var(--color-success) 10%, var(--color-bg))', border: '1px solid color-mix(in srgb, var(--color-success) 22%, transparent)',
         borderRadius: 6, padding: 12, marginBottom: 12, textAlign: 'center',
       }}>
-        <div style={{ fontSize: 11, color: '#4ade80', fontWeight: 600, marginBottom: 4 }}>
+        <div style={{ fontSize: 11, color: 'var(--color-success)', fontWeight: 600, marginBottom: 4 }}>
           {'\u2713'} Your agent is now reachable via iMessage / SMS
         </div>
-        <div style={{ fontSize: 18, fontWeight: 700, color: '#4ade80' }}>{selectedNumber}</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-success)' }}>{selectedNumber}</div>
       </div>
 
       {/* Webhook / ngrok step */}
       <div style={{ marginTop: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <span style={{ background: '#7c3aed', color: 'white', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>4</span>
+          <span style={{ background: 'var(--color-accent-purple)', color: 'var(--color-on-accent)', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>4</span>
           <span style={{ fontSize: 12, fontWeight: 600 }}>Set up webhook to receive texts</span>
         </div>
         <div style={{
@@ -2044,7 +2519,7 @@ function SendBlueWebhookStep({
           padding: '8px 10px', marginBottom: 10,
           background: 'var(--color-bg-secondary)',
           borderRadius: 6,
-          borderLeft: '3px solid var(--color-accent, #7c3aed)',
+          borderLeft: '3px solid var(--color-accent, var(--color-accent-purple))',
         }}>
           <div><strong>1.</strong> Open a terminal and run: <code style={{ color: 'var(--color-accent)', background: 'var(--color-bg)', padding: '1px 4px', borderRadius: 3 }}>ngrok http 8000</code></div>
           <div style={{ marginTop: 4 }}><strong>2.</strong> Copy the <code style={{ color: 'var(--color-accent)', background: 'var(--color-bg)', padding: '1px 4px', borderRadius: 3 }}>https://</code> forwarding URL</div>
@@ -2066,8 +2541,8 @@ function SendBlueWebhookStep({
             disabled={!webhookUrl.trim() || webhookStatus === 'registering'}
             style={{
               fontSize: 11, padding: '7px 14px', whiteSpace: 'nowrap' as const,
-              background: webhookStatus === 'done' ? '#22c55e' : '#7c3aed',
-              color: 'white', border: 'none', borderRadius: 5,
+              background: webhookStatus === 'done' ? 'var(--color-success)' : 'var(--color-accent-purple)',
+              color: 'var(--color-on-accent)', border: 'none', borderRadius: 5,
               cursor: 'pointer', fontWeight: 600,
               opacity: !webhookUrl.trim() || webhookStatus === 'registering' ? 0.5 : 1,
             }}
@@ -2079,17 +2554,17 @@ function SendBlueWebhookStep({
           </button>
         </div>
         {webhookStatus === 'done' && (
-          <div style={{ fontSize: 11, color: '#22c55e', marginTop: 6 }}>
+          <div style={{ fontSize: 11, color: 'var(--color-success)', marginTop: 6 }}>
             Webhook registered! Incoming texts will be forwarded to your agent.
           </div>
         )}
         {webhookStatus === 'error' && (
-          <div style={{ fontSize: 11, color: '#ef4444', marginTop: 6 }}>
+          <div style={{ fontSize: 11, color: 'var(--color-error)', marginTop: 6 }}>
             Failed to register. Check your ngrok URL and try again.
           </div>
         )}
         <div style={{ fontSize: 10, color: 'var(--color-text-tertiary)', marginTop: 8 }}>
-          Don't have ngrok? <a href="https://ngrok.com/download" target="_blank" rel="noopener noreferrer" style={{ color: '#60a5fa', textDecoration: 'underline' }}>Download it free</a>
+          Don't have ngrok? <a href="https://ngrok.com/download" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-accent)', textDecoration: 'underline' }}>Download it free</a>
         </div>
       </div>
     </div>
@@ -2148,12 +2623,12 @@ function SendBlueWizard({
 
   const cardStyle: React.CSSProperties = {
     background: 'var(--color-bg-secondary)',
-    border: isActive ? '1px solid #2a5a3a' : '1px dashed var(--color-border)',
+    border: isActive ? '1px solid color-mix(in srgb, var(--color-success) 22%, transparent)' : '1px dashed var(--color-border)',
     borderRadius: 8, marginBottom: 10, overflow: 'hidden',
   };
 
   const btnPrimary: React.CSSProperties = {
-    fontSize: 12, padding: '7px 18px', background: '#7c3aed', color: 'white',
+    fontSize: 12, padding: '7px 18px', background: 'var(--color-accent-purple)', color: 'var(--color-on-accent)',
     border: 'none', borderRadius: 5, cursor: 'pointer', fontWeight: 600,
   };
 
@@ -2244,7 +2719,7 @@ function SendBlueWizard({
           <span style={{ fontSize: 18, marginRight: 10 }}>{'\uD83D\uDCAC'}</span>
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 600, fontSize: 13 }}>iMessage / SMS</div>
-            <div style={{ fontSize: 11, color: healthy ? '#4ade80' : '#f59e0b' }}>
+            <div style={{ fontSize: 11, color: healthy ? 'var(--color-success)' : 'var(--color-warning)' }}>
               {healthy ? `Active on ${activeNumber}` : `Disconnected — ${activeNumber}`}
             </div>
           </div>
@@ -2259,8 +2734,8 @@ function SendBlueWizard({
               </button>
             )}
             <span style={{
-              background: healthy ? '#2a5a3a' : '#78350f',
-              color: healthy ? '#4ade80' : '#f59e0b',
+              background: healthy ? 'color-mix(in srgb, var(--color-success) 22%, transparent)' : 'color-mix(in srgb, var(--color-warning) 18%, var(--color-bg))',
+              color: healthy ? 'var(--color-success)' : 'var(--color-warning)',
               padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 600,
             }}>{healthy ? 'Active' : 'Disconnected'}</span>
             <button onClick={() => setExpanded(true)} style={btnSecondary}>
@@ -2280,11 +2755,11 @@ function SendBlueWizard({
           <span style={{ fontSize: 18, marginRight: 10 }}>{'\uD83D\uDCAC'}</span>
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 600, fontSize: 13 }}>iMessage / SMS</div>
-            <div style={{ fontSize: 11, color: '#4ade80' }}>Active on {activeNumber}</div>
+            <div style={{ fontSize: 11, color: 'var(--color-success)' }}>Active on {activeNumber}</div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={() => setExpanded(false)} style={btnSecondary}>Collapse</button>
-            <button onClick={() => onRemove(binding!.id)} style={{ ...btnSecondary, color: '#f87171' }}>Remove</button>
+            <button onClick={() => onRemove(binding!.id)} style={{ ...btnSecondary, color: 'var(--color-error)' }}>Remove</button>
           </div>
         </div>
         <div style={{ borderTop: '1px solid var(--color-border)', padding: 14, background: 'var(--color-bg)' }}>
@@ -2311,7 +2786,7 @@ function SendBlueWizard({
               {testSent ? 'Sent!' : 'Send Test'}
             </button>
           </div>
-          {error && <div style={{ color: '#f87171', fontSize: 11, marginTop: 6 }}>{error}</div>}
+          {error && <div style={{ color: 'var(--color-error)', fontSize: 11, marginTop: 6 }}>{error}</div>}
         </div>
       </div>
     );
@@ -2334,7 +2809,7 @@ function SendBlueWizard({
         </div>
         <button
           onClick={(e) => { e.stopPropagation(); setStep(step === 'idle' ? 'creds' : 'idle'); }}
-          style={{ fontSize: 10, padding: '3px 12px', background: '#7c3aed', color: 'white', border: 'none', borderRadius: 5, cursor: 'pointer', fontWeight: 600 }}
+          style={{ fontSize: 10, padding: '3px 12px', background: 'var(--color-accent-purple)', color: 'var(--color-on-accent)', border: 'none', borderRadius: 5, cursor: 'pointer', fontWeight: 600 }}
         >
           {step === 'idle' ? 'Set Up' : 'Cancel'}
         </button>
@@ -2344,7 +2819,7 @@ function SendBlueWizard({
       {(step === 'creds' || step === 'verifying') && (
         <div style={{ borderTop: '1px solid var(--color-border)', padding: 14, background: 'var(--color-bg)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <span style={{ background: '#7c3aed', color: 'white', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>1</span>
+            <span style={{ background: 'var(--color-accent-purple)', color: 'var(--color-on-accent)', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>1</span>
             <span style={{ fontSize: 12, fontWeight: 600 }}>Create a SendBlue account</span>
           </div>
           <button
@@ -2355,12 +2830,12 @@ function SendBlueWizard({
           </button>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <span style={{ background: '#7c3aed', color: 'white', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>2</span>
+            <span style={{ background: 'var(--color-accent-purple)', color: 'var(--color-on-accent)', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>2</span>
             <span style={{ fontSize: 12, fontWeight: 600 }}>Paste your API credentials</span>
           </div>
           <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 8 }}>
             Go to your{' '}
-            <a href="https://dashboard.sendblue.co/api-credentials" target="_blank" rel="noopener noreferrer" style={{ color: '#60a5fa', textDecoration: 'underline' }}>
+            <a href="https://dashboard.sendblue.co/api-credentials" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-accent)', textDecoration: 'underline' }}>
               SendBlue API Credentials page
             </a>{' '}
             and copy the API Key and API Secret.
@@ -2379,7 +2854,7 @@ function SendBlueWizard({
             <input value={apiSecret} onChange={(e) => setApiSecret(e.target.value)} placeholder="Your API secret key" type="password" style={inputStyle} />
           </div>
 
-          {error && <div style={{ color: '#f87171', fontSize: 11, marginBottom: 8 }}>{error}</div>}
+          {error && <div style={{ color: 'var(--color-error)', fontSize: 11, marginBottom: 8 }}>{error}</div>}
 
           <button
             onClick={handleVerify}
@@ -2395,12 +2870,12 @@ function SendBlueWizard({
       {(step === 'verified' || step === 'connecting') && (
         <div style={{ borderTop: '1px solid var(--color-border)', padding: 14, background: 'var(--color-bg)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <span style={{ background: '#22c55e', color: 'white', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{'\u2713'}</span>
-            <span style={{ fontSize: 12, fontWeight: 600, color: '#4ade80' }}>Credentials verified</span>
+            <span style={{ background: 'var(--color-success)', color: 'var(--color-on-accent)', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{'\u2713'}</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-success)' }}>Credentials verified</span>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <span style={{ background: '#7c3aed', color: 'white', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>3</span>
+            <span style={{ background: 'var(--color-accent-purple)', color: 'var(--color-on-accent)', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>3</span>
             <span style={{ fontSize: 12, fontWeight: 600 }}>Your agent's phone number</span>
           </div>
 
@@ -2419,13 +2894,13 @@ function SendBlueWizard({
             </div>
           ) : numbers.length === 1 ? (
             <div style={{
-              background: 'var(--color-bg-secondary)', border: '1px solid #2a5a3a',
+              background: 'var(--color-bg-secondary)', border: '1px solid color-mix(in srgb, var(--color-success) 22%, transparent)',
               borderRadius: 6, padding: '10px 12px', marginBottom: 12,
               display: 'flex', alignItems: 'center', gap: 8,
             }}>
               <span style={{ fontSize: 20 }}>{'\uD83D\uDCF1'}</span>
               <div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#4ade80' }}>{selectedNumber}</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-success)' }}>{selectedNumber}</div>
                 <div style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>This will be your agent's phone number</div>
               </div>
             </div>
@@ -2435,7 +2910,7 @@ function SendBlueWizard({
                 fontSize: 11, color: 'var(--color-text-secondary)',
                 marginBottom: 8, lineHeight: 1.5,
                 padding: '8px 10px', background: 'var(--color-bg-secondary)',
-                borderRadius: 6, borderLeft: '3px solid #7c3aed',
+                borderRadius: 6, borderLeft: '3px solid var(--color-accent-purple)',
               }}>
                 Copy the phone number shown under <strong>"Send from"</strong> in your SendBlue dashboard
                 and paste it below. On the free tier this is a shared number.
@@ -2452,7 +2927,7 @@ function SendBlueWizard({
             </div>
           )}
 
-          {error && <div style={{ color: '#f87171', fontSize: 11, marginBottom: 8 }}>{error}</div>}
+          {error && <div style={{ color: 'var(--color-error)', fontSize: 11, marginBottom: 8 }}>{error}</div>}
 
           <button
             onClick={handleConnect}
@@ -2570,7 +3045,7 @@ function MessagingTab({ agentId }: { agentId: string }) {
             style={{
               background: 'var(--color-bg-secondary)',
               border: binding
-                ? '1px solid #2a5a3a'
+                ? '1px solid color-mix(in srgb, var(--color-success) 22%, transparent)'
                 : '1px dashed var(--color-border)',
               borderRadius: 8, marginBottom: 10,
               overflow: 'hidden',
@@ -2586,7 +3061,7 @@ function MessagingTab({ agentId }: { agentId: string }) {
                 <div style={{ fontWeight: 600, fontSize: 13 }}>{ch.name}</div>
                 <div style={{
                   fontSize: 11,
-                  color: binding ? '#4ade80' : 'var(--color-text-secondary)',
+                  color: binding ? 'var(--color-success)' : 'var(--color-text-secondary)',
                 }}>
                   {binding ? ch.activeLabel(cfg) : ch.description}
                 </div>
@@ -2594,7 +3069,7 @@ function MessagingTab({ agentId }: { agentId: string }) {
               {binding ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{
-                    background: '#2a5a3a', color: '#4ade80',
+                    background: 'color-mix(in srgb, var(--color-success) 22%, transparent)', color: 'var(--color-success)',
                     padding: '2px 8px', borderRadius: 10,
                     fontSize: 10, fontWeight: 600,
                   }}>Active</span>
@@ -2617,7 +3092,7 @@ function MessagingTab({ agentId }: { agentId: string }) {
                   }}
                   style={{
                     fontSize: 10, padding: '3px 12px',
-                    background: '#7c3aed', color: 'white',
+                    background: 'var(--color-accent-purple)', color: 'var(--color-on-accent)',
                     border: 'none', borderRadius: 5,
                     cursor: 'pointer', fontWeight: 600,
                   }}
@@ -2659,7 +3134,7 @@ function MessagingTab({ agentId }: { agentId: string }) {
                   padding: '8px 10px',
                   background: 'var(--color-bg-secondary)',
                   borderRadius: 6,
-                  borderLeft: '3px solid var(--color-accent, #7c3aed)',
+                  borderLeft: '3px solid var(--color-accent, var(--color-accent-purple))',
                 }}>
                   {ch.setupSteps.map((step, i) => {
                     if (step.startsWith('COPYABLE:')) {
@@ -2681,7 +3156,7 @@ function MessagingTab({ agentId }: { agentId: string }) {
                               style={{
                                 position: 'sticky', float: 'right', top: 0,
                                 fontSize: 10, padding: '2px 8px',
-                                background: '#7c3aed', color: 'white',
+                                background: 'var(--color-accent-purple)', color: 'var(--color-on-accent)',
                                 border: 'none', borderRadius: 3,
                                 cursor: 'pointer', fontWeight: 600,
                               }}
@@ -2724,7 +3199,7 @@ function MessagingTab({ agentId }: { agentId: string }) {
                   disabled={loading || !canConnect}
                   style={{
                     fontSize: 12, padding: '7px 20px',
-                    background: '#7c3aed', color: 'white',
+                    background: 'var(--color-accent-purple)', color: 'var(--color-on-accent)',
                     border: 'none', borderRadius: 5,
                     cursor: 'pointer', fontWeight: 600,
                     opacity: loading || !canConnect ? 0.5 : 1,
@@ -2775,8 +3250,8 @@ function LearningTab({ agentId, learningEnabled }: { agentId: string; learningEn
           <span
             className="text-xs px-2 py-0.5 rounded-full"
             style={{
-              background: learningEnabled ? '#22c55e20' : 'var(--color-bg-secondary)',
-              color: learningEnabled ? '#22c55e' : 'var(--color-text-tertiary)',
+              background: learningEnabled ? 'var(--color-success)20' : 'var(--color-bg-secondary)',
+              color: learningEnabled ? 'var(--color-success)' : 'var(--color-text-tertiary)',
             }}
           >
             {learningEnabled ? 'Enabled' : 'Disabled'}
@@ -2788,7 +3263,7 @@ function LearningTab({ agentId, learningEnabled }: { agentId: string; learningEn
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs cursor-pointer font-medium"
           style={{
             background: 'var(--color-accent)',
-            color: '#fff',
+            color: 'var(--color-on-accent)',
             opacity: triggering ? 0.6 : 1,
           }}
         >
@@ -2854,9 +3329,19 @@ function LogsTab({ agentId }: { agentId: string }) {
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 5000);
+    // Fallback slow poll — WS is primary, this catches missed events
+    const interval = setInterval(loadData, 30000);
     return () => clearInterval(interval);
   }, [loadData]);
+
+  // Event-driven refresh — trace/learning entries are created by tick + tool events
+  useAgentEvents(agentId, loadData, [
+    'agent_tick_end',
+    'agent_tick_error',
+    'tool_call_end',
+    'inference_end',
+    'agent_learning_completed',
+  ]);
 
   // Merge traces and learning entries into a unified timeline
   type TimelineEntry =
@@ -2869,11 +3354,11 @@ function LogsTab({ agentId }: { agentId: string }) {
   ].sort((a, b) => b.ts - a.ts);
 
   const learningEventColor = (eventType: string) => {
-    if (eventType === 'query_start') return '#3b82f6';
-    if (eventType === 'query_complete') return '#22c55e';
-    if (eventType === 'tool_call') return '#f59e0b';
-    if (eventType === 'tool_result') return '#8b5cf6';
-    if (eventType === 'query_error') return '#ef4444';
+    if (eventType === 'query_start') return 'var(--color-accent)';
+    if (eventType === 'query_complete') return 'var(--color-success)';
+    if (eventType === 'tool_call') return 'var(--color-warning)';
+    if (eventType === 'tool_result') return 'var(--color-accent-purple)';
+    if (eventType === 'query_error') return 'var(--color-error)';
     return 'var(--color-text-secondary)';
   };
 
@@ -2957,7 +3442,7 @@ function LogsTab({ agentId }: { agentId: string }) {
                   <div className="flex items-center gap-2">
                     <span
                       className="w-2 h-2 rounded-full inline-block"
-                      style={{ background: t.outcome === 'success' ? '#22c55e' : '#ef4444' }}
+                      style={{ background: t.outcome === 'success' ? 'var(--color-success)' : 'var(--color-error)' }}
                     />
                     <span style={{ color: 'var(--color-text)' }}>{t.outcome}</span>
                     <span
@@ -2970,10 +3455,10 @@ function LogsTab({ agentId }: { agentId: string }) {
                       <span
                         className="text-[10px] px-1.5 py-0.5 rounded font-medium"
                         style={{
-                          background: errorDetail.error_type === 'fatal' ? '#ef444420' :
-                            errorDetail.error_type === 'escalate' ? '#f59e0b20' : '#3b82f620',
-                          color: errorDetail.error_type === 'fatal' ? '#ef4444' :
-                            errorDetail.error_type === 'escalate' ? '#f59e0b' : '#3b82f6',
+                          background: errorDetail.error_type === 'fatal' ? 'var(--color-error)20' :
+                            errorDetail.error_type === 'escalate' ? 'var(--color-warning)20' : 'var(--color-accent)20',
+                          color: errorDetail.error_type === 'fatal' ? 'var(--color-error)' :
+                            errorDetail.error_type === 'escalate' ? 'var(--color-warning)' : 'var(--color-accent)',
                         }}
                       >
                         {errorDetail.error_type}
@@ -3164,7 +3649,8 @@ export function AgentsPage() {
     ] as const;
 
     return (
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto px-6 py-10">
+        <div className="max-w-5xl mx-auto">
         {/* Back button */}
         <button
           onClick={() => setSelectedAgentId(null)}
@@ -3195,7 +3681,7 @@ export function AgentsPage() {
             {detailTab === 'interact' ? (
               <span
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs"
-                style={{ background: '#22c55e20', color: '#22c55e', border: '1px solid #22c55e40' }}
+                style={{ background: 'var(--color-success)20', color: 'var(--color-success)', border: '1px solid var(--color-success)40' }}
               >
                 <MessageSquare size={13} /> Chat ready — just type below
               </span>
@@ -3203,7 +3689,7 @@ export function AgentsPage() {
               <button
                 onClick={() => handleRun(selectedAgent.id)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm cursor-pointer font-medium"
-                style={{ background: 'var(--color-accent)', color: '#fff' }}
+                style={{ background: 'var(--color-accent)', color: 'var(--color-on-accent)' }}
               >
                 <Zap size={13} /> Run Now
               </button>
@@ -3221,7 +3707,7 @@ export function AgentsPage() {
               <button
                 onClick={() => handleResume(selectedAgent.id)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm cursor-pointer"
-                style={{ background: '#22c55e20', color: '#22c55e', border: '1px solid #22c55e40' }}
+                style={{ background: 'var(--color-success)20', color: 'var(--color-success)', border: '1px solid var(--color-success)40' }}
               >
                 <Play size={13} /> Resume
               </button>
@@ -3230,7 +3716,7 @@ export function AgentsPage() {
               <button
                 onClick={() => handleRecover(selectedAgent.id)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm cursor-pointer"
-                style={{ background: '#ef444420', color: '#ef4444', border: '1px solid #ef444440' }}
+                style={{ background: 'var(--color-error)20', color: 'var(--color-error)', border: '1px solid var(--color-error)40' }}
               >
                 <AlertTriangle size={13} /> Recover
               </button>
@@ -3244,7 +3730,7 @@ export function AgentsPage() {
                 }
               }}
               className="p-1.5 rounded-lg cursor-pointer transition-colors"
-              style={{ color: '#ef4444', background: '#ef444415' }}
+              style={{ color: 'var(--color-error)', background: 'var(--color-error)15' }}
               title="Delete agent"
             >
               <Trash2 size={15} />
@@ -3367,11 +3853,11 @@ export function AgentsPage() {
                         <p style={sectionTitle}>Local Utilization</p>
                         <div className="flex gap-5">
                           <div>
-                            <p className="text-xl font-bold leading-none" style={{ color: '#22c55e' }}>{fmtFlops}</p>
+                            <p className="text-xl font-bold leading-none" style={{ color: 'var(--color-success)' }}>{fmtFlops}</p>
                             <p className="text-xs mt-1" style={{ color: 'var(--color-text-tertiary)' }}>Compute</p>
                           </div>
                           <div>
-                            <p className="text-xl font-bold leading-none" style={{ color: '#22c55e' }}>{energyKj.toFixed(2)} kJ</p>
+                            <p className="text-xl font-bold leading-none" style={{ color: 'var(--color-success)' }}>{energyKj.toFixed(2)} kJ</p>
                             <p className="text-xs mt-1" style={{ color: 'var(--color-text-tertiary)' }}>Energy</p>
                           </div>
                         </div>
@@ -3385,7 +3871,7 @@ export function AgentsPage() {
                             const cost = (inTok / 1e6) * p.inPer1M + (outTok / 1e6) * p.outPer1M;
                             return (
                               <div key={p.label}>
-                                <p className="text-xl font-bold leading-none" style={{ color: '#22c55e' }}>${cost.toFixed(4)}</p>
+                                <p className="text-xl font-bold leading-none" style={{ color: 'var(--color-success)' }}>${cost.toFixed(4)}</p>
                                 <p className="text-xs mt-1" style={{ color: 'var(--color-text-tertiary)' }}>{p.label}</p>
                               </div>
                             );
@@ -3486,6 +3972,7 @@ export function AgentsPage() {
         {detailTab === 'logs' && (
           <LogsTab agentId={selectedAgent.id} />
         )}
+        </div>
       </div>
     );
   }
@@ -3493,7 +3980,8 @@ export function AgentsPage() {
   // ── List View ───────────────────────────────────────────────────────────
 
   return (
-    <div className="flex-1 overflow-y-auto p-6">
+    <div className="flex-1 overflow-y-auto px-6 py-10">
+      <div className="max-w-5xl mx-auto">
       {/* Launch wizard modal */}
       {showWizard && (
         <LaunchWizard
@@ -3506,29 +3994,34 @@ export function AgentsPage() {
         />
       )}
 
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-xl font-semibold" style={{ color: 'var(--color-text)' }}>
-          Agents
-        </h1>
-        <button
-          onClick={() => agentManagerAvailable && setShowWizard(true)}
-          disabled={agentManagerAvailable === false}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          style={{
-            background: agentManagerAvailable === false ? 'var(--color-bg-tertiary)' : 'var(--color-accent)',
-            color: agentManagerAvailable === false ? 'var(--color-text-tertiary)' : '#fff',
-          }}
-        >
-          <Plus size={15} /> New Agent
-        </button>
-      </div>
+      <header className="mb-6">
+        <div className="flex justify-between items-center">
+          <h1 className="text-lg font-semibold" style={{ color: 'var(--color-text)' }}>
+            Agents
+          </h1>
+          <button
+            onClick={() => agentManagerAvailable && setShowWizard(true)}
+            disabled={agentManagerAvailable === false}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{
+              background: agentManagerAvailable === false ? 'var(--color-bg-tertiary)' : 'var(--color-accent)',
+              color: agentManagerAvailable === false ? 'var(--color-text-tertiary)' : 'var(--color-on-accent)',
+            }}
+          >
+            <Plus size={15} /> New Agent
+          </button>
+        </div>
+        <p className="text-sm mt-2 max-w-2xl" style={{ color: 'var(--color-text-secondary)' }}>
+          Long-running autonomous agents that can monitor sources, run tasks on a schedule, and message you through connected channels.
+        </p>
+      </header>
 
       {agentManagerAvailable === false && (
         <div
           className="mx-4 mt-2 px-4 py-3 rounded-lg flex items-center gap-3 text-sm"
           style={{
             background: 'var(--color-accent-amber-subtle)',
-            border: '1px solid rgba(245, 158, 11, 0.2)',
+            border: '1px solid color-mix(in srgb, var(--color-warning) 20%, transparent)',
             color: 'var(--color-accent-amber)',
           }}
         >
@@ -3577,13 +4070,14 @@ export function AgentsPage() {
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             style={{
               background: agentManagerAvailable === false ? 'var(--color-bg-tertiary)' : 'var(--color-accent)',
-              color: agentManagerAvailable === false ? 'var(--color-text-tertiary)' : '#fff',
+              color: agentManagerAvailable === false ? 'var(--color-text-tertiary)' : 'var(--color-on-accent)',
             }}
           >
             <Plus size={15} /> Launch your first agent
           </button>
         </div>
       )}
+      </div>
     </div>
   );
 }

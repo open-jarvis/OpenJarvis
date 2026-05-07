@@ -30,7 +30,6 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
         navigateFallbackDenylist: [/^\/v1\//, /^\/health/, /^\/dashboard/],
-        mode: 'development',
       },
     }),
   ],

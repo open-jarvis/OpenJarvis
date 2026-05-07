@@ -124,3 +124,78 @@ class TestGetEngine:
             result = get_engine(cfg, engine_key="requested")
         assert result is not None
         assert result[0] == "running"
+
+
+class TestMiningSidecarEngineHandoff:
+    """Engine discovery picks up (or ignores) a mining sidecar at runtime."""
+
+    def test_engine_discovery_picks_up_mining_sidecar(
+        self, written_sidecar, monkeypatch
+    ) -> None:
+        """When a mining sidecar exists with vllm_endpoint, discovery
+        registers a ``vllm-pearl-mining`` engine in the EngineRegistry.
+        """
+        from openjarvis.mining import _constants as mining_const
+
+        monkeypatch.setattr(mining_const, "SIDECAR_PATH", written_sidecar)
+
+        cfg = JarvisConfig()
+        with mock.patch(
+            "openjarvis.engine._discovery._make_engine",
+            side_effect=lambda k, c: _FakeEngine(healthy=True),
+        ):
+            discover_engines(cfg)
+
+        assert EngineRegistry.contains("vllm-pearl-mining")
+
+    def test_engine_discovery_no_mining_engine_when_sidecar_absent(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """No mining sidecar → no ``vllm-pearl-mining`` engine registered."""
+        from openjarvis.mining import _constants as mining_const
+
+        missing = tmp_path / "no-such-mining.json"
+        monkeypatch.setattr(mining_const, "SIDECAR_PATH", missing)
+
+        cfg = JarvisConfig()
+        with mock.patch(
+            "openjarvis.engine._discovery._make_engine",
+            side_effect=lambda k, c: _FakeEngine(healthy=True),
+        ):
+            discover_engines(cfg)
+
+        assert not EngineRegistry.contains("vllm-pearl-mining")
+
+    def test_engine_discovery_skips_when_sidecar_missing_vllm_endpoint(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """Sidecar present but no ``vllm_endpoint`` field → skip registration.
+
+        Data-driven gate: a future cpu-pearl provider writes a sidecar that
+        doesn't replace an inference engine (no vllm_endpoint field).
+        """
+        import json as _json
+
+        sidecar = tmp_path / "mining.json"
+        sidecar.write_text(
+            _json.dumps(
+                {
+                    "provider": "cpu-pearl",
+                    "wallet_address": "prl1q...",
+                    "started_at": 1234567890,
+                    # deliberately omit vllm_endpoint
+                }
+            )
+        )
+        from openjarvis.mining import _constants as mining_const
+
+        monkeypatch.setattr(mining_const, "SIDECAR_PATH", sidecar)
+
+        cfg = JarvisConfig()
+        with mock.patch(
+            "openjarvis.engine._discovery._make_engine",
+            side_effect=lambda k, c: _FakeEngine(healthy=True),
+        ):
+            discover_engines(cfg)
+
+        assert not EngineRegistry.contains("vllm-pearl-mining")

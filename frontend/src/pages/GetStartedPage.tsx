@@ -218,7 +218,7 @@ function HostedView() {
           <button
             onClick={() => navigate('/')}
             className="inline-flex items-center gap-2.5 px-6 py-3 rounded-xl text-sm font-medium transition-opacity cursor-pointer"
-            style={{ background: 'var(--color-accent)', color: 'white' }}
+            style={{ background: 'var(--color-accent)', color: 'var(--color-on-accent)' }}
             onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.9')}
             onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
           >
@@ -232,7 +232,7 @@ function HostedView() {
       {healthy === false && (
         <div
           className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm"
-          style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }}
+          style={{ background: 'color-mix(in srgb, var(--color-error) 10%, transparent)', color: 'var(--color-error)' }}
         >
           Server is not responding. The backend may be starting up.
         </div>
@@ -294,7 +294,7 @@ function DesktopView() {
         <button
           onClick={() => navigate('/')}
           className="inline-flex items-center gap-2.5 px-6 py-3 rounded-xl text-sm font-medium transition-opacity cursor-pointer"
-          style={{ background: 'var(--color-accent)', color: 'white' }}
+          style={{ background: 'var(--color-accent)', color: 'var(--color-on-accent)' }}
           onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.9')}
           onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
         >
@@ -372,7 +372,7 @@ function SelfHostedView() {
           <a
             href={`${GITHUB_BASE}/${primary.file}`}
             className="inline-flex items-center gap-2.5 px-6 py-3 rounded-xl text-sm font-medium transition-opacity cursor-pointer"
-            style={{ background: 'var(--color-accent)', color: 'white' }}
+            style={{ background: 'var(--color-accent)', color: 'var(--color-on-accent)' }}
             onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.9')}
             onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
           >

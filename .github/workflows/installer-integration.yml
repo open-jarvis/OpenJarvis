@@ -1,0 +1,118 @@
+name: Installer integration
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/install/**'
+      - 'src/openjarvis/cli/**'
+      - 'tests/install/**'
+      - '.github/workflows/installer-integration.yml'
+  schedule:
+    - cron: '0 6 * * *'
+
+jobs:
+  container-matrix:
+    name: ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - ubuntu:22.04
+          - ubuntu:24.04
+          - fedora:40
+
+    container: ${{ matrix.image }}
+
+    steps:
+      - name: Install prereqs (Ubuntu/Debian)
+        if: contains(matrix.image, 'ubuntu') || contains(matrix.image, 'debian')
+        run: |
+          apt-get update
+          apt-get install -y curl git python3 sudo
+
+      - name: Install prereqs (Fedora)
+        if: contains(matrix.image, 'fedora')
+        run: |
+          dnf install -y curl git python3 sudo
+
+      - name: Create non-root user
+        run: useradd -m -s /bin/bash testuser
+
+      - uses: actions/checkout@v4
+        with:
+          path: openjarvis-src
+
+      - name: Install Ollama mock
+        run: install -m 755 "$GITHUB_WORKSPACE/openjarvis-src/tests/install/bash/stubs/ollama-mock" /usr/local/bin/ollama
+
+      - name: Run installer
+        run: |
+          chown -R testuser:testuser /home/testuser "$GITHUB_WORKSPACE/openjarvis-src"
+          su testuser -c '
+            export OPENJARVIS_REPO_URL=file://'"$GITHUB_WORKSPACE"'/openjarvis-src
+            cd '"$GITHUB_WORKSPACE"'/openjarvis-src
+            bash scripts/install/install.sh --no-bg-orchestrator
+          '
+
+      - name: Verify install state
+        run: |
+          su testuser -c '
+            test -d ~/.openjarvis/src
+            test -d ~/.openjarvis/.venv
+            test -f ~/.openjarvis/config.toml
+            test -f ~/.openjarvis/.state/install-state.json
+            test -L ~/.local/bin/jarvis
+          '
+
+      - name: Verify jarvis --version
+        run: su testuser -c '~/.local/bin/jarvis --version'
+
+      - name: Verify jarvis doctor exits 0
+        run: su testuser -c '~/.local/bin/jarvis doctor'
+
+      - name: Verify uninstall is clean
+        run: |
+          su testuser -c '
+            ~/.local/bin/jarvis-uninstall
+            test ! -d ~/.openjarvis
+            test ! -L ~/.local/bin/jarvis
+          '
+
+  macos:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ollama mock
+        run: sudo install -m 755 tests/install/bash/stubs/ollama-mock /usr/local/bin/ollama
+
+      - name: Run installer
+        run: |
+          export OPENJARVIS_REPO_URL=file://$(pwd)
+          bash scripts/install/install.sh --no-bg-orchestrator
+
+      - name: Verify install state
+        run: |
+          test -d ~/.openjarvis/src
+          test -d ~/.openjarvis/.venv
+          test -f ~/.openjarvis/config.toml
+          test -L ~/.local/bin/jarvis
+
+      - name: Verify jarvis --version
+        run: ~/.local/bin/jarvis --version
+
+      - name: Verify jarvis doctor exits 0
+        run: ~/.local/bin/jarvis doctor
+
+      - name: Verify uninstall is clean
+        run: |
+          ~/.local/bin/jarvis-uninstall
+          test ! -d ~/.openjarvis
+          test ! -L ~/.local/bin/jarvis

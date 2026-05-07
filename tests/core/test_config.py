@@ -508,3 +508,49 @@ class TestWhatsAppBaileysChannelConfig:
     def test_on_channel_config(self) -> None:
         cc = ChannelConfig()
         assert isinstance(cc.whatsapp_baileys, WhatsAppBaileysChannelConfig)
+
+
+# ---------------------------------------------------------------------------
+# Mining config integration tests
+# ---------------------------------------------------------------------------
+
+
+def test_mining_config_absent_means_none(tmp_path):
+    from openjarvis.core.config import load_config
+    cfg_path = tmp_path / "config.toml"
+    cfg_path.write_text("")  # empty config
+    cfg = load_config(cfg_path)
+    assert cfg.mining is None
+
+
+def test_mining_config_solo_parsed(tmp_path):
+    from pathlib import Path
+
+    from openjarvis.core.config import load_config
+    from openjarvis.mining._stubs import SoloTarget
+
+    src = Path(__file__).parent.parent / "mining" / "fixtures" / "config_minimal.toml"
+    target = tmp_path / "config.toml"
+    target.write_text(src.read_text())
+    cfg = load_config(target)
+    assert cfg.mining is not None
+    assert cfg.mining.provider == "vllm-pearl"
+    assert cfg.mining.wallet_address == "prl1qexampleaddress"
+    assert isinstance(cfg.mining.submit_target, SoloTarget)
+    assert cfg.mining.submit_target.pearld_rpc_url == "http://localhost:44107"
+    assert cfg.mining.fee_bps == 0
+    assert cfg.mining.extra["model"] == "pearl-ai/Llama-3.3-70B-Instruct-pearl"
+
+
+def test_mining_config_pool_parsed_as_pool_target(tmp_path):
+    from pathlib import Path
+
+    from openjarvis.core.config import load_config
+    from openjarvis.mining._stubs import PoolTarget
+
+    src = Path(__file__).parent.parent / "mining" / "fixtures" / "config_pool_v2.toml"
+    target = tmp_path / "config.toml"
+    target.write_text(src.read_text())
+    cfg = load_config(target)
+    assert isinstance(cfg.mining.submit_target, PoolTarget)
+    assert cfg.mining.submit_target.url == "https://pool.openjarvis.ai/submit"

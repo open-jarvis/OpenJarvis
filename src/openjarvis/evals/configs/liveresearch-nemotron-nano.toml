@@ -1,7 +1,7 @@
-# LiveResearchBench eval: NVIDIA-Nemotron-3-Nano-30B-A3B-FP8 (vLLM, 1 GPU)
+# DeepResearchBench eval: NVIDIA-Nemotron-3-Nano-30B-A3B-FP8 (vLLM, 1 GPU)
 [meta]
 name = "liveresearch-nemotron-nano"
-description = "LiveResearchBench on nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8 with monitor_operative agent"
+description = "DeepResearchBench on nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8 with monitor_operative agent"
 
 [defaults]
 temperature = 0.6
