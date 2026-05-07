@@ -12,15 +12,17 @@ for the vanilla Pearl GEMM path.
 
 | Raw model | Planned Pearl model | Status | Tracking |
 |---|---|---|---|
-| `Qwen/Qwen3.5-9B` | `pearl-ai/Qwen3.5-9B-pearl` | Planned | [#316](https://github.com/open-jarvis/OpenJarvis/issues/316) |
+| `Qwen/Qwen3.5-9B` | `ScalingIntelligence/Qwen3.5-9B-pearl` | Validated staging | [#316](https://github.com/open-jarvis/OpenJarvis/issues/316) |
 | `Qwen/Qwen3.6-27B` | `pearl-ai/Qwen3.6-27B-pearl` | Planned | [#317](https://github.com/open-jarvis/OpenJarvis/issues/317) |
 | `google/gemma-4-E4B-it` | `pearl-ai/Gemma-4-E4B-it-pearl` | Planned | [#318](https://github.com/open-jarvis/OpenJarvis/issues/318) |
-| `google/gemma-4-31B-it` | `pearl-ai/Gemma-4-31B-it-pearl` | Planned | [#319](https://github.com/open-jarvis/OpenJarvis/issues/319) |
+| `google/gemma-4-31B-it` | `ScalingIntelligence/Gemma-4-31B-it-pearl` | Validated staging | [#319](https://github.com/open-jarvis/OpenJarvis/issues/319) |
 
-The current validated model remains:
+The current validated models are:
 
 ```text
 pearl-ai/Llama-3.3-70B-Instruct-pearl
+ScalingIntelligence/Gemma-4-31B-it-pearl
+ScalingIntelligence/Qwen3.5-9B-pearl
 ```
 
 ## Current Validation Findings
@@ -29,10 +31,10 @@ The H100 smoke run validated the default Llama Pearl model end to end through
 `jarvis mine start`, vLLM `/v1/models`, OpenJarvis inference routing, Pearl
 gateway template refresh, and `jarvis mine validate-model`.
 
-The Qwen targets and smaller Gemma target remain planned:
+The remaining Qwen 3.6 and smaller Gemma target remain planned:
 
-- `pearl-ai/Qwen3.5-9B-pearl`, `pearl-ai/Qwen3.6-27B-pearl`, and
-  `pearl-ai/Gemma-4-E4B-it-pearl` are not publicly available artifacts yet.
+- `pearl-ai/Qwen3.6-27B-pearl` and `pearl-ai/Gemma-4-E4B-it-pearl` are not
+  publicly available artifacts yet.
 - `pearl-ai/Gemma-4-31B-it-pearl` exists and selects Pearl mining kernels on
   H100, but vLLM fails during Gemma4 multimodal profiling because the published
   artifact is missing processor/preprocessor metadata required by Transformers.
@@ -41,7 +43,16 @@ The Qwen targets and smaller Gemma target remain planned:
   OpenJarvis promotion because a clean user install would still fail.
 
 PR #323 added a local staging path for original checkpoint conversion and H100
-runtime validation. Current local evidence:
+runtime validation. The validated staging artifacts are private repositories in
+the `ScalingIntelligence` Hugging Face org and grouped in the
+`OpenJarvis Pearl Mining Models` collection. Users need Hugging Face access to
+the org/repositories before `jarvis mine inspect-model`, `jarvis mine init`, or
+`jarvis mine start` can fetch them:
+
+- `ScalingIntelligence/Gemma-4-31B-it-pearl`
+- `ScalingIntelligence/Qwen3.5-9B-pearl`
+
+Current validation evidence:
 
 - `google/gemma-4-31B-it` converted to
   `/tmp/openjarvis-h100/converted/Gemma-4-31B-it-pearl-experimental`.
@@ -50,6 +61,8 @@ runtime validation. Current local evidence:
   `pearl-ai/Gemma-4-31B-it-pearl` at `/v1/models`, completes a chat prompt,
   and passes `jarvis mine validate-model --allow-planned`. Validation artifact:
   `/tmp/openjarvis-h100/converted/Gemma-4-31B-it-pearl-experimental-validate.json`.
+  The published `ScalingIntelligence/Gemma-4-31B-it-pearl` repo includes the
+  same validation artifact as `openjarvis_validation.json`.
 - `Qwen/Qwen3.5-9B` converted to
   `/tmp/openjarvis-h100/converted/Qwen3.5-9B-pearl-experimental`.
   The local artifact passes `jarvis mine inspect-model`, starts Pearl gateway,
@@ -59,6 +72,8 @@ runtime validation. Current local evidence:
   --allow-planned`. Required validation flags: `--gdn-prefill-backend triton`
   and a 4096-token context. Validation artifact:
   `/tmp/openjarvis-h100/converted/Qwen3.5-9B-pearl-experimental-validate.json`.
+  The published `ScalingIntelligence/Qwen3.5-9B-pearl` repo includes the same
+  validation artifact as `openjarvis_validation.json`.
 
 ## Enablement Checklist
 

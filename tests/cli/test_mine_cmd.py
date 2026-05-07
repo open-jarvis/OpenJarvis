@@ -28,9 +28,24 @@ def test_mine_models_lists_validated_and_planned_models() -> None:
     assert result.exit_code == 0
     assert "Pearl Mining Models" in result.output
     assert "pearl-ai/Llama-3.3-70B-Instruct-pearl" in result.output
+    assert "ScalingIntelligence/Gemma-4-31B-it-pearl" in result.output
+    assert "ScalingIntelligence/Qwen3.5-9B-pearl" in result.output
     assert "pearl-ai/Qwen3.5-9B-pearl" in result.output
     assert "validated" in result.output
     assert "planned" in result.output
+
+
+def test_pearl_base_model_lookup_prefers_validated_scalingintelligence_artifacts():
+    from openjarvis.mining._models import pearl_variant_for_base_model
+
+    assert (
+        pearl_variant_for_base_model("google/gemma-4-31B-it")
+        == "ScalingIntelligence/Gemma-4-31B-it-pearl"
+    )
+    assert (
+        pearl_variant_for_base_model("Qwen/Qwen3.5-9B")
+        == "ScalingIntelligence/Qwen3.5-9B-pearl"
+    )
 
 
 def test_mine_inspect_model_validated_artifact_passes(monkeypatch) -> None:

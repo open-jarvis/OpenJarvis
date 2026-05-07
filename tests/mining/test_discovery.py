@@ -96,7 +96,7 @@ def test_detect_raw_planned_model_points_to_pearl_variant(hopper_hw):
     )
 
     assert cap.supported is False
-    assert "pearl-ai/Qwen3.5-9B-pearl" in cap.reason
+    assert "ScalingIntelligence/Qwen3.5-9B-pearl" in cap.reason
 
 
 def test_detect_planned_pearl_model_is_not_enabled_yet(hopper_hw):

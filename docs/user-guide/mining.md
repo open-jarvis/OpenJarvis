@@ -78,39 +78,36 @@ jarvis mine models
 OpenJarvis only enables models that have Pearl-compatible quantized artifacts
 and real hardware validation. Raw Hugging Face models such as
 `Qwen/Qwen3.5-9B` or `google/gemma-4-E4B-it` are not mineable by themselves;
-they need corresponding `pearl-ai/*-pearl` variants.
+they need corresponding Pearl-compatible variants.
 
-The default validated model is:
+The validated models are:
 
 ```text
 pearl-ai/Llama-3.3-70B-Instruct-pearl
+ScalingIntelligence/Gemma-4-31B-it-pearl
+ScalingIntelligence/Qwen3.5-9B-pearl
 ```
 
-The Qwen and Gemma targets are tracked in the model registry as planned until
-Pearl quantization and H100/H200 validation are complete.
-
-Current status: the default Llama Pearl model is the only validated model.
-The Gemma 31B Pearl artifact has been seen by OpenJarvis on H100, but it is not
-promoted because the published artifact is missing Gemma4 processor metadata
-needed for clean vLLM startup. The Qwen and smaller Gemma Pearl artifacts still
-need to be published and validated.
+The Gemma 31B and Qwen 3.5 9B artifacts are experimental private staging
+artifacts under the `ScalingIntelligence` Hugging Face org. You need Hugging
+Face access to those repos before OpenJarvis can inspect or run them. They were
+validated on H100 with `jarvis mine validate-model`, but the short validation
+runs did not find a reward-bearing block or accepted share.
 
 When validating a newly converted Pearl model on a mining host, run:
 
 ```bash
 jarvis mine inspect-model \
-  --model pearl-ai/Qwen3.5-9B-pearl \
-  --allow-planned
+  --model ScalingIntelligence/Qwen3.5-9B-pearl
 
 jarvis mine validate-model \
-  --model pearl-ai/Qwen3.5-9B-pearl \
-  --allow-planned \
+  --model ScalingIntelligence/Qwen3.5-9B-pearl \
   --prompt "Say hello in one sentence." \
   --output qwen3.5-9b-pearl-validation.json
 ```
 
-Remove `--allow-planned` only after the model is promoted to validated in the
-OpenJarvis registry. Attach the JSON artifact to the validation issue.
+Attach the JSON artifact to the validation issue when promoting additional
+models.
 
 ## v1 Scope
 
