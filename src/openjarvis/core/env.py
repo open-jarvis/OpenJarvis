@@ -143,6 +143,15 @@ ENV_REGISTRY: dict[str, EnvSpec] = {
         "obsidian",
         secret=False,
     ),
+    "TOOL_CAPABLE_MODEL": EnvSpec(
+        "TOOL_CAPABLE_MODEL",
+        (),
+        "Model used when 'auto' is selected and the request has tools. "
+        "Cascade does not forward tools, so we redirect tool-using "
+        "auto requests to this single model. Default: claude-sonnet-4-6.",
+        "routing",
+        secret=False,
+    ),
 }
 
 

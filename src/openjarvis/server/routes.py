@@ -321,6 +321,28 @@ async def _handle_stream(
     use_cloud = is_cloud_model(model)
     use_cascade = tier_cascade.is_auto_model(model)
 
+    # Tool-aware routing override: the cascade pipeline does not forward
+    # tool definitions to providers, so a tool-using request that lands
+    # on "auto" gets its tools silently dropped and the racing model
+    # responds with prose instead of calling tools. When tools are
+    # present and the user picked auto, redirect to a single
+    # tool-capable cloud model. TOOL_CAPABLE_MODEL env var lets ops
+    # swap the chosen model without a code change.
+    if use_cascade and req.tools:
+        import os as _os
+        tool_model = _os.environ.get(
+            "TOOL_CAPABLE_MODEL", "claude-sonnet-4-6"
+        )
+        import logging as _logging
+        _logging.getLogger("openjarvis.server").info(
+            "tool-aware routing: %s requested with %d tools; "
+            "redirecting to %s (cascade does not forward tools)",
+            model, len(req.tools), tool_model,
+        )
+        model = tool_model
+        use_cascade = False
+        use_cloud = is_cloud_model(model)
+
     # If the cascade is active, kick off the slow Claude-CLI elaboration
     # track in parallel. The chat handler keeps a reference to the record so
     # the spoken_answer can be written back when this stream finishes.
