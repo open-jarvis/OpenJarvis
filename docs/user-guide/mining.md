@@ -85,14 +85,16 @@ The validated models are:
 ```text
 pearl-ai/Llama-3.3-70B-Instruct-pearl
 ScalingIntelligence/Gemma-4-31B-it-pearl
+ScalingIntelligence/Gemma-4-E4B-it-pearl
 ScalingIntelligence/Qwen3.5-9B-pearl
+ScalingIntelligence/Qwen3.6-27B-pearl
 ```
 
-The Gemma 31B and Qwen 3.5 9B artifacts are experimental private staging
-artifacts under the `ScalingIntelligence` Hugging Face org. You need Hugging
-Face access to those repos before OpenJarvis can inspect or run them. They were
-validated on H100 with `jarvis mine validate-model`, but the short validation
-runs did not find a reward-bearing block or accepted share.
+The ScalingIntelligence artifacts are experimental private staging artifacts
+under the `ScalingIntelligence` Hugging Face org. You need Hugging Face access
+to those repos before OpenJarvis can inspect or run them. They were validated on
+H100 with `jarvis mine validate-model`, but the short validation runs did not
+find a reward-bearing block or accepted share.
 
 When validating a newly converted Pearl model on a mining host, run:
 

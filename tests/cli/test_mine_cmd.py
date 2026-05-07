@@ -29,7 +29,9 @@ def test_mine_models_lists_validated_and_planned_models() -> None:
     assert "Pearl Mining Models" in result.output
     assert "pearl-ai/Llama-3.3-70B-Instruct-pearl" in result.output
     assert "ScalingIntelligence/Gemma-4-31B-it-pearl" in result.output
+    assert "ScalingIntelligence/Gemma-4-E4B-it-pearl" in result.output
     assert "ScalingIntelligence/Qwen3.5-9B-pearl" in result.output
+    assert "ScalingIntelligence/Qwen3.6-27B-pearl" in result.output
     assert "pearl-ai/Qwen3.5-9B-pearl" in result.output
     assert "validated" in result.output
     assert "planned" in result.output
@@ -45,6 +47,14 @@ def test_pearl_base_model_lookup_prefers_validated_scalingintelligence_artifacts
     assert (
         pearl_variant_for_base_model("Qwen/Qwen3.5-9B")
         == "ScalingIntelligence/Qwen3.5-9B-pearl"
+    )
+    assert (
+        pearl_variant_for_base_model("google/gemma-4-E4B-it")
+        == "ScalingIntelligence/Gemma-4-E4B-it-pearl"
+    )
+    assert (
+        pearl_variant_for_base_model("Qwen/Qwen3.6-27B")
+        == "ScalingIntelligence/Qwen3.6-27B-pearl"
     )
 
 
