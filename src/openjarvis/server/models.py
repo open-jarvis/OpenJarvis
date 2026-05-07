@@ -82,6 +82,7 @@ class ChatCompletionResponse(BaseModel):
 class DeltaMessage(BaseModel):
     role: Optional[str] = None
     content: Optional[str] = None
+    tool_calls: Optional[List[Dict[str, Any]]] = None
 
 
 class StreamChoice(BaseModel):
