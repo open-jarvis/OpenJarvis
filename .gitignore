@@ -121,3 +121,7 @@ outputs/
 *.mp3
 *.wav
 *.m4a
+
+# Local Serena diagnostic scan dumps
+SERENA_PLAN_FILE_SCAN.txt
+SERENA_REGISTRY_FILE_SCAN.txt
