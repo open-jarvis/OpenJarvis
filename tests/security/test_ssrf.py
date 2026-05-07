@@ -57,6 +57,23 @@ class TestIsPrivateIp:
         # Public IPv4 wrapped as IPv6 must NOT be flagged as private.
         assert is_private_ip("::ffff:8.8.8.8") is False
 
+    def test_ipv4_compatible_loopback(self):
+        # ::127.0.0.1 — deprecated IPv4-compatible form, must still be blocked.
+        assert is_private_ip("::127.0.0.1") is True
+
+    def test_unspecified_addresses(self):
+        assert is_private_ip("0.0.0.0") is True
+        assert is_private_ip("::") is True
+
+    def test_zero_subnet_is_private(self):
+        # 0.0.0.0/8 routes to localhost on Linux.
+        assert is_private_ip("0.1.2.3") is True
+
+    def test_multicast_and_broadcast_blocked(self):
+        assert is_private_ip("239.0.0.1") is True
+        assert is_private_ip("255.255.255.255") is True
+        assert is_private_ip("ff02::1") is True
+
 
 class TestCheckSsrf:
     """Tests for SSRF protection.
@@ -174,6 +191,32 @@ class TestCheckSsrf:
         result = _check_ssrf_python(
             "http://[::ffff:169.254.169.254]/latest/meta-data/"
         )
+        assert result is not None
+
+    def test_blocks_ipv4_mapped_alibaba_metadata(self):
+        # 100.100.100.200 isn't private — relies on BLOCKED_HOSTS lookup
+        # against the embedded v4. Verifies the canonical-host fix.
+        result = check_ssrf("http://[::ffff:100.100.100.200]/")
+        assert result is not None
+        assert "Blocked host" in result
+
+    def test_blocks_ipv4_compatible_loopback(self):
+        result = check_ssrf("http://[::127.0.0.1]/")
+        assert result is not None
+
+    def test_blocks_zero_dot_zero(self):
+        result = check_ssrf("http://0.0.0.0/")
+        assert result is not None
+
+    def test_url_userinfo_does_not_bypass(self):
+        # Userinfo + bracketed IPv6 literal still gets blocked.
+        result = check_ssrf("http://user:pass@[::ffff:127.0.0.1]:8080/admin")
+        assert result is not None
+
+    def test_canonicalized_hex_ipv6_form_blocked(self):
+        # url crate canonicalizes [::ffff:127.0.0.1] to [::ffff:7f00:1]
+        # internally; ensure this form blocks too.
+        result = check_ssrf("http://[::ffff:7f00:1]/")
         assert result is not None
 
 
