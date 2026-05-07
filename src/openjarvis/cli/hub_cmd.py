@@ -20,6 +20,8 @@ from openjarvis.tools.serena_hub import (
     hub_artifact_summary,
     hub_blocked_unapproved_action,
     hub_chat_request,
+    hub_live_tick,
+    hub_command_intake,
     hub_crm_rollup,
     hub_document_rollup,
     hub_env_check,
@@ -182,6 +184,31 @@ def serve(host, port, no_build):
 def web_build():
     """Generate local static Serena Hub web shell."""
     _print(hub_web_build())
+
+
+@hub.command("command-intake")
+@click.argument("command")
+@click.option("--operator", default="hub")
+@click.option("--target-section", default="overview")
+@click.option("--priority", default="normal")
+def command_intake(command, operator, target_section, priority):
+    """Record a local Hub command intake item and update live dashboard state."""
+    _print(
+        hub_command_intake(
+            command=command,
+            operator=operator,
+            target_section=target_section,
+            priority=priority,
+        )
+    )
+
+
+@hub.command("live-tick")
+@click.option("--root", default="outputs")
+@click.option("--limit", default=300, type=int)
+def live_tick(root, limit):
+    """Refresh live Hub dashboard JSON mirrors."""
+    _print(hub_live_tick(root=root, limit=limit))
 
 
 @hub.command("chat-request")
