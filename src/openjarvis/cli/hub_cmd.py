@@ -12,6 +12,9 @@ from rich.console import Console
 
 from openjarvis.tools.serena_hub import (
     hub_action_routing_plan,
+    hub_approved_execution_gate,
+    hub_approval_list,
+    hub_approval_decision,
     hub_activity_event,
     hub_artifact_index,
     hub_orb_state,
@@ -186,6 +189,49 @@ def serve(host, port, no_build):
 def web_build():
     """Generate local static Serena Hub web shell."""
     _print(hub_web_build())
+
+
+@hub.command("approval-list")
+@click.option("--status", "approval_status", default="all")
+def approval_list(approval_status):
+    """List local Hub approvals."""
+    _print(hub_approval_list(status=approval_status))
+
+
+@hub.command("approval-decision")
+@click.option("--approval-id", required=True)
+@click.option("--decision", required=True)
+@click.option("--reason", default="")
+@click.option("--decided-by", default="Kyle")
+def approval_decision(approval_id, decision, reason, decided_by):
+    """Mark a local approval approved or denied. No execution occurs."""
+    _print(
+        hub_approval_decision(
+            approval_id=approval_id,
+            decision=decision,
+            reason=reason,
+            decided_by=decided_by,
+        )
+    )
+
+
+@hub.command("approved-execution-gate")
+@click.option("--approval-id", required=True)
+@click.option("--file-list", required=True)
+@click.option("--patch-plan", required=True)
+@click.option("--smoke-test", required=True)
+@click.option("--rollback-note", required=True)
+def approved_execution_gate(approval_id, file_list, patch_plan, smoke_test, rollback_note):
+    """Create a local execution gate record for an approved request. No execution occurs."""
+    _print(
+        hub_approved_execution_gate(
+            approval_id=approval_id,
+            file_list=file_list,
+            patch_plan=patch_plan,
+            smoke_test=smoke_test,
+            rollback_note=rollback_note,
+        )
+    )
 
 
 @hub.command("self-upgrade-plan")
