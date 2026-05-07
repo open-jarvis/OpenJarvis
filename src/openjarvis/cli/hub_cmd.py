@@ -29,6 +29,8 @@ from openjarvis.tools.serena_hub import (
     hub_schedule_rollup,
     hub_source_list,
     hub_status,
+    hub_serve_web,
+    hub_web_sync_data,
     hub_web_build,
     hub_widget_registry,
 )
@@ -159,6 +161,21 @@ def orb_state(orb_state, active_operator, active_task, active_section):
 def open_web():
     """Open local Serena Hub web shell."""
     _print(hub_open_web())
+
+
+@hub.command("web-sync-data")
+def web_sync_data():
+    """Copy Hub JSON state/rollups into web/data for dynamic browser fetch."""
+    _print(hub_web_sync_data())
+
+
+@hub.command("serve")
+@click.option("--host", default="127.0.0.1")
+@click.option("--port", default=8765, type=int)
+@click.option("--no-build", is_flag=True)
+def serve(host, port, no_build):
+    """Serve local Serena Hub over HTTP for dynamic JSON loading."""
+    _print(hub_serve_web(host=host, port=port, build=not no_build))
 
 
 @hub.command("web-build")
