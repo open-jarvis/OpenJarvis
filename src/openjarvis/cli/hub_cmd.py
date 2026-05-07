@@ -32,6 +32,8 @@ from openjarvis.tools.serena_hub import (
     hub_execution_gate_list,
     hub_finance_rollup,
     hub_operator_rollup,
+    hub_patch_prep_list,
+    hub_patch_prep,
     hub_safety_rollup,
     hub_schedule_rollup,
     hub_self_upgrade_plan,
@@ -222,6 +224,27 @@ def approval_decision(approval_id, decision, reason, decided_by):
 def execution_gate_list(gate_status):
     """List local execution gate records. No execution occurs."""
     _print(hub_execution_gate_list(status=gate_status))
+
+
+@hub.command("patch-prep")
+@click.option("--approval-id", required=True)
+@click.option("--patch-name", default="serena_hub_patch")
+def patch_prep(approval_id, patch_name):
+    """Create draft patch-prep artifact for approved runner plan. No execution occurs."""
+    _print(
+        hub_patch_prep(
+            approval_id=approval_id,
+            patch_name=patch_name,
+            draft_only=True,
+        )
+    )
+
+
+@hub.command("patch-prep-list")
+@click.option("--status", "prep_status", default="all")
+def patch_prep_list(prep_status):
+    """List patch-prep artifacts. No execution occurs."""
+    _print(hub_patch_prep_list(status=prep_status))
 
 
 @hub.command("execution-runner-plan")
