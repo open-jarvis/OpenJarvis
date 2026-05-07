@@ -113,19 +113,46 @@ class ObsidianVaultClient:
         return None
 
     def _call(self, tool_name: str, arguments: dict[str, Any]) -> Any:
-        """Run :meth:`_async_call` on a fresh event loop with a timeout."""
-        with self._lock:
-            try:
-                return asyncio.run(
-                    asyncio.wait_for(
-                        self._async_call(tool_name, arguments),
-                        timeout=self._timeout,
-                    )
+        """Run :meth:`_async_call` synchronously with a timeout.
+
+        When called from a thread with no running event loop (typical
+        sync code path) we use ``asyncio.run``. When called from inside
+        a running loop (e.g. an async FastAPI route's status probe) we
+        offload to a fresh thread so the inner ``asyncio.run`` is
+        legal — calling ``asyncio.run`` while a loop is already running
+        raises RuntimeError.
+        """
+
+        def _runner() -> Any:
+            return asyncio.run(
+                asyncio.wait_for(
+                    self._async_call(tool_name, arguments),
+                    timeout=self._timeout,
                 )
-            except asyncio.TimeoutError as exc:
-                raise VaultUnavailableError(
-                    f"vault tool '{tool_name}' timed out after {self._timeout}s"
-                ) from exc
+            )
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            running = False
+        else:
+            running = True
+
+        try:
+            if running:
+                # Bounce through a worker thread; each new thread starts
+                # without an event loop, letting asyncio.run succeed.
+                import concurrent.futures
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(_runner)
+                    return future.result(timeout=self._timeout + 5)
+            with self._lock:
+                return _runner()
+        except asyncio.TimeoutError as exc:
+            raise VaultUnavailableError(
+                f"vault tool '{tool_name}' timed out after {self._timeout}s"
+            ) from exc
 
     # ------------------------------------------------------------------
     # Connectivity
