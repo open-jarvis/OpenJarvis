@@ -321,28 +321,6 @@ async def _handle_stream(
     use_cloud = is_cloud_model(model)
     use_cascade = tier_cascade.is_auto_model(model)
 
-    # Tool-aware routing override: the cascade pipeline does not forward
-    # tool definitions to providers, so a tool-using request that lands
-    # on "auto" gets its tools silently dropped and the racing model
-    # responds with prose instead of calling tools. When tools are
-    # present and the user picked auto, redirect to a single
-    # tool-capable cloud model. TOOL_CAPABLE_MODEL env var lets ops
-    # swap the chosen model without a code change.
-    if use_cascade and req.tools:
-        import os as _os
-        tool_model = _os.environ.get(
-            "TOOL_CAPABLE_MODEL", "claude-sonnet-4-6"
-        )
-        import logging as _logging
-        _logging.getLogger("openjarvis.server").info(
-            "tool-aware routing: %s requested with %d tools; "
-            "redirecting to %s (cascade does not forward tools)",
-            model, len(req.tools), tool_model,
-        )
-        model = tool_model
-        use_cascade = False
-        use_cloud = is_cloud_model(model)
-
     # If the cascade is active, kick off the slow Claude-CLI elaboration
     # track in parallel. The chat handler keeps a reference to the record so
     # the spoken_answer can be written back when this stream finishes.
@@ -388,23 +366,96 @@ async def _handle_stream(
         spoken_buffer: list[str] = []
 
         try:
-            # Cloud models → direct cloud API (reads keys from disk).
-            # Cascade ("auto" model) → run the 3-tier race.
-            # Local models → engine.stream() first so mock engines work in
-            # tests.  Fall back to stream_local() only when the engine would
-            # mis-route the request to a cloud backend (MultiEngine routing
-            # confusion), which is detected by checking the routed engine's
-            # is_cloud attribute.
-            if use_cascade:
+            if req.tools:
+                # Tool-using path: must stream StreamChunks (content +
+                # tool_calls + finish_reason) so function-calling deltas
+                # reach the client. The plain-text cascade and
+                # cloud_router.stream_cloud strip tools entirely, so we
+                # route through engine.stream_full() (single model) or
+                # tool_cascade.cascade_tools() (auto, races tool-capable
+                # cloud models with key-availability filtering).
+                from openjarvis.server import tool_cascade
+
+                if use_cascade:
+                    chunk_iter = tool_cascade.cascade_tools(
+                        engine,
+                        messages,
+                        req.tools,
+                        temperature=req.temperature,
+                        max_tokens=req.max_tokens,
+                    )
+                else:
+                    chunk_iter = engine.stream_full(
+                        messages,
+                        model=model,
+                        tools=req.tools,
+                        temperature=req.temperature,
+                        max_tokens=req.max_tokens,
+                    )
+                async for sc in chunk_iter:
+                    if sc.content:
+                        spoken_buffer.append(sc.content)
+                        content_chunk = ChatCompletionChunk(
+                            id=chunk_id,
+                            model=model,
+                            choices=[
+                                StreamChoice(
+                                    delta=DeltaMessage(content=sc.content),
+                                )
+                            ],
+                        )
+                        yield f"data: {content_chunk.model_dump_json()}\n\n"
+                    if sc.tool_calls:
+                        tc_chunk = ChatCompletionChunk(
+                            id=chunk_id,
+                            model=model,
+                            choices=[
+                                StreamChoice(
+                                    delta=DeltaMessage(tool_calls=sc.tool_calls),
+                                )
+                            ],
+                        )
+                        yield f"data: {tc_chunk.model_dump_json()}\n\n"
+                    if sc.finish_reason:
+                        # The model has signalled end-of-turn (either
+                        # "stop" or "tool_calls"); fall through to the
+                        # outer finish-chunk emission.
+                        break
+            elif use_cascade:
+                # Plain chat on auto → 3-tier text race (existing path).
                 token_iter = tier_cascade.cascade(
                     messages,
                     temperature=req.temperature,
                     max_tokens=req.max_tokens,
                 )
+                async for token in token_iter:
+                    spoken_buffer.append(token)
+                    chunk = ChatCompletionChunk(
+                        id=chunk_id,
+                        model=model,
+                        choices=[
+                            StreamChoice(
+                                delta=DeltaMessage(content=token),
+                            )
+                        ],
+                    )
+                    yield f"data: {chunk.model_dump_json()}\n\n"
             elif use_cloud:
                 token_iter = stream_cloud(
                     model, messages, req.temperature, req.max_tokens
                 )
+                async for token in token_iter:
+                    spoken_buffer.append(token)
+                    chunk = ChatCompletionChunk(
+                        id=chunk_id,
+                        model=model,
+                        choices=[
+                            StreamChoice(
+                                delta=DeltaMessage(content=token),
+                            )
+                        ],
+                    )
+                    yield f"data: {chunk.model_dump_json()}\n\n"
             else:
                 # Use engine.stream() by default (preserves mock-engine
                 # compatibility in tests).  Only fall back to stream_local()
@@ -433,18 +484,18 @@ async def _handle_stream(
                         temperature=req.temperature,
                         max_tokens=req.max_tokens,
                     )
-            async for token in token_iter:
-                spoken_buffer.append(token)
-                chunk = ChatCompletionChunk(
-                    id=chunk_id,
-                    model=model,
-                    choices=[
-                        StreamChoice(
-                            delta=DeltaMessage(content=token),
-                        )
-                    ],
-                )
-                yield f"data: {chunk.model_dump_json()}\n\n"
+                async for token in token_iter:
+                    spoken_buffer.append(token)
+                    chunk = ChatCompletionChunk(
+                        id=chunk_id,
+                        model=model,
+                        choices=[
+                            StreamChoice(
+                                delta=DeltaMessage(content=token),
+                            )
+                        ],
+                    )
+                    yield f"data: {chunk.model_dump_json()}\n\n"
         except Exception as exc:
             # Surface errors as a content chunk so the frontend can
             # display them instead of silently failing.
