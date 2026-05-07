@@ -10,7 +10,10 @@ Layer 1 foundation:
 
 from __future__ import annotations
 
+from datetime import datetime
+import re
 import json
+
 import os
 import time
 from pathlib import Path
@@ -28,7 +31,6 @@ def _timestamp() -> str:
 
 
 def _safe_slug(value: str) -> str:
-    import re
     slug = re.sub(r"[^a-zA-Z0-9]+", "-", str(value or "").strip().lower()).strip("-")
     return slug or "membership"
 
@@ -3503,3 +3505,713 @@ __all__ = [
     "SerenaMembershipPlanInfoTool",
     "SerenaMembershipPlanListTool",
 ]
+
+# ---------------------------------------------------------------------------
+# Batch 1 reconciliation extension layer
+# ---------------------------------------------------------------------------
+
+def _membership_reconcile_now():
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def _membership_reconcile_stamp():
+    return datetime.now().strftime("%Y%m%d-%H%M%S")
+
+
+def _membership_reconcile_slug(value):
+    return re.sub(r"[^a-zA-Z0-9]+", "-", str(value or "").lower()).strip("-") or "membership"
+
+
+def _membership_reconcile_actions():
+    return {
+        "local_report_created": True,
+        "member_created": False,
+        "member_updated": False,
+        "member_cancelled": False,
+        "subscription_activated": False,
+        "subscription_cancelled": False,
+        "payment_captured": False,
+        "refund_issued": False,
+        "customer_contacted": False,
+        "crm_write_performed": False,
+        "hub_write_performed": False,
+        "wordpress_live_update": False,
+        "accounting_system_write": False,
+        "external_export_performed": False,
+        "dashboard_created": False,
+        "sensitive_member_export_performed": False,
+        "secret_values_exposed": False,
+    }
+
+
+def _membership_reconcile_artifact(kind, title, data):
+    out = Path("outputs/membership") / kind
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / f"{_membership_reconcile_stamp()}-{_membership_reconcile_slug(title)}.json"
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    return str(path)
+
+
+def _membership_scan_local_artifacts(root="outputs", limit=300):
+    base = Path(root)
+    if not base.exists():
+        return []
+
+    files = []
+    for pattern in ("*.json", "*.md", "*.txt", "*.csv", "*.xlsx"):
+        files.extend(base.rglob(pattern))
+
+    rows = []
+    for item in sorted(files, key=lambda x: str(x).lower()):
+        try:
+            stat = item.stat()
+        except OSError:
+            continue
+
+        raw = str(item).lower()
+        if "membership" in raw:
+            operator_guess = "membership"
+        elif "ecommerce" in raw:
+            operator_guess = "ecommerce"
+        elif "accounting" in raw:
+            operator_guess = "accounting"
+        elif "bookings" in raw:
+            operator_guess = "bookings"
+        elif "wordpress" in raw:
+            operator_guess = "wordpress"
+        elif "reporting" in raw:
+            operator_guess = "reporting"
+        else:
+            operator_guess = "unknown"
+
+        rows.append(
+            {
+                "path": str(item),
+                "operator_guess": operator_guess,
+                "suffix": item.suffix.lower(),
+                "size_bytes": stat.st_size,
+                "handoff_signal": "handoff" in raw,
+                "member_signal": any(t in raw for t in ["member", "membership", "subscriber", "subscription", "programme", "program"]),
+                "revenue_signal": any(t in raw for t in ["revenue", "payment", "order", "invoice", "subscription", "payfast"]),
+                "booking_signal": any(t in raw for t in ["booking", "appointment", "follow-up", "programme"]),
+                "funnel_signal": any(t in raw for t in ["landing", "funnel", "wordpress", "page", "cta", "membership"]),
+                "lifecycle_signal": any(t in raw for t in ["enroll", "renewal", "pause", "cancel", "retention", "follow-up"]),
+                "safety_signal": any(t in raw for t in ["blocked", "safety", "approval", "sensitive", "patient", "secret"]),
+            }
+        )
+
+        if len(rows) >= int(limit):
+            break
+
+    return rows
+
+
+def _membership_count_by(items, key):
+    counts = {}
+    for item in items:
+        value = item.get(key) or "unknown"
+        counts[value] = counts.get(value, 0) + 1
+    return counts
+
+
+class _SerenaMembershipReconcileBase(BaseTool):
+    is_local = True
+
+    def _result(self, content, success=True, metadata=None):
+        return ToolResult(
+            tool_name=self.tool_id,
+            content=content,
+            success=success,
+            metadata=metadata or {},
+        )
+
+
+@ToolRegistry.register("serena_membership_ecommerce_handoff_summary")
+class SerenaMembershipEcommerceHandoffSummaryTool(_SerenaMembershipReconcileBase):
+    tool_id = "serena_membership_ecommerce_handoff_summary"
+
+    @property
+    def spec(self):
+        return ToolSpec(
+            name=self.tool_id,
+            description="Summarize Ecommerce membership/subscription handoff artifacts. Local report only.",
+            parameters={"type": "object", "properties": {"root": {"type": "string"}, "limit": {"type": "integer"}}},
+            category="serena_membership",
+        )
+
+    def execute(self, **params):
+        root = str(params.get("root") or "outputs/ecommerce").strip()
+        limit = int(params.get("limit") or 300)
+        items = _membership_scan_local_artifacts(root=root, limit=limit)
+
+        handoffs = [x for x in items if x.get("handoff_signal")]
+        member_items = [x for x in items if x.get("member_signal")]
+        revenue_items = [x for x in items if x.get("revenue_signal")]
+        lifecycle_items = [x for x in items if x.get("lifecycle_signal")]
+        safety_items = [x for x in items if x.get("safety_signal")]
+
+        data = {
+            "tool": self.tool_id,
+            "operator": "membership",
+            "source_operator": "ecommerce",
+            "reconciliation_layer": "batch1",
+            "root": root,
+            "artifact_count": len(items),
+            "handoff_count": len(handoffs),
+            "member_signal_count": len(member_items),
+            "revenue_signal_count": len(revenue_items),
+            "lifecycle_signal_count": len(lifecycle_items),
+            "safety_signal_count": len(safety_items),
+            "counts_by_suffix": _membership_count_by(items, "suffix"),
+            "future_hub_event": {
+                "event_type": "membership.ecommerce_handoff_summary_created",
+                "entity_type": "ecommerce_membership_handoff_summary",
+                "entity_ref": root,
+                "approval_required": False,
+            },
+            "actions": _membership_reconcile_actions(),
+            "created_at": _membership_reconcile_now(),
+        }
+        path = _membership_reconcile_artifact("operator-handoff-summaries", "ecommerce", data)
+
+        return self._result(
+            "Serena Membership Ecommerce handoff summary created\n\n"
+            f"- Root: {root}\n"
+            f"- Artifacts summarized: {len(items)}\n"
+            f"- Handoffs: {len(handoffs)}\n"
+            f"- Member signals: {len(member_items)}\n"
+            f"- Revenue signals: {len(revenue_items)}\n"
+            f"- Summary: {path}\n\n"
+            "Actions performed: local report only. Member created: no. Subscription changed: no. Payment captured: no.",
+            metadata=data,
+        )
+
+
+@ToolRegistry.register("serena_membership_accounting_revenue_summary")
+class SerenaMembershipAccountingRevenueSummaryTool(_SerenaMembershipReconcileBase):
+    tool_id = "serena_membership_accounting_revenue_summary"
+
+    @property
+    def spec(self):
+        return ToolSpec(
+            name=self.tool_id,
+            description="Summarize Accounting revenue/billing artifacts for Membership planning. Local report only.",
+            parameters={"type": "object", "properties": {"root": {"type": "string"}, "limit": {"type": "integer"}}},
+            category="serena_membership",
+        )
+
+    def execute(self, **params):
+        root = str(params.get("root") or "outputs/accounting").strip()
+        limit = int(params.get("limit") or 300)
+        items = _membership_scan_local_artifacts(root=root, limit=limit)
+
+        revenue_items = [x for x in items if x.get("revenue_signal")]
+        member_items = [x for x in items if x.get("member_signal")]
+        safety_items = [x for x in items if x.get("safety_signal")]
+        handoffs = [x for x in items if x.get("handoff_signal")]
+
+        data = {
+            "tool": self.tool_id,
+            "operator": "membership",
+            "source_operator": "accounting",
+            "reconciliation_layer": "batch1",
+            "root": root,
+            "artifact_count": len(items),
+            "revenue_signal_count": len(revenue_items),
+            "member_signal_count": len(member_items),
+            "handoff_count": len(handoffs),
+            "safety_signal_count": len(safety_items),
+            "future_hub_event": {
+                "event_type": "membership.accounting_revenue_summary_created",
+                "entity_type": "accounting_membership_revenue_summary",
+                "entity_ref": root,
+                "approval_required": False,
+            },
+            "actions": _membership_reconcile_actions(),
+            "created_at": _membership_reconcile_now(),
+        }
+        path = _membership_reconcile_artifact("operator-revenue-summaries", "accounting", data)
+
+        return self._result(
+            "Serena Membership Accounting revenue summary created\n\n"
+            f"- Root: {root}\n"
+            f"- Artifacts summarized: {len(items)}\n"
+            f"- Revenue signals: {len(revenue_items)}\n"
+            f"- Member signals: {len(member_items)}\n"
+            f"- Summary: {path}\n\n"
+            "Actions performed: local report only. Payment captured: no. Refund issued: no. Accounting write: no.",
+            metadata=data,
+        )
+
+
+@ToolRegistry.register("serena_membership_bookings_member_summary")
+class SerenaMembershipBookingsMemberSummaryTool(_SerenaMembershipReconcileBase):
+    tool_id = "serena_membership_bookings_member_summary"
+
+    @property
+    def spec(self):
+        return ToolSpec(
+            name=self.tool_id,
+            description="Summarize Bookings appointment/member signals for Membership planning. Local report only.",
+            parameters={"type": "object", "properties": {"root": {"type": "string"}, "limit": {"type": "integer"}}},
+            category="serena_membership",
+        )
+
+    def execute(self, **params):
+        root = str(params.get("root") or "outputs/bookings").strip()
+        limit = int(params.get("limit") or 300)
+        items = _membership_scan_local_artifacts(root=root, limit=limit)
+
+        booking_items = [x for x in items if x.get("booking_signal")]
+        member_items = [x for x in items if x.get("member_signal")]
+        lifecycle_items = [x for x in items if x.get("lifecycle_signal")]
+        safety_items = [x for x in items if x.get("safety_signal")]
+
+        data = {
+            "tool": self.tool_id,
+            "operator": "membership",
+            "source_operator": "bookings",
+            "reconciliation_layer": "batch1",
+            "root": root,
+            "artifact_count": len(items),
+            "booking_signal_count": len(booking_items),
+            "member_signal_count": len(member_items),
+            "lifecycle_signal_count": len(lifecycle_items),
+            "safety_signal_count": len(safety_items),
+            "future_hub_event": {
+                "event_type": "membership.bookings_member_summary_created",
+                "entity_type": "bookings_member_summary",
+                "entity_ref": root,
+                "approval_required": False,
+            },
+            "actions": _membership_reconcile_actions(),
+            "created_at": _membership_reconcile_now(),
+        }
+        path = _membership_reconcile_artifact("operator-member-summaries", "bookings", data)
+
+        return self._result(
+            "Serena Membership Bookings member summary created\n\n"
+            f"- Root: {root}\n"
+            f"- Artifacts summarized: {len(items)}\n"
+            f"- Booking signals: {len(booking_items)}\n"
+            f"- Member signals: {len(member_items)}\n"
+            f"- Summary: {path}\n\n"
+            "Actions performed: local report only. Member updated: no. Customer contacted: no. Booking changed: no.",
+            metadata=data,
+        )
+
+
+@ToolRegistry.register("serena_membership_wordpress_funnel_summary")
+class SerenaMembershipWordPressFunnelSummaryTool(_SerenaMembershipReconcileBase):
+    tool_id = "serena_membership_wordpress_funnel_summary"
+
+    @property
+    def spec(self):
+        return ToolSpec(
+            name=self.tool_id,
+            description="Summarize WordPress membership funnel/page artifacts for Membership planning. Local report only.",
+            parameters={"type": "object", "properties": {"root": {"type": "string"}, "limit": {"type": "integer"}}},
+            category="serena_membership",
+        )
+
+    def execute(self, **params):
+        root = str(params.get("root") or "outputs/wordpress").strip()
+        limit = int(params.get("limit") or 300)
+        items = _membership_scan_local_artifacts(root=root, limit=limit)
+
+        funnel_items = [x for x in items if x.get("funnel_signal")]
+        member_items = [x for x in items if x.get("member_signal")]
+        lifecycle_items = [x for x in items if x.get("lifecycle_signal")]
+        safety_items = [x for x in items if x.get("safety_signal")]
+
+        data = {
+            "tool": self.tool_id,
+            "operator": "membership",
+            "source_operator": "wordpress",
+            "reconciliation_layer": "batch1",
+            "root": root,
+            "artifact_count": len(items),
+            "funnel_signal_count": len(funnel_items),
+            "member_signal_count": len(member_items),
+            "lifecycle_signal_count": len(lifecycle_items),
+            "safety_signal_count": len(safety_items),
+            "future_hub_event": {
+                "event_type": "membership.wordpress_funnel_summary_created",
+                "entity_type": "wordpress_membership_funnel_summary",
+                "entity_ref": root,
+                "approval_required": False,
+            },
+            "actions": _membership_reconcile_actions(),
+            "created_at": _membership_reconcile_now(),
+        }
+        path = _membership_reconcile_artifact("operator-funnel-summaries", "wordpress", data)
+
+        return self._result(
+            "Serena Membership WordPress funnel summary created\n\n"
+            f"- Root: {root}\n"
+            f"- Artifacts summarized: {len(items)}\n"
+            f"- Funnel signals: {len(funnel_items)}\n"
+            f"- Member signals: {len(member_items)}\n"
+            f"- Summary: {path}\n\n"
+            "Actions performed: local report only. WordPress live update: no. Member created: no. Hub write: no.",
+            metadata=data,
+        )
+
+
+@ToolRegistry.register("serena_membership_lifecycle_plan")
+class SerenaMembershipLifecyclePlanTool(_SerenaMembershipReconcileBase):
+    tool_id = "serena_membership_lifecycle_plan"
+
+    @property
+    def spec(self):
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create an approval-gated membership lifecycle plan. Planning only; no member/subscription/customer write.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "programme": {"type": "string"},
+                    "period": {"type": "string"},
+                    "focus": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                    "include_sensitive": {"type": "boolean"},
+                },
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params):
+        programme = str(params.get("programme") or "membership programme").strip()
+        period = str(params.get("period") or "current").strip()
+        focus = str(params.get("focus") or "enrollment,retention,renewal,cancellation").strip()
+        approved = bool(params.get("approved", False))
+        include_sensitive = bool(params.get("include_sensitive", False))
+
+        blockers = []
+        if not approved:
+            blockers.append("Membership lifecycle planning approval is missing.")
+        if include_sensitive:
+            blockers.append("Sensitive/unredacted member or patient data is blocked from this planning layer.")
+
+        data = {
+            "tool": self.tool_id,
+            "operator": "membership",
+            "reconciliation_layer": "batch1",
+            "programme": programme,
+            "period": period,
+            "focus": focus,
+            "approved": approved,
+            "include_sensitive": include_sensitive,
+            "lifecycle_ready": len(blockers) == 0,
+            "blockers": blockers,
+            "lifecycle_plan": [
+                "Review local Ecommerce, Accounting, Bookings, and WordPress membership signals.",
+                "Separate prospect, active member, paused, renewal, cancellation, and follow-up states.",
+                "Prepare member lifecycle actions as draft recommendations only.",
+                "Require approval before member creation, subscription changes, customer contact, CRM/Hub writes, or payment changes.",
+                "Record all evidence locally before any external action.",
+            ],
+            "future_hub_event": {
+                "event_type": "membership.lifecycle_plan_created",
+                "entity_type": "membership_lifecycle_plan",
+                "entity_ref": programme,
+                "approval_required": True,
+                "blocked": len(blockers) > 0,
+            },
+            "actions": _membership_reconcile_actions(),
+            "created_at": _membership_reconcile_now(),
+        }
+        path = _membership_reconcile_artifact("lifecycle-plans", programme, data)
+
+        return self._result(
+            "Serena Membership lifecycle plan created\n\n"
+            f"- Programme: {programme}\n"
+            f"- Period: {period}\n"
+            f"- Focus: {focus}\n"
+            f"- Lifecycle ready: {data['lifecycle_ready']}\n"
+            f"- Plan: {path}\n\n"
+            "Blockers:\n"
+            + "\n".join(f"- {x}" for x in blockers or ["None."])
+            + "\n\nActions performed: local lifecycle planning only. Member/subscription/customer write: no.",
+            metadata=data,
+        )
+
+
+@ToolRegistry.register("serena_membership_subscription_readiness_plan")
+class SerenaMembershipSubscriptionReadinessPlanTool(_SerenaMembershipReconcileBase):
+    tool_id = "serena_membership_subscription_readiness_plan"
+
+    @property
+    def spec(self):
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create an approval-gated subscription readiness plan. Planning only; no payment/subscription write.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "offer": {"type": "string"},
+                    "billing_model": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                    "include_sensitive": {"type": "boolean"},
+                },
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params):
+        offer = str(params.get("offer") or "membership offer").strip()
+        billing_model = str(params.get("billing_model") or "monthly subscription").strip()
+        approved = bool(params.get("approved", False))
+        include_sensitive = bool(params.get("include_sensitive", False))
+
+        blockers = []
+        if not approved:
+            blockers.append("Subscription readiness approval is missing.")
+        if include_sensitive:
+            blockers.append("Sensitive/unredacted member, patient, billing, or payment data is blocked from this planning layer.")
+
+        data = {
+            "tool": self.tool_id,
+            "operator": "membership",
+            "reconciliation_layer": "batch1",
+            "offer": offer,
+            "billing_model": billing_model,
+            "approved": approved,
+            "include_sensitive": include_sensitive,
+            "subscription_ready": len(blockers) == 0,
+            "blockers": blockers,
+            "readiness_plan": [
+                "Confirm offer, billing cadence, cancellation policy, and fulfilment obligations.",
+                "Confirm Accounting/PayFast/payment readiness before any payment action.",
+                "Confirm WordPress membership page/funnel readiness before public launch.",
+                "Confirm onboarding, booking, and follow-up flow.",
+                "Require approval before subscription activation, payment capture, refund, or customer contact.",
+            ],
+            "future_hub_event": {
+                "event_type": "membership.subscription_readiness_plan_created",
+                "entity_type": "subscription_readiness_plan",
+                "entity_ref": offer,
+                "approval_required": True,
+                "blocked": len(blockers) > 0,
+            },
+            "actions": _membership_reconcile_actions(),
+            "created_at": _membership_reconcile_now(),
+        }
+        path = _membership_reconcile_artifact("subscription-readiness-plans", offer, data)
+
+        return self._result(
+            "Serena Membership subscription readiness plan created\n\n"
+            f"- Offer: {offer}\n"
+            f"- Billing model: {billing_model}\n"
+            f"- Subscription ready: {data['subscription_ready']}\n"
+            f"- Plan: {path}\n\n"
+            "Blockers:\n"
+            + "\n".join(f"- {x}" for x in blockers or ["None."])
+            + "\n\nActions performed: local subscription planning only. Payment/subscription/customer write: no.",
+            metadata=data,
+        )
+
+
+@ToolRegistry.register("serena_membership_blocked_unapproved_member_write")
+class SerenaMembershipBlockedUnapprovedMemberWriteTool(_SerenaMembershipReconcileBase):
+    tool_id = "serena_membership_blocked_unapproved_member_write"
+
+    @property
+    def spec(self):
+        return ToolSpec(
+            name=self.tool_id,
+            description="Record a blocked unapproved member/subscription/programme write attempt. Local audit only.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "reference": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["action"],
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params):
+        action = str(params.get("action") or "").strip()
+        reference = str(params.get("reference") or action).strip()
+        reason = str(params.get("reason") or "Missing explicit approval for member/subscription write action.").strip()
+
+        if not action:
+            return self._result("action is required.", success=False)
+
+        data = {
+            "tool": self.tool_id,
+            "operator": "membership",
+            "reconciliation_layer": "batch1",
+            "action": action,
+            "reference": reference,
+            "reason": reason,
+            "blocked": True,
+            "safe_alternative": "Create a local lifecycle or subscription readiness plan first, then require explicit approval before any write.",
+            "future_hub_event": {
+                "event_type": "membership.member_write_blocked",
+                "entity_type": "blocked_member_write",
+                "entity_ref": reference,
+                "approval_required": True,
+                "blocked": True,
+            },
+            "actions": _membership_reconcile_actions(),
+            "created_at": _membership_reconcile_now(),
+        }
+        path = _membership_reconcile_artifact("blocked-actions", reference, data)
+
+        return self._result(
+            "Serena Membership member/subscription write blocked\n\n"
+            f"- Action: {action}\n"
+            f"- Reference: {reference}\n"
+            f"- Reason: {reason}\n"
+            f"- Audit: {path}\n\n"
+            "Actions performed: local blocked-action audit only. Member/subscription/payment/CRM/Hub write: no.",
+            metadata=data,
+        )
+
+
+@ToolRegistry.register("serena_membership_hub_member_plan")
+class SerenaMembershipHubMemberPlanTool(_SerenaMembershipReconcileBase):
+    tool_id = "serena_membership_hub_member_plan"
+
+    @property
+    def spec(self):
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a future Serena Hub member/subscription metadata plan. Planning only; no Hub/member write.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "scope": {"type": "string"},
+                    "include_sensitive": {"type": "boolean"},
+                },
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params):
+        scope = str(params.get("scope") or "membership,ecommerce,accounting,bookings,wordpress").strip()
+        include_sensitive = bool(params.get("include_sensitive", False))
+
+        blockers = []
+        if include_sensitive:
+            blockers.append("Sensitive/unredacted member, patient, billing, or programme data is blocked from this Hub metadata planning layer.")
+
+        data = {
+            "tool": self.tool_id,
+            "operator": "membership",
+            "reconciliation_layer": "batch1",
+            "scope": scope,
+            "include_sensitive": include_sensitive,
+            "hub_member_ready": len(blockers) == 0,
+            "blockers": blockers,
+            "planned_metadata": [
+                "ecommerce_membership_signal_count",
+                "accounting_subscription_revenue_signal_count",
+                "bookings_member_signal_count",
+                "wordpress_membership_funnel_signal_count",
+                "lifecycle_plan_count",
+                "subscription_readiness_plan_count",
+                "blocked_member_write_count",
+                "sensitive_member_block_count",
+                "future_hub_event_coverage",
+            ],
+            "future_hub_event": {
+                "event_type": "membership.hub_member_plan_created",
+                "entity_type": "hub_member_plan",
+                "entity_ref": scope,
+                "approval_required": True,
+                "blocked": len(blockers) > 0,
+            },
+            "actions": _membership_reconcile_actions(),
+            "created_at": _membership_reconcile_now(),
+        }
+        path = _membership_reconcile_artifact("hub-member-plans", _membership_reconcile_slug(scope), data)
+
+        return self._result(
+            "Serena Membership Hub member plan created\n\n"
+            f"- Scope: {scope}\n"
+            f"- Hub member ready: {data['hub_member_ready']}\n"
+            f"- Plan: {path}\n\n"
+            "Blockers:\n"
+            + "\n".join(f"- {x}" for x in blockers or ["None."])
+            + "\n\nActions performed: local Hub metadata planning only. Hub write: no. Member/subscription write: no.",
+            metadata=data,
+        )
+
+
+@ToolRegistry.register("serena_membership_dashboard_handoff")
+class SerenaMembershipDashboardHandoffTool(_SerenaMembershipReconcileBase):
+    tool_id = "serena_membership_dashboard_handoff"
+
+    @property
+    def spec(self):
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a Membership dashboard handoff for future Serena Hub/Analytics UI. Local artifact only.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "dashboard_name": {"type": "string"},
+                    "scope": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                },
+            },
+            category="serena_membership",
+        )
+
+    def execute(self, **params):
+        dashboard_name = str(params.get("dashboard_name") or "Serena Membership Dashboard").strip()
+        scope = str(params.get("scope") or "membership,ecommerce,accounting,bookings,wordpress").strip()
+        approved = bool(params.get("approved", False))
+
+        blockers = []
+        if not approved:
+            blockers.append("Dashboard handoff approval is missing.")
+
+        data = {
+            "tool": self.tool_id,
+            "operator": "membership",
+            "reconciliation_layer": "batch1",
+            "dashboard_name": dashboard_name,
+            "scope": scope,
+            "approved": approved,
+            "dashboard_ready": len(blockers) == 0,
+            "blockers": blockers,
+            "recommended_widgets": [
+                "membership_funnel_signals",
+                "subscription_revenue_readiness",
+                "bookings_member_followups",
+                "lifecycle_plan_status",
+                "subscription_readiness_status",
+                "blocked_member_writes",
+                "sensitive_member_blocks",
+                "hub_member_metadata_coverage",
+            ],
+            "future_hub_event": {
+                "event_type": "membership.dashboard_handoff_created",
+                "entity_type": "dashboard_handoff",
+                "entity_ref": dashboard_name,
+                "approval_required": True,
+                "blocked": len(blockers) > 0,
+            },
+            "actions": _membership_reconcile_actions(),
+            "created_at": _membership_reconcile_now(),
+        }
+        path = _membership_reconcile_artifact("dashboard-handoffs", dashboard_name, data)
+
+        return self._result(
+            "Serena Membership dashboard handoff created\n\n"
+            f"- Dashboard: {dashboard_name}\n"
+            f"- Scope: {scope}\n"
+            f"- Dashboard ready: {data['dashboard_ready']}\n"
+            f"- Handoff: {path}\n\n"
+            "Blockers:\n"
+            + "\n".join(f"- {x}" for x in blockers or ["None."])
+            + "\n\nActions performed: local dashboard handoff only. Dashboard created: no. Hub write: no. Member/subscription write: no.",
+            metadata=data,
+        )
+

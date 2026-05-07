@@ -604,3 +604,128 @@ def blocked_silent_programme_change(action: str, reason: str) -> None:
 
 
 __all__ = ["membership"]
+
+@membership.command("ecommerce-handoff-summary")
+@click.option("--root", default="outputs/ecommerce", help="Ecommerce artifact root.")
+@click.option("--limit", default=300, type=int, help="Maximum artifacts to inspect.")
+def ecommerce_handoff_summary(root, limit):
+    """Create Ecommerce handoff summary for Membership."""
+    console = Console()
+    from openjarvis.tools.serena_membership import SerenaMembershipEcommerceHandoffSummaryTool
+    result = SerenaMembershipEcommerceHandoffSummaryTool().execute(root=root, limit=limit)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("accounting-revenue-summary")
+@click.option("--root", default="outputs/accounting", help="Accounting artifact root.")
+@click.option("--limit", default=300, type=int, help="Maximum artifacts to inspect.")
+def accounting_revenue_summary(root, limit):
+    """Create Accounting revenue summary for Membership."""
+    console = Console()
+    from openjarvis.tools.serena_membership import SerenaMembershipAccountingRevenueSummaryTool
+    result = SerenaMembershipAccountingRevenueSummaryTool().execute(root=root, limit=limit)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("bookings-member-summary")
+@click.option("--root", default="outputs/bookings", help="Bookings artifact root.")
+@click.option("--limit", default=300, type=int, help="Maximum artifacts to inspect.")
+def bookings_member_summary(root, limit):
+    """Create Bookings member summary for Membership."""
+    console = Console()
+    from openjarvis.tools.serena_membership import SerenaMembershipBookingsMemberSummaryTool
+    result = SerenaMembershipBookingsMemberSummaryTool().execute(root=root, limit=limit)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("wordpress-funnel-summary")
+@click.option("--root", default="outputs/wordpress", help="WordPress artifact root.")
+@click.option("--limit", default=300, type=int, help="Maximum artifacts to inspect.")
+def wordpress_funnel_summary(root, limit):
+    """Create WordPress funnel summary for Membership."""
+    console = Console()
+    from openjarvis.tools.serena_membership import SerenaMembershipWordPressFunnelSummaryTool
+    result = SerenaMembershipWordPressFunnelSummaryTool().execute(root=root, limit=limit)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("lifecycle-plan")
+@click.option("--programme", default="membership programme", help="Membership/programme name.")
+@click.option("--period", default="current", help="Lifecycle period.")
+@click.option("--focus", default="enrollment,retention,renewal,cancellation", help="Lifecycle focus.")
+@click.option("--approved", is_flag=True, help="Marks planning as approved for readiness only. Does not write member records.")
+@click.option("--include-sensitive", is_flag=True, help="Attempt to include sensitive member data. This should block.")
+def lifecycle_plan(programme, period, focus, approved, include_sensitive):
+    """Create lifecycle plan without member/subscription writes."""
+    console = Console()
+    from openjarvis.tools.serena_membership import SerenaMembershipLifecyclePlanTool
+    result = SerenaMembershipLifecyclePlanTool().execute(
+        programme=programme,
+        period=period,
+        focus=focus,
+        approved=approved,
+        include_sensitive=include_sensitive,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("subscription-readiness-plan")
+@click.option("--offer", default="membership offer", help="Membership/subscription offer.")
+@click.option("--billing-model", default="monthly subscription", help="Billing model.")
+@click.option("--approved", is_flag=True, help="Marks planning as approved for readiness only. Does not write subscriptions/payments.")
+@click.option("--include-sensitive", is_flag=True, help="Attempt to include sensitive member/payment data. This should block.")
+def subscription_readiness_plan(offer, billing_model, approved, include_sensitive):
+    """Create subscription readiness plan without subscription/payment writes."""
+    console = Console()
+    from openjarvis.tools.serena_membership import SerenaMembershipSubscriptionReadinessPlanTool
+    result = SerenaMembershipSubscriptionReadinessPlanTool().execute(
+        offer=offer,
+        billing_model=billing_model,
+        approved=approved,
+        include_sensitive=include_sensitive,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("blocked-unapproved-member-write")
+@click.option("--action", required=True, help="Blocked member/subscription action.")
+@click.option("--reference", default="", help="Optional blocked action reference.")
+@click.option("--reason", default="Missing explicit approval for member/subscription write action.", help="Block reason.")
+def blocked_unapproved_member_write(action, reference, reason):
+    """Record blocked member/subscription write without changing systems."""
+    console = Console()
+    from openjarvis.tools.serena_membership import SerenaMembershipBlockedUnapprovedMemberWriteTool
+    result = SerenaMembershipBlockedUnapprovedMemberWriteTool().execute(
+        action=action,
+        reference=reference,
+        reason=reason,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("hub-member-plan")
+@click.option("--scope", default="membership,ecommerce,accounting,bookings,wordpress", help="Hub member scope.")
+@click.option("--include-sensitive", is_flag=True, help="Attempt to include sensitive member data. This should block.")
+def hub_member_plan(scope, include_sensitive):
+    """Create future Hub member plan without writing to Hub or member systems."""
+    console = Console()
+    from openjarvis.tools.serena_membership import SerenaMembershipHubMemberPlanTool
+    result = SerenaMembershipHubMemberPlanTool().execute(scope=scope, include_sensitive=include_sensitive)
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
+
+@membership.command("dashboard-handoff")
+@click.option("--dashboard-name", default="Serena Membership Dashboard", help="Dashboard name.")
+@click.option("--scope", default="membership,ecommerce,accounting,bookings,wordpress", help="Dashboard scope.")
+@click.option("--approved", is_flag=True, help="Marks dashboard handoff as approved for readiness only. Does not create dashboard.")
+def dashboard_handoff(dashboard_name, scope, approved):
+    """Create Membership dashboard handoff without building dashboard."""
+    console = Console()
+    from openjarvis.tools.serena_membership import SerenaMembershipDashboardHandoffTool
+    result = SerenaMembershipDashboardHandoffTool().execute(
+        dashboard_name=dashboard_name,
+        scope=scope,
+        approved=approved,
+    )
+    console.print(result.content if result.success else f"[red]{result.content}[/red]")
+
