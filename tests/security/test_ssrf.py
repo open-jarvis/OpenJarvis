@@ -41,6 +41,22 @@ class TestIsPrivateIp:
     def test_empty_string(self):
         assert is_private_ip("") is False
 
+    def test_ipv4_mapped_ipv6_loopback(self):
+        # ::ffff:127.0.0.1 — IPv4-mapped form of loopback must be flagged.
+        assert is_private_ip("::ffff:127.0.0.1") is True
+
+    def test_ipv4_mapped_ipv6_rfc1918(self):
+        assert is_private_ip("::ffff:10.0.0.1") is True
+        assert is_private_ip("::ffff:172.16.0.1") is True
+        assert is_private_ip("::ffff:192.168.1.1") is True
+
+    def test_ipv4_mapped_ipv6_link_local(self):
+        assert is_private_ip("::ffff:169.254.0.1") is True
+
+    def test_ipv4_mapped_ipv6_public_allowed(self):
+        # Public IPv4 wrapped as IPv6 must NOT be flagged as private.
+        assert is_private_ip("::ffff:8.8.8.8") is False
+
 
 class TestCheckSsrf:
     """Tests for SSRF protection.
@@ -118,6 +134,47 @@ class TestCheckSsrf:
             result = _check_ssrf_python("https://evil-rebind.example.com")
         assert result is not None
         assert "private IP" in result
+
+    def test_blocks_ipv4_mapped_loopback_url(self):
+        """IPv4-mapped IPv6 form of 127.0.0.1 must be blocked (Rust path)."""
+        result = check_ssrf("http://[::ffff:127.0.0.1]:6666")
+        assert result is not None
+        assert "private IP" in result
+
+    def test_blocks_ipv4_mapped_rfc1918_url(self):
+        for url in (
+            "http://[::ffff:10.0.0.1]/",
+            "http://[::ffff:192.168.1.1]/",
+            "http://[::ffff:172.16.0.1]/",
+        ):
+            result = check_ssrf(url)
+            assert result is not None, f"{url} must be blocked"
+            assert "private IP" in result
+
+    def test_blocks_ipv4_mapped_metadata_url(self):
+        # ::ffff:169.254.169.254 — IPv4-mapped form of cloud metadata IP.
+        result = check_ssrf("http://[::ffff:169.254.169.254]/latest/meta-data/")
+        assert result is not None
+
+    def test_blocks_ipv6_loopback_literal_url(self):
+        result = check_ssrf("http://[::1]:80/")
+        assert result is not None
+
+    def test_allows_ipv4_mapped_public_url(self):
+        result = check_ssrf("http://[::ffff:8.8.8.8]/")
+        assert result is None
+
+    def test_python_impl_blocks_ipv4_mapped_loopback(self):
+        """Legacy Python impl must also catch ::ffff:127.0.0.1."""
+        result = _check_ssrf_python("http://[::ffff:127.0.0.1]:6666")
+        assert result is not None
+        assert "private IP" in result
+
+    def test_python_impl_blocks_ipv4_mapped_metadata(self):
+        result = _check_ssrf_python(
+            "http://[::ffff:169.254.169.254]/latest/meta-data/"
+        )
+        assert result is not None
 
 
 __all__ = ["TestCheckSsrf", "TestIsPrivateIp"]

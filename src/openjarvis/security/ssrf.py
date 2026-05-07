@@ -32,9 +32,14 @@ def is_private_ip(ip_str: str) -> bool:
     """Check if an IP address is private/reserved."""
     try:
         addr = ipaddress.ip_address(ip_str)
-        return any(addr in net for net in _BLOCKED_CIDR)
     except ValueError:
         return False
+    # Normalize IPv4-mapped IPv6 (::ffff:a.b.c.d) to its embedded IPv4 so the
+    # IPv4 private-range CIDRs apply. Without this, e.g. ::ffff:127.0.0.1
+    # bypasses the loopback / RFC1918 checks.
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
+        addr = addr.ipv4_mapped
+    return any(addr in net for net in _BLOCKED_CIDR)
 
 
 def check_ssrf(url: str) -> Optional[str]:
@@ -57,6 +62,26 @@ def _check_ssrf_python(url: str) -> Optional[str]:
     # Check blocked hosts
     if hostname in _BLOCKED_HOSTS:
         return f"Blocked host: {hostname} (cloud metadata endpoint)"
+
+    # If the hostname is itself an IP literal, classify it directly.
+    # Required so IPv6 literals (including IPv4-mapped forms) get checked
+    # without going through DNS, and so the metadata-host comparison
+    # catches forms like ::ffff:169.254.169.254.
+    try:
+        literal = ipaddress.ip_address(hostname)
+    except ValueError:
+        literal = None
+    if literal is not None:
+        if (
+            isinstance(literal, ipaddress.IPv6Address)
+            and literal.ipv4_mapped is not None
+        ):
+            mapped = str(literal.ipv4_mapped)
+            if mapped in _BLOCKED_HOSTS:
+                return f"Blocked host: {mapped} (cloud metadata endpoint)"
+        if is_private_ip(hostname):
+            return f"URL resolves to private IP: {hostname}"
+        return None
 
     # DNS resolution check
     try:
