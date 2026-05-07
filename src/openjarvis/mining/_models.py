@@ -49,6 +49,18 @@ PEARL_MODEL_SPECS: tuple[PearlModelSpec, ...] = (
         ),
     ),
     PearlModelSpec(
+        model_id="ScalingIntelligence/Qwen3.5-9B-pearl",
+        base_model_id="Qwen/Qwen3.5-9B",
+        status="validated",
+        min_vram_gb=24.0,
+        default_max_model_len=4096,
+        notes=(
+            "Experimental OpenJarvis/Pearl artifact validated on H100. "
+            "Runtime requires --language-model-only, --skip-mm-profiling, "
+            "and --gdn-prefill-backend triton."
+        ),
+    ),
+    PearlModelSpec(
         model_id="pearl-ai/Qwen3.6-27B-pearl",
         base_model_id="Qwen/Qwen3.6-27B",
         status="planned",
@@ -80,6 +92,17 @@ PEARL_MODEL_SPECS: tuple[PearlModelSpec, ...] = (
             "Artifact exists but H100 validation is blocked by missing Gemma4 "
             "processor/preprocessor metadata in the published Pearl artifact. "
             "Validation tracked in open-jarvis/OpenJarvis#319."
+        ),
+    ),
+    PearlModelSpec(
+        model_id="ScalingIntelligence/Gemma-4-31B-it-pearl",
+        base_model_id="google/gemma-4-31B-it",
+        status="validated",
+        min_vram_gb=80.0,
+        default_max_model_len=8192,
+        notes=(
+            "Experimental OpenJarvis/Pearl artifact validated on H100 with "
+            "Gemma4 processor/preprocessor metadata included."
         ),
     ),
 )
