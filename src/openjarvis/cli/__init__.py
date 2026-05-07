@@ -63,6 +63,7 @@ from openjarvis.cli.analytics_cmd import analytics
 from openjarvis.cli.accounting_cmd import accounting
 from openjarvis.cli.bookings_cmd import bookings
 from openjarvis.cli.membership_cmd import membership
+from openjarvis.cli.crm_cmd import crm
 from openjarvis.learning.distillation.cli import learning_group
 
 
@@ -129,6 +130,7 @@ cli.add_command(analytics, "analytics")
 cli.add_command(accounting, "accounting")
 cli.add_command(bookings, "bookings")
 cli.add_command(membership, "membership")
+cli.add_command(crm, "crm")
 cli.add_command(skill, "skill")
 cli.add_command(start, "start")
 cli.add_command(stop, "stop")
