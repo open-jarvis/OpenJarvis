@@ -70,7 +70,29 @@ class KokoroTTSBackend(TTSBackend):
         )
 
     def available_voices(self) -> List[str]:
-        return ["af_heart", "af_bella", "am_adam", "am_michael"]
+        # Kokoro ships with many more voices than the four originally
+        # exposed here. Surface accent/gender variants so users can pick
+        # a Jarvis-adjacent (calm British male) or Friday-adjacent
+        # (calm British female) voice without paying for a third-party
+        # TTS provider. Voice ids follow Kokoro's <accent><gender>_<name>
+        # convention: a=American, b=British; f=female, m=male.
+        return [
+            # American female
+            "af_heart",
+            "af_bella",
+            "af_nicole",
+            "af_sarah",
+            "af_sky",
+            # American male
+            "am_adam",
+            "am_michael",
+            # British female (Friday-adjacent)
+            "bf_emma",
+            "bf_isabella",
+            # British male (Jarvis-adjacent)
+            "bm_george",
+            "bm_lewis",
+        ]
 
     def health(self) -> bool:
         try:
