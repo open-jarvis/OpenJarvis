@@ -28,6 +28,8 @@ from openjarvis.tools.serena_hub import (
     hub_crm_rollup,
     hub_document_rollup,
     hub_env_check,
+    hub_execution_runner_plan,
+    hub_execution_gate_list,
     hub_finance_rollup,
     hub_operator_rollup,
     hub_safety_rollup,
@@ -211,6 +213,30 @@ def approval_decision(approval_id, decision, reason, decided_by):
             decision=decision,
             reason=reason,
             decided_by=decided_by,
+        )
+    )
+
+
+@hub.command("execution-gate-list")
+@click.option("--status", "gate_status", default="all")
+def execution_gate_list(gate_status):
+    """List local execution gate records. No execution occurs."""
+    _print(hub_execution_gate_list(status=gate_status))
+
+
+@hub.command("execution-runner-plan")
+@click.option("--approval-id", required=True)
+@click.option("--runner-mode", default="plan_only")
+@click.option("--no-secret-scan", is_flag=True)
+@click.option("--no-smoke-test", is_flag=True)
+def execution_runner_plan(approval_id, runner_mode, no_secret_scan, no_smoke_test):
+    """Create explicit runner plan for approved execution gate. No execution occurs."""
+    _print(
+        hub_execution_runner_plan(
+            approval_id=approval_id,
+            runner_mode=runner_mode,
+            require_secret_scan=not no_secret_scan,
+            require_smoke_test=not no_smoke_test,
         )
     )
 
