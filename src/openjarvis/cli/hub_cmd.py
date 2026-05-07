@@ -29,6 +29,8 @@ from openjarvis.tools.serena_hub import (
     hub_operator_rollup,
     hub_safety_rollup,
     hub_schedule_rollup,
+    hub_self_upgrade_plan,
+    hub_secret_scan_status,
     hub_source_list,
     hub_status,
     hub_serve_web,
@@ -184,6 +186,29 @@ def serve(host, port, no_build):
 def web_build():
     """Generate local static Serena Hub web shell."""
     _print(hub_web_build())
+
+
+@hub.command("self-upgrade-plan")
+@click.argument("request")
+@click.option("--operator", default="hub")
+@click.option("--target-area", default="unknown")
+@click.option("--risk-level", default="review_required")
+def self_upgrade_plan(request, operator, target_area, risk_level):
+    """Create a local plan-only self-upgrade request pending approval."""
+    _print(
+        hub_self_upgrade_plan(
+            request=request,
+            operator=operator,
+            target_area=target_area,
+            risk_level=risk_level,
+        )
+    )
+
+
+@hub.command("secret-scan-status")
+def secret_scan_status():
+    """Record Hub secret-scan policy gate status."""
+    _print(hub_secret_scan_status())
 
 
 @hub.command("command-intake")

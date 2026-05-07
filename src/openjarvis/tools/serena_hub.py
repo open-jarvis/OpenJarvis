@@ -16,6 +16,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
+from urllib.parse import parse_qs
 from typing import Any
 
 
@@ -767,6 +768,151 @@ def hub_open_web() -> dict[str, Any]:
     return payload
 
 
+def _looks_like_self_upgrade(command: str) -> bool:
+    text = str(command or "").lower()
+    terms = [
+        "fix yourself",
+        "upgrade yourself",
+        "self upgrade",
+        "self-upgrade",
+        "improve yourself",
+        "edit your code",
+        "patch serena",
+        "modify serena",
+        "update serena",
+        "upgrade skill",
+        "convert skill",
+        "create skill",
+        "change code",
+        "write code to repo",
+        "commit",
+    ]
+    return any(term in text for term in terms)
+
+
+def hub_self_upgrade_plan(
+    request: str,
+    operator: str = "hub",
+    target_area: str = "unknown",
+    risk_level: str = "review_required",
+) -> dict[str, Any]:
+    """Create a local plan-only self-upgrade artifact.
+
+    This function never patches files, executes shell commands, or commits.
+    """
+    _ensure_base_state()
+
+    safe_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    payload = {
+        "id": f"self-upgrade-plan-{safe_id}",
+        "request": request,
+        "operator": operator,
+        "target_area": target_area,
+        "risk_level": risk_level,
+        "status": "plan_only_pending_approval",
+        "allowed_now": [
+            "create local plan artifact",
+            "record Hub activity",
+            "request human approval",
+        ],
+        "blocked_without_approval": [
+            "modify source files",
+            "delete files",
+            "run shell commands",
+            "install dependencies",
+            "commit changes",
+            "push changes",
+            "touch credentials",
+            "read or export secrets",
+        ],
+        "required_before_execution": [
+            "human approval",
+            "explicit file list",
+            "patch plan",
+            "secret scan pass",
+            "smoke test plan",
+            "rollback note",
+        ],
+        "secret_scan_required_before_commit": True,
+        "external_action_taken": False,
+        "timestamp": _utc_now(),
+    }
+
+    path = HUB_ROOT / "self-upgrade-plans" / f"{payload['id']}.json"
+    _write_json(path, payload)
+
+    approval = {
+        "id": f"approval-{safe_id}",
+        "type": "self_upgrade",
+        "status": "pending",
+        "request": request,
+        "plan_path": str(path).replace("\\", "/"),
+        "requires_explicit_user_approval": True,
+        "timestamp": _utc_now(),
+    }
+
+    approvals_path = HUB_ROOT / "state" / "approvals.json"
+    existing = _safe_read_json(approvals_path)
+    if not isinstance(existing, dict):
+        existing = {"approvals": []}
+    approvals = existing.setdefault("approvals", [])
+    approvals.append(approval)
+    existing["approvals"] = approvals[-100:]
+    existing["last_approval"] = approval
+    existing["timestamp"] = _utc_now()
+    _write_json(approvals_path, existing)
+
+    hub_orb_state(
+        orb_state="approval",
+        active_operator=operator,
+        active_task=f"Approval needed: {request}",
+        active_section="safety",
+    )
+
+    hub_activity_event(
+        operator=operator,
+        event_type="self_upgrade_plan",
+        message=f"Self-upgrade plan created and blocked pending approval: {request}",
+        status="approval_required",
+        artifact_path=str(path).replace("\\", "/"),
+    )
+
+    return payload
+
+
+def hub_secret_scan_status() -> dict[str, Any]:
+    """Create a conservative local secret scan status placeholder.
+
+    Full secret scanning is intentionally run from PowerShell/git grep before commit.
+    This records the policy gate for Hub/self-upgrade.
+    """
+    payload = {
+        "status": "required_before_commit",
+        "policy": "Serena may not commit code until local secret scans pass.",
+        "blocked_patterns": [
+            "api keys",
+            "application passwords",
+            "oauth refresh tokens",
+            "github tokens",
+            "openai keys",
+            "wordpress application passwords",
+            "google credentials",
+            "payment provider secrets",
+            ".env files",
+        ],
+        "recommended_commands": [
+            "git grep tracked files for secret assignments",
+            "git grep tracked files for common token formats",
+            "do not paste findings into chat",
+            "rotate any real leaked credential",
+        ],
+        "external_action_taken": False,
+        "timestamp": _utc_now(),
+    }
+    _write_json(HUB_ROOT / "state" / "secret_scan_status.json", payload)
+    return payload
+
+
 def hub_command_intake(
     command: str,
     operator: str = "hub",
@@ -799,18 +945,29 @@ def hub_command_intake(
     existing["timestamp"] = _utc_now()
     _write_json(queue_path, existing)
 
-    hub_orb_state(
-        orb_state="thinking",
-        active_operator=operator,
-        active_task=command,
-        active_section=target_section,
-    )
+    if _looks_like_self_upgrade(command):
+        plan = hub_self_upgrade_plan(
+            request=command,
+            operator=operator,
+            target_area=target_section,
+            risk_level="approval_required",
+        )
+        payload["self_upgrade_plan"] = plan.get("id")
+        payload["status"] = "plan_only_pending_approval"
+        _write_json(queue_path, existing)
+    else:
+        hub_orb_state(
+            orb_state="thinking",
+            active_operator=operator,
+            active_task=command,
+            active_section=target_section,
+        )
 
     hub_activity_event(
         operator=operator,
         event_type="command_intake",
         message=f"Command received: {command}",
-        status="received",
+        status=payload["status"],
         artifact_path=str(queue_path).replace("\\", "/"),
     )
 
@@ -885,6 +1042,7 @@ def hub_web_sync_data() -> dict[str, Any]:
         "dashboard_sections.json": HUB_ROOT / "state" / "dashboard_sections.json",
         "command_queue.json": HUB_ROOT / "state" / "command_queue.json",
         "live_tick.json": HUB_ROOT / "state" / "live_tick.json",
+        "secret_scan_status.json": HUB_ROOT / "state" / "secret_scan_status.json",
         "artifact_summary.json": HUB_ROOT / "rollups" / "artifact_summary.json",
         "operator_rollup.json": HUB_ROOT / "rollups" / "operator_rollup.json",
         "crm_rollup.json": HUB_ROOT / "rollups" / "crm_rollup.json",
@@ -942,6 +1100,52 @@ def hub_serve_web(host: str = "127.0.0.1", port: int = 8765, build: bool = True)
         def end_headers(self) -> None:
             self.send_header("Cache-Control", "no-store")
             super().end_headers()
+
+        def do_POST(self) -> None:
+            if self.path != "/api/command-intake":
+                self.send_response(404)
+                self.end_headers()
+                self.wfile.write(b'{"status":"not_found"}')
+                return
+
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                raw = self.rfile.read(length).decode("utf-8", errors="replace")
+                data = parse_qs(raw)
+
+                command = (data.get("command", [""])[0] or "").strip()
+                operator = (data.get("operator", ["hub"])[0] or "hub").strip()
+                target_section = (data.get("target_section", ["overview"])[0] or "overview").strip()
+                priority = (data.get("priority", ["normal"])[0] or "normal").strip()
+
+                if not command:
+                    self.send_response(400)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(b'{"status":"error","error":"command is required"}')
+                    return
+
+                result = hub_command_intake(
+                    command=command,
+                    operator=operator,
+                    target_section=target_section,
+                    priority=priority,
+                )
+                hub_web_sync_data()
+
+                body = json.dumps(result, indent=2).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except Exception as exc:
+                body = json.dumps({"status": "error", "error": str(exc)}).encode("utf-8")
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
 
     server = ThreadingHTTPServer((host, int(port)), HubHandler)
     url = f"http://{host}:{int(port)}/index.html"
@@ -1051,7 +1255,7 @@ body:before {
 .chat {
   grid-column: 1 / 4;
   display: grid;
-  grid-template-columns: 72px 1fr 210px;
+  grid-template-columns: 72px 1fr 92px 180px 190px;
   align-items: center;
   gap: 14px;
   padding: 14px;
@@ -1329,8 +1533,49 @@ async function refresh() {
   setText("syncStatus", "Last refresh: " + new Date().toLocaleTimeString());
 }
 
+async function submitCommand() {
+  const input = document.getElementById("commandInput");
+  const status = document.getElementById("commandStatus");
+  const command = (input?.value || "").trim();
+  if (!command) {
+    if (status) status.textContent = "Enter a command first.";
+    return;
+  }
+
+  const body = new URLSearchParams({
+    command,
+    operator: "hub",
+    target_section: "overview",
+    priority: "normal"
+  });
+
+  try {
+    const response = await fetch("/api/command-intake", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body
+    });
+    const result = await response.json();
+    if (status) status.textContent = "Command recorded: " + (result.status || "received");
+    if (input) input.value = "";
+    await refresh();
+  } catch (error) {
+    if (status) status.textContent = "Command bridge unavailable. Use serena hub serve.";
+  }
+}
+
 refresh();
 setInterval(refresh, 3000);
+document.addEventListener("DOMContentLoaded", () => {
+  const button = document.getElementById("commandSubmit");
+  const input = document.getElementById("commandInput");
+  if (button) button.addEventListener("click", submitCommand);
+  if (input) {
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") submitCommand();
+    });
+  }
+});
 """
 
     html = """<!doctype html>
@@ -1385,8 +1630,12 @@ setInterval(refresh, 3000);
 
     <section class="chat">
       <div class="mic">ORB</div>
-      <div class="input">Dynamic local Hub. Use serena hub serve so browser JSON fetch works.</div>
+      <div class="input">
+        <input id="commandInput" placeholder="Type a local Serena command. Self-upgrade creates approval plan only." style="width:100%;background:transparent;border:0;color:#e8fbff;outline:none;">
+      </div>
+      <button id="commandSubmit" class="pill" style="cursor:pointer;">Send</button>
       <div class="pill" id="orbPill">Orb state: loading</div>
+      <div class="pill" id="commandStatus">Command bridge ready</div>
     </section>
   </main>
   <script src="assets/hub.js"></script>
@@ -1435,6 +1684,8 @@ __all__ = [
     "hub_dashboard_sections",
     "hub_orb_state",
     "hub_open_web",
+    "hub_self_upgrade_plan",
+    "hub_secret_scan_status",
     "hub_command_intake",
     "hub_live_tick",
     "hub_web_sync_data",
