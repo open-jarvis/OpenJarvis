@@ -195,3 +195,89 @@ def blocked_unapproved_message_send(reference, reason):
 def blocked_unapproved_crm_write(action, reference, reason):
     """Record blocked unapproved CRM write."""
     _run("serena_crm_blocked_unapproved_crm_write", action=action, reference=reference or action, reason=reason)
+
+@crm.command("membership-handoff-summary")
+@click.option("--root", default="outputs/membership")
+@click.option("--limit", default=300, type=int)
+def membership_handoff_summary(root, limit):
+    """Create Membership handoff summary for CRM."""
+    _run("serena_crm_membership_handoff_summary", root=root, limit=limit)
+
+
+@crm.command("ecommerce-customer-summary")
+@click.option("--root", default="outputs/ecommerce")
+@click.option("--limit", default=300, type=int)
+def ecommerce_customer_summary(root, limit):
+    """Create Ecommerce customer summary for CRM."""
+    _run("serena_crm_ecommerce_customer_summary", root=root, limit=limit)
+
+
+@crm.command("bookings-contact-summary")
+@click.option("--root", default="outputs/bookings")
+@click.option("--limit", default=300, type=int)
+def bookings_contact_summary(root, limit):
+    """Create Bookings contact summary for CRM."""
+    _run("serena_crm_bookings_contact_summary", root=root, limit=limit)
+
+
+@crm.command("wordpress-lead-summary")
+@click.option("--root", default="outputs/wordpress")
+@click.option("--limit", default=300, type=int)
+def wordpress_lead_summary(root, limit):
+    """Create WordPress lead summary for CRM."""
+    _run("serena_crm_wordpress_lead_summary", root=root, limit=limit)
+
+
+@crm.command("accounting-customer-summary")
+@click.option("--root", default="outputs/accounting")
+@click.option("--limit", default=300, type=int)
+def accounting_customer_summary(root, limit):
+    """Create Accounting customer summary for CRM."""
+    _run("serena_crm_accounting_customer_summary", root=root, limit=limit)
+
+
+@crm.command("contact-lifecycle-plan")
+@click.option("--programme", default="CRM contact lifecycle")
+@click.option("--focus", default="lead,prospect,customer,member,retention")
+@click.option("--approved", is_flag=True)
+@click.option("--include-sensitive", is_flag=True)
+def contact_lifecycle_plan(programme, focus, approved, include_sensitive):
+    """Create CRM contact lifecycle plan."""
+    _run("serena_crm_contact_lifecycle_plan", programme=programme, focus=focus, approved=approved, include_sensitive=include_sensitive)
+
+
+@crm.command("followup-readiness-plan")
+@click.option("--audience", default="CRM contacts")
+@click.option("--channel", default="manual review")
+@click.option("--approved", is_flag=True)
+@click.option("--include-sensitive", is_flag=True)
+def followup_readiness_plan(audience, channel, approved, include_sensitive):
+    """Create CRM follow-up readiness plan."""
+    _run("serena_crm_followup_readiness_plan", audience=audience, channel=channel, approved=approved, include_sensitive=include_sensitive)
+
+
+@crm.command("blocked-unapproved-contact-write")
+@click.option("--action", required=True)
+@click.option("--reference", default="")
+@click.option("--reason", default="Missing explicit approval for contact/customer write.")
+def blocked_unapproved_contact_write(action, reference, reason):
+    """Record blocked unapproved contact/customer write."""
+    _run("serena_crm_blocked_unapproved_contact_write", action=action, reference=reference or action, reason=reason)
+
+
+@crm.command("hub-contact-plan")
+@click.option("--scope", default="crm,membership,ecommerce,bookings,wordpress,accounting")
+@click.option("--include-sensitive", is_flag=True)
+def hub_contact_plan(scope, include_sensitive):
+    """Create future Hub contact plan."""
+    _run("serena_crm_hub_contact_plan", scope=scope, include_sensitive=include_sensitive)
+
+
+@crm.command("dashboard-handoff")
+@click.option("--dashboard-name", default="Serena CRM Dashboard")
+@click.option("--scope", default="crm,membership,ecommerce,bookings,wordpress,accounting")
+@click.option("--approved", is_flag=True)
+def dashboard_handoff(dashboard_name, scope, approved):
+    """Create CRM dashboard handoff."""
+    _run("serena_crm_dashboard_handoff", dashboard_name=dashboard_name, scope=scope, approved=approved)
+

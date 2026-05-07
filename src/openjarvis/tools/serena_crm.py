@@ -467,3 +467,580 @@ for _tool_id, (_description, _parameters) in TOOL_DEFS.items():
     _cls = _make_tool_class(_tool_id, _description, _parameters)
     CRM_TOOL_CLASSES[_tool_id] = _cls
     ToolRegistry.register(_tool_id)(_cls)
+
+# ---------------------------------------------------------------------------
+# Batch 1 CRM reconciliation / future Hub bridge layer
+# ---------------------------------------------------------------------------
+
+def _crm_bridge_scan(root: str = "outputs", limit: int = 300) -> list[dict[str, Any]]:
+    base = Path(root)
+    if not base.exists():
+        return []
+
+    files: list[Path] = []
+    for pattern in ("*.json", "*.md", "*.txt", "*.csv", "*.xlsx"):
+        files.extend(base.rglob(pattern))
+
+    rows = []
+    for item in sorted(files, key=lambda x: str(x).lower()):
+        try:
+            stat = item.stat()
+        except OSError:
+            continue
+
+        raw = str(item).lower()
+        rows.append(
+            {
+                "path": str(item),
+                "suffix": item.suffix.lower(),
+                "size_bytes": stat.st_size,
+                "handoff_signal": "handoff" in raw,
+                "contact_signal": any(t in raw for t in ["contact", "customer", "client", "lead", "member", "subscriber"]),
+                "membership_signal": any(t in raw for t in ["membership", "member", "subscription", "programme", "program"]),
+                "ecommerce_signal": any(t in raw for t in ["ecommerce", "order", "product", "cart", "checkout"]),
+                "booking_signal": any(t in raw for t in ["booking", "appointment", "calendar", "follow-up", "followup"]),
+                "wordpress_signal": any(t in raw for t in ["wordpress", "page", "funnel", "cta", "lead"]),
+                "accounting_signal": any(t in raw for t in ["accounting", "invoice", "payment", "revenue", "receivable"]),
+                "lifecycle_signal": any(t in raw for t in ["lifecycle", "renewal", "retention", "cancel", "pause", "enroll"]),
+                "safety_signal": any(t in raw for t in ["blocked", "safety", "approval", "sensitive", "patient", "secret"]),
+            }
+        )
+        if len(rows) >= int(limit):
+            break
+
+    return rows
+
+
+def _crm_bridge_artifact(kind: str, title: str, data: dict[str, Any]) -> str:
+    out = CRM_OUTPUT_ROOT / kind
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / f"{_timestamp()}-{_safe_slug(title)}.json"
+    path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+    return str(path)
+
+
+def _crm_bridge_blockers(approved: bool = True, include_sensitive: bool = False, approval_label: str = "Approval") -> list[str]:
+    blockers: list[str] = []
+    if not approved:
+        blockers.append(f"{approval_label} is missing.")
+    if include_sensitive:
+        blockers.append("Sensitive/unredacted contact, patient, member, customer, or billing data is blocked from this reconciliation layer.")
+    return blockers
+
+
+class _CrmBridgeBaseTool(_CrmBaseTool):
+    is_local = True
+
+
+class SerenaCrmMembershipHandoffSummaryTool(_CrmBridgeBaseTool):
+    tool_id = "serena_crm_membership_handoff_summary"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Summarize Membership member/subscription lifecycle artifacts for CRM planning. Local report only.",
+            parameters={"type": "object", "properties": {"root": {"type": "string"}, "limit": {"type": "integer"}}},
+            category="serena_crm",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        root = str(params.get("root") or "outputs/membership").strip()
+        limit = int(params.get("limit") or 300)
+        items = _crm_bridge_scan(root, limit)
+        handoffs = [x for x in items if x["handoff_signal"]]
+        contacts = [x for x in items if x["contact_signal"] or x["membership_signal"]]
+        lifecycle = [x for x in items if x["lifecycle_signal"]]
+        safety = [x for x in items if x["safety_signal"]]
+
+        data = {
+            "tool": self.tool_id,
+            "operator": "crm",
+            "source_operator": "membership",
+            "root": root,
+            "artifact_count": len(items),
+            "handoff_count": len(handoffs),
+            "contact_signal_count": len(contacts),
+            "lifecycle_signal_count": len(lifecycle),
+            "safety_signal_count": len(safety),
+            "actions": _actions(),
+            "created_at": _timestamp(),
+        }
+        path = _crm_bridge_artifact("bridge-summaries", "membership", data)
+        return self._result(
+            "Serena CRM Membership handoff summary created\n\n"
+            f"- Root: {root}\n"
+            f"- Artifacts summarized: {len(items)}\n"
+            f"- Handoffs: {len(handoffs)}\n"
+            f"- Contact/member signals: {len(contacts)}\n"
+            f"- Lifecycle signals: {len(lifecycle)}\n"
+            f"- Summary: {path}\n\n"
+            "Actions performed: local report only. Contact/member mutation: no. CRM/Hub write: no. Outbound message: no.",
+            metadata=data,
+        )
+
+
+class SerenaCrmEcommerceCustomerSummaryTool(_CrmBridgeBaseTool):
+    tool_id = "serena_crm_ecommerce_customer_summary"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Summarize Ecommerce customer/order/contact artifacts for CRM planning. Local report only.",
+            parameters={"type": "object", "properties": {"root": {"type": "string"}, "limit": {"type": "integer"}}},
+            category="serena_crm",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        root = str(params.get("root") or "outputs/ecommerce").strip()
+        limit = int(params.get("limit") or 300)
+        items = _crm_bridge_scan(root, limit)
+        customer_items = [x for x in items if x["contact_signal"] or x["ecommerce_signal"]]
+        revenue_items = [x for x in items if x["accounting_signal"]]
+        safety = [x for x in items if x["safety_signal"]]
+
+        data = {
+            "tool": self.tool_id,
+            "operator": "crm",
+            "source_operator": "ecommerce",
+            "root": root,
+            "artifact_count": len(items),
+            "customer_signal_count": len(customer_items),
+            "revenue_signal_count": len(revenue_items),
+            "safety_signal_count": len(safety),
+            "actions": _actions(),
+            "created_at": _timestamp(),
+        }
+        path = _crm_bridge_artifact("bridge-summaries", "ecommerce", data)
+        return self._result(
+            "Serena CRM Ecommerce customer summary created\n\n"
+            f"- Root: {root}\n"
+            f"- Artifacts summarized: {len(items)}\n"
+            f"- Customer/order signals: {len(customer_items)}\n"
+            f"- Revenue/accounting signals: {len(revenue_items)}\n"
+            f"- Summary: {path}\n\n"
+            "Actions performed: local report only. Customer mutation: no. Payment action: no. CRM/Hub write: no.",
+            metadata=data,
+        )
+
+
+class SerenaCrmBookingsContactSummaryTool(_CrmBridgeBaseTool):
+    tool_id = "serena_crm_bookings_contact_summary"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Summarize Bookings appointment/contact/follow-up artifacts for CRM planning. Local report only.",
+            parameters={"type": "object", "properties": {"root": {"type": "string"}, "limit": {"type": "integer"}}},
+            category="serena_crm",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        root = str(params.get("root") or "outputs/bookings").strip()
+        limit = int(params.get("limit") or 300)
+        items = _crm_bridge_scan(root, limit)
+        booking_items = [x for x in items if x["booking_signal"]]
+        contact_items = [x for x in items if x["contact_signal"]]
+        safety = [x for x in items if x["safety_signal"]]
+
+        data = {
+            "tool": self.tool_id,
+            "operator": "crm",
+            "source_operator": "bookings",
+            "root": root,
+            "artifact_count": len(items),
+            "booking_signal_count": len(booking_items),
+            "contact_signal_count": len(contact_items),
+            "safety_signal_count": len(safety),
+            "actions": _actions(),
+            "created_at": _timestamp(),
+        }
+        path = _crm_bridge_artifact("bridge-summaries", "bookings", data)
+        return self._result(
+            "Serena CRM Bookings contact summary created\n\n"
+            f"- Root: {root}\n"
+            f"- Artifacts summarized: {len(items)}\n"
+            f"- Booking signals: {len(booking_items)}\n"
+            f"- Contact signals: {len(contact_items)}\n"
+            f"- Summary: {path}\n\n"
+            "Actions performed: local report only. Booking changed: no. Contact mutation: no. Outbound message: no.",
+            metadata=data,
+        )
+
+
+class SerenaCrmWordPressLeadSummaryTool(_CrmBridgeBaseTool):
+    tool_id = "serena_crm_wordpress_lead_summary"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Summarize WordPress lead/funnel artifacts for CRM planning. Local report only.",
+            parameters={"type": "object", "properties": {"root": {"type": "string"}, "limit": {"type": "integer"}}},
+            category="serena_crm",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        root = str(params.get("root") or "outputs/wordpress").strip()
+        limit = int(params.get("limit") or 300)
+        items = _crm_bridge_scan(root, limit)
+        wordpress_items = [x for x in items if x["wordpress_signal"]]
+        lead_items = [x for x in items if x["contact_signal"]]
+        safety = [x for x in items if x["safety_signal"]]
+
+        data = {
+            "tool": self.tool_id,
+            "operator": "crm",
+            "source_operator": "wordpress",
+            "root": root,
+            "artifact_count": len(items),
+            "wordpress_signal_count": len(wordpress_items),
+            "lead_signal_count": len(lead_items),
+            "safety_signal_count": len(safety),
+            "actions": _actions(),
+            "created_at": _timestamp(),
+        }
+        path = _crm_bridge_artifact("bridge-summaries", "wordpress", data)
+        return self._result(
+            "Serena CRM WordPress lead summary created\n\n"
+            f"- Root: {root}\n"
+            f"- Artifacts summarized: {len(items)}\n"
+            f"- WordPress/funnel signals: {len(wordpress_items)}\n"
+            f"- Lead/contact signals: {len(lead_items)}\n"
+            f"- Summary: {path}\n\n"
+            "Actions performed: local report only. WordPress live update: no. Lead contacted: no. CRM/Hub write: no.",
+            metadata=data,
+        )
+
+
+class SerenaCrmAccountingCustomerSummaryTool(_CrmBridgeBaseTool):
+    tool_id = "serena_crm_accounting_customer_summary"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Summarize Accounting customer/revenue artifacts for CRM planning. Local report only.",
+            parameters={"type": "object", "properties": {"root": {"type": "string"}, "limit": {"type": "integer"}}},
+            category="serena_crm",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        root = str(params.get("root") or "outputs/accounting").strip()
+        limit = int(params.get("limit") or 300)
+        items = _crm_bridge_scan(root, limit)
+        customer_items = [x for x in items if x["contact_signal"]]
+        accounting_items = [x for x in items if x["accounting_signal"]]
+        safety = [x for x in items if x["safety_signal"]]
+
+        data = {
+            "tool": self.tool_id,
+            "operator": "crm",
+            "source_operator": "accounting",
+            "root": root,
+            "artifact_count": len(items),
+            "customer_signal_count": len(customer_items),
+            "accounting_signal_count": len(accounting_items),
+            "safety_signal_count": len(safety),
+            "actions": _actions(),
+            "created_at": _timestamp(),
+        }
+        path = _crm_bridge_artifact("bridge-summaries", "accounting", data)
+        return self._result(
+            "Serena CRM Accounting customer summary created\n\n"
+            f"- Root: {root}\n"
+            f"- Artifacts summarized: {len(items)}\n"
+            f"- Customer signals: {len(customer_items)}\n"
+            f"- Accounting/revenue signals: {len(accounting_items)}\n"
+            f"- Summary: {path}\n\n"
+            "Actions performed: local report only. Accounting write: no. Payment action: no. CRM/Hub write: no.",
+            metadata=data,
+        )
+
+
+class SerenaCrmContactLifecyclePlanTool(_CrmBridgeBaseTool):
+    tool_id = "serena_crm_contact_lifecycle_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create an approval-gated CRM contact lifecycle plan. Planning only; no contact/customer write.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "programme": {"type": "string"},
+                    "focus": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                    "include_sensitive": {"type": "boolean"},
+                },
+            },
+            category="serena_crm",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        programme = str(params.get("programme") or "CRM contact lifecycle").strip()
+        focus = str(params.get("focus") or "lead,prospect,customer,member,retention").strip()
+        approved = bool(params.get("approved", False))
+        include_sensitive = bool(params.get("include_sensitive", False))
+        blockers = _crm_bridge_blockers(approved, include_sensitive, "Contact lifecycle approval")
+
+        data = {
+            "tool": self.tool_id,
+            "operator": "crm",
+            "programme": programme,
+            "focus": focus,
+            "approved": approved,
+            "include_sensitive": include_sensitive,
+            "ready": len(blockers) == 0,
+            "blockers": blockers,
+            "actions": _actions(),
+            "created_at": _timestamp(),
+        }
+        path = _crm_bridge_artifact("lifecycle", programme, data)
+        return self._result(
+            "Serena CRM contact lifecycle plan created\n\n"
+            f"- Programme: {programme}\n"
+            f"- Focus: {focus}\n"
+            f"- Lifecycle ready: {data['ready']}\n"
+            f"- Plan: {path}\n\n"
+            "Blockers:\n"
+            + "\n".join(f"- {b}" for b in blockers or ["None."])
+            + "\n\nActions performed: local lifecycle planning only. Contact/customer/member mutation: no. CRM/Hub write: no.",
+            metadata=data,
+        )
+
+
+class SerenaCrmFollowupReadinessPlanTool(_CrmBridgeBaseTool):
+    tool_id = "serena_crm_followup_readiness_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create an approval-gated CRM follow-up readiness plan. Planning only; no outbound message.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "audience": {"type": "string"},
+                    "channel": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                    "include_sensitive": {"type": "boolean"},
+                },
+            },
+            category="serena_crm",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        audience = str(params.get("audience") or "CRM contacts").strip()
+        channel = str(params.get("channel") or "manual review").strip()
+        approved = bool(params.get("approved", False))
+        include_sensitive = bool(params.get("include_sensitive", False))
+        blockers = _crm_bridge_blockers(approved, include_sensitive, "Follow-up readiness approval")
+
+        data = {
+            "tool": self.tool_id,
+            "operator": "crm",
+            "audience": audience,
+            "channel": channel,
+            "approved": approved,
+            "include_sensitive": include_sensitive,
+            "ready": len(blockers) == 0,
+            "blockers": blockers,
+            "actions": _actions(),
+            "created_at": _timestamp(),
+        }
+        path = _crm_bridge_artifact("plans", audience, data)
+        return self._result(
+            "Serena CRM follow-up readiness plan created\n\n"
+            f"- Audience: {audience}\n"
+            f"- Channel: {channel}\n"
+            f"- Follow-up ready: {data['ready']}\n"
+            f"- Plan: {path}\n\n"
+            "Blockers:\n"
+            + "\n".join(f"- {b}" for b in blockers or ["None."])
+            + "\n\nActions performed: local follow-up planning only. Outbound message/campaign: no. CRM/Hub write: no.",
+            metadata=data,
+        )
+
+
+class SerenaCrmBlockedUnapprovedContactWriteTool(_CrmBridgeBaseTool):
+    tool_id = "serena_crm_blocked_unapproved_contact_write"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Record a blocked unapproved contact/customer/member write attempt. Local audit only.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "reference": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["action"],
+            },
+            category="serena_crm",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        action = str(params.get("action") or "").strip()
+        if not action:
+            return self._result("action is required.", success=False)
+        reference = str(params.get("reference") or action).strip()
+        reason = str(params.get("reason") or "Missing explicit approval for contact/customer write.").strip()
+        data = {
+            "tool": self.tool_id,
+            "operator": "crm",
+            "action": action,
+            "reference": reference,
+            "reason": reason,
+            "blocked": True,
+            "actions": _actions(),
+            "created_at": _timestamp(),
+        }
+        path = _crm_bridge_artifact("blocked-actions", reference, data)
+        return self._result(
+            "Serena CRM contact/customer write blocked\n\n"
+            f"- Action: {action}\n"
+            f"- Reference: {reference}\n"
+            f"- Reason: {reason}\n"
+            f"- Audit: {path}\n\n"
+            "Actions performed: local blocked-action audit only. Contact/customer/member mutation: no. CRM/Hub write: no. Outbound message: no.",
+            metadata=data,
+        )
+
+
+class SerenaCrmHubContactPlanTool(_CrmBridgeBaseTool):
+    tool_id = "serena_crm_hub_contact_plan"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a future Serena Hub contact metadata plan. Planning only; no Hub/CRM write.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "scope": {"type": "string"},
+                    "include_sensitive": {"type": "boolean"},
+                },
+            },
+            category="serena_crm",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        scope = str(params.get("scope") or "crm,membership,ecommerce,bookings,wordpress,accounting").strip()
+        include_sensitive = bool(params.get("include_sensitive", False))
+        blockers = _crm_bridge_blockers(True, include_sensitive, "Hub contact plan approval")
+        data = {
+            "tool": self.tool_id,
+            "operator": "crm",
+            "scope": scope,
+            "include_sensitive": include_sensitive,
+            "ready": len(blockers) == 0,
+            "blockers": blockers,
+            "planned_metadata": [
+                "membership_lifecycle_signal_count",
+                "ecommerce_customer_signal_count",
+                "bookings_contact_signal_count",
+                "wordpress_lead_signal_count",
+                "accounting_customer_signal_count",
+                "blocked_contact_write_count",
+                "followup_readiness_status",
+            ],
+            "actions": _actions(),
+            "created_at": _timestamp(),
+        }
+        path = _crm_bridge_artifact("hub-contact-plans", scope, data)
+        return self._result(
+            "Serena CRM Hub contact plan created\n\n"
+            f"- Scope: {scope}\n"
+            f"- Hub contact ready: {data['ready']}\n"
+            f"- Plan: {path}\n\n"
+            "Blockers:\n"
+            + "\n".join(f"- {b}" for b in blockers or ["None."])
+            + "\n\nActions performed: local Hub metadata planning only. Hub write: no. CRM/contact write: no.",
+            metadata=data,
+        )
+
+
+class SerenaCrmDashboardHandoffTool(_CrmBridgeBaseTool):
+    tool_id = "serena_crm_dashboard_handoff"
+
+    @property
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.tool_id,
+            description="Create a CRM dashboard handoff for future Serena Hub/Analytics UI. Local artifact only.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "dashboard_name": {"type": "string"},
+                    "scope": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                },
+            },
+            category="serena_crm",
+        )
+
+    def execute(self, **params: Any) -> ToolResult:
+        dashboard_name = str(params.get("dashboard_name") or "Serena CRM Dashboard").strip()
+        scope = str(params.get("scope") or "crm,membership,ecommerce,bookings,wordpress,accounting").strip()
+        approved = bool(params.get("approved", False))
+        blockers = _crm_bridge_blockers(approved, False, "Dashboard handoff approval")
+        data = {
+            "tool": self.tool_id,
+            "operator": "crm",
+            "dashboard_name": dashboard_name,
+            "scope": scope,
+            "approved": approved,
+            "ready": len(blockers) == 0,
+            "blockers": blockers,
+            "recommended_widgets": [
+                "contact_lifecycle_status",
+                "followup_readiness",
+                "membership_handoffs",
+                "ecommerce_customers",
+                "bookings_contacts",
+                "wordpress_leads",
+                "accounting_customer_signals",
+                "blocked_contact_writes",
+            ],
+            "actions": _actions(),
+            "created_at": _timestamp(),
+        }
+        path = _crm_bridge_artifact("dashboard-handoffs", dashboard_name, data)
+        return self._result(
+            "Serena CRM dashboard handoff created\n\n"
+            f"- Dashboard: {dashboard_name}\n"
+            f"- Scope: {scope}\n"
+            f"- Dashboard ready: {data['ready']}\n"
+            f"- Handoff: {path}\n\n"
+            "Blockers:\n"
+            + "\n".join(f"- {b}" for b in blockers or ["None."])
+            + "\n\nActions performed: local dashboard handoff only. Dashboard created: no. Hub write: no. CRM/contact write: no.",
+            metadata=data,
+        )
+
+
+_BATCH1_CRM_TOOLS = [
+    SerenaCrmMembershipHandoffSummaryTool,
+    SerenaCrmEcommerceCustomerSummaryTool,
+    SerenaCrmBookingsContactSummaryTool,
+    SerenaCrmWordPressLeadSummaryTool,
+    SerenaCrmAccountingCustomerSummaryTool,
+    SerenaCrmContactLifecyclePlanTool,
+    SerenaCrmFollowupReadinessPlanTool,
+    SerenaCrmBlockedUnapprovedContactWriteTool,
+    SerenaCrmHubContactPlanTool,
+    SerenaCrmDashboardHandoffTool,
+]
+
+for _cls in _BATCH1_CRM_TOOLS:
+    CRM_TOOL_CLASSES[_cls.tool_id] = _cls
+    ToolRegistry.register(_cls.tool_id)(_cls)
+
