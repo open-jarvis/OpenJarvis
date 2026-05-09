@@ -22,13 +22,34 @@ A search session repeats four phases:
 |---|---|
 | **Diagnose** | The teacher reads eligible traces and groups failures into clusters, each annotated with a natural-language characterization of the skill gap. |
 | **Plan** | The teacher proposes typed edits across the editable primitives (Intelligence, Engine, Agents, Tools & Memory). A single proposal can edit multiple slots at once. |
-| **Execute** | The candidate spec is evaluated on a held-out gate: the targeted cluster must improve, and every other cluster must regress by no more than the tolerance ε (default 1%). |
-| **Record** | Accepted edits are committed; rejected edits are rolled back. The session loops until the gate score stagnates for *k* rounds (default 5) or the budget is exhausted. |
+| **Execute** | The candidate spec is evaluated on a held-out gate: the targeted cluster must improve, and every other cluster must regress by no more than a per-cluster tolerance. |
+| **Record** | Accepted edits are committed; rejected edits are rolled back. |
 
 The four-phase loop is implemented by the existing `jarvis learning`
 command — see [Learning & Distillation](learning-distillation.md) for the
 end-to-end runnable workflow, edit applier registry, and configuration
 schema. This document covers the new building blocks added on top.
+
+### Alignment with the paper
+
+The paper's Algorithm 1 specifies a **multi-session loop** that runs
+diagnose → plan → execute → record repeatedly until gate-score stagnation
+(default *k* = 5 sessions) or budget exhaustion, with default per-cluster
+tolerance ε = 1 %. The current `DistillationOrchestrator` runs
+**one session per `jarvis learning run` invocation** (one diagnose, one
+plan, one round of edits + gate decisions, one record); the per-cluster
+regression check uses a default `max_regression = 0.05` (5 %).
+
+To match the paper's defaults today:
+
+- pass `max_regression=0.01` when constructing the orchestrator or the
+  `BenchmarkGate` directly, and
+- run `jarvis learning run` from a wrapper that re-invokes it until
+  per-session gate-score deltas stagnate for *k* sessions.
+
+Wiring the multi-session stagnation loop into the orchestrator natively,
+plus changing the default `max_regression` to 1 %, are tracked as
+follow-ups — they're not part of this PR.
 
 ## What this PR adds
 
@@ -115,7 +136,7 @@ Callers that previously expected traces to always be written should pass
 
 ## Configuration
 
-The four-phase loop reads its configuration from `~/.openjarvis/config.toml`:
+`jarvis learning` reads its configuration from `~/.openjarvis/config.toml`:
 
 ```toml
 [learning.distillation]
@@ -126,14 +147,19 @@ max_cost_per_session_usd = 5.0          # per-session teacher API budget
 max_tool_calls_per_diagnosis = 30       # max teacher tool calls in diagnosis
 ```
 
-Plus the gate / acceptance knobs:
+Gate / acceptance knobs (constructor arguments to `BenchmarkGate` and
+`DistillationOrchestrator`):
 
-| Field | Meaning | Default |
-|---|---|---|
-| `gate.tolerance` | Maximum regression tolerated on non-target clusters before an edit is rejected (the ε in the gate score). | 0.01 |
-| `gate.stagnation_k` | Stop after *k* sessions without a gate-score improvement. | 5 |
-| `gate.max_sessions` | Hard cap on session count regardless of stagnation. | (none) |
-| `gate.max_cost_usd` | Hard cap on cumulative teacher cost across the search. | (per `max_cost_per_session_usd` × sessions) |
+| Argument | Meaning | Current default | Paper default |
+|---|---|---|---|
+| `max_regression` | Maximum per-cluster score drop tolerated before rejecting an edit (the ε in the paper's `GateOK`). | `0.05` (5 %) | `0.01` (1 %) |
+| `min_improvement` | Minimum overall score improvement required to accept an edit. | `0.0` | (paper does not specify; uses `> 0` per `Gc(S') > Gc(S)`) |
+| `n_tasks` | Number of tasks scored per gate run. | `50` | n/a (gate is per-cluster) |
+
+Pass `max_regression=0.01` explicitly to match the paper's default. See
+the *Alignment with the paper* note above for the gap between the
+single-session `DistillationOrchestrator` and the paper's multi-session
+loop with stagnation criterion.
 
 Each `EditApplier` registers an autonomy tier (`auto`, `review`,
 `manual`); see the
