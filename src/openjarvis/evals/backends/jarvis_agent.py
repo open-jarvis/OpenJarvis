@@ -62,7 +62,7 @@ class JarvisAgentBackend(InferenceBackend):
         builder._config.skills.enabled = skills_enabled
         if overlay_dir is not None:
             builder._config.learning.skills.overlay_dir = str(overlay_dir)
-        self._system = builder.telemetry(telemetry).traces(True).build()
+        self._system = builder.telemetry(telemetry).traces(telemetry).build()
 
     @property
     def framework_commit_value(self) -> str:

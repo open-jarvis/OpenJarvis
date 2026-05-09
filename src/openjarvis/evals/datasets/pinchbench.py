@@ -19,6 +19,7 @@ from typing import Any, Dict, Iterable, List, Optional
 import yaml
 
 from openjarvis.evals.core.dataset import DatasetProvider
+from openjarvis.evals.core.splits import apply_split
 from openjarvis.evals.core.types import EvalRecord
 
 LOGGER = logging.getLogger(__name__)
@@ -158,7 +159,10 @@ class PinchBenchDataset(DatasetProvider):
             except Exception as exc:
                 LOGGER.warning("Skipping %s: %s", tf.name, exc)
 
-        if seed is not None:
+        effective_seed = 42 if seed is None else seed
+        if split in ("train", "test", "all"):
+            tasks = apply_split(tasks, split=split, seed=effective_seed, train_frac=0.2)
+        elif seed is not None:
             random.Random(seed).shuffle(tasks)
         if max_samples is not None:
             tasks = tasks[:max_samples]

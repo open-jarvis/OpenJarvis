@@ -21,6 +21,7 @@ import random
 from typing import Any, Dict, Iterable, List, Optional
 
 from openjarvis.evals.core.dataset import DatasetProvider
+from openjarvis.evals.core.splits import apply_split
 from openjarvis.evals.core.types import EvalRecord
 
 LOGGER = logging.getLogger(__name__)
@@ -88,7 +89,11 @@ class LiveResearchBenchDataset(DatasetProvider):
     ) -> None:
         from datasets import load_dataset
 
-        hf_split = split or self._hf_split
+        hf_split = (
+            self._hf_split
+            if split in ("train", "test", "all") or split is None
+            else split
+        )
         LOGGER.info(
             "Loading %s (config=%s, split=%s) from HuggingFace ...",
             HF_DATASET_ID,
@@ -125,7 +130,12 @@ class LiveResearchBenchDataset(DatasetProvider):
                 f"(config={self._hf_config}, split={hf_split})"
             )
 
-        if seed is not None:
+        effective_seed = 42 if seed is None else seed
+        if split in ("train", "test", "all"):
+            records = apply_split(
+                records, split=split, seed=effective_seed, train_frac=0.2
+            )
+        elif seed is not None:
             random.Random(seed).shuffle(records)
         if max_samples is not None:
             records = records[:max_samples]
