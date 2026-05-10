@@ -1,0 +1,33 @@
+# Morning Digest with Gemini TTS / Orus
+# Copy to ~/.openjarvis/config.toml and customize.
+#
+# Requirements:
+#   - Ollama installed with any model, or another configured engine
+#   - Google OAuth credentials for Gmail/Calendar connectors
+#   - GEMINI_API_KEY or GOOGLE_API_KEY for Gemini TTS
+
+[engine]
+default = "ollama"
+
+[intelligence]
+default_model = "qwen3.5:4b"
+
+[tools]
+enabled = ["digest_collect", "text_to_speech"]
+
+[digest]
+enabled = true
+schedule = "0 7 * * *"
+timezone = "Europe/Berlin"
+persona = "jarvis"
+honorific = "sir"
+tts_backend = "gemini_tts"
+voice_id = "Orus"
+voice_speed = 0.95
+sections = ["messages", "calendar"]
+
+[digest.messages]
+sources = ["gmail"]
+
+[digest.calendar]
+sources = ["gcalendar"]
