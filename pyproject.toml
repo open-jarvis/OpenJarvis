@@ -41,6 +41,7 @@ dev = [
     "pytest>=8",
     "pytest-asyncio>=0.24",
     "pytest-cov>=5",
+    "pytest-timeout>=2.3",
     "respx>=0.22",
     "ruff>=0.4",
     "pre-commit>=3.0",
@@ -156,6 +157,8 @@ packages = ["src/openjarvis"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+timeout = 30
+timeout_method = "thread"
 markers = [
     "amd: requires AMD GPU",
     "apple: requires Apple Silicon",
