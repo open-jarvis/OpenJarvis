@@ -2,9 +2,6 @@
   "buildCommand": "uv sync --extra server && uv run pip install -e .",
   "outputDirectory": ".",
   "framework": "fastapi",
-  "python": {
-    "version": "3.12"
-  },
   "functions": {
     "src/openjarvis/server/app.py": {
       "runtime": "python3.12",
