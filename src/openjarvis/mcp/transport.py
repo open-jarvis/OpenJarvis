@@ -88,6 +88,20 @@ class StdioTransport(MCPTransport):
             raise RuntimeError("No response from subprocess")
         return MCPResponse.from_json(response_line.strip())
 
+    def send_notification(self, request: MCPRequest) -> None:
+        """Send a JSON-RPC notification — write only, never read.
+
+        Overrides the base implementation: stdio servers do not reply
+        to notifications, so the default ``send()`` would block forever
+        on ``proc.stdout.readline()``.
+        """
+        proc = self._process
+        if proc is None or proc.stdin is None:
+            raise RuntimeError("Transport process is not running")
+        line = request.to_json() + "\n"
+        proc.stdin.write(line)
+        proc.stdin.flush()
+
     def close(self) -> None:
         """Terminate the subprocess."""
         if self._process is not None:
