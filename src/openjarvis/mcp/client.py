@@ -84,11 +84,15 @@ class MCPClient:
         """
         response = self._send("tools/list")
         tools = response.result.get("tools", [])
+        # MCP tools often wrap long-running pentest/scan commands. The default
+        # ToolSpec timeout (30s) kills them mid-scan. Bump to 600s — individual
+        # MCP servers can shorten via their own protocol if needed.
         return [
             ToolSpec(
                 name=t["name"],
                 description=t.get("description", ""),
                 parameters=t.get("inputSchema", {}),
+                timeout_seconds=600.0,
             )
             for t in tools
         ]
