@@ -317,6 +317,21 @@ class AgentExecutor:
                         tool_instances.append(tool)
                     except Exception:
                         logger.warning("Failed to instantiate tool %s", tname)
+
+            # Pull tools already discovered by SystemBuilder (e.g. external MCP
+            # adapters) that aren't in the static ToolRegistry. Without this,
+            # agents declaring MCP-discovered tools in their template would
+            # silently fall back to natives only.
+            if self._system is not None and getattr(self._system, "tool_executor", None) is not None:
+                mcp_pool = getattr(self._system.tool_executor, "_tools", {}) or {}
+                existing = {t.spec.name for t in tool_instances}
+                for tname in tool_names:
+                    if tname in existing:
+                        continue
+                    pooled = mcp_pool.get(tname)
+                    if pooled is not None:
+                        tool_instances.append(pooled)
+
             if tool_instances:
                 logger.info(
                     "Agent %s: resolved %d/%d tools",
@@ -332,6 +347,12 @@ class AgentExecutor:
             agent_kwargs["system_prompt"] = sys_prompt
         if getattr(agent_cls, "accepts_tools", False) and tool_instances:
             agent_kwargs["tools"] = tool_instances
+        # Propagate confirmation policy from the AgentExecutor down to the
+        # agent's own ToolExecutor. Set by CLI paths like `jarvis agents ask`
+        # so non-interactive runs can auto-approve tool execution.
+        if getattr(self, "_confirm_callback", None) is not None:
+            agent_kwargs["interactive"] = True
+            agent_kwargs["confirm_callback"] = self._confirm_callback
         try:
             agent_instance = agent_cls(engine, model, **agent_kwargs)
         except TypeError:
