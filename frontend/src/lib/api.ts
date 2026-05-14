@@ -1,4 +1,4 @@
-import type { ModelInfo, SavingsData, ServerInfo } from '../types';
+import type { ModelInfo, PersonalCockpitSnapshot, SavingsData, ServerInfo } from '../types';
 
 // ---------------------------------------------------------------------------
 // Supabase config — safe to embed (RLS protects writes)
@@ -219,6 +219,12 @@ export async function fetchTelemetry(): Promise<unknown> {
   }
   const res = await fetch(`${getBase()}/v1/telemetry/stats`);
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchPersonalCockpit(): Promise<PersonalCockpitSnapshot> {
+  const res = await fetch(`${getBase()}/v1/personal-cockpit`);
+  if (!res.ok) throw new Error(`Failed to fetch personal cockpit: ${res.status}`);
   return res.json();
 }
 

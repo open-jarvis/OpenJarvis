@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { Routes, Route } from 'react-router';
+import { useLocation } from 'react-router';
 import { Layout } from './components/Layout';
 import { ChatPage } from './pages/ChatPage';
 import { DashboardPage } from './pages/DashboardPage';
@@ -8,6 +9,7 @@ import { GetStartedPage } from './pages/GetStartedPage';
 import { AgentsPage } from './pages/AgentsPage';
 import { DataSourcesPage } from './pages/DataSourcesPage';
 import { LogsPage } from './pages/LogsPage';
+import { JarvisPersonalPage } from './pages/JarvisPersonalPage';
 import { CommandPalette } from './components/CommandPalette';
 import { SetupScreen } from './components/SetupScreen';
 import { Toaster } from './components/ui/sonner';
@@ -16,6 +18,8 @@ import { fetchModels, fetchServerInfo, fetchSavings, submitSavings, isTauri } fr
 import { OptInModal } from './components/OptInModal';
 
 export default function App() {
+  const location = useLocation();
+  const isPersonalCockpit = location.pathname === '/jarvis-personal';
   const [setupDone, setSetupDone] = useState(!isTauri());
   const handleSetupReady = useCallback(() => setSetupDone(true), []);
   const setModels = useAppStore((s) => s.setModels);
@@ -36,6 +40,8 @@ export default function App() {
   const setOptInModalOpen = useAppStore((s) => s.setOptInModalOpen);
   const markOptInModalSeen = useAppStore((s) => s.markOptInModalSeen);
   const savings = useAppStore((s) => s.savings);
+  const modelsLoadedRef = useRef(false);
+  const serverInfoLoadedRef = useRef(false);
 
   // Apply theme class to <html>
   useEffect(() => {
@@ -56,22 +62,27 @@ export default function App() {
 
   // Fetch models on mount
   useEffect(() => {
+    if (isPersonalCockpit || modelsLoadedRef.current) return;
     fetchModels()
       .then((m) => {
+        modelsLoadedRef.current = true;
         setModels(m);
         if (!selectedModel && m.length > 0) setSelectedModel(m[0].id);
       })
       .catch(() => setModels([]))
       .finally(() => setModelsLoading(false));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isPersonalCockpit]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch server info
   useEffect(() => {
+    if (isPersonalCockpit || serverInfoLoadedRef.current) return;
+    serverInfoLoadedRef.current = true;
     fetchServerInfo().then(setServerInfo).catch(() => {});
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isPersonalCockpit]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Poll savings and optionally share to Supabase
   useEffect(() => {
+    if (isPersonalCockpit) return;
     const refresh = () =>
       fetchSavings()
         .then((data) => {
@@ -106,7 +117,7 @@ export default function App() {
     refresh();
     const interval = setInterval(refresh, 30000);
     return () => clearInterval(interval);
-  }, [optInEnabled, optInDisplayName, optInAnonId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isPersonalCockpit, optInEnabled, optInDisplayName, optInAnonId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Show opt-in modal on first visit
   useEffect(() => {
@@ -173,6 +184,7 @@ export default function App() {
         <Route element={<Layout />}>
           <Route index element={<ChatPage />} />
           <Route path="dashboard" element={<DashboardPage />} />
+          <Route path="jarvis-personal" element={<JarvisPersonalPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="get-started" element={<GetStartedPage />} />
           <Route path="data-sources" element={<DataSourcesPage />} />
