@@ -1,0 +1,49 @@
+.serena-landing-section {
+  padding: 72px 24px;
+  background: linear-gradient(135deg, #f7fbff 0%, #ffffff 55%, #eef6ff 100%);
+  color: #172033;
+}
+
+.serena-landing-inner {
+  max-width: 1040px;
+  margin: 0 auto;
+}
+
+.serena-eyebrow {
+  margin: 0 0 12px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.serena-landing-section h1 {
+  margin: 0;
+  max-width: 820px;
+  font-size: clamp(2.4rem, 6vw, 4.8rem);
+  line-height: 1.02;
+}
+
+.serena-subtitle {
+  max-width: 680px;
+  margin: 22px 0 0;
+  font-size: 1.16rem;
+  line-height: 1.7;
+}
+
+.serena-actions {
+  margin-top: 32px;
+}
+
+.serena-primary-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 22px;
+  border-radius: 999px;
+  background: #102a43;
+  color: #ffffff;
+  font-weight: 700;
+  text-decoration: none;
+}

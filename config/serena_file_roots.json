@@ -1,0 +1,49 @@
+﻿{
+  "roots": {
+    "serena-project": {
+      "path": "C:/Users/Kyle/Serena",
+      "description": "Main Serena project folder",
+      "category": "project",
+      "allow_search": true,
+      "allow_backup": true,
+      "allow_audit": true,
+      "allow_organize": false
+    },
+    "serena-outputs": {
+      "path": "C:/Users/Kyle/Serena/outputs",
+      "description": "Serena generated outputs, reports, snapshots, backups, and document/file libraries",
+      "category": "outputs",
+      "allow_search": true,
+      "allow_backup": true,
+      "allow_audit": true,
+      "allow_organize": true
+    },
+    "drpiet-documents": {
+      "path": "C:/Users/Kyle/Documents",
+      "description": "Dr Piet working documents folder",
+      "category": "documents",
+      "allow_search": true,
+      "allow_backup": true,
+      "allow_audit": true,
+      "allow_organize": true
+    },
+    "drpiet-downloads": {
+      "path": "C:/Users/Kyle/Downloads",
+      "description": "Downloads folder for incoming files and documents",
+      "category": "inbox",
+      "allow_search": true,
+      "allow_backup": true,
+      "allow_audit": true,
+      "allow_organize": true
+    },
+    "drpiet-desktop": {
+      "path": "C:/Users/Kyle/Desktop",
+      "description": "Desktop folder for quick-access files",
+      "category": "desktop",
+      "allow_search": true,
+      "allow_backup": true,
+      "allow_audit": true,
+      "allow_organize": true
+    }
+  }
+}

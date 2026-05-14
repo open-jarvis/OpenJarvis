@@ -115,3 +115,21 @@ learning.db
 **/learning/benchmarks/
 **/teacher_traces/
 *.session.json
+# Serena generated runtime outputs
+outputs/
+*.mp3
+*.wav
+*.m4a
+# Serena generated runtime outputs
+outputs/
+*.mp3
+*.wav
+*.m4a
+
+# Local Serena diagnostic scan dumps
+SERENA_PLAN_FILE_SCAN.txt
+SERENA_REGISTRY_FILE_SCAN.txt
+
+# Local Serena secret/security scan outputs
+SERENA_SECRET_SCAN*.txt
+SERENA_SECRET_FINDINGS*.txt

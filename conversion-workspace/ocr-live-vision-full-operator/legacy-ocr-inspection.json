@@ -1,0 +1,48 @@
+{
+  "legacy_file": "legacy\\serena-skills\\37-ocr.js",
+  "line_count": 148,
+  "character_count": 5369,
+  "function_names": [
+    "ocrViaHuggingFace",
+    "ocrViaMistral"
+  ],
+  "dependencies": [
+    "../helpers/logger",
+    "fs",
+    "path"
+  ],
+  "triggers": [
+    "SCAN DOC:",
+    "OCR:",
+    "EXTRACT TEXT:"
+  ],
+  "env_mentions": [
+    "HF",
+    "HUGGINGFACE_API_KEY",
+    "MISTRAL_API_KEY",
+    "OCR"
+  ],
+  "status": "inspected",
+  "target_native_skill": "Serena OCR / Live Vision Full Operator v1",
+  "target_workflow": [
+    "inspect image",
+    "extract text from image",
+    "extract text from PDF where possible",
+    "assess readability",
+    "list cameras",
+    "capture webcam frame",
+    "capture document frame",
+    "controlled live vision session",
+    "live status",
+    "live stop",
+    "live snapshot",
+    "best frame selection",
+    "extract live text",
+    "handoff to Google Docs",
+    "handoff to Google Drive",
+    "handoff to Documents",
+    "audit artifacts",
+    "block hidden watching",
+    "block delete"
+  ]
+}

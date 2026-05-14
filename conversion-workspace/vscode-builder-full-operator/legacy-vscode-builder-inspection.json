@@ -1,0 +1,29 @@
+{
+  "legacy_file": "legacy\\serena-skills\\83-vscode-builder.js",
+  "line_count": 93,
+  "character_count": 3185,
+  "function_names": [],
+  "dependencies": [
+    "../helpers/github-build-sync",
+    "../helpers/logger",
+    "../helpers/vscode-build-orchestrator"
+  ],
+  "status": "inspected",
+  "target_native_skill": "Serena VS Code Builder Full Operator v1",
+  "target_workflow": [
+    "plan website/app features",
+    "scaffold multi-file features",
+    "create components",
+    "create tests",
+    "create documentation",
+    "create landing page sections",
+    "create WordPress-ready HTML sections",
+    "create React/Vite-style components",
+    "use approved roots only",
+    "use VS Code skill for file operations/checks",
+    "snapshot before modifying existing files",
+    "run final local checks",
+    "produce build reports",
+    "block publish/deploy/push without approval"
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "legacy_file": "legacy\\serena-skills\\64-github.js",
+  "line_count": 133,
+  "character_count": 5032,
+  "function_names": [],
+  "dependencies": [
+    "../helpers/logger"
+  ],
+  "triggers": [
+    "BUG REPORT:",
+    "CODE REQUEST:",
+    "GITHUB ISSUE:",
+    "GITHUB READ:"
+  ],
+  "status": "inspected",
+  "target_native_skill": "Serena GitHub Full Operator v1",
+  "target_workflow": [
+    "inspect repository status",
+    "inspect current branch",
+    "inspect remotes",
+    "inspect recent commits",
+    "inspect local diff/stat",
+    "create commit plans",
+    "draft commit messages",
+    "draft PR summaries",
+    "draft GitHub issues",
+    "draft bug reports",
+    "draft feature requests",
+    "draft release notes",
+    "run final GitHub safety check",
+    "block push without approval",
+    "block force-push by default",
+    "block destructive remote operations"
+  ]
+}

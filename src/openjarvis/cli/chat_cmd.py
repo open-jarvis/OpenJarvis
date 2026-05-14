@@ -12,6 +12,7 @@ from rich.markdown import Markdown
 from openjarvis.cli._tool_names import resolve_tool_names
 from openjarvis.core.config import load_config
 from openjarvis.core.types import Message, Role
+from openjarvis.serena_identity import get_serena_system_prompt
 
 
 def _read_input(prompt: str = "You> ") -> Optional[str]:
@@ -127,7 +128,7 @@ def chat(
 
     # Print banner
     console.print(
-        f"[green bold]OpenJarvis Chat[/green bold]\n"
+        f"[green bold]Serena Chat[/green bold]\n"
         f"  Engine: [cyan]{engine_name}[/cyan]  Model: [cyan]{model}[/cyan]"
         f"  Agent: [cyan]{agent_key or 'direct'}[/cyan]\n"
         f"  Type /help for commands, /quit to exit.\n"
@@ -148,8 +149,8 @@ def chat(
 
     # Conversation state
     history: List[Message] = []
-    if system_prompt:
-        history.append(Message(role=Role.SYSTEM, content=system_prompt))
+    # Always start with Serena identity unless caller provided a custom system prompt.
+    history.append(Message(role=Role.SYSTEM, content=system_prompt or get_serena_system_prompt()))
 
     # REPL loop
     while True:
@@ -172,8 +173,7 @@ def chat(
             break
         elif cmd == "/clear":
             history = []
-            if system_prompt:
-                history.append(Message(role=Role.SYSTEM, content=system_prompt))
+            history.append(Message(role=Role.SYSTEM, content=system_prompt or get_serena_system_prompt()))
             console.print("[dim]History cleared.[/dim]")
             continue
         elif cmd == "/model":

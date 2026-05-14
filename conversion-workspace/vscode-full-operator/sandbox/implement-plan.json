@@ -1,0 +1,9 @@
+﻿[
+  {
+    "op": "replace",
+    "path": "conversion-workspace/vscode-full-operator/sandbox/vscode-test.md",
+    "old": "Status: draft test file.",
+    "new": "Status: draft test file.\n\nDeveloper workflow checklist:\n- plan\n- implement\n- snapshot\n- diff\n- test-report\n- rollback if needed",
+    "replace_all": false
+  }
+]

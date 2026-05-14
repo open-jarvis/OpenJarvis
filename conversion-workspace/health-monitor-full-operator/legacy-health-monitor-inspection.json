@@ -1,0 +1,30 @@
+{
+  "legacy_file": "legacy\\serena-skills\\47-health-monitor.js",
+  "line_count": 101,
+  "character_count": 4133,
+  "function_names": [
+    "freeMem",
+    "heapTotMB",
+    "heapUsedMB",
+    "rssMB",
+    "totalMem"
+  ],
+  "dependencies": [
+    "../helpers/google-drive",
+    "../helpers/logger",
+    "os"
+  ],
+  "status": "inspected",
+  "target_native_skill": "Serena Health Monitor Full Operator v1",
+  "target_workflow": [
+    "inspect Serena project health",
+    "inspect Python and uv environment",
+    "inspect output folders",
+    "inspect conversion registry",
+    "inspect completed skill docs",
+    "inspect Git status",
+    "inspect approved roots config",
+    "inspect important tool imports",
+    "create final health report"
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "legacy_file": "legacy\\serena-skills\\03-gdrive.js",
+  "line_count": 96,
+  "character_count": 3508,
+  "function_names": [],
+  "dependencies": [
+    "../helpers/google-drive",
+    "../helpers/logger"
+  ],
+  "triggers": [
+    "DRIVE SAVE:",
+    "DRIVE LIST:",
+    "DRIVE FOLDER:",
+    "DRIVE UPLOAD:"
+  ],
+  "env_mentions": [
+    "GDRIVE_ROOT_FOLDER_ID"
+  ],
+  "status": "inspected",
+  "target_native_skill": "Serena Google Drive Full Operator v1",
+  "target_workflow": [
+    "connection/status check",
+    "credential presence check without exposing values",
+    "root folder configuration check",
+    "list Drive files/folders",
+    "search Drive",
+    "create/find folders",
+    "upload local file to Drive",
+    "download Drive file",
+    "save Serena outputs to Drive",
+    "audit Drive folder contents",
+    "local reports",
+    "block delete/permanent removal in v1"
+  ]
+}

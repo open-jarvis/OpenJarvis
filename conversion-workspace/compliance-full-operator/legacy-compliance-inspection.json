@@ -1,0 +1,329 @@
+{
+  "status": "inspected",
+  "target_native_skill": "Serena Compliance / Policy Guard Full Operator v1",
+  "missing_files": [
+    "legacy\\serena-skills\\13-wordpress.js"
+  ],
+  "files": [
+    {
+      "file": "legacy\\serena-skills\\24-compliance-guard.js",
+      "exists": true,
+      "line_count": 113,
+      "character_count": 4932,
+      "triggers": [
+        "QUICK CHECK:"
+      ],
+      "function_names": [],
+      "dependencies": [
+        "../helpers/logger"
+      ],
+      "policy_terms": [
+        "HPCSA",
+        "POPIA",
+        "advertising",
+        "compliance",
+        "health",
+        "medical",
+        "patient"
+      ],
+      "env_mentions": [
+        "COMPLIANCE",
+        "HPCSA",
+        "POPIA"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\25-compliance.js",
+      "exists": true,
+      "line_count": 98,
+      "character_count": 4160,
+      "triggers": [
+        "ANALYSE CONTENT:",
+        "COMPLIANCE CHECK:",
+        "FULL COMPLIANCE:",
+        "HPCSA CHECK:"
+      ],
+      "function_names": [],
+      "dependencies": [
+        "../helpers/logger"
+      ],
+      "policy_terms": [
+        "HPCSA",
+        "POPIA",
+        "advertising",
+        "compliance",
+        "consent",
+        "health",
+        "lab",
+        "medical",
+        "patient",
+        "privacy",
+        "social media"
+      ],
+      "env_mentions": [
+        "COMPLIANCE",
+        "HPCSA",
+        "HPCSA_RULES",
+        "POPIA"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\23-telehealth.js",
+      "exists": true,
+      "line_count": 59,
+      "character_count": 2196,
+      "triggers": [
+        "CONSULT PREP:",
+        "TELEHEALTH PREP:"
+      ],
+      "function_names": [
+        "generatePrep",
+        "parsePayload"
+      ],
+      "dependencies": [
+        "../helpers/document-service",
+        "../helpers/logger"
+      ],
+      "policy_terms": [
+        "health",
+        "lab",
+        "patient",
+        "telehealth"
+      ],
+      "env_mentions": []
+    },
+    {
+      "file": "legacy\\serena-skills\\37-ocr.js",
+      "exists": true,
+      "line_count": 148,
+      "character_count": 5369,
+      "triggers": [
+        "EXTRACT TEXT:",
+        "OCR:",
+        "SCAN DOC:"
+      ],
+      "function_names": [
+        "ocrViaHuggingFace",
+        "ocrViaMistral"
+      ],
+      "dependencies": [
+        "../helpers/logger",
+        "fs",
+        "path"
+      ],
+      "policy_terms": [
+        "lab",
+        "medical"
+      ],
+      "env_mentions": [
+        "HUGGINGFACE_API_KEY",
+        "MISTRAL_API_KEY"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\57-LabResultsInterpreter.js",
+      "exists": true,
+      "line_count": 66,
+      "character_count": 2852,
+      "triggers": [
+        "INTERPRET LAB:",
+        "LAB RESULTS:",
+        "READ LAB:"
+      ],
+      "function_names": [],
+      "dependencies": [
+        "../helpers/logger"
+      ],
+      "policy_terms": [
+        "clinical",
+        "lab",
+        "patient"
+      ],
+      "env_mentions": []
+    },
+    {
+      "file": "legacy\\serena-skills\\17-newsletter.js",
+      "exists": true,
+      "line_count": 120,
+      "character_count": 5433,
+      "triggers": [
+        "HEALTH NEWSLETTER:",
+        "NEWSLETTER:",
+        "WEEKLY NEWSLETTER"
+      ],
+      "function_names": [
+        "shouldSend"
+      ],
+      "dependencies": [
+        "../helpers/logger",
+        "nodemailer"
+      ],
+      "policy_terms": [
+        "HPCSA",
+        "health",
+        "lab",
+        "patient"
+      ],
+      "env_mentions": [
+        "HPCSA"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\19-email-marketing.js",
+      "exists": true,
+      "line_count": 131,
+      "character_count": 5140,
+      "triggers": [
+        "EMAIL CAMPAIGN:",
+        "EMAIL DRAFT:"
+      ],
+      "function_names": [],
+      "dependencies": [
+        "../helpers/logger",
+        "nodemailer"
+      ],
+      "policy_terms": [
+        "health",
+        "lab",
+        "medical",
+        "patient"
+      ],
+      "env_mentions": []
+    },
+    {
+      "file": "legacy\\serena-skills\\04-calendar.js",
+      "exists": true,
+      "line_count": 183,
+      "character_count": 6910,
+      "triggers": [
+        "BOOK SLOT:",
+        "CANCEL APPOINTMENT:",
+        "CHECK AVAILABILITY:",
+        "TODAY SCHEDULE"
+      ],
+      "function_names": [
+        "getCalendarClient"
+      ],
+      "dependencies": [
+        "../helpers/logger",
+        "googleapis"
+      ],
+      "policy_terms": [
+        "lab",
+        "patient"
+      ],
+      "env_mentions": [
+        "CALENDAR",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        "GOOGLE_REFRESH_TOKEN"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\03-gdrive.js",
+      "exists": true,
+      "line_count": 96,
+      "character_count": 3508,
+      "triggers": [
+        "DRIVE FOLDER:",
+        "DRIVE LIST:",
+        "DRIVE SAVE:",
+        "DRIVE UPLOAD:"
+      ],
+      "function_names": [],
+      "dependencies": [
+        "../helpers/google-drive",
+        "../helpers/logger"
+      ],
+      "policy_terms": [],
+      "env_mentions": [
+        "DRIVE",
+        "GDRIVE",
+        "GDRIVE_ROOT_FOLDER_ID"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\08-google-docs.js",
+      "exists": true,
+      "line_count": 100,
+      "character_count": 3259,
+      "triggers": [
+        "CREATE DOC:",
+        "UPDATE DOC:"
+      ],
+      "function_names": [
+        "generateDocContent",
+        "parsePayload",
+        "replaceExisting"
+      ],
+      "dependencies": [
+        "../helpers/google-docs-service",
+        "../helpers/logger"
+      ],
+      "policy_terms": [],
+      "env_mentions": [
+        "DOCS",
+        "GOOGLE",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        "GOOGLE_REFRESH_TOKEN"
+      ]
+    }
+  ],
+  "target_workflow": [
+    "status",
+    "policy-list",
+    "policy-info",
+    "source-list",
+    "plan",
+    "audit",
+    "quick-check",
+    "full-check",
+    "popia-check",
+    "hpcsa-check",
+    "patient-data-check",
+    "marketing-check",
+    "document-check",
+    "ocr-check",
+    "drive-sharing-check",
+    "docs-check",
+    "calendar-check",
+    "crm-check",
+    "update-check",
+    "refresh-plan",
+    "policy-diff",
+    "blocked-policy-update",
+    "blocked-disclosure",
+    "blocked-clinical-decision",
+    "blocked-bulk-export",
+    "blocked-hidden-capture"
+  ],
+  "hub_adapter": {
+    "future_widgets": [
+      "compliance_risk_widget",
+      "policy_library_widget",
+      "active_warning_widget",
+      "blocked_action_widget",
+      "approval_requirement_widget",
+      "policy_update_monitor_widget",
+      "audit_report_widget"
+    ],
+    "future_events": [
+      "compliance_checked",
+      "compliance_warning_created",
+      "compliance_action_blocked",
+      "compliance_policy_update_available",
+      "compliance_approval_required",
+      "compliance_audit_completed"
+    ],
+    "operator_state": [
+      "current_business_id",
+      "current_policy_context",
+      "current_risk_level",
+      "current_sensitive_data_types",
+      "current_blocked_reason",
+      "current_compliance_report",
+      "current_required_approval"
+    ]
+  }
+}

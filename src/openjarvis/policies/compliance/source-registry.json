@@ -1,0 +1,34 @@
+{
+  "status": "local_reference_v1",
+  "note": "Source URLs are tracked for policy update checks. Serena must not silently activate policy updates.",
+  "sources": [
+    {
+      "id": "popia-information-regulator",
+      "name": "Information Regulator South Africa - POPIA",
+      "policy_area": "POPIA/privacy",
+      "url": "https://inforegulator.org.za/popia/",
+      "review_required": true
+    },
+    {
+      "id": "national-health-act-confidentiality",
+      "name": "National Health Act confidentiality",
+      "policy_area": "health confidentiality",
+      "url": "https://www.gov.za/documents/national-health-act",
+      "review_required": true
+    },
+    {
+      "id": "hpcsa-guidelines",
+      "name": "HPCSA Guidelines",
+      "policy_area": "patient records, advertising, social media, ethical practice",
+      "url": "https://www.hpcsa.co.za/",
+      "review_required": true
+    },
+    {
+      "id": "practice-local-policy",
+      "name": "Dr Piet / Serena local practice policy",
+      "policy_area": "practice-specific operational rules",
+      "url": "local",
+      "review_required": true
+    }
+  ]
+}

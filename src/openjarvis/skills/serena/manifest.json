@@ -1,0 +1,29 @@
+﻿{
+  "name": "Serena Native Skills",
+  "version": "0.1.0",
+  "description": "Converted and upgraded Serena skills for the OpenJarvis-based Serena assistant.",
+  "policy": {
+    "user_experience": "Natural language first. No legacy trigger syntax required.",
+    "legacy_files": "Legacy JavaScript files are temporary conversion sources and must be deleted after verified native conversion.",
+    "approval_required_for": [
+      "publishing public content",
+      "submitting medical claims",
+      "processing payments",
+      "deleting files",
+      "external messaging",
+      "deployment",
+      "risky shell commands",
+      "patient-data changes"
+    ]
+  },
+  "categories": {
+    "core": [],
+    "communications": [],
+    "content-marketing": [],
+    "healthcare-compliance": [],
+    "design-media": [],
+    "development-infrastructure": [],
+    "business-automation": [],
+    "system-evolution": []
+  }
+}

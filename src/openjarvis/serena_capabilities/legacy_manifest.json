@@ -1,0 +1,1746 @@
+{
+  "name": "Serena Legacy Capability Manifest",
+  "version": "0.1.0",
+  "source": "C:/Users/Kyle/AI Agent Serena/src/skills",
+  "target": "OpenJarvis-based Serena",
+  "total_skills": 88,
+  "ux_policy": "Natural language only. Legacy triggers are stored as examples/context and must not be required from the user.",
+  "skills": [
+    {
+      "id": "01-crm",
+      "number": 1,
+      "name": "Crm",
+      "filename": "01-crm.js",
+      "legacy_path": "legacy/serena-skills/01-crm.js",
+      "category": "Core CRM & Business Operations",
+      "description": "Add, update, and retrieve patient profiles stored in local SQLite.",
+      "legacy_triggers": [
+        "ADD PATIENT:",
+        "UPDATE PATIENT:",
+        "GET PATIENT:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "02-reporting",
+      "number": 2,
+      "name": "Reporting",
+      "filename": "02-reporting.js",
+      "legacy_path": "legacy/serena-skills/02-reporting.js",
+      "category": "Core CRM & Business Operations",
+      "description": "Morning briefings, weekly summaries, and KPI snapshots for Dr Piet.",
+      "legacy_triggers": [
+        "MORNING BRIEF",
+        "WEEKLY REPORT",
+        "KPI REPORT"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "03-gdrive",
+      "number": 3,
+      "name": "Gdrive",
+      "filename": "03-gdrive.js",
+      "legacy_path": "legacy/serena-skills/03-gdrive.js",
+      "category": "Core CRM & Business Operations",
+      "description": "Save files to Drive, list folder contents, create folders, and upload generated documents.",
+      "legacy_triggers": [
+        "DRIVE SAVE:",
+        "DRIVE LIST:",
+        "DRIVE FOLDER:",
+        "DRIVE UPLOAD:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "04-calendar",
+      "number": 4,
+      "name": "Calendar",
+      "filename": "04-calendar.js",
+      "legacy_path": "legacy/serena-skills/04-calendar.js",
+      "category": "Core CRM & Business Operations",
+      "description": "Book appointments, check availability, list today\\",
+      "legacy_triggers": [
+        "BOOK SLOT:",
+        "CHECK AVAILABILITY:",
+        "CANCEL APPOINTMENT:",
+        "TODAY SCHEDULE"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "05-social",
+      "number": 5,
+      "name": "Social",
+      "filename": "05-social.js",
+      "legacy_path": "legacy/serena-skills/05-social.js",
+      "category": "Core CRM & Business Operations",
+      "description": "Generate platform-specific social media posts for Dr Piet \u2014 Instagram, LinkedIn, Facebook, Twitter/X.",
+      "legacy_triggers": [
+        "SOCIAL POST:",
+        "SOCIAL DRAFT:",
+        "INSTAGRAM POST:",
+        "LINKEDIN POST:",
+        "FACEBOOK POST:",
+        "TWITTER POST:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "06-notebook",
+      "number": 6,
+      "name": "Notebook",
+      "filename": "06-notebook.js",
+      "legacy_path": "legacy/serena-skills/06-notebook.js",
+      "category": "Core CRM & Business Operations",
+      "description": "Hybrid NotebookLM manager with query, vault layout, sync tracking, and source inventory.",
+      "legacy_triggers": [
+        "ASK KNOWLEDGE:",
+        "VAULT QUERY:",
+        "VAULT INVENTORY:",
+        "VAULT MISSING DOCS:",
+        "VAULT STAGE:",
+        "VAULT SOURCE ADD:",
+        "VAULT STATUS",
+        "VAULT MAP",
+        "NOTEBOOK SETUP",
+        "VAULT SYNC STATUS",
+        "VAULT INVENTORY",
+        "VAULT MISSING DOCS",
+        "VAULT SYNC",
+        "VAULT CREATE ALL",
+        "VAULT AUTOMATION STATUS"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "07-assets",
+      "number": 7,
+      "name": "Assets",
+      "filename": "07-assets.js",
+      "legacy_path": "legacy/serena-skills/07-assets.js",
+      "category": "Core CRM & Business Operations",
+      "description": "Generate slide deck outlines and presentation assets that can be saved as Word docs or Google Docs.",
+      "legacy_triggers": [
+        "GENERATE SLIDES:",
+        "CREATE DECK:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "08-google-docs",
+      "number": 8,
+      "name": "Google Docs",
+      "filename": "08-google-docs.js",
+      "legacy_path": "legacy/serena-skills/08-google-docs.js",
+      "category": "Core CRM & Business Operations",
+      "description": "Create and update Google Docs documents using the connected Google Workspace account.",
+      "legacy_triggers": [
+        "CREATE DOC:",
+        "UPDATE DOC:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "09-finance",
+      "number": 9,
+      "name": "Finance",
+      "filename": "09-finance.js",
+      "legacy_path": "legacy/serena-skills/09-finance.js",
+      "category": "Core CRM & Business Operations",
+      "description": "Generate invoices, payment summaries, and financial records.",
+      "legacy_triggers": [
+        "GENERATE INVOICE:",
+        "RECORD PAYMENT:",
+        "INVOICE SUMMARY",
+        "PENDING",
+        "PAID"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "10-payfast",
+      "number": 10,
+      "name": "Payfast",
+      "filename": "10-payfast.js",
+      "legacy_path": "legacy/serena-skills/10-payfast.js",
+      "category": "Core CRM & Business Operations",
+      "description": "Generate PayFast payment links. Currently in sandbox mode.",
+      "legacy_triggers": [
+        "PAYMENT LINK:",
+        "PAYMENT STATUS:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "11-whatsapp",
+      "number": 11,
+      "name": "Whatsapp",
+      "filename": "11-whatsapp.js",
+      "legacy_path": "legacy/serena-skills/11-whatsapp.js",
+      "category": "Communications & Messaging",
+      "description": "Send WhatsApp messages via Meta Cloud API. Currently deferred.",
+      "legacy_triggers": [
+        "WHATSAPP:",
+        "POST",
+        "N/A"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "12-analytics",
+      "number": 12,
+      "name": "Analytics",
+      "filename": "12-analytics.js",
+      "legacy_path": "legacy/serena-skills/12-analytics.js",
+      "category": "Communications & Messaging",
+      "description": "Pull website, business, and Serena runtime analytics into one operational report.",
+      "legacy_triggers": [
+        "ANALYTICS REPORT",
+        "SITE ANALYTICS",
+        "N/A"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "13-wordpress",
+      "number": 13,
+      "name": "Wordpress",
+      "filename": "13-wordpress.js",
+      "legacy_path": "legacy/serena-skills/13-wordpress.js",
+      "category": "Content Creation & Marketing",
+      "description": "Creates and updates WordPress posts/pages and keeps GitHub source artifacts in sync.",
+      "legacy_triggers": [
+        "WP DRAFT:",
+        "WP PUBLISH:",
+        "WP PAGE:",
+        "WP UPDATE:",
+        "WP MEDIA:",
+        "WP ASK:",
+        "WP SEARCH:",
+        "WP STATUS",
+        "WP LIST POSTS",
+        "WP LIST PAGES",
+        "WP SITE MAP"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "14-podcast",
+      "number": 14,
+      "name": "Podcast",
+      "filename": "14-podcast.js",
+      "legacy_path": "legacy/serena-skills/14-podcast.js",
+      "category": "Content Creation & Marketing",
+      "description": "Generate podcast episode scripts for Dr Piet",
+      "legacy_triggers": [
+        "PODCAST SCRIPT:",
+        "EPISODE SCRIPT:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "15-video-script",
+      "number": 15,
+      "name": "Video Script",
+      "filename": "15-video-script.js",
+      "legacy_path": "legacy/serena-skills/15-video-script.js",
+      "category": "Content Creation & Marketing",
+      "description": "Generate Instagram Reel, YouTube Short, and TikTok scripts for Dr Piet.",
+      "legacy_triggers": [
+        "VIDEO SCRIPT:",
+        "REEL SCRIPT:",
+        "TIKTOK SCRIPT:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "16-ebook",
+      "number": 16,
+      "name": "Ebook",
+      "filename": "16-ebook.js",
+      "legacy_path": "legacy/serena-skills/16-ebook.js",
+      "category": "Content Creation & Marketing",
+      "description": "Create structured health eBook outlines and chapters for lead magnets and patient education.",
+      "legacy_triggers": [
+        "EBOOK OUTLINE:",
+        "EBOOK CHAPTER:",
+        "EBOOK:",
+        "EBOOK OUTLINE"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "17-newsletter",
+      "number": 17,
+      "name": "Newsletter",
+      "filename": "17-newsletter.js",
+      "legacy_path": "legacy/serena-skills/17-newsletter.js",
+      "category": "Content Creation & Marketing",
+      "description": "Generate and send weekly health newsletters to patients.",
+      "legacy_triggers": [
+        "NEWSLETTER:",
+        "HEALTH NEWSLETTER:",
+        "WEEKLY NEWSLETTER"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "18-blog",
+      "number": 18,
+      "name": "Blog",
+      "filename": "18-blog.js",
+      "legacy_path": "legacy/serena-skills/18-blog.js",
+      "category": "Content Creation & Marketing",
+      "description": "Write long-form SEO-optimised articles for drpiet.co.za and optionally publish as draft.",
+      "legacy_triggers": [
+        "BLOG POST:",
+        "SEO ARTICLE:",
+        "WRITE BLOG:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "19-email-marketing",
+      "number": 19,
+      "name": "Email Marketing",
+      "filename": "19-email-marketing.js",
+      "legacy_path": "legacy/serena-skills/19-email-marketing.js",
+      "category": "Content Creation & Marketing",
+      "description": "Send email campaigns via SMTP. Mailchimp/Klaviyo integration deferred.",
+      "legacy_triggers": [
+        "EMAIL CAMPAIGN:",
+        "EMAIL DRAFT:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "20-booking",
+      "number": 20,
+      "name": "Booking",
+      "filename": "20-booking.js",
+      "legacy_path": "legacy/serena-skills/20-booking.js",
+      "category": "Content Creation & Marketing",
+      "description": "Schedule, view, and cancel patient appointments via Google Calendar.",
+      "legacy_triggers": [
+        "BOOK APPOINTMENT:",
+        "NEW BOOKING:",
+        "CANCEL BOOKING:",
+        "MY BOOKINGS"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "21-membership",
+      "number": 21,
+      "name": "Membership",
+      "filename": "21-membership.js",
+      "legacy_path": "legacy/serena-skills/21-membership.js",
+      "category": "Content Creation & Marketing",
+      "description": "Manage patient care plan memberships \u2014 enrol, view, and list members.",
+      "legacy_triggers": [
+        "CREATE MEMBERSHIP:",
+        "ENROL MEMBER:",
+        "MEMBER STATUS:",
+        "MEMBERSHIP PLANS"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "22-leadmagnet",
+      "number": 22,
+      "name": "Leadmagnet",
+      "filename": "22-leadmagnet.js",
+      "legacy_path": "legacy/serena-skills/22-leadmagnet.js",
+      "category": "Content Creation & Marketing",
+      "description": "Generate complete lead magnet packages \u2014 content, landing page copy, and email capture.",
+      "legacy_triggers": [
+        "LEAD PAGE:",
+        "CAPTURE PAGE:",
+        "LEAD MAGNET FULL:",
+        "FREEBIE:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "23-telehealth",
+      "number": 23,
+      "name": "Telehealth",
+      "filename": "23-telehealth.js",
+      "legacy_path": "legacy/serena-skills/23-telehealth.js",
+      "category": "Healthcare & Compliance",
+      "description": "Prepare patients for online consultations with a practical telehealth checklist and consult-prep pack.",
+      "legacy_triggers": [
+        "TELEHEALTH PREP:",
+        "CONSULT PREP:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "24-compliance-guard",
+      "number": 24,
+      "name": "Compliance Guard",
+      "filename": "24-compliance-guard.js",
+      "legacy_path": "legacy/serena-skills/24-compliance-guard.js",
+      "category": "Healthcare & Compliance",
+      "description": "Fast HPCSA pre-check for content before posting. Use FULL COMPLIANCE: for deep analysis.",
+      "legacy_triggers": [
+        "QUICK CHECK:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "25-compliance",
+      "number": 25,
+      "name": "Compliance",
+      "filename": "25-compliance.js",
+      "legacy_path": "legacy/serena-skills/25-compliance.js",
+      "category": "Healthcare & Compliance",
+      "description": "Check content for HPCSA, POPIA, and social media compliance before publishing.",
+      "legacy_triggers": [
+        "COMPLIANCE CHECK:",
+        "HPCSA CHECK:",
+        "ANALYSE CONTENT:",
+        "FULL COMPLIANCE:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "26-canva",
+      "number": 26,
+      "name": "Canva",
+      "filename": "26-canva.js",
+      "legacy_path": "legacy/serena-skills/26-canva.js",
+      "category": "Design & Media",
+      "description": "Connect Serena to Canva via Connect API and Canva MCP. Use for Canva auth, token lifecycle, design discovery, metadata reads, asset upload, export jobs, comments, natural-language search, and conversational design interaction.",
+      "legacy_triggers": [
+        "CANVA LIST DESIGNS:",
+        "CANVA FIND:",
+        "CANVA GET DESIGN:",
+        "CANVA EXPORT:",
+        "CANVA COMMENT:",
+        "CANVA UPLOAD ASSET:",
+        "CANVA MCP SEARCH:",
+        "CANVA ASK:",
+        "CANVA DESIGN:",
+        "CREATE DESIGN:",
+        "CANVA CONNECT",
+        "CANVA STATUS",
+        "CANVA LIST DESIGNS",
+        "CANVA MCP SEARCH",
+        "CANVA ASK",
+        "CANVA MCP"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "27-gemini",
+      "number": 27,
+      "name": "Gemini",
+      "filename": "27-gemini.js",
+      "legacy_path": "legacy/serena-skills/27-gemini.js",
+      "category": "Design & Media",
+      "description": "Advanced AI analysis using Google Gemini for strategic and medical reasoning.",
+      "legacy_triggers": [
+        "DEEP ANALYSIS:",
+        "GEMINI ANALYSE:",
+        "GEMINI:",
+        "STRATEGY:",
+        "POST"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "28-email-funnel",
+      "number": 28,
+      "name": "Email Funnel",
+      "filename": "28-email-funnel.js",
+      "legacy_path": "legacy/serena-skills/28-email-funnel.js",
+      "category": "Design & Media",
+      "description": "Build complete automated email sequences for patient acquisition and retention.",
+      "legacy_triggers": [
+        "NURTURE:",
+        "EMAIL FUNNEL:",
+        "BUILD FUNNEL:",
+        "DRIP SEQUENCE:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "29-ecommerce",
+      "number": 29,
+      "name": "Ecommerce",
+      "filename": "29-ecommerce.js",
+      "legacy_path": "legacy/serena-skills/29-ecommerce.js",
+      "category": "Design & Media",
+      "description": "View orders, manage products, and check revenue from drpiet.co.za WooCommerce store.",
+      "legacy_triggers": [
+        "WC ORDER:",
+        "WC PRODUCT:",
+        "POST",
+        "WC ORDERS",
+        "WC PRODUCTS",
+        "WC REVENUE"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "30-seo-audit",
+      "number": 30,
+      "name": "Seo Audit",
+      "filename": "30-seo-audit.js",
+      "legacy_path": "legacy/serena-skills/30-seo-audit.js",
+      "category": "Design & Media",
+      "description": "Audit any URL for on-page SEO signals and get an AI-powered improvement plan.",
+      "legacy_triggers": [
+        "SEO AUDIT:",
+        "SEO CHECK:",
+        "AUDIT SITE:",
+        "NONE"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "31-flux-image",
+      "number": 31,
+      "name": "Flux Image",
+      "filename": "31-flux-image.js",
+      "legacy_path": "legacy/serena-skills/31-flux-image.js",
+      "category": "Design & Media",
+      "description": "Generate images using Flux.1-schnell via Hugging Face API.",
+      "legacy_triggers": [
+        "IMAGE:",
+        "FLUX:",
+        "GENERATE IMAGE:",
+        "POST"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "32-video-generator",
+      "number": 32,
+      "name": "Video Generator",
+      "filename": "32-video-generator.js",
+      "legacy_path": "legacy/serena-skills/32-video-generator.js",
+      "category": "Design & Media",
+      "description": "Route video requests through GPT-5-mini direction plus Veo or Sora generation.",
+      "legacy_triggers": [
+        "VIDEO FAST:",
+        "VIDEO HQ:",
+        "VIDEO CINEMATIC:",
+        "VIDEO AD:",
+        "VIDEO REEL:",
+        "VIDEO EDUCATION:",
+        "VIDEO TESTIMONIAL STYLE:",
+        "VIDEO PRODUCT:",
+        "VIDEO FROM IMAGE:",
+        "VIDEO REMIX:",
+        "VIDEO:",
+        "GENERATE VIDEO:",
+        "VEO:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "33-mistral",
+      "number": 33,
+      "name": "Mistral",
+      "filename": "33-mistral.js",
+      "legacy_path": "legacy/serena-skills/33-mistral.js",
+      "category": "Design & Media",
+      "description": "Use Mistral AI for image analysis, document reading, and advanced reasoning tasks.",
+      "legacy_triggers": [
+        "MISTRAL ANALYSE:",
+        "ANALYSE IMAGE:",
+        "MISTRAL:",
+        "READ DOCUMENT:",
+        "POST"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "34-voice-out",
+      "number": 34,
+      "name": "Voice Out",
+      "filename": "34-voice-out.js",
+      "legacy_path": "legacy/serena-skills/34-voice-out.js",
+      "category": "Design & Media",
+      "description": "Convert text to speech using Serena\u2019s fixed voice identity and send as audio.",
+      "legacy_triggers": [
+        "SPEAK:",
+        "TTS:",
+        "READ ALOUD:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "35-translate",
+      "number": 35,
+      "name": "Translate",
+      "filename": "35-translate.js",
+      "legacy_path": "legacy/serena-skills/35-translate.js",
+      "category": "Design & Media",
+      "description": "Translate text between English, Afrikaans, Zulu, Xhosa, and Sesotho.",
+      "legacy_triggers": [
+        "TRANSLATE:",
+        "AFRIKAANS:",
+        "VERTAAL:",
+        "TRANSLATE TO:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "36-voice-in",
+      "number": 36,
+      "name": "Voice In",
+      "filename": "36-voice-in.js",
+      "legacy_path": "legacy/serena-skills/36-voice-in.js",
+      "category": "Design & Media",
+      "description": "Transcribe voice notes through Serena\u2019s shared speech-to-text runtime. Auto-transcription remains active for Telegram voice notes.",
+      "legacy_triggers": [
+        "TRANSCRIBE:",
+        "VOICE NOTE:",
+        "VOICE STATUS"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "37-ocr",
+      "number": 37,
+      "name": "Ocr",
+      "filename": "37-ocr.js",
+      "legacy_path": "legacy/serena-skills/37-ocr.js",
+      "category": "Design & Media",
+      "description": "Extract text from uploaded images. Send photo with caption OCR: to activate.",
+      "legacy_triggers": [
+        "SCAN DOC:",
+        "OCR:",
+        "EXTRACT TEXT:",
+        "POST",
+        "MODEL_LOADING"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "38-summarise",
+      "number": 38,
+      "name": "Summarise",
+      "filename": "38-summarise.js",
+      "legacy_path": "legacy/serena-skills/38-summarise.js",
+      "category": "Design & Media",
+      "description": "Summarise URLs, research articles, or pasted text. Extracts key insights.",
+      "legacy_triggers": [
+        "SUMMARISE:",
+        "SUMMARIZE:",
+        "SUMMARIZE URL:",
+        "SUMMARISE URL:",
+        "READ URL:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "39-remove-bg",
+      "number": 39,
+      "name": "Remove Bg",
+      "filename": "39-remove-bg.js",
+      "legacy_path": "legacy/serena-skills/39-remove-bg.js",
+      "category": "Design & Media",
+      "description": "Remove image backgrounds using the Hugging Face RMBG model from Telegram photos, URLs, or local files.",
+      "legacy_triggers": [
+        "REMOVE BG:",
+        "CLEAN IMAGE:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "40-image-caption",
+      "number": 40,
+      "name": "Image Caption",
+      "filename": "40-image-caption.js",
+      "legacy_path": "legacy/serena-skills/40-image-caption.js",
+      "category": "Design & Media",
+      "description": "Generate polished captions and image descriptions from Telegram photos, URLs, or local image paths.",
+      "legacy_triggers": [
+        "CAPTION IMAGE:",
+        "DESCRIBE IMAGE:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "41-vscode",
+      "number": 41,
+      "name": "Vscode",
+      "filename": "41-vscode.js",
+      "legacy_path": "legacy/serena-skills/41-vscode.js",
+      "category": "Development & Infrastructure",
+      "description": "Read, write, and manage files locally or from a GitHub repository.",
+      "legacy_triggers": [
+        "FILE READ:",
+        "FILE WRITE:",
+        "GITHUB CLONE:",
+        "FILE LIST:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "42-automation",
+      "number": 42,
+      "name": "Automation",
+      "filename": "42-automation.js",
+      "legacy_path": "legacy/serena-skills/42-automation.js",
+      "category": "Development & Infrastructure",
+      "description": "Generate weekly and monthly content calendars with full content plans for Dr Piet.",
+      "legacy_triggers": [
+        "SCHEDULE CONTENT:",
+        "MONTHLY CALENDAR:",
+        "CONTENT CALENDAR",
+        "WEEKLY PLAN",
+        "TBD"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "43-clickup",
+      "number": 43,
+      "name": "Clickup",
+      "filename": "43-clickup.js",
+      "legacy_path": "legacy/serena-skills/43-clickup.js",
+      "category": "Development & Infrastructure",
+      "description": "Manage ClickUp workspaces, spaces, folders, lists, tasks, subtasks, and MCP-powered ClickUp queries with resilient MCP\u2192REST fallback routing.",
+      "legacy_triggers": [
+        "CU WORKSPACES:",
+        "CU LIST SPACES:",
+        "CU SPACES:",
+        "CU LIST:",
+        "CU STRUCTURE:",
+        "CU FOLDERS:",
+        "CU LISTS:",
+        "CU CREATE SPACE:",
+        "CU UPDATE SPACE:",
+        "CU DELETE SPACE:",
+        "CU CREATE FOLDER:",
+        "CU UPDATE FOLDER:",
+        "CU DELETE FOLDER:",
+        "CU CREATE LIST:",
+        "CU UPDATE LIST:",
+        "CU DELETE LIST:",
+        "CU LIST TASKS:",
+        "CU TASK:",
+        "TASK:",
+        "CU CREATE TASK:",
+        "CU UPDATE:",
+        "CU DELETE TASK:",
+        "CU SUBTASK:",
+        "CU MCP SEARCH:",
+        "CU MCP REPORT:",
+        "CU MCP COMMENT:",
+        "CU MCP TIME:",
+        "CU ASK:",
+        "CU SETUP",
+        "CU WORKSPACES",
+        "CU LIST SPACES",
+        "CU LIST",
+        "CU STRUCTURE",
+        "CU FOLDERS",
+        "CU LISTS",
+        "CU LIST TASKS"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "44-hubspot",
+      "number": 44,
+      "name": "Hubspot",
+      "filename": "44-hubspot.js",
+      "legacy_path": "legacy/serena-skills/44-hubspot.js",
+      "category": "Development & Infrastructure",
+      "description": "Create HubSpot contacts and deals through the HubSpot CRM API.",
+      "legacy_triggers": [
+        "HUBSPOT CONTACT:",
+        "HUBSPOT DEAL:",
+        "GET",
+        "POST"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "45-payflow",
+      "number": 45,
+      "name": "Payflow",
+      "filename": "45-payflow.js",
+      "legacy_path": "legacy/serena-skills/45-payflow.js",
+      "category": "Development & Infrastructure",
+      "description": "Manage recurring payment plans and subscription workflow summaries for the practice.",
+      "legacy_triggers": [
+        "PAYFLOW:",
+        "SUBSCRIPTION:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "46-database",
+      "number": 46,
+      "name": "Database",
+      "filename": "46-database.js",
+      "legacy_path": "legacy/serena-skills/46-database.js",
+      "category": "Development & Infrastructure",
+      "description": "Run safe read-only SQLite queries and create database backups.",
+      "legacy_triggers": [
+        "DB QUERY:",
+        "DB BACKUP:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "47-health-monitor",
+      "number": 47,
+      "name": "Health Monitor",
+      "filename": "47-health-monitor.js",
+      "legacy_path": "legacy/serena-skills/47-health-monitor.js",
+      "category": "Development & Infrastructure",
+      "description": "Check bot health, uptime, memory, database, and skill status.",
+      "legacy_triggers": [
+        "HEALTH CHECK",
+        "SYSTEM STATUS",
+        "BOT STATUS",
+        "STATUS",
+        "SELECT 1"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "48-notifications",
+      "number": 48,
+      "name": "Notifications",
+      "filename": "48-notifications.js",
+      "legacy_path": "legacy/serena-skills/48-notifications.js",
+      "category": "Development & Infrastructure",
+      "description": "Send instant alerts and manage scheduled notifications via Telegram.",
+      "legacy_triggers": [
+        "NOTIFY:",
+        "ALERT:",
+        "SCHEDULE NOTIFY:",
+        "NOTIFY LIST"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "49-security",
+      "number": 49,
+      "name": "Security",
+      "filename": "49-security.js",
+      "legacy_path": "legacy/serena-skills/49-security.js",
+      "category": "Development & Infrastructure",
+      "description": "Run security checks, view access logs, and audit the system.",
+      "legacy_triggers": [
+        "SECURITY AUDIT",
+        "ACCESS LOG",
+        "SECURITY STATUS",
+        "AUDIT BOT"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "50-deployment",
+      "number": 50,
+      "name": "Deployment",
+      "filename": "50-deployment.js",
+      "legacy_path": "legacy/serena-skills/50-deployment.js",
+      "category": "Development & Infrastructure",
+      "description": "Inspect PM2 state, restart Serena, view logs, and check process inventory.",
+      "legacy_triggers": [
+        "DEPLOY:",
+        "RESTART BOT"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "51-ai-teacher",
+      "number": 51,
+      "name": "Ai Teacher",
+      "filename": "51-ai-teacher.js",
+      "legacy_path": "legacy/serena-skills/51-ai-teacher.js",
+      "category": "Specialized Expertise",
+      "description": "Create lessons, quizzes, and educational content for patients and corporate wellness.",
+      "legacy_triggers": [
+        "CREATE LESSON:",
+        "QUIZ:",
+        "PATIENT EDUCATION:",
+        "TEACH TOPIC:",
+        "HEALTH QUIZ:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "52-corporate-wellness",
+      "number": 52,
+      "name": "Corporate Wellness",
+      "filename": "52-corporate-wellness.js",
+      "legacy_path": "legacy/serena-skills/52-corporate-wellness.js",
+      "category": "Specialized Expertise",
+      "description": "Generate corporate wellness proposals, talk outlines, and B2B packages for Dr Piet.",
+      "legacy_triggers": [
+        "WELLNESS PROGRAM:",
+        "B2B LEAD:",
+        "CORPORATE PROPOSAL:",
+        "WELLNESS TALK:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "53-affiliate",
+      "number": 53,
+      "name": "Affiliate",
+      "filename": "53-affiliate.js",
+      "legacy_path": "legacy/serena-skills/53-affiliate.js",
+      "category": "Specialized Expertise",
+      "description": "Generate affiliate product shortlists, compliant copy, and product link guidance.",
+      "legacy_triggers": [
+        "PRODUCT LINKS:",
+        "AFFILIATE PRODUCTS"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "54-video-edit",
+      "number": 54,
+      "name": "Video Edit",
+      "filename": "54-video-edit.js",
+      "legacy_path": "legacy/serena-skills/54-video-edit.js",
+      "category": "Specialized Expertise",
+      "description": "Create edit briefs and caption files for videos so Serena can support a real post-production workflow.",
+      "legacy_triggers": [
+        "EDIT VIDEO:",
+        "AUTO CAPTION:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "55-Research",
+      "number": 55,
+      "name": "Research",
+      "filename": "55-Research.js",
+      "legacy_path": "legacy/serena-skills/55-Research.js",
+      "category": "Specialized Expertise",
+      "description": "FIX: removed fictional 'medical-research-api' package \u2014 replaced with native https module const https = require('https'); module.exports = { name: 'fetch_medical_research', description: `Create a module that interfaces with PubMed API and various web sources to retrieve recent clinical trials, systematic reviews related directly within the South African context. The information feeds into 06-notebook for grounded evidence-based medical advice.`, triggers: ['research-fetch', 'systematic-review-fi",
+      "legacy_triggers": [
+        "PUBMED"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "56-CrmSync",
+      "number": 56,
+      "name": "Crmsync",
+      "filename": "56-CrmSync.js",
+      "legacy_path": "legacy/serena-skills/56-CrmSync.js",
+      "category": "Specialized Expertise",
+      "description": "Sync patient records between local DB, ClickUp, and Google Sheets.",
+      "legacy_triggers": [
+        "CRM SYNC:",
+        "IMPORT CSV:",
+        "SYNC PATIENTS"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "57-LabResultsInterpreter",
+      "number": 57,
+      "name": "Labresultsinterpreter",
+      "filename": "57-LabResultsInterpreter.js",
+      "legacy_path": "legacy/serena-skills/57-LabResultsInterpreter.js",
+      "category": "Specialized Expertise",
+      "description": "Interpret lab result images and provide plain-language explanations.",
+      "legacy_triggers": [
+        "INTERPRET LAB:",
+        "LAB RESULTS:",
+        "READ LAB:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "58-ApptReminders",
+      "number": 58,
+      "name": "Apptreminders",
+      "filename": "58-ApptReminders.js",
+      "legacy_path": "legacy/serena-skills/58-ApptReminders.js",
+      "category": "Specialized Expertise",
+      "description": "Preview, queue, and monitor appointment reminders for upcoming consultations.",
+      "legacy_triggers": [
+        "TEST REMINDER:",
+        "SEND REMINDERS",
+        "REMINDER STATUS"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "59-ContentRepurposeEngine",
+      "number": 59,
+      "name": "Contentrepurposeengine",
+      "filename": "59-ContentRepurposeEngine.js",
+      "legacy_path": "legacy/serena-skills/59-ContentRepurposeEngine.js",
+      "category": "Specialized Expertise",
+      "description": "Transform one piece of content into blog posts, social captions, newsletter sections, and more.",
+      "legacy_triggers": [
+        "REPURPOSE:",
+        "CONTENT VARIANTS:",
+        "REPURPOSE CONTENT:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "60-browser",
+      "number": 60,
+      "name": "Browser",
+      "filename": "60-browser.js",
+      "legacy_path": "legacy/serena-skills/60-browser.js",
+      "category": "Specialized Expertise",
+      "description": "Headless browser \u2014 screenshot, scrape, and interact with any website.",
+      "legacy_triggers": [
+        "SCREENSHOT:",
+        "BROWSE:",
+        "SCRAPE PAGE:",
+        "FILL FORM:",
+        "BROWSER:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "61-web-search",
+      "number": 61,
+      "name": "Web Search",
+      "filename": "61-web-search.js",
+      "legacy_path": "legacy/serena-skills/61-web-search.js",
+      "category": "Specialized Expertise",
+      "description": "Delegates live research and page extraction requests to the unified research operator.",
+      "legacy_triggers": [
+        "WEB SEARCH:",
+        "SEARCH:",
+        "FIND NEWS:",
+        "RESEARCH:",
+        "RESEARCH PAGE:",
+        "RESEARCH COMPARE:",
+        "COMPETITOR:",
+        "RESEARCH STATUS",
+        "SEARCH STATUS",
+        "SEARXNG STATUS"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "62-memory",
+      "number": 62,
+      "name": "Memory",
+      "filename": "62-memory.js",
+      "legacy_path": "legacy/serena-skills/62-memory.js",
+      "category": "Specialized Expertise",
+      "description": "Store and recall structured facts across sessions \u2014 preferences, business rules, people, and project state.",
+      "legacy_triggers": [
+        "REMEMBER:",
+        "RECALL:",
+        "FORGET:",
+        "MEMORY LIST"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "63-files",
+      "number": 63,
+      "name": "Files",
+      "filename": "63-files.js",
+      "legacy_path": "legacy/serena-skills/63-files.js",
+      "category": "Specialized Expertise",
+      "description": "Read, write, and list files in allowed directories via MCP filesystem server.",
+      "legacy_triggers": [
+        "MCP FILE READ:",
+        "MCP FILE WRITE:",
+        "MCP DIR:",
+        "MCP FILE SEARCH:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "64-github",
+      "number": 64,
+      "name": "Github",
+      "filename": "64-github.js",
+      "legacy_path": "legacy/serena-skills/64-github.js",
+      "category": "Specialized Expertise",
+      "description": "Create GitHub issues, read code, log feature requests, and manage the Serena repo.",
+      "legacy_triggers": [
+        "GITHUB ISSUE:",
+        "GITHUB READ:",
+        "CODE REQUEST:",
+        "BUG REPORT:",
+        "GITHUB STATUS"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "65-location",
+      "number": 65,
+      "name": "Location",
+      "filename": "65-location.js",
+      "legacy_path": "legacy/serena-skills/65-location.js",
+      "category": "Specialized Expertise",
+      "description": "Find SA clinics, pharmacies, specialists, and calculate distances via Google Maps MCP.",
+      "legacy_triggers": [
+        "FIND NEARBY:",
+        "DIRECTIONS:",
+        "LOCATE:",
+        "MAP SEARCH:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "66-mcp-status",
+      "number": 66,
+      "name": "Mcp Status",
+      "filename": "66-mcp-status.js",
+      "legacy_path": "legacy/serena-skills/66-mcp-status.js",
+      "category": "Specialized Expertise",
+      "description": "View all connected MCP servers, browse available tools, and call tools directly.",
+      "legacy_triggers": [
+        "MCP TOOLS:",
+        "MCP CALL:",
+        "MCP STATUS"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "67-documents",
+      "number": 67,
+      "name": "Documents",
+      "filename": "67-documents.js",
+      "legacy_path": "legacy/serena-skills/67-documents.js",
+      "category": "Specialized Expertise",
+      "description": "Create Word, Excel, and PDF files, send them to Telegram, and upload them to Google Drive.",
+      "legacy_triggers": [
+        "CREATE PDF:",
+        "CREATE WORD:",
+        "CREATE DOCX:",
+        "CREATE EXCEL:",
+        "CREATE XLSX:",
+        "EXPORT PDF:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "68-autonomous-mode",
+      "number": 68,
+      "name": "Autonomous Mode",
+      "filename": "68-autonomous-mode.js",
+      "legacy_path": "legacy/serena-skills/68-autonomous-mode.js",
+      "category": "Advanced Business Automation",
+      "description": "Owner-controlled autonomous monitoring and approval queue management.",
+      "legacy_triggers": [
+        "AUTO ON",
+        "AUTO OFF",
+        "AUTO STATUS",
+        "AUTO REPORT",
+        "PENDING",
+        "CLEAR PENDING"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "69-monetization-orchestrator",
+      "number": 69,
+      "name": "Monetization Orchestrator",
+      "filename": "69-monetization-orchestrator.js",
+      "legacy_path": "legacy/serena-skills/69-monetization-orchestrator.js",
+      "category": "Advanced Business Automation",
+      "description": "Builds monetization plans, revenue priorities, and growth actions for drpiet.co.za.",
+      "legacy_triggers": [
+        "MONETIZATION PLAN:",
+        "REVENUE PLAN:",
+        "MONETIZATION STATUS",
+        "REVENUE ACTIONS"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "70-conversion-optimizer",
+      "number": 70,
+      "name": "Conversion Optimizer",
+      "filename": "70-conversion-optimizer.js",
+      "legacy_path": "legacy/serena-skills/70-conversion-optimizer.js",
+      "category": "Advanced Business Automation",
+      "description": "Audits conversion leaks, improves CTAs, and produces funnel fixes for high-intent pages.",
+      "legacy_triggers": [
+        "CRO AUDIT:",
+        "CONVERSION FIX:",
+        "CTA PLAN:",
+        "FUNNEL FIX:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "71-digital-products",
+      "number": 71,
+      "name": "Digital Products",
+      "filename": "71-digital-products.js",
+      "legacy_path": "legacy/serena-skills/71-digital-products.js",
+      "category": "Advanced Business Automation",
+      "description": "Designs paid health products, launch funnels, and optional WordPress product landing pages.",
+      "legacy_triggers": [
+        "DIGITAL PRODUCT:",
+        "PRODUCT LAUNCH:",
+        "PRODUCT PAGE:",
+        "PRODUCT CATALOG"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "72-affiliate-engine",
+      "number": 72,
+      "name": "Affiliate Engine",
+      "filename": "72-affiliate-engine.js",
+      "legacy_path": "legacy/serena-skills/72-affiliate-engine.js",
+      "category": "Advanced Business Automation",
+      "description": "Builds compliant affiliate and partner revenue plans, pages, and offer shortlists.",
+      "legacy_triggers": [
+        "AFFILIATE ENGINE:",
+        "PARTNER OFFERS:",
+        "AFFILIATE PLAN:",
+        "AFFILIATE PAGE:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "73-website-revenue-audit",
+      "number": 73,
+      "name": "Website Revenue Audit",
+      "filename": "73-website-revenue-audit.js",
+      "legacy_path": "legacy/serena-skills/73-website-revenue-audit.js",
+      "category": "Advanced Business Automation",
+      "description": "Audits a site for monetization readiness, missing pages, and revenue journey gaps.",
+      "legacy_triggers": [
+        "REVENUE AUDIT:",
+        "SITE MONETIZATION:",
+        "MONETIZATION AUDIT:",
+        "WEBSITE REVENUE AUDIT"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "74-freelance-services",
+      "number": 74,
+      "name": "Freelance Services",
+      "filename": "74-freelance-services.js",
+      "legacy_path": "legacy/serena-skills/74-freelance-services.js",
+      "category": "Advanced Business Automation",
+      "description": "Packages freelance and professional services into sellable offers, pricing, and sales assets.",
+      "legacy_triggers": [
+        "FREELANCE SERVICE:",
+        "SERVICE PACKAGE:",
+        "REMOTE OFFER:",
+        "CLIENT SERVICE:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "75-agency-offers",
+      "number": 75,
+      "name": "Agency Offers",
+      "filename": "75-agency-offers.js",
+      "legacy_path": "legacy/serena-skills/75-agency-offers.js",
+      "category": "Advanced Business Automation",
+      "description": "Builds agency-style service packages, delivery systems, and proposal structures.",
+      "legacy_triggers": [
+        "AGENCY OFFER:",
+        "AGENCY PACKAGE:",
+        "CONSULTING OFFER:",
+        "SERVICE PROPOSAL:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "75-research-operator",
+      "number": 75,
+      "name": "Research Operator",
+      "filename": "75-research-operator.js",
+      "legacy_path": "legacy/serena-skills/75-research-operator.js",
+      "category": "Advanced Business Automation",
+      "description": "Search the web, inspect websites, extract content, compare sources, and return grounded research summaries.",
+      "legacy_triggers": [
+        "RESEARCH:",
+        "RESEARCH PAGE:",
+        "RESEARCH COMPARE:",
+        "RESEARCH STATUS",
+        "SEARCH STATUS",
+        "SEARXNG STATUS"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "76-knowledge-business",
+      "number": 76,
+      "name": "Knowledge Business",
+      "filename": "76-knowledge-business.js",
+      "legacy_path": "legacy/serena-skills/76-knowledge-business.js",
+      "category": "Advanced Business Automation",
+      "description": "Builds courses, newsletters, memberships, and knowledge-product business models.",
+      "legacy_triggers": [
+        "KNOWLEDGE BUSINESS:",
+        "COURSE PLAN:",
+        "NEWSLETTER BUSINESS:",
+        "MEMBERSHIP MODEL:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "77-ecommerce-operations",
+      "number": 77,
+      "name": "Ecommerce Operations",
+      "filename": "77-ecommerce-operations.js",
+      "legacy_path": "legacy/serena-skills/77-ecommerce-operations.js",
+      "category": "Advanced Business Automation",
+      "description": "Designs ecommerce business models, catalogs, launch stacks, and operating checklists.",
+      "legacy_triggers": [
+        "ECOMMERCE OPS:",
+        "STORE PLAN:",
+        "PRODUCT OPS:",
+        "SHOP STRATEGY:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "78-fullstack-builder",
+      "number": 78,
+      "name": "Fullstack Builder",
+      "filename": "78-fullstack-builder.js",
+      "legacy_path": "legacy/serena-skills/78-fullstack-builder.js",
+      "category": "Advanced Business Automation",
+      "description": "Designs production-ready website and app architecture, route maps, API plans, and build packs.",
+      "legacy_triggers": [
+        "FULLSTACK BUILD:",
+        "APP PLAN:",
+        "WEBSITE BUILD:",
+        "SAAS BUILD:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "79-uiux-architect",
+      "number": 79,
+      "name": "Uiux Architect",
+      "filename": "79-uiux-architect.js",
+      "legacy_path": "legacy/serena-skills/79-uiux-architect.js",
+      "category": "Advanced Business Automation",
+      "description": "Designs product UX flows, screen systems, visual direction, and conversion-aware interfaces.",
+      "legacy_triggers": [
+        "UIUX ARCHITECT:",
+        "LANDING PAGE UX:",
+        "APP UX:",
+        "DESIGN SYSTEM:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "80-dependency-manager",
+      "number": 80,
+      "name": "Dependency Manager",
+      "filename": "80-dependency-manager.js",
+      "legacy_path": "legacy/serena-skills/80-dependency-manager.js",
+      "category": "Advanced Business Automation",
+      "description": "Reviews project stack, identifies package gaps, and prepares owner-safe dependency plans.",
+      "legacy_triggers": [
+        "DEPENDENCY PLAN:",
+        "STACK CHECK:",
+        "PACKAGE GAP:",
+        "INSTALL REVIEW:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "81-project-scaffold",
+      "number": 81,
+      "name": "Project Scaffold",
+      "filename": "81-project-scaffold.js",
+      "legacy_path": "legacy/serena-skills/81-project-scaffold.js",
+      "category": "Advanced Business Automation",
+      "description": "Creates project blueprints and can write scaffold artifact packs for apps and websites.",
+      "legacy_triggers": [
+        "PROJECT SCAFFOLD:",
+        "SCAFFOLD APP:",
+        "SCAFFOLD SITE:",
+        "STACK BLUEPRINT:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "82-app-launch-manager",
+      "number": 82,
+      "name": "App Launch Manager",
+      "filename": "82-app-launch-manager.js",
+      "legacy_path": "legacy/serena-skills/82-app-launch-manager.js",
+      "category": "Advanced Business Automation",
+      "description": "Creates launch readiness plans, deployment checklists, rollback plans, and post-launch monitoring packs.",
+      "legacy_triggers": [
+        "APP LAUNCH:",
+        "LAUNCH CHECKLIST:",
+        "DEPLOYMENT PLAN:",
+        "GO LIVE:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "83-vscode-builder",
+      "number": 83,
+      "name": "Vscode Builder",
+      "filename": "83-vscode-builder.js",
+      "legacy_path": "legacy/serena-skills/83-vscode-builder.js",
+      "category": "Advanced Business Automation",
+      "description": "Hybrid VS Code builder that can scaffold apps, agents, services, AI projects, and cloud-native workspaces using local execution plus MCP context.",
+      "legacy_triggers": [
+        "BUILD APP:",
+        "BUILD AGENT:",
+        "BUILD BACKEND:",
+        "BUILD MOBILE APP:",
+        "BUILD DESKTOP APP:",
+        "BUILD AI APP:",
+        "BUILD CLOUD APP:",
+        "ANALYZE PROJECT:",
+        "PATCH WORKSPACE:",
+        "RUN WORKSPACE:",
+        "CREATE TEMPLATE:",
+        "VSCODE BUILDER STATUS"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "84-github-orchestrator",
+      "number": 84,
+      "name": "Github Orchestrator",
+      "filename": "84-github-orchestrator.js",
+      "legacy_path": "legacy/serena-skills/84-github-orchestrator.js",
+      "category": "Advanced Business Automation",
+      "description": "Shared GitHub platform layer for saving Serena artifacts, content packs, WordPress source files, and build outputs.",
+      "legacy_triggers": [
+        "GITHUB SAVE ARTIFACT:",
+        "GITHUB PLATFORM STATUS",
+        "GITHUB REPO MAP"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "85-esignature",
+      "number": 85,
+      "name": "Esignature",
+      "filename": "85-esignature.js",
+      "legacy_path": "legacy/serena-skills/85-esignature.js",
+      "category": "Advanced Business Automation",
+      "description": "Prepare, preview, request, remind, archive, and cancel DocuSeal signature workflows safely.",
+      "legacy_triggers": [
+        "SIGNATURE REQUEST:",
+        "ESIGN:",
+        "SIGN PDF:",
+        "SIGNATURE STATUS:",
+        "SIGNATURE REMINDER:",
+        "SIGNATURE ARCHIVE:",
+        "SIGNATURE CANCEL:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "98-lead-funnel",
+      "number": 98,
+      "name": "Lead Funnel",
+      "filename": "98-lead-funnel.js",
+      "legacy_path": "legacy/serena-skills/98-lead-funnel.js",
+      "category": "System & Evolution",
+      "description": "Lead magnets, email sequences, patient acquisition funnels",
+      "legacy_triggers": [
+        "LEAD MAGNET:",
+        "WELCOME SEQUENCE:",
+        "ABANDONED BOOKING:",
+        "PATIENT FUNNEL:",
+        "RE-ENGAGE:"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    },
+    {
+      "id": "99-self-evolve",
+      "number": 99,
+      "name": "Self Evolve",
+      "filename": "99-self-evolve.js",
+      "legacy_path": "legacy/serena-skills/99-self-evolve.js",
+      "category": "System & Evolution",
+      "description": "Design, validate, register, hot-reload, test, and rollback Serena skills.",
+      "legacy_triggers": [
+        "EVOLVE:",
+        "ACTIVATE SKILL:",
+        "TEST SKILL:",
+        "ROLLBACK SKILL:",
+        "GAP ANALYSIS",
+        "SKILL STATUS"
+      ],
+      "status": "imported_legacy",
+      "native_tool_status": "pending_conversion",
+      "safety_level": "standard",
+      "requires_approval": false
+    }
+  ]
+}

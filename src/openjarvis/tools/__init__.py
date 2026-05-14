@@ -142,3 +142,22 @@ except ImportError:
     pass
 
 __all__ = ["BaseTool", "ToolExecutor", "ToolSpec"]
+
+# Serena native WordPress tools
+import openjarvis.tools.serena_wordpress  # noqa: F401
+import openjarvis.tools.serena_documents  # noqa: F401
+import openjarvis.tools.serena_files  # noqa: F401
+import openjarvis.tools.serena_vscode  # noqa: F401
+import openjarvis.tools.serena_vscode_builder  # noqa: F401
+import openjarvis.tools.serena_github  # noqa: F401
+import openjarvis.tools.serena_health_monitor  # noqa: F401
+import openjarvis.tools.serena_gdrive  # noqa: F401
+import openjarvis.tools.serena_google_docs  # noqa: F401
+import openjarvis.tools.serena_ocr  # noqa: F401
+import openjarvis.tools.serena_google_calendar  # noqa: F401
+import openjarvis.tools.serena_compliance  # noqa: F401
+import openjarvis.tools.serena_reporting  # noqa: F401
+import openjarvis.tools.serena_analytics  # noqa: F401
+import openjarvis.tools.serena_accounting  # noqa: F401
+import openjarvis.tools.serena_bookings  # noqa: F401
+import openjarvis.tools.serena_membership  # noqa: F401

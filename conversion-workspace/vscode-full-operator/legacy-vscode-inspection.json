@@ -1,0 +1,27 @@
+{
+  "legacy_file": "legacy\\serena-skills\\41-vscode.js",
+  "line_count": 197,
+  "character_count": 7262,
+  "function_names": [
+    "cleanup"
+  ],
+  "dependencies": [
+    "../helpers/logger",
+    "child_process",
+    "fs",
+    "path"
+  ],
+  "status": "inspected",
+  "target_native_skill": "Serena VS Code Full Operator v1",
+  "target_workflow": [
+    "detect VS Code availability",
+    "open project folders",
+    "inspect project files",
+    "run safe diagnostics",
+    "read workspace structure",
+    "create developer reports",
+    "snapshot files before edits",
+    "support approved Serena project roots",
+    "avoid destructive edits without approval"
+  ]
+}

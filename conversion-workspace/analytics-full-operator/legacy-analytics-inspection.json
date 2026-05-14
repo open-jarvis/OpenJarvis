@@ -1,0 +1,411 @@
+{
+  "status": "inspected",
+  "target_native_skill": "Serena Analytics Full Operator v1",
+  "missing_files": [
+    "legacy\\serena-skills\\13-wordpress.js"
+  ],
+  "files": [
+    {
+      "file": "legacy\\serena-skills\\12-analytics.js",
+      "exists": true,
+      "line_count": 134,
+      "character_count": 5395,
+      "triggers": [
+        "ANALYTICS REPORT",
+        "N/A",
+        "SITE ANALYTICS"
+      ],
+      "function_names": [
+        "fetchTelemetrySummary",
+        "fetchWooMetrics"
+      ],
+      "dependencies": [
+        "../helpers/logger",
+        "../helpers/revenue-engine"
+      ],
+      "analytics_terms": [
+        "analytics",
+        "booking",
+        "export",
+        "json",
+        "metric",
+        "page",
+        "report",
+        "revenue",
+        "summary",
+        "woocommerce",
+        "wordpress"
+      ],
+      "env_mentions": [
+        "ANALYTICS",
+        "WOOCOMMERCE_KEY",
+        "WOOCOMMERCE_SECRET",
+        "WORDPRESS_URL"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\73-website-revenue-audit.js",
+      "exists": true,
+      "line_count": 108,
+      "character_count": 3956,
+      "triggers": [
+        "MONETIZATION AUDIT:",
+        "REVENUE AUDIT:",
+        "SITE MONETIZATION:",
+        "WEBSITE REVENUE AUDIT"
+      ],
+      "function_names": [
+        "formatAudit",
+        "formatOutputSync"
+      ],
+      "dependencies": [
+        "../helpers/github-content-sync",
+        "../helpers/logger",
+        "../helpers/revenue-engine"
+      ],
+      "analytics_terms": [
+        "audit",
+        "export",
+        "json",
+        "meta",
+        "page",
+        "revenue",
+        "summary",
+        "wordpress"
+      ],
+      "env_mentions": [
+        "WORDPRESS_URL"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\17-newsletter.js",
+      "exists": true,
+      "line_count": 120,
+      "character_count": 5433,
+      "triggers": [
+        "HEALTH NEWSLETTER:",
+        "NEWSLETTER:",
+        "WEEKLY NEWSLETTER"
+      ],
+      "function_names": [
+        "shouldSend"
+      ],
+      "dependencies": [
+        "../helpers/logger",
+        "nodemailer"
+      ],
+      "analytics_terms": [
+        "export"
+      ],
+      "env_mentions": []
+    },
+    {
+      "file": "legacy\\serena-skills\\19-email-marketing.js",
+      "exists": true,
+      "line_count": 131,
+      "character_count": 5140,
+      "triggers": [
+        "EMAIL CAMPAIGN:",
+        "EMAIL DRAFT:"
+      ],
+      "function_names": [],
+      "dependencies": [
+        "../helpers/logger",
+        "nodemailer"
+      ],
+      "analytics_terms": [
+        "campaign",
+        "export",
+        "google"
+      ],
+      "env_mentions": [
+        "API"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\02-reporting.js",
+      "exists": true,
+      "line_count": 105,
+      "character_count": 3818,
+      "triggers": [
+        "KPI REPORT",
+        "MORNING BRIEF",
+        "WEEKLY REPORT"
+      ],
+      "function_names": [],
+      "dependencies": [
+        "../helpers/logger"
+      ],
+      "analytics_terms": [
+        "booking",
+        "dashboard",
+        "export",
+        "google",
+        "kpi",
+        "metric",
+        "report",
+        "revenue",
+        "summary",
+        "woocommerce"
+      ],
+      "env_mentions": []
+    },
+    {
+      "file": "legacy\\serena-skills\\25-compliance.js",
+      "exists": true,
+      "line_count": 98,
+      "character_count": 4160,
+      "triggers": [
+        "ANALYSE CONTENT:",
+        "COMPLIANCE CHECK:",
+        "FULL COMPLIANCE:",
+        "HPCSA CHECK:"
+      ],
+      "function_names": [],
+      "dependencies": [
+        "../helpers/logger"
+      ],
+      "analytics_terms": [
+        "export",
+        "impression",
+        "meta",
+        "report"
+      ],
+      "env_mentions": [
+        "META"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\03-gdrive.js",
+      "exists": true,
+      "line_count": 96,
+      "character_count": 3508,
+      "triggers": [
+        "DRIVE FOLDER:",
+        "DRIVE LIST:",
+        "DRIVE SAVE:",
+        "DRIVE UPLOAD:"
+      ],
+      "function_names": [],
+      "dependencies": [
+        "../helpers/google-drive",
+        "../helpers/logger"
+      ],
+      "analytics_terms": [
+        "export",
+        "google"
+      ],
+      "env_mentions": []
+    },
+    {
+      "file": "legacy\\serena-skills\\08-google-docs.js",
+      "exists": true,
+      "line_count": 100,
+      "character_count": 3259,
+      "triggers": [
+        "CREATE DOC:",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        "GOOGLE_REFRESH_TOKEN",
+        "UPDATE DOC:"
+      ],
+      "function_names": [
+        "generateDocContent",
+        "parsePayload",
+        "replaceExisting"
+      ],
+      "dependencies": [
+        "../helpers/google-docs-service",
+        "../helpers/logger"
+      ],
+      "analytics_terms": [
+        "export",
+        "google"
+      ],
+      "env_mentions": [
+        "GOOGLE",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        "GOOGLE_REFRESH_TOKEN"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\43-clickup.js",
+      "exists": true,
+      "line_count": 840,
+      "character_count": 35816,
+      "triggers": [
+        "CU ASK:",
+        "CU CREATE FOLDER:",
+        "CU CREATE LIST:",
+        "CU CREATE SPACE:",
+        "CU CREATE TASK:",
+        "CU DELETE FOLDER:",
+        "CU DELETE LIST:",
+        "CU DELETE SPACE:",
+        "CU DELETE TASK:",
+        "CU FOLDERS",
+        "CU FOLDERS:",
+        "CU LIST",
+        "CU LIST SPACES",
+        "CU LIST SPACES:",
+        "CU LIST TASKS",
+        "CU LIST TASKS:",
+        "CU LIST:",
+        "CU LISTS",
+        "CU LISTS:",
+        "CU MCP COMMENT:",
+        "CU MCP REPORT:",
+        "CU MCP SEARCH:",
+        "CU MCP TIME:",
+        "CU SETUP",
+        "CU SPACES:",
+        "CU STRUCTURE",
+        "CU STRUCTURE:",
+        "CU SUBTASK:",
+        "CU TASK:",
+        "CU UPDATE FOLDER:",
+        "CU UPDATE LIST:",
+        "CU UPDATE SPACE:",
+        "CU UPDATE:",
+        "CU WORKSPACES",
+        "CU WORKSPACES:",
+        "TASK:"
+      ],
+      "function_names": [
+        "buildRestFallback",
+        "configMessage",
+        "formatMcpResultForTelegram",
+        "formatRestFallback",
+        "formatSingleMcpItem",
+        "formatSpaces",
+        "formatTimestamp",
+        "formatTree",
+        "formatWorkspaces",
+        "humanizeHierarchy",
+        "inferMcpIntent",
+        "isConfigured",
+        "maybeCallClickUpMcp",
+        "mergeRequest",
+        "normalizeTriggerPayload",
+        "parseLooseFields",
+        "parseOperationRequest",
+        "resolveFolder",
+        "resolveList",
+        "resolveSpace",
+        "resolveTask",
+        "resolveWorkspaceId",
+        "safeParseMcpJson",
+        "sanitizeLine",
+        "searchTasksAcrossWorkspace",
+        "stripCodeFences",
+        "summarizeItem"
+      ],
+      "dependencies": [
+        "../helpers/clickup",
+        "../helpers/clickup-mcp",
+        "../helpers/logger",
+        "../helpers/structured-output"
+      ],
+      "analytics_terms": [
+        "export",
+        "json",
+        "report",
+        "summary"
+      ],
+      "env_mentions": [
+        "API",
+        "CLICKUP_API_KEY",
+        "SEARCH"
+      ]
+    },
+    {
+      "file": "legacy\\serena-skills\\09-finance.js",
+      "exists": true,
+      "line_count": 171,
+      "character_count": 6730,
+      "triggers": [
+        "GENERATE INVOICE:",
+        "INVOICE SUMMARY",
+        "PAID",
+        "PENDING",
+        "RECORD PAYMENT:"
+      ],
+      "function_names": [
+        "totalAmount",
+        "vatAmount"
+      ],
+      "dependencies": [
+        "../helpers/logger",
+        "../helpers/structured-output"
+      ],
+      "analytics_terms": [
+        "export",
+        "json",
+        "summary"
+      ],
+      "env_mentions": []
+    }
+  ],
+  "target_workflow": [
+    "status",
+    "env-check",
+    "plan",
+    "source-list",
+    "source-info",
+    "from-json",
+    "from-file",
+    "from-folder",
+    "snapshot",
+    "compare",
+    "wordpress-plan",
+    "wordpress-summary",
+    "ga4-plan",
+    "website-summary",
+    "gbp-env-check",
+    "gbp-plan",
+    "gbp-summary",
+    "gbp-keywords",
+    "meta-env-check",
+    "facebook-pages",
+    "facebook-page-summary",
+    "social-summary",
+    "business-overview",
+    "marketing-funnel",
+    "content-performance",
+    "recommendations",
+    "audit",
+    "blocked-token-exposure",
+    "blocked-unapproved-posting",
+    "blocked-sensitive-export"
+  ],
+  "hub_adapter": {
+    "future_widgets": [
+      "analytics_overview_widget",
+      "website_analytics_widget",
+      "facebook_page_analytics_widget",
+      "google_business_profile_widget",
+      "content_performance_widget",
+      "marketing_funnel_widget",
+      "recommendations_widget",
+      "analytics_export_status_widget"
+    ],
+    "future_events": [
+      "analytics_snapshot_created",
+      "analytics_report_created",
+      "analytics_warning_created",
+      "analytics_export_blocked",
+      "analytics_source_connected",
+      "analytics_audit_completed"
+    ],
+    "operator_state": [
+      "current_business_id",
+      "current_analytics_source",
+      "current_asset_id",
+      "current_date_range",
+      "current_metric_set",
+      "current_report_path",
+      "current_required_approval"
+    ]
+  }
+}

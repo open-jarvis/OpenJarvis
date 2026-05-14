@@ -1,0 +1,29 @@
+{
+  "legacy_file": "legacy\\serena-skills\\67-documents.js",
+  "line_count": 145,
+  "character_count": 5333,
+  "function_names": [
+    "deriveTitleAndBrief",
+    "extractJsonBlock",
+    "generateNarrative",
+    "generateWorkbookData"
+  ],
+  "dependencies": [
+    "../helpers/document-service",
+    "../helpers/logger"
+  ],
+  "status": "inspected",
+  "target_native_skill": "Serena Documents Full Operator v1",
+  "target_workflow": [
+    "find documents",
+    "read supported files",
+    "extract text",
+    "summarize",
+    "classify",
+    "inspect quality",
+    "generate reports",
+    "organize outputs",
+    "protect originals",
+    "audit document library"
+  ]
+}
