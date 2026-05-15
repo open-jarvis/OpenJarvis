@@ -61,17 +61,30 @@ export interface MessageTelemetry {
   suggested_max_tokens?: number;
 }
 
+export interface TimeRange {
+  start?: string;
+  end?: string;
+}
+
 export interface ResearchSearchTrace {
   id: string;
   query: string;
   person?: string;
+  timeRange?: TimeRange | string;
   status: 'pending' | 'complete';
   numHits?: number;
   topTitles?: string[];
 }
 
 export type ResearchEvent =
-  | { type: 'search_call'; arguments: { query: string; person?: string } }
+  | {
+      type: 'search_call';
+      arguments: {
+        query: string;
+        person?: string;
+        time_range?: TimeRange | string;
+      };
+    }
   | { type: 'search_result'; num_hits: number; top_titles?: string[] }
   | { type: 'synthesis'; text: string }
   | { type: 'done' };
@@ -83,6 +96,7 @@ export interface ChatMessage {
   timestamp: number;
   toolCalls?: ToolCallInfo[];
   researchTraces?: ResearchSearchTrace[];
+  isResearch?: boolean;
   usage?: TokenUsage;
   telemetry?: MessageTelemetry;
   audio?: { url: string };

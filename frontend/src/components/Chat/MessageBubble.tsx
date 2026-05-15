@@ -8,7 +8,7 @@ import 'katex/dist/katex.min.css';
 import { Copy, Check } from 'lucide-react';
 import { AudioPlayer } from './AudioPlayer';
 import { ToolCallCard } from './ToolCallCard';
-import { ResearchTraceCard } from './ResearchTraceCard';
+import { ResearchTimeline } from './ResearchTimeline';
 import { XRayFooter } from './XRayFooter';
 import type { ChatMessage } from '../../types';
 
@@ -20,6 +20,7 @@ function stripThinkTags(text: string): string {
 
 interface Props {
   message: ChatMessage;
+  isLive?: boolean;
 }
 
 function getTextContent(node: any): string {
@@ -98,7 +99,7 @@ function CopyMessageButton({ content }: { content: string }) {
   );
 }
 
-export function MessageBubble({ message }: Props) {
+export function MessageBubble({ message, isLive = false }: Props) {
   const isUser = message.role === 'user';
 
   if (isUser) {
@@ -124,13 +125,13 @@ export function MessageBubble({ message }: Props) {
 
   return (
     <div className="group mb-6">
-      {/* Deep Research search traces */}
-      {message.researchTraces && message.researchTraces.length > 0 && (
-        <div className="mb-3 flex flex-col gap-1.5">
-          {message.researchTraces.map((tr) => (
-            <ResearchTraceCard key={tr.id} trace={tr} />
-          ))}
-        </div>
+      {/* Deep Research timeline (steps + status) */}
+      {(message.isResearch || (message.researchTraces && message.researchTraces.length > 0)) && (
+        <ResearchTimeline
+          traces={message.researchTraces ?? []}
+          isLive={isLive}
+          hasContent={cleanContent.length > 0}
+        />
       )}
 
       {/* Tool calls */}
@@ -164,7 +165,11 @@ export function MessageBubble({ message }: Props) {
       <div className="flex items-center gap-2 mt-1.5">
         <CopyMessageButton content={cleanContent} />
       </div>
-      <XRayFooter usage={message.usage} telemetry={message.telemetry} />
+      <XRayFooter
+        usage={message.usage}
+        telemetry={message.telemetry}
+        isResearch={message.isResearch}
+      />
     </div>
   );
 }

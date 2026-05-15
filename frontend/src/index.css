@@ -708,3 +708,12 @@
   --color-background: var(--background);
   /* Keep project radius tokens — don't override with shadcn calc values */
 }
+
+/* Deep Research timeline — pending-step shimmer */
+@keyframes openjarvis-research-shimmer {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(420%); }
+}
+.research-shimmer {
+  animation: openjarvis-research-shimmer 1.6s ease-in-out infinite;
+}

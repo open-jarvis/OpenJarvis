@@ -122,6 +122,7 @@ export function InputArea() {
       role: 'assistant',
       content: '',
       timestamp: Date.now(),
+      isResearch: deepResearch || undefined,
     };
     addMessage(convId, assistantMsg);
 
@@ -167,6 +168,7 @@ export function InputArea() {
               id: generateId(),
               query: ev.arguments?.query ?? '',
               person: ev.arguments?.person,
+              timeRange: ev.arguments?.time_range,
               status: 'pending',
             };
             researchTraces.push(trace);
