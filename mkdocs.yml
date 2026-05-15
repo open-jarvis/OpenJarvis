@@ -183,7 +183,7 @@ nav:
       - Scheduler: user-guide/scheduler.md
       - Telemetry: user-guide/telemetry.md
       - Security: user-guide/security.md
-      - Learning & Distillation: user-guide/learning-distillation.md
+      - LLM-guided spec search: user-guide/llm-guided-spec-search.md
   - Leaderboard: leaderboard.md
   - Roadmap: development/roadmap.md
   - Development:

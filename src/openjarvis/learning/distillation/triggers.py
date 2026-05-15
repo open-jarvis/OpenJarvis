@@ -17,7 +17,7 @@ from openjarvis.learning.distillation.models import TriggerKind
 
 @dataclass
 class OnDemandTrigger:
-    """User ran ``jarvis learning run`` from the CLI."""
+    """Caller invoked ``DistillationOrchestrator.run(trigger)`` directly."""
 
     kind: TriggerKind = TriggerKind.ON_DEMAND
     metadata: dict[str, Any] = field(default_factory=dict)

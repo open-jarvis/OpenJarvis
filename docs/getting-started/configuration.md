@@ -1062,7 +1062,7 @@ OpenJarvis respects the following environment variables:
 
 ## Learning & Distillation
 
-The distillation subsystem uses a frontier model to automatically improve your local agent configuration. See the [user guide](../user-guide/learning-distillation.md) for a full walkthrough.
+The distillation subsystem uses a frontier model to automatically improve your local agent configuration. See the [user guide](../user-guide/llm-guided-spec-search.md) for a full walkthrough.
 
 ### `[learning.distillation]`
 

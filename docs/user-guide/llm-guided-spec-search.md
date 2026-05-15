@@ -25,10 +25,14 @@ A search session repeats four phases:
 | **Execute** | The candidate spec is evaluated on a held-out gate: the targeted cluster must improve, and every other cluster must regress by no more than a per-cluster tolerance. |
 | **Record** | Accepted edits are committed; rejected edits are rolled back. |
 
-The four-phase loop is implemented by the existing `jarvis learning`
-command — see [Learning & Distillation](learning-distillation.md) for the
-end-to-end runnable workflow, edit applier registry, and configuration
-schema. This document covers the new building blocks added on top.
+The four-phase loop is implemented by `DistillationOrchestrator` in
+`openjarvis.learning.distillation.orchestrator`. There is currently no
+top-level `jarvis` subcommand for the orchestrator — construct it
+directly in Python (see `tests/learning/distillation/test_orchestrator.py`
+for the full constructor signature and a working example) and call
+`.run(trigger)` with one of the trigger types in
+`openjarvis.learning.distillation.triggers`. This document covers the
+new building blocks added on top.
 
 ### Alignment with the paper
 
@@ -36,16 +40,16 @@ The paper's Algorithm 1 specifies a **multi-session loop** that runs
 diagnose → plan → execute → record repeatedly until gate-score stagnation
 (default *k* = 5 sessions) or budget exhaustion, with default per-cluster
 tolerance ε = 1 %. The current `DistillationOrchestrator` runs
-**one session per `jarvis learning run` invocation** (one diagnose, one
-plan, one round of edits + gate decisions, one record); the per-cluster
-regression check uses a default `max_regression = 0.05` (5 %).
+**one session per `.run(trigger)` call** (one diagnose, one plan, one
+round of edits + gate decisions, one record); the per-cluster regression
+check uses a default `max_regression = 0.05` (5 %).
 
 To match the paper's defaults today:
 
 - pass `max_regression=0.01` when constructing the orchestrator or the
   `BenchmarkGate` directly, and
-- run `jarvis learning run` from a wrapper that re-invokes it until
-  per-session gate-score deltas stagnate for *k* sessions.
+- call `DistillationOrchestrator.run(trigger)` repeatedly until per-session
+  gate-score deltas stagnate for *k* sessions.
 
 Wiring the multi-session stagnation loop into the orchestrator natively,
 plus changing the default `max_regression` to 1 %, are tracked as
@@ -136,7 +140,7 @@ Callers that previously expected traces to always be written should pass
 
 ## Configuration
 
-`jarvis learning` reads its configuration from `~/.openjarvis/config.toml`:
+`DistillationOrchestrator` reads its configuration from `~/.openjarvis/config.toml`:
 
 ```toml
 [learning.distillation]

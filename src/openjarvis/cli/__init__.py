@@ -41,7 +41,6 @@ from openjarvis.cli.telemetry_cmd import telemetry
 from openjarvis.cli.tool_cmd import tool
 from openjarvis.cli.vault_cmd import vault
 from openjarvis.cli.workflow_cmd import workflow
-from openjarvis.learning.distillation.cli import learning_group
 
 
 @click.group(
@@ -113,7 +112,6 @@ cli.add_command(connect, "connect")
 cli.add_command(digest, "digest")
 cli.add_command(deep_research_setup, "deep-research-setup")
 cli.add_command(deep_research_setup, "research")
-cli.add_command(learning_group, "learning")
 cli.add_command(bootstrap_cmd, "_bootstrap")
 
 # Gateway CLI commands (lazy import to avoid pulling starlette)
