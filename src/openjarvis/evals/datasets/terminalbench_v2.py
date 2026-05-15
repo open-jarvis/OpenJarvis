@@ -1,4 +1,4 @@
-"""TerminalBench v2.1 dataset provider.
+"""TerminalBench V2.1 dataset provider.
 
 Loads tasks from the terminal-bench-2.1 repo layout (ekellbuch/terminal-bench-2,
 branch terminal-bench-2.1). Each task lives in a top-level directory containing:
@@ -33,7 +33,7 @@ _DEFAULT_BRANCH = "terminal-bench-2.1"
 import os as _os  # noqa: E402
 
 _DEFAULT_CACHE = Path(
-    _os.environ.get("TBV2_REPO_DIR") or "/home/ubuntu/.cache/terminalbench-v2/repo"
+    _os.environ.get("TBV21_REPO_DIR") or "/home/ubuntu/.cache/terminalbench-v2.1/repo"
 )
 
 
@@ -58,10 +58,10 @@ def _load_task_toml(task_dir: Path) -> Dict[str, Any]:
 
 
 class TerminalBenchV2Dataset(DatasetProvider):
-    """TerminalBench v2.1 dataset (89 Docker-based terminal tasks)."""
+    """TerminalBench V2.1 dataset (89 Docker-based terminal tasks)."""
 
-    dataset_id = "terminalbench-v2"
-    dataset_name = "TerminalBench v2.1"
+    dataset_id = "terminalbench-v2.1"
+    dataset_name = "TerminalBench V2.1"
 
     def __init__(
         self,
@@ -77,12 +77,12 @@ class TerminalBenchV2Dataset(DatasetProvider):
         self._records: List[EvalRecord] = []
 
     def _ensure_repo(self) -> Path:
-        """Clone the TB 2.1 repo once and cache it locally."""
+        """Clone the TB v2.1 repo once and cache it locally."""
         if self._repo_dir.exists() and (self._repo_dir / ".git").is_dir():
             return self._repo_dir
         if shutil.which("git") is None:
             raise RuntimeError(
-                "git binary not found. Install git to clone TerminalBench v2.1 tasks."
+                "git binary not found. Install git to clone TerminalBench V2.1 tasks."
             )
         self._repo_dir.parent.mkdir(parents=True, exist_ok=True)
         LOGGER.info("Cloning %s (branch %s) into %s", self._repo_url, self._branch, self._repo_dir)
@@ -156,7 +156,7 @@ class TerminalBenchV2Dataset(DatasetProvider):
         # `docker_shell_exec` call lands there. The test verifier runs
         # after the agent finishes.
         instruction = (
-            "You are solving a TerminalBench v2.1 task inside a Linux "
+            "You are solving a TerminalBench V2.1 task inside a Linux "
             "container (working dir /app, root access, internet available, "
             "common tools: bash, python3, pip, curl, apt, git). Use the "
             "`docker_shell_exec` tool to inspect the environment, install "
@@ -174,7 +174,7 @@ class TerminalBenchV2Dataset(DatasetProvider):
         verifier = task_data.get("verifier", {}) or {}
         agent = task_data.get("agent", {}) or {}
 
-        task_id = task_dir.name or f"tbv2_{idx}"
+        task_id = task_dir.name or f"tbv21_{idx}"
         category = meta.get("category", "terminal")
 
         metadata: Dict[str, Any] = {
@@ -195,7 +195,7 @@ class TerminalBenchV2Dataset(DatasetProvider):
         }
 
         return EvalRecord(
-            record_id=f"terminalbench-v2-{task_id}",
+            record_id=f"terminalbench-v2.1-{task_id}",
             problem=instruction,
             reference="",
             category="agentic",

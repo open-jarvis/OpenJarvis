@@ -1,7 +1,7 @@
-# TerminalBench V2 (native Docker) on Qwen/Qwen3.5-122B-A10B-FP8
+# TerminalBench V2.1 (native Docker) on Qwen/Qwen3.5-122B-A10B-FP8
 [meta]
 name = "terminalbench-native-qwen122b"
-description = "TerminalBench V2 native on Qwen/Qwen3.5-122B-A10B-FP8"
+description = "TerminalBench V2.1 native on Qwen/Qwen3.5-122B-A10B-FP8"
 
 [defaults]
 temperature = 0.6

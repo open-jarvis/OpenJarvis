@@ -1,6 +1,6 @@
 """Container-scoped shell executor.
 
-Runs commands inside the currently-active TBv2 task container (set via
+Runs commands inside the currently-active TB v2.1 task container (set via
 :func:`openjarvis.tools.docker_shell_exec.set_active_container`). When no
 container is active the tool refuses to run — it is explicitly not a
 host-shell alternative.
@@ -15,7 +15,7 @@ The expected lifecycle is:
     finally:
         set_active_container(None)
 
-The TBv2 task environment sets/clears this context automatically.
+The TB v2.1 task environment sets/clears this context automatically.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ def get_active_container() -> Optional[str]:
 
 @ToolRegistry.register("docker_shell_exec")
 class DockerShellExecTool(BaseTool):
-    """Execute a shell command inside the active TBv2 task container."""
+    """Execute a shell command inside the active TB v2.1 task container."""
 
     tool_id = "docker_shell_exec"
 
@@ -105,7 +105,7 @@ class DockerShellExecTool(BaseTool):
                 tool_name="docker_shell_exec",
                 content=(
                     "No active task container. This tool can only run "
-                    "inside a TerminalBench v2.1 task environment."
+                    "inside a TerminalBench V2.1 task environment."
                 ),
                 success=False,
             )

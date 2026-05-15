@@ -1,10 +1,10 @@
-"""TerminalBench v2.1 scorer.
+"""TerminalBench V2.1 scorer.
 
 Two modes:
 
 1. **Agentic mode (preferred)** — the dataset's ``create_task_env`` spun up a
    container, the agent interacted with it through ``docker_shell_exec``, and
-   on context exit the env ran ``tests/test.sh`` and wrote ``tbv2_reward``
+   on context exit the env ran ``tests/test.sh`` and wrote ``tbv21_reward``
    into ``record.metadata``. The scorer just reads that value.
 
 2. **One-shot mode (fallback)** — no env was attached. The model answer is
@@ -13,7 +13,7 @@ Two modes:
    tests, same as before.
 
 This means the same scorer supports both ``backend = "jarvis-direct"`` and
-``backend = "jarvis-agent"`` TBv2 configs.
+``backend = "jarvis-agent"`` TB v2.1 configs.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ def _extract_bash(model_answer: str) -> str:
 class TerminalBenchV2Scorer(Scorer):
     """Reward = 1 if the task's tests pass, 0 otherwise."""
 
-    scorer_id = "terminalbench-v2"
+    scorer_id = "terminalbench-v2.1"
 
     def __init__(
         self,
@@ -69,7 +69,7 @@ class TerminalBenchV2Scorer(Scorer):
         md = record.metadata or {}
 
         # ---- Agentic mode: container is live (from task env ctx) ----
-        agentic_container = md.get("tbv2_container")
+        agentic_container = md.get("tbv21_container")
         if agentic_container:
             verifier_timeout = float(
                 md.get("verifier_timeout_sec") or _DEFAULT_VERIFIER_TIMEOUT
@@ -144,7 +144,7 @@ class TerminalBenchV2Scorer(Scorer):
         memory = str(md.get("memory") or "4G")
 
         solve_script = _extract_bash(model_answer)
-        container = f"tbv2-{md.get('task_id', 'task')}-{uuid.uuid4().hex[:8]}"
+        container = f"tbv21-{md.get('task_id', 'task')}-{uuid.uuid4().hex[:8]}"
         container = re.sub(r"[^a-zA-Z0-9_-]", "-", container)[:63]
         meta = {"mode": "oneshot"}
 

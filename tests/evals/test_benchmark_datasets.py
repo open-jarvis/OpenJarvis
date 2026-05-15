@@ -129,6 +129,13 @@ class TestDatasetInstantiation:
         assert ds.dataset_id == "terminalbench-native"
         assert ds.dataset_name == "TerminalBench Native"
 
+    def test_terminalbench_v2_1(self) -> None:
+        from openjarvis.evals.datasets.terminalbench_v2 import TerminalBenchV2Dataset
+
+        ds = TerminalBenchV2Dataset()
+        assert ds.dataset_id == "terminalbench-v2.1"
+        assert ds.dataset_name == "TerminalBench V2.1"
+
     def test_livecodebench(self) -> None:
         from openjarvis.evals.datasets.livecodebench import LiveCodeBenchDataset
 
@@ -254,6 +261,12 @@ class TestScorerInstantiation:
         s = TerminalBenchNativeScorer(_mock_backend(), "test-model")
         assert s.scorer_id == "terminalbench-native"
 
+    def test_terminalbench_v2_1_scorer(self) -> None:
+        from openjarvis.evals.scorers.terminalbench_v2 import TerminalBenchV2Scorer
+
+        s = TerminalBenchV2Scorer(_mock_backend(), "test-model")
+        assert s.scorer_id == "terminalbench-v2.1"
+
     def test_livecodebench_scorer(self) -> None:
         from openjarvis.evals.scorers.livecodebench import LiveCodeBenchScorer
 
@@ -294,6 +307,7 @@ ALL_BENCHMARKS = [
     "swefficiency",
     "terminalbench",
     "terminalbench-native",
+    "terminalbench-v2.1",
     "livecodebench",
     "liveresearch",
     "toolcall15",

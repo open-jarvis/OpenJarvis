@@ -53,9 +53,9 @@ BENCHMARKS = {
         "category": "agentic",
         "description": "TerminalBench Native (Docker)",
     },
-    "terminalbench-v2": {
+    "terminalbench-v2.1": {
         "category": "agentic",
-        "description": "TerminalBench v2.1 (Harbor-style Docker tasks)",
+        "description": "TerminalBench V2.1 (Harbor-style Docker tasks)",
     },
     "email_triage": {
         "category": "use-case",
@@ -307,7 +307,7 @@ def _build_dataset(benchmark: str, subset: str | None = None):
         )
 
         return TerminalBenchNativeDataset()
-    elif benchmark == "terminalbench-v2":
+    elif benchmark == "terminalbench-v2.1":
         from openjarvis.evals.datasets.terminalbench_v2 import (
             TerminalBenchV2Dataset,
         )
@@ -472,7 +472,7 @@ def _build_scorer(benchmark: str, judge_backend, judge_model: str):
         )
 
         return TerminalBenchNativeScorer(judge_backend, judge_model)
-    elif benchmark == "terminalbench-v2":
+    elif benchmark == "terminalbench-v2.1":
         from openjarvis.evals.scorers.terminalbench_v2 import (
             TerminalBenchV2Scorer,
         )
@@ -657,7 +657,7 @@ def _build_trackers(config) -> list:
 
 
 def _run_terminalbench_native(config, console: Console) -> object:
-    """Run TerminalBench V2 natively via terminal-bench Harness."""
+    """Run TerminalBench V2.1 natively via terminal-bench Harness."""
     from openjarvis.evals.backends.terminalbench_native import (
         TerminalBenchNativeBackend,
     )
@@ -681,8 +681,8 @@ def _run_terminalbench_native(config, console: Console) -> object:
 
     # Docker compose project names must be lowercase alphanumeric + hyphens/underscores
     model_slug = re.sub(r"[^a-z0-9_-]", "-", model.lower().replace("/", "-"))
-    run_id = f"tb2-{model_slug}"
-    console.print(f"  Running TerminalBench V2 natively: {model}")
+    run_id = f"tb21-{model_slug}"
+    console.print(f"  Running TerminalBench V2.1 natively: {model}")
     console.print(f"  Harness run_id: {run_id}")
 
     results = backend.run_harness(run_id)
@@ -718,7 +718,7 @@ def _run_single(config, console: Optional[Console] = None) -> object:
     if console is None:
         console = Console()
 
-    # TerminalBench V2 native: use terminal-bench Harness directly
+    # TerminalBench V2.1 native: use terminal-bench Harness directly
     if config.benchmark == "terminalbench-native":
         return _run_terminalbench_native(config, console)
 

@@ -1,4 +1,4 @@
-"""TerminalBench v2.1 task environment.
+"""TerminalBench V2.1 task environment.
 
 Per-task Docker container + scoring lifecycle. Intended to be used as a
 context manager by the eval runner so that the agent has a live
@@ -32,7 +32,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 class TerminalBenchV2TaskEnv:
-    """Per-task Docker + scoring lifecycle for TerminalBench v2.1."""
+    """Per-task Docker + scoring lifecycle for TerminalBench V2.1."""
 
     def __init__(self, metadata: MutableMapping[str, Any]) -> None:
         self._metadata = metadata
@@ -58,7 +58,7 @@ class TerminalBenchV2TaskEnv:
             raise ValueError(f"Missing tests/ dir in {task_dir}")
 
         task_id = str(self._metadata.get("task_id") or "task")
-        name = f"tbv2-{task_id}-{uuid.uuid4().hex[:8]}"
+        name = f"tbv21-{task_id}-{uuid.uuid4().hex[:8]}"
         name = re.sub(r"[^a-zA-Z0-9_-]", "-", name)[:63]
         self._container = name
 
@@ -89,13 +89,13 @@ class TerminalBenchV2TaskEnv:
             timeout=600,
         )
         if start.returncode != 0:
-            self._metadata["tbv2_env_error"] = start.stderr[:500]
+            self._metadata["tbv21_env_error"] = start.stderr[:500]
             raise RuntimeError(
                 f"docker run failed for {task_id}: {start.stderr[:300]}"
             )
 
         self._started = True
-        self._metadata["tbv2_container"] = name
+        self._metadata["tbv21_container"] = name
         set_active_container(name)
         return self
 

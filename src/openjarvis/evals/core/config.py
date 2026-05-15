@@ -57,7 +57,7 @@ KNOWN_BENCHMARKS = {
     "swefficiency",
     "terminalbench",
     "terminalbench-native",
-    "terminalbench-v2",
+    "terminalbench-v2.1",
     "email_triage",
     "morning_brief",
     "research_mining",
