@@ -39,6 +39,53 @@ class SpecSearchOrchestrator:
     All dependencies are injected so tests can mock everything.
     """
 
+    @classmethod
+    def from_config(
+        cls,
+        config: Any,  # SpecSearchLearningConfig
+        *,
+        teacher_engine: Any,
+        trace_store: Any,
+        benchmark_samples: list,
+        student_runner: Any,
+        judge: Any,
+        session_store: Any,
+        checkpoint_store: Any,
+        openjarvis_home: Path,
+        scorer: Callable[..., BenchmarkSnapshot] | None = None,
+    ) -> "SpecSearchOrchestrator":
+        """Build a single-session orchestrator from a SpecSearchLearningConfig.
+
+        Hyperparameters (teacher model, gate tolerance, autonomy mode, etc.)
+        come from ``config``; runtime primitives that cannot be expressed in
+        TOML (engine instances, trace store, judge, etc.) must be injected.
+
+        See ``configs/openjarvis/examples/spec-search-quickstart.toml`` for
+        the TOML schema and ``examples/openjarvis/spec_search_quickstart.py``
+        for an end-to-end wiring example.
+        """
+        autonomy = AutonomyMode(config.autonomy_mode)
+        return cls(
+            teacher_engine=teacher_engine,
+            teacher_model=config.teacher_model,
+            trace_store=trace_store,
+            benchmark_samples=benchmark_samples,
+            student_runner=student_runner,
+            judge=judge,
+            session_store=session_store,
+            checkpoint_store=checkpoint_store,
+            openjarvis_home=openjarvis_home,
+            autonomy_mode=autonomy,
+            scorer=scorer,
+            benchmark_version=config.benchmark_version,
+            min_traces=config.min_traces,
+            max_cost_usd=config.max_cost_per_session_usd,
+            max_tool_calls=config.max_tool_calls_per_diagnosis,
+            min_improvement=config.min_improvement,
+            max_regression=config.max_regression,
+            subsample_size=config.benchmark_subsample_size,
+        )
+
     def __init__(
         self,
         *,
@@ -340,9 +387,7 @@ class SpecSearchOrchestrator:
                     try:
                         applier.rollback(edit, ctx)
                     except Exception as rb_exc:
-                        logger.warning(
-                            "Edit %s rollback failed: %s", edit.id, rb_exc
-                        )
+                        logger.warning("Edit %s rollback failed: %s", edit.id, rb_exc)
                     outcomes.append(
                         EditOutcome(
                             edit_id=edit.id,

@@ -1,110 +1,161 @@
 # LLM-Guided Spec Search
 
-LLM-guided spec search is a local–cloud collaboration that uses each side
-for what it does best: a frontier cloud model (the *teacher*) reads traces
-from a deployed local agent and proposes typed edits across the agent's
+LLM-guided spec search (Saad-Falcon et al., 2026) is a local–cloud
+collaboration: a frontier cloud *teacher* reads traces from a deployed
+local agent and proposes typed edits across the agent's full
 configuration; the local hardware runs the resulting configuration with
-zero marginal API cost at inference time. A held-out gate accepts only
-edits that improve a target failure mode without unacceptable regression
-on others.
+zero marginal API cost at inference time. A held-out *gate* accepts only
+edits that improve a target failure cluster without unacceptable
+regression elsewhere.
 
-The configuration the teacher edits is called the **spec**: a typed object
-with five primitives (Intelligence, Engine, Agents, Tools & Memory,
-Learning). The Learning primitive is where the search lives — it specifies
-which edits are considered, how candidate specs are evaluated, and when
-optimization stops.
+This page is a copy-paste tutorial. By the end you will have:
+
+- a real `SpecSearchOrchestrator` running on your machine,
+- a multi-session loop with the paper's stagnation rule (Algorithm 1),
+- an understanding of which knobs to turn for production deployment.
+
+## TL;DR — run it
+
+```bash
+python examples/openjarvis/spec_search_quickstart.py
+```
+
+The script is self-contained (no API key, no Ollama) — it wires up real
+orchestrator + multi-session loop + composite-reward modules with stub
+teacher/student/judge so you can see one full session and a stagnation
+loop terminate. Production swap-points are commented inline; see
+[Going to production](#going-to-production) below.
 
 ## How it works
 
-A search session repeats four phases:
+A search session repeats four phases (paper §3.3):
 
 | Phase | What happens |
 |---|---|
-| **Diagnose** | The teacher reads eligible traces and groups failures into clusters, each annotated with a natural-language characterization of the skill gap. |
-| **Plan** | The teacher proposes typed edits across the editable primitives (Intelligence, Engine, Agents, Tools & Memory). A single proposal can edit multiple slots at once. |
-| **Execute** | The candidate spec is evaluated on a held-out gate: the targeted cluster must improve, and every other cluster must regress by no more than a per-cluster tolerance. |
-| **Record** | Accepted edits are committed; rejected edits are rolled back. |
+| **Diagnose** | Teacher reads eligible traces and groups failures into clusters, each annotated with `(student_failure_rate, teacher_success_rate, skill_gap)`. |
+| **Plan** | Teacher proposes typed edits across the four editable primitives (Intelligence, Engine, Agents, Tools & Memory). One proposal can edit multiple slots at once. |
+| **Execute** | Each candidate edit is applied; the gate scores the resulting spec on a held-out subsample. Accepted iff `GateOK` holds (see below). |
+| **Record** | Accepted edits commit to the checkpoint store; rejected edits roll back. The session is persisted to `SessionStore`. |
 
-The four-phase loop is implemented by `SpecSearchOrchestrator` in
-`openjarvis.learning.spec_search.orchestrator`. There is currently no
-top-level `jarvis` subcommand for the orchestrator — construct it
-directly in Python (see `tests/learning/spec_search/test_orchestrator.py`
-for the full constructor signature and a working example) and call
-`.run(trigger)` with one of the trigger types in
-`openjarvis.learning.spec_search.triggers`. This document covers the
-new building blocks added on top.
+`SpecSearchOrchestrator.run(trigger)` runs **one** session end-to-end.
+`SpecSearchLoop` (paper Algorithm 1) wraps the orchestrator and repeats
+sessions until either gate-score stagnation (default *k* = 5 sessions)
+or budget exhaustion.
 
-### Alignment with the paper
+### `GateOK` — the acceptance predicate
 
-The paper's Algorithm 1 specifies a **multi-session loop** that runs
-diagnose → plan → execute → record repeatedly until gate-score stagnation
-(default *k* = 5 sessions) or budget exhaustion, with default per-cluster
-tolerance ε = 1 %. The current `SpecSearchOrchestrator` runs
-**one session per `.run(trigger)` call** (one diagnose, one plan, one
-round of edits + gate decisions, one record); the per-cluster regression
-check uses a default `max_regression = 0.05` (5 %).
+Let `G_c(S)` be the held-out gate score of spec `S` restricted to
+failure cluster `c`. For an edit `e` targeting cluster `c`, with
+`S' = apply(S, e)`:
 
-To match the paper's defaults today:
-
-- pass `max_regression=0.01` when constructing the orchestrator or the
-  `BenchmarkGate` directly, and
-- call `SpecSearchOrchestrator.run(trigger)` repeatedly until per-session
-  gate-score deltas stagnate for *k* sessions.
-
-Wiring the multi-session stagnation loop into the orchestrator natively,
-plus changing the default `max_regression` to 1 %, are tracked as
-follow-ups — they're not part of this PR.
-
-## What this PR adds
-
-### `splits.py` — deterministic train / test splits
-
-`src/openjarvis/evals/core/splits.py` adds a small helper that takes a
-list of records and a benchmark name and returns a deterministic
-train / test partition. The split is keyed off a stable hash of each
-record's id, so the same `(records, train_frac, seed)` always yields the
-same partition. This is the substrate that makes "evaluate on
-`split=test`" and "search over `split=train`" reproducible.
-
-```python
-from openjarvis.evals.core.splits import apply_split
-
-train = apply_split(records, split="train", train_frac=0.2, seed=42)
-test  = apply_split(records, split="test",  train_frac=0.2, seed=42)
-all_  = apply_split(records, split="all",   train_frac=0.2, seed=42)  # passthrough
+```
+GateOK(S', S, c, eps) ⟺
+    G_c(S')  >  G_c(S)            # target cluster improves, AND
+    G_c'(S') >= G_c'(S) − eps     # every other cluster regresses by ≤ eps
 ```
 
-The `split` kwarg is now wired through every dataset provider in
-`openjarvis.evals.datasets` (gaia, livecodebench, liveresearch,
-liveresearchbench, pinchbench, taubench, toolcall15) so any caller that
-constructs a `BenchmarkConfig` can request a particular split.
+Default `eps = 0.01` (1 %) per the paper. The `BenchmarkGate` class
+implements this; the `max_regression` knob is `eps`.
 
-### External-corpus dataset providers
+### Composite reward (Intelligence-edit training only)
 
-When the diagnose phase wants the teacher to reason over a broader
-agent-trace corpus instead of just the local student's own traces, it
-can ingest records from a HuggingFace-backed external corpus. Three
-providers are included:
+When an Intelligence edit triggers LoRA / GRPO training inside the
+execute phase, candidate responses `y` to query `q` are scored by
+(paper Eq. 1):
 
-| Corpus | HuggingFace dataset | What it surfaces |
+```
+R(q, y) = α · R_acc(q, y)
+       − β · Ê(q, y)        # energy
+       − γ · L̂(q, y)        # latency
+       − δ · Ĉ(q, y)        # cost
+```
+
+Defaults `(α, β, γ, δ) = (0.5, 0.1, 0.1, 0.3)`. The efficiency
+quantities (E, L, C) are z-scored *within batch* before weighting, so
+the reward trades dimensionless deviations rather than raw joules /
+seconds / dollars (paper Appendix C.6). Implementation:
+`openjarvis.learning.spec_search.composite_reward.score_batch`.
+
+The held-out gate evaluates the resulting spec end-to-end; it is
+unaffected by these weights.
+
+## Configuration
+
+The prebuilt config lives at
+`configs/openjarvis/examples/spec-search-quickstart.toml`. Copy it to
+`~/.openjarvis/config.toml` (or set `OPENJARVIS_CONFIG` to it) and the
+regular loader picks it up:
+
+```python
+from openjarvis.core.config import load_config
+cfg = load_config().learning.spec_search   # SpecSearchLearningConfig
+```
+
+The `[learning.spec_search]` table maps 1:1 onto the
+`SpecSearchLearningConfig` dataclass and is read by both
+`SpecSearchOrchestrator.from_config` and `SpecSearchLoop`:
+
+```toml
+[learning.spec_search]
+enabled = true
+teacher_model = "claude-opus-4-6"
+teacher_engine = "cloud"
+autonomy_mode  = "tiered"             # auto | tiered | manual
+
+# Per-session bounds
+min_traces                   = 20
+max_cost_per_session_usd     = 5.0
+max_tool_calls_per_diagnosis = 30
+
+# Multi-session loop (paper Algorithm 1)
+stagnation_k        = 5               # paper default
+stagnation_eps      = 0.001
+max_total_cost_usd  = 50.0
+
+# Gate (GateOK)
+max_regression           = 0.01       # paper default: epsilon = 1%
+min_improvement          = 0.0
+benchmark_subsample_size = 50
+benchmark_version        = "personal_v1"
+
+[learning.spec_search.composite_reward]
+alpha = 0.5    # accuracy
+beta  = 0.1    # energy
+gamma = 0.1    # latency
+delta = 0.3    # cost
+```
+
+## Going to production
+
+The quickstart uses fakes for the teacher engine, student runner, and
+judge so it runs without external services. To run a real session,
+swap each fake for the corresponding production component:
+
+| Slot | Quickstart | Production |
 |---|---|---|
-| `adp` | `neulab/agent-data-collection` | Multi-turn agent trajectories from AgentTuning, CodeAct, OpenHands, and others |
-| `toolorchestra` | `nvidia/ToolScale` | Tool-use trajectories (the dataset underlying the ToolOrchestra paper) |
-| `generalthoughts` | `natolambert/GeneralThought-430K-filtered` | A filtered reasoning-trace pool |
+| `teacher_engine` | `FakeTeacherEngine` | `EngineRegistry.get(cfg.teacher_engine)(model=cfg.teacher_model)` — set `ANTHROPIC_API_KEY` etc. |
+| `trace_store` | `MagicMock` | `openjarvis.traces.store.TraceStore(home / "traces.db")` |
+| `student_runner` | `MagicMock` | `openjarvis.learning.spec_search.student_runner.VLLMStudentRunner(host=..., model=...)` |
+| `judge` | `MagicMock` | `openjarvis.evals.core.scorer.LLMJudgeScorer(...)` (or a deterministic scorer if your benchmark provides one) |
+| `session_store` | `MagicMock` | `openjarvis.learning.spec_search.storage.session_store.SessionStore(home / "learning" / "sessions.db")` |
+| `checkpoint_store` | `MagicMock` | `openjarvis.learning.spec_search.checkpoint.store.CheckpointStore(home / "learning" / "checkpoints")` |
+| `scorer` | climbing-plateau fake | a real `Scorer` callable (typically a `BenchmarkGate.score` adapter) |
 
-Each provider implements the standard `DatasetProvider.load(...)`
-interface so corpus records can be loaded the same way benchmark records
-are. They're labeled "NOT USED FOR EVALUATION" in their docstrings —
-they exist purely to feed the proposer's diagnose phase.
+The orchestrator only depends on the *interface* of each slot, not the
+concrete class — anything implementing the corresponding protocol works.
 
-### `external_adapter.py` — corpus records as synthetic traces
+## Adding a new external corpus
 
-`src/openjarvis/learning/spec_search/external_adapter.py` adapts records
-from any external corpus into rows the proposer's existing trace tools
-understand. The proposer reads from the SQLite TraceStore via search /
-get tools; this adapter writes each `EvalRecord` as a synthetic `Trace`
-with `feedback=0.5` (no ground truth) and a `source_name` tag in
-metadata so multi-source diagnose runs can filter downstream.
+Diagnose phase can ingest records from a HuggingFace-backed external
+corpus. Three providers ship in-tree (`adp`, `toolorchestra`,
+`generalthoughts`); to add a new one:
+
+1. Create `src/openjarvis/evals/datasets/<corpus>.py` implementing
+   `DatasetProvider` (`adp.py` is a small reference). The provider's
+   `load(max_samples, seed, split)` must respect `split` via
+   `apply_split` from `openjarvis.evals.core.splits`.
+2. Register: `@DatasetRegistry.register("<corpus>")`.
+3. Feed it to the proposer via the trace store:
 
 ```python
 from openjarvis.evals.datasets.adp import ADPDataset
@@ -113,13 +164,25 @@ from openjarvis.learning.spec_search.external_adapter import (
 )
 from openjarvis.traces.store import TraceStore
 
-records = ADPDataset().load(max_samples=200, seed=42, split="all")
+records = list(ADPDataset().load(max_samples=200, seed=42, split="all"))
 store = TraceStore("~/.openjarvis/traces.db")
 n = write_external_records_as_traces(store, records, source_name="adp")
-# proposer's diagnose phase can now search/filter these traces by source="adp"
+# proposer can now filter on metadata["source"] == "adp"
 ```
 
-### Bug fix: agent-backend trace toggle
+## What runs where
+
+At inference time, the resulting spec runs entirely on-device — model
+inference, agent execution, tool invocation. Teacher API calls happen
+only at search time (diagnose + plan), and only **eligible scrubbed
+traces** are transmitted (per the trace-eligibility rules in your
+config).
+
+Users requiring strict local-only operation can swap a larger local
+model in as the teacher; this trades search quality for zero cloud
+exposure.
+
+## Bug fix bundled with this release
 
 `src/openjarvis/evals/backends/jarvis_agent.py` previously hardcoded
 `builder.telemetry(telemetry).traces(True).build()`, ignoring the
@@ -129,7 +192,7 @@ intent. A corrupt traces.db then turned every agent eval into "database
 disk image is malformed" errors that the eval scorer dropped, producing
 fake high accuracies from a handful of successful samples.
 
-The fix is one line — match the `JarvisDirectBackend` pattern:
+The one-line fix:
 
 ```python
 self._system = builder.telemetry(telemetry).traces(telemetry).build()
@@ -138,76 +201,14 @@ self._system = builder.telemetry(telemetry).traces(telemetry).build()
 Callers that previously expected traces to always be written should pass
 `telemetry=True` explicitly.
 
-## Configuration
+## See also
 
-`SpecSearchOrchestrator` reads its configuration from `~/.openjarvis/config.toml`:
-
-```toml
-[learning.spec_search]
-enabled = true                          # gate the entire subsystem
-autonomy_mode = "tiered"                # auto | tiered | manual
-teacher_model = "claude-opus-4-6"       # any CloudEngine-supported model
-max_cost_per_session_usd = 5.0          # per-session teacher API budget
-max_tool_calls_per_diagnosis = 30       # max teacher tool calls in diagnosis
-```
-
-Gate / acceptance knobs (constructor arguments to `BenchmarkGate` and
-`SpecSearchOrchestrator`):
-
-| Argument | Meaning | Current default | Paper default |
-|---|---|---|---|
-| `max_regression` | Maximum per-cluster score drop tolerated before rejecting an edit (the ε in the paper's `GateOK`). | `0.05` (5 %) | `0.01` (1 %) |
-| `min_improvement` | Minimum overall score improvement required to accept an edit. | `0.0` | (paper does not specify; uses `> 0` per `Gc(S') > Gc(S)`) |
-| `n_tasks` | Number of tasks scored per gate run. | `50` | n/a (gate is per-cluster) |
-
-Pass `max_regression=0.01` explicitly to match the paper's default. See
-the *Alignment with the paper* note above for the gap between the
-single-session `SpecSearchOrchestrator` and the paper's multi-session
-loop with stagnation criterion.
-
-Each `EditApplier` registers an autonomy tier (`auto`, `review`,
-`manual`). The applier registry lives in
-`openjarvis.learning.spec_search.execute.appliers`; refer to those
-modules and `tests/learning/spec_search/test_appliers_*.py` for the
-per-edit schema and the registered appliers.
-
-## What runs where
-
-At inference time, the resulting spec runs entirely on-device — model
-inference, agent execution, and tool invocation. Teacher API calls are
-made only at search time, for diagnosis and edit proposal. The local
-spec makes zero teacher calls at inference time.
-
-When a frontier teacher is used, only **eligible** scrubbed traces are
-transmitted (per the trace-eligibility rules in the configuration).
-Users requiring strict local-only operation can swap a larger local
-model in as the teacher; this trades some search quality for zero cloud
-exposure.
-
-## Why decouple primitives at all
-
-Existing personal AI frameworks bundle agent prompts, tool descriptions,
-memory configuration, and runtime settings around a specific cloud
-model. Naive substitution of a local model for the cloud model collapses
-accuracy because none of the surrounding configuration was tuned for the
-new model. Optimizing across primitives jointly — instead of
-single-primitive optimization (LoRA-only, prompt-only) — is what allows
-LLM-guided spec search to recover that lost accuracy. The decomposition
-into Intelligence / Engine / Agents / Tools & Memory / Learning, with
-the spec as the typed configuration object, is what makes the search
-space well-defined.
-
-## Adding a new external corpus
-
-1. Create `src/openjarvis/evals/datasets/<corpus>.py` implementing
-   `DatasetProvider` (look at `adp.py` for a small reference). The
-   provider's `load(max_samples, seed, split)` should respect the
-   `split` kwarg via `apply_split` from `openjarvis.evals.core.splits`.
-2. Register the new dataset in your local `DatasetRegistry` (typically
-   via `@DatasetRegistry.register("<corpus>")` decorator on the class).
-3. Use it the same way as the bundled corpora: load records, then call
-   `write_external_records_as_traces(store, records, source_name="<corpus>")`
-   to make them visible to the proposer's diagnose phase.
-
-The proposer can then filter on `metadata["source"] == "<corpus>"` if
-you're feeding multiple corpora into the same search session.
+- `examples/openjarvis/spec_search_quickstart.py` — runnable end-to-end demo.
+- `configs/openjarvis/examples/spec-search-quickstart.toml` — prebuilt config.
+- `src/openjarvis/learning/spec_search/orchestrator.py` — `SpecSearchOrchestrator` (single session).
+- `src/openjarvis/learning/spec_search/multi_session.py` — `SpecSearchLoop` (Algorithm 1).
+- `src/openjarvis/learning/spec_search/composite_reward.py` — paper Eq. 1.
+- `src/openjarvis/learning/spec_search/gate/benchmark_gate.py` — `GateOK` predicate.
+- `src/openjarvis/learning/spec_search/external_adapter.py` — corpus → trace adapter.
+- `tests/learning/spec_search/test_multi_session.py`, `test_composite_reward.py` — unit tests.
+- `tests/learning/spec_search/test_orchestrator.py` — full-session test with mocks.

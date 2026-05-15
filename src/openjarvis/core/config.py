@@ -684,6 +684,54 @@ class MetricsConfig:
     efficiency_weight: float = 0.1
 
 
+@dataclass(slots=True)
+class SpecSearchCompositeRewardConfig:
+    """Composite reward weights for Intelligence-edit training (paper Eq. 1).
+
+    R(q, y) = alpha * R_acc - beta * E_hat - gamma * L_hat - delta * C_hat
+    """
+
+    alpha: float = 0.5
+    beta: float = 0.1
+    gamma: float = 0.1
+    delta: float = 0.3
+
+
+@dataclass(slots=True)
+class SpecSearchLearningConfig:
+    """LLM-guided spec search config (paper §3.3, Algorithm 1).
+
+    Maps to ``[learning.spec_search]`` and is consumed by
+    ``SpecSearchOrchestrator.from_config`` and ``SpecSearchLoop``.
+    """
+
+    enabled: bool = False
+    teacher_model: str = "claude-opus-4-6"
+    teacher_engine: str = "cloud"  # registry key for the cloud engine
+    autonomy_mode: str = "tiered"  # auto | tiered | manual
+
+    # Per-session bounds (one diagnose/plan/execute pass)
+    min_traces: int = 20
+    max_cost_per_session_usd: float = 5.0
+    max_tool_calls_per_diagnosis: int = 30
+
+    # Multi-session loop (paper Algorithm 1)
+    stagnation_k: int = 5
+    max_total_cost_usd: float = 50.0
+    stagnation_eps: float = 0.001  # gate-score delta below this counts as no progress
+
+    # Gate (GateOK predicate)
+    max_regression: float = 0.01  # paper default: epsilon = 1%
+    min_improvement: float = 0.0
+    benchmark_subsample_size: int = 50
+    benchmark_version: str = "personal_v1"
+
+    # Composite reward (only used when an Intelligence edit triggers training)
+    composite_reward: SpecSearchCompositeRewardConfig = field(
+        default_factory=SpecSearchCompositeRewardConfig,
+    )
+
+
 @dataclass
 class LearningConfig:
     """Learning system settings with per-primitive sub-policies."""
@@ -697,6 +745,9 @@ class LearningConfig:
     )
     agent: AgentLearningConfig = field(default_factory=AgentLearningConfig)
     skills: SkillsLearningConfig = field(default_factory=SkillsLearningConfig)
+    spec_search: SpecSearchLearningConfig = field(
+        default_factory=SpecSearchLearningConfig,
+    )
     metrics: MetricsConfig = field(default_factory=MetricsConfig)
 
     # Training pipeline
@@ -1578,7 +1629,7 @@ def _parse_mining_section(data: dict) -> Optional["MiningConfig"]:
             pearld_rpc_url=extra.get("pearld_rpc_url", "http://localhost:44107")
         )
     elif isinstance(target_str, str) and target_str.startswith("pool:"):
-        submit_target = PoolTarget(url=target_str[len("pool:"):])
+        submit_target = PoolTarget(url=target_str[len("pool:") :])
     else:
         raise ValueError(
             f"[mining].submit_target must be 'solo' or 'pool:<url>', got {target_str!r}"

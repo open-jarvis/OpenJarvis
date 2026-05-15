@@ -172,3 +172,37 @@ class TestSpecSearchOrchestrator:
             orch.run(OnDemandTrigger())
 
         assert session_store.save_session.called
+
+
+class TestFromConfig:
+    def test_from_config_round_trips_paper_defaults(self, tmp_path: Path) -> None:
+        from openjarvis.core.config import SpecSearchLearningConfig
+        from openjarvis.learning.spec_search.orchestrator import (
+            SpecSearchOrchestrator,
+        )
+
+        cfg = SpecSearchLearningConfig(
+            enabled=True,
+            teacher_model="claude-opus-4-6",
+            teacher_engine="cloud",
+            autonomy_mode="auto",
+            max_regression=0.01,  # paper default
+            stagnation_k=5,
+        )
+
+        orch = SpecSearchOrchestrator.from_config(
+            cfg,
+            teacher_engine=MagicMock(),
+            trace_store=MagicMock(),
+            benchmark_samples=[],
+            student_runner=MagicMock(),
+            judge=MagicMock(),
+            session_store=MagicMock(),
+            checkpoint_store=MagicMock(),
+            openjarvis_home=tmp_path,
+        )
+
+        # Round-trip the knobs: paper defaults must reach the orchestrator.
+        assert orch._model == "claude-opus-4-6"
+        assert orch._max_regression == 0.01
+        assert orch._autonomy.value == "auto"
