@@ -308,11 +308,11 @@ def _build_dataset(benchmark: str, subset: str | None = None):
 
         return TerminalBenchNativeDataset()
     elif benchmark == "terminalbench-v2.1":
-        from openjarvis.evals.datasets.terminalbench_v2 import (
-            TerminalBenchV2Dataset,
+        from openjarvis.evals.datasets.terminalbench_v2_1 import (
+            TerminalBenchV21Dataset,
         )
 
-        return TerminalBenchV2Dataset()
+        return TerminalBenchV21Dataset()
     elif benchmark == "email_triage":
         from openjarvis.evals.datasets.email_triage import EmailTriageDataset
 
@@ -473,11 +473,11 @@ def _build_scorer(benchmark: str, judge_backend, judge_model: str):
 
         return TerminalBenchNativeScorer(judge_backend, judge_model)
     elif benchmark == "terminalbench-v2.1":
-        from openjarvis.evals.scorers.terminalbench_v2 import (
-            TerminalBenchV2Scorer,
+        from openjarvis.evals.scorers.terminalbench_v2_1 import (
+            TerminalBenchV21Scorer,
         )
 
-        return TerminalBenchV2Scorer(judge_backend, judge_model)
+        return TerminalBenchV21Scorer(judge_backend, judge_model)
     elif benchmark == "email_triage":
         from openjarvis.evals.scorers.email_triage import EmailTriageScorer
 

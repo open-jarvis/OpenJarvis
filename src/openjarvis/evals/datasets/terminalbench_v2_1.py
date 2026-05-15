@@ -57,7 +57,7 @@ def _load_task_toml(task_dir: Path) -> Dict[str, Any]:
         return {}
 
 
-class TerminalBenchV2Dataset(DatasetProvider):
+class TerminalBenchV21Dataset(DatasetProvider):
     """TerminalBench V2.1 dataset (89 Docker-based terminal tasks)."""
 
     dataset_id = "terminalbench-v2.1"
@@ -210,12 +210,12 @@ class TerminalBenchV2Dataset(DatasetProvider):
         ``docker_shell_exec`` can target the running container.
         """
         try:
-            from openjarvis.evals.execution.terminalbench_v2_env import (
-                TerminalBenchV2TaskEnv,
+            from openjarvis.evals.execution.terminalbench_v2_1_env import (
+                TerminalBenchV21TaskEnv,
             )
         except ImportError:
             return None
-        return TerminalBenchV2TaskEnv(record.metadata)
+        return TerminalBenchV21TaskEnv(record.metadata)
 
     def verify_requirements(self) -> List[str]:
         """Check runtime prerequisites (docker, git, tomllib)."""
@@ -236,4 +236,4 @@ class TerminalBenchV2Dataset(DatasetProvider):
         return issues
 
 
-__all__ = ["TerminalBenchV2Dataset"]
+__all__ = ["TerminalBenchV21Dataset"]

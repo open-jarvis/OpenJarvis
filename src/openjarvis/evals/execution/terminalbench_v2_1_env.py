@@ -31,7 +31,7 @@ from typing import Any, MutableMapping, Optional, Type
 LOGGER = logging.getLogger(__name__)
 
 
-class TerminalBenchV2TaskEnv:
+class TerminalBenchV21TaskEnv:
     """Per-task Docker + scoring lifecycle for TerminalBench V2.1."""
 
     def __init__(self, metadata: MutableMapping[str, Any]) -> None:
@@ -42,14 +42,14 @@ class TerminalBenchV2TaskEnv:
     # ------------------------------------------------------------------
     # Context manager
     # ------------------------------------------------------------------
-    def __enter__(self) -> "TerminalBenchV2TaskEnv":
+    def __enter__(self) -> "TerminalBenchV21TaskEnv":
         from openjarvis.tools.docker_shell_exec import set_active_container
 
         docker_image = self._metadata.get("docker_image")
         task_dir = self._metadata.get("task_dir")
         if not docker_image or not task_dir:
             raise ValueError(
-                "TerminalBenchV2TaskEnv missing 'docker_image' or 'task_dir' "
+                "TerminalBenchV21TaskEnv missing 'docker_image' or 'task_dir' "
                 "metadata"
             )
 
@@ -123,4 +123,4 @@ class TerminalBenchV2TaskEnv:
             self._container = None
 
 
-__all__ = ["TerminalBenchV2TaskEnv"]
+__all__ = ["TerminalBenchV21TaskEnv"]

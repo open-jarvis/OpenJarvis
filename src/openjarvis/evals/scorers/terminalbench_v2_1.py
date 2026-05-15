@@ -48,7 +48,7 @@ def _extract_bash(model_answer: str) -> str:
     return stripped
 
 
-class TerminalBenchV2Scorer(Scorer):
+class TerminalBenchV21Scorer(Scorer):
     """Reward = 1 if the task's tests pass, 0 otherwise."""
 
     scorer_id = "terminalbench-v2.1"
@@ -255,4 +255,4 @@ class TerminalBenchV2Scorer(Scorer):
             )
 
 
-__all__ = ["TerminalBenchV2Scorer"]
+__all__ = ["TerminalBenchV21Scorer"]

@@ -130,9 +130,11 @@ class TestDatasetInstantiation:
         assert ds.dataset_name == "TerminalBench Native"
 
     def test_terminalbench_v2_1(self) -> None:
-        from openjarvis.evals.datasets.terminalbench_v2 import TerminalBenchV2Dataset
+        from openjarvis.evals.datasets.terminalbench_v2_1 import (
+            TerminalBenchV21Dataset,
+        )
 
-        ds = TerminalBenchV2Dataset()
+        ds = TerminalBenchV21Dataset()
         assert ds.dataset_id == "terminalbench-v2.1"
         assert ds.dataset_name == "TerminalBench V2.1"
 
@@ -262,9 +264,11 @@ class TestScorerInstantiation:
         assert s.scorer_id == "terminalbench-native"
 
     def test_terminalbench_v2_1_scorer(self) -> None:
-        from openjarvis.evals.scorers.terminalbench_v2 import TerminalBenchV2Scorer
+        from openjarvis.evals.scorers.terminalbench_v2_1 import (
+            TerminalBenchV21Scorer,
+        )
 
-        s = TerminalBenchV2Scorer(_mock_backend(), "test-model")
+        s = TerminalBenchV21Scorer(_mock_backend(), "test-model")
         assert s.scorer_id == "terminalbench-v2.1"
 
     def test_livecodebench_scorer(self) -> None:
