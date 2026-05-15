@@ -34,6 +34,7 @@ for _modname in (
     "archon",
     "skillorchestra",
     "toolorchestra",
+    "mini_swe_agent",
 ):
     try:
         __import__(f"openjarvis.agents.hybrid.{_modname}")
