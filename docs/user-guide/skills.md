@@ -148,6 +148,14 @@ jarvis skill sync openclaw --search "web3|crypto"
 jarvis skill install github:user/repo/path/to/skill --url https://github.com/user/repo
 ```
 
+For example, install the Hermes Tweet skill when you want an agent to search
+Twitter/X, read tweet replies, monitor tweets, export followers, and run
+gated post, reply, or DM workflows:
+
+```bash
+jarvis skill install github:Xquik-dev/hermes-tweet/skills/hermes-tweet --url https://github.com/Xquik-dev/hermes-tweet
+```
+
 ### Config-Driven Auto Import
 
 Add sources to `~/.openjarvis/config.toml` for automatic syncing:
