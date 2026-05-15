@@ -53,6 +53,10 @@ BENCHMARKS = {
         "category": "agentic",
         "description": "TerminalBench Native (Docker)",
     },
+    "terminalbench-v2": {
+        "category": "agentic",
+        "description": "TerminalBench v2.1 (Harbor-style Docker tasks)",
+    },
     "email_triage": {
         "category": "use-case",
         "description": "Email triage classification + draft",
@@ -303,6 +307,12 @@ def _build_dataset(benchmark: str, subset: str | None = None):
         )
 
         return TerminalBenchNativeDataset()
+    elif benchmark == "terminalbench-v2":
+        from openjarvis.evals.datasets.terminalbench_v2 import (
+            TerminalBenchV2Dataset,
+        )
+
+        return TerminalBenchV2Dataset()
     elif benchmark == "email_triage":
         from openjarvis.evals.datasets.email_triage import EmailTriageDataset
 
@@ -462,6 +472,12 @@ def _build_scorer(benchmark: str, judge_backend, judge_model: str):
         )
 
         return TerminalBenchNativeScorer(judge_backend, judge_model)
+    elif benchmark == "terminalbench-v2":
+        from openjarvis.evals.scorers.terminalbench_v2 import (
+            TerminalBenchV2Scorer,
+        )
+
+        return TerminalBenchV2Scorer(judge_backend, judge_model)
     elif benchmark == "email_triage":
         from openjarvis.evals.scorers.email_triage import EmailTriageScorer
 
