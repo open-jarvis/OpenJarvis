@@ -38,94 +38,25 @@ PEARL_MODEL_SPECS: tuple[PearlModelSpec, ...] = (
         notes="Default Pearl-blessed vLLM mining model.",
     ),
     PearlModelSpec(
-        model_id="pearl-ai/Qwen3.5-9B-pearl",
-        base_model_id="Qwen/Qwen3.5-9B",
-        status="planned",
-        min_vram_gb=24.0,
-        default_max_model_len=8192,
-        notes=(
-            "Planned target; Pearl artifact is not publicly available yet. "
-            "Validation tracked in open-jarvis/OpenJarvis#316."
-        ),
-    ),
-    PearlModelSpec(
-        model_id="ScalingIntelligence/Qwen3.5-9B-pearl",
-        base_model_id="Qwen/Qwen3.5-9B",
-        status="validated",
-        min_vram_gb=24.0,
-        default_max_model_len=4096,
-        notes=(
-            "Experimental OpenJarvis/Pearl artifact validated on H100. "
-            "Runtime requires --language-model-only, --skip-mm-profiling, "
-            "and --gdn-prefill-backend triton."
-        ),
-    ),
-    PearlModelSpec(
-        model_id="pearl-ai/Qwen3.6-27B-pearl",
-        base_model_id="Qwen/Qwen3.6-27B",
-        status="planned",
-        min_vram_gb=80.0,
-        default_max_model_len=8192,
-        notes=(
-            "Planned target; Pearl artifact is not publicly available yet. "
-            "Validation tracked in open-jarvis/OpenJarvis#317."
-        ),
-    ),
-    PearlModelSpec(
-        model_id="ScalingIntelligence/Qwen3.6-27B-pearl",
-        base_model_id="Qwen/Qwen3.6-27B",
-        status="validated",
-        min_vram_gb=80.0,
-        default_max_model_len=4096,
-        notes=(
-            "Experimental OpenJarvis/Pearl artifact validated on H100. "
-            "Runtime requires --language-model-only, --skip-mm-profiling, "
-            "and --gdn-prefill-backend triton."
-        ),
-    ),
-    PearlModelSpec(
-        model_id="pearl-ai/Gemma-4-E4B-it-pearl",
-        base_model_id="google/gemma-4-E4B-it",
-        status="planned",
-        min_vram_gb=24.0,
-        default_max_model_len=8192,
-        notes=(
-            "Planned target; Pearl artifact is not publicly available yet. "
-            "Validation tracked in open-jarvis/OpenJarvis#318."
-        ),
-    ),
-    PearlModelSpec(
-        model_id="ScalingIntelligence/Gemma-4-E4B-it-pearl",
-        base_model_id="google/gemma-4-E4B-it",
-        status="validated",
-        min_vram_gb=24.0,
-        default_max_model_len=8192,
-        notes=(
-            "Experimental OpenJarvis/Pearl artifact validated on H100 with "
-            "Gemma4 per-layer embeddings excluded from Pearl quantization."
-        ),
-    ),
-    PearlModelSpec(
         model_id="pearl-ai/Gemma-4-31B-it-pearl",
         base_model_id="google/gemma-4-31B-it",
         status="planned",
         min_vram_gb=80.0,
         default_max_model_len=8192,
         notes=(
-            "Artifact exists but H100 validation is blocked by missing Gemma4 "
-            "processor/preprocessor metadata in the published Pearl artifact. "
-            "Validation tracked in open-jarvis/OpenJarvis#319."
+            "Public Pearl org artifact; requires H100/H200 validation in "
+            "OpenJarvis before mining is enabled by default."
         ),
     ),
     PearlModelSpec(
-        model_id="ScalingIntelligence/Gemma-4-31B-it-pearl",
-        base_model_id="google/gemma-4-31B-it",
-        status="validated",
-        min_vram_gb=80.0,
+        model_id="pearl-ai/Llama-3.1-8B-Instruct-pearl",
+        base_model_id="meta-llama/Llama-3.1-8B-Instruct",
+        status="planned",
+        min_vram_gb=24.0,
         default_max_model_len=8192,
         notes=(
-            "Experimental OpenJarvis/Pearl artifact validated on H100 with "
-            "Gemma4 processor/preprocessor metadata included."
+            "Public Pearl org artifact; requires H100/H200 validation in "
+            "OpenJarvis before mining is enabled by default."
         ),
     ),
 )

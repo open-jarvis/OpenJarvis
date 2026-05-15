@@ -8,24 +8,19 @@ not enough. The Pearl vLLM plugin expects a Pearl-compatible quantized model
 whose metadata marks mining layers for 7-bit NoisyGEMM and non-mining layers
 for the vanilla Pearl GEMM path.
 
-## Target Models
+## Supported Models
 
-| Raw model | Planned Pearl model | Status | Tracking |
-|---|---|---|---|
-| `Qwen/Qwen3.5-9B` | `ScalingIntelligence/Qwen3.5-9B-pearl` | Validated staging | [#316](https://github.com/open-jarvis/OpenJarvis/issues/316) |
-| `Qwen/Qwen3.6-27B` | `ScalingIntelligence/Qwen3.6-27B-pearl` | Validated staging | [#317](https://github.com/open-jarvis/OpenJarvis/issues/317) |
-| `google/gemma-4-E4B-it` | `ScalingIntelligence/Gemma-4-E4B-it-pearl` | Validated staging | [#318](https://github.com/open-jarvis/OpenJarvis/issues/318) |
-| `google/gemma-4-31B-it` | `ScalingIntelligence/Gemma-4-31B-it-pearl` | Validated staging | [#319](https://github.com/open-jarvis/OpenJarvis/issues/319) |
+OpenJarvis only supports Pearl models published by the `pearl-ai` Hugging Face
+organization. Private staging artifacts and OpenJarvis-specific conversion
+repos are not user-facing supported mining models.
 
-The current validated models are:
+The current public support set is:
 
-```text
-pearl-ai/Llama-3.3-70B-Instruct-pearl
-ScalingIntelligence/Gemma-4-31B-it-pearl
-ScalingIntelligence/Gemma-4-E4B-it-pearl
-ScalingIntelligence/Qwen3.5-9B-pearl
-ScalingIntelligence/Qwen3.6-27B-pearl
-```
+| Raw model | Pearl model | Status |
+|---|---|---|
+| `meta-llama/Llama-3.3-70B-Instruct` | `pearl-ai/Llama-3.3-70B-Instruct-pearl` | Validated default |
+| `google/gemma-4-31B-it` | `pearl-ai/Gemma-4-31B-it-pearl` | Planned until H100/H200 validation passes |
+| `meta-llama/Llama-3.1-8B-Instruct` | `pearl-ai/Llama-3.1-8B-Instruct-pearl` | Planned until H100/H200 validation passes |
 
 ## Current Validation Findings
 
@@ -33,77 +28,10 @@ The H100 smoke run validated the default Llama Pearl model end to end through
 `jarvis mine start`, vLLM `/v1/models`, OpenJarvis inference routing, Pearl
 gateway template refresh, and `jarvis mine validate-model`.
 
-The upstream Pearl model ids for Qwen 3.6, Gemma E4B, and Gemma 31B remain
-planned because the `pearl-ai/*` artifacts are not available as complete
-validated user-facing repos yet:
-
-- `pearl-ai/Gemma-4-31B-it-pearl` exists and selects Pearl mining kernels on
-  H100, but vLLM fails during Gemma4 multimodal profiling because the published
-  artifact is missing processor/preprocessor metadata required by Transformers.
-  A local cache experiment proved the processor can be loaded only after
-  injecting metadata from `google/gemma-4-31B-it`; that is not sufficient for
-  OpenJarvis promotion because a clean user install would still fail.
-- `pearl-ai/Qwen3.6-27B-pearl` and `pearl-ai/Gemma-4-E4B-it-pearl` remain
-  planned upstream model ids until Pearl publishes/validates them.
-
-PR #323 added a local staging path for original checkpoint conversion and H100
-runtime validation. The validated staging artifacts are private repositories in
-the `ScalingIntelligence` Hugging Face org and grouped in the
-`OpenJarvis Pearl Mining Models` collection. Users need Hugging Face access to
-the org/repositories before `jarvis mine inspect-model`, `jarvis mine init`, or
-`jarvis mine start` can fetch them:
-
-- `ScalingIntelligence/Gemma-4-31B-it-pearl`
-- `ScalingIntelligence/Gemma-4-E4B-it-pearl`
-- `ScalingIntelligence/Qwen3.5-9B-pearl`
-- `ScalingIntelligence/Qwen3.6-27B-pearl`
-
-Current validation evidence:
-
-- `google/gemma-4-31B-it` converted to
-  `/tmp/openjarvis-h100/converted/Gemma-4-31B-it-pearl-experimental`.
-  The local artifact passes `jarvis mine inspect-model`, starts through
-  `jarvis mine start --local-model-path`, exposes
-  `pearl-ai/Gemma-4-31B-it-pearl` at `/v1/models`, completes a chat prompt,
-  and passes `jarvis mine validate-model --allow-planned`. Validation artifact:
-  `/tmp/openjarvis-h100/converted/Gemma-4-31B-it-pearl-experimental-validate.json`.
-  The published `ScalingIntelligence/Gemma-4-31B-it-pearl` repo includes the
-  same validation artifact as `openjarvis_validation.json`.
-- `Qwen/Qwen3.5-9B` converted to
-  `/tmp/openjarvis-h100/converted/Qwen3.5-9B-pearl-experimental`.
-  The local artifact passes `jarvis mine inspect-model`, starts Pearl gateway,
-  resolves `Qwen3_5ForConditionalGeneration`, selects Pearl kernels, loads all
-  four safetensors shards, exposes `pearl-ai/Qwen3.5-9B-pearl` at `/v1/models`,
-  completes a chat prompt, and passes `jarvis mine validate-model
-  --allow-planned`. Required validation flags: `--gdn-prefill-backend triton`
-  and a 4096-token context. Validation artifact:
-  `/tmp/openjarvis-h100/converted/Qwen3.5-9B-pearl-experimental-validate.json`.
-  The published `ScalingIntelligence/Qwen3.5-9B-pearl` repo includes the same
-  validation artifact as `openjarvis_validation.json`.
-- `google/gemma-4-E4B-it` converted to
-  `/tmp/openjarvis-h100/converted/Gemma-4-E4B-it-pearl-experimental`.
-  The local artifact passes `jarvis mine inspect-model`, starts Pearl gateway,
-  loads with Gemma4 per-layer embeddings excluded from Pearl quantization,
-  exposes `pearl-ai/Gemma-4-E4B-it-pearl` at `/v1/models`, completes a chat
-  prompt, and passes `jarvis mine validate-model --allow-planned`. Required
-  validation flags: `--language-model-only` and `--skip-mm-profiling`.
-  Validation artifact:
-  `/tmp/openjarvis-h100/converted/Gemma-4-E4B-it-pearl-experimental-validate.json`.
-  The published `ScalingIntelligence/Gemma-4-E4B-it-pearl` repo includes the
-  same validation artifact as `openjarvis_validation.json`.
-- `Qwen/Qwen3.6-27B` converted to
-  `/tmp/openjarvis-h100/converted/Qwen3.6-27B-pearl-experimental`.
-  The local artifact passes `jarvis mine inspect-model`, starts Pearl gateway,
-  resolves `Qwen3_5ForConditionalGeneration`, selects Pearl kernels, loads all
-  fifteen safetensors shards, exposes `pearl-ai/Qwen3.6-27B-pearl` at
-  `/v1/models`, completes a chat prompt, and passes `jarvis mine
-  validate-model --allow-planned`. Required validation flags:
-  `--language-model-only`, `--skip-mm-profiling`, and
-  `--gdn-prefill-backend triton` with a 4096-token context. Validation
-  artifact:
-  `/tmp/openjarvis-h100/converted/Qwen3.6-27B-pearl-experimental-validate.json`.
-  The published `ScalingIntelligence/Qwen3.6-27B-pearl` repo includes the same
-  validation artifact as `openjarvis_validation.json`.
+`pearl-ai/Gemma-4-31B-it-pearl` and
+`pearl-ai/Llama-3.1-8B-Instruct-pearl` are listed because they are public Pearl
+org artifacts. They remain `planned` in OpenJarvis until we have clean
+H100/H200 validation artifacts for the published repos.
 
 ## Enablement Checklist
 
@@ -114,18 +42,19 @@ Current validation evidence:
    - Record calibration data and SmoothQuant settings, if used.
 
 2. Convert the target model.
-   - Start with `Qwen/Qwen3.5-9B`; it is the smallest target.
+   - Start with a model Pearl intends to publish under the `pearl-ai` org.
    - Generate Pearl-compatible quantized weights and metadata.
    - For Gemma4 artifacts, include the base model's processor metadata required
      by vLLM's Gemma4 multimodal profiler.
-   - Publish under the planned `pearl-ai/*-pearl` id or a staging namespace.
+   - Publish under the planned `pearl-ai/*-pearl` id before enabling it in
+     OpenJarvis.
 
    OpenJarvis includes an experimental local converter for this work:
 
    ```bash
    python scripts/pearl/model_converter.py \
-     Qwen/Qwen3.5-9B \
-     /tmp/pearl-ai-Qwen3.5-9B-pearl \
+     meta-llama/Llama-3.1-8B-Instruct \
+     /tmp/pearl-ai-Llama-3.1-8B-Instruct-pearl \
      --device cuda
    ```
 
@@ -140,7 +69,7 @@ Current validation evidence:
 
    ```bash
    jarvis mine inspect-model \
-     --model /tmp/pearl-ai-Qwen3.5-9B-pearl
+     --model /tmp/pearl-ai-Llama-3.1-8B-Instruct-pearl
    ```
 
    To run a local staging artifact through the Docker miner, keep `--model` as
@@ -151,17 +80,13 @@ Current validation evidence:
    jarvis mine init \
      --provider vllm-pearl \
      --wallet-address <prl1...> \
-     --model pearl-ai/Qwen3.5-9B-pearl \
-     --local-model-path /tmp/pearl-ai-Qwen3.5-9B-pearl \
+     --model pearl-ai/Llama-3.1-8B-Instruct-pearl \
+     --local-model-path /tmp/pearl-ai-Llama-3.1-8B-Instruct-pearl \
      --cuda-visible-devices 1 \
      --vllm-arg=--language-model-only \
-     --vllm-arg=--skip-mm-profiling \
-     --vllm-arg=--gdn-prefill-backend \
-     --vllm-arg=triton
+     --vllm-arg=--skip-mm-profiling
    jarvis mine start
    ```
-
-   For Qwen3.5 validation, set `max_model_len = 4096` in `[mining.extra]`.
 
 3. Validate the Pearl vLLM plugin path.
    - Run `jarvis mine inspect-model --model <pearl-model-id>

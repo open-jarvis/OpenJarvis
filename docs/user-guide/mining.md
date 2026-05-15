@@ -75,37 +75,35 @@ Run:
 jarvis mine models
 ```
 
-OpenJarvis only enables models that have Pearl-compatible quantized artifacts
-and real hardware validation. Raw Hugging Face models such as
-`Qwen/Qwen3.5-9B` or `google/gemma-4-E4B-it` are not mineable by themselves;
-they need corresponding Pearl-compatible variants.
+OpenJarvis only lists Pearl-compatible models published by the Pearl Research
+Labs Hugging Face org. Raw Hugging Face base models such as
+`meta-llama/Llama-3.3-70B-Instruct` or `google/gemma-4-31B-it` are not mineable
+by themselves; they need corresponding `pearl-ai/*-pearl` variants.
 
-The validated models are:
+The supported Pearl model ids are:
 
 ```text
 pearl-ai/Llama-3.3-70B-Instruct-pearl
-ScalingIntelligence/Gemma-4-31B-it-pearl
-ScalingIntelligence/Gemma-4-E4B-it-pearl
-ScalingIntelligence/Qwen3.5-9B-pearl
-ScalingIntelligence/Qwen3.6-27B-pearl
+pearl-ai/Gemma-4-31B-it-pearl
+pearl-ai/Llama-3.1-8B-Instruct-pearl
 ```
 
-The ScalingIntelligence artifacts are experimental private staging artifacts
-under the `ScalingIntelligence` Hugging Face org. You need Hugging Face access
-to those repos before OpenJarvis can inspect or run them. They were validated on
-H100 with `jarvis mine validate-model`, but the short validation runs did not
-find a reward-bearing block or accepted share.
+`pearl-ai/Llama-3.3-70B-Instruct-pearl` is the default validated model.
+Additional public `pearl-ai/*` artifacts may remain marked `planned` until they
+pass the OpenJarvis H100/H200 validation run.
 
-When validating a newly converted Pearl model on a mining host, run:
+When validating a Pearl org model on a mining host, run:
 
 ```bash
 jarvis mine inspect-model \
-  --model ScalingIntelligence/Qwen3.5-9B-pearl
+  --model pearl-ai/Gemma-4-31B-it-pearl \
+  --allow-planned
 
 jarvis mine validate-model \
-  --model ScalingIntelligence/Qwen3.5-9B-pearl \
+  --model pearl-ai/Gemma-4-31B-it-pearl \
+  --allow-planned \
   --prompt "Say hello in one sentence." \
-  --output qwen3.5-9b-pearl-validation.json
+  --output gemma-4-31b-pearl-validation.json
 ```
 
 Attach the JSON artifact to the validation issue when promoting additional

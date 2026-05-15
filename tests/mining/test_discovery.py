@@ -91,12 +91,12 @@ def test_detect_raw_planned_model_points_to_pearl_variant(hopper_hw):
     cap = detect_for_engine_model(
         hw=hopper_hw,
         engine_id="vllm",
-        model="Qwen/Qwen3.5-9B",
+        model="google/gemma-4-31B-it",
         provider_id="vllm-pearl",
     )
 
     assert cap.supported is False
-    assert "ScalingIntelligence/Qwen3.5-9B-pearl" in cap.reason
+    assert "pearl-ai/Gemma-4-31B-it-pearl" in cap.reason
 
 
 def test_detect_planned_pearl_model_is_not_enabled_yet(hopper_hw):
@@ -105,7 +105,7 @@ def test_detect_planned_pearl_model_is_not_enabled_yet(hopper_hw):
     cap = detect_for_engine_model(
         hw=hopper_hw,
         engine_id="vllm",
-        model="pearl-ai/Qwen3.5-9B-pearl",
+        model="pearl-ai/Gemma-4-31B-it-pearl",
         provider_id="vllm-pearl",
     )
 

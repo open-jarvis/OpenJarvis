@@ -28,34 +28,22 @@ def test_mine_models_lists_validated_and_planned_models() -> None:
     assert result.exit_code == 0
     assert "Pearl Mining Models" in result.output
     assert "pearl-ai/Llama-3.3-70B-Instruct-pearl" in result.output
-    assert "ScalingIntelligence/Gemma-4-31B-it-pearl" in result.output
-    assert "ScalingIntelligence/Gemma-4-E4B-it-pearl" in result.output
-    assert "ScalingIntelligence/Qwen3.5-9B-pearl" in result.output
-    assert "ScalingIntelligence/Qwen3.6-27B-pearl" in result.output
-    assert "pearl-ai/Qwen3.5-9B-pearl" in result.output
+    assert "pearl-ai/Gemma-4-31B-it-pearl" in result.output
+    assert "pearl-ai/Llama-3.1-8B-Instruct-pearl" in result.output
+    assert "Qwen" not in result.output
     assert "validated" in result.output
     assert "planned" in result.output
 
 
-def test_pearl_base_model_lookup_prefers_validated_scalingintelligence_artifacts():
+def test_pearl_base_model_lookup_uses_public_pearl_ai_artifacts():
     from openjarvis.mining._models import pearl_variant_for_base_model
 
     assert (
         pearl_variant_for_base_model("google/gemma-4-31B-it")
-        == "ScalingIntelligence/Gemma-4-31B-it-pearl"
+        == "pearl-ai/Gemma-4-31B-it-pearl"
     )
-    assert (
-        pearl_variant_for_base_model("Qwen/Qwen3.5-9B")
-        == "ScalingIntelligence/Qwen3.5-9B-pearl"
-    )
-    assert (
-        pearl_variant_for_base_model("google/gemma-4-E4B-it")
-        == "ScalingIntelligence/Gemma-4-E4B-it-pearl"
-    )
-    assert (
-        pearl_variant_for_base_model("Qwen/Qwen3.6-27B")
-        == "ScalingIntelligence/Qwen3.6-27B-pearl"
-    )
+    assert pearl_variant_for_base_model("Qwen/Qwen3.5-9B") is None
+    assert pearl_variant_for_base_model("google/gemma-4-E4B-it") is None
 
 
 def test_mine_inspect_model_validated_artifact_passes(monkeypatch) -> None:
@@ -255,7 +243,7 @@ def test_mine_init_writes_local_model_path_for_vllm(
                 "--pearld-rpc-password-env",
                 "TEST_PEARLD_PASSWORD",
                 "--model",
-                "pearl-ai/Qwen3.5-9B-pearl",
+                "pearl-ai/Llama-3.1-8B-Instruct-pearl",
                 "--local-model-path",
                 str(local_model),
                 "--vllm-arg=--language-model-only",
@@ -266,7 +254,7 @@ def test_mine_init_writes_local_model_path_for_vllm(
 
     assert result.exit_code == 0
     content = config_path.read_text()
-    assert 'model = "pearl-ai/Qwen3.5-9B-pearl"' in content
+    assert 'model = "pearl-ai/Llama-3.1-8B-Instruct-pearl"' in content
     assert f'local_model_path = "{local_model.resolve()}"' in content
     assert 'vllm_args = ["--language-model-only", "--skip-mm-profiling"]' in content
 
@@ -411,7 +399,7 @@ def test_mine_validate_model_blocks_planned_without_allow(
     tmp_path: Path, monkeypatch
 ) -> None:
     sidecar_path = tmp_path / "mining.json"
-    model = "pearl-ai/Qwen3.5-9B-pearl"
+    model = "pearl-ai/Gemma-4-31B-it-pearl"
     Sidecar.write(
         sidecar_path,
         {
@@ -445,7 +433,7 @@ def test_mine_validate_model_allows_planned_with_runtime_evidence(
     tmp_path: Path, monkeypatch
 ) -> None:
     sidecar_path = tmp_path / "mining.json"
-    model = "pearl-ai/Qwen3.5-9B-pearl"
+    model = "pearl-ai/Gemma-4-31B-it-pearl"
     Sidecar.write(
         sidecar_path,
         {
@@ -492,7 +480,7 @@ def test_mine_validate_model_allows_planned_with_runtime_evidence(
 def test_mine_validate_model_writes_json_artifact(tmp_path: Path, monkeypatch) -> None:
     sidecar_path = tmp_path / "mining.json"
     output_path = tmp_path / "artifacts" / "qwen-validation.json"
-    model = "pearl-ai/Qwen3.5-9B-pearl"
+    model = "pearl-ai/Gemma-4-31B-it-pearl"
     Sidecar.write(
         sidecar_path,
         {

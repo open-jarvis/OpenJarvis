@@ -222,7 +222,7 @@ def test_launcher_start_mounts_local_model_path(_env_password, tmp_path):
     from openjarvis.mining._docker import LOCAL_MODEL_BIND_PATH, PearlDockerLauncher
     from openjarvis.mining._stubs import MiningConfig, SoloTarget
 
-    local_model = tmp_path / "qwen-pearl"
+    local_model = tmp_path / "llama31-pearl"
     local_model.mkdir()
     fake = MagicMock()
     fake.containers.run.return_value = MagicMock(id="cid-1", status="running")
@@ -232,7 +232,7 @@ def test_launcher_start_mounts_local_model_path(_env_password, tmp_path):
         wallet_address="prl1qaaa",
         submit_target=SoloTarget(pearld_rpc_url="http://localhost:44107"),
         extra={
-            "model": "pearl-ai/Qwen3.5-9B-pearl",
+            "model": "pearl-ai/Llama-3.1-8B-Instruct-pearl",
             "local_model_path": str(local_model),
             "pearld_rpc_password_env": "PEARLD_RPC_PASSWORD",
             "vllm_args": ["--language-model-only", "--skip-mm-profiling"],
@@ -244,7 +244,7 @@ def test_launcher_start_mounts_local_model_path(_env_password, tmp_path):
     kwargs = fake.containers.run.call_args.kwargs
     assert kwargs["command"][0] == LOCAL_MODEL_BIND_PATH
     assert "--served-model-name" in kwargs["command"]
-    assert "pearl-ai/Qwen3.5-9B-pearl" in kwargs["command"]
+    assert "pearl-ai/Llama-3.1-8B-Instruct-pearl" in kwargs["command"]
     assert "--language-model-only" in kwargs["command"]
     assert "--skip-mm-profiling" in kwargs["command"]
     assert kwargs["volumes"][str(local_model.resolve())] == {
