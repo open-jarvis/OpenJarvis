@@ -1,6 +1,6 @@
 """Load tool description overrides from $OPENJARVIS_HOME/tools/descriptions.toml.
 
-Distillation (M1) proposes tool description edits that get written to disk by
+LLM-guided spec search (M1) proposes tool description edits that get written to disk by
 ``EditToolDescriptionApplier``.  This module loads those overrides so agents
 see the improved descriptions at runtime.
 

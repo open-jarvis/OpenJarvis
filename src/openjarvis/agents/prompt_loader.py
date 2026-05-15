@@ -1,6 +1,6 @@
 """Load system prompt and few-shot overrides from $OPENJARVIS_HOME.
 
-Distillation (M1) proposes edits that get written to disk by appliers.
+LLM-guided spec search (M1) proposes edits that get written to disk by appliers.
 This module lets agents pick those overrides up at runtime:
 
 - System prompts: ``$OPENJARVIS_HOME/agents/{name}/system_prompt.md``

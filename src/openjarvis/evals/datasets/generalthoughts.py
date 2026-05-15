@@ -2,7 +2,7 @@
 
 NOT USED FOR EVALUATION. Provides the LLM-guided spec search proposer
 with a large pool of reasoning trajectories to reason over (via
-`openjarvis.learning.distillation.external_adapter`) when the diagnose
+`openjarvis.learning.spec_search.external_adapter`) when the diagnose
 phase wants signal from a broad reasoning corpus rather than the
 per-cell student's own trace history.
 

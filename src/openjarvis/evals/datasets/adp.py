@@ -2,7 +2,7 @@
 
 NOT USED FOR EVALUATION. Surfaces multi-turn agent trajectories to the
 LLM-guided spec search proposer via
-``openjarvis.learning.distillation.external_adapter`` so the diagnose
+``openjarvis.learning.spec_search.external_adapter`` so the diagnose
 phase can reason over a broad pool of agent traces without depending on
 the per-cell student's own trace history.
 

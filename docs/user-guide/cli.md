@@ -465,12 +465,12 @@ When an agent is configured (e.g., `--agent orchestrator`), non-streaming reques
 
 ## LLM-guided spec search (no CLI yet)
 
-The frontier-driven distillation subsystem (LLM-guided spec search) is
-exposed as a Python library only — there is currently no top-level
-`jarvis` subcommand for it. Construct a `DistillationOrchestrator`
-directly from `openjarvis.learning.distillation.orchestrator` and call
+LLM-guided spec search (the frontier-driven harness-learning subsystem)
+is exposed as a Python library only — there is currently no top-level
+`jarvis` subcommand for it. Construct a `SpecSearchOrchestrator`
+directly from `openjarvis.learning.spec_search.orchestrator` and call
 `.run(trigger)` with a trigger from
-`openjarvis.learning.distillation.triggers`. See
+`openjarvis.learning.spec_search.triggers`. See
 [`docs/user-guide/llm-guided-spec-search.md`](llm-guided-spec-search.md)
 for the architecture and the building blocks
 (`splits.py`, external corpora, `external_adapter`).

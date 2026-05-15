@@ -339,9 +339,9 @@ def _build_t6(frame: ResultsFrame) -> Tuple[str, str]:
 def _build_t7(frame: ResultsFrame) -> Tuple[str, str]:
     """T7: Edit category x framework — preliminary (raw deltas).
 
-    Spec §10 says richer edit-attribution data needs the spec-distillation
-    pipeline to tag accepted edits. For now, raw per-benchmark accuracy
-    deltas across frameworks.
+    Spec §10 says richer edit-attribution data needs the LLM-guided
+    spec-search pipeline to tag accepted edits. For now, raw per-benchmark
+    accuracy deltas across frameworks.
     """
     df = frame.df.filter(pl.col("metric_name") == "accuracy")
     pivot = (

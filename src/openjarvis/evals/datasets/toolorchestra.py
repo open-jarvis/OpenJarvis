@@ -3,7 +3,7 @@
 NOT USED FOR EVALUATION. Surfaces tool-use trajectories from
 ``nvidia/ToolScale`` (the dataset underlying the ToolOrchestra paper) to
 the LLM-guided spec search proposer via
-``openjarvis.learning.distillation.external_adapter`` so the diagnose
+``openjarvis.learning.spec_search.external_adapter`` so the diagnose
 phase can reason over a broad pool of tool-use traces.
 
 The ``dataset_id`` is kept as ``"toolorchestra"`` (matching the published

@@ -25,13 +25,13 @@ A search session repeats four phases:
 | **Execute** | The candidate spec is evaluated on a held-out gate: the targeted cluster must improve, and every other cluster must regress by no more than a per-cluster tolerance. |
 | **Record** | Accepted edits are committed; rejected edits are rolled back. |
 
-The four-phase loop is implemented by `DistillationOrchestrator` in
-`openjarvis.learning.distillation.orchestrator`. There is currently no
+The four-phase loop is implemented by `SpecSearchOrchestrator` in
+`openjarvis.learning.spec_search.orchestrator`. There is currently no
 top-level `jarvis` subcommand for the orchestrator — construct it
-directly in Python (see `tests/learning/distillation/test_orchestrator.py`
+directly in Python (see `tests/learning/spec_search/test_orchestrator.py`
 for the full constructor signature and a working example) and call
 `.run(trigger)` with one of the trigger types in
-`openjarvis.learning.distillation.triggers`. This document covers the
+`openjarvis.learning.spec_search.triggers`. This document covers the
 new building blocks added on top.
 
 ### Alignment with the paper
@@ -39,7 +39,7 @@ new building blocks added on top.
 The paper's Algorithm 1 specifies a **multi-session loop** that runs
 diagnose → plan → execute → record repeatedly until gate-score stagnation
 (default *k* = 5 sessions) or budget exhaustion, with default per-cluster
-tolerance ε = 1 %. The current `DistillationOrchestrator` runs
+tolerance ε = 1 %. The current `SpecSearchOrchestrator` runs
 **one session per `.run(trigger)` call** (one diagnose, one plan, one
 round of edits + gate decisions, one record); the per-cluster regression
 check uses a default `max_regression = 0.05` (5 %).
@@ -48,7 +48,7 @@ To match the paper's defaults today:
 
 - pass `max_regression=0.01` when constructing the orchestrator or the
   `BenchmarkGate` directly, and
-- call `DistillationOrchestrator.run(trigger)` repeatedly until per-session
+- call `SpecSearchOrchestrator.run(trigger)` repeatedly until per-session
   gate-score deltas stagnate for *k* sessions.
 
 Wiring the multi-session stagnation loop into the orchestrator natively,
@@ -99,7 +99,7 @@ they exist purely to feed the proposer's diagnose phase.
 
 ### `external_adapter.py` — corpus records as synthetic traces
 
-`src/openjarvis/learning/distillation/external_adapter.py` adapts records
+`src/openjarvis/learning/spec_search/external_adapter.py` adapts records
 from any external corpus into rows the proposer's existing trace tools
 understand. The proposer reads from the SQLite TraceStore via search /
 get tools; this adapter writes each `EvalRecord` as a synthetic `Trace`
@@ -108,7 +108,7 @@ metadata so multi-source diagnose runs can filter downstream.
 
 ```python
 from openjarvis.evals.datasets.adp import ADPDataset
-from openjarvis.learning.distillation.external_adapter import (
+from openjarvis.learning.spec_search.external_adapter import (
     write_external_records_as_traces,
 )
 from openjarvis.traces.store import TraceStore
@@ -140,10 +140,10 @@ Callers that previously expected traces to always be written should pass
 
 ## Configuration
 
-`DistillationOrchestrator` reads its configuration from `~/.openjarvis/config.toml`:
+`SpecSearchOrchestrator` reads its configuration from `~/.openjarvis/config.toml`:
 
 ```toml
-[learning.distillation]
+[learning.spec_search]
 enabled = true                          # gate the entire subsystem
 autonomy_mode = "tiered"                # auto | tiered | manual
 teacher_model = "claude-opus-4-6"       # any CloudEngine-supported model
@@ -152,7 +152,7 @@ max_tool_calls_per_diagnosis = 30       # max teacher tool calls in diagnosis
 ```
 
 Gate / acceptance knobs (constructor arguments to `BenchmarkGate` and
-`DistillationOrchestrator`):
+`SpecSearchOrchestrator`):
 
 | Argument | Meaning | Current default | Paper default |
 |---|---|---|---|
@@ -162,13 +162,14 @@ Gate / acceptance knobs (constructor arguments to `BenchmarkGate` and
 
 Pass `max_regression=0.01` explicitly to match the paper's default. See
 the *Alignment with the paper* note above for the gap between the
-single-session `DistillationOrchestrator` and the paper's multi-session
+single-session `SpecSearchOrchestrator` and the paper's multi-session
 loop with stagnation criterion.
 
 Each `EditApplier` registers an autonomy tier (`auto`, `review`,
-`manual`); see the
-[Learning & Distillation](learning-distillation.md) doc for the per-edit
-configuration schema and the registered appliers.
+`manual`). The applier registry lives in
+`openjarvis.learning.spec_search.execute.appliers`; refer to those
+modules and `tests/learning/spec_search/test_appliers_*.py` for the
+per-edit schema and the registered appliers.
 
 ## What runs where
 

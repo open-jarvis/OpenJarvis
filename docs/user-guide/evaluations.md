@@ -14,7 +14,7 @@ The OpenJarvis evaluation framework (`openjarvis-evals`) measures model **correc
 
 ---
 
-> **Tip:** The distillation system uses this same eval infrastructure to gate edits against your personal benchmark. See [LLM-guided spec search](llm-guided-spec-search.md).
+> **Tip:** LLM-guided spec search uses this same eval infrastructure to gate edits against your personal benchmark. See [LLM-guided spec search](llm-guided-spec-search.md).
 
 ## Installation
 
