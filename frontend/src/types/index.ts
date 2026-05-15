@@ -61,12 +61,28 @@ export interface MessageTelemetry {
   suggested_max_tokens?: number;
 }
 
+export interface ResearchSearchTrace {
+  id: string;
+  query: string;
+  person?: string;
+  status: 'pending' | 'complete';
+  numHits?: number;
+  topTitles?: string[];
+}
+
+export type ResearchEvent =
+  | { type: 'search_call'; arguments: { query: string; person?: string } }
+  | { type: 'search_result'; num_hits: number; top_titles?: string[] }
+  | { type: 'synthesis'; text: string }
+  | { type: 'done' };
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
   toolCalls?: ToolCallInfo[];
+  researchTraces?: ResearchSearchTrace[];
   usage?: TokenUsage;
   telemetry?: MessageTelemetry;
   audio?: { url: string };

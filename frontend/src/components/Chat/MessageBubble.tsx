@@ -8,6 +8,7 @@ import 'katex/dist/katex.min.css';
 import { Copy, Check } from 'lucide-react';
 import { AudioPlayer } from './AudioPlayer';
 import { ToolCallCard } from './ToolCallCard';
+import { ResearchTraceCard } from './ResearchTraceCard';
 import { XRayFooter } from './XRayFooter';
 import type { ChatMessage } from '../../types';
 
@@ -123,6 +124,15 @@ export function MessageBubble({ message }: Props) {
 
   return (
     <div className="group mb-6">
+      {/* Deep Research search traces */}
+      {message.researchTraces && message.researchTraces.length > 0 && (
+        <div className="mb-3 flex flex-col gap-1.5">
+          {message.researchTraces.map((tr) => (
+            <ResearchTraceCard key={tr.id} trace={tr} />
+          ))}
+        </div>
+      )}
+
       {/* Tool calls */}
       {message.toolCalls && message.toolCalls.length > 0 && (
         <div className="mb-3 flex flex-col gap-2">

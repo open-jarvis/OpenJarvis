@@ -1,11 +1,17 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Send, Square, Paperclip } from 'lucide-react';
+import { Send, Square, Paperclip, Search } from 'lucide-react';
 import { useAppStore, generateId } from '../../lib/store';
-import { streamChat } from '../../lib/sse';
+import { streamChat, streamResearch } from '../../lib/sse';
 import { fetchSavings, getBase } from '../../lib/api';
 import { MicButton } from './MicButton';
 import { useSpeech } from '../../hooks/useSpeech';
-import type { ChatMessage, ToolCallInfo, TokenUsage, MessageTelemetry } from '../../types';
+import type {
+  ChatMessage,
+  MessageTelemetry,
+  ResearchSearchTrace,
+  TokenUsage,
+  ToolCallInfo,
+} from '../../types';
 
 export function InputArea() {
   const [input, setInput] = useState('');
@@ -26,6 +32,8 @@ export function InputArea() {
   const setStreamState = useAppStore((s) => s.setStreamState);
   const resetStream = useAppStore((s) => s.resetStream);
   const modelLoading = useAppStore((s) => s.modelLoading);
+  const deepResearch = useAppStore((s) => s.deepResearch);
+  const setDeepResearch = useAppStore((s) => s.setDeepResearch);
 
   const { state: speechState, available: speechAvailable, startRecording, stopRecording } = useSpeech();
 
@@ -131,12 +139,13 @@ export function InputArea() {
     let usage: TokenUsage | undefined;
     let complexity: { score: number; tier: string; suggested_max_tokens: number } | undefined;
     const toolCalls: ToolCallInfo[] = [];
+    const researchTraces: ResearchSearchTrace[] = [];
     let lastFlush = 0;
     let ttftMs: number | undefined;
 
     setStreamState({
       isStreaming: true,
-      phase: 'Generating...',
+      phase: deepResearch ? 'Researching...' : 'Generating...',
       elapsedMs: 0,
       activeToolCalls: [],
       content: '',
@@ -145,10 +154,76 @@ export function InputArea() {
       timestamp: Date.now(),
       level: 'info',
       category: 'chat',
-      message: `Request: "${content.slice(0, 80)}${content.length > 80 ? '...' : ''}" → ${selectedModel}`,
+      message: deepResearch
+        ? `Research: "${content.slice(0, 80)}${content.length > 80 ? '...' : ''}"`
+        : `Request: "${content.slice(0, 80)}${content.length > 80 ? '...' : ''}" → ${selectedModel}`,
     });
 
     try {
+      if (deepResearch) {
+        for await (const ev of streamResearch(content, controller.signal)) {
+          if (ev.type === 'search_call') {
+            const trace: ResearchSearchTrace = {
+              id: generateId(),
+              query: ev.arguments?.query ?? '',
+              person: ev.arguments?.person,
+              status: 'pending',
+            };
+            researchTraces.push(trace);
+            setStreamState({ phase: `Searching: ${trace.query}` });
+            updateLastAssistant(
+              convId,
+              accumulatedContent,
+              undefined,
+              undefined,
+              undefined,
+              undefined,
+              [...researchTraces],
+            );
+            useAppStore.getState().addLogEntry({
+              timestamp: Date.now(),
+              level: 'info',
+              category: 'tool',
+              message: `Search: "${trace.query}"${trace.person ? ` (person: ${trace.person})` : ''}`,
+            });
+          } else if (ev.type === 'search_result') {
+            const pending = [...researchTraces].reverse().find((t) => t.status === 'pending');
+            if (pending) {
+              pending.status = 'complete';
+              pending.numHits = ev.num_hits;
+              pending.topTitles = ev.top_titles;
+            }
+            updateLastAssistant(
+              convId,
+              accumulatedContent,
+              undefined,
+              undefined,
+              undefined,
+              undefined,
+              [...researchTraces],
+            );
+          } else if (ev.type === 'synthesis') {
+            if (!ttftMs) ttftMs = Date.now() - startTime;
+            accumulatedContent += ev.text;
+            setStreamState({ content: accumulatedContent, phase: '' });
+            const now = Date.now();
+            if (now - lastFlush >= 80) {
+              updateLastAssistant(
+                convId,
+                accumulatedContent,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                [...researchTraces],
+              );
+              lastFlush = now;
+            }
+          } else if (ev.type === 'done') {
+            break;
+          }
+        }
+      } else {
       for await (const sseEvent of streamChat(
         { model: selectedModel, messages: apiMessages, stream: true, temperature, max_tokens: maxTokens },
         controller.signal,
@@ -225,6 +300,7 @@ export function InputArea() {
           } catch {}
         }
       }
+      }
     } catch (err: any) {
       if (err.name === 'AbortError') {
         // User cancelled or model switch — keep whatever was accumulated
@@ -278,6 +354,7 @@ export function InputArea() {
         usage,
         telemetry,
         audioMeta,
+        researchTraces.length > 0 ? researchTraces : undefined,
       );
       if (timerRef.current) {
         clearInterval(timerRef.current);
@@ -304,6 +381,9 @@ export function InputArea() {
     updateLastAssistant,
     setStreamState,
     resetStream,
+    deepResearch,
+    temperature,
+    maxTokens,
   ]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -315,6 +395,24 @@ export function InputArea() {
 
   return (
     <div className="px-4 pb-4 pt-2" style={{ maxWidth: 'var(--chat-max-width)', margin: '0 auto', width: '100%' }}>
+      <div className="mb-2 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setDeepResearch(!deepResearch)}
+          disabled={streamState.isStreaming}
+          aria-pressed={deepResearch}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs transition-colors cursor-pointer disabled:cursor-default disabled:opacity-50"
+          style={{
+            background: deepResearch ? 'var(--color-accent-subtle)' : 'transparent',
+            border: `1px solid ${deepResearch ? 'var(--color-accent)' : 'var(--color-border)'}`,
+            color: deepResearch ? 'var(--color-accent)' : 'var(--color-text-tertiary)',
+          }}
+          title={deepResearch ? 'Deep Research: on' : 'Deep Research: off'}
+        >
+          <Search size={12} />
+          Deep Research
+        </button>
+      </div>
       <div
         className="flex items-center gap-2 rounded-2xl px-4 py-3 transition-shadow"
         style={{
