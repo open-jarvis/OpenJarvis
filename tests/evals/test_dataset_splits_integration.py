@@ -23,10 +23,28 @@ def test_train_and_test_are_disjoint_per_provider(mod_name, cls_name):
     mod = importlib.import_module(mod_name)
     ds_cls = getattr(mod, cls_name)
 
-    train_ds = ds_cls()
-    train_ds.load(split="train", seed=42)
-    test_ds = ds_cls()
-    test_ds.load(split="test", seed=42)
+    # Some providers wrap gated HuggingFace datasets (GAIA,
+    # LiveResearchBench) or optional upstream packages (TauBench needs
+    # the ``tau2`` package). When the local environment lacks the
+    # required HF auth token or the optional install, the dataset
+    # raises rather than returns empty — skip cleanly so a CI runner
+    # without secrets doesn't fail the suite. The split-disjointness
+    # invariant under test is still exercised by every provider whose
+    # data IS available.
+    try:
+        train_ds = ds_cls()
+        train_ds.load(split="train", seed=42)
+        test_ds = ds_cls()
+        test_ds.load(split="test", seed=42)
+    except (ImportError, ModuleNotFoundError) as exc:
+        pytest.skip(f"{cls_name}: optional upstream not installed ({exc})")
+    except Exception as exc:  # noqa: BLE001 — HF errors live in many modules
+        msg = str(exc)
+        if "GatedRepo" in type(exc).__name__ or "gated" in msg.lower():
+            pytest.skip(f"{cls_name}: gated dataset, no HF auth ({type(exc).__name__})")
+        if "DatasetNotFound" in type(exc).__name__:
+            pytest.skip(f"{cls_name}: dataset not accessible ({type(exc).__name__})")
+        raise
 
     train_ids = {r.record_id for r in train_ds.iter_records()}
     test_ids = {r.record_id for r in test_ds.iter_records()}
