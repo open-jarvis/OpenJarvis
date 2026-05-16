@@ -1303,10 +1303,11 @@ async def _stream_managed_agent(
 
 def create_agent_manager_router(
     manager: AgentManager,
-) -> Tuple[APIRouter, APIRouter, APIRouter, APIRouter]:
+) -> Tuple[APIRouter, APIRouter, APIRouter, APIRouter, APIRouter]:
     """Create FastAPI routers with agent management endpoints.
 
-    Returns a 4-tuple: (agents_router, templates_router, global_router, tools_router).
+    Returns a 5-tuple:
+    ``(agents_router, templates_router, global_router, tools_router, sendblue_router)``.
     """
     agents_router = APIRouter(prefix="/v1/managed-agents", tags=["managed-agents"])
     templates_router = APIRouter(prefix="/v1/templates", tags=["templates"])
