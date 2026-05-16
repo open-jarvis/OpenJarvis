@@ -38,11 +38,8 @@ class TestAgentManagerRoutes:
 
         app = FastAPI()
         routers = create_agent_manager_router(manager)
-        agents_router, templates_router, global_router, tools_router = routers
-        app.include_router(agents_router)
-        app.include_router(templates_router)
-        app.include_router(global_router)
-        app.include_router(tools_router)
+        for r in routers:
+            app.include_router(r)
         return TestClient(app)
 
     def test_list_agents_empty(self, client):
@@ -287,11 +284,8 @@ class TestAgentManagerStreaming:
         app.state.bus = None
 
         routers = create_agent_manager_router(manager)
-        agents_router, templates_router, global_router, tools_router = routers
-        app.include_router(agents_router)
-        app.include_router(templates_router)
-        app.include_router(global_router)
-        app.include_router(tools_router)
+        for r in routers:
+            app.include_router(r)
         return TestClient(app)
 
     def test_send_message_stream(self, manager, stream_client):
