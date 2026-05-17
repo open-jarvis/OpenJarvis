@@ -92,12 +92,14 @@ class GmailIMAPConnector(BaseConnector):
         credentials_path: str = "",
         *,
         imap_host: str = "",
-        max_messages: int = 5000,
+        max_messages: Optional[int] = None,
     ) -> None:
         self._email = email_address
         self._password = app_password
         self._credentials_path = credentials_path or _DEFAULT_CREDENTIALS_PATH
         self._imap_host = imap_host or self._default_imap_host
+        # ``None`` means "no cap" — the full inbox is indexed. A positive
+        # value is still honored for tests that want a bounded scan.
         self._max_messages = max_messages
         self._items_synced = 0
         self._items_total = 0
@@ -156,21 +158,27 @@ class GmailIMAPConnector(BaseConnector):
 
         imap.select("INBOX", readonly=True)
 
-        # Build search criteria
-        if since:
-            date_str = since.strftime("%d-%b-%Y")
-            _, data = imap.search(None, f"SINCE {date_str}")
-        else:
-            _, data = imap.search(None, "ALL")
-
+        # Always SEARCH ALL. IMAP has no native cursor that survives a
+        # server restart, so applying the SyncEngine's ``since`` filter
+        # during a partial backfill would silently skip the older
+        # unprocessed messages. The pipeline-level dedup (_seen_doc_ids
+        # set + INSERT OR IGNORE in KnowledgeStore) makes re-scanning
+        # already-indexed messages cheap, so resume is correct as long
+        # as we keep enumerating the full inbox.
+        _, data = imap.search(None, "ALL")
         msg_ids = data[0].split()
         self._items_total = len(msg_ids)
 
-        # Take the most recent N messages
-        recent = msg_ids[-self._max_messages :]
+        # Newest-first iteration so Deep Research becomes useful while
+        # the long tail of older mail finishes indexing in the
+        # background. IMAP returns sequence numbers in arrival order
+        # (oldest -> newest), so reversing puts the most recent first.
+        ordered = list(reversed(msg_ids))
+        if self._max_messages is not None and self._max_messages > 0:
+            ordered = ordered[: self._max_messages]
         synced = 0
 
-        for mid in recent:
+        for mid in ordered:
             try:
                 _, msg_data = imap.fetch(mid, "(RFC822)")
                 raw = msg_data[0][1]
