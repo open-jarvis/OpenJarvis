@@ -17,6 +17,12 @@ from openjarvis.core.config import load_config
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import Conversation, Message, Role, ToolResult
 from openjarvis.engine._stubs import InferenceEngine
+<<<<<<< HEAD
+=======
+from openjarvis.memory.memory_manager import MemoryManager
+
+memory = MemoryManager()
+>>>>>>> b13bfe9 (feat(memory): add persistent memory system)
 
 
 @dataclass(slots=True)
@@ -73,7 +79,10 @@ class BaseAgent(ABC):
         self._bus = bus
         self._prompt_builder = prompt_builder
 
+<<<<<<< HEAD
         # Three-tier resolution: explicit arg > config > class default > hardcoded
+=======
+>>>>>>> b13bfe9 (feat(memory): add persistent memory system)
         if temperature is not None and max_tokens is not None:
             self._temperature = temperature
             self._max_tokens = max_tokens
@@ -102,10 +111,14 @@ class BaseAgent(ABC):
                     else getattr(self, "_default_max_tokens", 1024)
                 )
 
+<<<<<<< HEAD
     # ------------------------------------------------------------------
     # Concrete helpers
     # ------------------------------------------------------------------
 
+=======
+ 
+>>>>>>> b13bfe9 (feat(memory): add persistent memory system)
     def _emit_turn_start(self, input: str) -> None:
         """Publish ``AGENT_TURN_START`` if an event bus is available."""
         if self._bus:
@@ -141,6 +154,13 @@ class BaseAgent(ABC):
             and any(m.role == Role.SYSTEM for m in context.conversation.messages)
         )
 
+<<<<<<< HEAD
+=======
+        memory_context = memory.build_context(input)
+        if memory_context:
+            messages.append(Message(role=Role.SYSTEM, content=memory_context))
+
+>>>>>>> b13bfe9 (feat(memory): add persistent memory system)
         if self._prompt_builder is not None:
             effective_system_prompt = self._prompt_builder.build()
         elif system_prompt:
@@ -158,6 +178,10 @@ class BaseAgent(ABC):
             messages.append(Message(role=Role.SYSTEM, content=effective_system_prompt))
         if context and context.conversation.messages:
             messages.extend(context.conversation.messages)
+<<<<<<< HEAD
+=======
+
+>>>>>>> b13bfe9 (feat(memory): add persistent memory system)
         messages.append(Message(role=Role.USER, content=input))
         return messages
 
@@ -196,6 +220,16 @@ class BaseAgent(ABC):
                 },
             )
 
+<<<<<<< HEAD
+=======
+        assistant_content = result.get("content", "")
+        if assistant_content:
+            try:
+                memory.add(assistant_content, role="assistant")
+            except Exception:
+                pass
+
+>>>>>>> b13bfe9 (feat(memory): add persistent memory system)
         return result
 
     def _max_turns_result(
@@ -355,4 +389,8 @@ class ToolUsingAgent(BaseAgent):
             pass
 
 
+<<<<<<< HEAD
 __all__ = ["AgentContext", "AgentResult", "BaseAgent", "ToolUsingAgent"]
+=======
+__all__ = ["AgentContext", "AgentResult", "BaseAgent", "ToolUsingAgent"] 
+>>>>>>> b13bfe9 (feat(memory): add persistent memory system)

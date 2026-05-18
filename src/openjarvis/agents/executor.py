@@ -6,7 +6,11 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any
 
+<<<<<<< HEAD
 from openjarvis.agents._stubs import AgentResult
+=======
+from openjarvis.agents._stubs import AgentResult, memory
+>>>>>>> b13bfe9 (feat(memory): add persistent memory system)
 from openjarvis.agents.errors import (
     AgentTickError,
     EscalateError,
@@ -414,6 +418,14 @@ class AgentExecutor:
             agent["name"],
             len(input_text),
         )
+<<<<<<< HEAD
+=======
+        try:
+            memory.add(input_text, role="user")
+        except Exception:
+            pass
+
+>>>>>>> b13bfe9 (feat(memory): add persistent memory system)
         _t0 = time.time()
         result = agent_instance.run(input_text, context=agent_ctx)
 
