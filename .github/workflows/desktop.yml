@@ -156,14 +156,22 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ github.ref }}" == refs/tags/desktop-v* ]]; then
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#desktop-v}"
             echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
             echo "name=Desktop ${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           else
+            # Use git commit count as patch so every main push produces a
+            # strictly higher version than the previous build. Users with any
+            # older build will be offered the update automatically.
+            BUILD=$(git rev-list --count HEAD)
+            VERSION="0.1.${BUILD}"
             echo "tag=desktop-latest" >> "$GITHUB_OUTPUT"
             echo "name=Desktop (Latest Build)" >> "$GITHUB_OUTPUT"
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Configure Apple signing
         if: runner.os == 'macOS'
@@ -199,7 +207,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          TAURI_CONFIG: '{"bundle":{"externalBin":["binaries/ollama"]}}'
+          TAURI_CONFIG: '{"version":"${{ steps.release-info.outputs.version }}","bundle":{"externalBin":["binaries/ollama"]}}'
         with:
           projectPath: frontend
           tauriScript: npx tauri
