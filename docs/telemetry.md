@@ -83,6 +83,33 @@ dropped. Tests covering the patterns: [`tests/analytics/test_redaction.py`](../t
 - **Never** sold, shared with advertisers, or used for anything other
   than improving OpenJarvis.
 
+## Opting out
+
+Three independent ways to disable analytics — any one is sufficient:
+
+1. **Set an env var** (no config file edit needed):
+   ```bash
+   export DO_NOT_TRACK=1            # W3C convention, honored by other tools too
+   # or
+   export OPENJARVIS_NO_ANALYTICS=1 # project-specific, leaves other DNT-aware tools unaffected
+   ```
+   Both are checked at runtime; any truthy value (`1`, `true`, `yes`,
+   `on`) disables analytics for that process. Truthy = anything other
+   than empty, `0`, `false`, `no`, `off`.
+
+2. **Edit `~/.openjarvis/config.toml`**:
+   ```toml
+   [analytics]
+   enabled = false
+   ```
+
+3. **Delete the anon ID** (`rm ~/.openjarvis/anon_id`) — events for
+   the prior identity are orphaned, but a new identity will be
+   created on the next run. Combine with #1 or #2 to fully stop.
+
+Env-var opt-out takes precedence over the config file, so setting
+`DO_NOT_TRACK=1` overrides `enabled = true` in the config.
+
 ## Retention
 
 - Default retention: **365 days**, then events are deleted by PostHog

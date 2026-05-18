@@ -91,6 +91,17 @@ INSTALL_START_EPOCH="$(date +%s)"
 CURRENT_STAGE=""
 
 analytics_enabled() {
+    # Honor the same opt-out env vars as the Python analytics module
+    # (``src/openjarvis/analytics/identity.py::is_analytics_enabled``).
+    # ``DO_NOT_TRACK`` is W3C convention; ``OPENJARVIS_NO_ANALYTICS`` is
+    # the project-specific override. Any truthy value disables.
+    for var in DO_NOT_TRACK OPENJARVIS_NO_ANALYTICS; do
+        val="${!var:-}"
+        case "$(printf '%s' "$val" | tr '[:upper:]' '[:lower:]' | xargs)" in
+            ""|0|false|no|off) ;;
+            *) return 1 ;;
+        esac
+    done
     return 0
 }
 
