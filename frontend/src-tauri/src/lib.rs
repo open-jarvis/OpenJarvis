@@ -675,6 +675,8 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
         "run",
         "jarvis",
         "serve",
+        "--host",
+        "127.0.0.1",
         "--port",
         &JARVIS_PORT.to_string(),
         "--model",
