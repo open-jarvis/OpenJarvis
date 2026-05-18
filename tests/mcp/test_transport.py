@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from openjarvis.mcp.protocol import MCPRequest
+from openjarvis.mcp.client import MCPClient
 from openjarvis.mcp.server import MCPServer
 from openjarvis.mcp.transport import (
     InProcessTransport,
@@ -159,6 +160,153 @@ class TestStdioTransport:
         transport = StdioTransport([sys.executable, str(script)])
         transport.close()
         transport.close()  # Should not raise
+
+    def test_send_times_out_when_subprocess_is_silent(self, tmp_path):
+        script = tmp_path / "silent_server.py"
+        script.write_text(
+            textwrap.dedent("""\
+            import time
+            while True:
+                time.sleep(1)
+        """)
+        )
+
+        transport = StdioTransport(
+            [sys.executable, str(script)],
+            response_timeout=0.2,
+        )
+        try:
+            req = MCPRequest(method="test/timeout", id=99)
+            with pytest.raises(RuntimeError, match="Timeout waiting for MCP stdio"):
+                transport.send(req)
+        finally:
+            transport.close()
+
+    def test_content_length_framing_when_explicitly_requested(self, tmp_path):
+        script = tmp_path / "content_length_server.py"
+        script.write_text(
+            textwrap.dedent("""\
+            import json
+            import sys
+
+            def read_headers(stdin):
+                headers = {}
+                while True:
+                    line = stdin.readline()
+                    if not line or line in ("\\n", "\\r\\n"):
+                        break
+                    if ":" not in line:
+                        continue
+                    k, v = line.split(":", 1)
+                    headers[k.strip().lower()] = v.strip()
+                return headers
+
+            while True:
+                headers = read_headers(sys.stdin)
+                if not headers:
+                    break
+                length = int(headers.get("content-length", "0"))
+                if length <= 0:
+                    continue
+                body = sys.stdin.read(length)
+                req = json.loads(body)
+                resp = {
+                    "jsonrpc": "2.0",
+                    "id": req.get("id", 0),
+                    "result": {"ok": True, "method": req.get("method", "")},
+                }
+                sys.stdout.write(json.dumps(resp) + "\\n")
+                sys.stdout.flush()
+        """)
+        )
+
+        transport = StdioTransport(
+            [sys.executable, str(script)],
+            message_framing="content-length",
+        )
+        try:
+            req = MCPRequest(method="initialize", id=5)
+            resp = transport.send(req)
+            assert resp.error is None
+            assert resp.result["ok"] is True
+            assert resp.result["method"] == "initialize"
+        finally:
+            transport.close()
+
+    def test_initialize_retries_once_on_timeout(self, tmp_path):
+        script = tmp_path / "drop_first_request.py"
+        script.write_text(
+            textwrap.dedent("""\
+            import json
+            import sys
+
+            first = True
+            for line in sys.stdin:
+                line = line.strip()
+                if not line:
+                    continue
+                req = json.loads(line)
+                if first:
+                    first = False
+                    # Simulate startup race: silently drop first request.
+                    continue
+                resp = {
+                    "jsonrpc": "2.0",
+                    "id": req.get("id", 0),
+                    "result": {"ok": True},
+                }
+                sys.stdout.write(json.dumps(resp) + "\\n")
+                sys.stdout.flush()
+        """)
+        )
+
+        transport = StdioTransport(
+            [sys.executable, str(script)],
+            response_timeout=0.2,
+        )
+        try:
+            req = MCPRequest(method="initialize", id=7)
+            resp = transport.send(req)
+            assert resp.error is None
+            assert resp.result["ok"] is True
+        finally:
+            transport.close()
+
+    def test_notification_does_not_wait_for_response(self, tmp_path):
+        script = tmp_path / "init_no_notification_response.py"
+        script.write_text(
+            textwrap.dedent("""\
+            import json
+            import sys
+
+            for line in sys.stdin:
+                line = line.strip()
+                if not line:
+                    continue
+                req = json.loads(line)
+                if req.get("method") == "initialize":
+                    resp = {
+                        "jsonrpc": "2.0",
+                        "id": req.get("id", 0),
+                        "result": {
+                            "protocolVersion": "2025-03-26",
+                            "capabilities": {},
+                            "serverInfo": {"name": "test", "version": "0.1"},
+                        },
+                    }
+                    sys.stdout.write(json.dumps(resp) + "\\n")
+                    sys.stdout.flush()
+                # For notifications and all other methods: intentionally no stdout.
+        """)
+        )
+
+        transport = StdioTransport([sys.executable, str(script)], response_timeout=0.5)
+        client = MCPClient(transport)
+        try:
+            result = client.initialize()
+            assert result["serverInfo"]["name"] == "test"
+        finally:
+            transport.close()
 
 
 class TestStreamableHTTPTransport:

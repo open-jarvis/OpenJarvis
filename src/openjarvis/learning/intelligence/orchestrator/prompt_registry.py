@@ -121,10 +121,13 @@ TOOL_DESCRIPTIONS: Dict[str, dict] = {
         "category": "utility",
         "description": (
             "WEB_SEARCH - Real-time internet search\n"
-            "  - BEST FOR: Current events, fact-checking, recent info\n"
-            "  - STRENGTHS: Access to up-to-date information\n"
-            "  - USE WHEN: Question about recent events or needs verification\n"
-            "  - COST: ~$0.001 per search\n"
+            "  - BEST FOR: Current events, news, verification\n"
+            "  - YOU MUST call this tool with a real query before citing news\n"
+            "  - After Observation: only summarize titles/snippets shown; "
+            "never invent headlines\n"
+            "  - For one portal use site:domain (e.g. site:example.com) or pass "
+            "a https URL as the query to fetch page text\n"
+            "  - STRENGTHS: Up-to-date snippets from SearXNG / Tavily / DDG\n"
             "  - Input: search query string"
         ),
         "examples": [
@@ -132,6 +135,11 @@ TOOL_DESCRIPTIONS: Dict[str, dict] = {
                 "task": "Who won the 2024 Nobel Prize in Physics?",
                 "thought": "Recent events - need web_search for current info.",
                 "input": "2024 Nobel Prize Physics winner",
+            },
+            {
+                "task": "What is example.com reporting today?",
+                "thought": "Need scoped search then summarize only returned lines.",
+                "input": "site:example.com news",
             },
         ],
     },

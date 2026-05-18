@@ -58,6 +58,11 @@ except ImportError:
     pass
 
 try:
+    import openjarvis.tools.learn_qdrant  # noqa: F401
+except ImportError:
+    pass
+
+try:
     import openjarvis.tools.mcp_adapter  # noqa: F401
 except ImportError:
     pass

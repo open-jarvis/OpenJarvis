@@ -39,6 +39,14 @@ Thumbs.db
 # Secrets
 .env
 .env.*
+*.local.toml
+config.local.toml
+**/credentials/
+**/*-credentials.json
+.mcp_*_test.txt
+
+# Local install (never commit — use configs/openjarvis/*.example.*)
+# ~/.openjarvis/config.toml is outside the repo by default
 
 # Project
 *.sqlite

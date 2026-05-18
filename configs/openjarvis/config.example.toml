@@ -1,0 +1,35 @@
+# Example ~/.openjarvis/config.toml — copy and customize locally.
+# NEVER commit this file with real tokens or private hostnames.
+
+[engine]
+default = "ollama"
+
+[intelligence]
+default_model = "qwen3:8b"
+
+[agent]
+default_agent = "native_react"
+max_turns = 12
+context_from_memory = true
+
+[tools]
+searxng_url = "http://127.0.0.1:8080"
+searxng_language = "en"
+require_web_search = true
+auto_learn_qdrant = false
+file_allowed_directories = "/path/to/your/projects"
+enabled = [
+    "web_search",
+    "file_read",
+    "think",
+    "memory_retrieve",
+]
+
+[tools.mcp]
+enabled = false
+# Paste JSON array of MCP servers (names only — tokens via env in each server's "env"):
+# servers = '''
+# [
+#   {"name": "my-mcp", "url": "http://127.0.0.1:9000/mcp/"}
+# ]
+# '''

@@ -82,7 +82,7 @@ class TestToolConfirmation:
         call = ToolCall(id="1", name="dangerous", arguments="{}")
         result = executor.execute(call)
         assert result.success is False
-        assert "denied by user" in result.content
+        assert "declined the confirmation prompt" in result.content
 
     def test_requires_confirmation_approved(self) -> None:
         """Tool requiring confirmation, callback returns True → executes."""

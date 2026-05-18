@@ -74,7 +74,8 @@ class TestDiscoverStdioServer:
         result = builder._discover_external_mcp(cfg)
 
         mock_transport_cls.assert_called_once_with(
-            command=["node", "server.js", "--stdio"]
+            command=["node", "server.js", "--stdio"],
+            env=None,
         )
         assert len(result) == 1
         assert result[0].spec.name == "read_file"

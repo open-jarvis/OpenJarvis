@@ -13,7 +13,7 @@ from openjarvis.agents._stubs import (
     BaseAgent,
     ToolUsingAgent,
 )
-from openjarvis.cli.chat_cmd import _read_input, chat
+from openjarvis.cli.chat_cmd import _auto_learn_from_tool_results, _read_input, chat
 from openjarvis.core.config import JarvisConfig
 from openjarvis.core.registry import AgentRegistry, ToolRegistry
 from openjarvis.core.types import ToolCall, ToolResult
@@ -69,6 +69,7 @@ class TestChatCommand:
         assert result.exit_code == 0
         assert "--engine" in result.output
         assert "--model" in result.output
+        assert "--pick-model" in result.output
         assert "--agent" in result.output
         assert "--tools" in result.output
         assert "--system" in result.output
@@ -145,3 +146,76 @@ class TestChatAgents:
         assert result.exit_code == 0
         assert "Confirm:" in result.output
         assert "chat executed!" in result.output
+
+
+class TestAutoLearn:
+    def test_auto_learn_default_disabled_in_config(self) -> None:
+        assert JarvisConfig().tools.auto_learn_qdrant is False
+
+    def test_auto_learn_stores_allowed_successful_results(self) -> None:
+        config = JarvisConfig()
+        config.tools.auto_learn_qdrant = True
+        config.tools.auto_learn_sources = "web_search,file_read"
+        config.tools.auto_learn_min_chars = 10
+        config.tools.auto_learn_max_chars = 200
+        config.tools.auto_learn_min_chunk_size = 5
+
+        calls: list[dict] = []
+
+        class _FakeLearner:
+            def execute(self, **kwargs):
+                calls.append(kwargs)
+                return ToolResult(
+                    tool_name="learn_qdrant",
+                    content="ok",
+                    success=True,
+                )
+
+        with patch("openjarvis.tools.learn_qdrant.LearnQdrantTool", _FakeLearner):
+            _auto_learn_from_tool_results(
+                config=config,
+                tool_results=[
+                    ToolResult(
+                        tool_name="web_search",
+                        content="x" * 80,
+                        success=True,
+                    ),
+                    ToolResult(
+                        tool_name="search_code",
+                        content="x" * 80,
+                        success=True,
+                    ),
+                    ToolResult(
+                        tool_name="file_read",
+                        content="too short",
+                        success=True,
+                    ),
+                    ToolResult(
+                        tool_name="web_search",
+                        content="x" * 50,
+                        success=False,
+                    ),
+                ],
+            )
+
+        assert len(calls) == 1
+        assert calls[0]["origin"] == "web_search"
+        assert calls[0]["source"] == "auto:web_search"
+        assert calls[0]["min_chunk_size"] == 5
+
+    def test_auto_learn_can_be_disabled(self) -> None:
+        config = JarvisConfig()
+        config.tools.auto_learn_qdrant = False
+
+        with patch("openjarvis.tools.learn_qdrant.LearnQdrantTool") as mocked:
+            _auto_learn_from_tool_results(
+                config=config,
+                tool_results=[
+                    ToolResult(
+                        tool_name="web_search",
+                        content="x" * 100,
+                        success=True,
+                    )
+                ],
+            )
+        mocked.assert_not_called()

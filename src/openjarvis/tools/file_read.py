@@ -11,6 +11,8 @@ from openjarvis.tools._stubs import BaseTool, ToolSpec
 
 # Maximum file size to read (1 MB)
 _MAX_SIZE_BYTES = 1_048_576
+# Cap directory listings so huge trees do not blow the context window
+_MAX_DIR_ENTRIES = 1000
 
 
 @ToolRegistry.register("file_read")
@@ -29,17 +31,22 @@ class FileReadTool(BaseTool):
     def spec(self) -> ToolSpec:
         return ToolSpec(
             name="file_read",
-            description=("Read the contents of a file. Returns the text content."),
+            description=(
+                "Read a text file, or list top-level names if path is a directory "
+                "(non-recursive; no shell required)."
+            ),
             parameters={
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Path to the file to read.",
+                        "description": "Path to a file or directory.",
                     },
                     "max_lines": {
                         "type": "integer",
-                        "description": ("Max lines to return (default: all)."),
+                        "description": (
+                            "Max lines to return for files (default: all)."
+                        ),
                     },
                 },
                 "required": ["path"],
@@ -54,6 +61,43 @@ class FileReadTool(BaseTool):
         resolved = path.resolve()
         return any(
             resolved == d or resolved.is_relative_to(d) for d in self._allowed_dirs
+        )
+
+    def _list_directory(self, path: Path, file_path: str) -> ToolResult:
+        """List immediate children of *path* (non-recursive)."""
+        from openjarvis.security.file_policy import is_sensitive_file
+
+        try:
+            children = sorted(path.iterdir(), key=lambda p: p.name.lower())
+        except OSError as exc:
+            return ToolResult(
+                tool_name="file_read",
+                content=f"Cannot list directory {file_path}: {exc}",
+                success=False,
+            )
+        visible = [c for c in children if not is_sensitive_file(c)]
+        truncated = visible[:_MAX_DIR_ENTRIES]
+        lines = [
+            f"{c.name}{'/' if c.is_dir() else ''}" for c in truncated
+        ]
+        extra = len(visible) - len(truncated)
+        header = (
+            f"Directory listing for {path.resolve()} "
+            f"({len(truncated)} of {len(visible)} entries shown"
+        )
+        if extra:
+            header += f"; {extra} more not shown (cap {_MAX_DIR_ENTRIES})"
+        header += "):\n"
+        body = "\n".join(lines) if lines else "(empty)"
+        return ToolResult(
+            tool_name="file_read",
+            content=header + body,
+            success=True,
+            metadata={
+                "path": str(path.resolve()),
+                "is_directory": True,
+                "entry_count": len(truncated),
+            },
         )
 
     def execute(self, **params: Any) -> ToolResult:
@@ -80,16 +124,18 @@ class FileReadTool(BaseTool):
                 content=f"File not found: {file_path}",
                 success=False,
             )
-        if not path.is_file():
-            return ToolResult(
-                tool_name="file_read",
-                content=f"Not a file: {file_path}",
-                success=False,
-            )
         if not self._is_path_allowed(path):
             return ToolResult(
                 tool_name="file_read",
                 content=f"Access denied: {file_path} is outside allowed directories.",
+                success=False,
+            )
+        if path.is_dir():
+            return self._list_directory(path, file_path)
+        if not path.is_file():
+            return ToolResult(
+                tool_name="file_read",
+                content=f"Not a readable file: {file_path}",
                 success=False,
             )
         # Check size

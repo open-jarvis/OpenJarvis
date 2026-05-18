@@ -515,7 +515,15 @@ def _get_mcp_tools(app_state: Any) -> Tuple[List[Dict[str, Any]], Dict[str, Any]
             if url:
                 transport = StreamableHTTPTransport(url=url)
             elif command:
-                transport = StdioTransport(command=[command] + args)
+                extra_env = cfg.get("env") or {}
+                if isinstance(extra_env, dict):
+                    env_map = {str(k): str(v) for k, v in extra_env.items()}
+                else:
+                    env_map = {}
+                transport = StdioTransport(
+                    command=[command] + args,
+                    env=env_map or None,
+                )
             else:
                 logger.warning(
                     "MCP server '%s' has neither 'url' nor 'command' — skipping",

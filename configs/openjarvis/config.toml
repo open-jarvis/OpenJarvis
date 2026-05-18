@@ -1,111 +1,52 @@
-# OpenJarvis configuration — GLM-4.7-Flash eval on 8x A100-80GB
+# OpenJarvis — default template (local-first)
+# Install: copy via `jarvis init` or to ~/.openjarvis/config.toml
+# Do not put API keys or host-specific MCP servers in this file — use env vars
+# and ~/.openjarvis/ for secrets (see config.example.toml).
 
-# ═══════════════════════════════════════════════════════════════
-# PILLAR 1: Intelligence — The Model
-# ═══════════════════════════════════════════════════════════════
+[engine]
+default = "ollama"
+
+[engine.ollama]
+# host = "http://localhost:11434"
+
 [intelligence]
-default_model = "zai-org/GLM-4.7-Flash"   # HuggingFace model ID
-fallback_model = "glm-4.7-flash"          # Catalog alias fallback
-preferred_engine = "vllm"                 # MoE model, vLLM is best for A100s
-provider = "local"                        # Running locally on this machine
-quantization = "none"                     # Full precision, we have 640GB VRAM
-# Generation defaults for eval
-temperature = 0.0                         # Deterministic for reproducibility
-max_tokens = 2048                         # Standard eval output length
-top_p = 0.9
-top_k = 40
-repetition_penalty = 1.0
+# Set after `ollama pull` / `jarvis init`, e.g. qwen3:8b
+default_model = ""
+model_chat = ""
+model_short = ""
+model_long = ""
+model_code = ""
 
-# ═══════════════════════════════════════════════════════════════
-# PILLAR 2: Agent — The Agentic Harness
-# ═══════════════════════════════════════════════════════════════
 [agent]
-default_agent = "native_openhands"        # CodeAct-style agent
-max_turns = 10                            # Up to 10 tool-calling turns
-tools = "code_interpreter,web_search,file_read,calculator,think"
-objective = "Answer questions accurately using available tools"
-context_from_memory = false               # No memory injection during eval
+default_agent = "native_react"
+max_turns = 12
+context_from_memory = true
+tools = ""
 
-# ═══════════════════════════════════════════════════════════════
-# PILLAR 3: Tools — MCP Interface
-# ═══════════════════════════════════════════════════════════════
+[tools]
+# Optional local SearXNG for web_search (overridable: SEARXNG_URL, SEARXNG_LANGUAGE)
+# searxng_url = "http://127.0.0.1:8080"
+# searxng_language = "en"
+require_web_search = true
+auto_learn_qdrant = false
+enabled = "web_search,file_read,think,calculator,code_interpreter"
+
 [tools.storage]
 default_backend = "sqlite"
 db_path = "~/.openjarvis/memory.db"
 
 [tools.mcp]
-enabled = true
+enabled = false
+servers = "[]"
 
-# ═══════════════════════════════════════════════════════════════
-# PILLAR 4: Engine — The Inference Runtime
-# ═══════════════════════════════════════════════════════════════
-[engine]
-default = "vllm"
-
-[engine.vllm]
-host = "http://localhost:8001"            # vLLM serving port
-
-[engine.ollama]
-host = "http://localhost:11434"
-
-[engine.sglang]
-host = "http://localhost:30000"
-
-[engine.llamacpp]
-host = "http://localhost:8080"
-
-[engine.exo]
-host = "http://localhost:52415"
-
-[engine.nexa]
-host = "http://localhost:18181"
-# device = "npu"  # optional: cpu, gpu, npu
-
-[engine.uzu]
-host = "http://localhost:8080"
-
-[engine.apple_fm]
-host = "http://localhost:8079"
-
-# ═══════════════════════════════════════════════════════════════
-# PILLAR 5: Learning — Improvement Methodologies
-# ═══════════════════════════════════════════════════════════════
-[learning]
-enabled = false                           # No learning during eval
-
-[learning.routing]
-policy = "heuristic"
-
-[learning.intelligence]
-policy = "none"
-
-[learning.agent]
-policy = "none"
-
-[learning.metrics]
-accuracy_weight = 0.6
-latency_weight = 0.2
-cost_weight = 0.1
-efficiency_weight = 0.1
-
-# ═══════════════════════════════════════════════════════════════
-# Supporting config
-# ═══════════════════════════════════════════════════════════════
 [telemetry]
 enabled = true
 db_path = "~/.openjarvis/telemetry.db"
-gpu_metrics = true
-gpu_poll_interval_ms = 50
-energy_vendor = ""                       # Auto-detect; or force "nvidia"/"amd"/"apple"/"cpu_rapl"
-warmup_samples = 0                       # Warmup iterations before steady-state measurement
-steady_state_window = 5                  # Sliding window size for CV stability check
-steady_state_threshold = 0.05            # Coefficient of variation threshold for steady state
 
 [traces]
-enabled = true                            # Record traces for analysis
+enabled = true
 db_path = "~/.openjarvis/traces.db"
 
 [server]
-host = "0.0.0.0"
+host = "127.0.0.1"
 port = 8000
-agent = "native_openhands"

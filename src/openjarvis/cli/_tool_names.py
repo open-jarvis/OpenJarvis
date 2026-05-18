@@ -23,6 +23,18 @@ def _normalize_tool_names(value: Any) -> list[str]:
     return [text] if text else []
 
 
+def parse_file_allowed_directories(config: Any) -> list[str] | None:
+    """Paths from ``[tools] file_allowed_directories`` (comma-separated), or None."""
+    tools = getattr(config, "tools", None)
+    if tools is None:
+        return None
+    raw = (getattr(tools, "file_allowed_directories", "") or "").strip()
+    if not raw:
+        return None
+    paths = [p.strip() for p in raw.split(",") if p.strip()]
+    return paths or None
+
+
 def resolve_tool_names(
     cli_value: str | None,
     *configured_values: Any,

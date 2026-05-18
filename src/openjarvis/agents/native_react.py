@@ -10,6 +10,11 @@ import re
 from typing import Any, List, Optional
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
+from openjarvis.agents.grounding import (
+    query_needs_web_search,
+    tool_names_include_web,
+    web_search_used,
+)
 from openjarvis.agents.prompt_loader import (
     load_few_shot_exemplars,
     load_system_prompt_override,
@@ -21,7 +26,10 @@ from openjarvis.engine._stubs import InferenceEngine
 from openjarvis.tools._stubs import BaseTool, build_tool_descriptions
 
 REACT_SYSTEM_PROMPT = """\
-You are a ReAct agent. For each step, respond with exactly one of:
+You are a ReAct agent. For current events, news, or anything after your training
+cutoff, you MUST call web_search before Final Answer when that tool is listed.
+
+For each step, respond with exactly one of:
 
 1. To think and act:
 Thought: <your reasoning>
@@ -169,6 +177,9 @@ class NativeReActAgent(ToolUsingAgent):
                 messages.insert(-1, Message(role=Role.ASSISTANT, content=ex["output"]))
 
         all_tool_results: list[ToolResult] = []
+        must_web = tool_names_include_web(self._tools) and query_needs_web_search(
+            input,
+        )
         turns = 0
         total_usage: dict[str, int] = {
             "prompt_tokens": 0,
@@ -192,6 +203,19 @@ class NativeReActAgent(ToolUsingAgent):
 
             # Final answer?
             if parsed["final_answer"]:
+                if must_web and not web_search_used(all_tool_results):
+                    messages.append(Message(role=Role.ASSISTANT, content=content))
+                    messages.append(
+                        Message(
+                            role=Role.USER,
+                            content=(
+                                "Observation: Do not give a Final Answer until "
+                                "you have called web_search and read the "
+                                "Observation. Use Action: web_search first."
+                            ),
+                        ),
+                    )
+                    continue
                 self._emit_turn_end(turns=turns)
                 msg_dicts = [_message_to_dict(m) for m in messages]
                 return AgentResult(
@@ -201,8 +225,23 @@ class NativeReActAgent(ToolUsingAgent):
                     metadata={**total_usage, "messages": msg_dicts},
                 )
 
-            # No action? Treat content as final answer
+            # No action? Usually treat as final — unless web grounding still required.
             if not parsed["action"]:
+                if must_web and not web_search_used(all_tool_results):
+                    messages.append(Message(role=Role.ASSISTANT, content=content))
+                    messages.append(
+                        Message(
+                            role=Role.USER,
+                            content=(
+                                "Observation: You must call web_search before "
+                                "answering this question. Respond with:\n"
+                                "Thought: ...\n"
+                                'Action: web_search\n'
+                                'Action Input: {"query": "<search query>"}'
+                            ),
+                        ),
+                    )
+                    continue
                 self._emit_turn_end(turns=turns)
                 msg_dicts = [_message_to_dict(m) for m in messages]
                 return AgentResult(

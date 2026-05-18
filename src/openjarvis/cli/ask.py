@@ -11,7 +11,10 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from openjarvis.cli._tool_names import resolve_tool_names
+from openjarvis.cli._tool_names import (
+    parse_file_allowed_directories,
+    resolve_tool_names,
+)
 from openjarvis.cli.hints import hint_no_engine
 from openjarvis.core.config import load_config
 from openjarvis.core.events import EventBus, EventType
@@ -75,6 +78,7 @@ def _build_tools(
     model_name: str,
     *,
     channel=None,
+    mcp_status=None,
 ):
     """Instantiate tool objects from names.
 
@@ -122,10 +126,21 @@ def _build_tools(
             tools.append(tool_cls(channel=channel))
         elif name == "llm":
             tools.append(tool_cls(engine=engine, model=model_name))
-        elif name == "file_read":
-            tools.append(tool_cls())
+        elif name in ("file_read", "file_write"):
+            fd = parse_file_allowed_directories(config)
+            tools.append(tool_cls(allowed_dirs=fd))
         else:
             tools.append(tool_cls())
+    if tool_names:
+        from openjarvis.cli._external_mcp_tools import discover_external_mcp_tools
+
+        tools.extend(
+            discover_external_mcp_tools(
+                config,
+                allowed_tool_names={n.strip() for n in tool_names if n.strip()},
+                status=mcp_status,
+            )
+        )
     return tools
 
 

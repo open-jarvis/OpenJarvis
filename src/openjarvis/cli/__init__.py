@@ -28,6 +28,9 @@ from openjarvis.cli.init_cmd import init
 from openjarvis.cli.memory_cmd import memory
 from openjarvis.cli.mine_cmd import mine
 from openjarvis.cli.model import model
+from openjarvis.cli.modes_cmd import code as code_chat
+from openjarvis.cli.modes_cmd import long as long_chat
+from openjarvis.cli.modes_cmd import short as short_chat
 from openjarvis.cli.operators_cmd import operators
 from openjarvis.cli.optimize_cmd import optimize_group
 from openjarvis.cli.pearl_cmd import pearl
@@ -51,14 +54,30 @@ from openjarvis.learning.distillation.cli import learning_group
 @click.version_option(version=openjarvis.__version__, prog_name="jarvis")
 @click.option("--verbose", is_flag=True, default=False, help="Enable debug logging")
 @click.option("--quiet", is_flag=True, default=False, help="Suppress non-error output")
+@click.option(
+    "--pick-model",
+    "pick_model_bare",
+    is_flag=True,
+    default=False,
+    help=(
+        "Bare ``jarvis``: force the model picker when JARVIS_SKIP_MODEL_PICK would "
+        "otherwise skip it."
+    ),
+)
 @click.pass_context
-def cli(ctx: click.Context, verbose: bool, quiet: bool) -> None:
+def cli(
+    ctx: click.Context,
+    verbose: bool,
+    quiet: bool,
+    pick_model_bare: bool,
+) -> None:
     """Top-level CLI group."""
     from openjarvis.cli.log_config import setup_logging
 
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
     ctx.obj["quiet"] = quiet
+    ctx.obj["pick_model_bare"] = pick_model_bare
     setup_logging(verbose=verbose, quiet=quiet)
 
     # Check for updates on interactive commands
@@ -77,6 +96,9 @@ def cli(ctx: click.Context, verbose: bool, quiet: bool) -> None:
 cli.add_command(init, "init")
 cli.add_command(ask, "ask")
 cli.add_command(chat, "chat")
+cli.add_command(short_chat, "short")
+cli.add_command(long_chat, "long")
+cli.add_command(code_chat, "code")
 cli.add_command(serve, "serve")
 cli.add_command(model, "model")
 cli.add_command(memory, "memory")

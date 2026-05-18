@@ -23,6 +23,7 @@ _TOOL_ANNOTATIONS: Dict[str, Dict[str, Any]] = {
     "memory_retrieve": {"readOnlyHint": True, "destructiveHint": False},
     "memory_search": {"readOnlyHint": True, "destructiveHint": False},
     "memory_index": {"destructiveHint": True, "readOnlyHint": False},
+    "learn_qdrant": {"destructiveHint": True, "readOnlyHint": False},
     "calculator": {"readOnlyHint": True, "destructiveHint": False},
     "think": {"readOnlyHint": True, "destructiveHint": False},
     "retrieval": {"readOnlyHint": True, "destructiveHint": False},
@@ -107,6 +108,7 @@ class MCPServer:
 
         # Storage MCP tools
         try:
+            from openjarvis.tools.learn_qdrant import LearnQdrantTool
             from openjarvis.tools.storage_tools import (
                 MemoryIndexTool,
                 MemoryRetrieveTool,
@@ -120,6 +122,7 @@ class MCPServer:
                     MemoryRetrieveTool,
                     MemorySearchTool,
                     MemoryIndexTool,
+                    LearnQdrantTool,
                 ]
             )
         except ImportError:

@@ -176,6 +176,7 @@ DEFAULT_TOOL_CAPABILITIES: Dict[str, List[str]] = {
     "memory_retrieve": [Capability.MEMORY_READ],
     "memory_search": [Capability.MEMORY_READ],
     "memory_index": [Capability.MEMORY_WRITE],
+    "learn_qdrant": [Capability.MEMORY_WRITE],
     "schedule_task": [Capability.SCHEDULE_CREATE],
     "channel_send": [Capability.CHANNEL_SEND],
 }

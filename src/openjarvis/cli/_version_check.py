@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 _CACHE_PATH = Path("~/.openjarvis/version-check.json").expanduser()
 _CACHE_TTL = 86400  # 24 hours
 _GITHUB_API = "https://api.github.com/repos/open-jarvis/OpenJarvis/releases/latest"
-_CHECK_COMMANDS = {"ask", "chat", "serve"}
+_CHECK_COMMANDS = {"ask", "chat", "short", "long", "code", "serve"}
 
 
 def check_for_updates(command_name: str) -> None:

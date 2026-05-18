@@ -57,11 +57,34 @@ class TestFileReadTool:
         assert result.success is True
         assert "ok data" in result.content
 
-    def test_directory_not_file(self, tmp_path):
+    def test_directory_lists(self, tmp_path):
+        (tmp_path / "a.txt").write_text("x", encoding="utf-8")
+        sub = tmp_path / "sub"
+        sub.mkdir()
         tool = FileReadTool()
         result = tool.execute(path=str(tmp_path))
+        assert result.success is True
+        assert "a.txt" in result.content
+        assert "sub/" in result.content
+        assert result.metadata.get("is_directory") is True
+
+    def test_directory_respects_allowed_dirs(self, tmp_path):
+        sub = tmp_path / "inner"
+        sub.mkdir()
+        (sub / "f.txt").write_text("x", encoding="utf-8")
+        tool = FileReadTool(allowed_dirs=[str(sub)])
+        result = tool.execute(path=str(tmp_path))
         assert result.success is False
-        assert "Not a file" in result.content
+        assert "outside allowed" in result.content
+
+    def test_directory_allowed_when_root_matches(self, tmp_path):
+        sub = tmp_path / "inner"
+        sub.mkdir()
+        (sub / "f.txt").write_text("x", encoding="utf-8")
+        tool = FileReadTool(allowed_dirs=[str(tmp_path)])
+        result = tool.execute(path=str(sub))
+        assert result.success is True
+        assert "f.txt" in result.content
 
     def test_blocks_env_file(self, tmp_path):
         f = tmp_path / ".env"

@@ -219,9 +219,16 @@ class ToolExecutor:
                 )
             prompt = f"Allow execution of tool '{tool_call.name}' with args {params}?"
             if not self._confirm_callback(prompt):
+                denied = (
+                    f"Tool '{tool_call.name}' was not run: the user declined the "
+                    "confirmation prompt. This is not a missing filesystem permission "
+                    "on the target path. Prefer read-only tools (e.g. file_read for "
+                    "files and directories), or ask the user to approve the command "
+                    "if a shell is truly required."
+                )
                 return ToolResult(
                     tool_name=tool_call.name,
-                    content=f"Tool '{tool_call.name}' execution denied by user.",
+                    content=denied,
                     success=False,
                 )
 

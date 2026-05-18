@@ -1,0 +1,16 @@
+[
+  {
+    "name": "example-http-mcp",
+    "url": "http://127.0.0.1:9000/mcp/",
+    "include_tools": []
+  },
+  {
+    "name": "example-stdio-mcp",
+    "command": "npx",
+    "args": ["-y", "@example/mcp-server"],
+    "env": {
+      "EXAMPLE_API_TOKEN": "set-in-shell-not-in-git"
+    },
+    "include_tools": []
+  }
+]

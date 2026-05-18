@@ -537,6 +537,11 @@ class IntelligenceConfig:
     """The model — identity, paths, quantization, and generation defaults."""
 
     default_model: str = ""
+    # Optional per-CLI preset (used when ``-m`` omitted or ``-m smart``).
+    model_chat: str = ""
+    model_short: str = ""
+    model_long: str = ""
+    model_code: str = ""
     fallback_model: str = ""
     model_path: str = ""  # Local weights (HF repo, GGUF file, etc.)
     checkpoint_path: str = ""  # Checkpoint/adapter path
@@ -809,7 +814,24 @@ class ToolsConfig:
     storage: StorageConfig = field(default_factory=StorageConfig)
     mcp: MCPConfig = field(default_factory=MCPConfig)
     browser: BrowserConfig = field(default_factory=BrowserConfig)
+    # Local SearXNG base URL (no trailing slash), e.g. http://127.0.0.1:8085
+    searxng_url: str = ""
+    # SearXNG ``language`` query param (e.g. pl, en). Empty = omit (instance default).
+    searxng_language: str = ""
+    # Comma-separated absolute paths; restricts file_read / file_write to these
+    # trees (empty = no extra restriction beyond sensitive-file rules).
+    file_allowed_directories: str = ""
     enabled: str = ""  # comma-separated default tools
+    # Auto-persist useful tool outputs to Qdrant via learn_qdrant (off by default).
+    auto_learn_qdrant: bool = False
+    # Ensure web_search is available in interactive chat (jarvis / chat / tiers).
+    require_web_search: bool = True
+    auto_learn_sources: str = (
+        "web_search,file_read,get_file_contents,search_code,search_repositories"
+    )
+    auto_learn_min_chars: int = 160
+    auto_learn_max_chars: int = 8000
+    auto_learn_min_chunk_size: int = 20
 
 
 @dataclass

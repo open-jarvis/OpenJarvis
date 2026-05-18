@@ -55,6 +55,23 @@ jarvis
 
 `jarvis init --preset <name>` switches to a starter config. Available presets: `morning-digest-mac`, `morning-digest-linux`, `morning-digest-minimal`, `deep-research`, `code-assistant`, `scheduled-monitor`, `chat-simple`.
 
+## CLI chat: model picker and MCP startup
+
+Recent UX changes for the interactive REPL (`jarvis` with no subcommand, or `jarvis chat` / `short` / `long` / `code`):
+
+- **Bare `jarvis` on a TTY** — before the session starts, the CLI lists models from your configured engine. Pick a number or id, or press **Enter** to use the `intelligence` presets (`model_chat`, etc.) and `default_model` from config.
+- **`JARVIS_SKIP_MODEL_PICK=1`** (or `true` / `yes`) — skips that list (scripts, CI, non-interactive stdin).
+- **`jarvis --pick-model`** — forces the picker even when `JARVIS_SKIP_MODEL_PICK` would skip it (top-level flag only).
+- **`jarvis chat`** (and tier shortcuts) — the picker runs only if you pass **`--pick-model`** on that command.
+- **Slow startup after the banner** — the model shown in the banner is already selected; a long pause is usually **MCP** (starting external tool processes, e.g. `npx` on first run), not “loading the LLM”. The CLI states this explicitly and prints **per-MCP-server progress** (connecting, success with elapsed seconds, or failure).
+
+**Grounding (web + indexed memory):**
+
+- Interactive chat **always adds `web_search`** to the tool list when the agent uses tools (`tools.require_web_search = true` in config; set `false` to opt out).
+- **`jarvis long`** defaults to `web_search`, `memory_retrieve`, and `think`, and injects retrieved context from your memory backend when `agent.context_from_memory = true`.
+- **`learn_qdrant` / auto Qdrant chunking** are **off by default** (`tools.auto_learn_qdrant = false`). Index corpora with `jarvis memory index` instead of ad-hoc chunks in the REPL.
+- System prompts tell the model to call **web_search** for current/external facts and **memory_retrieve** for indexed project knowledge before answering from weights alone.
+
 ## Starter Configs
 
 Install any preset with one command:

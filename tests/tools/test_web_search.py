@@ -10,6 +10,11 @@ from openjarvis.tools.web_search import WebSearchTool
 
 
 class TestWebSearchTool:
+    @staticmethod
+    def _no_searx(monkeypatch):
+        """Force Tavily/DDG path (user config may enable SearXNG)."""
+        monkeypatch.setattr(WebSearchTool, "_searxng_base_url", lambda self: "")
+
     def test_spec_name_and_category(self):
         tool = WebSearchTool(api_key="test-key")
         assert tool.spec.name == "web_search"
@@ -38,6 +43,7 @@ class TestWebSearchTool:
 
     def test_execute_no_api_key(self, monkeypatch):
         """When no API key, falls back to DuckDuckGo."""
+        self._no_searx(monkeypatch)
         tool = WebSearchTool(api_key=None)
         with patch.dict("os.environ", {}, clear=True):
             tool._api_key = None
@@ -47,6 +53,7 @@ class TestWebSearchTool:
         assert result.metadata["engine"] == "duckduckgo"
 
     def test_execute_mocked_tavily(self, monkeypatch):
+        self._no_searx(monkeypatch)
         mock_client = MagicMock()
         mock_client.search.return_value = {
             "results": [
@@ -89,6 +96,7 @@ class TestWebSearchTool:
 
     def test_execute_tavily_error(self, monkeypatch):
         """When Tavily errors (any error), falls back to DuckDuckGo."""
+        self._no_searx(monkeypatch)
         import builtins
         from typing import Any
 
@@ -117,6 +125,7 @@ class TestWebSearchTool:
 
     def test_execute_duckduckgo_fallback_format(self, monkeypatch):
         """DuckDuckGo fallback returns properly formatted results."""
+        self._no_searx(monkeypatch)
         mock_tavily_module = MagicMock()
         mock_tavily_module.TavilyClient.side_effect = ImportError(
             "No module named 'tavily'"
@@ -149,6 +158,7 @@ class TestWebSearchTool:
         assert result.metadata["engine"] == "duckduckgo"
 
     def test_max_results_parameter(self, monkeypatch):
+        self._no_searx(monkeypatch)
         import builtins
 
         original_import = builtins.__import__
@@ -181,6 +191,7 @@ class TestWebSearchTool:
 
     def test_execute_import_error(self, monkeypatch):
         """When tavily-python not installed, falls back to DuckDuckGo."""
+        self._no_searx(monkeypatch)
         monkeypatch.delitem(sys.modules, "tavily", raising=False)
         import builtins
 
@@ -199,6 +210,7 @@ class TestWebSearchTool:
         assert result.metadata["engine"] == "duckduckgo"
 
     def test_empty_results(self, monkeypatch):
+        self._no_searx(monkeypatch)
         import builtins
 
         original_import = builtins.__import__
@@ -221,7 +233,8 @@ class TestWebSearchTool:
         tool = WebSearchTool(api_key="test-key")
         result = tool.execute(query="obscure query")
         assert result.success is True
-        assert result.content == "No results found."
+        assert result.content.startswith("No results found.")
+        assert "Grounding" in result.content
 
     def test_tool_id(self):
         tool = WebSearchTool(api_key="test-key")
@@ -377,6 +390,7 @@ class TestExecuteWithUrl:
         result = tool.execute(query="https://example.com/article")
         assert result.success is True
         assert "Page content here" in result.content
+        assert "Grounding" in result.content
         assert result.metadata.get("mode") == "fetch"
 
     def test_execute_with_embedded_url(self, monkeypatch):
