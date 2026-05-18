@@ -14,7 +14,47 @@ logger = logging.getLogger(__name__)
 _CACHE_PATH = Path("~/.openjarvis/version-check.json").expanduser()
 _CACHE_TTL = 86400  # 24 hours
 _GITHUB_API = "https://api.github.com/repos/open-jarvis/OpenJarvis/releases/latest"
-_CHECK_COMMANDS = {"ask", "chat", "serve"}
+
+# Commands that surface the "new version available" nudge. We deliberately
+# cast a wide net for interactive commands (anything a human runs at a
+# terminal and would benefit from knowing about an update), and skip
+# automation-facing ones (``_bootstrap``, ``daemon``, ``host``) so we
+# don't add noise to background processes or CI.
+_CHECK_COMMANDS = {
+    "ask",
+    "chat",
+    "serve",
+    "doctor",
+    "init",
+    "quickstart",
+    "model",
+    "agents",
+    "skill",
+    "memory",
+    "bench",
+    "telemetry",
+    "config",
+    "eval",
+    "optimize",
+}
+
+# Environment opt-outs (any truthy value disables the check):
+# - ``JARVIS_NO_UPDATE_CHECK=1`` — project-specific
+# - ``CI=true`` — set by every major CI provider, suppresses by default
+_OPT_OUT_ENV_VARS = ("JARVIS_NO_UPDATE_CHECK",)
+
+
+def _check_disabled() -> bool:
+    """Return True when the user has opted out of update checks."""
+    for name in _OPT_OUT_ENV_VARS:
+        raw = os.environ.get(name, "")
+        if raw and raw.strip().lower() not in ("", "0", "false", "no", "off"):
+            return True
+    # CI defaults to skipping. Users in CI can override with
+    # ``JARVIS_NO_UPDATE_CHECK=0`` if they want the nudge anyway.
+    if os.environ.get("CI", "").strip().lower() in ("1", "true", "yes", "on"):
+        return True
+    return False
 
 
 def check_for_updates(command_name: str) -> None:
@@ -26,6 +66,8 @@ def check_for_updates(command_name: str) -> None:
     if os.environ.get("OPENJARVIS_NO_UPDATE_CHECK", "").strip():
         return
     if command_name not in _CHECK_COMMANDS:
+        return
+    if _check_disabled():
         return
     try:
         _do_check()
@@ -45,10 +87,14 @@ def _do_check() -> None:
 
     try:
         if Version(latest) > Version(current):
+            from openjarvis.cli._install_detect import detect_install
+
+            cmd = detect_install().upgrade_command
             sys.stderr.write(
                 f"\033[33mA new version of OpenJarvis is available "
                 f"(v{current} \u2192 v{latest})\n"
-                f"Update: cd ~/OpenJarvis && git pull && uv sync\033[0m\n\n"
+                f"Update: {cmd}\n"
+                f"Or run: jarvis self-update\033[0m\n\n"
             )
     except InvalidVersion:
         pass
