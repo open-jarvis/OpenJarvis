@@ -9,6 +9,8 @@ No email, no name, no hardware fingerprint — just an opaque UUID.
 
 from __future__ import annotations
 
+import os
+import sys
 import uuid
 from pathlib import Path
 
@@ -45,5 +47,16 @@ def reset_anon_id(path: Path | str) -> str:
 
 
 def is_analytics_enabled(cfg: AnalyticsConfig) -> bool:
-    """Return True if analytics is enabled in config."""
+    """Return True if analytics is enabled in config.
+
+    Always disabled when running under pytest. The PostHog SDK registers
+    an ``atexit`` hook that synchronously joins its consumer thread; if
+    the host is unreachable (CI runners can't reach the analytics endpoint),
+    each queued batch retries for ``timeout * max_retries`` seconds and the
+    interpreter never exits. Detect pytest via ``PYTEST_CURRENT_TEST``
+    (set per test) and ``"pytest" in sys.modules`` (covers the collection
+    phase before the first test runs).
+    """
+    if os.environ.get("PYTEST_CURRENT_TEST") or "pytest" in sys.modules:
+        return False
     return cfg.enabled
