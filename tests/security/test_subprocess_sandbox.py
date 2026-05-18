@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
 
 from openjarvis.security.subprocess_sandbox import (
@@ -10,6 +11,11 @@ from openjarvis.security.subprocess_sandbox import (
     kill_process_tree,
     run_sandboxed,
 )
+
+
+def _python_command(code: str) -> str:
+    escaped = code.replace('"', '\\"')
+    return f'"{sys.executable}" -c "{escaped}"'
 
 # ---------------------------------------------------------------------------
 # build_safe_env tests
@@ -71,22 +77,32 @@ class TestRunSandboxed:
         assert not result.killed
 
     def test_timeout_kills_process(self) -> None:
-        result = run_sandboxed("sleep 60", timeout=1.0)
+        result = run_sandboxed(
+            _python_command("import time; time.sleep(60)"),
+            timeout=1.0,
+        )
         assert result.timed_out
         assert result.killed
         assert result.returncode == -1
 
     def test_working_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            result = run_sandboxed("pwd", working_dir=tmpdir, timeout=10.0)
+            result = run_sandboxed(
+                _python_command("import os; print(os.getcwd())"),
+                working_dir=tmpdir,
+                timeout=10.0,
+            )
             assert result.returncode == 0
             assert tmpdir in result.stdout.strip()
 
     def test_env_isolation(self) -> None:
         os.environ["TEST_SECRET"] = "super_secret_value"
         try:
+            cmd = _python_command(
+                "import os; print('val=' + os.environ.get('TEST_SECRET', ''))"
+            )
             result = run_sandboxed(
-                'echo "val=$TEST_SECRET"',
+                cmd,
                 timeout=10.0,
             )
             assert result.returncode == 0
@@ -97,7 +113,7 @@ class TestRunSandboxed:
     def test_output_truncation(self) -> None:
         # Generate output larger than max_output_bytes
         result = run_sandboxed(
-            "python3 -c \"print('A' * 200)\"",
+            _python_command("print('A' * 200)"),
             timeout=10.0,
             max_output_bytes=50,
         )

@@ -14,7 +14,6 @@ skipped if the server is unreachable.
 from __future__ import annotations
 
 import os
-import socket
 from pathlib import Path
 
 import pytest
@@ -33,9 +32,30 @@ _OLLAMA_PORT = int(os.environ.get("OLLAMA_PORT", "11434"))
 
 def _ollama_up() -> bool:
     try:
-        with socket.create_connection((_OLLAMA_HOST, _OLLAMA_PORT), timeout=1.0):
-            return True
-    except OSError:
+        import httpx
+
+        base_url = f"http://{_OLLAMA_HOST}:{_OLLAMA_PORT}"
+        tags = httpx.get(f"{base_url}/api/tags", timeout=2.0)
+        tags.raise_for_status()
+        models = tags.json().get("models", [])
+        names = [str(m.get("name", "")) for m in models if isinstance(m, dict)]
+        if not any(name.split(":")[0] == "nomic-embed-text" for name in names):
+            return False
+
+        probe = httpx.post(
+            f"{base_url}/api/embed",
+            json={"model": "nomic-embed-text", "input": ["probe"]},
+            timeout=5.0,
+        )
+        if probe.status_code == 404:
+            legacy_probe = httpx.post(
+                f"{base_url}/api/embeddings",
+                json={"model": "nomic-embed-text", "prompt": "probe"},
+                timeout=5.0,
+            )
+            return legacy_probe.status_code == 200
+        return probe.status_code == 200
+    except Exception:
         return False
 
 

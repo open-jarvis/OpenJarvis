@@ -100,6 +100,11 @@ class WhatsAppBaileysChannel(BaseChannel):
                 "Node.js is required for WhatsAppBaileysChannel but 'node' "
                 "was not found on PATH.  Install Node.js 22+ and try again."
             )
+        if shutil.which("npm") is None:
+            raise RuntimeError(
+                "npm is required for WhatsAppBaileysChannel but 'npm' "
+                "was not found on PATH. Install Node.js/npm and try again."
+            )
 
         runtime = self._runtime_dir
         runtime.mkdir(parents=True, exist_ok=True)
@@ -124,12 +129,25 @@ class WhatsAppBaileysChannel(BaseChannel):
         node_modules = runtime / "node_modules"
         if not node_modules.exists():
             logger.info("Running npm install in %s", runtime)
-            subprocess.run(
-                ["npm", "install", "--production"],
-                cwd=str(runtime),
-                check=True,
-                capture_output=True,
-            )
+            try:
+                subprocess.run(
+                    ["npm", "install", "--production"],
+                    cwd=str(runtime),
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+            except FileNotFoundError as exc:
+                raise RuntimeError(
+                    "npm is required for WhatsAppBaileysChannel but could "
+                    "not be executed from PATH."
+                ) from exc
+            except subprocess.CalledProcessError as exc:
+                stderr = (exc.stderr or "").strip()
+                msg = stderr or str(exc)
+                raise RuntimeError(
+                    f"Failed to install WhatsApp bridge dependencies via npm: {msg}"
+                ) from exc
 
         bridge_js = runtime / "dist" / "bridge.js"
         if not bridge_js.exists():
