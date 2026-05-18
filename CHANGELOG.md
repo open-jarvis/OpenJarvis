@@ -8,6 +8,83 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-05-17
+
+A patch release that closes the auto-update gap so the analytics
+module added in #351 actually reaches users on the desktop, adds
+runtime opt-out for that analytics, fixes the misleading upgrade
+hint the CLI was printing, and lands the ACE optimizer alongside
+DSPy and GEPA.
+
+### Added
+
+**ACE agent optimizer** (`learning/agents/ace_optimizer.py`). Adds
+[ACE](https://github.com/ace-agent/ace) as a third agent-learning
+policy alongside DSPy and GEPA. Where DSPy bootstraps few-shot
+examples and GEPA evolves prompt populations, ACE evolves a textual
+*playbook* of strategies the agent reads at inference time, updated
+by a Generator / Reflector / Curator triad. Pick via
+`[learning.agent] policy = "ace"`. Setup is manual (ACE isn't on
+PyPI and isn't a properly-packaged Python project as of v1.0.1) —
+see `docs/learning/ace.md` for the install path and trace-adapter
+behavior.
+
+**`jarvis self-update`** subcommand. Detects how OpenJarvis was
+installed (pip, uv tool, editable git checkout) by inspecting
+`openjarvis.__file__`, then runs the right upgrade command. Supports
+`--check` (print the command without running) and `-y` (skip the
+confirmation prompt). The post-command "new version available" hint
+now points users at this command instead of guessing at the right
+flow.
+
+**Desktop auto-update endpoint wired to the rolling
+`desktop-latest` GitHub release.** The Tauri updater plugin was
+configured on the build side (`createUpdaterArtifacts: true`,
+`includeUpdaterJson: true`, signing key in `TAURI_SIGNING_PRIVATE_KEY`)
+but inert on the runtime side (`active: false`, `endpoints: []`). The
+installed desktop app would never check. Both are now fixed; the app
+polls `releases/download/desktop-latest/latest.json` every 30 minutes
+and signature-verifies downloads against the minisign pubkey baked
+into the app. Full flow, key-rotation runbook, and dev escape hatch
+(`OPENJARVIS_NO_UPDATER=1`) documented in `docs/desktop-auto-update.md`.
+
+**Analytics env-var opt-out** (`DO_NOT_TRACK`, `OPENJARVIS_NO_ANALYTICS`).
+Tanvir's analytics module (#351) only respected the
+`[analytics] enabled` config-file setting. Both env vars are now
+honored in `is_analytics_enabled()` and in the install.sh beacon
+script. Any truthy value (`1`, `true`, `yes`, `on`) disables for
+that process; env opt-out takes precedence over the config file.
+Documented under a new "Opting out" section in `docs/telemetry.md`.
+
+### Changed
+
+**Version-check trigger widened.** The "new version available" hint
+in `_version_check.py` used to fire only on `{ask, chat, serve}` and
+hardcoded the wrong upgrade command (`git pull && uv sync` — only
+correct for editable installs). Now fires on every interactive
+command (`doctor`, `init`, `quickstart`, `model`, `agents`, `skill`,
+`memory`, `bench`, `telemetry`, `config`, `eval`, `optimize`, plus
+the original three) and uses install-detection to print the right
+upgrade command. Honors `JARVIS_NO_UPDATE_CHECK=1` and `CI=true` to
+stay silent in automation.
+
+**Desktop app version bumped 0.1.0 → 1.0.1** across
+`tauri.conf.json`, `frontend/package.json`, and
+`frontend/src-tauri/Cargo.toml` so the Python and desktop release
+streams are aligned and the auto-updater has a real version to
+compare against.
+
+### Migration from 1.0.0
+
+- **Importing `is_analytics_enabled`?** Same signature; behavior now
+  short-circuits on env opt-out before checking the config. Callers
+  that want the raw "is the config flag set" semantic should read
+  `cfg.enabled` directly.
+- **Editable-git users running `jarvis self-update`** get the
+  detected `git pull && uv sync` command pointed at their actual
+  checkout, not `~/OpenJarvis`. If you'd come to rely on the
+  hardcoded path, update your muscle memory.
+
 ## [1.0.0] - 2026-05-15
 
 The five-primitive architecture (Intelligence, Engine, Agents,

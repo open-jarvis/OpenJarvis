@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "OpenJarvis"
-version = "1.0.0"
+version = "1.0.1"
 description = "OpenJarvis — modular AI assistant backend with composable intelligence primitives"
 readme = "README.md"
 requires-python = ">=3.10"
