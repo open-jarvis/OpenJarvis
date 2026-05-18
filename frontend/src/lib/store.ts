@@ -286,6 +286,12 @@ export const useAppStore = create<AppState>((set, get) => {
         const existing = store.conversations[overlay.id];
         // Only update if the overlay has newer/more messages
         if (existing && existing.messages.length >= overlay.messages.length) return;
+        // Track first use of overlay for this conversation
+        if (!existing) {
+          import('../lib/analytics').then(({ track }) => {
+            track('feature_used', { feature_name: 'overlay' });
+          });
+        }
         store.conversations[overlay.id] = {
           id: overlay.id,
           title: overlay.title || 'Overlay chat',

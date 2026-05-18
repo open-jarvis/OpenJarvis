@@ -153,6 +153,16 @@ class ConnectorRegistry(RegistryBase[Any]):
     """Registry for data source connectors (Gmail, Slack, etc.)."""
 
 
+class MinerRegistry(RegistryBase[Any]):
+    """Registry for Pearl mining provider implementations.
+
+    Each provider implements the ``MiningProvider`` ABC defined in
+    ``openjarvis.mining._stubs``. Registry keys are short lowercase strings
+    such as ``"vllm-pearl"`` (CUDA + Hopper) and (future) ``"mlx-pearl"``,
+    ``"llamacpp-pearl-metal"``, ``"ollama-pearl"``.
+    """
+
+
 __all__ = [
     "AgentRegistry",
     "BenchmarkRegistry",
@@ -162,6 +172,7 @@ __all__ = [
     "EngineRegistry",
     "LearningRegistry",
     "MemoryRegistry",
+    "MinerRegistry",
     "ModelRegistry",
     "RegistryBase",
     "RouterPolicyRegistry",

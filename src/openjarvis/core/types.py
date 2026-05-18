@@ -167,6 +167,7 @@ class TelemetryRecord:
     gpu_energy_joules: float = 0.0
     dram_energy_joules: float = 0.0
     tokens_per_joule: float = 0.0
+    mining_session_id: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 

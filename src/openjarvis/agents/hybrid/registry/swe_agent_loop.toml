@@ -1,0 +1,70 @@
+# SWE-bench cells that run each paradigm through mini-SWE-agent.
+#
+# Same paradigms as the headline cells, same models, but with
+# `swe_use_agent_loop = true` so the worker step is a full agent loop
+# (shell + repo browse + test runs) instead of one-shot patch prediction.
+# Expected: 0.30 → ~0.5-0.77 jump per paradigm (depending on which model
+# carries the loop).
+#
+# These cells are EXPENSIVE — each task is ~30-50 LLM turns with bash, so
+# Opus-driven cells run $1-3/task and ~5-10 min/task. Smokes at n=3 first.
+
+# ------------- Minions: cloud planner + local mini-SWE-agent worker -------------
+
+[cells.minions-swe-agent-swebenchverified-qwen27b-opus-3]
+method = "minions"
+bench  = "swebench-verified"
+n      = 3
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { swe_use_agent_loop = true, supervisor_max_tokens = 1024, swe_max_turns = 30, swe_bash_timeout_s = 120, swe_turn_max_tokens = 4096 }
+
+# ------------- Conductor: shared workdir across plan steps -------------
+
+[cells.conductor-swe-agent-swebenchverified-opus-3]
+method = "conductor"
+bench  = "swebench-verified"
+n      = 3
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { swe_use_agent_loop = true, conductor_max_tokens = 2048, swe_max_turns = 25, swe_bash_timeout_s = 120, swe_turn_max_tokens = 4096 }
+
+# ------------- Advisors: two full agent-loop attempts with local critique between -------------
+
+[cells.advisors-swe-agent-swebenchverified-qwen9b-opus-3]
+method = "advisors"
+bench  = "swebench-verified"
+n      = 3
+local  = { model = "Qwen/Qwen3.5-9B", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { swe_use_agent_loop = true, swe_max_turns = 25, swe_bash_timeout_s = 120, swe_turn_max_tokens = 4096, advisor_max_tokens = 2048 }
+
+# ------------- SkillOrchestra: router routes to local or cloud, that one runs the loop -------------
+
+[cells.skillorchestra-swe-agent-swebenchverified-qwen27b-opus-3]
+method = "skillorchestra"
+bench  = "swebench-verified"
+n      = 3
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { swe_use_agent_loop = true, router_max_tokens = 1024, swe_max_turns = 30, swe_bash_timeout_s = 120, swe_turn_max_tokens = 4096 }
+
+# ------------- ToolOrchestra: orchestrator dispatches solver workers through loop on shared workdir -------------
+
+[cells.toolorchestra-swe-agent-swebenchverified-qwen27b-opus-3]
+method = "toolorchestra"
+bench  = "swebench-verified"
+n      = 3
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { swe_use_agent_loop = true, max_turns = 4, orchestrator_max_tokens = 1024, swe_max_turns = 25, swe_bash_timeout_s = 120, swe_turn_max_tokens = 4096 }
+
+# ------------- Archon: K=3 local mini-SWE-agent runs, cloud ranker picks best -------------
+
+[cells.archon-swe-agent-swebenchverified-qwen27b-opus-3]
+method = "archon"
+bench  = "swebench-verified"
+n      = 3
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { swe_use_agent_loop = true, n_samples = 3, swe_max_turns = 25, swe_bash_timeout_s = 120, swe_turn_max_tokens = 4096, ranker_max_tokens = 1024 }

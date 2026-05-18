@@ -1060,21 +1060,21 @@ OpenJarvis respects the following environment variables:
 
 ---
 
-## Learning & Distillation
+## Learning & spec search
 
-The distillation subsystem uses a frontier model to automatically improve your local agent configuration. See the [user guide](../user-guide/learning-distillation.md) for a full walkthrough.
+LLM-guided spec search uses a frontier model to automatically improve your local agent configuration. See the [user guide](../user-guide/llm-guided-spec-search.md) for a full walkthrough.
 
-### `[learning.distillation]`
+### `[learning.spec_search]`
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `enabled` | bool | `true` | Gate the entire distillation subsystem |
+| `enabled` | bool | `true` | Gate the entire spec-search subsystem |
 | `autonomy_mode` | string | `"tiered"` | `auto`, `tiered`, or `manual` |
 | `teacher_model` | string | `"claude-opus-4-6"` | Frontier model for diagnosis and planning |
 | `max_cost_per_session_usd` | float | `5.0` | Per-session teacher API budget |
 | `max_tool_calls_per_diagnosis` | int | `30` | Max teacher tool calls in diagnosis phase |
 
-### `[learning.distillation.triggers]`
+### `[learning.spec_search.triggers]`
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -1086,7 +1086,7 @@ The distillation subsystem uses a frontier model to automatically improve your l
 | `cluster_min_size` | int | `5` | Minimum traces in a cluster |
 | `cluster_failure_threshold` | float | `0.3` | Feedback <= this counts as failure |
 
-### `[learning.distillation.gate]`
+### `[learning.spec_search.gate]`
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -1095,7 +1095,7 @@ The distillation subsystem uses a frontier model to automatically improve your l
 | `benchmark_subsample_size` | int | `50` | Tasks per gate run |
 | `full_benchmark` | bool | `false` | Disable subsampling (slower, more accurate) |
 
-### `[learning.distillation.benchmark]`
+### `[learning.spec_search.benchmark]`
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -1104,12 +1104,12 @@ The distillation subsystem uses a frontier model to automatically improve your l
 | `auto_refresh` | bool | `true` | Auto-mine new high-feedback traces |
 | `max_synthesis_cost_usd_per_refresh` | float | `2.0` | Cost cap per benchmark refresh |
 
-### `[learning.distillation.tier_overrides]`
+### `[learning.spec_search.tier_overrides]`
 
 Override the default risk tier for any operation. Keys are operation names, values are tier strings (`auto`, `review`, `manual`).
 
 ```toml
-[learning.distillation.tier_overrides]
+[learning.spec_search.tier_overrides]
 # patch_system_prompt = "auto"     # promote to auto after trust
 # replace_system_prompt = "auto"
 ```

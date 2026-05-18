@@ -30,6 +30,7 @@
     "katex": "^0.16.38",
     "lucide-react": "^0.576.0",
     "motion": "^12.38.0",
+    "posthog-js": "^1.373.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",

@@ -5,6 +5,7 @@ from __future__ import annotations
 import click
 
 import openjarvis
+from openjarvis.cli._bootstrap import bootstrap_cmd
 from openjarvis.cli.add_cmd import add
 from openjarvis.cli.agent_cmd import agent
 from openjarvis.cli.ask import ask
@@ -25,9 +26,11 @@ from openjarvis.cli.gateway_cmd import gateway
 from openjarvis.cli.host_cmd import host
 from openjarvis.cli.init_cmd import init
 from openjarvis.cli.memory_cmd import memory
+from openjarvis.cli.mine_cmd import mine
 from openjarvis.cli.model import model
 from openjarvis.cli.operators_cmd import operators
 from openjarvis.cli.optimize_cmd import optimize_group
+from openjarvis.cli.pearl_cmd import pearl
 from openjarvis.cli.quickstart_cmd import quickstart
 from openjarvis.cli.registry_cmd import registry
 from openjarvis.cli.scan_cmd import scan
@@ -38,10 +41,12 @@ from openjarvis.cli.telemetry_cmd import telemetry
 from openjarvis.cli.tool_cmd import tool
 from openjarvis.cli.vault_cmd import vault
 from openjarvis.cli.workflow_cmd import workflow
-from openjarvis.learning.distillation.cli import learning_group
 
 
-@click.group(help="OpenJarvis — modular AI assistant backend")
+@click.group(
+    help="OpenJarvis — modular AI assistant backend",
+    invoke_without_command=True,
+)
 @click.version_option(version=openjarvis.__version__, prog_name="jarvis")
 @click.option("--verbose", is_flag=True, default=False, help="Enable debug logging")
 @click.option("--quiet", is_flag=True, default=False, help="Suppress non-error output")
@@ -67,6 +72,12 @@ def cli(ctx: click.Context, verbose: bool, quiet: bool) -> None:
 
         check_for_updates(ctx.invoked_subcommand)
 
+    # First-run guard — routes bare `jarvis` to chat or init.
+    if ctx.invoked_subcommand is None:
+        from openjarvis.cli._first_run import check_and_route
+
+        check_and_route(ctx)
+
 
 cli.add_command(init, "init")
 cli.add_command(ask, "ask")
@@ -74,6 +85,8 @@ cli.add_command(chat, "chat")
 cli.add_command(serve, "serve")
 cli.add_command(model, "model")
 cli.add_command(memory, "memory")
+cli.add_command(mine, "mine")
+cli.add_command(pearl, "pearl")
 cli.add_command(telemetry, "telemetry")
 cli.add_command(bench, "bench")
 cli.add_command(channel, "channel")
@@ -105,7 +118,7 @@ cli.add_command(connect, "connect")
 cli.add_command(digest, "digest")
 cli.add_command(deep_research_setup, "deep-research-setup")
 cli.add_command(deep_research_setup, "research")
-cli.add_command(learning_group, "learning")
+cli.add_command(bootstrap_cmd, "_bootstrap")
 
 # Gateway CLI commands (lazy import to avoid pulling starlette)
 try:

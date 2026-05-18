@@ -14,7 +14,7 @@ The OpenJarvis evaluation framework (`openjarvis-evals`) measures model **correc
 
 ---
 
-> **Tip:** The distillation system uses this same eval infrastructure to gate edits against your personal benchmark. See [Learning & Distillation](learning-distillation.md).
+> **Tip:** LLM-guided spec search uses this same eval infrastructure to gate edits against your personal benchmark. See [LLM-guided spec search](llm-guided-spec-search.md).
 
 ## Installation
 
@@ -78,6 +78,7 @@ These benchmarks test multi-step agent capabilities including tool use, code gen
 | **SWEfficiency** | `swefficiency` | agentic | Software optimization tasks |
 | **TerminalBench** | `terminalbench` | agentic | Terminal-based task completion |
 | **TerminalBench Native** | `terminalbench-native` | agentic | TerminalBench with native Docker execution |
+| **TerminalBench V2.1** | `terminalbench-v2.1` | agentic | TB v2.1 Harbor-style Docker tasks |
 | **LifelongAgent** | `lifelong-agent` | agentic | Sequential task learning across sessions |
 | **PaperArena** | `paperarena` | agentic | Scientific paper analysis |
 | **DeepPlanning** | `deepplanning` | agentic | Shopping constraint planning |

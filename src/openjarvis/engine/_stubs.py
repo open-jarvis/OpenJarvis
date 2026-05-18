@@ -21,12 +21,18 @@ class StreamChunk:
     Used by ``stream_full()`` to yield rich streaming data including
     tool_calls fragments and finish_reason, unlike ``stream()`` which
     only yields plain content strings.
+
+    ``content_blocks`` and ``tool_results`` are aggregate fields emitted
+    once at end-of-stream so streaming callers reach parity with the
+    non-streaming ``generate()`` return shape.
     """
 
     content: Optional[str] = None
     tool_calls: Optional[List[Dict[str, Any]]] = None
     finish_reason: Optional[str] = None
     usage: Optional[Dict[str, Any]] = None
+    content_blocks: Optional[List[Dict[str, Any]]] = None
+    tool_results: Optional[List[Dict[str, Any]]] = None
 
 
 @dataclass(slots=True)

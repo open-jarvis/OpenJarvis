@@ -255,9 +255,11 @@ class InstrumentedEngine(InferenceEngine):
             "mean_itl_ms": mean_itl_ms,
             "energy_method": energy_method,
             "energy_vendor": energy_vendor,
-            # Rich trace data: model response content
+            # Rich trace data: model response content + structured blocks
             "content": result.get("content", ""),
             "tool_calls": result.get("tool_calls", []),
+            "tool_results": result.get("tool_results", []),
+            "content_blocks": result.get("content_blocks", []),
             "finish_reason": result.get("finish_reason", ""),
         }
 

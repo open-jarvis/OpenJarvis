@@ -1,3 +1,33 @@
+/* ── Version badge (top-right of header) ─────────────────────────── */
+.md-version-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 1.6rem;
+  padding: 0 0.55rem;
+  margin: 0 0.4rem 0 0.2rem;
+  font-family: var(--md-code-font);
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: var(--md-primary-bg-color, #ffffff);
+  background-color: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 0.6rem;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+.md-version-badge:hover,
+.md-version-badge:focus {
+  background-color: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.45);
+  text-decoration: none;
+}
+@media screen and (max-width: 76.1875em) {
+  .md-version-badge { display: none; }
+}
+
 /* ── Fonts ─────────────────────────────────────────────────────────── */
 :root {
   --md-text-font: Georgia, "Times New Roman", serif;

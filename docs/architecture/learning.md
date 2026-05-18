@@ -556,13 +556,13 @@ to Python.
 
 ---
 
-## Distillation (Frontier-Driven Harness Learning)
+## LLM-Guided Spec Search (Frontier-Driven Harness Learning)
 
-The distillation subsystem uses a frontier closed-source model (the "teacher") as a meta-engineer for the local student's full harness — not just its weights. Instead of pushing knowledge into a small model's weights, we push a frontier model's engineering judgement into the surrounding configuration: prompts, routing, agent class, tool availability, and tool descriptions.
+LLM-guided spec search uses a frontier closed-source model (the "teacher") as a meta-engineer for the local student's full harness — not just its weights. Instead of pushing knowledge into a small model's weights, we push a frontier model's engineering judgement into the surrounding configuration: prompts, routing, agent class, tool availability, and tool descriptions.
 
 ### Where it lives
 
-`learning/distillation/` is the fifth subsystem within the Learning pillar, alongside `learning/routing/`, `learning/optimize/`, `learning/training/`, and `learning/intelligence/`.
+`learning/spec_search/` is the fifth subsystem within the Learning pillar, alongside `learning/routing/`, `learning/optimize/`, `learning/training/`, and `learning/intelligence/`.
 
 ### Four-phase loop
 
@@ -579,7 +579,7 @@ Trigger → Diagnose → Plan → Execute → Record
 
 | Component | Module | Purpose |
 |-----------|--------|---------|
-| `DistillationOrchestrator` | `orchestrator.py` | Top-level session driver |
+| `SpecSearchOrchestrator` | `orchestrator.py` | Top-level session driver |
 | `TeacherAgent` | `diagnose/teacher_agent.py` | Frontier model tool-calling loop |
 | `DiagnosisRunner` | `diagnose/runner.py` | Phase 1 orchestration |
 | `LearningPlanner` | `plan/planner.py` | Diagnosis → typed LearningPlan |
@@ -609,4 +609,4 @@ Every edit is assigned a tier from a deterministic lookup table:
 | `review` | System prompt edits, agent class, few-shot exemplars | Queue for user approval |
 | `manual` | LoRA fine-tuning (v2) | Never auto-apply |
 
-See [Distillation user guide](../user-guide/learning-distillation.md) for CLI usage and configuration.
+See [LLM-guided spec search guide](../user-guide/llm-guided-spec-search.md) for the architecture and the building blocks.

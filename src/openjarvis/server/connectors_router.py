@@ -108,12 +108,12 @@ def create_connectors_router():
         try:
             from openjarvis.connectors.store import KnowledgeStore
 
-            store = KnowledgeStore()
-            rows = store._conn.execute(
-                "SELECT COUNT(*) FROM knowledge_chunks WHERE source = ?",
-                (connector_id,),
-            ).fetchone()
-            chunks = rows[0] if rows else 0
+            with KnowledgeStore() as store:
+                rows = store._conn.execute(
+                    "SELECT COUNT(*) FROM knowledge_chunks WHERE source = ?",
+                    (connector_id,),
+                ).fetchone()
+                chunks = rows[0] if rows else 0
         except Exception:
             pass
 

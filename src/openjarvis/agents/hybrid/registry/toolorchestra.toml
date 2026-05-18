@@ -1,0 +1,30 @@
+# ToolOrchestra cells. Prompted port — uses a cloud model (Opus) as the
+# orchestrator, NOT the RL-trained Nemotron-Orchestrator-8B from the paper
+# (arXiv:2511.21689). Treat results as preliminary until a real
+# Orchestrator-8B deployment is wired up.
+#
+# Naming: toolorchestra-<bench>-<local-short>-<cloud-short>-<N>
+
+[cells.toolorchestra-gaia-qwen27b-opus-3]
+method = "toolorchestra"
+bench  = "gaia"
+n      = 3
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { max_turns = 6, orchestrator_max_tokens = 1024, worker_max_tokens = 4096 }
+
+[cells.toolorchestra-swebenchverified-qwen27b-opus-3]
+method = "toolorchestra"
+bench  = "swebench-verified"
+n      = 3
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { max_turns = 6, orchestrator_max_tokens = 1024, worker_max_tokens = 8192 }
+
+[cells.toolorchestra-gaia-qwen27b-opus-30]
+method = "toolorchestra"
+bench  = "gaia"
+n      = 30
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { max_turns = 8, orchestrator_max_tokens = 1024, worker_max_tokens = 4096 }

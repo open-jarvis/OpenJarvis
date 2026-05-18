@@ -1,0 +1,47 @@
+# SkillOrchestra cells (arXiv:2602.19672).
+#
+# Deployment-time skill-aware routing only. The paper's offline pipeline
+# (explore → learn → select over an SGLang model pool + FAISS wiki index)
+# isn't reproduced here — we don't have the SGLang serving stack, the
+# retriever index, or a training split to learn a routing policy on. What
+# we DO reproduce is the inference-time orchestrator: an Opus router
+# analyzes the question into skill weights, picks one of two agents
+# (local Qwen-27B vs cloud Opus) under an explicit cost trade-off, then
+# the chosen agent answers. Mirrors the eval_orchestrator paradigm in
+# external/SkillOrchestra/skillorchestra/prompts/eval_orchestrator.py.
+# See adapters/skillorchestra_adapter.py for full notes.
+
+[cells.skillorchestra-gaia-qwen27b-opus-3]
+method = "skillorchestra"
+bench  = "gaia"
+n      = 3
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7",      endpoint = "anthropic" }
+method_cfg = {}
+
+[cells.skillorchestra-swebenchverified-qwen27b-opus-3]
+method = "skillorchestra"
+bench  = "swebench-verified"
+n      = 3
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7",      endpoint = "anthropic" }
+method_cfg = {}
+concurrency = 3
+
+[cells.skillorchestra-gaia-qwen27b-opus-30]
+method = "skillorchestra"
+bench  = "gaia"
+n      = 30
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7",      endpoint = "anthropic" }
+method_cfg = {}
+concurrency = 4
+
+[cells.skillorchestra-swebenchverified-qwen27b-opus-30]
+method = "skillorchestra"
+bench  = "swebench-verified"
+n      = 30
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7",      endpoint = "anthropic" }
+method_cfg = {}
+concurrency = 3

@@ -41,6 +41,39 @@ class TestIsPrivateIp:
     def test_empty_string(self):
         assert is_private_ip("") is False
 
+    def test_ipv4_mapped_ipv6_loopback(self):
+        # ::ffff:127.0.0.1 — IPv4-mapped form of loopback must be flagged.
+        assert is_private_ip("::ffff:127.0.0.1") is True
+
+    def test_ipv4_mapped_ipv6_rfc1918(self):
+        assert is_private_ip("::ffff:10.0.0.1") is True
+        assert is_private_ip("::ffff:172.16.0.1") is True
+        assert is_private_ip("::ffff:192.168.1.1") is True
+
+    def test_ipv4_mapped_ipv6_link_local(self):
+        assert is_private_ip("::ffff:169.254.0.1") is True
+
+    def test_ipv4_mapped_ipv6_public_allowed(self):
+        # Public IPv4 wrapped as IPv6 must NOT be flagged as private.
+        assert is_private_ip("::ffff:8.8.8.8") is False
+
+    def test_ipv4_compatible_loopback(self):
+        # ::127.0.0.1 — deprecated IPv4-compatible form, must still be blocked.
+        assert is_private_ip("::127.0.0.1") is True
+
+    def test_unspecified_addresses(self):
+        assert is_private_ip("0.0.0.0") is True
+        assert is_private_ip("::") is True
+
+    def test_zero_subnet_is_private(self):
+        # 0.0.0.0/8 routes to localhost on Linux.
+        assert is_private_ip("0.1.2.3") is True
+
+    def test_multicast_and_broadcast_blocked(self):
+        assert is_private_ip("239.0.0.1") is True
+        assert is_private_ip("255.255.255.255") is True
+        assert is_private_ip("ff02::1") is True
+
 
 class TestCheckSsrf:
     """Tests for SSRF protection.
@@ -118,6 +151,73 @@ class TestCheckSsrf:
             result = _check_ssrf_python("https://evil-rebind.example.com")
         assert result is not None
         assert "private IP" in result
+
+    def test_blocks_ipv4_mapped_loopback_url(self):
+        """IPv4-mapped IPv6 form of 127.0.0.1 must be blocked (Rust path)."""
+        result = check_ssrf("http://[::ffff:127.0.0.1]:6666")
+        assert result is not None
+        assert "private IP" in result
+
+    def test_blocks_ipv4_mapped_rfc1918_url(self):
+        for url in (
+            "http://[::ffff:10.0.0.1]/",
+            "http://[::ffff:192.168.1.1]/",
+            "http://[::ffff:172.16.0.1]/",
+        ):
+            result = check_ssrf(url)
+            assert result is not None, f"{url} must be blocked"
+            assert "private IP" in result
+
+    def test_blocks_ipv4_mapped_metadata_url(self):
+        # ::ffff:169.254.169.254 — IPv4-mapped form of cloud metadata IP.
+        result = check_ssrf("http://[::ffff:169.254.169.254]/latest/meta-data/")
+        assert result is not None
+
+    def test_blocks_ipv6_loopback_literal_url(self):
+        result = check_ssrf("http://[::1]:80/")
+        assert result is not None
+
+    def test_allows_ipv4_mapped_public_url(self):
+        result = check_ssrf("http://[::ffff:8.8.8.8]/")
+        assert result is None
+
+    def test_python_impl_blocks_ipv4_mapped_loopback(self):
+        """Legacy Python impl must also catch ::ffff:127.0.0.1."""
+        result = _check_ssrf_python("http://[::ffff:127.0.0.1]:6666")
+        assert result is not None
+        assert "private IP" in result
+
+    def test_python_impl_blocks_ipv4_mapped_metadata(self):
+        result = _check_ssrf_python(
+            "http://[::ffff:169.254.169.254]/latest/meta-data/"
+        )
+        assert result is not None
+
+    def test_blocks_ipv4_mapped_alibaba_metadata(self):
+        # 100.100.100.200 isn't private — relies on BLOCKED_HOSTS lookup
+        # against the embedded v4. Verifies the canonical-host fix.
+        result = check_ssrf("http://[::ffff:100.100.100.200]/")
+        assert result is not None
+        assert "Blocked host" in result
+
+    def test_blocks_ipv4_compatible_loopback(self):
+        result = check_ssrf("http://[::127.0.0.1]/")
+        assert result is not None
+
+    def test_blocks_zero_dot_zero(self):
+        result = check_ssrf("http://0.0.0.0/")
+        assert result is not None
+
+    def test_url_userinfo_does_not_bypass(self):
+        # Userinfo + bracketed IPv6 literal still gets blocked.
+        result = check_ssrf("http://user:pass@[::ffff:127.0.0.1]:8080/admin")
+        assert result is not None
+
+    def test_canonicalized_hex_ipv6_form_blocked(self):
+        # url crate canonicalizes [::ffff:127.0.0.1] to [::ffff:7f00:1]
+        # internally; ensure this form blocks too.
+        result = check_ssrf("http://[::ffff:7f00:1]/")
+        assert result is not None
 
 
 __all__ = ["TestCheckSsrf", "TestIsPrivateIp"]

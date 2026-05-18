@@ -14,7 +14,15 @@ import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+if TYPE_CHECKING:
+    # Only used by type-checkers (mypy/pyright) for the ``JarvisConfig.mining``
+    # field annotation. The runtime import is deferred inside
+    # ``_parse_mining_section()`` to break the import cycle:
+    # ``mining/_stubs.py`` imports ``HardwareInfo`` from this module at its
+    # top level.
+    from openjarvis.mining._stubs import MiningConfig
 
 try:
     import tomllib  # Python 3.11+
@@ -83,7 +91,7 @@ def _detect_nvidia_gpu() -> Optional[GpuInfo]:
     raw = _run_cmd(
         [
             "nvidia-smi",
-            "--query-gpu=name,memory.total,count",
+            "--query-gpu=name,memory.total,count,compute_cap",
             "--format=csv,noheader,nounits",
         ]
     )
@@ -95,10 +103,12 @@ def _detect_nvidia_gpu() -> Optional[GpuInfo]:
         name = parts[0]
         vram_mb = float(parts[1])
         count = int(parts[2])
+        compute_capability = parts[3] if len(parts) > 3 else ""
         return GpuInfo(
             vendor="nvidia",
             name=name,
             vram_gb=round(vram_mb / 1024, 1),
+            compute_capability=compute_capability,
             count=count,
         )
     except (IndexError, ValueError):
@@ -674,6 +684,54 @@ class MetricsConfig:
     efficiency_weight: float = 0.1
 
 
+@dataclass(slots=True)
+class SpecSearchCompositeRewardConfig:
+    """Composite reward weights for Intelligence-edit training (paper Eq. 1).
+
+    R(q, y) = alpha * R_acc - beta * E_hat - gamma * L_hat - delta * C_hat
+    """
+
+    alpha: float = 0.5
+    beta: float = 0.1
+    gamma: float = 0.1
+    delta: float = 0.3
+
+
+@dataclass(slots=True)
+class SpecSearchLearningConfig:
+    """LLM-guided spec search config (paper §3.3, Algorithm 1).
+
+    Maps to ``[learning.spec_search]`` and is consumed by
+    ``SpecSearchOrchestrator.from_config`` and ``SpecSearchLoop``.
+    """
+
+    enabled: bool = False
+    teacher_model: str = "claude-opus-4-6"
+    teacher_engine: str = "cloud"  # registry key for the cloud engine
+    autonomy_mode: str = "tiered"  # auto | tiered | manual
+
+    # Per-session bounds (one diagnose/plan/execute pass)
+    min_traces: int = 20
+    max_cost_per_session_usd: float = 5.0
+    max_tool_calls_per_diagnosis: int = 30
+
+    # Multi-session loop (paper Algorithm 1)
+    stagnation_k: int = 5
+    max_total_cost_usd: float = 50.0
+    stagnation_eps: float = 0.001  # gate-score delta below this counts as no progress
+
+    # Gate (GateOK predicate)
+    max_regression: float = 0.01  # paper default: epsilon = 1%
+    min_improvement: float = 0.0
+    benchmark_subsample_size: int = 50
+    benchmark_version: str = "personal_v1"
+
+    # Composite reward (only used when an Intelligence edit triggers training)
+    composite_reward: SpecSearchCompositeRewardConfig = field(
+        default_factory=SpecSearchCompositeRewardConfig,
+    )
+
+
 @dataclass
 class LearningConfig:
     """Learning system settings with per-primitive sub-policies."""
@@ -687,6 +745,9 @@ class LearningConfig:
     )
     agent: AgentLearningConfig = field(default_factory=AgentLearningConfig)
     skills: SkillsLearningConfig = field(default_factory=SkillsLearningConfig)
+    spec_search: SpecSearchLearningConfig = field(
+        default_factory=SpecSearchLearningConfig,
+    )
     metrics: MetricsConfig = field(default_factory=MetricsConfig)
 
     # Training pipeline
@@ -869,6 +930,27 @@ class TelemetryConfig:
     warmup_samples: int = 0
     steady_state_window: int = 5
     steady_state_threshold: float = 0.05
+
+
+@dataclass(slots=True)
+class AnalyticsConfig:
+    """External anonymous usage analytics (PostHog).
+
+    Separate concern from :class:`TelemetryConfig`, which stores local
+    FLOPs/energy/inference metrics in SQLite. This controls anonymized
+    usage events sent to the OpenJarvis team's PostHog instance to
+    measure setup success, retention, feature usage, and churn.
+
+    No chat content, prompts, model outputs, file paths, emails, IPs,
+    or hardware identifiers are ever sent. See ``docs/telemetry.md``.
+    """
+
+    enabled: bool = True
+    host: str = "https://34.231.106.201.sslip.io"
+    key: str = "phc_ysKu72QaxzYNmDpHFcesD2ZZAe68zkdWJEKoYYkc5e3n"
+    anon_id_path: str = str(DEFAULT_CONFIG_DIR / "anon_id")
+    flush_interval_seconds: int = 30
+    flush_at_size: int = 100
 
 
 @dataclass(slots=True)
@@ -1353,6 +1435,8 @@ class DigestConfig:
 class JarvisConfig:
     """Top-level configuration for OpenJarvis."""
 
+    installed_at: str = ""
+    installer_version: str = ""
     hardware: HardwareInfo = field(default_factory=HardwareInfo)
     engine: EngineConfig = field(default_factory=EngineConfig)
     intelligence: IntelligenceConfig = field(default_factory=IntelligenceConfig)
@@ -1361,6 +1445,7 @@ class JarvisConfig:
     agent: AgentConfig = field(default_factory=AgentConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
     telemetry: TelemetryConfig = field(default_factory=TelemetryConfig)
+    analytics: AnalyticsConfig = field(default_factory=AnalyticsConfig)
     traces: TracesConfig = field(default_factory=TracesConfig)
     channel: ChannelConfig = field(default_factory=ChannelConfig)
     security: SecurityConfig = field(default_factory=SecurityConfig)
@@ -1378,6 +1463,7 @@ class JarvisConfig:
     compression: CompressionConfig = field(default_factory=CompressionConfig)
     skills: SkillsConfig = field(default_factory=SkillsConfig)
     digest: DigestConfig = field(default_factory=DigestConfig)
+    mining: Optional["MiningConfig"] = None
 
     @property
     def memory(self) -> StorageConfig:
@@ -1396,7 +1482,10 @@ class JarvisConfig:
 
 # Sections that users may set via ``jarvis config set``.
 # ``hardware`` is auto-detected and not user-settable.
-_SETTABLE_SECTIONS = frozenset(JarvisConfig.__dataclass_fields__.keys()) - {"hardware"}
+_SETTABLE_SECTIONS = frozenset(JarvisConfig.__dataclass_fields__.keys()) - {
+    "hardware",
+    "mining",
+}
 
 
 def validate_config_key(dotted_key: str) -> type:
@@ -1537,6 +1626,47 @@ def _migrate_toml_data(data: Dict[str, Any], cfg: "JarvisConfig") -> None:
                 )
 
 
+def _parse_mining_section(data: dict) -> Optional["MiningConfig"]:
+    """Parse the ``[mining]`` TOML section into a ``MiningConfig``.
+
+    Returns None if the section is absent. Resolves the ``submit_target``
+    string into a ``SoloTarget`` or ``PoolTarget`` tagged union.
+    """
+    if "mining" not in data:
+        return None
+
+    # Lazy runtime import to break the import cycle: ``mining/_stubs.py``
+    # imports ``HardwareInfo`` from this module at its top level. By the
+    # time ``_parse_mining_section`` is called, ``core.config`` is already
+    # fully initialized in ``sys.modules``, so the cycle is harmless.
+    from openjarvis.mining._stubs import MiningConfig, PoolTarget, SoloTarget
+
+    section = data["mining"]
+    extra = section.get("extra", {}) or {}
+
+    target_str = section.get("submit_target", "solo")
+    submit_target: Any
+    if target_str == "solo":
+        submit_target = SoloTarget(
+            pearld_rpc_url=extra.get("pearld_rpc_url", "http://localhost:44107")
+        )
+    elif isinstance(target_str, str) and target_str.startswith("pool:"):
+        submit_target = PoolTarget(url=target_str[len("pool:") :])
+    else:
+        raise ValueError(
+            f"[mining].submit_target must be 'solo' or 'pool:<url>', got {target_str!r}"
+        )
+
+    return MiningConfig(
+        provider=section["provider"],
+        wallet_address=section["wallet_address"],
+        submit_target=submit_target,
+        fee_bps=int(section.get("fee_bps", 0)),
+        fee_payout_address=section.get("fee_payout_address") or None,
+        extra={k: v for k, v in extra.items()},
+    )
+
+
 @functools.lru_cache(maxsize=1)
 def load_config(path: Optional[Path] = None) -> JarvisConfig:
     """Detect hardware, build defaults, overlay TOML overrides.
@@ -1574,6 +1704,7 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
             "agent",
             "server",
             "telemetry",
+            "analytics",
             "traces",
             "security",
             "channel",
@@ -1600,9 +1731,17 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
         if "memory" in data:
             _apply_toml_section(cfg.tools.storage, data["memory"])
 
+        # Top-level install provenance (installed_at, installer_version)
+        for key in ("installed_at", "installer_version"):
+            if key in data:
+                setattr(cfg, key, data[key])
+
         # Expand security profile (user TOML overrides take precedence)
         _user_security_keys = set(data.get("security", {}).keys())
         apply_security_profile(cfg.security, cfg.server, overrides=_user_security_keys)
+
+        # Mining: dedicated parser for tagged-union submit_target
+        cfg.mining = _parse_mining_section(data)
 
     # Apply profile even without a config file (in case defaults set one)
     if not config_path.exists() and cfg.security.profile:

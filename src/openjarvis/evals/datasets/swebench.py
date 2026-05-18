@@ -142,6 +142,7 @@ class SWEBenchDataset(DatasetProvider):
 
         metadata: dict[str, Any] = {
             "instance_id": instance_id,
+            "problem_statement": problem_statement,
             "repo": repo,
             "base_commit": base_commit,
             "hints_text": hints_text,

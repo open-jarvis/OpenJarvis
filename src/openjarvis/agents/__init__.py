@@ -79,6 +79,14 @@ try:
 except ImportError:
     pass
 
+# Hybrid local+cloud paradigm agents (Minions, Conductor, Archon, Advisors,
+# SkillOrchestra, ToolOrchestra). Each module registers under its own name
+# via @AgentRegistry.register(). Optional deps may make some unavailable.
+try:
+    import openjarvis.agents.hybrid  # noqa: F401
+except ImportError:
+    pass
+
 # Registry alias: "react" -> NativeReActAgent (for backward compat)
 try:
     from openjarvis.core.registry import AgentRegistry

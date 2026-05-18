@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from openjarvis.server.analytics_routes import router as analytics_router
 from openjarvis.server.api_routes import include_all_routes
 from openjarvis.server.comparison import comparison_router
 from openjarvis.server.connectors_router import create_connectors_router
@@ -239,6 +240,48 @@ def create_app(
     except Exception:
         pass  # traces are optional; don't block server startup
 
+    # Wire up external analytics if enabled (PostHog) — never block startup.
+    # Note: we do NOT fire app_opened here. The frontend owns that event
+    # because "server started" (this code path) is not the same as "user
+    # opened the app" — the server can run headless via cron, daemons,
+    # or test suites.
+    app.state.analytics_client = None
+    app.state.analytics_bridge = None
+    try:
+        from openjarvis.analytics import (
+            AnalyticsClient,
+            EventBridge,
+            is_analytics_enabled,
+        )
+        from openjarvis.core.config import load_config
+
+        _cfg = config if config is not None else load_config()
+        if is_analytics_enabled(_cfg.analytics):
+            _client = AnalyticsClient(_cfg.analytics)
+            app.state.analytics_client = _client
+            _bus_ref = getattr(app.state, "bus", None)
+            if _bus_ref is not None:
+                _bridge = EventBridge(_bus_ref, _client)
+                _bridge.start()
+                app.state.analytics_bridge = _bridge
+
+            @app.on_event("shutdown")
+            async def _shutdown_analytics() -> None:
+                bridge = getattr(app.state, "analytics_bridge", None)
+                if bridge is not None:
+                    try:
+                        bridge.stop()
+                    except Exception:
+                        pass
+                client = getattr(app.state, "analytics_client", None)
+                if client is not None:
+                    try:
+                        client.shutdown()
+                    except Exception:
+                        pass
+    except Exception as _exc:
+        logger.debug("Analytics init skipped: %s", _exc)
+
     app.include_router(router)
     app.include_router(dashboard_router)
     app.include_router(comparison_router)
@@ -246,6 +289,7 @@ def create_app(
     app.include_router(create_digest_router())
     app.include_router(upload_router)
     app.include_router(research_router)
+    app.include_router(analytics_router)
     include_all_routes(app)
 
     # Restore SendBlue channel bindings from database on startup

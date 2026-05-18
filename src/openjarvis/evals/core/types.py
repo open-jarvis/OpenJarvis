@@ -49,6 +49,11 @@ class EvalResult:
     trace_steps: int = 0
     trace_energy_joules: float = 0.0
     trace_data: Optional[Dict[str, Any]] = None
+    # Spec §6.2 extended fields for cross-framework comparison
+    framework: str = "openjarvis"
+    framework_commit: str = ""
+    tool_calls: int = 0
+    turn_count: int = 0
 
 
 @dataclass(slots=True)
@@ -89,6 +94,9 @@ class RunConfig:
     # running thinking/reasoning models that consume turns on intermediate
     # reasoning before producing tool calls.
     max_turns: Optional[int] = None
+    # Spec §6.2: backend-external endpoint config (for hermes/openclaw)
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
     # Filter dataset records by id. When set, only records whose record_id
     # appears in this list are processed. Used for surgical re-runs of
     # specific records (e.g. recovering silent-fake records without
@@ -269,6 +277,10 @@ class EvalSuiteConfig:
     run: ExecutionConfig = field(default_factory=ExecutionConfig)
     models: List[ModelConfig] = field(default_factory=list)
     benchmarks: List[BenchmarkConfig] = field(default_factory=list)
+    # Spec §6.2: optional [backend.external] section for hermes/openclaw
+    # backends. Holds the OpenAI-compatible endpoint config.
+    backend_external_base_url: Optional[str] = None
+    backend_external_api_key: Optional[str] = None
 
 
 __all__ = [

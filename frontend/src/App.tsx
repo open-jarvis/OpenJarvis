@@ -14,10 +14,15 @@ import { Toaster } from './components/ui/sonner';
 import { useAppStore } from './lib/store';
 import { fetchModels, fetchServerInfo, fetchSavings, submitSavings, isTauri } from './lib/api';
 import { OptInModal } from './components/OptInModal';
+import { track, hashId } from './lib/analytics';
 
 export default function App() {
   const [setupDone, setSetupDone] = useState(!isTauri());
-  const handleSetupReady = useCallback(() => setSetupDone(true), []);
+  const handleSetupReady = useCallback(() => {
+    setSetupDone(true);
+    track('setup_completed', { preset: 'default' });
+  }, []);
+  const prevModelRef = useRef<string>('');
   const setModels = useAppStore((s) => s.setModels);
   const setModelsLoading = useAppStore((s) => s.setModelsLoading);
   const setSelectedModel = useAppStore((s) => s.setSelectedModel);
@@ -115,6 +120,36 @@ export default function App() {
       markOptInModalSeen();
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fire model_changed when the user switches models. First mount is
+  // not a "change" — only emit when both prev and current are real and
+  // differ.
+  useEffect(() => {
+    const prev = prevModelRef.current;
+    const curr = selectedModel || '';
+    prevModelRef.current = curr;
+    if (!prev || !curr || prev === curr) return;
+    void (async () => {
+      const [fromHash, toHash] = await Promise.all([
+        hashId(prev),
+        hashId(curr),
+      ]);
+      track('model_changed', {
+        from_model_hash: fromHash,
+        to_model_hash: toHash,
+      });
+    })();
+  }, [selectedModel]);
+
+  // app_opened — one-shot per app launch, fires after analytics has had
+  // a chance to initialize. platform + version are super-properties
+  // registered in analytics.ts initAnalytics, so no per-call props needed.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      track('app_opened', {});
+    }, 500);
+    return () => clearTimeout(t);
+  }, []);
 
   const toggleSystemPanel = useAppStore((s) => s.toggleSystemPanel);
 

@@ -158,6 +158,8 @@ class TraceCollector:
                     ),
                     "content": data.get("content", ""),
                     "tool_calls": data.get("tool_calls", []),
+                    "tool_results": data.get("tool_results", []),
+                    "content_blocks": data.get("content_blocks", []),
                     "finish_reason": data.get("finish_reason", ""),
                 },
                 metadata={

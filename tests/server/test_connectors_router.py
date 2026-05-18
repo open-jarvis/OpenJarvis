@@ -19,7 +19,11 @@ def app():
 
     _app = FastAPI()
     router = create_connectors_router()
-    _app.include_router(router, prefix="/v1")
+    # The router already carries ``prefix="/v1/connectors"``. The real
+    # ``server/app.py`` mounts it with ``include_router(router)`` — adding
+    # a second ``prefix="/v1"`` here would produce ``/v1/v1/connectors``
+    # and every request would 404.
+    _app.include_router(router)
     return TestClient(_app)
 
 
@@ -83,7 +87,12 @@ def test_sync_status(app):
 
 
 def test_trigger_sync(app, tmp_path: Path) -> None:
-    """POST /v1/connectors/obsidian/sync triggers an incremental sync."""
+    """POST /v1/connectors/obsidian/sync triggers an incremental sync.
+
+    The endpoint is intentionally fire-and-forget — it starts the sync in
+    a background thread and returns immediately with ``status=started``.
+    Sync progress is observable via the separate ``GET .../sync`` endpoint.
+    """
     vault = tmp_path / "vault"
     vault.mkdir()
     (vault / "note.md").write_text("# Test note\n\nContent here.")
@@ -91,4 +100,5 @@ def test_trigger_sync(app, tmp_path: Path) -> None:
     resp = app.post("/v1/connectors/obsidian/sync")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["chunks_indexed"] >= 1
+    assert data["connector_id"] == "obsidian"
+    assert data["status"] in {"started", "already_syncing"}

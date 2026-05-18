@@ -60,6 +60,10 @@ site/
 # Frontend
 frontend/node_modules/
 frontend/dist/
+
+# Desktop
+desktop/node_modules/
+desktop/dist/
 src/openjarvis/server/static/
 
 # Desktop (Tauri)

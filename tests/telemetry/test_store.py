@@ -81,6 +81,63 @@ class TestTelemetryStore:
         assert meta["nested"] == [1, 2, 3]
         store.close()
 
+    def test_recent_row_has_mining_session_id_column(self, tmp_path: Path) -> None:
+        store = TelemetryStore(tmp_path / "test.db")
+        rec = TelemetryRecord(
+            timestamp=time.time(),
+            model_id="test-model",
+            engine="test-engine",
+            prompt_tokens=10,
+            completion_tokens=5,
+            latency_seconds=0.1,
+        )
+        store.record(rec)
+
+        rows = store.list_recent(limit=1)
+
+        assert rows[0]["mining_session_id"] is None
+        store.close()
+
+    def test_recent_row_can_be_tagged_with_mining_session_id(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        store = TelemetryStore(tmp_path / "test.db")
+        rec = TelemetryRecord(
+            timestamp=time.time(),
+            model_id="test-model",
+            engine="vllm-pearl-mining",
+            prompt_tokens=10,
+            completion_tokens=5,
+            latency_seconds=0.1,
+            mining_session_id="abc123",
+        )
+        store.record(rec)
+
+        rows = store.list_recent(limit=1)
+
+        assert rows[0]["mining_session_id"] == "abc123"
+        store.close()
+
+    def test_record_mining_stats_persists(self, tmp_path: Path) -> None:
+        from openjarvis.mining._stubs import MiningStats
+
+        store = TelemetryStore(tmp_path / "test.db")
+        store.record_mining_stats(
+            MiningStats(
+                provider_id="vllm-pearl",
+                shares_submitted=42,
+                shares_accepted=40,
+            )
+        )
+
+        snapshots = store.list_recent_mining_stats(limit=1)
+
+        assert snapshots[0]["provider_id"] == "vllm-pearl"
+        assert snapshots[0]["shares_submitted"] == 42
+        assert snapshots[0]["shares_accepted"] == 40
+        store.close()
+
 
 class TestTelemetryRecordFields:
     def test_tokens_per_joule_field_exists(self):

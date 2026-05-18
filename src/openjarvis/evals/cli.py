@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -51,6 +52,10 @@ BENCHMARKS = {
     "terminalbench-native": {
         "category": "agentic",
         "description": "TerminalBench Native (Docker)",
+    },
+    "terminalbench-v2.1": {
+        "category": "agentic",
+        "description": "TerminalBench V2.1 (Harbor-style Docker tasks)",
     },
     "email_triage": {
         "category": "use-case",
@@ -153,6 +158,8 @@ BENCHMARKS = {
 BACKENDS = {
     "jarvis-direct": "Engine-level inference (local or cloud)",
     "jarvis-agent": "Agent-level inference with tool calling",
+    "hermes": "Real Hermes Agent (Nous Research) via subprocess",
+    "openclaw": "Real OpenClaw via Node subprocess",
 }
 
 
@@ -174,8 +181,16 @@ def _build_backend(
     gpu_metrics: bool = False,
     model: Optional[str] = None,
     max_turns: Optional[int] = None,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
 ):
-    """Construct the appropriate backend."""
+    """Construct the appropriate backend.
+
+    For "hermes" and "openclaw" backends, ``base_url`` and ``api_key`` are
+    REQUIRED — these foreign frameworks need an OpenAI-compatible endpoint
+    to send model calls to. Pass them via the eval config's
+    ``[backend.external]`` section or env vars.
+    """
     if backend_name == "jarvis-agent":
         from openjarvis.evals.backends.jarvis_agent import JarvisAgentBackend
 
@@ -188,13 +203,43 @@ def _build_backend(
             model=model,
             max_turns=max_turns,
         )
-    else:
+    elif backend_name == "jarvis-direct":
         from openjarvis.evals.backends.jarvis_direct import JarvisDirectBackend
 
         return JarvisDirectBackend(
             engine_key=engine_key,
             telemetry=telemetry,
             gpu_metrics=gpu_metrics,
+        )
+    elif backend_name == "hermes":
+        from openjarvis.evals.backends.external import HermesBackend
+
+        if not base_url or not api_key:
+            raise click.UsageError(
+                "hermes backend requires --base-url and --api-key (or "
+                "the equivalent env vars / config entries) — Hermes needs "
+                "an OpenAI-compatible endpoint to call the model."
+            )
+        return HermesBackend(
+            base_url=base_url,
+            api_key=api_key,
+        )
+    elif backend_name == "openclaw":
+        from openjarvis.evals.backends.external import OpenClawBackend
+
+        if not base_url or not api_key:
+            raise click.UsageError(
+                "openclaw backend requires --base-url and --api-key (or "
+                "the equivalent env vars / config entries) — OpenClaw needs "
+                "an OpenAI-compatible endpoint to call the model."
+            )
+        return OpenClawBackend(
+            base_url=base_url,
+            api_key=api_key,
+        )
+    else:
+        raise click.UsageError(
+            f"unknown backend {backend_name!r}; valid: {list(BACKENDS)}"
         )
 
 
@@ -262,6 +307,12 @@ def _build_dataset(benchmark: str, subset: str | None = None):
         )
 
         return TerminalBenchNativeDataset()
+    elif benchmark == "terminalbench-v2.1":
+        from openjarvis.evals.datasets.terminalbench_v2_1 import (
+            TerminalBenchV21Dataset,
+        )
+
+        return TerminalBenchV21Dataset()
     elif benchmark == "email_triage":
         from openjarvis.evals.datasets.email_triage import EmailTriageDataset
 
@@ -421,6 +472,12 @@ def _build_scorer(benchmark: str, judge_backend, judge_model: str):
         )
 
         return TerminalBenchNativeScorer(judge_backend, judge_model)
+    elif benchmark == "terminalbench-v2.1":
+        from openjarvis.evals.scorers.terminalbench_v2_1 import (
+            TerminalBenchV21Scorer,
+        )
+
+        return TerminalBenchV21Scorer(judge_backend, judge_model)
     elif benchmark == "email_triage":
         from openjarvis.evals.scorers.email_triage import EmailTriageScorer
 
@@ -600,7 +657,7 @@ def _build_trackers(config) -> list:
 
 
 def _run_terminalbench_native(config, console: Console) -> object:
-    """Run TerminalBench V2 natively via terminal-bench Harness."""
+    """Run TerminalBench V2.1 natively via terminal-bench Harness."""
     from openjarvis.evals.backends.terminalbench_native import (
         TerminalBenchNativeBackend,
     )
@@ -624,8 +681,8 @@ def _run_terminalbench_native(config, console: Console) -> object:
 
     # Docker compose project names must be lowercase alphanumeric + hyphens/underscores
     model_slug = re.sub(r"[^a-z0-9_-]", "-", model.lower().replace("/", "-"))
-    run_id = f"tb2-{model_slug}"
-    console.print(f"  Running TerminalBench V2 natively: {model}")
+    run_id = f"tb21-{model_slug}"
+    console.print(f"  Running TerminalBench V2.1 natively: {model}")
     console.print(f"  Harness run_id: {run_id}")
 
     results = backend.run_harness(run_id)
@@ -661,10 +718,11 @@ def _run_single(config, console: Optional[Console] = None) -> object:
     if console is None:
         console = Console()
 
-    # TerminalBench V2 native: use terminal-bench Harness directly
+    # TerminalBench V2.1 native: use terminal-bench Harness directly
     if config.benchmark == "terminalbench-native":
         return _run_terminalbench_native(config, console)
 
+    _metadata = getattr(config, "metadata", None) or {}
     eval_backend = _build_backend(
         config.backend,
         config.engine_key,
@@ -674,6 +732,16 @@ def _run_single(config, console: Optional[Console] = None) -> object:
         gpu_metrics=getattr(config, "gpu_metrics", False),
         model=config.model,
         max_turns=getattr(config, "max_turns", None),
+        base_url=(
+            getattr(config, "base_url", None)
+            or _metadata.get("base_url")
+            or os.environ.get("JARVIS_BACKEND_BASE_URL")
+        ),
+        api_key=(
+            getattr(config, "api_key", None)
+            or _metadata.get("api_key")
+            or os.environ.get("JARVIS_BACKEND_API_KEY")
+        ),
     )
     dataset = _build_dataset(config.benchmark)
     # Inject engine config for benchmarks that run their own simulation
@@ -1044,6 +1112,16 @@ def main():
     type=click.Choice(list(BACKENDS.keys())),
     help="Inference backend",
 )
+@click.option(
+    "--base-url",
+    default=None,
+    help="OpenAI-compat endpoint for hermes/openclaw",
+)
+@click.option(
+    "--api-key",
+    default=None,
+    help="API key for hermes/openclaw endpoint",
+)
 @click.option("-m", "--model", default=None, help="Model identifier")
 @click.option(
     "-e",
@@ -1152,6 +1230,8 @@ def run(
     config_path,
     benchmark,
     backend,
+    base_url,
+    api_key,
     model,
     engine_key,
     agent_name,
@@ -1245,6 +1325,12 @@ def run(
         sheets_worksheet=sheets_worksheet,
         sheets_credentials_path=sheets_credentials_path,
         episode_mode=episode_mode,
+        base_url=base_url or os.environ.get("JARVIS_BACKEND_BASE_URL"),
+        api_key=api_key or os.environ.get("JARVIS_BACKEND_API_KEY"),
+        metadata={
+            "base_url": base_url or os.environ.get("JARVIS_BACKEND_BASE_URL"),
+            "api_key": api_key or os.environ.get("JARVIS_BACKEND_API_KEY"),
+        },
     )
 
     # Banner + config

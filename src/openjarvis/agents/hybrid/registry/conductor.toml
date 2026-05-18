@@ -1,0 +1,54 @@
+# Conductor cells. Inference-only repro of arXiv 2512.04388 (Sakana, 2025).
+#
+# Stage-1 substitutes the (untrained) Qwen2.5-7B conductor with a zero-shot
+# frontier planner (Opus). Workers default to local Qwen3.5-27B + Opus +
+# gpt-5-mini; the adapter auto-drops the local worker if vLLM is down.
+# Override `method_cfg.workers` to customize the pool.
+#
+# Naming: conductor-<bench>-<conductor-short>-<N>
+
+[cells.conductor-gaia-opusplan-5]
+method = "conductor"
+bench  = "gaia"
+n      = 5
+# vLLM is the default local worker; auto-skipped if /v1/models is unreachable.
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { worker_max_tokens = 4096, worker_temperature = 0.2, conductor_max_tokens = 2048 }
+
+[cells.conductor-gaia-gpt5miniplan-5]
+method = "conductor"
+bench  = "gaia"
+n      = 5
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "gpt-5-mini", endpoint = "openai" }
+method_cfg = { worker_max_tokens = 4096, worker_temperature = 0.2, conductor_max_tokens = 2048 }
+
+[cells.conductor-swebenchverified-opusplan-5]
+method = "conductor"
+bench  = "swebench-verified"
+n      = 5
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { worker_max_tokens = 8192, worker_temperature = 0.2, conductor_max_tokens = 4096 }
+
+
+# ---- n=30 (scaled-up cells for paradigms that worked at smoke tier) ----
+
+[cells.conductor-gaia-opusplan-30]
+method = "conductor"
+bench  = "gaia"
+n      = 30
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { worker_max_tokens = 4096, worker_temperature = 0.2, conductor_max_tokens = 2048 }
+concurrency = 8
+
+[cells.conductor-swebenchverified-opusplan-30]
+method = "conductor"
+bench  = "swebench-verified"
+n      = 30
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { worker_max_tokens = 8192, worker_temperature = 0.2, conductor_max_tokens = 4096 }
+concurrency = 8

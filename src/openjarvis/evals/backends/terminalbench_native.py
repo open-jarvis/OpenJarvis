@@ -1,4 +1,4 @@
-"""Native terminal-bench v2 backend.
+"""Native TerminalBench V2.1 backend.
 
 Uses Harness for Docker-based execution and scoring.
 """

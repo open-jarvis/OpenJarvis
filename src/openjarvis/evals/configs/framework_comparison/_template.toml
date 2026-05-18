@@ -1,0 +1,49 @@
+# Jinja-style template for framework-comparison configs.
+#
+# Substitution variables (all required):
+#   <benchmark>      e.g. "gaia"
+#   <framework>      one of: openjarvis, hermes, openclaw, openjarvis-distilled
+#   <framework_id>   backend id: jarvis-agent | hermes | openclaw
+#   <model_pretty>   e.g. "Qwen3.5-9B"
+#   <model_id>       e.g. "Qwen/Qwen3.5-9B"
+#   <model_slug>     filename-safe slug, e.g. "qwen-9b"
+#   <engine>         e.g. "vllm" | "cloud"
+#   <num_gpus>       int, default 1
+#   <tools>          TOML list literal
+#   <max_samples>    int
+#   <temperature>    float
+#   <max_tokens>     int
+#   <judge_model>    LLM judge id
+
+# --- TEMPLATE BEGIN ---
+[meta]
+name = "{{benchmark}}-{{framework}}-{{model_slug}}"
+description = "{{benchmark}} on {{framework}} + {{model_pretty}}"
+framework = "{{framework}}"
+framework_id = "{{framework_id}}"
+
+[defaults]
+temperature = {{temperature}}
+max_tokens = {{max_tokens}}
+
+[judge]
+model = "{{judge_model}}"
+temperature = 0.0
+max_tokens = 4096
+engine = "cloud"
+
+[run]
+max_workers = 1
+output_dir = "results/comparison/{{framework}}/{{model_slug}}/{{benchmark}}/"
+seed = 42
+
+[[models]]
+name = "{{model_id}}"
+engine = "{{engine}}"
+num_gpus = {{num_gpus}}
+
+[[benchmarks]]
+name = "{{benchmark}}"
+backend = "{{framework_id}}"
+max_samples = {{max_samples}}
+tools = {{tools}}

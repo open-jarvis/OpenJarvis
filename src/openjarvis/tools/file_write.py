@@ -69,8 +69,7 @@ class FileWriteTool(BaseTool):
             return True
         resolved = path.resolve()
         return any(
-            resolved == d or str(resolved).startswith(str(d) + "/")
-            for d in self._allowed_dirs
+            resolved == d or resolved.is_relative_to(d) for d in self._allowed_dirs
         )
 
     def execute(self, **params: Any) -> ToolResult:

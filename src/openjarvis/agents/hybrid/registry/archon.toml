@@ -1,0 +1,94 @@
+# Archon cells. Inference-time architecture search (arXiv:2409.15254).
+#
+# Hybrid wiring: K local proposers (vLLM on 8001/8004) → 1 cloud ranker →
+# 1 cloud fuser. method_cfg.architecture = "ensemble_rank_fuse" is the
+# only non-debug preset; "single_local" exists for adapter smoke tests
+# (no cloud calls).
+#
+# Naming: archon-<bench>-<local-short>-<cloud-short>-<arch>-<K>-<N>
+
+# ---- Stage 1 smokes (n=3) ----
+
+[cells.archon-gaia-qwen27b-opus-ensemble-K3-3]
+method = "archon"
+bench  = "gaia"
+n      = 3
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { architecture = "ensemble_rank_fuse", n_samples = 3, max_tokens = 1024, temperature = 0.7 }
+
+# Cheap sanity smoke: local-only generator, zero cloud spend. Use to verify
+# vLLM + Archon plumbing without paying for Opus.
+[cells.archon-gaia-qwen27b-singlelocal-3]
+method = "archon"
+bench  = "gaia"
+n      = 3
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { architecture = "single_local", max_tokens = 1024 }
+
+[cells.archon-swebenchverified-qwen27b-opus-ensemble-K3-3]
+method = "archon"
+bench  = "swebench-verified"
+n      = 3
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { architecture = "ensemble_rank_fuse", n_samples = 3, max_tokens = 1024, temperature = 0.7 }
+concurrency = 3
+
+
+# ---- Stage 1.5 mid (n=30) ----
+
+[cells.archon-gaia-qwen27b-opus-ensemble-K5-30]
+method = "archon"
+bench  = "gaia"
+n      = 30
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { architecture = "ensemble_rank_fuse", n_samples = 5, max_tokens = 2048, temperature = 0.7 }
+concurrency = 4
+
+[cells.archon-gaia-qwen27b-singlelocal-30]
+method = "archon"
+bench  = "gaia"
+n      = 30
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { architecture = "single_local", max_tokens = 2048 }
+concurrency = 4
+
+[cells.archon-gaia-gemma31b-opus-ensemble-K5-30]
+method = "archon"
+bench  = "gaia"
+n      = 30
+local  = { model = "google/gemma-4-31B-it", endpoint = "http://localhost:8004/v1" }
+cloud  = { model = "claude-opus-4-7",        endpoint = "anthropic" }
+method_cfg = { architecture = "ensemble_rank_fuse", n_samples = 5, max_tokens = 2048, temperature = 0.7 }
+
+[cells.archon-swebenchverified-qwen27b-opus-ensemble-K5-30]
+method = "archon"
+bench  = "swebench-verified"
+n      = 30
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { architecture = "ensemble_rank_fuse", n_samples = 5, max_tokens = 2048, temperature = 0.7 }
+concurrency = 3
+
+
+# ---- Stage 2 full ----
+
+[cells.archon-gaia-qwen27b-opus-ensemble-K5-165]
+method = "archon"
+bench  = "gaia"
+n      = 165
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = { architecture = "ensemble_rank_fuse", n_samples = 5, max_tokens = 2048, temperature = 0.7 }
+
+[cells.archon-gaia-gemma31b-opus-ensemble-K5-165]
+method = "archon"
+bench  = "gaia"
+n      = 165
+local  = { model = "google/gemma-4-31B-it", endpoint = "http://localhost:8004/v1" }
+cloud  = { model = "claude-opus-4-7",        endpoint = "anthropic" }
+method_cfg = { architecture = "ensemble_rank_fuse", n_samples = 5, max_tokens = 2048, temperature = 0.7 }

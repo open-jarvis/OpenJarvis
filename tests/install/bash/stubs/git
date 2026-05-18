@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Stub for git — supports clone and pull, returns success.
+# For clone: creates a minimal fake repo tree at the target with the install scripts.
+# Log the full command before any shifts.
+echo "$@" >> "${GIT_STUB_LOG:-/dev/null}"
+case "$1" in
+    clone)
+        # Args after `clone`: optional flags, then [url] [target]. Find the last two non-flag args.
+        target=""
+        url=""
+        shift  # past 'clone'
+        while [[ $# -gt 0 ]]; do
+            if [[ "$1" == --* ]] || [[ "$1" == -* ]]; then
+                shift  # skip flag and its possible value
+                if [[ $# -gt 0 ]] && [[ "$1" != --* ]] && [[ "$1" != -* ]] && [[ "$1" =~ ^[0-9]+$ ]]; then
+                    shift  # depth=N etc.
+                fi
+                continue
+            fi
+            if [[ -z "$url" ]]; then
+                url="$1"
+            else
+                target="$1"
+            fi
+            shift
+        done
+        if [[ -z "$target" ]]; then
+            target="${url##*/}"
+            target="${target%.git}"
+        fi
+        mkdir -p "$target/scripts/install"
+        # Provide minimal expected files so install.sh can copy them.
+        for s in install-rust.sh build-extension.sh pull-model.sh bg-orchestrator.sh \
+                 jarvis-wrapper.sh jarvis-uninstall.sh; do
+            cat > "$target/scripts/install/$s" <<EOF2
+#!/usr/bin/env bash
+exit 0
+EOF2
+            chmod +x "$target/scripts/install/$s"
+        done
+        # Make it look like a git repo so subsequent .git checks pass.
+        mkdir -p "$target/.git"
+        # Also create a pyproject.toml so editable install would work in real life.
+        cat > "$target/pyproject.toml" <<EOF2
+[project]
+name = "OpenJarvis"
+version = "0.1.1"
+EOF2
+        ;;
+    pull)
+        ;;
+    *)
+        ;;
+esac
+exit "${GIT_STUB_EXIT:-0}"

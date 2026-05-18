@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import time
 from pathlib import Path
+from typing import Any
 
 from openjarvis.core.events import Event, EventBus, EventType
 from openjarvis.core.types import TelemetryRecord
@@ -53,7 +55,25 @@ CREATE TABLE IF NOT EXISTS telemetry (
     p99_itl_ms           REAL NOT NULL DEFAULT 0.0,
     std_itl_ms           REAL NOT NULL DEFAULT 0.0,
     is_streaming         INTEGER NOT NULL DEFAULT 0,
+    mining_session_id    TEXT,
     metadata        TEXT    NOT NULL DEFAULT '{}'
+);
+"""
+
+_CREATE_MINING_STATS_TABLE = """\
+CREATE TABLE IF NOT EXISTS mining_stats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recorded_at REAL NOT NULL,
+    provider_id TEXT NOT NULL,
+    shares_submitted INTEGER NOT NULL DEFAULT 0,
+    shares_accepted INTEGER NOT NULL DEFAULT 0,
+    blocks_found INTEGER NOT NULL DEFAULT 0,
+    hashrate REAL NOT NULL DEFAULT 0,
+    uptime_seconds REAL NOT NULL DEFAULT 0,
+    last_share_at REAL,
+    last_error TEXT,
+    payout_target TEXT NOT NULL DEFAULT 'solo',
+    fees_owed INTEGER NOT NULL DEFAULT 0
 );
 """
 
@@ -71,12 +91,13 @@ INSERT INTO telemetry (
     prefill_energy_joules, decode_energy_joules,
     mean_itl_ms, median_itl_ms, p90_itl_ms, p95_itl_ms, p99_itl_ms, std_itl_ms,
     is_streaming,
+    mining_session_id,
     metadata
 ) VALUES (
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-    ?, ?, ?, ?, ?, ?, ?, ?, ?
+    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 )
 """
 
@@ -107,6 +128,7 @@ _MIGRATE_COLUMNS = [
     ("std_itl_ms", "REAL NOT NULL DEFAULT 0.0"),
     ("is_streaming", "INTEGER NOT NULL DEFAULT 0"),
     ("prompt_tokens_evaluated", "INTEGER NOT NULL DEFAULT 0"),
+    ("mining_session_id", "TEXT"),
 ]
 
 
@@ -117,6 +139,7 @@ class TelemetryStore:
         self._db_path = str(db_path)
         self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
         self._conn.execute(_CREATE_TABLE)
+        self._conn.execute(_CREATE_MINING_STATS_TABLE)
         self._conn.commit()
         self._migrate_schema()
 
@@ -174,10 +197,54 @@ class TelemetryStore:
                 rec.p99_itl_ms,
                 rec.std_itl_ms,
                 1 if rec.is_streaming else 0,
+                rec.mining_session_id,
                 json.dumps(rec.metadata),
             ),
         )
         self._conn.commit()
+
+    def record_mining_stats(self, stats: Any) -> None:
+        """Persist one mining stats snapshot.
+
+        ``stats`` is duck-typed to keep telemetry usable without importing the
+        optional mining package at module import time.
+        """
+        self._conn.execute(
+            """\
+INSERT INTO mining_stats (
+    recorded_at, provider_id, shares_submitted, shares_accepted, blocks_found,
+    hashrate, uptime_seconds, last_share_at, last_error, payout_target, fees_owed
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+""",
+            (
+                time.time(),
+                stats.provider_id,
+                stats.shares_submitted,
+                stats.shares_accepted,
+                stats.blocks_found,
+                stats.hashrate,
+                stats.uptime_seconds,
+                stats.last_share_at,
+                stats.last_error,
+                stats.payout_target,
+                stats.fees_owed,
+            ),
+        )
+        self._conn.commit()
+
+    def list_recent(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Return recent telemetry rows as dictionaries."""
+        return self._select_dicts(
+            "SELECT * FROM telemetry ORDER BY timestamp DESC LIMIT ?",
+            (limit,),
+        )
+
+    def list_recent_mining_stats(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Return recent mining stats snapshots as dictionaries."""
+        return self._select_dicts(
+            "SELECT * FROM mining_stats ORDER BY recorded_at DESC LIMIT ?",
+            (limit,),
+        )
 
     def subscribe_to_bus(self, bus: EventBus) -> None:
         """Subscribe to ``TELEMETRY_RECORD`` events on *bus*."""
@@ -199,6 +266,11 @@ class TelemetryStore:
 
     def _fetchall(self, sql: str = "SELECT * FROM telemetry") -> list:
         return self._conn.execute(sql).fetchall()
+
+    def _select_dicts(self, sql: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
+        cur = self._conn.execute(sql, params)
+        columns = [desc[0] for desc in cur.description]
+        return [dict(zip(columns, row)) for row in cur.fetchall()]
 
 
 __all__ = ["TelemetryStore"]

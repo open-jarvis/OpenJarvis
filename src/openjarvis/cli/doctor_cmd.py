@@ -351,3 +351,39 @@ def doctor(as_json: bool) -> None:
     console.print()
     console.print(f"  {ok_count} passed, {warn_count} warnings, {fail_count} failures")
     console.print()
+
+    # Background tasks section
+    from openjarvis.cli._bg_state import get_status
+
+    console.print("[bold]Background tasks[/bold]")
+    bg = get_status()
+    bg_failed = False
+
+    if bg.rust_extension == "ready":
+        console.print("  [green]✓[/green] Rust extension: ready")
+    elif bg.rust_extension == "failed":
+        console.print(f"  [red]✗[/red] Rust extension: failed — {bg.rust_error[:80]}")
+        console.print(
+            "    retry: ~/.openjarvis/.scripts/install-rust.sh && "
+            "~/.openjarvis/.scripts/build-extension.sh"
+        )
+        bg_failed = True
+    else:
+        console.print(
+            "  [yellow]…[/yellow] Rust extension: building (run in background)"
+        )
+
+    if not bg.models:
+        console.print("  [dim]no model downloads tracked[/dim]")
+    for model_id, state in bg.models.items():
+        if state == "ready":
+            console.print(f"  [green]✓[/green] {model_id}: ready")
+        elif state == "failed":
+            console.print(f"  [red]✗[/red] {model_id}: failed")
+            console.print(f"    retry: ~/.openjarvis/.scripts/pull-model.sh {model_id}")
+            bg_failed = True
+        else:
+            console.print(f"  [yellow]…[/yellow] {model_id}: downloading")
+
+    if bg_failed:
+        raise click.exceptions.Exit(code=1)

@@ -11,4 +11,23 @@
     };
   </script>
   {% endif %}
+  {% if config.extra.version and config.extra.version.default %}
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      var header = document.querySelector(".md-header__inner");
+      if (!header || header.querySelector(".md-version-badge")) return;
+      var badge = document.createElement("a");
+      badge.className = "md-version-badge";
+      badge.textContent = "{{ config.extra.version.default }}";
+      badge.href = "https://github.com/open-jarvis/OpenJarvis/releases";
+      badge.rel = "noopener";
+      var source = header.querySelector(".md-header__source");
+      if (source) {
+        header.insertBefore(badge, source);
+      } else {
+        header.appendChild(badge);
+      }
+    });
+  </script>
+  {% endif %}
 {% endblock %}

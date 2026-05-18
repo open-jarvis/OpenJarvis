@@ -76,6 +76,12 @@ def _run_git(
             content="git binary not found.",
             success=False,
         )
+    except NotADirectoryError as exc:
+        return ToolResult(
+            tool_name=tool_name,
+            content=f"Invalid repository path: {exc}",
+            success=False,
+        )
     except subprocess.TimeoutExpired:
         return ToolResult(
             tool_name=tool_name,

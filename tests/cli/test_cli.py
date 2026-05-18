@@ -48,6 +48,13 @@ class TestCLI:
         assert "search" in result.output
         assert "stats" in result.output
 
+    def test_mine_subcommands_exist(self) -> None:
+        result = CliRunner().invoke(cli, ["mine", "--help"])
+        assert result.exit_code == 0
+        assert "doctor" in result.output
+        assert "start" in result.output
+        assert "stop" in result.output
+
     def test_telemetry_subcommands_exist(self) -> None:
         result = CliRunner().invoke(cli, ["telemetry", "--help"])
         assert result.exit_code == 0

@@ -1,0 +1,41 @@
+# Advisors cells (arXiv:2510.02453).
+#
+# Inference-only repro of the advisor paradigm: cloud drafts → local advisor
+# critiques → cloud rewrites. The paper's RL-trained advisor isn't reproduced
+# (no training in this harness) — these are the untrained-advisor lower bound.
+# Adapter auto-resolves the local model name against /v1/models.
+
+[cells.advisors-gaia-qwen9b-opus-3]
+method = "advisors"
+bench  = "gaia"
+n      = 3
+local  = { model = "Qwen/Qwen3.5-9B", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = {}
+
+[cells.advisors-swebenchverified-qwen9b-opus-3]
+method = "advisors"
+bench  = "swebench-verified"
+n      = 3
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = {}
+concurrency = 3
+
+[cells.advisors-gaia-qwen9b-opus-30]
+method = "advisors"
+bench  = "gaia"
+n      = 30
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = {}
+concurrency = 4
+
+[cells.advisors-swebenchverified-qwen9b-opus-30]
+method = "advisors"
+bench  = "swebench-verified"
+n      = 30
+local  = { model = "Qwen/Qwen3.5-27B-FP8", endpoint = "http://localhost:8001/v1" }
+cloud  = { model = "claude-opus-4-7", endpoint = "anthropic" }
+method_cfg = {}
+concurrency = 3
