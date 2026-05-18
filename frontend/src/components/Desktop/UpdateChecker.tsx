@@ -3,6 +3,25 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 type UpdateState = 'idle' | 'available' | 'downloading' | 'ready' | 'error';
 
 const CHECK_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
+const DISABLED_KEY = 'oj-auto-update-disabled';
+
+export function isAutoUpdateDisabled(): boolean {
+  try {
+    return localStorage.getItem(DISABLED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function setAutoUpdateDisabled(disabled: boolean): void {
+  try {
+    if (disabled) {
+      localStorage.setItem(DISABLED_KEY, '1');
+    } else {
+      localStorage.removeItem(DISABLED_KEY);
+    }
+  } catch {}
+}
 
 export function UpdateChecker() {
   const [state, setState] = useState<UpdateState>('idle');
@@ -13,6 +32,7 @@ export function UpdateChecker() {
   const updateRef = useRef<any>(null);
 
   const checkForUpdate = useCallback(async () => {
+    if (isAutoUpdateDisabled()) return;
     try {
       const { check } = await import('@tauri-apps/plugin-updater');
       const update = await check();
@@ -28,10 +48,10 @@ export function UpdateChecker() {
   }, []);
 
   useEffect(() => {
-    // Check if we're in a Tauri environment
     if (typeof window === 'undefined' || !(window as any).__TAURI_INTERNALS__) {
       return;
     }
+    if (isAutoUpdateDisabled()) return;
 
     // Local dev escape hatch: skip the auto-update poll if explicitly
     // disabled. Vite exposes any ``VITE_``-prefixed env var on
@@ -60,9 +80,7 @@ export function UpdateChecker() {
       const contentLength = update.contentLength ?? 0;
 
       await update.downloadAndInstall((event: any) => {
-        if (event.event === 'Started' && event.data?.contentLength) {
-          // Content length received
-        } else if (event.event === 'Progress') {
+        if (event.event === 'Progress') {
           downloaded += event.data?.chunkLength ?? 0;
           if (contentLength > 0) {
             setProgress(Math.min(100, Math.round((downloaded / contentLength) * 100)));
@@ -85,11 +103,16 @@ export function UpdateChecker() {
       const { relaunch } = await import('@tauri-apps/plugin-process');
       await relaunch();
     } catch {
-      // Fallback: inform user to restart manually
       setErrorMsg('Please restart the application manually');
       setState('error');
       setTimeout(() => setState('idle'), 5000);
     }
+  }, []);
+
+  const handleDisable = useCallback(() => {
+    setAutoUpdateDisabled(true);
+    setState('idle');
+    setDismissed(false);
   }, []);
 
   if (state === 'idle' || dismissed) return null;
@@ -101,7 +124,8 @@ export function UpdateChecker() {
           <span>Update available: <strong>v{version}</strong></span>
           <div style={styles.actions}>
             <button style={styles.primaryBtn} onClick={handleDownload}>Download</button>
-            <button style={styles.secondaryBtn} onClick={() => setDismissed(true)}>Dismiss</button>
+            <button style={styles.secondaryBtn} onClick={() => setDismissed(true)}>Later</button>
+            <button style={styles.muteBtn} onClick={handleDisable}>Disable auto-updates</button>
           </div>
         </div>
       )}
@@ -150,6 +174,7 @@ const styles: Record<string, React.CSSProperties> = {
   actions: {
     display: 'flex',
     gap: '8px',
+    alignItems: 'center',
   },
   primaryBtn: {
     padding: '4px 14px',
@@ -179,6 +204,15 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#a6adc8',
     fontSize: '12px',
     cursor: 'pointer',
+  },
+  muteBtn: {
+    padding: '0',
+    border: 'none',
+    backgroundColor: 'transparent',
+    color: '#585b70',
+    fontSize: '11px',
+    cursor: 'pointer',
+    textDecoration: 'underline',
   },
   progressBar: {
     flex: 1,

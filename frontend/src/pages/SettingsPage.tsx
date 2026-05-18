@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Palette,
   Globe,
@@ -16,9 +16,11 @@ import {
   Key,
   Search,
   Brain,
+  RefreshCw,
 } from 'lucide-react';
 import { useAppStore, type ThemeMode } from '../lib/store';
 import { checkHealth, fetchSpeechHealth, getMemoryStats } from '../lib/api';
+import { isAutoUpdateDisabled, setAutoUpdateDisabled } from '../components/Desktop/UpdateChecker';
 
 function OllamaModelList() {
   const [models, setModels] = useState<Array<{ name: string; size: number }>>([]);
@@ -121,6 +123,27 @@ export function SettingsPage() {
   const [healthy, setHealthy] = useState<boolean | null>(null);
   const [speechBackendAvailable, setSpeechBackendAvailable] = useState<boolean | null>(null);
   const [saved, setSaved] = useState(false);
+
+  const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(() => !isAutoUpdateDisabled());
+  const [updateCheckState, setUpdateCheckState] = useState<'idle' | 'checking' | 'available' | 'latest'>('idle');
+
+  const handleAutoUpdateToggle = useCallback((enabled: boolean) => {
+    setAutoUpdateEnabled(enabled);
+    setAutoUpdateDisabled(!enabled);
+  }, []);
+
+  const handleCheckNow = useCallback(async () => {
+    if (!(window as any).__TAURI_INTERNALS__) return;
+    setUpdateCheckState('checking');
+    try {
+      const { check } = await import('@tauri-apps/plugin-updater');
+      const update = await check();
+      setUpdateCheckState(update ? 'available' : 'latest');
+      setTimeout(() => setUpdateCheckState('idle'), 4000);
+    } catch {
+      setUpdateCheckState('idle');
+    }
+  }, []);
 
   const [memoryStats, setMemoryStats] = useState<{ entries: number; backend: string } | null>(null);
   const [memoryEnabled, setMemoryEnabled] = useState(() => {
@@ -547,6 +570,39 @@ export function SettingsPage() {
                 onMouseLeave={(e) => { if (!confirmClear) e.currentTarget.style.background = 'transparent'; }}
               >
                 <Trash2 size={12} /> {confirmClear ? 'Click again to confirm' : 'Clear'}
+              </button>
+            </SettingRow>
+          </Section>
+
+          {/* Updates */}
+          <Section title="Updates">
+            <SettingRow label="Auto-update" description="Check for new desktop builds automatically every 30 minutes">
+              <button
+                onClick={() => handleAutoUpdateToggle(!autoUpdateEnabled)}
+                className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors"
+                style={{ background: autoUpdateEnabled ? 'var(--color-accent)' : 'var(--color-bg-tertiary)', border: '1px solid var(--color-border)' }}
+              >
+                <span
+                  className="inline-block h-3.5 w-3.5 rounded-full transition-transform"
+                  style={{
+                    background: 'white',
+                    transform: autoUpdateEnabled ? 'translateX(18px)' : 'translateX(2px)',
+                  }}
+                />
+              </button>
+            </SettingRow>
+            <SettingRow label="Check for updates" description="Manually check for a new version right now">
+              <button
+                onClick={handleCheckNow}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                style={{ background: 'var(--color-bg-tertiary)', border: '1px solid var(--color-border)', color: 'var(--color-text)', cursor: 'pointer' }}
+                disabled={updateCheckState === 'checking'}
+              >
+                <RefreshCw size={12} className={updateCheckState === 'checking' ? 'animate-spin' : ''} />
+                {updateCheckState === 'checking' && 'Checking...'}
+                {updateCheckState === 'available' && 'Update available — see banner above'}
+                {updateCheckState === 'latest' && 'Already up to date'}
+                {updateCheckState === 'idle' && 'Check now'}
               </button>
             </SettingRow>
           </Section>

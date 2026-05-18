@@ -12,6 +12,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 _CACHE_PATH = Path("~/.openjarvis/version-check.json").expanduser()
+_CONFIG_PATH = Path("~/.openjarvis/config.toml").expanduser()
 _CACHE_TTL = 86400  # 24 hours
 _GITHUB_API = "https://api.github.com/repos/open-jarvis/OpenJarvis/releases/latest"
 
