@@ -33,6 +33,15 @@ export function UpdateChecker() {
       return;
     }
 
+    // Local dev escape hatch: skip the auto-update poll if explicitly
+    // disabled. Mirrors the OPENJARVIS_NO_UPDATER documented in
+    // docs/desktop-auto-update.md so iteration on the frontend doesn't
+    // get interrupted by an upgrade prompt.
+    const env = (window as any).__OPENJARVIS_ENV__;
+    if (env?.OPENJARVIS_NO_UPDATER === '1' || env?.OPENJARVIS_NO_UPDATER === 'true') {
+      return;
+    }
+
     checkForUpdate();
     const interval = setInterval(checkForUpdate, CHECK_INTERVAL_MS);
     return () => clearInterval(interval);
