@@ -646,6 +646,52 @@ class GEPAOptimizerConfig:
 
 
 @dataclass(slots=True)
+class ACEOptimizerConfig:
+    """ACE agent optimizer config. Maps to ``[learning.agent.ace]``.
+
+    ACE (Agentic Context Engineering) evolves a *playbook* — annotated
+    natural-language strategies that get prepended to the agent's
+    context — using a Generator / Reflector / Curator triad. Unlike
+    DSPy (few-shot bootstrapping) or GEPA (Pareto-evolutionary prompt
+    mutation), ACE writes a textual playbook that the agent reads at
+    inference time.
+
+    See https://github.com/ace-agent/ace for the upstream reference.
+    Install via ``pip install -e openjarvis[learning-ace]`` once the
+    optional dep is available (ACE is not on PyPI as of v1.0.1; the
+    extra installs from the upstream git repo).
+    """
+
+    # Models for ACE's three roles. Empty string = inherit from the
+    # intelligence primitive's default cloud model.
+    generator_model: str = ""
+    reflector_model: str = ""
+    curator_model: str = ""
+
+    # Provider passed to ACE (``sambanova`` | ``together`` | ``openai``
+    # | ``commonstack``). We default to ``openai`` since that's what
+    # most OpenJarvis users have credentials for.
+    api_provider: str = "openai"
+
+    # Run parameters. Defaults mirror ACE's offline-mode quickstart.
+    num_epochs: int = 1
+    max_num_rounds: int = 3
+    eval_steps: int = 100
+    playbook_token_budget: int = 80_000
+    max_tokens: int = 4_096
+
+    # Where ACE writes intermediate playbooks + final_results.json.
+    # Empty string defaults to ``~/.openjarvis/learning/ace/<task>/``.
+    save_dir: str = ""
+    task_name: str = "openjarvis"
+
+    # Standard filter / threshold knobs shared with DSPy / GEPA.
+    min_traces: int = 20
+    agent_filter: str = ""
+    config_dir: str = ""
+
+
+@dataclass(slots=True)
 class IntelligenceLearningConfig:
     """Intelligence sub-policy config within Learning."""
 
@@ -658,9 +704,10 @@ class IntelligenceLearningConfig:
 class AgentLearningConfig:
     """Agent sub-policy config within Learning."""
 
-    policy: str = "none"  # none | dspy | gepa
+    policy: str = "none"  # none | dspy | gepa | ace
     dspy: DSPyOptimizerConfig = field(default_factory=DSPyOptimizerConfig)
     gepa: GEPAOptimizerConfig = field(default_factory=GEPAOptimizerConfig)
+    ace: ACEOptimizerConfig = field(default_factory=ACEOptimizerConfig)
 
 
 @dataclass(slots=True)
