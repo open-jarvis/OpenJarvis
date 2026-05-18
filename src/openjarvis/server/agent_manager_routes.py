@@ -1368,6 +1368,7 @@ async def _stream_managed_agent(
                                 parsed_args = {}
                             result = mcp_adapter.execute(**parsed_args)
                             tool_result_content = result.content
+                            tool_succeeded = result.success
                         else:
                             # Try to use ToolExecutor if tools are configured
                             from openjarvis.core.registry import ToolRegistry
@@ -1402,8 +1403,7 @@ async def _stream_managed_agent(
                                 executor = ToolExecutor(
                                     tools=[tool_instance],
                                     bus=bus,
-                                    interactive=True,
-                                    confirm_callback=lambda _prompt: True,
+                                    interactive=False,
                                 )
                                 result = executor.execute(
                                     StubToolCall(
@@ -1413,12 +1413,14 @@ async def _stream_managed_agent(
                                     ),
                                 )
                                 tool_result_content = result.content
+                                tool_succeeded = result.success
                             else:
                                 logger.warning(
                                     "Tool '%s' not found in registry or MCP adapters",
                                     tool_name,
                                 )
-                        tool_succeeded = True
+                        else:
+                            tool_succeeded = True
                     except Exception as tool_exc:
                         logger.error(
                             "Tool execution error for %s: %s",

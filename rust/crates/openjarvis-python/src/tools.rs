@@ -123,12 +123,15 @@ impl PyShellExecTool {
         Self
     }
 
-    #[pyo3(signature = (command, cwd=None))]
-    fn execute(&self, command: &str, cwd: Option<&str>) -> PyResult<String> {
+    #[pyo3(signature = (command, cwd=None, timeout=None))]
+    fn execute(&self, command: &str, cwd: Option<&str>, timeout: Option<u64>) -> PyResult<String> {
         let tool = openjarvis_tools::builtin::shell::ShellExecTool;
         let mut params = serde_json::json!({"command": command});
         if let Some(cwd) = cwd {
             params["cwd"] = serde_json::Value::String(cwd.to_string());
+        }
+        if let Some(timeout) = timeout {
+            params["timeout"] = serde_json::Value::Number(timeout.into());
         }
         let result = tool
             .execute(&params)

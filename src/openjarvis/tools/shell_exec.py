@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Any, List
@@ -22,6 +23,8 @@ _DEFAULT_TIMEOUT = 30
 
 # Environment variables always passed through
 _BASE_ENV_KEYS = ("PATH", "HOME", "USER", "LANG", "TERM")
+
+_RUST_EXIT_CODE_RE = re.compile(r"^Exit code:\s*(-?\d+)\s*$", re.MULTILINE)
 
 
 @ToolRegistry.register("shell_exec")
@@ -127,13 +130,23 @@ class ShellExecTool(BaseTool):
             from openjarvis._rust_bridge import get_rust_module
 
             _rust = get_rust_module()
-            output = _rust.ShellExecTool().execute(command, working_dir)
+            output = _rust.ShellExecTool().execute(command, working_dir, timeout)
+            returncode = 0
+            success = True
+            if output:
+                match = _RUST_EXIT_CODE_RE.search(output)
+                if match is not None:
+                    try:
+                        returncode = int(match.group(1))
+                    except (TypeError, ValueError):
+                        returncode = 0
+                    success = returncode == 0
             return ToolResult(
                 tool_name="shell_exec",
                 content=output or "(no output)",
-                success=True,
+                success=success,
                 metadata={
-                    "returncode": 0,
+                    "returncode": returncode,
                     "timeout_used": timeout,
                     "working_dir": working_dir,
                 },
