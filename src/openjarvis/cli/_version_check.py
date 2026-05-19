@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 _CACHE_PATH = Path("~/.openjarvis/version-check.json").expanduser()
 _CONFIG_PATH = Path("~/.openjarvis/config.toml").expanduser()
 _CACHE_TTL = 86400  # 24 hours
-_GITHUB_API = "https://api.github.com/repos/open-jarvis/OpenJarvis/releases/latest"
+_PYPI_API = "https://pypi.org/pypi/openjarvis/json"
 
 # Commands that surface the "new version available" nudge. We deliberately
 # cast a wide net for interactive commands (anything a human runs at a
@@ -55,7 +55,23 @@ def _check_disabled() -> bool:
     # ``OPENJARVIS_NO_UPDATE_CHECK=0`` if they want the nudge anyway.
     if os.environ.get("CI", "").strip().lower() in ("1", "true", "yes", "on"):
         return True
-    return False
+    return _config_disabled()
+
+
+def _config_disabled() -> bool:
+    """Return True if ~/.openjarvis/config.toml has auto_update = false."""
+    try:
+        if not _CONFIG_PATH.exists():
+            return False
+        try:
+            import tomllib
+        except ImportError:
+            import tomli as tomllib  # type: ignore[no-redef]
+        with open(_CONFIG_PATH, "rb") as f:
+            config = tomllib.load(f)
+        return not config.get("updates", {}).get("auto_update", True)
+    except Exception:
+        return False
 
 
 def check_for_updates(command_name: str) -> None:
@@ -115,14 +131,9 @@ def _get_latest_version(current: str) -> str | None:
     try:
         import urllib.request
 
-        req = urllib.request.Request(
-            _GITHUB_API,
-            headers={"Accept": "application/vnd.github.v3+json"},
-        )
-        with urllib.request.urlopen(req, timeout=3) as resp:
+        with urllib.request.urlopen(_PYPI_API, timeout=3) as resp:
             data = json.loads(resp.read())
-            tag = data.get("tag_name", "")
-            latest = tag.lstrip("v")
+            latest = data.get("info", {}).get("version", "")
     except Exception:
         return None
 

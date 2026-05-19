@@ -22,6 +22,28 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v8.0.0
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend and bundle into package
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+          rm -rf ../src/openjarvis/server/static/*
+          cp -r dist/. ../src/openjarvis/server/static/
+
+      - name: Set version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" pyproject.toml
+          echo "Building version $VERSION"
+
       - name: Build package
         run: uv build
 

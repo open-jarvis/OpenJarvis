@@ -2,11 +2,8 @@ name: Desktop Build & Release
 
 on:
   push:
-    branches: [main]
-    paths:
-      - 'frontend/**'
-      - '.github/workflows/desktop.yml'
     tags:
+      - 'v*'
       - 'desktop-v*'
   pull_request:
     branches: [main]
@@ -156,17 +153,24 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ github.ref }}" == refs/tags/desktop-v* ]]; then
+            # Explicit stable desktop release tag
             VERSION="${{ github.ref_name }}"
             VERSION="${VERSION#desktop-v}"
             echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
             echo "name=Desktop ${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            # Auto-tagged rolling build from autotag.yml — use the same
+            # version as the CLI/PyPI release so all surfaces stay in sync.
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"
+            echo "tag=desktop-latest" >> "$GITHUB_OUTPUT"
+            echo "name=Desktop (Latest Build)" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
           else
-            # Use git commit count as patch so every main push produces a
-            # strictly higher version than the previous build. Users with any
-            # older build will be offered the update automatically.
+            # workflow_dispatch fallback
             BUILD=$(git rev-list --count HEAD)
-            VERSION="0.1.${BUILD}"
+            VERSION="1.0.${BUILD}"
             echo "tag=desktop-latest" >> "$GITHUB_OUTPUT"
             echo "name=Desktop (Latest Build)" >> "$GITHUB_OUTPUT"
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
