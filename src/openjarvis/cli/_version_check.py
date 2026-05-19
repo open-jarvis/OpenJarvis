@@ -39,9 +39,9 @@ _CHECK_COMMANDS = {
 }
 
 # Environment opt-outs (any truthy value disables the check):
-# - ``JARVIS_NO_UPDATE_CHECK=1`` — project-specific
+# - ``OPENJARVIS_NO_UPDATE_CHECK=1`` — project-specific
 # - ``CI=true`` — set by every major CI provider, suppresses by default
-_OPT_OUT_ENV_VARS = ("JARVIS_NO_UPDATE_CHECK",)
+_OPT_OUT_ENV_VARS = ("OPENJARVIS_NO_UPDATE_CHECK",)
 
 
 def _check_disabled() -> bool:
@@ -51,7 +51,7 @@ def _check_disabled() -> bool:
         if raw and raw.strip().lower() not in ("", "0", "false", "no", "off"):
             return True
     # CI defaults to skipping. Users in CI can override with
-    # ``JARVIS_NO_UPDATE_CHECK=0`` if they want the nudge anyway.
+    # ``OPENJARVIS_NO_UPDATE_CHECK=0`` if they want the nudge anyway.
     if os.environ.get("CI", "").strip().lower() in ("1", "true", "yes", "on"):
         return True
     return False
@@ -60,11 +60,11 @@ def _check_disabled() -> bool:
 def check_for_updates(command_name: str) -> None:
     """Print a message if a newer version is available. Best-effort, never raises.
 
-    Honors ``OPENJARVIS_NO_UPDATE_CHECK`` — set it to any non-empty value
-    (``1``, ``true``, etc.) to skip the GitHub poll and the banner.
+    Honors ``OPENJARVIS_NO_UPDATE_CHECK=1`` and ``CI=true`` — any
+    truthy value (``1``, ``true``, ``yes``, ``on``) disables both the
+    GitHub poll and the banner. See ``_check_disabled`` for the full
+    list.
     """
-    if os.environ.get("OPENJARVIS_NO_UPDATE_CHECK", "").strip():
-        return
     if command_name not in _CHECK_COMMANDS:
         return
     if _check_disabled():

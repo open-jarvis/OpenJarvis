@@ -11,7 +11,7 @@ from openjarvis.cli._version_check import _check_disabled, check_for_updates
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch):
-    for v in ("JARVIS_NO_UPDATE_CHECK", "CI"):
+    for v in ("OPENJARVIS_NO_UPDATE_CHECK", "CI"):
         monkeypatch.delenv(v, raising=False)
 
 
@@ -21,12 +21,12 @@ class TestCheckDisabled:
 
     @pytest.mark.parametrize("value", ["1", "true", "yes", "on", "anything"])
     def test_jarvis_no_update_check_disables(self, monkeypatch, value):
-        monkeypatch.setenv("JARVIS_NO_UPDATE_CHECK", value)
+        monkeypatch.setenv("OPENJARVIS_NO_UPDATE_CHECK", value)
         assert _check_disabled() is True
 
     @pytest.mark.parametrize("value", ["", "0", "false", "no", "off"])
     def test_falsy_does_not_disable(self, monkeypatch, value):
-        monkeypatch.setenv("JARVIS_NO_UPDATE_CHECK", value)
+        monkeypatch.setenv("OPENJARVIS_NO_UPDATE_CHECK", value)
         assert _check_disabled() is False
 
     def test_ci_env_disables_by_default(self, monkeypatch):
