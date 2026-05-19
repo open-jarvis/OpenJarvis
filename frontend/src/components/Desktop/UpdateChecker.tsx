@@ -34,11 +34,12 @@ export function UpdateChecker() {
     }
 
     // Local dev escape hatch: skip the auto-update poll if explicitly
-    // disabled. Mirrors the OPENJARVIS_NO_UPDATER documented in
-    // docs/desktop-auto-update.md so iteration on the frontend doesn't
-    // get interrupted by an upgrade prompt.
-    const env = (window as any).__OPENJARVIS_ENV__;
-    if (env?.OPENJARVIS_NO_UPDATER === '1' || env?.OPENJARVIS_NO_UPDATER === 'true') {
+    // disabled. Vite exposes any ``VITE_``-prefixed env var on
+    // ``import.meta.env``, so a frontend dev can ``export
+    // VITE_OPENJARVIS_NO_UPDATER=1`` before ``npm run tauri dev`` to
+    // silence the 30-min poll. See docs/desktop-auto-update.md.
+    const noUpdater = (import.meta as any).env?.VITE_OPENJARVIS_NO_UPDATER;
+    if (noUpdater === '1' || noUpdater === 'true') {
       return;
     }
 
