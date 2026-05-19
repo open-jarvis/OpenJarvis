@@ -1,20 +1,22 @@
 """Type-aware semantic chunker for Deep Research ingestion.
 
-Splits text based on document type, never splitting mid-sentence.
-Returns ``ChunkResult`` dataclass objects with section metadata and
-inherited parent metadata.
+Splits text by paragraph → sentence → token/character boundaries while
+enforcing a hard size cap and adding a fixed-size overlap between
+consecutive chunks. The cap is enforced on BOTH token count
+(whitespace-split) AND character count, since marketing-style emails
+frequently contain dense runs without whitespace (zero-width joiners,
+HTML residue) that defeat token-based limits alone.
 
 Splitting strategy by doc_type
 -------------------------------
-- ``event``, ``contact`` : Always a single chunk; never split.
+- ``event``, ``contact`` : Always a single chunk; never split, never capped.
 - ``email``              : Split on reply boundaries (``On … wrote:``),
-                           then sentence-split within each part.
-- ``message``            : Split on double-newline boundaries, accumulate
-                           into chunks up to *max_tokens*.
+                           then paragraphs, then sentences, then force-split.
+- ``message``            : Split on double-newline boundaries, then sentences,
+                           then force-split.
 - ``document``, ``note``,
   anything else          : Split on ``## Heading`` section boundaries →
-                           paragraph boundaries (``\\n\\n``) within sections →
-                           sentence boundaries as a last resort.
+                           paragraph boundaries → sentences → force-split.
 
 Token counting uses whitespace splitting: ``len(text.split())``.
 """
@@ -23,15 +25,21 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 # ---------------------------------------------------------------------------
-# Public types
+# Regexes
 # ---------------------------------------------------------------------------
 
 _SENTENCE_SPLIT_RE = re.compile(r'(?<=[.!?])\s+(?=[A-Z"])')
 _SECTION_RE = re.compile(r"(?m)^##\s+(.+)$")
 _REPLY_BOUNDARY_RE = re.compile(r"(?m)^On .+wrote:\s*$")
+_SENTENCE_END_RE = re.compile(r"[.!?](?:\s|$)")
+
+
+# ---------------------------------------------------------------------------
+# Public types
+# ---------------------------------------------------------------------------
 
 
 @dataclass(slots=True)
@@ -54,65 +62,118 @@ def _count_tokens(text: str) -> int:
 
 
 def _split_sentences(text: str) -> List[str]:
-    """Split *text* into sentences using the canonical regex.
-
-    The regex splits after sentence-ending punctuation (``.``, ``!``, ``?``)
-    followed by whitespace and a capital letter or a double-quote.
-    """
     parts = _SENTENCE_SPLIT_RE.split(text)
     return [p.strip() for p in parts if p.strip()]
 
 
-def _accumulate(
+def _accumulate_capped(
     segments: List[str],
     *,
     max_tokens: int,
+    max_chars: int,
     sep: str = " ",
 ) -> List[str]:
-    """Greedily merge *segments* into chunks up to *max_tokens* tokens.
+    """Greedy-merge segments into chunks bounded by token AND char counts.
 
-    A segment that is already larger than *max_tokens* is placed in its own
-    chunk; it is never split further by this function.
+    Segments larger than the bounds pass through as their own chunk —
+    the caller force-splits those in a separate pass.
     """
     chunks: List[str] = []
-    current_parts: List[str] = []
-    current_tokens = 0
+    current: List[str] = []
+    cur_tokens = 0
+    cur_chars = 0
 
     for seg in segments:
         seg_tokens = _count_tokens(seg)
-        if current_parts and current_tokens + seg_tokens > max_tokens:
-            chunks.append(sep.join(current_parts))
-            current_parts = [seg]
-            current_tokens = seg_tokens
+        seg_chars = len(seg)
+        sep_chars = len(sep) if current else 0
+
+        would_overflow = current and (
+            cur_tokens + seg_tokens > max_tokens
+            or cur_chars + sep_chars + seg_chars > max_chars
+        )
+        if would_overflow:
+            chunks.append(sep.join(current))
+            current = [seg]
+            cur_tokens = seg_tokens
+            cur_chars = seg_chars
         else:
-            current_parts.append(seg)
-            current_tokens += seg_tokens
+            current.append(seg)
+            cur_tokens += seg_tokens
+            cur_chars += sep_chars + seg_chars
 
-    if current_parts:
-        chunks.append(sep.join(current_parts))
-
+    if current:
+        chunks.append(sep.join(current))
     return chunks
 
 
-def _sentence_chunks(text: str, *, max_tokens: int) -> List[str]:
-    """Split *text* by sentences and accumulate into max_tokens chunks."""
-    sentences = _split_sentences(text)
-    if not sentences:
-        stripped = text.strip()
-        return [stripped] if stripped else []
-    return _accumulate(sentences, max_tokens=max_tokens, sep=" ")
+def _best_cut_index(window: str) -> int:
+    """Pick a cut point inside ``window``: sentence end → space → hard cut."""
+    matches = list(_SENTENCE_END_RE.finditer(window))
+    if matches:
+        return matches[-1].end()
+    midpoint = len(window) // 2
+    space = window.rfind(" ", midpoint)
+    if space > 0:
+        return space + 1
+    return len(window)
 
 
-def _paragraph_chunks(text: str, *, max_tokens: int) -> List[str]:
-    """Split *text* on paragraph breaks (``\\n\\n``), then by sentences if needed."""
-    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
-    result: List[str] = []
-    for para in paragraphs:
-        if _count_tokens(para) <= max_tokens:
-            result.append(para)
-        else:
-            result.extend(_sentence_chunks(para, max_tokens=max_tokens))
-    return result
+def _force_split(text: str, *, max_chars: int, max_tokens: int) -> List[str]:
+    """Split an oversized run into pieces that fit both caps.
+
+    Walks the text greedily: takes a window up to ``max_chars``, shrinks
+    until the token count fits, then snaps the cut to the last sentence
+    boundary, falling back to a word boundary, then a hard cut.
+    """
+    rest = text.strip()
+    out: List[str] = []
+    while rest:
+        if len(rest) <= max_chars and _count_tokens(rest) <= max_tokens:
+            out.append(rest)
+            break
+
+        end = min(max_chars, len(rest))
+        while end > 1 and _count_tokens(rest[:end]) > max_tokens:
+            end = max(1, int(end * 0.9))
+
+        window = rest[:end]
+        cut = _best_cut_index(window)
+        piece = rest[:cut].strip()
+        if not piece:
+            # Window contained only whitespace before any cuttable boundary.
+            # Force advance to avoid an infinite loop.
+            cut = max(cut + 1, end)
+            piece = rest[:cut].strip()
+        if piece:
+            out.append(piece)
+        rest = rest[cut:].strip()
+    return out
+
+
+def _apply_overlap(chunks: List[str], *, overlap_tokens: int) -> List[str]:
+    """Prepend the last ``overlap_tokens`` tokens of each chunk to the next.
+
+    The tail is taken from the *original* preceding chunk (not the
+    already-augmented output) so overlap doesn't compound, and is also
+    capped by character count — a single whitespace-split "token" can be
+    a 200+ char URL, so a pure-token cap would let tails balloon on
+    content with long opaque strings.
+    """
+    if overlap_tokens <= 0 or len(chunks) < 2:
+        return list(chunks)
+    overlap_chars_cap = overlap_tokens * 4
+    out = [chunks[0]]
+    for i in range(1, len(chunks)):
+        prev_tokens = chunks[i - 1].split()
+        if not prev_tokens:
+            out.append(chunks[i])
+            continue
+        tail = " ".join(prev_tokens[-overlap_tokens:])
+        if len(tail) > overlap_chars_cap:
+            tail = tail[-overlap_chars_cap:]
+        out.append(f"{tail} {chunks[i]}".strip())
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -121,18 +182,55 @@ def _paragraph_chunks(text: str, *, max_tokens: int) -> List[str]:
 
 
 class SemanticChunker:
-    """Split text based on document type without breaking mid-sentence.
+    """Split text by document type with a hard size cap and overlap.
 
     Parameters
     ----------
     max_tokens:
-        Soft upper limit on chunk size measured in whitespace-delimited tokens
-        (i.e. ``len(text.split())``).  Single unsplittable segments may exceed
-        this limit.
+        Hard upper bound on chunk size in whitespace-delimited tokens.
+        No emitted chunk exceeds this.
+    max_chars:
+        Hard upper bound on chunk size in characters. Defaults to
+        ``max_tokens * 4`` (a typical English chars-per-token estimate).
+        No emitted chunk exceeds this — the chunker force-splits any
+        run that does, even when token count alone would say it fits.
+    overlap_tokens:
+        Token tail copied from each chunk into the head of the next so
+        downstream retrieval doesn't miss context that straddles a chunk
+        boundary. Defaults to ``min(100, max_tokens // 5)`` and is clamped
+        to ``[0, max_tokens - 1]``. Set to ``0`` to disable.
     """
 
-    def __init__(self, max_tokens: int = 512) -> None:
+    def __init__(
+        self,
+        max_tokens: int = 512,
+        *,
+        max_chars: Optional[int] = None,
+        overlap_tokens: Optional[int] = None,
+    ) -> None:
         self.max_tokens = max_tokens
+        self.max_chars = max_chars if max_chars is not None else max_tokens * 4
+        if overlap_tokens is None:
+            overlap_tokens = min(100, max(1, max_tokens // 5))
+        self.overlap_tokens = max(0, min(overlap_tokens, max(0, max_tokens - 1)))
+
+        # Content budget per chunk leaves room for the overlap prefix
+        # that gets added in the final pass, so tokens stay within
+        # max_tokens. Char budget intentionally does NOT subtract overlap
+        # — we accept up to ~overlap_tokens*4 chars of headroom over
+        # max_chars after overlap, which still sits under any reasonable
+        # hard ceiling and avoids spurious force-splits of well-behaved
+        # sentences in configurations where the char cap is tight.
+        self._content_tokens = max(1, self.max_tokens - self.overlap_tokens)
+        self._content_chars = self.max_chars
+        # Soft target used to decide when a paragraph is "long enough to
+        # sub-split", and to size sentence-accumulated sub-chunks. At
+        # roughly half the hard cap, typical paragraphs ship as a single
+        # chunk and only the unusually long ones get further split,
+        # which keeps semantic units intact while still pulling the
+        # chunk-length tail down.
+        self._target_tokens = max(1, self._content_tokens // 2)
+        self._target_chars = max(1, self._content_chars // 2)
 
     # ------------------------------------------------------------------
     # Public API
@@ -147,16 +245,10 @@ class SemanticChunker:
     ) -> List[ChunkResult]:
         """Split *text* into ``ChunkResult`` objects.
 
-        Parameters
-        ----------
-        text:      The raw text to split.
-        doc_type:  Controls the splitting strategy (see module docstring).
-        metadata:  Parent metadata dict; copied into every chunk's ``metadata``.
-
-        Returns
-        -------
-        A list of ``ChunkResult`` objects with sequential 0-based ``index``
-        values.  Returns an empty list if *text* is empty or whitespace-only.
+        Returns an empty list if *text* is empty or whitespace-only.
+        Events and contacts are always returned as a single chunk
+        regardless of size; all other types respect the size caps and
+        receive overlap between consecutive chunks.
         """
         if not text or not text.strip():
             return []
@@ -164,88 +256,115 @@ class SemanticChunker:
         parent_meta: Dict[str, Any] = dict(metadata or {})
 
         if doc_type in ("event", "contact"):
-            raw_chunks = self._chunk_atomic(text)
-        elif doc_type == "email":
+            return [ChunkResult(content=text, index=0, metadata=parent_meta)]
+
+        if doc_type == "email":
             raw_chunks = self._chunk_email(text)
         elif doc_type == "message":
             raw_chunks = self._chunk_message(text)
         else:
-            # "document", "note", or any unknown type
             raw_chunks = self._chunk_document(text)
 
+        # Apply overlap globally between consecutive chunks.
+        contents = [c for c, _ in raw_chunks]
+        metas = [m for _, m in raw_chunks]
+        overlapped = _apply_overlap(contents, overlap_tokens=self.overlap_tokens)
+
         results: List[ChunkResult] = []
-        for idx, (content, extra_meta) in enumerate(raw_chunks):
+        for idx, (content, extra_meta) in enumerate(zip(overlapped, metas)):
             merged: Dict[str, Any] = dict(parent_meta)
             merged.update(extra_meta)
             results.append(ChunkResult(content=content, index=idx, metadata=merged))
-
         return results
 
     # ------------------------------------------------------------------
     # Strategy implementations
     # ------------------------------------------------------------------
 
-    def _chunk_atomic(self, text: str) -> List[tuple[str, Dict[str, Any]]]:
-        """Return the entire text as a single chunk (event / contact)."""
-        return [(text, {})]
+    def _pack_text(self, text: str) -> List[str]:
+        """Emit one chunk per paragraph; sub-split paragraphs over the soft target.
 
-    def _chunk_email(self, text: str) -> List[tuple[str, Dict[str, Any]]]:
-        """Split on reply boundaries; sentence-split each part."""
-        # Split the email into parts on "On ... wrote:" lines.
-        # re.split with a capturing group keeps the boundary in results,
-        # so we re-attach the header to the following segment.
+        Paragraphs are the natural chunk unit. A paragraph that fits the
+        soft target ships as one chunk. A paragraph that doesn't is
+        sentence-split and the sentences accumulated up to the soft
+        target; sentences that exceed the hard cap (rare — opaque content
+        with no whitespace) are force-split.
+        """
+        paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+        if not paragraphs:
+            stripped = text.strip()
+            return [stripped] if stripped else []
+
+        out: List[str] = []
+        for para in paragraphs:
+            if (
+                len(para) <= self._target_chars
+                and _count_tokens(para) <= self._target_tokens
+            ):
+                out.append(para)
+                continue
+
+            sents = _split_sentences(para)
+            if not sents:
+                sents = [para]
+
+            accumulated = _accumulate_capped(
+                sents,
+                max_tokens=self._target_tokens,
+                max_chars=self._target_chars,
+                sep=" ",
+            )
+            for c in accumulated:
+                if (
+                    len(c) <= self._content_chars
+                    and _count_tokens(c) <= self._content_tokens
+                ):
+                    out.append(c)
+                else:
+                    out.extend(
+                        _force_split(
+                            c,
+                            max_chars=self._content_chars,
+                            max_tokens=self._content_tokens,
+                        )
+                    )
+        return [c for c in out if c]
+
+    def _chunk_email(self, text: str) -> List[Tuple[str, Dict[str, Any]]]:
+        """Split on reply boundaries; pack each part."""
         boundaries = _REPLY_BOUNDARY_RE.split(text)
+        headers = _REPLY_BOUNDARY_RE.findall(text)
 
-        # Each boundary match is a separator; reassemble so the "On … wrote:"
-        # line stays with the content that follows it (the quoted block).
         raw_parts: List[str] = []
         if boundaries:
-            # The first element is the text before the first boundary (the
-            # main reply body).
             raw_parts.append(boundaries[0])
-            # Subsequent elements alternate: matched boundary, then text after.
-            # Because we used split() (not findall), the boundaries themselves
-            # are not in the list — only the text segments between them.
-            # So boundaries[1:] are the segments after each matched header.
-            # We need to re-find the headers to reassemble.
-            headers = _REPLY_BOUNDARY_RE.findall(text)
             for header, body in zip(headers, boundaries[1:]):
-                # We found the header text via findall; reconstruct the part.
                 part = (header.strip() + "\n" + body).strip()
                 raw_parts.append(part)
 
-        chunks: List[tuple[str, Dict[str, Any]]] = []
+        chunks: List[Tuple[str, Dict[str, Any]]] = []
         for part in raw_parts:
             part = part.strip()
             if not part:
                 continue
-            if _count_tokens(part) <= self.max_tokens:
-                chunks.append((part, {}))
-            else:
-                for sub in _sentence_chunks(part, max_tokens=self.max_tokens):
-                    if sub:
-                        chunks.append((sub, {}))
+            for c in self._pack_text(part):
+                if c:
+                    chunks.append((c, {}))
 
         return chunks if chunks else [(text.strip(), {})]
 
-    def _chunk_message(self, text: str) -> List[tuple[str, Dict[str, Any]]]:
-        """Split on double-newline boundaries and accumulate up to max_tokens."""
-        paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
-        raw_chunks = _accumulate(paragraphs, max_tokens=self.max_tokens, sep="\n\n")
-        return [(c, {}) for c in raw_chunks if c]
+    def _chunk_message(self, text: str) -> List[Tuple[str, Dict[str, Any]]]:
+        """Pack a message via paragraphs → sentences → force-split."""
+        return [(c, {}) for c in self._pack_text(text)]
 
-    def _chunk_document(self, text: str) -> List[tuple[str, Dict[str, Any]]]:
-        """Split on ## headings → paragraphs → sentences."""
-        # Find all ## heading positions
+    def _chunk_document(self, text: str) -> List[Tuple[str, Dict[str, Any]]]:
+        """Split on ## headings → paragraphs → sentences → force-split."""
         section_matches = list(_SECTION_RE.finditer(text))
 
         if not section_matches:
-            # No headings — fall back to paragraph/sentence splitting
-            raw_chunks = _paragraph_chunks(text, max_tokens=self.max_tokens)
-            return [(c, {}) for c in raw_chunks if c]
+            return [(c, {}) for c in self._pack_text(text)]
 
-        # Build (title, body_text) pairs for each section
-        sections: List[tuple[str, str]] = []
+        sections: List[Tuple[str, str]] = []
         for i, m in enumerate(section_matches):
             title = m.group(1).strip()
             body_start = m.end()
@@ -257,24 +376,19 @@ class SemanticChunker:
             body = text[body_start:body_end].strip()
             sections.append((title, body))
 
-        # Check for preamble text before the first heading
+        result: List[Tuple[str, Dict[str, Any]]] = []
         preamble = text[: section_matches[0].start()].strip()
-        result: List[tuple[str, Dict[str, Any]]] = []
-
         if preamble:
-            for c in _paragraph_chunks(preamble, max_tokens=self.max_tokens):
+            for c in self._pack_text(preamble):
                 if c:
                     result.append((c, {}))
 
         for title, body in sections:
             section_meta: Dict[str, Any] = {"section": title}
             if not body:
-                # Empty section — emit a placeholder chunk with just the title
                 result.append((title, section_meta))
                 continue
-
-            para_chunks = _paragraph_chunks(body, max_tokens=self.max_tokens)
-            for c in para_chunks:
+            for c in self._pack_text(body):
                 if c:
                     result.append((c, dict(section_meta)))
 

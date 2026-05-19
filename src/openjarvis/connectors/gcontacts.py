@@ -13,6 +13,7 @@ from typing import Any, Dict, Iterator, List, Optional
 import httpx
 
 from openjarvis.connectors._stubs import BaseConnector, Document, SyncStatus
+from openjarvis.connectors.google_auth import call_with_refresh
 from openjarvis.connectors.oauth import (
     GOOGLE_ALL_SCOPES,
     build_google_auth_url,
@@ -249,16 +250,16 @@ class GContactsConnector(BaseConnector):
         tokens = load_tokens(self._credentials_path)
         if not tokens:
             return
-
-        token: str = tokens.get("access_token", tokens.get("token", ""))
-        if not token:
+        if not tokens.get("access_token") and not tokens.get("token"):
             return
 
         page_token: Optional[str] = cursor
         synced = 0
 
         while True:
-            list_resp = _gcontacts_api_list(token, page_token=page_token)
+            list_resp = call_with_refresh(
+                _gcontacts_api_list, self._credentials_path, page_token=page_token
+            )
             connections: List[Dict[str, Any]] = list_resp.get("connections", [])
 
             for person in connections:

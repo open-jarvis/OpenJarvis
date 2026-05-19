@@ -335,6 +335,112 @@ def test_memory_retrieve_event_emitted(tmp_path: Path) -> None:
     assert EventType.MEMORY_RETRIEVE in types
 
 
+# ---------------------------------------------------------------------------
+# v1 schema tests
+# ---------------------------------------------------------------------------
+
+
+def test_v1_columns_round_trip_via_metadata(ks: KnowledgeStore) -> None:
+    """source_id, channel, content_hash, embedding_model_version, participants_raw
+    survive the store/retrieve round-trip via the metadata payload."""
+    _store(
+        ks,
+        content="Email about partnership review",
+        source="gmail",
+        source_id="msg-abc123",
+        channel="INBOX",
+        content_hash="deadbeefcafe",
+        embedding_model_version="text-embedding-3-small/v1",
+        participants_raw=["Alice Bose <alice@example.com>"],
+    )
+    results = ks.retrieve("partnership review", top_k=1)
+    assert len(results) == 1
+    meta = results[0].metadata
+    assert meta.get("source_id") == "msg-abc123"
+    assert meta.get("channel") == "INBOX"
+    assert meta.get("content_hash") == "deadbeefcafe"
+    assert meta.get("embedding_model_version") == "text-embedding-3-small/v1"
+    assert meta.get("participants_raw") == ["Alice Bose <alice@example.com>"]
+
+
+def test_deleted_at_filters_retrieve(ks: KnowledgeStore) -> None:
+    """Rows with non-NULL deleted_at are excluded from retrieve()."""
+    import time as _time
+
+    _store(ks, content="Live document about quarterly research")
+    _store(ks, content="Tombstoned document about quarterly research")
+
+    ks._conn.execute(
+        "UPDATE knowledge_chunks SET deleted_at = ? "
+        "WHERE content LIKE 'Tombstoned%'",
+        (_time.time(),),
+    )
+    ks._conn.commit()
+
+    results = ks.retrieve("quarterly research", top_k=10)
+    assert len(results) == 1
+    assert results[0].content.startswith("Live")
+
+
+def test_unique_natural_key_constraint(ks: KnowledgeStore) -> None:
+    """Duplicate (source, source_id, chunk_index) is silently skipped.
+
+    The store uses ``INSERT OR IGNORE`` so re-running a sync or replaying a
+    dogfood script over an already-populated store no longer crashes; the
+    original row stays put and the duplicate is dropped.
+    """
+    first_id = _store(
+        ks,
+        content="First copy",
+        source="gmail",
+        source_id="msg-unique-1",
+        chunk_index=0,
+    )
+    second_id = _store(
+        ks,
+        content="Duplicate copy",
+        source="gmail",
+        source_id="msg-unique-1",
+        chunk_index=0,
+    )
+    # Same identity — the natural key collision returned the existing row's id.
+    assert second_id == first_id
+    # Content of the original row is preserved.
+    row = ks._conn.execute(
+        "SELECT content FROM knowledge_chunks WHERE id = ?", (first_id,)
+    ).fetchone()
+    assert row["content"] == "First copy"
+    # Only one row exists for this natural key.
+    count = ks._conn.execute(
+        "SELECT COUNT(*) FROM knowledge_chunks "
+        "WHERE source = 'gmail' AND source_id = 'msg-unique-1' AND chunk_index = 0"
+    ).fetchone()[0]
+    assert count == 1
+
+
+def test_unique_constraint_skipped_when_source_id_empty(ks: KnowledgeStore) -> None:
+    """Legacy rows with empty source_id can co-exist (partial index excludes them)."""
+    _store(ks, content="Legacy doc one", source="legacy", source_id="")
+    # Should not raise — partial index is WHERE source_id != ''
+    _store(ks, content="Legacy doc two", source="legacy", source_id="")
+    assert ks.count() == 2
+
+
+def test_embedding_blob_round_trip(ks: KnowledgeStore) -> None:
+    """A bytes embedding payload survives storage and reads back unchanged."""
+    payload = b"\x00\x01\x02\x03\x04\xff\xfe\xfd"
+    _store(
+        ks,
+        content="Vector-bearing document for embedding round trip",
+        source="test",
+        embedding=payload,
+    )
+    row = ks._conn.execute(
+        "SELECT embedding FROM knowledge_chunks LIMIT 1"
+    ).fetchone()
+    assert bytes(row[0]) == payload
+
+
 def test_context_manager_closes_connection(tmp_path: Path) -> None:
     """Used as a context manager, KnowledgeStore closes its connection on exit."""
     import sqlite3

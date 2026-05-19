@@ -32,6 +32,187 @@ from openjarvis.telemetry.store import TelemetryStore
 logger = logging.getLogger(__name__)
 
 
+def _run_research(
+    *,
+    query_text: str,
+    engine,
+    model_name: str | None,
+    knowledge_db: str | None,
+    output_json: bool,
+    console: Console,
+) -> None:
+    """Run the hybrid-search research loop and print the result to the console.
+
+    Lazy imports keep the cost of this branch off the cold-path of plain
+    ``jarvis ask`` calls.
+    """
+    import re
+
+    from rich.markdown import Markdown
+    from rich.theme import Theme
+
+    from openjarvis.agents.research_loop import DEFAULT_PLANNER_MODEL, ResearchAgent
+    from openjarvis.connectors.embeddings import OllamaEmbedder
+    from openjarvis.connectors.hybrid_search import HybridSearch
+    from openjarvis.connectors.store import KnowledgeStore
+    from openjarvis.engine.ollama import OllamaEngine
+
+    store_kwargs: dict = {}
+    if knowledge_db:
+        store_kwargs["db_path"] = knowledge_db
+    store = KnowledgeStore(**store_kwargs)
+
+    # Research mode is wired specifically to Ollama: the planner prompt
+    # (gemma4:31b) and the function-call schema for search/clarify both
+    # assume Ollama's /api/chat tool semantics. Using the engine returned
+    # by get_engine() here is a foot-gun — discovery can pick any
+    # OpenAI-compatible engine registered on the same port as our own
+    # API server. research_router.py hardcodes OllamaEngine() for the
+    # same reason; mirror that here so CLI and HTTP behave identically.
+    engine = OllamaEngine()
+
+    chunk_count = store._conn.execute(
+        "SELECT COUNT(*) FROM knowledge_chunks"
+    ).fetchone()[0]
+    logger.debug(
+        "research: engine=%s.%s db=%s chunks=%d",
+        type(engine).__module__,
+        type(engine).__name__,
+        store._db_path,
+        chunk_count,
+    )
+
+    embedder = OllamaEmbedder()
+    embedder_available = embedder.is_available()
+    logger.debug("research: embedder available=%s", embedder_available)
+    if not embedder_available:
+        console.print(
+            "[yellow]Ollama embedder unavailable — falling back to BM25-only "
+            "retrieval. Run `ollama pull nomic-embed-text` for hybrid scoring.[/yellow]"
+        )
+        embedder = None
+
+    planner_model = model_name or DEFAULT_PLANNER_MODEL
+    logger.debug("research: planner_model=%s", planner_model)
+
+    # ---- Output styling --------------------------------------------------
+    # Two consoles by design: traces and the timing footer go to stderr
+    # (so ``jarvis ask --research "..." > out.md`` still gives a clean
+    # markdown file), while the rendered synthesis goes to stdout. The
+    # ``markdown.code`` theme override is the cyan-citation hack — see
+    # ``_style_citations`` below.
+    trace = Console(stderr=True, soft_wrap=True, highlight=False)
+    answer_console = Console(
+        theme=Theme({"markdown.code": "cyan bold not italic"}),
+        soft_wrap=True,
+        highlight=False,
+    )
+
+    def _style_citations(text: str) -> str:
+        """Wrap each ``[N]`` in inline code so it renders cyan.
+
+        Rich's Markdown class doesn't expose any hook for styling
+        arbitrary text spans, so we cheat: convert the citation tokens
+        into inline-code markdown (`[1]` → `` `[1]` ``) and override
+        the ``markdown.code`` theme entry above to colour them. Trims
+        the implicit monospace background that some terminal themes
+        give inline code so the result reads as text, not as code.
+        """
+        return re.sub(r"(\[\d+\])", r"`\1`", text)
+
+    def _format_search_call(args: dict) -> str:
+        q = args.get("query", "") or ""
+        extras: list[str] = []
+        person = args.get("person")
+        if person:
+            extras.append(f"person: {person}")
+        time_range = args.get("time_range")
+        if isinstance(time_range, dict):
+            start = time_range.get("start") or ""
+            end = time_range.get("end") or ""
+            if start or end:
+                bounds = f"{start or '…'} → {end or '…'}"
+                extras.append(f"when: {bounds}")
+        suffix = f" ({', '.join(extras)})" if extras else ""
+        return f"'{q}'{suffix}"
+
+    def on_event(event: dict) -> None:
+        etype = event.get("type")
+        if etype == "search_call":
+            args = event.get("arguments", {})
+            trace.print(
+                f"  [dim]↳ Searching:[/dim] "
+                f"[dim italic]{_format_search_call(args)}[/dim italic]"
+            )
+        elif etype == "search_result":
+            n = event.get("num_hits", 0)
+            label = "result" if n == 1 else "results"
+            trace.print(f"  [dim]↳ Found {n} {label}[/dim]")
+        elif etype == "clarify_call":
+            q = event.get("question", "") or ""
+            trace.print(
+                f"  [dim]↳ Clarifying:[/dim] [dim italic]{q}[/dim italic]"
+            )
+        # final_answer and clarify_response are handled outside the loop.
+
+    agent = ResearchAgent(
+        engine=engine,
+        search=HybridSearch(store, embedder),
+        model=planner_model,
+        on_event=on_event,
+    )
+
+    started = time.monotonic()
+    result = agent.run(query_text)
+    elapsed = time.monotonic() - started
+
+    logger.debug(
+        "research: iterations=%d tool_calls=%d usage=%s",
+        result.iterations,
+        len(result.tool_calls),
+        result.usage,
+    )
+
+    if output_json:
+        click.echo(
+            json_mod.dumps(
+                {
+                    "answer": result.answer,
+                    "iterations": result.iterations,
+                    "usage": result.usage,
+                    "tool_calls": [
+                        {
+                            "arguments": inv.arguments,
+                            "num_results": inv.num_results,
+                            "top_titles": inv.top_titles,
+                        }
+                        for inv in result.tool_calls
+                    ],
+                },
+                indent=2,
+            )
+        )
+        return
+
+    # Visual break between live traces and the synthesis.
+    trace.print()
+
+    # Render the synthesis as Markdown with inline citations coloured cyan.
+    answer_console.print(Markdown(_style_citations(result.answer)))
+
+    # Footer: how long it took + how many distinct sources the model
+    # actually cited. Empty answers (rare; only if the model went silent)
+    # skip the footer entirely.
+    if result.answer:
+        cited = {int(n) for n in re.findall(r"\[(\d+)\]", result.answer)}
+        src_word = "source" if len(cited) == 1 else "sources"
+        trace.print()
+        trace.print(
+            f"[dim]Deep Research · {elapsed:.1f}s · "
+            f"{len(cited)} {src_word} cited[/dim]"
+        )
+
+
 def _get_memory_backend(config):
     """Try to instantiate the memory backend.
 
@@ -368,6 +549,24 @@ def _print_profile(
     is_flag=True,
     help="Print inference telemetry profile (latency, tokens, energy, IPW).",
 )
+@click.option(
+    "--research",
+    "research_mode",
+    is_flag=True,
+    help=(
+        "Route the query through the hybrid-search research agent over the "
+        "personal knowledge store (BM25 + dense embeddings, max 5 tool calls)."
+    ),
+)
+@click.option(
+    "--knowledge-db",
+    "knowledge_db",
+    default=None,
+    help=(
+        "Override the KnowledgeStore path used by --research "
+        "(default: ~/.openjarvis/knowledge.db)."
+    ),
+)
 def ask(
     query: tuple[str, ...],
     model_name: str | None,
@@ -380,6 +579,8 @@ def ask(
     agent_name: str | None,
     tool_names: str | None,
     enable_profile: bool,
+    research_mode: bool,
+    knowledge_db: str | None,
 ) -> None:
     """Ask Jarvis a question."""
     console = Console(stderr=True)
@@ -444,6 +645,20 @@ def ask(
         sys.exit(1)
 
     engine_name, engine = resolved
+
+    # ------------------------------------------------------------------
+    # Research mode — hybrid search + agentic loop over the knowledge store
+    # ------------------------------------------------------------------
+    if research_mode:
+        _run_research(
+            query_text=query_text,
+            engine=engine,
+            model_name=model_name,
+            knowledge_db=knowledge_db,
+            output_json=output_json,
+            console=console,
+        )
+        return
 
     # Apply security guardrails
     from openjarvis.security import setup_security

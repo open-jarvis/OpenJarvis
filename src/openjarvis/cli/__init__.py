@@ -60,8 +60,14 @@ def cli(ctx: click.Context, verbose: bool, quiet: bool) -> None:
     ctx.obj["quiet"] = quiet
     setup_logging(verbose=verbose, quiet=quiet)
 
-    # Check for updates on interactive commands
-    if not quiet and ctx.invoked_subcommand:
+    # Check for updates on interactive commands. The banner is noise in
+    # demo recordings of ``jarvis ask --research``, so skip it whenever
+    # the research flag is in argv (cheap argv sniff — Click hasn't
+    # parsed the subcommand's args yet at this point).
+    import sys
+
+    research_mode_active = "--research" in sys.argv
+    if not quiet and ctx.invoked_subcommand and not research_mode_active:
         from openjarvis.cli._version_check import check_for_updates
 
         check_for_updates(ctx.invoked_subcommand)

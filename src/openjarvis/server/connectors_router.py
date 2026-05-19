@@ -126,6 +126,95 @@ def create_connectors_router():
         }
 
     # ------------------------------------------------------------------
+    # Background-sync state tracking. Defined here (before the endpoints)
+    # so that POST /connect can fire-and-forget into the same machinery
+    # as POST /sync — a single source of truth for "is this connector
+    # currently syncing", baseline_items, and error translation.
+    # ------------------------------------------------------------------
+
+    _sync_threads: Dict[str, Any] = {}
+    _sync_state: Dict[str, Dict[str, Any]] = {}
+
+    def _translate_sync_error(raw: str) -> str:
+        """Map common backend exceptions to a short user-facing message."""
+        if "401" in raw or "Unauthorized" in raw:
+            return "Authentication failed — credentials may have expired."
+        if "403" in raw or "Forbidden" in raw:
+            return "Permission denied — check API scopes."
+        if "429" in raw or "Too Many Requests" in raw:
+            return "Rate limited — wait a minute and try again."
+        if "timeout" in raw.lower():
+            return "Connection timed out."
+        return raw
+
+    def _start_sync(connector_id: str, instance: Any) -> str:
+        """Spawn a background sync; returns ``"started"`` or ``"already_syncing"``.
+
+        Records baseline items in ``_sync_state`` so GET /{id}/sync polls
+        can compute "new this run" deltas, and translates exceptions into
+        the same compact error strings the POST /sync handler used to do
+        inline. Both POST /connect (auto-ingest) and POST /sync (manual)
+        route through here so they share guard, state, and error handling.
+        """
+        import threading
+
+        existing = _sync_threads.get(connector_id)
+        if existing and existing.is_alive():
+            return "already_syncing"
+
+        # Snapshot the prior checkpoint count so the GET handler can
+        # report "X new this run" without each client tracking it.
+        baseline_items = 0
+        try:
+            from openjarvis.connectors.pipeline import IngestionPipeline
+            from openjarvis.connectors.store import KnowledgeStore
+            from openjarvis.connectors.sync_engine import SyncEngine
+
+            cp = SyncEngine(
+                pipeline=IngestionPipeline(store=KnowledgeStore()),
+            ).get_checkpoint(connector_id)
+            if cp and cp.get("items_synced") is not None:
+                baseline_items = int(cp["items_synced"])
+        except Exception:  # noqa: BLE001
+            baseline_items = 0
+
+        _sync_state[connector_id] = {
+            "state": "syncing",
+            "error": None,
+            "baseline_items": baseline_items,
+        }
+
+        def _run_sync() -> None:
+            try:
+                from openjarvis.connectors.pipeline import IngestionPipeline
+                from openjarvis.connectors.store import KnowledgeStore
+                from openjarvis.connectors.sync_engine import SyncEngine
+
+                store = KnowledgeStore()
+                pipeline = IngestionPipeline(store=store)
+                engine = SyncEngine(pipeline=pipeline)
+                engine.sync(instance)
+                logger.info("Sync completed for %s", connector_id)
+                _sync_state[connector_id] = {
+                    "state": "complete",
+                    "error": None,
+                    "baseline_items": baseline_items,
+                }
+            except Exception as exc:
+                error_msg = _translate_sync_error(str(exc))
+                logger.error("Sync failed for %s: %s", connector_id, error_msg)
+                _sync_state[connector_id] = {
+                    "state": "error",
+                    "error": error_msg,
+                    "baseline_items": baseline_items,
+                }
+
+        t = threading.Thread(target=_run_sync, daemon=True)
+        t.start()
+        _sync_threads[connector_id] = t
+        return "started"
+
+    # ------------------------------------------------------------------
     # Endpoints
     # ------------------------------------------------------------------
 
@@ -248,39 +337,19 @@ def create_connectors_router():
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc))
 
-        # Auto-ingest after successful connection
+        # Auto-trigger a full backfill on a successful connect. Routed
+        # through the same _start_sync helper that POST /sync uses so the
+        # connection's progress is visible to GET /{id}/sync polling
+        # immediately — the user shouldn't have to click "Sync Now".
+        sync_status: Optional[str] = None
         if instance.is_connected():
-            import threading
-
-            def _ingest() -> None:
-                try:
-                    from openjarvis.connectors.pipeline import (
-                        IngestionPipeline,
-                    )
-                    from openjarvis.connectors.store import KnowledgeStore
-                    from openjarvis.connectors.sync_engine import SyncEngine
-
-                    with KnowledgeStore() as store:
-                        pipeline = IngestionPipeline(store)
-                        engine = SyncEngine(pipeline)
-                        engine.sync(instance)
-                    logger.info(
-                        "Auto-ingested %s after connect",
-                        connector_id,
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "Auto-ingest failed for %s: %s",
-                        connector_id,
-                        exc,
-                    )
-
-            threading.Thread(target=_ingest, daemon=True).start()
+            sync_status = _start_sync(connector_id, instance)
 
         return {
             "connector_id": connector_id,
             "connected": instance.is_connected(),
             "status": "connected" if instance.is_connected() else "pending",
+            "sync_status": sync_status,
         }
 
     @router.post("/{connector_id}/disconnect")
@@ -440,15 +509,9 @@ def create_connectors_router():
             )
         )
 
-    # Track background sync state per connector
-    _sync_threads: Dict[str, Any] = {}
-    _sync_state: Dict[str, Dict[str, Any]] = {}  # {connector_id: {state, error}}
-
     @router.post("/{connector_id}/sync")
     def trigger_sync(connector_id: str) -> Dict[str, Any]:
         """Trigger a sync in the background and return immediately."""
-        import threading
-
         _ensure_connectors_registered()
         if not ConnectorRegistry.contains(connector_id):
             raise HTTPException(
@@ -461,51 +524,8 @@ def create_connectors_router():
                 status_code=400,
                 detail=f"Connector '{connector_id}' is not connected",
             )
-
-        # If already syncing, don't start another
-        existing = _sync_threads.get(connector_id)
-        if existing and existing.is_alive():
-            return {
-                "connector_id": connector_id,
-                "status": "already_syncing",
-            }
-
-        # Mark as syncing immediately so the UI picks it up
-        _sync_state[connector_id] = {"state": "syncing", "error": None}
-
-        def _run_sync() -> None:
-            try:
-                from openjarvis.connectors.pipeline import IngestionPipeline
-                from openjarvis.connectors.store import KnowledgeStore
-                from openjarvis.connectors.sync_engine import SyncEngine
-
-                with KnowledgeStore() as store:
-                    pipeline = IngestionPipeline(store=store)
-                    engine = SyncEngine(pipeline=pipeline)
-                    engine.sync(inst)
-                logger.info("Sync completed for %s", connector_id)
-                _sync_state[connector_id] = {"state": "complete", "error": None}
-            except Exception as exc:
-                error_msg = str(exc)
-                if "401" in error_msg or "Unauthorized" in error_msg:
-                    error_msg = "Authentication failed — credentials may have expired."
-                elif "403" in error_msg or "Forbidden" in error_msg:
-                    error_msg = "Permission denied — check API scopes."
-                elif "429" in error_msg or "Too Many Requests" in error_msg:
-                    error_msg = "Rate limited — wait a minute and try again."
-                elif "timeout" in error_msg.lower():
-                    error_msg = "Connection timed out."
-                logger.error("Sync failed for %s: %s", connector_id, error_msg)
-                _sync_state[connector_id] = {"state": "error", "error": error_msg}
-
-        t = threading.Thread(target=_run_sync, daemon=True)
-        t.start()
-        _sync_threads[connector_id] = t
-
-        return {
-            "connector_id": connector_id,
-            "status": "started",
-        }
+        status = _start_sync(connector_id, inst)
+        return {"connector_id": connector_id, "status": status}
 
     @router.get("/{connector_id}/sync")
     async def sync_status(connector_id: str):
@@ -527,6 +547,68 @@ def create_connectors_router():
         bg_thread = _sync_threads.get(connector_id)
         is_bg_running = bg_thread is not None and bg_thread.is_alive()
 
+        # Fall back to the SyncEngine's persistent checkpoint for items_synced
+        # and last_sync. The connector's own sync_status() only reflects state
+        # accumulated since the current connector instance was created, so a
+        # fresh process / fresh `_get_or_create` flips back to zeros even when
+        # tens of thousands of items have already been ingested historically.
+        # The checkpoint table is the source of truth.
+        checkpoint: Optional[Dict[str, Any]] = None
+        oldest_item_date: Optional[str] = None
+        try:
+            from openjarvis.connectors.pipeline import IngestionPipeline
+            from openjarvis.connectors.store import KnowledgeStore
+            from openjarvis.connectors.sync_engine import SyncEngine
+
+            store = KnowledgeStore()
+            checkpoint = SyncEngine(
+                pipeline=IngestionPipeline(store=store),
+            ).get_checkpoint(connector_id)
+
+            # Map connector_id → source field as written by the connector.
+            # Most match 1:1, but the IMAP/OAuth Gmail connectors both write
+            # source='gmail' so the unified card pulls a single timeline.
+            _STORE_SOURCE = {"gmail_imap": "gmail"}
+            store_source = _STORE_SOURCE.get(connector_id, connector_id)
+
+            # Oldest indexed item for this connector so the UI can show how
+            # far back the corpus reaches ("synced back to 2024-03-12").
+            # ISO 8601 strings sort correctly under MIN(); skip rows with no
+            # timestamp and any tombstoned chunks so the display reflects
+            # what's actually retrievable.
+            row = store._conn.execute(
+                "SELECT MIN(timestamp) FROM knowledge_chunks "
+                "WHERE source = ? AND timestamp != '' AND deleted_at IS NULL",
+                (store_source,),
+            ).fetchone()
+            if row is not None and row[0]:
+                oldest_item_date = str(row[0])
+        except Exception:  # noqa: BLE001
+            checkpoint = None
+
+        # Prefer the checkpoint's items_synced — it is the running cumulative
+        # total across every sync this connector has ever run. The connector
+        # instance's own counter only tracks what *this* in-memory run has
+        # processed, so after a fresh sync of 30 new emails the connector
+        # reports 30 while the checkpoint reflects the correct 8,626 total.
+        if checkpoint and checkpoint.get("items_synced") is not None:
+            items_synced = int(checkpoint["items_synced"])
+        else:
+            items_synced = status.items_synced
+        # items_total reflects the connector's currently-known target for
+        # this sync run (e.g. number of IMAP message IDs matched). Leave it
+        # at 0 when unknown — the UI uses items_synced >= items_total > 0 as
+        # the "complete inbox" signal, which would spuriously fire on every
+        # page load if we masked the zero with items_synced as a fallback.
+        items_total = status.items_total
+        last_sync_str: Optional[str]
+        if status.last_sync:
+            last_sync_str = status.last_sync.isoformat()
+        elif checkpoint and checkpoint.get("last_sync"):
+            last_sync_str = checkpoint["last_sync"]
+        else:
+            last_sync_str = None
+
         # Determine effective state
         if is_bg_running:
             effective_state = "syncing"
@@ -538,14 +620,27 @@ def create_connectors_router():
             effective_state = status.state
 
         # Use the bg error if the connector doesn't have one
-        effective_error = status.error or bg.get("error")
+        effective_error = (
+            status.error or bg.get("error") or (checkpoint or {}).get("error")
+        )
+
+        # Items processed during the *current* (or just-finished) run = total
+        # minus the baseline captured when this sync was kicked off. This
+        # lets the UI surface "30 new emails (8,623 total indexed)" without
+        # the client having to track its own baseline.
+        baseline_items = bg.get("baseline_items")
+        new_items_synced: Optional[int] = None
+        if isinstance(baseline_items, int):
+            new_items_synced = max(0, items_synced - baseline_items)
 
         return {
             "connector_id": connector_id,
             "state": effective_state,
-            "items_synced": status.items_synced,
-            "items_total": status.items_total,
-            "last_sync": (status.last_sync.isoformat() if status.last_sync else None),
+            "items_synced": items_synced,
+            "items_total": items_total,
+            "new_items_synced": new_items_synced,
+            "last_sync": last_sync_str,
+            "oldest_item_date": oldest_item_date,
             "error": effective_error,
         }
 

@@ -2,9 +2,12 @@ import { create } from 'zustand';
 import type {
   Conversation,
   ChatMessage,
+  LiveEnergyMetrics,
   LogEntry,
   ModelInfo,
   MessageTelemetry,
+  ResearchSearchTrace,
+  ResearchSource,
   SavingsData,
   ServerInfo,
   StreamState,
@@ -158,9 +161,15 @@ interface AppState {
     usage?: TokenUsage,
     telemetry?: MessageTelemetry,
     audio?: { url: string },
+    researchTraces?: ResearchSearchTrace[],
+    researchSources?: ResearchSource[],
   ) => void;
   setStreamState: (state: Partial<StreamState>) => void;
   resetStream: () => void;
+
+  // Deep Research toggle
+  deepResearch: boolean;
+  setDeepResearch: (on: boolean) => void;
 
   // Actions: models & server
   setModels: (models: ModelInfo[]) => void;
@@ -168,6 +177,13 @@ interface AppState {
   setSelectedModel: (model: string) => void;
   setServerInfo: (info: ServerInfo | null) => void;
   setSavings: (data: SavingsData | null) => void;
+  incrementSavings: (usage: TokenUsage) => void;
+
+  // Live GPU metrics — streamed from /api/research system_metrics events.
+  // When non-null, the System panel renders this instead of polled values
+  // so Power (W) and Energy (kJ) update in real time during a research run.
+  liveEnergy: LiveEnergyMetrics | null;
+  setLiveEnergy: (data: LiveEnergyMetrics | null) => void;
 
   // Actions: settings
   updateSettings: (partial: Partial<Settings>) => void;
@@ -387,6 +403,8 @@ export const useAppStore = create<AppState>((set, get) => {
       usage?: TokenUsage,
       telemetry?: MessageTelemetry,
       audio?: { url: string },
+      researchTraces?: ResearchSearchTrace[],
+      researchSources?: ResearchSource[],
     ) => {
       const store = loadConversations();
       const conv = store.conversations[conversationId];
@@ -398,6 +416,8 @@ export const useAppStore = create<AppState>((set, get) => {
         if (usage) lastMsg.usage = usage;
         if (telemetry) lastMsg.telemetry = telemetry;
         if (audio) lastMsg.audio = audio;
+        if (researchTraces) lastMsg.researchTraces = researchTraces;
+        if (researchSources) lastMsg.researchSources = researchSources;
         conv.updatedAt = Date.now();
         saveConversations(store);
         set({ messages: [...conv.messages] });
@@ -412,6 +432,10 @@ export const useAppStore = create<AppState>((set, get) => {
       set({ streamState: INITIAL_STREAM });
     },
 
+    // ── Deep Research ─────────────────────────────────────────────
+    deepResearch: false,
+    setDeepResearch: (on: boolean) => set({ deepResearch: on }),
+
     // ── Models & server ────────────────────────────────────────────
 
     setModels: (models: ModelInfo[]) => set({ models }),
@@ -419,6 +443,26 @@ export const useAppStore = create<AppState>((set, get) => {
     setSelectedModel: (model: string) => set({ selectedModel: model }),
     setServerInfo: (info: ServerInfo | null) => set({ serverInfo: info }),
     setSavings: (data: SavingsData | null) => set({ savings: data }),
+    incrementSavings: (usage: TokenUsage) => {
+      const cur = get().savings;
+      const prompt = usage.prompt_tokens ?? 0;
+      const completion = usage.completion_tokens ?? 0;
+      const total = usage.total_tokens ?? prompt + completion;
+      set({
+        savings: {
+          total_calls: (cur?.total_calls ?? 0) + 1,
+          total_prompt_tokens: (cur?.total_prompt_tokens ?? 0) + prompt,
+          total_completion_tokens: (cur?.total_completion_tokens ?? 0) + completion,
+          total_tokens: (cur?.total_tokens ?? 0) + total,
+          local_cost: cur?.local_cost ?? 0,
+          per_provider: cur?.per_provider ?? [],
+          token_counting_version: cur?.token_counting_version,
+        },
+      });
+    },
+
+    liveEnergy: null,
+    setLiveEnergy: (data: LiveEnergyMetrics | null) => set({ liveEnergy: data }),
 
     cachedConnectors: null,
     setCachedConnectors: (list) => set({ cachedConnectors: list }),

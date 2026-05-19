@@ -1421,7 +1421,11 @@ def create_agent_manager_router(
                     server_config,
                 )
                 executor.set_system(system)
-                executor.execute_tick(agent_id)
+                # The route handler above already called start_tick() to
+                # serialize concurrent POSTs; tell the executor not to
+                # re-acquire, otherwise it bails on its own guard and the
+                # tick never runs.
+                executor.execute_tick(agent_id, lock_already_held=True)
             except Exception as exc:
                 logger.error(
                     "Run-tick failed for agent %s: %s",

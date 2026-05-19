@@ -13,6 +13,7 @@ from typing import Any, Dict, Iterator, List, Optional
 import httpx
 
 from openjarvis.connectors._stubs import BaseConnector, Document, SyncStatus
+from openjarvis.connectors.google_auth import call_with_refresh
 from openjarvis.connectors.oauth import (
     GOOGLE_ALL_SCOPES,
     build_google_auth_url,
@@ -302,13 +303,15 @@ class GCalendarConnector(BaseConnector):
         tokens = load_tokens(self._credentials_path)
         if not tokens:
             return
-
-        token: str = tokens.get("access_token", tokens.get("token", ""))
-        if not token:
+        if not tokens.get("access_token") and not tokens.get("token"):
             return
 
-        # Fetch list of calendars
-        calendars_resp = _gcal_api_calendars_list(token)
+        # Fetch list of calendars. call_with_refresh wraps the token read so
+        # an expired access_token triggers a one-shot refresh + retry instead
+        # of bubbling up a 401.
+        calendars_resp = call_with_refresh(
+            _gcal_api_calendars_list, self._credentials_path
+        )
         calendars: List[Dict[str, Any]] = calendars_resp.get("items", [])
 
         # Default to 24 hours ago so we don't dump the entire calendar history
@@ -327,8 +330,9 @@ class GCalendarConnector(BaseConnector):
 
             while True:
                 try:
-                    events_resp = _gcal_api_events_list(
-                        token,
+                    events_resp = call_with_refresh(
+                        _gcal_api_events_list,
+                        self._credentials_path,
                         calendar_id,
                         page_token=page_token,
                         time_min=time_min,

@@ -192,6 +192,14 @@ class OllamaEngine(InferenceEngine):
                 "num_ctx": kwargs.get("num_ctx", 8192),
             },
         }
+        # Mirror generate()'s default: disable extended thinking unless the
+        # caller opted in. Qwen3/etc. with thinking on can stall the visible
+        # stream for 60+ seconds before any tokens reach the client, which
+        # frontends interpret as a "Load failed" timeout.
+        if "think" not in kwargs:
+            payload["think"] = False
+        elif kwargs["think"] is not None:
+            payload["think"] = kwargs["think"]
         try:
             with self._client.stream("POST", "/api/chat", json=payload) as resp:
                 resp.raise_for_status()

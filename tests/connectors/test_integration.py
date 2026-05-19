@@ -55,7 +55,7 @@ def test_full_pipeline_obsidian_to_search(vault: Path, tmp_path: Path) -> None:
     assert cp is not None
     # SyncEngine checkpoint records total chunks ingested (not document count).
     # The two vault files produce 6 chunks via SemanticChunker (note strategy).
-    assert cp["items_synced"] == 6  # 6 chunks from 2 md files
+    assert cp["items_synced"] == 6
 
     # 4. Search via knowledge_search tool
     tool = KnowledgeSearchTool(store=store)

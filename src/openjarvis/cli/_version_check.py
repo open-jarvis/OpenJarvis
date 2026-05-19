@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -17,7 +18,13 @@ _CHECK_COMMANDS = {"ask", "chat", "serve"}
 
 
 def check_for_updates(command_name: str) -> None:
-    """Print a message if a newer version is available. Best-effort, never raises."""
+    """Print a message if a newer version is available. Best-effort, never raises.
+
+    Honors ``OPENJARVIS_NO_UPDATE_CHECK`` — set it to any non-empty value
+    (``1``, ``true``, etc.) to skip the GitHub poll and the banner.
+    """
+    if os.environ.get("OPENJARVIS_NO_UPDATE_CHECK", "").strip():
+        return
     if command_name not in _CHECK_COMMANDS:
         return
     try:

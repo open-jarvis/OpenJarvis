@@ -5,6 +5,7 @@ All Gmail API calls are mocked; no network access is required.
 
 from __future__ import annotations
 
+import base64
 import json
 from pathlib import Path
 from typing import List
@@ -225,7 +226,8 @@ def test_sync_passes_since_as_query(
     # Verify the epoch value is correct
     expected_epoch = int(since_dt.timestamp())
     assert f"after:{expected_epoch}" in call_kwargs["query"]
-    assert "category:primary" in call_kwargs["query"]
+    # No category filter — sent mail and all Gmail tabs should be reachable.
+    assert "category:" not in call_kwargs["query"]
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +253,8 @@ def test_sync_without_since_passes_empty_query(
 
     mock_list.assert_called_once()
     _, call_kwargs = mock_list.call_args
-    assert call_kwargs.get("query", "") == "category:primary"
+    # No since= and no hardcoded category filter → empty query.
+    assert call_kwargs.get("query", "") == ""
 
 
 # ---------------------------------------------------------------------------
@@ -269,3 +272,492 @@ def test_registry() -> None:
     assert ConnectorRegistry.contains("gmail")
     cls = ConnectorRegistry.get("gmail")
     assert cls.connector_id == "gmail"
+
+
+# ---------------------------------------------------------------------------
+# v1 schema tests
+# ---------------------------------------------------------------------------
+
+# base64url("Migration body") == "TWlncmF0aW9uIGJvZHk="
+_MSG_RICH = {
+    "id": "msg-rich-1",
+    "threadId": "thread-rich-1",
+    "labelIds": ["SENT", "CATEGORY_PERSONAL"],
+    "snippet": "Quick note on the migration",
+    "historyId": "1234567",
+    "sizeEstimate": 4096,
+    "payload": {
+        "mimeType": "text/plain",
+        "headers": [
+            {"name": "From", "value": "Alice Bose <alice@example.com>"},
+            {
+                "name": "To",
+                "value": "Bob <bob@example.com>, charlie@example.com",
+            },
+            {"name": "Cc", "value": "dana@example.com"},
+            {"name": "Subject", "value": "Migration plan"},
+            {"name": "Date", "value": "Mon, 01 Jan 2024 10:00:00 +0000"},
+            {"name": "Message-ID", "value": "<abc123@mail.example.com>"},
+        ],
+        "body": {"data": "TWlncmF0aW9uIGJvZHk="},
+    },
+}
+
+
+@patch("openjarvis.connectors.gmail._gmail_api_list_messages")
+@patch("openjarvis.connectors.gmail._gmail_api_get_message")
+def test_sync_emits_v1_fields(
+    mock_get,
+    mock_list,
+    connector,
+    tmp_path: Path,
+) -> None:
+    """sync() populates source_id, participants_raw, normalized participants,
+    channel from labels, and Gmail-specific fields in metadata."""
+    creds_path = Path(connector._credentials_path)
+    creds_path.write_text(json.dumps({"token": "fake-access-token"}), encoding="utf-8")
+
+    mock_list.return_value = {"messages": [{"id": "msg-rich-1"}]}
+    mock_get.return_value = _MSG_RICH
+
+    docs: List[Document] = list(connector.sync())
+    assert len(docs) == 1
+    doc = docs[0]
+
+    # source_id is the raw Gmail msg.id (no "gmail:" prefix); doc_id stays
+    # composite for back-compat with legacy callers.
+    assert doc.source_id == "msg-rich-1"
+    assert doc.doc_id == "gmail:msg-rich-1"
+
+    # participants_raw preserves From / To / Cc as Gmail returned them.
+    assert doc.participants_raw == [
+        "Alice Bose <alice@example.com>",
+        "Bob <bob@example.com>, charlie@example.com",
+        "dana@example.com",
+    ]
+    # participants extracts and lowercases all addresses, multi-recipient-aware.
+    assert doc.participants == [
+        "alice@example.com",
+        "bob@example.com",
+        "charlie@example.com",
+        "dana@example.com",
+    ]
+
+    # channel comes from the highest-priority system label.
+    assert doc.channel == "SENT"
+
+    # Gmail-specific richness lives in source_metadata.
+    assert doc.metadata["rfc_message_id"] == "<abc123@mail.example.com>"
+    assert doc.metadata["snippet"] == "Quick note on the migration"
+    assert doc.metadata["history_id"] == "1234567"
+    assert doc.metadata["size_estimate"] == 4096
+    assert "SENT" in doc.metadata["labels"]
+    assert "CATEGORY_PERSONAL" in doc.metadata["labels"]
+
+
+@patch("openjarvis.connectors.gmail._gmail_api_list_messages")
+@patch("openjarvis.connectors.gmail._gmail_api_get_message")
+def test_sync_channel_falls_back_to_inbox(
+    mock_get,
+    mock_list,
+    connector,
+    tmp_path: Path,
+) -> None:
+    """When only INBOX is present among system labels, channel == 'INBOX'."""
+    creds_path = Path(connector._credentials_path)
+    creds_path.write_text(json.dumps({"token": "fake-access-token"}), encoding="utf-8")
+
+    mock_list.return_value = _LIST_RESPONSE
+    mock_get.side_effect = lambda token, msg_id: _MSG1 if msg_id == "msg1" else _MSG2
+
+    docs = list(connector.sync())
+    assert all(d.channel == "INBOX" for d in docs)
+
+
+@patch("openjarvis.connectors.gmail._gmail_api_list_messages")
+@patch("openjarvis.connectors.gmail._gmail_api_get_message")
+def test_sync_channel_none_when_no_system_label(
+    mock_get,
+    mock_list,
+    connector,
+    tmp_path: Path,
+) -> None:
+    """A message with only user-defined labels has channel=None."""
+    creds_path = Path(connector._credentials_path)
+    creds_path.write_text(json.dumps({"token": "fake-access-token"}), encoding="utf-8")
+
+    msg_userlabel = {
+        **_MSG1,
+        "id": "msg-user",
+        "labelIds": ["Label_1234", "CATEGORY_FORUMS"],
+    }
+    mock_list.return_value = {"messages": [{"id": "msg-user"}]}
+    mock_get.return_value = msg_userlabel
+
+    docs = list(connector.sync())
+    assert len(docs) == 1
+    assert docs[0].channel is None
+
+
+# ---------------------------------------------------------------------------
+# HTML body stripping
+# ---------------------------------------------------------------------------
+
+
+def test_html_to_text_strips_basic_tags() -> None:
+    """_html_to_text() removes tags but preserves visible text content."""
+    from openjarvis.connectors.gmail import _html_to_text  # noqa: PLC0415
+
+    html = (
+        "<html><body><p>Hello <b>world</b>!</p>"
+        "<p>Second paragraph.</p></body></html>"
+    )
+    text = _html_to_text(html)
+    assert "Hello" in text
+    assert "world" in text
+    assert "Second paragraph" in text
+    assert "<" not in text and ">" not in text
+
+
+def test_html_to_text_drops_script_and_style() -> None:
+    """Content inside <script>/<style>/<head> is stripped, not rendered."""
+    from openjarvis.connectors.gmail import _html_to_text  # noqa: PLC0415
+
+    html = """
+    <html>
+      <head><style>.foo { color: red; }</style><title>Ignore me</title></head>
+      <body>
+        <script>alert('xss')</script>
+        <p>Visible content here.</p>
+      </body>
+    </html>
+    """
+    text = _html_to_text(html)
+    assert "Visible content here" in text
+    assert "color: red" not in text
+    assert "alert" not in text
+    assert "Ignore me" not in text
+
+
+def test_html_to_text_decodes_entities() -> None:
+    """Named and numeric HTML entities are decoded to their characters."""
+    from openjarvis.connectors.gmail import _html_to_text  # noqa: PLC0415
+
+    html = "<p>Tom &amp; Jerry &mdash; 50&nbsp;cents</p>"
+    text = _html_to_text(html)
+    assert "Tom & Jerry" in text
+    assert "—" in text  # &mdash;
+    assert "50" in text and "cents" in text
+
+
+def test_html_to_text_inserts_paragraph_breaks() -> None:
+    """Block-level tags produce newlines so the chunker sees structure."""
+    from openjarvis.connectors.gmail import _html_to_text  # noqa: PLC0415
+
+    html = "<div>line one</div><div>line two</div><div>line three</div>"
+    text = _html_to_text(html)
+    # Each block produces at least one newline boundary.
+    assert text.count("\n") >= 2
+
+
+@patch("openjarvis.connectors.gmail._gmail_api_list_messages")
+@patch("openjarvis.connectors.gmail._gmail_api_get_message")
+def test_sync_strips_html_when_no_text_plain(
+    mock_get,
+    mock_list,
+    connector,
+    tmp_path: Path,
+) -> None:
+    """A multipart message with only text/html yields stripped plain text."""
+    creds_path = Path(connector._credentials_path)
+    creds_path.write_text(json.dumps({"token": "fake-access-token"}), encoding="utf-8")
+
+    html_bytes = (
+        b"<html><body><p>Hello <b>world</b>!</p>"
+        b"<p>Second paragraph.</p></body></html>"
+    )
+    html_b64 = base64.urlsafe_b64encode(html_bytes).decode().rstrip("=")
+
+    msg_html = {
+        "id": "msg-html-1",
+        "threadId": "thread-html-1",
+        "labelIds": ["INBOX"],
+        "payload": {
+            "mimeType": "multipart/alternative",
+            "headers": [
+                {"name": "From", "value": "marketer@example.com"},
+                {"name": "To", "value": "me@example.com"},
+                {"name": "Subject", "value": "Marketing"},
+                {"name": "Date", "value": "Mon, 01 Jan 2024 10:00:00 +0000"},
+            ],
+            "parts": [
+                # No text/plain alternative — only text/html.
+                {
+                    "mimeType": "text/html",
+                    "body": {"data": html_b64},
+                },
+            ],
+        },
+    }
+
+    mock_list.return_value = {"messages": [{"id": "msg-html-1"}]}
+    mock_get.return_value = msg_html
+
+    docs = list(connector.sync())
+    assert len(docs) == 1
+    content = docs[0].content
+    assert "Hello" in content
+    assert "world" in content
+    assert "Second paragraph" in content
+    assert "<" not in content and ">" not in content
+
+
+@patch("openjarvis.connectors.gmail._gmail_api_list_messages")
+@patch("openjarvis.connectors.gmail._gmail_api_get_message")
+def test_sync_prefers_text_plain_over_text_html(
+    mock_get,
+    mock_list,
+    connector,
+    tmp_path: Path,
+) -> None:
+    """When both alternatives are present, text/plain wins over text/html."""
+    creds_path = Path(connector._credentials_path)
+    creds_path.write_text(json.dumps({"token": "fake-access-token"}), encoding="utf-8")
+
+    plain_b64 = base64.urlsafe_b64encode(
+        b"Plain text version preferred."
+    ).decode().rstrip("=")
+    html_b64 = base64.urlsafe_b64encode(
+        b"<html><body><p>HTML version</p></body></html>"
+    ).decode().rstrip("=")
+
+    msg_alt = {
+        "id": "msg-alt-1",
+        "threadId": "thread-alt-1",
+        "labelIds": ["INBOX"],
+        "payload": {
+            "mimeType": "multipart/alternative",
+            "headers": [
+                {"name": "From", "value": "alice@example.com"},
+                {"name": "To", "value": "me@example.com"},
+                {"name": "Subject", "value": "Both alternatives"},
+                {"name": "Date", "value": "Mon, 01 Jan 2024 10:00:00 +0000"},
+            ],
+            "parts": [
+                {"mimeType": "text/plain", "body": {"data": plain_b64}},
+                {"mimeType": "text/html", "body": {"data": html_b64}},
+            ],
+        },
+    }
+
+    mock_list.return_value = {"messages": [{"id": "msg-alt-1"}]}
+    mock_get.return_value = msg_alt
+
+    docs = list(connector.sync())
+    assert len(docs) == 1
+    assert docs[0].content == "Plain text version preferred."
+
+
+# ---------------------------------------------------------------------------
+# Auto-refresh on 401
+# ---------------------------------------------------------------------------
+
+
+class _FakeResponse:
+    """Minimal stand-in for httpx.Response used by the refresh test."""
+
+    def __init__(
+        self, *, status_code: int, json_data: dict | None = None, text: str = ""
+    ):
+        self.status_code = status_code
+        self._json = json_data or {}
+        self.text = text
+
+    def json(self):
+        return self._json
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            import httpx as _httpx
+            raise _httpx.HTTPStatusError(
+                f"HTTP {self.status_code}", request=None, response=self
+            )
+
+
+def _write_full_creds(tmp_path: Path) -> str:
+    """Write a credentials file with a refresh_token and client credentials."""
+    creds_path = tmp_path / "gmail.json"
+    creds_path.write_text(
+        json.dumps(
+            {
+                "access_token": "old-access-token",
+                "refresh_token": "stored-refresh-token",
+                "client_id": "client-id-abc",
+                "client_secret": "client-secret-xyz",
+            }
+        ),
+        encoding="utf-8",
+    )
+    return str(creds_path)
+
+
+def test_401_triggers_refresh_and_retries_with_new_token(tmp_path: Path) -> None:
+    """A 401 on a Gmail API call refreshes the token, persists it, and retries."""
+    from openjarvis.connectors import gmail as gmail_mod
+
+    creds_path = _write_full_creds(tmp_path)
+
+    # The first httpx.get returns 401, the second returns 200.
+    get_calls: list[dict] = []
+
+    def fake_get(url, *, headers, params, timeout):
+        get_calls.append({"url": url, "headers": dict(headers), "params": dict(params)})
+        if len(get_calls) == 1:
+            return _FakeResponse(status_code=401, text="unauthorized")
+        return _FakeResponse(status_code=200, json_data={"id": "msg-1", "payload": {}})
+
+    post_calls: list[dict] = []
+
+    def fake_post(url, *, data, timeout):
+        post_calls.append({"url": url, "data": dict(data)})
+        return _FakeResponse(
+            status_code=200,
+            json_data={"access_token": "fresh-access-token", "expires_in": 3599},
+        )
+
+    with patch.object(gmail_mod.httpx, "get", side_effect=fake_get), \
+         patch.object(gmail_mod.httpx, "post", side_effect=fake_post):
+        result = gmail_mod._call_with_refresh(
+            gmail_mod._gmail_api_get_message, creds_path, "msg-1"
+        )
+
+    # The retried request must carry the fresh token.
+    assert len(get_calls) == 2
+    assert get_calls[0]["headers"]["Authorization"] == "Bearer old-access-token"
+    assert get_calls[1]["headers"]["Authorization"] == "Bearer fresh-access-token"
+
+    # The refresh hit Google's token endpoint with the stored refresh credentials.
+    assert len(post_calls) == 1
+    assert post_calls[0]["url"] == "https://oauth2.googleapis.com/token"
+    assert post_calls[0]["data"] == {
+        "client_id": "client-id-abc",
+        "client_secret": "client-secret-xyz",
+        "refresh_token": "stored-refresh-token",
+        "grant_type": "refresh_token",
+    }
+
+    # The new access_token is persisted to the credentials file.
+    on_disk = json.loads(Path(creds_path).read_text(encoding="utf-8"))
+    assert on_disk["access_token"] == "fresh-access-token"
+    assert on_disk["token"] == "fresh-access-token"  # legacy key kept in sync
+    assert on_disk["refresh_token"] == "stored-refresh-token"
+    assert on_disk["expires_in"] == 3599
+
+    # And the caller saw the body of the retried request.
+    assert result == {"id": "msg-1", "payload": {}}
+
+
+def test_non_401_status_is_not_refreshed(tmp_path: Path) -> None:
+    """A 500 from Gmail must propagate — only 401 should trigger refresh."""
+    import httpx as _httpx
+
+    from openjarvis.connectors import gmail as gmail_mod
+
+    creds_path = _write_full_creds(tmp_path)
+
+    def fake_get(url, *, headers, params, timeout):
+        return _FakeResponse(status_code=503, text="service unavailable")
+
+    fake_post = patch.object(gmail_mod.httpx, "post", side_effect=AssertionError(
+        "_call_with_refresh must not refresh on non-401 status"
+    ))
+
+    with patch.object(gmail_mod.httpx, "get", side_effect=fake_get), fake_post:
+        with pytest.raises(_httpx.HTTPStatusError):
+            gmail_mod._call_with_refresh(
+                gmail_mod._gmail_api_get_message, creds_path, "msg-1"
+            )
+
+
+def test_refresh_raises_when_refresh_token_missing(tmp_path: Path) -> None:
+    """Refresh aborts with a clear error when no refresh_token is stored."""
+    from openjarvis.connectors import google_auth
+
+    creds_path = tmp_path / "gmail.json"
+    creds_path.write_text(
+        json.dumps({"access_token": "stale", "client_id": "c", "client_secret": "s"}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(google_auth.GoogleAuthError, match="refresh_token"):
+        google_auth.refresh_access_token(str(creds_path))
+
+
+def test_sync_recovers_when_list_returns_401(tmp_path: Path) -> None:
+    """An end-to-end sync survives a 401 on messages.list without re-auth.
+
+    Sets up a connector against a creds file with full refresh credentials,
+    has the first list call return 401, the refresh return a new token, and
+    the retried list call return one message stub which is then fetched
+    successfully. Verifies the connector yields the expected Document and
+    that the credentials file is rewritten with the fresh token.
+    """
+    from openjarvis.connectors import gmail as gmail_mod
+
+    creds_path = _write_full_creds(tmp_path)
+    connector = gmail_mod.GmailConnector(credentials_path=creds_path)
+
+    list_calls: list[str] = []
+
+    def fake_get(url, *, headers, params, timeout):
+        auth = headers.get("Authorization", "")
+        if "/messages/" in url:
+            # The single get_message call after the retried list call.
+            return _FakeResponse(
+                status_code=200,
+                json_data={
+                    "id": "msg-99",
+                    "threadId": "thread-99",
+                    "labelIds": ["INBOX"],
+                    "payload": {
+                        "mimeType": "text/plain",
+                        "headers": [
+                            {"name": "From", "value": "alice@example.com"},
+                            {"name": "To", "value": "me@example.com"},
+                            {"name": "Subject", "value": "Hi"},
+                            {
+                                "name": "Date",
+                                "value": "Mon, 01 Jan 2024 10:00:00 +0000",
+                            },
+                        ],
+                        "body": {"data": "SGVsbG8="},
+                    },
+                },
+            )
+        # /messages list call
+        list_calls.append(auth)
+        if len(list_calls) == 1:
+            return _FakeResponse(status_code=401, text="unauthorized")
+        return _FakeResponse(
+            status_code=200,
+            json_data={"messages": [{"id": "msg-99"}]},
+        )
+
+    def fake_post(url, *, data, timeout):
+        return _FakeResponse(
+            status_code=200,
+            json_data={"access_token": "fresh-token-after-401", "expires_in": 3599},
+        )
+
+    with patch.object(gmail_mod.httpx, "get", side_effect=fake_get), \
+         patch.object(gmail_mod.httpx, "post", side_effect=fake_post):
+        docs: List[Document] = list(connector.sync())
+
+    assert len(docs) == 1
+    assert docs[0].title == "Hi"
+    assert docs[0].author == "alice@example.com"
+    # First list call carried the stale token; second carried the fresh one.
+    assert list_calls == ["Bearer old-access-token", "Bearer fresh-token-after-401"]
+    # Creds file persisted the new token.
+    on_disk = json.loads(Path(creds_path).read_text(encoding="utf-8"))
+    assert on_disk["access_token"] == "fresh-token-after-401"

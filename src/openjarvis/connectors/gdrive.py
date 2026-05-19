@@ -13,6 +13,7 @@ from typing import Any, Dict, Iterator, List, Optional
 import httpx
 
 from openjarvis.connectors._stubs import BaseConnector, Document, SyncStatus
+from openjarvis.connectors.google_auth import call_with_refresh
 from openjarvis.connectors.oauth import (
     GOOGLE_ALL_SCOPES,
     build_google_auth_url,
@@ -234,16 +235,16 @@ class GDriveConnector(BaseConnector):
         tokens = load_tokens(self._credentials_path)
         if not tokens:
             return
-
-        token: str = tokens.get("access_token", tokens.get("token", ""))
-        if not token:
+        if not tokens.get("access_token") and not tokens.get("token"):
             return
 
         page_token: Optional[str] = cursor
         synced = 0
 
         while True:
-            list_resp = _gdrive_api_list_files(token, page_token=page_token)
+            list_resp = call_with_refresh(
+                _gdrive_api_list_files, self._credentials_path, page_token=page_token
+            )
             files: List[Dict[str, Any]] = list_resp.get("files", [])
 
             for file_meta in files:
@@ -263,7 +264,12 @@ class GDriveConnector(BaseConnector):
                 export_mime = _EXPORT_MIME_MAP.get(mime_type)
                 if export_mime is not None:
                     try:
-                        content = _gdrive_api_export(token, file_id, export_mime)
+                        content = call_with_refresh(
+                            _gdrive_api_export,
+                            self._credentials_path,
+                            file_id,
+                            export_mime,
+                        )
                     except Exception:  # noqa: BLE001
                         content = f"[File: {name}] ({mime_type})"
                 else:

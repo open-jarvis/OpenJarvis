@@ -12,6 +12,7 @@ from typing import Any, Dict, Iterator, Optional
 import httpx
 
 from openjarvis.connectors._stubs import BaseConnector, Document, SyncStatus
+from openjarvis.connectors.google_auth import call_with_refresh
 from openjarvis.connectors.oauth import load_tokens, resolve_google_credentials
 from openjarvis.core.config import DEFAULT_CONFIG_DIR
 from openjarvis.core.registry import ConnectorRegistry
@@ -62,10 +63,10 @@ class GoogleTasksConnector(BaseConnector):
     def sync(
         self, *, since: Optional[datetime] = None, cursor: Optional[str] = None
     ) -> Iterator[Document]:
-        token = self._get_access_token()
-
-        # List all task lists first
-        task_lists = _tasks_api_get(token, "users/@me/lists")
+        # call_with_refresh handles the access-token read + one-shot 401 retry.
+        task_lists = call_with_refresh(
+            _tasks_api_get, str(self._credentials_path), "users/@me/lists"
+        )
 
         for tl in task_lists.get("items", []):
             tl_id = tl["id"]
@@ -79,7 +80,12 @@ class GoogleTasksConnector(BaseConnector):
             if since:
                 params["updatedMin"] = since.isoformat() + "Z"
 
-            tasks = _tasks_api_get(token, f"lists/{tl_id}/tasks", params=params)
+            tasks = call_with_refresh(
+                _tasks_api_get,
+                str(self._credentials_path),
+                f"lists/{tl_id}/tasks",
+                params=params,
+            )
 
             for task in tasks.get("items", []):
                 due = task.get("due", "")

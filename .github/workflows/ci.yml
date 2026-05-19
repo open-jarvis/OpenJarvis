@@ -72,6 +72,8 @@ jobs:
 
       - name: Upload coverage report
         if: always()
+        continue-on-error: true
+        timeout-minutes: 5
         uses: actions/upload-artifact@v4
         with:
           name: coverage-xml

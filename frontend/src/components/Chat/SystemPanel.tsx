@@ -39,6 +39,7 @@ export function SystemPanel() {
   const toggleSystemPanel = useAppStore((s) => s.toggleSystemPanel);
   const optInEnabled = useAppStore((s) => s.optInEnabled);
   const setOptInModalOpen = useAppStore((s) => s.setOptInModalOpen);
+  const liveEnergy = useAppStore((s) => s.liveEnergy);
   const [energy, setEnergy] = useState<EnergyData | null>(null);
   const [telemetry, setTelemetry] = useState<TelemetryStats | null>(null);
 
@@ -129,13 +130,15 @@ export function SystemPanel() {
             <MiniStat
               icon={Zap}
               label="Power"
-              value={(energy?.avg_power_w ?? 0).toFixed(1)}
+              value={(liveEnergy?.power_w ?? energy?.avg_power_w ?? 0).toFixed(1)}
               unit="W"
             />
             <MiniStat
               icon={Activity}
               label="Energy"
-              value={((energy?.total_energy_j ?? 0) / 1000).toFixed(1)}
+              value={(
+                ((liveEnergy?.energy_j ?? energy?.total_energy_j ?? 0) / 1000)
+              ).toFixed(1)}
               unit="kJ"
             />
           </div>

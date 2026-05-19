@@ -93,20 +93,34 @@ class AgentExecutor:
         )
         return agent.run(input_text)
 
-    def execute_tick(self, agent_id: str) -> None:
+    def execute_tick(
+        self, agent_id: str, *, lock_already_held: bool = False
+    ) -> None:
         """Run one tick for the given agent.
 
         1. Acquire concurrency guard (start_tick)
         2. Invoke agent with retry logic
         3. Update stats
         4. Release guard (end_tick)
+
+        ``lock_already_held`` is set by callers that took the start_tick()
+        lock themselves before spawning the worker (e.g. the HTTP /run route
+        guards against concurrent POSTs by acquiring before threading).
+        Without this flag, the executor would re-acquire and trip its own
+        guard — bailing out with no end_tick(), leaving the agent stuck in
+        ``status='running'`` forever.
         """
-        try:
-            self._manager.start_tick(agent_id)
+        if lock_already_held:
             self._set_activity(agent_id, "Preparing tick...")
-        except ValueError:
-            logger.warning("Agent %s already running, skipping tick", agent_id)
-            return
+        else:
+            try:
+                self._manager.start_tick(agent_id)
+                self._set_activity(agent_id, "Preparing tick...")
+            except ValueError:
+                logger.warning(
+                    "Agent %s already running, skipping tick", agent_id
+                )
+                return
 
         agent = self._manager.get_agent(agent_id)
         if agent is None:

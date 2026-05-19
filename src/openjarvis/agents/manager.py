@@ -7,12 +7,15 @@ to the five existing primitives (Intelligence, Agent, Tools, Engine, Learning).
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 _CREATE_AGENTS = """\
 CREATE TABLE IF NOT EXISTS managed_agents (
@@ -123,6 +126,33 @@ class AgentManager:
             except sqlite3.OperationalError:
                 pass  # Column already exists
         self._conn.commit()
+        self._clear_stale_running_state()
+
+    def _clear_stale_running_state(self) -> None:
+        """Reset any agent stuck in ``status='running'`` on startup.
+
+        Tick worker threads are ``daemon=True`` — when the server process
+        exits (SIGTERM, crash, restart), they die without running the
+        ``finally`` clause that calls :meth:`end_tick`, leaving the DB row
+        in ``running`` forever. The :meth:`start_tick` guard then rejects
+        every subsequent run with "Agent is already running".
+
+        A freshly-started process holds zero tick locks by definition, so
+        any persisted ``running`` is a zombie. Sweep it back to ``idle``
+        and clear the activity string so the UI doesn't show a stale
+        "Preparing tick..." indicator.
+        """
+        cur = self._conn.execute(
+            "UPDATE managed_agents SET status = 'idle', current_activity = '',"
+            " updated_at = ? WHERE status = 'running'",
+            (time.time(),),
+        )
+        self._conn.commit()
+        if cur.rowcount:
+            logger.info(
+                "AgentManager: cleared stale 'running' status on %d agent(s)",
+                cur.rowcount,
+            )
 
     def close(self) -> None:
         self._conn.close()

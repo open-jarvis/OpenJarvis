@@ -8,6 +8,8 @@ import 'katex/dist/katex.min.css';
 import { Copy, Check } from 'lucide-react';
 import { AudioPlayer } from './AudioPlayer';
 import { ToolCallCard } from './ToolCallCard';
+import { ResearchTimeline } from './ResearchTimeline';
+import { rehypeCitations } from '../../lib/rehype-citations';
 import { XRayFooter } from './XRayFooter';
 import type { ChatMessage } from '../../types';
 
@@ -19,6 +21,7 @@ function stripThinkTags(text: string): string {
 
 interface Props {
   message: ChatMessage;
+  isLive?: boolean;
 }
 
 function getTextContent(node: any): string {
@@ -97,7 +100,7 @@ function CopyMessageButton({ content }: { content: string }) {
   );
 }
 
-export function MessageBubble({ message }: Props) {
+export function MessageBubble({ message, isLive = false }: Props) {
   const isUser = message.role === 'user';
 
   if (isUser) {
@@ -121,8 +124,33 @@ export function MessageBubble({ message }: Props) {
 
   const cleanContent = useMemo(() => stripThinkTags(message.content), [message.content]);
 
+  // Build a ref→source lookup once per render. Memoized so the rehype plugin
+  // identity stays stable until the source list actually changes.
+  const sourcesMap = useMemo(() => {
+    const m = new Map<number, NonNullable<ChatMessage['researchSources']>[number]>();
+    for (const s of message.researchSources ?? []) {
+      if (typeof s.ref === 'number') m.set(s.ref, s);
+    }
+    return m;
+  }, [message.researchSources]);
+
+  const rehypePlugins = useMemo(() => {
+    const base: any[] = [[rehypeHighlight, { detect: true }], rehypeKatex];
+    if (sourcesMap.size > 0) base.push([rehypeCitations, { sources: sourcesMap }]);
+    return base;
+  }, [sourcesMap]);
+
   return (
     <div className="group mb-6">
+      {/* Deep Research timeline (steps + status) */}
+      {(message.isResearch || (message.researchTraces && message.researchTraces.length > 0)) && (
+        <ResearchTimeline
+          traces={message.researchTraces ?? []}
+          isLive={isLive}
+          hasContent={cleanContent.length > 0}
+        />
+      )}
+
       {/* Tool calls */}
       {message.toolCalls && message.toolCalls.length > 0 && (
         <div className="mb-3 flex flex-col gap-2">
@@ -140,7 +168,7 @@ export function MessageBubble({ message }: Props) {
         <div className="prose max-w-none">
           <ReactMarkdown
             remarkPlugins={[remarkGfm, remarkMath]}
-            rehypePlugins={[[rehypeHighlight, { detect: true }], rehypeKatex]}
+            rehypePlugins={rehypePlugins}
             components={{
               pre: CodeBlockPre,
             }}
@@ -154,7 +182,11 @@ export function MessageBubble({ message }: Props) {
       <div className="flex items-center gap-2 mt-1.5">
         <CopyMessageButton content={cleanContent} />
       </div>
-      <XRayFooter usage={message.usage} telemetry={message.telemetry} />
+      <XRayFooter
+        usage={message.usage}
+        telemetry={message.telemetry}
+        isResearch={message.isResearch}
+      />
     </div>
   );
 }

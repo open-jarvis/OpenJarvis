@@ -146,14 +146,29 @@ export function ChatArea() {
           </div>
         ) : (
           <div className="max-w-[var(--chat-max-width)] mx-auto px-4 py-6">
-            {messages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} />
-            ))}
-            {streamState.isStreaming && streamState.content === '' && (
-              <div className="flex justify-start mb-4">
-                <StreamingDots phase={streamState.phase} />
-              </div>
-            )}
+            {messages.map((msg, i) => {
+              const isLastAssistant =
+                i === messages.length - 1 && msg.role === 'assistant';
+              return (
+                <MessageBubble
+                  key={msg.id}
+                  message={msg}
+                  isLive={isLastAssistant && streamState.isStreaming}
+                />
+              );
+            })}
+            {(() => {
+              if (!streamState.isStreaming || streamState.content !== '') return null;
+              // For research messages the ResearchTimeline handles its own
+              // pre-content loading state — suppress the generic dots.
+              const last = messages[messages.length - 1];
+              if (last?.role === 'assistant' && last.isResearch) return null;
+              return (
+                <div className="flex justify-start mb-4">
+                  <StreamingDots phase={streamState.phase} />
+                </div>
+              );
+            })()}
           </div>
         )}
       </div>

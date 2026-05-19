@@ -33,6 +33,7 @@ export function Sidebar() {
   const serverInfo = useAppStore((s) => s.serverInfo);
   const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen);
   const modelLoading = useAppStore((s) => s.modelLoading);
+  const deepResearch = useAppStore((s) => s.deepResearch);
 
   const settings = useAppStore((s) => s.settings);
   const updateSettings = useAppStore((s) => s.updateSettings);
@@ -143,8 +144,13 @@ export function Sidebar() {
               <Cpu size={14} />
             )}
             <div className="flex-1 min-w-0">
-              <span className="truncate block text-left" style={{ color: 'var(--color-text)' }}>
-                {selectedModel || serverInfo?.model || 'Select model'}
+              <span
+                className="truncate block text-left"
+                style={{ color: deepResearch ? 'var(--color-accent)' : 'var(--color-text)' }}
+              >
+                {deepResearch
+                  ? 'Deep Research'
+                  : selectedModel || serverInfo?.model || 'Select model'}
               </span>
               {modelLoading && (
                 <span className="text-[10px] block text-left" style={{ color: 'var(--color-accent)' }}>
