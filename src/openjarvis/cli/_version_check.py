@@ -118,7 +118,7 @@ def _do_check() -> None:
 
 
 def _get_latest_version(current: str) -> str | None:
-    """Return latest version string from cache or GitHub API."""
+    """Return latest version string from cache or PyPI."""
     try:
         if _CACHE_PATH.exists():
             data = json.loads(_CACHE_PATH.read_text())
