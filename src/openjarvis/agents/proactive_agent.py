@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Proactive Agent — runs on a cron (default 5am local) to autonomously handle
 routine tasks based on learned user behavior.
 
@@ -48,14 +49,11 @@ from openjarvis.tools.approval_store import (
     DECISION_ALWAYS_APPROVE,
     DECISION_ALWAYS_DENY,
     STATUS_APPROVED,
-    TIER_HIGH,
-    TIER_LOW,
     TIER_MEDIUM,
     TIER_TRIVIAL,
     ApprovalStore,
 )
-from openjarvis.tools.proactive_tools import get_store, parse_approval_response
-
+from openjarvis.tools.proactive_tools import get_store
 
 _SYSTEM_PROMPT = """You are a proactive personal assistant agent. You have already collected
 data from the user's connected sources (email, messages, calendar). Your job is to:
@@ -86,6 +84,43 @@ Output a JSON array of action objects inside a single ```json ... ``` block.
 Only include items where action_type is not 'no_action'.
 If nothing needs to be done, output an empty array: ```json [] ```
 
+HARD LIMITS — these keep responses parseable:
+  - Output AT MOST 8 action objects.  Pick the highest-value ones (most
+    clearly safe-to-delete or obviously useful to handle).
+  - Keep each `reasoning` field to ONE short sentence (≤ 15 words).
+  - Keep each `description` field to ONE short sentence (≤ 15 words).
+  - No nested objects beyond what the schema requires.
+  - Your entire visible response MUST be ONLY the fenced JSON block —
+    no explanations, headers, or commentary before or after.
+
+Example response when the digest has two newsletters and a calendar
+invite (use exactly this shape; substitute real ids from the digest):
+
+```json
+[
+  {
+    "action_type": "email_archive",
+    "description": "Archive Substack newsletter from on+stories@substack.com",
+    "payload": {"doc_id": "gmail:18f9...", "message_id": "18f9..."},
+    "permission_key": "email_archive:from:on+stories@substack.com",
+    "tier": "low",
+    "reasoning": "Routine newsletter — safe to archive."
+  },
+  {
+    "action_type": "email_delete",
+    "description": "Delete Wells Fargo marketing email",
+    "payload": {"doc_id": "gmail:18fa...", "message_id": "18fa..."},
+    "permission_key": "email_delete:from:wf.com",
+    "tier": "low",
+    "reasoning": "Marketing email, user already has account."
+  }
+]
+```
+
+Be generous about proposing low-tier actions for marketing emails,
+newsletters, transactional receipts the user has already seen, and
+calendar duplicates — these are the items the user wants triaged.
+
 User context is provided below — use it to tailor decisions to their patterns.
 """
 
@@ -95,16 +130,57 @@ def _load_md_file(path: Path) -> str:
 
 
 def _extract_json_block(text: str) -> Optional[List[Dict[str, Any]]]:
-    """Extract the first ```json ... ``` block from LLM output."""
+    """Extract a JSON array from LLM output.
+
+    Tries (in order):
+      1. ```json ... ``` fenced block (preferred).
+      2. ``` ... ``` fenced block with no language tag.
+      3. First ``[ ... ]`` array in the raw text.
+
+    Returns the parsed list, or ``None`` if nothing parses.
+    """
     import re
 
-    match = re.search(r"```json\s*(.*?)```", text, re.DOTALL)
-    if not match:
-        return None
-    try:
-        return json.loads(match.group(1).strip())
-    except json.JSONDecodeError:
-        return None
+    candidates: List[str] = []
+
+    # 1. ```json ... ``` (case-insensitive)
+    m = re.search(r"```(?:json|JSON)\s*(.*?)```", text, re.DOTALL)
+    if m:
+        candidates.append(m.group(1).strip())
+
+    # 2. Any ``` ... ``` block (model may omit the language tag)
+    for m in re.finditer(r"```\s*(.*?)```", text, re.DOTALL):
+        candidates.append(m.group(1).strip())
+
+    # 3. Raw top-level JSON array anywhere in the text (best-effort,
+    #    balanced-bracket walk so nested objects don't trip us up).
+    start = text.find("[")
+    while start != -1:
+        depth = 0
+        for i in range(start, len(text)):
+            ch = text[i]
+            if ch == "[":
+                depth += 1
+            elif ch == "]":
+                depth -= 1
+                if depth == 0:
+                    candidates.append(text[start : i + 1])
+                    break
+        next_start = text.find("[", start + 1)
+        if next_start == start:
+            break
+        start = next_start
+
+    for raw in candidates:
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, list):
+            return parsed  # type: ignore[return-value]
+        if isinstance(parsed, dict):
+            return [parsed]
+    return None
 
 
 def _build_notification_channel(channel_spec: str) -> Optional[Any]:
@@ -126,7 +202,10 @@ def _build_notification_channel(channel_spec: str) -> Optional[Any]:
 
     # iMessage: wrap send_imessage() in a minimal BaseChannel-compatible shim
     if channel_type == "imessage":
-        from openjarvis.channels._stubs import BaseChannel, ChannelMessage, ChannelStatus
+        from openjarvis.channels._stubs import (
+            BaseChannel,
+            ChannelStatus,
+        )
 
         class _IMessageShim(BaseChannel):
             channel_id = "imessage"
@@ -140,8 +219,11 @@ def _build_notification_channel(channel_spec: str) -> Optional[Any]:
             def disconnect(self) -> None:
                 pass
 
-            def send(self, channel: str, content: str, *, conversation_id: str = "") -> bool:
+            def send(
+                self, channel: str, content: str, *, conversation_id: str = ""
+            ) -> bool:
                 from openjarvis.channels.imessage_daemon import send_imessage
+
                 return send_imessage(self._handle, content)
 
             def status(self) -> ChannelStatus:
@@ -183,7 +265,9 @@ class ProactiveAgent(ToolUsingAgent):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         self._notification_channel_id: str = kwargs.pop("notification_channel_id", "")
         self._hours_back: int = kwargs.pop("hours_back", 24)
-        self._approval_store: Optional[ApprovalStore] = kwargs.pop("approval_store", None)
+        self._approval_store: Optional[ApprovalStore] = kwargs.pop(
+            "approval_store", None
+        )
         self._timezone: str = kwargs.pop("timezone", "America/Los_Angeles")
 
         # Read config defaults before super().__init__ so we can inject tools
@@ -203,7 +287,9 @@ class ProactiveAgent(ToolUsingAgent):
         store = self._approval_store or get_store()
         self._approval_store = store
 
-        notification_channel = _build_notification_channel(self._notification_channel_id)
+        notification_channel = _build_notification_channel(
+            self._notification_channel_id
+        )
         self._notification_channel = notification_channel
 
         from openjarvis.tools.channel_tools import ChannelSendTool
@@ -229,6 +315,14 @@ class ProactiveAgent(ToolUsingAgent):
         # Merge with any tools passed by the caller
         caller_tools: List[Any] = kwargs.pop("tools", None) or []
         kwargs["tools"] = proactive_tools + caller_tools
+
+        # The agent emits a JSON array of proposals — one entry per actionable
+        # item — and a typical morning digest produces dozens. The default
+        # max_tokens (often ~1024) truncates the array mid-element, which the
+        # parser then rejects.  Give it real room unless the caller overrode.
+        kwargs.setdefault("max_tokens", 8192)
+        # Deterministic-ish output makes the JSON shape more reliable.
+        kwargs.setdefault("temperature", 0.2)
 
         super().__init__(*args, **kwargs)
 
@@ -274,12 +368,14 @@ class ProactiveAgent(ToolUsingAgent):
         collect_call = ToolCall(
             id="proactive-collect-1",
             name="digest_collect",
-            arguments=json.dumps({
-                "sources": sources,
-                "hours_back": self._hours_back,
-                "unacted_only": True,
-                "seen_ids": list(seen_ids),
-            }),
+            arguments=json.dumps(
+                {
+                    "sources": sources,
+                    "hours_back": self._hours_back,
+                    "unacted_only": True,
+                    "seen_ids": list(seen_ids),
+                }
+            ),
         )
         collect_result = self._executor.execute(collect_call)
         if not collect_result.success or not collect_result.content.strip():
@@ -302,8 +398,29 @@ class ProactiveAgent(ToolUsingAgent):
             ),
         ]
         llm_result = self._generate(messages)
-        raw_output = self._strip_think_tags(llm_result.get("content", ""))
+        raw_full = llm_result.get("content", "")
+        raw_output = self._strip_think_tags(raw_full)
         proposed: List[Dict[str, Any]] = _extract_json_block(raw_output) or []
+
+        # Debug log — write the raw LLM output and what we parsed out so a
+        # human can diagnose "Nothing to report" without re-running the
+        # whole agent.  Best-effort; never fail the run because of logging.
+        try:
+            from openjarvis.core.config import DEFAULT_CONFIG_DIR
+
+            log_dir = DEFAULT_CONFIG_DIR / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_path = log_dir / "proactive_debug.log"
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(f"\n===== {datetime.now().isoformat()} =====\n")
+                f.write(f"--- digest ({len(collect_result.content)} chars) ---\n")
+                f.write(collect_result.content + "\n")
+                f.write(f"--- llm raw ({len(raw_full)} chars) ---\n")
+                f.write(raw_full + "\n")
+                f.write(f"--- parsed proposals: {len(proposed)} ---\n")
+                f.write(json.dumps(proposed, indent=2, default=str) + "\n")
+        except Exception:
+            pass
 
         # --- Step 3: Route each proposed action ---
         auto_approve_ids: List[str] = []
@@ -333,7 +450,9 @@ class ProactiveAgent(ToolUsingAgent):
                 tier=tier,
             )
 
-            if tier == TIER_TRIVIAL or (rule and rule.decision == DECISION_ALWAYS_APPROVE):
+            if tier == TIER_TRIVIAL or (
+                rule and rule.decision == DECISION_ALWAYS_APPROVE
+            ):
                 store.update_status(action.id, STATUS_APPROVED)
                 auto_approve_ids.append(action.id)
             else:
@@ -361,10 +480,12 @@ class ProactiveAgent(ToolUsingAgent):
             send_call = ToolCall(
                 id="proactive-notify-1",
                 name="channel_send",
-                arguments=json.dumps({
-                    "channel": self._notification_channel_id,
-                    "content": notification,
-                }),
+                arguments=json.dumps(
+                    {
+                        "channel": self._notification_channel_id,
+                        "content": notification,
+                    }
+                ),
             )
             self._executor.execute(send_call)
             for action in pending_actions:
@@ -401,9 +522,11 @@ class ProactiveAgent(ToolUsingAgent):
                 lines.append("")
             lines.append(f"Needs your approval ({len(pending)} actions):")
             for action in pending:
-                tier_label = {"low": "low-risk", "medium": "medium", "high": "HIGH"}.get(
-                    action.tier, action.tier
-                )
+                tier_label = {
+                    "low": "low-risk",
+                    "medium": "medium",
+                    "high": "HIGH",
+                }.get(action.tier, action.tier)
                 lines.append(f"  [{action.id}] ({tier_label}) {action.description}")
             lines.append("")
             lines.append(
