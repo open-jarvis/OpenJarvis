@@ -188,6 +188,12 @@ jobs:
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          # Tauri's build script requires strict SemVer (MAJOR.MINOR.PATCH[-pre][+build]).
+          # PEP 440 dev releases (`1.0.2.dev661`) are NOT valid SemVer, so we
+          # translate `.devN` to the SemVer-equivalent `-dev.N` prerelease form.
+          # PyPI keeps the PEP 440 form; only the Tauri bundle uses SemVer.
+          TAURI_VERSION="${VERSION/.dev/-dev.}"
+          echo "tauri_version=${TAURI_VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Configure Apple signing
         if: runner.os == 'macOS'
@@ -223,7 +229,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          TAURI_CONFIG: '{"version":"${{ steps.release-info.outputs.version }}","bundle":{"externalBin":["binaries/ollama"]}}'
+          TAURI_CONFIG: '{"version":"${{ steps.release-info.outputs.tauri_version }}","bundle":{"externalBin":["binaries/ollama"]}}'
         with:
           projectPath: frontend
           tauriScript: npx tauri
