@@ -11,9 +11,14 @@ on:
       - 'frontend/**'
       - '.github/workflows/desktop.yml'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build (e.g. v1.0.2.dev500). If set, autotag dispatches use this. github.ref still controls the checkout.'
+        required: false
+        type: string
 
 concurrency:
-  group: desktop-${{ github.ref }}
+  group: desktop-${{ inputs.tag || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -168,9 +173,16 @@ jobs:
             echo "name=Desktop (Latest Build)" >> "$GITHUB_OUTPUT"
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           else
-            # workflow_dispatch fallback
+            # workflow_dispatch fallback (manual UI dispatch without --ref).
+            # Derive a PEP 440 dev version aligned with autotag.yml so we
+            # don't burn the X.Y.Z release-version namespace.
+            BASE=$(grep -E '^version = "' pyproject.toml | head -1 | sed -E 's/^version = "([^"]+)"/\1/')
+            MAJOR=$(echo "$BASE" | cut -d. -f1)
+            MINOR=$(echo "$BASE" | cut -d. -f2)
+            PATCH=$(echo "$BASE" | cut -d. -f3 | sed -E 's/[^0-9].*$//')
+            NEXT_PATCH=$((PATCH + 1))
             BUILD=$(git rev-list --count HEAD)
-            VERSION="1.0.${BUILD}"
+            VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}.dev${BUILD}"
             echo "tag=desktop-latest" >> "$GITHUB_OUTPUT"
             echo "name=Desktop (Latest Build)" >> "$GITHUB_OUTPUT"
             echo "prerelease=true" >> "$GITHUB_OUTPUT"

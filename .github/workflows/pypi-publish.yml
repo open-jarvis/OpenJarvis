@@ -7,6 +7,11 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish (e.g. v1.0.2.dev500). Overrides github.ref.'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -17,7 +22,22 @@ jobs:
     runs-on: ubuntu-latest
     environment: pypi
     steps:
+      - name: Resolve target ref
+        id: ref
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          DEFAULT_REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$INPUT_TAG" ]]; then
+            echo "ref=${INPUT_TAG}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${DEFAULT_REF}" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v8.0.0
@@ -31,17 +51,42 @@ jobs:
 
       - name: Build frontend and bundle into package
         run: |
+          set -euo pipefail
           cd frontend
           npm ci
           npm run build
-          rm -rf ../src/openjarvis/server/static/*
-          cp -r dist/. ../src/openjarvis/server/static/
+          # Fail loudly if Vite produced an empty/partial bundle — otherwise
+          # we'd silently ship a wheel with a broken web UI.
+          test -s dist/index.html || {
+            echo "::error::frontend/dist/index.html missing or empty after build"
+            exit 1
+          }
+          STATIC=../src/openjarvis/server/static
+          mkdir -p "$STATIC"
+          rm -rf "$STATIC"/*
+          cp -r dist/. "$STATIC/"
+          test -s "$STATIC/index.html" || {
+            echo "::error::static/index.html missing after copy"
+            exit 1
+          }
 
       - name: Set version from tag
-        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          REF: ${{ steps.ref.outputs.ref }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          set -euo pipefail
+          # Strip leading "v" if present (e.g. v1.0.2.dev500 -> 1.0.2.dev500)
+          VERSION="${REF#v}"
+          if [[ -z "$VERSION" ]]; then
+            echo "::error::Could not resolve version from ref '$REF'"
+            exit 1
+          fi
           sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" pyproject.toml
+          # Sanity check the substitution actually took
+          grep -q "^version = \"${VERSION}\"" pyproject.toml || {
+            echo "::error::sed failed to update pyproject.toml version"
+            exit 1
+          }
           echo "Building version $VERSION"
 
       - name: Build package

@@ -1,4 +1,4 @@
-"""Check for newer OpenJarvis releases on GitHub."""
+"""Check for newer OpenJarvis releases on PyPI."""
 
 from __future__ import annotations
 
@@ -12,9 +12,17 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 _CACHE_PATH = Path("~/.openjarvis/version-check.json").expanduser()
-_CONFIG_PATH = Path("~/.openjarvis/config.toml").expanduser()
 _CACHE_TTL = 86400  # 24 hours
 _PYPI_API = "https://pypi.org/pypi/openjarvis/json"
+
+
+def _config_path() -> Path:
+    """Resolve the config path, honoring ``OPENJARVIS_CONFIG`` like core.config."""
+    override = os.environ.get("OPENJARVIS_CONFIG")
+    if override:
+        return Path(override).expanduser()
+    return Path("~/.openjarvis/config.toml").expanduser()
+
 
 # Commands that surface the "new version available" nudge. We deliberately
 # cast a wide net for interactive commands (anything a human runs at a
@@ -59,19 +67,33 @@ def _check_disabled() -> bool:
 
 
 def _config_disabled() -> bool:
-    """Return True if ~/.openjarvis/config.toml has auto_update = false."""
-    try:
-        if not _CONFIG_PATH.exists():
-            return False
-        try:
-            import tomllib
-        except ImportError:
-            import tomli as tomllib  # type: ignore[no-redef]
-        with open(_CONFIG_PATH, "rb") as f:
-            config = tomllib.load(f)
-        return not config.get("updates", {}).get("auto_update", True)
-    except Exception:
+    """Return True if config.toml has ``[updates] auto_update = false``.
+
+    On a malformed config we conservatively return ``True`` — if the user
+    tried to express an opt-out and the file has a typo, we should not
+    silently flip back to auto-checking against their intent.
+    """
+    path = _config_path()
+    if not path.exists():
         return False
+    try:
+        import tomllib
+    except ImportError:  # Python 3.10
+        try:
+            import tomli as tomllib  # type: ignore[no-redef]
+        except ImportError:
+            logger.debug("tomli not available, skipping config opt-out check")
+            return False
+    try:
+        with open(path, "rb") as f:
+            config = tomllib.load(f)
+    except OSError as exc:
+        logger.debug("config read failed: %s", exc)
+        return False
+    except tomllib.TOMLDecodeError as exc:
+        logger.debug("config malformed at %s: %s — treating as opt-out", path, exc)
+        return True
+    return not config.get("updates", {}).get("auto_update", True)
 
 
 def check_for_updates(command_name: str) -> None:
@@ -79,8 +101,7 @@ def check_for_updates(command_name: str) -> None:
 
     Honors ``OPENJARVIS_NO_UPDATE_CHECK=1`` and ``CI=true`` — any
     truthy value (``1``, ``true``, ``yes``, ``on``) disables both the
-    GitHub poll and the banner. See ``_check_disabled`` for the full
-    list.
+    PyPI poll and the banner. See ``_check_disabled`` for the full list.
     """
     if command_name not in _CHECK_COMMANDS:
         return
@@ -109,7 +130,7 @@ def _do_check() -> None:
             cmd = detect_install().upgrade_command
             sys.stderr.write(
                 f"\033[33mA new version of OpenJarvis is available "
-                f"(v{current} \u2192 v{latest})\n"
+                f"(v{current} → v{latest})\n"
                 f"Update: {cmd}\n"
                 f"Or run: jarvis self-update\033[0m\n\n"
             )
@@ -118,23 +139,25 @@ def _do_check() -> None:
 
 
 def _get_latest_version(current: str) -> str | None:
-    """Return latest version string from cache or PyPI."""
+    """Return the latest non-prerelease version string from cache or PyPI.
+
+    Returns ``None`` on network/parse failures rather than caching a stale
+    or empty result. Dev/pre-release versions (``.devN``, ``aN``, ``bN``,
+    ``rcN``) are filtered out so users on a stable release are not nudged
+    to a rolling autotag build — they can still opt in via ``--pre``.
+    """
     try:
         if _CACHE_PATH.exists():
             data = json.loads(_CACHE_PATH.read_text())
             last_check = data.get("last_check", 0)
             if time.time() - last_check < _CACHE_TTL:
-                return data.get("latest_version")
+                cached = data.get("latest_version")
+                return cached or None
     except Exception:
         pass
 
-    try:
-        import urllib.request
-
-        with urllib.request.urlopen(_PYPI_API, timeout=3) as resp:
-            data = json.loads(resp.read())
-            latest = data.get("info", {}).get("version", "")
-    except Exception:
+    latest = _fetch_latest_stable()
+    if not latest:
         return None
 
     try:
@@ -152,3 +175,40 @@ def _get_latest_version(current: str) -> str | None:
         pass
 
     return latest
+
+
+def _fetch_latest_stable() -> str | None:
+    """Query PyPI and return the highest non-prerelease version, or ``None``."""
+    try:
+        import urllib.request
+
+        with urllib.request.urlopen(_PYPI_API, timeout=3) as resp:
+            data = json.loads(resp.read())
+    except Exception as exc:
+        logger.debug("PyPI poll failed: %s", exc)
+        return None
+
+    try:
+        from packaging.version import InvalidVersion, Version
+    except ImportError:
+        # Fall back to the raw info.version if packaging isn't installed.
+        return data.get("info", {}).get("version") or None
+
+    releases = data.get("releases", {})
+    stable: list[Version] = []
+    for raw in releases.keys():
+        try:
+            v = Version(raw)
+        except InvalidVersion:
+            continue
+        if v.is_prerelease or v.is_devrelease:
+            continue
+        stable.append(v)
+
+    if stable:
+        return str(max(stable))
+
+    # No stable releases yet — fall back to info.version (handles brand-new
+    # projects that have only published dev releases).
+    info_version = data.get("info", {}).get("version")
+    return info_version or None
