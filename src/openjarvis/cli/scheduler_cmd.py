@@ -251,7 +251,7 @@ def scheduler_run_task(agent_name: str, dry_run: bool) -> None:
             return
 
         if dry_run:
-            console.print(f"[dim]Dry run — would execute:[/dim]")
+            console.print("[dim]Dry run — would execute:[/dim]")
             console.print(f"  Task : {match.id}")
             console.print(f"  Agent: {match.agent}")
             console.print(f"  Prompt: {match.prompt[:80]}")
@@ -259,13 +259,21 @@ def scheduler_run_task(agent_name: str, dry_run: bool) -> None:
 
         console.print(f"Running task [cyan]{match.id}[/cyan] (agent: {match.agent})…")
 
-        from openjarvis.sdk import JarvisSystem
+        from openjarvis.core.config import load_config
+        from openjarvis.system import SystemBuilder
 
-        system = JarvisSystem()
+        system = SystemBuilder(load_config()).build()
         result = system.ask(match.prompt, agent=match.agent)
 
         # Log the run result in the scheduler store
         from datetime import datetime, timezone
+
+        if isinstance(result, (dict, list)):
+            import json as _json
+
+            result_str = _json.dumps(result, default=str)
+        else:
+            result_str = str(result) if result is not None else ""
 
         now = datetime.now(timezone.utc).isoformat()
         store.log_run(
@@ -273,7 +281,7 @@ def scheduler_run_task(agent_name: str, dry_run: bool) -> None:
             started_at=now,
             finished_at=now,
             success=True,
-            result=result or "",
+            result=result_str,
             error="",
         )
 
