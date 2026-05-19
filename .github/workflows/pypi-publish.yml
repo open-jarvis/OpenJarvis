@@ -54,19 +54,16 @@ jobs:
           set -euo pipefail
           cd frontend
           npm ci
+          # Vite is configured (frontend/vite.config.ts) with
+          # `outDir: '../src/openjarvis/server/static'` and
+          # `emptyOutDir: true`, so the build writes directly into the
+          # Python package's static dir and clears stale assets itself.
+          # No rm/cp is needed — and the previous `dist/`-assuming logic
+          # was broken because `frontend/dist/` is never produced.
           npm run build
-          # Fail loudly if Vite produced an empty/partial bundle — otherwise
-          # we'd silently ship a wheel with a broken web UI.
-          test -s dist/index.html || {
-            echo "::error::frontend/dist/index.html missing or empty after build"
-            exit 1
-          }
           STATIC=../src/openjarvis/server/static
-          mkdir -p "$STATIC"
-          rm -rf "$STATIC"/*
-          cp -r dist/. "$STATIC/"
           test -s "$STATIC/index.html" || {
-            echo "::error::static/index.html missing after copy"
+            echo "::error::${STATIC}/index.html missing or empty after build"
             exit 1
           }
 
