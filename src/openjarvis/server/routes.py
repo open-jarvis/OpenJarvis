@@ -139,13 +139,22 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
 
     if request_body.stream:
         bus = getattr(request.app.state, "bus", None)
-        # Use the agent stream bridge only when tools are present (the
-        # bridge runs agent.run() synchronously and word-splits the result,
-        # so it can't stream tokens in real-time).  For plain chat, stream
-        # directly from the engine for true token-by-token output.
-        if agent is not None and bus is not None and request_body.tools:
+        # Route through the agent bridge when the server was started with an
+        # agent that has tools — otherwise the frontend (which doesn't send
+        # `tools`) would silently bypass tools / skills / web_search and the
+        # user would never see those capabilities surface in the main chat.
+        # We accept the agent bridge's word-split pseudo-streaming as the
+        # trade-off because losing capability is worse than losing token-level
+        # smoothness.  For truly plain chat (no agent tools), keep the fast
+        # direct engine stream so token-by-token output still works.
+        agent_has_tools = bool(
+            request_body.tools or getattr(agent, "_tools", None)
+        )
+        if agent is not None and bus is not None and agent_has_tools:
             return await _handle_agent_stream(agent, bus, model, request_body)
-        return await _handle_stream(engine, model, request_body, complexity_info)
+        return await _handle_stream(
+            engine, model, request_body, complexity_info, agent=agent
+        )
 
     # Non-streaming: use agent if available, otherwise direct engine call
     if agent is not None:
@@ -303,8 +312,14 @@ async def _handle_stream(
     model: str,
     req: ChatCompletionRequest,
     complexity_info=None,
+    agent=None,
 ):
-    """Stream response using SSE format."""
+    """Stream response using SSE format.
+
+    When ``agent`` is provided and the request has no SYSTEM message, we
+    prepend ``config.agent.default_system_prompt`` (+ prompt middleware,
+    e.g. current date/time) so direct-stream chats stay grounded.
+    """
     from openjarvis.server.cloud_router import (
         is_cloud_model,
         stream_cloud,
@@ -312,6 +327,28 @@ async def _handle_stream(
     )
 
     messages = _to_messages(req.messages)
+    if agent is not None and not any(m.role == Role.SYSTEM for m in messages):
+        try:
+            from openjarvis.agents.prompt_middleware import (
+                apply_chain,
+                build_default_middleware,
+            )
+            from openjarvis.core.config import load_config
+
+            cfg = load_config()
+            system_prompt = cfg.agent.default_system_prompt or None
+            if system_prompt:
+                system_prompt = apply_chain(
+                    system_prompt, build_default_middleware(cfg)
+                )
+                messages.insert(
+                    0, Message(role=Role.SYSTEM, content=system_prompt)
+                )
+        except Exception:
+            logging.getLogger("openjarvis.server").debug(
+                "Failed to inject system prompt for direct stream",
+                exc_info=True,
+            )
     chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
 
     # Route directly to the right backend — bypasses engine routing entirely
