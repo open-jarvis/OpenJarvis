@@ -470,6 +470,21 @@ class KnowledgeStore(MemoryBackend):
         row = self._conn.execute("SELECT COUNT(*) FROM knowledge_chunks").fetchone()
         return row[0] if row else 0
 
+    def distinct_sources(self) -> List[str]:
+        """Return the sorted list of distinct ``source`` values currently indexed.
+
+        Used by the research agent to populate the system prompt with the
+        sources the user actually has connected — so the model doesn't
+        mention "Notion" or "Apple Notes" when nothing from those sources
+        is in the corpus.
+        """
+        rows = self._conn.execute(
+            "SELECT DISTINCT source FROM knowledge_chunks "
+            "WHERE source IS NOT NULL AND source != '' "
+            "ORDER BY source"
+        ).fetchall()
+        return [r[0] for r in rows]
+
     def close(self) -> None:
         """Close the underlying SQLite connection."""
         try:

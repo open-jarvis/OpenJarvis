@@ -17,10 +17,11 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from openjarvis.connectors.hybrid_search import HybridSearch, SearchHit
 from openjarvis.core.types import Message, Role, ToolCall
@@ -125,7 +126,12 @@ SEARCH_TOOL_SPEC: Dict[str, Any] = {
 }
 
 
-SYSTEM_PROMPT = """You are a research assistant with access to the user's personal knowledge corpus (their email, notes, calendar). You answer questions by calling two tools:
+SYSTEM_PROMPT = """You are a research assistant with access to the user's personal knowledge corpus.
+
+The user's corpus contains data from these sources only:
+{available_sources}
+
+You answer questions by calling two tools:
 
     search(query, person=None, time_range=None, sources=None, limit=20)
     clarify(question)
@@ -134,7 +140,8 @@ Strategy:
   1. If the user names a person, ALWAYS pass `person=` rather than relying on lexical match. Hybrid search will fuzzy-match name or address fragments.
   2. When the user mentions ANY time window — "this past week", "recently", "last month", "past few days", "yesterday" — you MUST translate it to a `time_range` parameter. Today is {today}.
   3. The `time_range` argument is a JSON object: `{{"start": "<ISO 8601>", "end": "<ISO 8601>"}}`. Either bound may be omitted, but pass at least one whenever the user gave you a temporal cue.
-  4. When the user names a specific data source — "my Granola notes", "in Slack", "from my email", "in Notion" — you MUST pass `sources=[...]` with the matching connector ID(s). Use lowercase IDs: granola, slack, gmail, notion, obsidian, gcalendar, gdrive, gmail_imap, outlook, imessage, whatsapp, apple_notes. Common synonyms: "meeting notes"/"meetings"/"transcripts" → granola; "email"/"inbox" → gmail; "DMs"/"channels" → slack. Without this filter the search returns mail/messages ABOUT a tool instead of records FROM that tool.
+  4. When the user names a specific data source — "my Granola notes", "in Slack", "from my email" — you MUST pass `sources=[...]` with the matching connector ID. Only use IDs that appear in the connected-sources list above; do NOT invent or assume sources that are not connected. Common synonyms: "meeting notes"/"meetings"/"transcripts" → granola; "email"/"inbox" → gmail; "DMs"/"channels" → slack. Without this filter the search returns mail/messages ABOUT a tool instead of records FROM that tool.
+  4a. Never apologize about sources that aren't in the connected-sources list — if the user asks about "Notion" but Notion isn't connected, just say "Notion isn't connected, but here's what I found in {available_sources}" and answer from what is available.
   5. If the first structured search returns nothing useful, broaden with a semantic query and drop filters one at a time.
   6. You have a clarify tool. Only use it AFTER at least one search attempt. Use it when: you found multiple ambiguous matches (e.g. 3 different people named John), search returned zero results and the query might need reframing, or the scope is too broad to synthesize meaningfully. Never use clarify before searching — always try first.
   7. After receiving a clarify response, use the information to construct a precise search with the correct person, time_range, sources, and query parameters. Never send an empty query or a query with no parameters — extract every concrete signal from the user's reply (names, dates, topics, sources) and put it on the call.
@@ -170,21 +177,24 @@ def shape_results_for_model(
     detailed_top: int = 5,
     thread_ctx_per_hit: int = 3,
     total_cap: int = 20,
+    ref_offset: int = 0,
 ) -> Dict[str, Any]:
     """Compact a hit list into a JSON payload the planner can chew through.
 
     The first ``detailed_top`` rows keep their content snippet and trimmed
     thread context; the remainder are summarised to title + sender + date so
     the planner still sees the breadth of what's available without blowing the
-    context window. Each hit gets a 1-indexed numeric ``ref`` so the synthesis
-    can cite it as ``[N]``.
+    context window. Each hit gets a numeric ``ref`` (1-indexed, plus
+    ``ref_offset``) so the synthesis can cite it as ``[N]``. The offset lets
+    multi-search runs hand the planner globally unique refs across calls so
+    a later renumbering pass can dedupe by first appearance.
     """
     out_hits: List[Dict[str, Any]] = []
     visible = hits[:total_cap]
     for i, h in enumerate(visible):
         sender = h.participants[0] if h.participants else ""
         base = {
-            "ref": i + 1,
+            "ref": i + 1 + ref_offset,
             "title": h.title,
             "sender": sender,
             "timestamp": h.timestamp,
@@ -288,10 +298,76 @@ def _hit_url(source: str, document_id: str) -> str:
     return ""
 
 
+_CITE_RE = re.compile(r"\[(\d+)\]")
+
+
+def renumber_citations(
+    text: str,
+    ref_to_source: Dict[int, Dict[str, Any]],
+) -> Tuple[str, List[Dict[str, Any]]]:
+    """Renumber ``[N]`` citations in ``text`` by first-appearance order.
+
+    The planner sees globally-offset refs across multiple search calls
+    (search 1 returns 1..20, search 2 returns 21..40, …). When the
+    synthesis arrives, the first ref the model actually cited becomes
+    ``[1]``, the second unique one becomes ``[2]``, and so on. Repeats
+    map to the same new ref. Refs the synthesis never cites are dropped
+    from the returned ``sources`` list — only the ones the user can
+    actually click on get carried through.
+
+    Parameters
+    ----------
+    text:
+        Synthesis text containing inline ``[N]`` references.
+    ref_to_source:
+        Mapping from the original (offset) ref to the source dict that
+        ``build_sources_for_client`` produced for that hit.
+
+    Returns
+    -------
+    (new_text, ordered_sources)
+        ``new_text`` has every cited ``[N]`` rewritten to its new
+        sequence number. ``ordered_sources`` is the deduped list of
+        source dicts in the order they appear in the synthesis, each
+        with its ``ref`` field set to the new sequence number.
+    """
+    old_to_new: Dict[int, int] = {}
+    ordered: List[Dict[str, Any]] = []
+    for m in _CITE_RE.finditer(text):
+        try:
+            old = int(m.group(1))
+        except ValueError:
+            continue
+        if old in old_to_new:
+            continue
+        src = ref_to_source.get(old)
+        if src is None:
+            # Synthesis cited a ref that doesn't exist in the corpus —
+            # leave the literal text alone, drop the source entry.
+            continue
+        new_ref = len(ordered) + 1
+        old_to_new[old] = new_ref
+        renumbered_src = dict(src)
+        renumbered_src["ref"] = new_ref
+        ordered.append(renumbered_src)
+
+    def _replace(match: "re.Match[str]") -> str:
+        try:
+            old = int(match.group(1))
+        except ValueError:
+            return match.group(0)
+        new = old_to_new.get(old)
+        return f"[{new}]" if new is not None else match.group(0)
+
+    new_text = _CITE_RE.sub(_replace, text)
+    return new_text, ordered
+
+
 def build_sources_for_client(
     hits: List[SearchHit],
     *,
     total_cap: int = 20,
+    ref_offset: int = 0,
 ) -> List[Dict[str, Any]]:
     """Produce the citation-friendly sources list streamed to the frontend.
 
@@ -312,10 +388,11 @@ def build_sources_for_client(
         url = h.url or _hit_url(h.source, h.document_id)
         out.append(
             {
-                "ref": i + 1,
+                "ref": i + 1 + ref_offset,
                 "title": h.title,
                 "sender": sender,
                 "date": _hit_date(h.timestamp),
+                "source": h.source,
                 "source_id": _bare_doc_id(h.source, h.document_id),
                 "url": url,
             }
@@ -408,6 +485,7 @@ class ResearchAgent:
         num_ctx: int = 16384,
         clarify_handler: Optional[Callable[[str], str]] = None,
         on_event: Optional[Callable[[Dict[str, Any]], None]] = None,
+        available_sources: Optional[List[str]] = None,
     ) -> None:
         self._engine = engine
         self._search = search
@@ -418,6 +496,10 @@ class ResearchAgent:
         self._num_ctx = int(num_ctx)
         self._clarify_handler = clarify_handler or _default_clarify_handler
         self._on_event = on_event
+        # Explicit list wins; otherwise we'll discover sources from the
+        # KnowledgeStore on each run() call so the prompt stays accurate
+        # even as the user connects new connectors mid-session.
+        self._available_sources_override = available_sources
 
     def _emit(self, event: Dict[str, Any]) -> None:
         """Fire ``self._on_event`` if set; swallow callback errors."""
@@ -504,16 +586,55 @@ class ResearchAgent:
     # Loop
     # ------------------------------------------------------------------
 
+    def _resolve_available_sources(self) -> List[str]:
+        """Return the source IDs the user actually has data for.
+
+        Override > live query of the KnowledgeStore. Failure to read the
+        store (e.g. no _store attribute on the search backend) returns
+        ``[]`` so the prompt still formats — better empty than crashing.
+        """
+        if self._available_sources_override is not None:
+            return list(self._available_sources_override)
+        store = getattr(self._search, "_store", None)
+        if store is None:
+            return []
+        try:
+            return list(store.distinct_sources())
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("distinct_sources() failed: %s", exc)
+            return []
+
     def run(self, query: str) -> ResearchResult:
         """Run the loop end-to-end and return the synthesis plus a trace."""
+        sources_list = self._resolve_available_sources()
+        if sources_list:
+            sources_blurb = ", ".join(sources_list)
+        else:
+            sources_blurb = (
+                "(no connected sources — tell the user to connect a "
+                "connector before searching)"
+            )
         sys_msg = Message(
             role=Role.SYSTEM,
-            content=SYSTEM_PROMPT.format(today=datetime.now().isoformat(timespec="minutes")),
+            content=SYSTEM_PROMPT.format(
+                today=datetime.now().isoformat(timespec="minutes"),
+                available_sources=sources_blurb,
+            ),
         )
         messages: List[Message] = [sys_msg, Message(role=Role.USER, content=query)]
 
         invocations: List[ToolInvocation] = []
         total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+        # Global ref counter: each search increments by the number of hits
+        # it returned so the planner sees unique refs across calls. The
+        # accumulator lets us renumber whatever the synthesis cites at the
+        # end into a single deduped client-facing sources list.
+        next_ref: int = 1
+        ref_to_source: Dict[int, Dict[str, Any]] = {}
+
+        def _finalize(text: str) -> Tuple[str, List[Dict[str, Any]]]:
+            return renumber_citations(text, ref_to_source)
 
         iterations = 0
         for _ in range(self._max_iterations + 1):
@@ -539,8 +660,14 @@ class ResearchAgent:
 
             if not tool_calls_raw:
                 if content.strip():
-                    answer = content.strip()
-                    self._emit({"type": "final_answer", "text": answer})
+                    answer, final_sources = _finalize(content.strip())
+                    self._emit(
+                        {
+                            "type": "final_answer",
+                            "text": answer,
+                            "sources": final_sources,
+                        }
+                    )
                     return ResearchResult(
                         answer=answer,
                         iterations=iterations,
@@ -561,7 +688,9 @@ class ResearchAgent:
                     )
                     continue
                 fallback = "(model returned no content and no tool calls)"
-                self._emit({"type": "final_answer", "text": fallback})
+                self._emit(
+                    {"type": "final_answer", "text": fallback, "sources": []}
+                )
                 return ResearchResult(
                     answer=fallback,
                     iterations=iterations,
@@ -598,16 +727,24 @@ class ResearchAgent:
                     self._emit({"type": "search_call", "arguments": args})
                     inv = self._execute_search(args)
                     invocations.append(inv)
+                    offset = next_ref - 1
+                    sources_for_search = build_sources_for_client(
+                        inv.raw_hits, ref_offset=offset
+                    )
                     self._emit(
                         {
                             "type": "search_result",
                             "num_hits": inv.num_results,
                             "top_titles": inv.top_titles,
-                            "sources": build_sources_for_client(inv.raw_hits),
+                            "sources": sources_for_search,
                         }
                     )
+                    for src in sources_for_search:
+                        ref_to_source[int(src["ref"])] = src
+                    next_ref += len(sources_for_search)
                     tool_output = json.dumps(
-                        shape_results_for_model(inv.raw_hits), ensure_ascii=False
+                        shape_results_for_model(inv.raw_hits, ref_offset=offset),
+                        ensure_ascii=False,
                     )
                 elif name == "clarify":
                     # Enforce the "search first" rule at runtime so we don't
@@ -705,7 +842,10 @@ class ResearchAgent:
                 "(no synthesis available — the search budget was exhausted "
                 "and the model returned no text response)"
             )
-        self._emit({"type": "final_answer", "text": answer})
+        answer, final_sources = _finalize(answer)
+        self._emit(
+            {"type": "final_answer", "text": answer, "sources": final_sources}
+        )
         return ResearchResult(
             answer=answer,
             iterations=iterations,

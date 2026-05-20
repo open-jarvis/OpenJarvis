@@ -18,6 +18,8 @@ from openjarvis.agents.research_loop import (
     ResearchAgent,
     _hit_url,
     build_sources_for_client,
+    renumber_citations,
+    shape_results_for_model,
 )
 from openjarvis.connectors.hybrid_search import SearchHit
 
@@ -389,3 +391,221 @@ def test_system_prompt_mandates_sources_extraction() -> None:
     # Synonym mapping for the most-common alias.
     assert "granola" in SYSTEM_PROMPT.lower()
     assert "meeting notes" in SYSTEM_PROMPT.lower()
+    # The dynamic placeholder is what's interpolated per-run.
+    assert "{available_sources}" in SYSTEM_PROMPT
+
+
+# ---------------------------------------------------------------------------
+# Dynamic available_sources — only list what the user actually has connected
+# ---------------------------------------------------------------------------
+
+
+def test_available_sources_override_appears_in_prompt(
+    stub_search: MagicMock,
+) -> None:
+    """An explicit override is injected into the system prompt verbatim.
+
+    Without this the agent will reference disconnected sources ("I couldn't
+    find anything in Notion or Apple Notes") even when those connectors
+    have never been wired up.
+    """
+    engine = _MockEngine(responses=[_text_response("ok")])
+    agent = ResearchAgent(
+        engine,
+        stub_search,
+        model="mock",
+        max_iterations=1,
+        available_sources=["gmail", "slack", "granola"],
+    )
+    agent.run("hi")
+    sys_content = engine.calls[0]["messages"][0].content
+    # The connected-sources blurb is interpolated verbatim.
+    assert "gmail, slack, granola" in sys_content
+    # And the prompt no longer hard-codes a static "Valid IDs include..."
+    # enumeration of unconnected sources — those that aren't in the
+    # available_sources list shouldn't appear in any *listing*. (Rule 4a
+    # still uses Notion as a *narrative example* of how to handle an
+    # unconnected source, which is intentional.)
+    assert "obsidian" not in sys_content.lower()
+    assert "apple_notes" not in sys_content.lower()
+    assert "gdrive" not in sys_content.lower()
+
+
+def test_available_sources_fall_back_to_store(stub_search: MagicMock) -> None:
+    """When no override is given, the agent queries the KnowledgeStore.
+
+    Mirrors the live wiring used by the SSE research router: a HybridSearch
+    instance that exposes a ``_store`` with ``distinct_sources()``.
+    """
+    fake_store = MagicMock()
+    fake_store.distinct_sources.return_value = ["granola", "slack"]
+    stub_search._store = fake_store
+
+    engine = _MockEngine(responses=[_text_response("ok")])
+    agent = ResearchAgent(engine, stub_search, model="mock", max_iterations=1)
+    agent.run("hi")
+
+    fake_store.distinct_sources.assert_called_once()
+    sys_content = engine.calls[0]["messages"][0].content
+    assert "granola, slack" in sys_content
+
+
+def test_available_sources_empty_message_when_nothing_connected(
+    stub_search: MagicMock,
+) -> None:
+    """No connected sources surfaces a clear message instead of a stray {}.
+
+    A missing placeholder would crash `str.format`; a broken format would
+    leave a raw ``{available_sources}`` in the prompt. Both are bad UX —
+    the test pins the friendly fallback string.
+    """
+    stub_search._store = None
+    engine = _MockEngine(responses=[_text_response("ok")])
+    agent = ResearchAgent(
+        engine,
+        stub_search,
+        model="mock",
+        max_iterations=1,
+        available_sources=[],
+    )
+    agent.run("hi")
+    sys_content = engine.calls[0]["messages"][0].content
+    assert "no connected sources" in sys_content
+    assert "{available_sources}" not in sys_content
+
+
+# ---------------------------------------------------------------------------
+# Ref offsetting + citation renumbering
+# ---------------------------------------------------------------------------
+
+
+def test_shape_results_for_model_respects_ref_offset() -> None:
+    """Multi-search runs hand the model globally unique refs.
+
+    Without offsets, two searches each emit refs 1..20 and the model can't
+    disambiguate ``[5]`` across calls — which breaks the renumbering pass
+    that runs over the final synthesis.
+    """
+    hits = [_mk_hit(title=f"t{i}", document_id=f"granola:{i}") for i in range(3)]
+    shaped = shape_results_for_model(hits, ref_offset=20)
+    refs = [h["ref"] for h in shaped["hits"]]
+    assert refs == [21, 22, 23]
+
+
+def test_build_sources_for_client_respects_ref_offset() -> None:
+    """``build_sources_for_client`` agrees with ``shape_results_for_model``."""
+    hits = [_mk_hit(title=f"t{i}", document_id=f"granola:{i}") for i in range(3)]
+    sources = build_sources_for_client(hits, ref_offset=10)
+    assert [s["ref"] for s in sources] == [11, 12, 13]
+    # And the connector source is carried so the renumbered final list
+    # can show "Granola • Sprint Planning" style chips.
+    assert all(s["source"] == "granola" for s in sources)
+
+
+def test_renumber_citations_first_appearance_order() -> None:
+    """Citations are renumbered by first-appearance order in the text."""
+    text = "First [7]. Then [3] and again [7]. Finally [12]."
+    ref_to_source = {
+        3: {"ref": 3, "title": "B"},
+        7: {"ref": 7, "title": "A"},
+        12: {"ref": 12, "title": "C"},
+    }
+    new_text, sources = renumber_citations(text, ref_to_source)
+    # Order of appearance: 7 → 1, 3 → 2, 12 → 3 (the repeat of 7 keeps its ref).
+    assert new_text == "First [1]. Then [2] and again [1]. Finally [3]."
+    assert [s["ref"] for s in sources] == [1, 2, 3]
+    assert [s["title"] for s in sources] == ["A", "B", "C"]
+
+
+def test_renumber_citations_drops_uncited_sources() -> None:
+    """Sources the synthesis never cited are excluded from the final list.
+
+    The frontend would otherwise show citation chips for hits the model
+    silently ignored, which clutters the panel and misleads about what
+    the answer actually relied on.
+    """
+    text = "Only one citation here [5]."
+    ref_to_source = {
+        1: {"ref": 1, "title": "uncited-A"},
+        5: {"ref": 5, "title": "cited"},
+        9: {"ref": 9, "title": "uncited-B"},
+    }
+    new_text, sources = renumber_citations(text, ref_to_source)
+    assert new_text == "Only one citation here [1]."
+    assert len(sources) == 1
+    assert sources[0]["title"] == "cited"
+
+
+def test_renumber_citations_unknown_ref_left_alone() -> None:
+    """A ``[N]`` whose ref isn't in the map is left as-is.
+
+    Defensive: a hallucinated citation shouldn't blow up renumbering or
+    silently disappear — the user sees the broken cite and can ask why.
+    """
+    text = "Real [3], hallucinated [99]."
+    ref_to_source = {3: {"ref": 3, "title": "Real"}}
+    new_text, sources = renumber_citations(text, ref_to_source)
+    assert new_text == "Real [1], hallucinated [99]."
+    assert [s["title"] for s in sources] == ["Real"]
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: final_answer event carries renumbered text + sources
+# ---------------------------------------------------------------------------
+
+
+def test_final_answer_event_carries_renumbered_sources(
+    stub_search: MagicMock,
+) -> None:
+    """The ``final_answer`` event includes the deduped, renumbered sources.
+
+    Drives the same renumbering pipeline that's wired into the SSE router's
+    ``done`` frame — when this test passes the frontend will receive a
+    clean ``[1]..[K]`` numbering aligned with a single sources list.
+    """
+    # Two hits returned by the search. The synthesis cites the second one
+    # twice and the first one once, in the order [2] [1] [2].
+    hit_a = _mk_hit(title="A", document_id="granola:a", url="https://a")
+    hit_b = _mk_hit(title="B", document_id="granola:b", url="https://b")
+    stub_search.search.return_value = [hit_a, hit_b]
+
+    engine = _MockEngine(
+        responses=[
+            {
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "s1",
+                        "name": "search",
+                        "arguments": json.dumps({"query": "topic"}),
+                    }
+                ],
+                "usage": {},
+            },
+            _text_response("First [2], then [1], then [2] again."),
+        ]
+    )
+
+    captured: list[dict] = []
+
+    def on_event(ev: dict) -> None:
+        captured.append(ev)
+
+    agent = ResearchAgent(
+        engine,
+        stub_search,
+        model="mock",
+        max_iterations=2,
+        on_event=on_event,
+        available_sources=["granola"],
+    )
+    result = agent.run("anything")
+
+    # The synthesis is renumbered by first appearance: [2]→[1], [1]→[2].
+    assert result.answer == "First [1], then [2], then [1] again."
+
+    final = next(ev for ev in captured if ev["type"] == "final_answer")
+    assert final["text"] == "First [1], then [2], then [1] again."
+    # Two cited sources, in the order they appeared in the synthesis.
+    assert [s["ref"] for s in final["sources"]] == [1, 2]
+    assert [s["title"] for s in final["sources"]] == ["B", "A"]

@@ -25,7 +25,7 @@ import logging
 import re
 import threading
 import time
-from typing import Any, AsyncGenerator, Callable, Dict, Optional
+from typing import Any, AsyncGenerator, Callable, Dict, List, Optional
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
@@ -393,6 +393,7 @@ async def _stream_research(query: str, model: str) -> AsyncGenerator[str, None]:
 
     final_answer: Optional[str] = None
     final_usage: Dict[str, int] = {}
+    final_sources: List[Dict[str, Any]] = []
     try:
         while True:
             event = await queue.get()
@@ -408,18 +409,29 @@ async def _stream_research(query: str, model: str) -> AsyncGenerator[str, None]:
                 continue
             # We translate the agent's `final_answer` event into a stream of
             # `synthesis` chunks so the client sees the answer materialize
-            # incrementally rather than as a single blob.
+            # incrementally rather than as a single blob. The accompanying
+            # ``sources`` array is the renumbered, deduped citation list the
+            # frontend should render under the final answer.
             if etype == "final_answer":
                 final_answer = event.get("text", "")
+                final_sources = list(event.get("sources") or [])
                 for piece in _chunk_synthesis(final_answer or ""):
                     yield _sse({"type": "synthesis", "text": piece})
+                if final_sources:
+                    yield _sse(
+                        {"type": "final_sources", "sources": final_sources}
+                    )
                 continue
 
             yield _sse(event)
 
         # If the agent thread crashed before producing a final answer, the
         # client still gets the error frame (emitted above) followed by done.
-        yield _sse({"type": "done", "usage": final_usage})
+        # The done frame also carries the deduped sources so a client that
+        # only listens for ``done`` still gets the canonical citation list.
+        yield _sse(
+            {"type": "done", "usage": final_usage, "sources": final_sources}
+        )
     except Exception as exc:  # noqa: BLE001
         # Consumer loop crashed unexpectedly (e.g. JSON serialization fault,
         # logic bug). Surface a clean error frame rather than letting the
@@ -431,7 +443,9 @@ async def _stream_research(query: str, model: str) -> AsyncGenerator[str, None]:
                 "message": f"Research failed: {type(exc).__name__}: {exc}",
             }
         )
-        yield _sse({"type": "done", "usage": final_usage})
+        yield _sse(
+            {"type": "done", "usage": final_usage, "sources": final_sources}
+        )
     finally:
         # The worker may still be cleaning up (rarely) — make sure we don't
         # leak a dangling task. Swallow any straggler exception so a worker
