@@ -82,12 +82,18 @@ def _mock_energy_monitor():
 
 
 def _energy_config(tmp_path, gpu_metrics=True):
-    """Build a JarvisConfig with energy monitoring enabled."""
+    """Build a JarvisConfig with energy monitoring enabled.
+
+    These tests exercise the direct-to-engine path. As of the 2026-05 contract,
+    ``jarvis ask`` falls back to ``config.agent.default_agent`` when --agent is
+    not supplied — clear it explicitly so the engine path is hit.
+    """
     cfg = JarvisConfig()
     cfg.telemetry.enabled = True
     cfg.telemetry.gpu_metrics = gpu_metrics
     cfg.telemetry.energy_vendor = ""
     cfg.telemetry.db_path = str(tmp_path / "telemetry.db")
+    cfg.agent.default_agent = ""
     return cfg
 
 

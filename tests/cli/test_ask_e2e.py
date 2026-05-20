@@ -31,9 +31,16 @@ def _mock_engine_response():
 
 
 def _patch_ask(monkeypatch, tmp_path, *, engine_result=None, no_engine=False):
-    """Set up common mocks for ask tests."""
+    """Set up common mocks for ask tests.
+
+    These e2e tests exercise the direct-to-engine path. As of the 2026-05
+    contract change, ``jarvis ask`` falls back to ``config.agent.default_agent``
+    when no ``--agent`` is given, so we explicitly clear it here to keep the
+    direct path under test.
+    """
     cfg = JarvisConfig()
     cfg.telemetry.db_path = str(tmp_path / "telemetry.db")
+    cfg.agent.default_agent = ""  # opt-in direct mode
 
     monkeypatch.setattr(_ask_mod, "load_config", lambda: cfg)
 

@@ -149,7 +149,7 @@ def _run_agent(
 
     if not AgentRegistry.contains(agent_name):
         raise click.ClickException(
-            f"Unknown agent: {agent_name}. Available: {', '.join(AgentRegistry.keys())}"
+            f"找不到 agent「{agent_name}」。可用的有：{', '.join(AgentRegistry.keys())}"
         )
 
     agent_cls = AgentRegistry.get(agent_name)
@@ -217,7 +217,7 @@ def _print_profile(
     # Collect all INFERENCE_END events (agents may fire multiple)
     inf_events = [e for e in bus.history if e.event_type == EventType.INFERENCE_END]
     if not inf_events:
-        console.print("[dim]No inference telemetry recorded.[/dim]")
+        console.print("[dim]沒有記錄到推論統計。[/dim]")
         return
 
     total_calls = len(inf_events)
@@ -390,6 +390,14 @@ def ask(
     # Load config
     config = load_config()
 
+    # Contract: when --agent is omitted, fall back to config.agent.default_agent.
+    # Direct-to-engine mode is opted into by leaving default_agent empty in config
+    # or by explicitly passing --agent "" (see TestAskAgentDefault).
+    if agent_name is None:
+        agent_name = getattr(config.agent, "default_agent", None) or None
+    elif agent_name == "":
+        agent_name = None
+
     # Track whether the user explicitly set --max-tokens
     user_set_max_tokens = max_tokens is not None
 
@@ -482,7 +490,7 @@ def ask(
     if not model_name:
         model_name = config.intelligence.fallback_model
     if not model_name:
-        console.print("[red]No model available on engine.[/red]")
+        console.print("[red]這個引擎上沒有可用的 model。[/red]")
         sys.exit(1)
 
     # Apply complexity-suggested token budget when user didn't override.
@@ -521,7 +529,7 @@ def ask(
                 capability_policy=sec.capability_policy,
             )
         except EngineConnectionError as exc:
-            console.print(f"[red]Engine error:[/red] {exc}")
+            console.print(f"[red]模型錯誤：[/red]{exc}")
             console.print(hint_no_engine())
             sys.exit(1)
 
@@ -592,7 +600,7 @@ def ask(
 
     # Generate (InstrumentedEngine handles telemetry + energy recording)
     try:
-        with console.status("[bold green]Generating...[/bold green]"):
+        with console.status("[bold green]思考中…[/bold green]"):
             result = engine.generate(
                 messages,
                 model=model_name,
@@ -600,7 +608,7 @@ def ask(
                 max_tokens=max_tokens,
             )
     except EngineConnectionError as exc:
-        console.print(f"[red]Engine error:[/red] {exc}")
+        console.print(f"[red]模型錯誤：[/red]{exc}")
         console.print(hint_no_engine())
         sys.exit(1)
 
