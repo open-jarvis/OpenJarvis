@@ -1,4 +1,4 @@
-"""Rich-formatted error hints for common CLI failure modes."""
+"""Rich-formatted error hints for common CLI failure modes（已中文化）。"""
 
 from __future__ import annotations
 
@@ -6,47 +6,55 @@ from typing import Optional
 
 
 def hint_no_config() -> str:
-    """Return a suggestion when no config file is found."""
+    """沒找到設定檔時的提示。"""
     return (
-        "[yellow]Hint:[/yellow] No config file found.\n"
-        "  Run [bold]jarvis init[/bold] to detect hardware and generate "
-        "[cyan]~/.openjarvis/config.toml[/cyan].\n"
-        "  Or run [bold]jarvis quickstart[/bold] for a guided setup."
+        "[yellow]提示：[/yellow]找不到設定檔。\n"
+        "  跑 [bold]jarvis init[/bold] 會偵測硬體並產生 "
+        "[cyan]~/.openjarvis/config.toml[/cyan]。\n"
+        "  或跑 [bold]jarvis quickstart[/bold] 走互動式設定流程。"
     )
 
 
 def hint_no_engine(engine_name: Optional[str] = None) -> str:
-    """Return a suggestion when the inference engine is unreachable."""
+    """推論引擎連不到時的提示。"""
     name = engine_name or "ollama"
+    if name == "mlx":
+        return (
+            "[yellow]提示：[/yellow]連不到 MLX 推論伺服器。\n"
+            "  檢查是否在跑："
+            "[bold]launchctl print gui/$UID/com.user.openjarvis.mlx[/bold]\n"
+            "  手動啟動：[bold]~/.openjarvis/start-mlx.sh[/bold]\n"
+            "  跑 [bold]jarvis doctor[/bold] 檢查所有引擎。\n"
+        )
     return (
-        f"[yellow]Hint:[/yellow] Engine '{name}' is not reachable.\n"
-        f"  Make sure the {name} server is running.\n"
-        "  Run [bold]jarvis doctor[/bold] to check all engines.\n"
-        "  Run [bold]jarvis quickstart[/bold] for guided setup.\n"
+        f"[yellow]提示：[/yellow]連不到引擎「{name}」。\n"
+        f"  確認 {name} server 有在跑。\n"
+        "  跑 [bold]jarvis doctor[/bold] 檢查所有引擎。\n"
+        "  跑 [bold]jarvis quickstart[/bold] 走互動式設定流程。\n"
         "\n"
-        "  [dim]To use a remote engine:[/dim]\n"
-        f"    [cyan]jarvis config set engine.{name}.host http://<remote-ip>:<port>[/cyan]\n"
-        f"    [dim]or[/dim] [cyan]export OLLAMA_HOST=http://<remote-ip>:11434[/cyan]"
+        "  [dim]要連遠端引擎：[/dim]\n"
+        f"    [cyan]jarvis config set engine.{name}.host http://<遠端IP>:<port>[/cyan]\n"
+        f"    [dim]或[/dim] [cyan]export OLLAMA_HOST=http://<遠端IP>:11434[/cyan]"
     )
 
 
 def hint_no_model(model_name: Optional[str] = None) -> str:
-    """Return a suggestion when no model is available."""
+    """沒有可用 model 時的提示。"""
     if model_name:
         return (
-            f"[yellow]Hint:[/yellow] Model '{model_name}' not found.\n"
-            f"  Try: [bold]ollama pull {model_name}[/bold]\n"
-            "  Run [bold]jarvis model list[/bold] to see available models."
+            f"[yellow]提示：[/yellow]找不到 model「{model_name}」。\n"
+            f"  試試：[bold]ollama pull {model_name}[/bold]\n"
+            "  跑 [bold]jarvis model list[/bold] 看現有 model。"
         )
     return (
-        "[yellow]Hint:[/yellow] No models available.\n"
-        "  Pull a model first: [bold]ollama pull qwen3.5:2b[/bold]\n"
-        "  Run [bold]jarvis model list[/bold] to see available models."
+        "[yellow]提示：[/yellow]沒有可用的 model。\n"
+        "  先 pull 一個：[bold]ollama pull qwen3.5:2b[/bold]\n"
+        "  跑 [bold]jarvis model list[/bold] 看現有 model。"
     )
 
 
 def mining_not_running_hint(cfg: object | None, sidecar_present: bool) -> Optional[str]:
-    """Return a mining hint when configured but no session sidecar exists."""
+    """Mining 設定了但沒跑時的提示。"""
     if cfg is None or sidecar_present:
         return None
-    return "mining configured but not running - start it with `jarvis mine start`"
+    return "已設定 mining 但沒在跑 — 用 `jarvis mine start` 啟動"
