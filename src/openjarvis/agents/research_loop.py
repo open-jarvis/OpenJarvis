@@ -225,11 +225,11 @@ def _bare_doc_id(source: str, document_id: str) -> str:
 def _hit_url(source: str, document_id: str) -> str:
     """Build a clickable URL for a hit, when we know how to link it.
 
-    Gmail is the only source we currently link out for; everything else
-    returns an empty string and the client falls back to non-clickable
-    citation chips.
+    Gmail and Slack are the linkable sources today; anything else falls
+    back to an empty string and the client renders a non-clickable
+    citation chip.
 
-    Two id flavors land here:
+    Gmail ids land here in two flavors:
 
     - **Hex message id** (``19dfa2ccbeff78b0``) — what the OAuth Gmail
       connector stores. Resolves directly via ``#all/<id>`` permalink.
@@ -238,6 +238,13 @@ def _hit_url(source: str, document_id: str) -> str:
       id. The permalink form would 404; instead route through Gmail's
       search URL with the ``rfc822msgid:`` operator, which lands the user
       on the specific message.
+
+    Slack doc_ids encode workspace + channel + timestamp as
+    ``slack:{team_domain}:{channel_id}:{ts}`` so the permalink
+    ``https://{team_domain}.slack.com/archives/{channel_id}/p{ts}`` can
+    be reconstructed without a side lookup. Legacy two-segment ids
+    (``slack:{channel_id}:{ts}`` from earlier ingests) fall back to the
+    workspace-less ``slack.com/archives/...`` form.
     """
     if source == "gmail" and document_id:
         msg_id = _bare_doc_id(source, document_id)
@@ -247,6 +254,24 @@ def _hit_url(source: str, document_id: str) -> str:
             rfc_id = msg_id.strip("<>")
             return f"https://mail.google.com/mail/u/0/#search/rfc822msgid:{rfc_id}"
         return f"https://mail.google.com/mail/u/0/#all/{msg_id}"
+    if source == "slack" and document_id:
+        bare = _bare_doc_id(source, document_id)
+        if not bare:
+            return ""
+        parts = bare.split(":")
+        if len(parts) >= 3:
+            team_domain, channel_id, ts = parts[0], parts[1], ":".join(parts[2:])
+        elif len(parts) == 2:
+            team_domain = ""
+            channel_id, ts = parts
+        else:
+            return ""
+        if not channel_id or not ts:
+            return ""
+        ts_clean = ts.replace(".", "")
+        if team_domain:
+            return f"https://{team_domain}.slack.com/archives/{channel_id}/p{ts_clean}"
+        return f"https://slack.com/archives/{channel_id}/p{ts_clean}"
     return ""
 
 

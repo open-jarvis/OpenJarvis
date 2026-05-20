@@ -51,6 +51,15 @@ _USERS_RESPONSE = {
     ],
 }
 
+_AUTH_TEST_RESPONSE = {
+    "ok": True,
+    "team_id": "T0ACME",
+    "team": "Acme",
+    "url": "https://acme.slack.com/",
+    "user": "bot",
+    "user_id": "UBOT",
+}
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -92,10 +101,19 @@ def test_auth_type_is_oauth(connector) -> None:
 
 
 def test_auth_url(connector) -> None:
-    """auth_url() returns a URL pointing to Slack's OAuth endpoint."""
+    """auth_url() returns a URL requesting user-token scopes (not bot scopes).
+
+    The migration to user OAuth tokens means scopes go in ``user_scope``
+    (not ``scope``), and DM/MPIM history scopes are mandatory.
+    """
     url = connector.auth_url()
     assert isinstance(url, str)
     assert "slack.com" in url
+    # User-token install: scopes carried by ``user_scope``, not ``scope``.
+    assert "user_scope=" in url
+    # DM and MPIM history are required for Deep Research over personal DMs.
+    assert "im:history" in url or "im%3Ahistory" in url
+    assert "mpim:history" in url or "mpim%3Ahistory" in url
     assert "channels:history" in url or "channels%3Ahistory" in url
 
 
@@ -104,6 +122,7 @@ def test_auth_url(connector) -> None:
 # ---------------------------------------------------------------------------
 
 
+@patch("openjarvis.connectors.slack_connector._slack_api_auth_test")
 @patch("openjarvis.connectors.slack_connector._slack_api_conversations_list")
 @patch("openjarvis.connectors.slack_connector._slack_api_conversations_history")
 @patch("openjarvis.connectors.slack_connector._slack_api_users_list")
@@ -111,6 +130,7 @@ def test_sync_yields_documents(
     mock_users,
     mock_history,
     mock_channels,
+    mock_auth,
     connector,
     tmp_path: Path,
 ) -> None:
@@ -118,11 +138,15 @@ def test_sync_yields_documents(
 
     With 2 channels each having 2 messages, we expect exactly 4 documents.
     """
-    # Set up fake credentials so is_connected() returns True
+    # Set up fake credentials so is_connected() returns True. User tokens
+    # (``xoxp-``) are the only shape the connector accepts post-migration.
     creds_path = Path(connector._credentials_path)
-    creds_path.write_text(json.dumps({"token": "fake-access-token"}), encoding="utf-8")
+    creds_path.write_text(
+        json.dumps({"token": "xoxp-fake-user-token"}), encoding="utf-8"
+    )
 
     # Configure mocks
+    mock_auth.return_value = _AUTH_TEST_RESPONSE
     mock_users.return_value = _USERS_RESPONSE
     mock_channels.return_value = _CHANNELS_RESPONSE
     mock_history.return_value = _HISTORY_RESPONSE
@@ -137,33 +161,176 @@ def test_sync_yields_documents(
         assert doc.source == "slack"
         assert doc.doc_type == "message"
 
-    # Check a specific document from #general
+    # Check a specific document from #general — doc_id encodes the
+    # workspace subdomain so research_loop can rebuild the permalink.
     doc_c001 = next(
-        (d for d in docs if d.doc_id == "slack:C001:1710500000.000100"), None
+        (d for d in docs if d.doc_id == "slack:acme:C001:1710500000.000100"),
+        None,
     )
     assert doc_c001 is not None
     assert doc_c001.title == "#general"
-    assert doc_c001.author == "Alice"
+    assert doc_c001.author == "alice@co.com"
     assert doc_c001.content == "Let's discuss the API redesign."
     assert doc_c001.thread_id == "1710500000.000100"
+    # v1 schema fields
+    assert doc_c001.participants == ["alice@co.com"]
+    assert doc_c001.participants_raw == ["U001"]
+    assert doc_c001.channel == "general"
+    assert doc_c001.url == (
+        "https://acme.slack.com/archives/C001/p1710500000000100"
+    )
     assert doc_c001.metadata["channel_id"] == "C001"
     assert doc_c001.metadata["channel_name"] == "general"
+    assert doc_c001.metadata["team_id"] == "T0ACME"
+    assert doc_c001.metadata["team_domain"] == "acme"
 
     # Check a specific document from #engineering
     doc_c002 = next(
-        (d for d in docs if d.doc_id == "slack:C002:1710500060.000200"), None
+        (d for d in docs if d.doc_id == "slack:acme:C002:1710500060.000200"),
+        None,
     )
     assert doc_c002 is not None
     assert doc_c002.title == "#engineering"
-    assert doc_c002.author == "Bob"
+    assert doc_c002.author == "bob@co.com"
     assert doc_c002.content == "Sounds good, I'll prepare a doc."
     assert doc_c002.thread_id is None
+    assert doc_c002.channel == "engineering"
 
     # Verify the API was called correctly
+    mock_auth.assert_called_once()
     mock_users.assert_called_once()
     assert mock_channels.call_count == 1
     # conversations.history called once per channel (2 channels)
     assert mock_history.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# Test — conversations.list is called with every conversation type so
+# DMs and group DMs auto-sync alongside public/private channels.
+# ---------------------------------------------------------------------------
+
+
+@patch("openjarvis.connectors.slack_connector._slack_api_with_retry")
+def test_conversations_list_requests_all_conversation_types(mock_retry) -> None:
+    """``_slack_api_conversations_list`` widens ``types`` to cover IMs + MPIMs.
+
+    A user connecting Slack expects ``everything I can see is searchable``
+    without a per-channel opt-in — same as Gmail. The proxy for that here
+    is the API request shape: ``types`` must include im + mpim so the bot
+    token's DMs and group DMs come back in the listing.
+    """
+    from openjarvis.connectors.slack_connector import (  # noqa: PLC0415
+        _slack_api_conversations_list,
+    )
+
+    mock_retry.return_value = {"channels": [], "response_metadata": {}}
+    _slack_api_conversations_list("fake-token")
+
+    method, _token, params = mock_retry.call_args.args[:3]
+    assert method == "conversations.list"
+    types = params["types"].split(",")
+    assert set(types) == {"public_channel", "private_channel", "mpim", "im"}
+
+
+# ---------------------------------------------------------------------------
+# Test — sync() yields documents for DMs (im) and group DMs (mpim) too,
+# without requiring conversations.join (no join concept on those types).
+# ---------------------------------------------------------------------------
+
+
+@patch("openjarvis.connectors.slack_connector._slack_api_with_retry")
+@patch("openjarvis.connectors.slack_connector._slack_api_auth_test")
+@patch("openjarvis.connectors.slack_connector._slack_api_conversations_list")
+@patch("openjarvis.connectors.slack_connector._slack_api_conversations_history")
+@patch("openjarvis.connectors.slack_connector._slack_api_users_list")
+def test_sync_includes_dms_and_group_dms(
+    mock_users,
+    mock_history,
+    mock_channels,
+    mock_auth,
+    mock_retry,
+    connector,
+    tmp_path: Path,
+) -> None:
+    """IMs and MPIMs are synced with sensible labels — no join, no membership filter.
+
+    With a user token, ``conversations.list`` already reflects what the
+    user can see. The connector must NOT call ``conversations.join`` for
+    any conversation type, and must NOT skip non-``is_member`` channels.
+    """
+    creds_path = Path(connector._credentials_path)
+    creds_path.write_text(
+        json.dumps({"token": "xoxp-fake-user-token"}), encoding="utf-8"
+    )
+
+    mock_auth.return_value = _AUTH_TEST_RESPONSE
+    mock_users.return_value = _USERS_RESPONSE
+    mock_channels.return_value = {
+        "channels": [
+            {
+                "id": "C001",
+                "name": "general",
+                # No is_member field — user tokens shouldn't depend on it.
+            },
+            {
+                "id": "D001",
+                "is_im": True,
+                "user": "U001",  # 1:1 DM with Alice
+            },
+            {
+                "id": "G001",
+                "name": "mpdm-alice--bob-1",
+                "is_mpim": True,
+            },
+        ],
+        "response_metadata": {"next_cursor": ""},
+    }
+    mock_history.return_value = {
+        "messages": [
+            {
+                "ts": "1710500000.000100",
+                "user": "U001",
+                "text": "context-specific message",
+            },
+        ],
+        "has_more": False,
+    }
+    # _slack_api_with_retry covers any endpoint not individually mocked
+    # (auth.test, users.list, conversations.list, conversations.history
+    # are intercepted above). A call to ``conversations.join`` here would
+    # mean the connector is back to bot-token behavior.
+    mock_retry.return_value = {"ok": False}
+
+    docs: List[Document] = list(connector.sync())
+
+    # One message per conversation × 3 conversations = 3 documents.
+    assert len(docs) == 3
+
+    by_chan_id = {d.metadata["channel_id"]: d for d in docs}
+
+    public_doc = by_chan_id["C001"]
+    assert public_doc.title == "#general"
+    assert public_doc.channel == "general"
+    assert public_doc.metadata["channel_type"] == "public_channel"
+
+    im_doc = by_chan_id["D001"]
+    assert im_doc.title == "DM with Alice"
+    assert im_doc.channel == "dm-Alice"
+    assert im_doc.metadata["channel_type"] == "im"
+
+    mpim_doc = by_chan_id["G001"]
+    assert mpim_doc.title == "#mpdm-alice--bob-1"
+    assert mpim_doc.channel == "mpdm-alice--bob-1"
+    assert mpim_doc.metadata["channel_type"] == "mpim"
+
+    # User-token sync must NEVER call conversations.join (the user is
+    # already in the conversations the listing returns).
+    join_calls = [
+        c
+        for c in mock_retry.call_args_list
+        if c.args and c.args[0] == "conversations.join"
+    ]
+    assert join_calls == []
 
 
 # ---------------------------------------------------------------------------
@@ -174,7 +341,9 @@ def test_sync_yields_documents(
 def test_disconnect(connector, tmp_path: Path) -> None:
     """disconnect() deletes the credentials file."""
     creds_path = Path(connector._credentials_path)
-    creds_path.write_text(json.dumps({"token": "fake-access-token"}), encoding="utf-8")
+    creds_path.write_text(
+        json.dumps({"token": "xoxp-fake-user-token"}), encoding="utf-8"
+    )
     assert connector.is_connected() is True
 
     connector.disconnect()
@@ -213,3 +382,181 @@ def test_registry() -> None:
     assert ConnectorRegistry.contains("slack")
     cls = ConnectorRegistry.get("slack")
     assert cls.connector_id == "slack"
+
+
+# ---------------------------------------------------------------------------
+# Test 8 — end-to-end: connector → pipeline → KnowledgeStore → HybridSearch
+# ---------------------------------------------------------------------------
+
+
+@patch("openjarvis.connectors.slack_connector._slack_api_auth_test")
+@patch("openjarvis.connectors.slack_connector._slack_api_conversations_list")
+@patch("openjarvis.connectors.slack_connector._slack_api_conversations_history")
+@patch("openjarvis.connectors.slack_connector._slack_api_users_list")
+def test_end_to_end_ingest_and_search(
+    mock_users,
+    mock_history,
+    mock_channels,
+    mock_auth,
+    connector,
+    tmp_path: Path,
+) -> None:
+    """Synced Slack messages are searchable via HybridSearch with v1 fields.
+
+    Lexical-only path (no embedder) so this stays a pure unit test — no
+    Ollama daemon needed. Confirms the v1 contract end-to-end: source,
+    namespaced thread_id, channel, participants, and a workspace-qualified
+    permalink all survive ingest → store → hit.
+    """
+    from openjarvis.connectors.hybrid_search import HybridSearch  # noqa: PLC0415
+    from openjarvis.connectors.pipeline import IngestionPipeline  # noqa: PLC0415
+    from openjarvis.connectors.store import KnowledgeStore  # noqa: PLC0415
+
+    creds_path = Path(connector._credentials_path)
+    creds_path.write_text(
+        json.dumps({"token": "xoxp-fake-user-token"}), encoding="utf-8"
+    )
+    mock_auth.return_value = _AUTH_TEST_RESPONSE
+    mock_users.return_value = _USERS_RESPONSE
+    mock_channels.return_value = _CHANNELS_RESPONSE
+    mock_history.return_value = _HISTORY_RESPONSE
+
+    store = KnowledgeStore(db_path=tmp_path / "slack_e2e.db")
+    pipeline = IngestionPipeline(store)
+    chunks_stored = pipeline.ingest(connector.sync())
+
+    # 4 short messages → 4 chunks (no chunk splitting at this length).
+    assert chunks_stored == 4
+
+    hybrid = HybridSearch(store)
+    hits = hybrid.search("API redesign", limit=5)
+    assert len(hits) >= 1
+
+    target = next(
+        (h for h in hits if "API redesign" in h.content_snippet),
+        None,
+    )
+    assert target is not None
+    assert target.source == "slack"
+    assert target.title == "#general"
+    # Thread id is namespaced by the pipeline.
+    assert target.thread_id == "slack:1710500000.000100"
+    assert target.participants == ["alice@co.com"]
+    # The stored doc_id flows through the hit and is the format the
+    # research-loop URL builder expects.
+    assert target.document_id == "slack:acme:C001:1710500000.000100"
+
+    # And the research-loop builder reconstructs the workspace permalink.
+    from openjarvis.agents.research_loop import _hit_url  # noqa: PLC0415
+
+    assert _hit_url(target.source, target.document_id) == (
+        "https://acme.slack.com/archives/C001/p1710500000000100"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test — bot tokens (xoxb-) are rejected with a clear error at connect time.
+# ---------------------------------------------------------------------------
+
+
+def test_handle_callback_rejects_xoxb(connector) -> None:
+    """handle_callback() refuses bot tokens before writing them to disk."""
+    from openjarvis.connectors.slack_connector import (  # noqa: PLC0415
+        SlackTokenError,
+    )
+
+    with pytest.raises(SlackTokenError) as excinfo:
+        connector.handle_callback("xoxb-some-bot-token")
+
+    msg = str(excinfo.value).lower()
+    assert "xoxb" in msg
+    assert "user oauth token" in msg or "xoxp" in msg
+    # Token must not have been persisted on rejection.
+    assert not Path(connector._credentials_path).exists()
+
+
+def test_handle_callback_rejects_unknown_prefix(connector) -> None:
+    """handle_callback() refuses tokens that don't match the user-token shape."""
+    from openjarvis.connectors.slack_connector import (  # noqa: PLC0415
+        SlackTokenError,
+    )
+
+    with pytest.raises(SlackTokenError):
+        connector.handle_callback("xapp-app-level-token")
+    assert not Path(connector._credentials_path).exists()
+
+
+# ---------------------------------------------------------------------------
+# Test — a stored bot token surfaces an error in sync_status and yields
+# zero documents (defensive guard for credentials written before this
+# migration).
+# ---------------------------------------------------------------------------
+
+
+def test_sync_with_xoxb_token_surfaces_error(connector, tmp_path: Path) -> None:
+    """A leftover bot token must produce an explanatory sync error."""
+    creds_path = Path(connector._credentials_path)
+    creds_path.write_text(json.dumps({"token": "xoxb-bot-token"}), encoding="utf-8")
+
+    docs = list(connector.sync())
+
+    assert docs == []
+    status = connector.sync_status()
+    assert status.error is not None
+    assert "xoxb" in status.error.lower() or "user oauth token" in status.error.lower()
+    assert "xoxp" in status.error.lower()
+
+
+# ---------------------------------------------------------------------------
+# Test — sync logs a per-type channel count before fetching history so
+# operators can see at a glance what the token has access to.
+# ---------------------------------------------------------------------------
+
+
+@patch("openjarvis.connectors.slack_connector._slack_api_auth_test")
+@patch("openjarvis.connectors.slack_connector._slack_api_conversations_list")
+@patch("openjarvis.connectors.slack_connector._slack_api_conversations_history")
+@patch("openjarvis.connectors.slack_connector._slack_api_users_list")
+def test_sync_logs_per_type_channel_counts(
+    mock_users,
+    mock_history,
+    mock_channels,
+    mock_auth,
+    connector,
+    tmp_path: Path,
+    caplog,
+) -> None:
+    """Each sync logs ``Found X public, Y private, Z DMs, W group DMs``.
+
+    The diagnostic is the single fastest way to tell whether a token's
+    scopes are correct without grepping per-channel logs.
+    """
+    creds_path = Path(connector._credentials_path)
+    creds_path.write_text(
+        json.dumps({"token": "xoxp-fake-user-token"}), encoding="utf-8"
+    )
+
+    mock_auth.return_value = _AUTH_TEST_RESPONSE
+    mock_users.return_value = _USERS_RESPONSE
+    mock_channels.return_value = {
+        "channels": [
+            {"id": "C001", "name": "public-1"},
+            {"id": "C002", "name": "public-2"},
+            {"id": "C003", "name": "public-3"},
+            {"id": "P001", "name": "private-1", "is_private": True},
+            {"id": "D001", "is_im": True, "user": "U001"},
+            {"id": "D002", "is_im": True, "user": "U002"},
+            {"id": "G001", "name": "mpdm-x", "is_mpim": True},
+        ],
+        "response_metadata": {"next_cursor": ""},
+    }
+    mock_history.return_value = {"messages": [], "has_more": False}
+
+    with caplog.at_level("INFO", logger="openjarvis.connectors.slack_connector"):
+        list(connector.sync())
+
+    summary = " ".join(r.message for r in caplog.records)
+    assert "Found 3 public channels" in summary
+    assert "1 private channels" in summary
+    assert "2 DMs" in summary
+    assert "1 group DMs" in summary

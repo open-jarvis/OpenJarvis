@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from openjarvis.agents.research_loop import ResearchAgent
+from openjarvis.agents.research_loop import ResearchAgent, _hit_url
 
 
 class _MockEngine:
@@ -184,3 +184,32 @@ def test_clarify_before_any_search_is_rejected(stub_search: MagicMock) -> None:
     # No clarify invocation recorded.
     assert all(t.tool_name != "clarify" for t in result.tool_calls)
     assert result.answer == "Final."
+
+
+# ---------------------------------------------------------------------------
+# _hit_url — Slack permalink reconstruction
+# ---------------------------------------------------------------------------
+
+
+def test_hit_url_slack_full_workspace() -> None:
+    """A workspace-qualified doc_id produces an ``{team}.slack.com`` permalink."""
+    url = _hit_url("slack", "slack:acme:C123:1710500000.000100")
+    assert url == "https://acme.slack.com/archives/C123/p1710500000000100"
+
+
+def test_hit_url_slack_legacy_two_segment_doc_id() -> None:
+    """Legacy ``slack:{channel}:{ts}`` ids fall back to the docless form."""
+    url = _hit_url("slack", "slack:C123:1710500000.000100")
+    assert url == "https://slack.com/archives/C123/p1710500000000100"
+
+
+def test_hit_url_slack_empty_team_domain() -> None:
+    """Empty workspace segment still produces a usable docless permalink."""
+    url = _hit_url("slack", "slack::C123:1710500000.000100")
+    assert url == "https://slack.com/archives/C123/p1710500000000100"
+
+
+def test_hit_url_unknown_source_returns_empty() -> None:
+    """Unsupported sources don't get a guessed URL."""
+    assert _hit_url("notion", "notion:abc") == ""
+    assert _hit_url("", "") == ""

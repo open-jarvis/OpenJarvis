@@ -1,12 +1,18 @@
 """Slack connector — bulk channel message sync via the Slack Web API.
 
-Uses OAuth tokens stored locally (see :mod:`openjarvis.connectors.oauth`).
-All network calls are isolated in module-level functions (``_slack_api_*``)
-to make them trivially mockable in tests.
+Uses a Slack **user** OAuth token (``xoxp-...``) stored locally so the
+sync sees everything the user can see — including their 1:1 DMs and
+multi-person DMs with other humans. A bot token (``xoxb-``) cannot see
+user-to-user DMs (Slack platform constraint), so this connector
+explicitly rejects bot tokens with a clear error at connect time.
+
+All network calls are isolated in module-level functions
+(``_slack_api_*``) to make them trivially mockable in tests.
 """
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterator, List, Optional
 from urllib.parse import urlencode
@@ -19,13 +25,18 @@ from openjarvis.core.config import DEFAULT_CONFIG_DIR
 from openjarvis.core.registry import ConnectorRegistry
 from openjarvis.tools._stubs import ToolSpec
 
+logger = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
 _SLACK_API_BASE = "https://slack.com/api"
 _SLACK_AUTH_ENDPOINT = "https://slack.com/oauth/v2/authorize"
-_SLACK_SCOPES = (
+# User Token Scopes — Slack distinguishes user_scope (xoxp-) from scope
+# (xoxb-) on the OAuth authorize URL. We only request user scopes; passed
+# via ``user_scope`` so the install grants a User OAuth Token.
+_SLACK_USER_SCOPES = (
     "channels:read,channels:history,groups:read,groups:history,"
     "im:read,im:history,mpim:read,mpim:history,users:read"
 )
@@ -55,8 +66,12 @@ def _slack_api_conversations_list(
     dict
         Raw API response containing ``channels`` list and ``response_metadata``.
     """
+    # Include every conversation type the bot can list — public + private
+    # channels, multi-person DMs, and 1:1 DMs — so a "connect and sync"
+    # flow indexes everything the token has access to without the user
+    # picking channels (matches Gmail's connect-and-go behavior).
     params: Dict[str, str] = {
-        "types": "public_channel,private_channel",
+        "types": "public_channel,private_channel,mpim,im",
         "exclude_archived": "true",
     }
     if cursor:
@@ -110,6 +125,16 @@ def _slack_api_users_list(token: str) -> Dict[str, Any]:
     return _slack_api_with_retry("users.list", token)
 
 
+def _slack_api_auth_test(token: str) -> Dict[str, Any]:
+    """Call the Slack ``auth.test`` endpoint.
+
+    Returns workspace context (``team_id``, ``team``, ``url``) used to
+    construct message permalinks — the workspace subdomain isn't carried
+    by any other endpoint we already call.
+    """
+    return _slack_api_with_retry("auth.test", token)
+
+
 def _slack_api_with_retry(
     method: str,
     token: str,
@@ -155,6 +180,45 @@ def _slack_api_with_retry(
 # ---------------------------------------------------------------------------
 
 
+class SlackTokenError(ValueError):
+    """Raised when the stored Slack token isn't a usable user token.
+
+    Surfaced via :class:`SyncStatus.error` so the UI can render the actual
+    reason (e.g. ``xoxb-`` bot token rejected) instead of an empty sync.
+    """
+
+
+_USER_TOKEN_PREFIX = "xoxp-"
+_BOT_TOKEN_PREFIX = "xoxb-"
+
+
+def _validate_user_token(token: str) -> None:
+    """Raise :class:`SlackTokenError` unless *token* looks like a user token.
+
+    Slack user tokens start with ``xoxp-``. We refuse ``xoxb-`` bot tokens
+    explicitly because a bot can only see DMs *to/from itself* — paste a
+    bot token and your sync silently misses every human-to-human DM. The
+    error message tells the user exactly which token type to provide and
+    where to find it.
+    """
+    if not token:
+        raise SlackTokenError("Slack token is empty.")
+    if token.startswith(_BOT_TOKEN_PREFIX):
+        raise SlackTokenError(
+            "Slack bot tokens (xoxb-) can't see user-to-user DMs. "
+            "Use a User OAuth Token (xoxp-) from "
+            "api.slack.com/apps → OAuth & Permissions, "
+            "with User Token Scopes channels:history, channels:read, "
+            "groups:history, groups:read, im:history, im:read, "
+            "mpim:history, mpim:read, users:read."
+        )
+    if not token.startswith(_USER_TOKEN_PREFIX):
+        raise SlackTokenError(
+            "Slack token must be a User OAuth Token (starts with 'xoxp-'). "
+            "Got a token with an unexpected prefix."
+        )
+
+
 def _build_user_map(members: List[Dict[str, Any]]) -> Dict[str, Dict[str, str]]:
     """Build a user_id → {name, email} map from a ``users.list`` members list."""
     user_map: Dict[str, Dict[str, str]] = {}
@@ -180,9 +244,32 @@ def _ts_to_datetime(ts: str) -> datetime:
         return datetime.now()
 
 
-def _slack_archive_url(team_id: str, channel_id: str, ts: str) -> str:
-    """Build a Slack message archive URL from team, channel, and timestamp."""
+def _team_domain_from_auth(auth_resp: Dict[str, Any]) -> str:
+    """Derive the workspace subdomain ('acme' from 'https://acme.slack.com/').
+
+    Falls back to the ``team_id`` so doc_ids stay non-empty when the
+    workspace ``url`` is missing — losing the workspace breaks permalinks
+    but lets ingestion continue.
+    """
+    workspace_url: str = (auth_resp.get("url") or "").rstrip("/")
+    if workspace_url:
+        host = workspace_url.split("//", 1)[-1].split("/", 1)[0]
+        suffix = ".slack.com"
+        if host.endswith(suffix):
+            return host[: -len(suffix)]
+    return auth_resp.get("team_id", "") or ""
+
+
+def _slack_archive_url(team_domain: str, channel_id: str, ts: str) -> str:
+    """Build a Slack message permalink for ``team_domain``/``channel``/``ts``.
+
+    With a workspace subdomain the link resolves directly; without one we
+    fall back to ``slack.com/archives/...`` which Slack redirects only for
+    logged-in members of that workspace.
+    """
     ts_clean = ts.replace(".", "")
+    if team_domain:
+        return f"https://{team_domain}.slack.com/archives/{channel_id}/p{ts_clean}"
     return f"https://slack.com/archives/{channel_id}/p{ts_clean}"
 
 
@@ -215,6 +302,10 @@ class SlackConnector(BaseConnector):
         self._items_total: int = 0
         self._last_sync: Optional[datetime] = None
         self._last_cursor: Optional[str] = None
+        # Surfaced via sync_status().error so the UI can render the actual
+        # failure reason (typically a bot-token-rejection) instead of a
+        # silent "synced 0 messages".
+        self._last_error: Optional[str] = None
 
     # ------------------------------------------------------------------
     # BaseConnector interface
@@ -232,21 +323,30 @@ class SlackConnector(BaseConnector):
         delete_tokens(self._credentials_path)
 
     def auth_url(self) -> str:
-        """Return a Slack OAuth consent URL requesting channel history scopes."""
+        """Return a Slack OAuth consent URL requesting user-token scopes.
+
+        Uses ``user_scope`` (not ``scope``) so the install grants a User
+        OAuth Token (``xoxp-``) — bot tokens (``xoxb-``) can't see human-
+        to-human DMs and are rejected by :func:`handle_callback`.
+        """
         params = {
             "client_id": "",  # placeholder — real client_id from config
-            "scope": _SLACK_SCOPES,
+            "user_scope": _SLACK_USER_SCOPES,
             "redirect_uri": "http://localhost:8789/callback",
         }
         return f"{_SLACK_AUTH_ENDPOINT}?{urlencode(params)}"
 
     def handle_callback(self, code: str) -> None:
-        """Handle the OAuth callback by persisting the authorization code.
+        """Persist the supplied User OAuth Token after validating its shape.
 
-        In a full implementation this would exchange the code for tokens.
-        For now the code is saved directly as the token value.
+        The connector ``/connect`` endpoint funnels manually-pasted tokens
+        through this method (the parameter is named ``code`` for OAuth-flow
+        compatibility). Bot tokens (``xoxb-``) are rejected here so the
+        invalid credential never lands on disk.
         """
+        _validate_user_token(code)
         save_tokens(self._credentials_path, {"token": code})
+        self._last_error = None
 
     def sync(
         self,
@@ -254,10 +354,13 @@ class SlackConnector(BaseConnector):
         since: Optional[datetime] = None,  # noqa: ARG002 — reserved for future use
         cursor: Optional[str] = None,  # noqa: ARG002 — reserved for future use
     ) -> Iterator[Document]:
-        """Yield :class:`Document` objects for Slack channel messages.
+        """Yield :class:`Document` objects for every accessible Slack message.
 
-        Builds a user map, then paginates through channels and retrieves
-        message history for each channel.
+        With a user OAuth token (``xoxp-``) the listing returned by
+        ``conversations.list`` already reflects what the user can see —
+        no ``conversations.join`` step, no membership filtering. We
+        enumerate every conversation first (so the per-type count can
+        be logged up front), then stream history for each one.
 
         Parameters
         ----------
@@ -274,118 +377,225 @@ class SlackConnector(BaseConnector):
         if not token:
             return
 
-        # Step 1: build user map
+        # Reject bot tokens up front so the user sees the actual reason
+        # for an empty sync instead of every API call coming back
+        # missing_scope / 0 messages.
+        try:
+            _validate_user_token(token)
+        except SlackTokenError as exc:
+            self._last_error = str(exc)
+            logger.warning("Slack sync rejected token: %s", exc)
+            return
+
+        # Step 0: resolve workspace context — the subdomain is needed for
+        # message permalinks and is the only piece of state that doesn't
+        # come back from conversations.history. Done once per sync.
+        try:
+            auth_resp = _slack_api_auth_test(token)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Slack auth.test failed: %s", exc)
+            auth_resp = {}
+        if not auth_resp.get("ok", True):
+            err = str(auth_resp.get("error", "auth_failed"))
+            self._last_error = f"Slack auth.test failed: {err}"
+            logger.warning("Slack auth.test returned not-ok: %s", err)
+            return
+
+        team_domain: str = _team_domain_from_auth(auth_resp)
+        team_id: str = auth_resp.get("team_id", "") or ""
+        workspace_name: str = auth_resp.get("team", "") or ""
+        workspace_url: str = auth_resp.get("url", "") or ""
+
+        # Step 1: build user map (so DMs render with peer names, not IDs)
         users_resp = _slack_api_users_list(token)
         members: List[Dict[str, Any]] = users_resp.get("members", [])
         user_map = _build_user_map(members)
 
-        synced = 0
+        # Step 2: enumerate every conversation up front so we can log a
+        # per-type summary before fetching history. Pagination over
+        # conversations.list is cheap relative to history fetch and gives
+        # the user (and the logs) immediate signal about what the token
+        # can actually see.
+        all_channels: List[Dict[str, Any]] = []
         channels_cursor = ""
-
-        # Step 2: paginate through channels
         while True:
-            channels_resp = _slack_api_conversations_list(token, cursor=channels_cursor)
-            channels: List[Dict[str, Any]] = channels_resp.get("channels", [])
+            channels_resp = _slack_api_conversations_list(
+                token, cursor=channels_cursor
+            )
+            if not channels_resp.get("ok", True):
+                err = str(channels_resp.get("error", "list_failed"))
+                self._last_error = f"Slack conversations.list failed: {err}"
+                logger.warning("Slack conversations.list returned not-ok: %s", err)
+                return
+            all_channels.extend(channels_resp.get("channels", []))
+            channels_cursor = (
+                channels_resp.get("response_metadata", {}).get("next_cursor", "")
+                or ""
+            )
+            if not channels_cursor:
+                break
 
-            for channel in channels:
-                chan_id: str = channel.get("id", "")
-                chan_name: str = channel.get("name", chan_id)
-                is_member: bool = channel.get("is_member", False)
-                is_private: bool = channel.get("is_private", False)
-                if not chan_id:
-                    continue
+        counts = {"public_channel": 0, "private_channel": 0, "im": 0, "mpim": 0}
+        for c in all_channels:
+            if c.get("is_im"):
+                counts["im"] += 1
+            elif c.get("is_mpim"):
+                counts["mpim"] += 1
+            elif c.get("is_private"):
+                counts["private_channel"] += 1
+            else:
+                counts["public_channel"] += 1
+        logger.info(
+            "Slack: Found %d public channels, %d private channels, "
+            "%d DMs, %d group DMs",
+            counts["public_channel"],
+            counts["private_channel"],
+            counts["im"],
+            counts["mpim"],
+        )
 
-                # Auto-join public channels; skip private channels the bot isn't in
-                if not is_member:
-                    if is_private:
-                        continue  # Can't join private channels without invite
-                    # Try to join the public channel
-                    try:
-                        join_resp = _slack_api_with_retry(
-                            "conversations.join",
-                            token,
-                            {"channel": chan_id},
-                            http_method="POST",
-                        )
-                        if not join_resp.get("ok"):
-                            continue
-                    except Exception:
+        # Step 3: fetch history per channel and yield Documents.
+        synced = 0
+        for channel in all_channels:
+            chan_id: str = channel.get("id", "")
+            is_private: bool = channel.get("is_private", False)
+            is_im: bool = channel.get("is_im", False)
+            is_mpim: bool = channel.get("is_mpim", False)
+            if not chan_id:
+                continue
+
+            # Display name: IMs have no ``name`` field — render as
+            # ``dm-<peer-name>`` so result chips show something readable.
+            raw_name: str = channel.get("name", "") or ""
+            if is_im:
+                peer_id: str = channel.get("user", "") or ""
+                peer_info = user_map.get(peer_id, {})
+                peer_label = peer_info.get("name") or peer_id or "user"
+                chan_name = f"dm-{peer_label}"
+            else:
+                chan_name = raw_name or chan_id
+
+            channel_type = (
+                "im"
+                if is_im
+                else "mpim"
+                if is_mpim
+                else "private_channel"
+                if is_private
+                else "public_channel"
+            )
+
+            history_cursor = ""
+            while True:
+                try:
+                    history_resp = _slack_api_conversations_history(
+                        token, chan_id, cursor=history_cursor
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug(
+                        "Slack history fetch failed for %s (%s): %s",
+                        chan_name,
+                        chan_id,
+                        exc,
+                    )
+                    break
+                if not history_resp.get("ok", True):
+                    # User token shouldn't hit not_in_channel, but if a
+                    # scope was revoked mid-sync we skip the channel rather
+                    # than abort the whole sync.
+                    logger.debug(
+                        "Slack history not-ok for %s (%s): %s",
+                        chan_name,
+                        chan_id,
+                        history_resp.get("error"),
+                    )
+                    break
+                messages: List[Dict[str, Any]] = history_resp.get("messages", [])
+
+                for msg in messages:
+                    # Skip bot messages and non-content subtypes
+                    if msg.get("bot_id") or msg.get("subtype") in (
+                        "message_changed",
+                        "message_deleted",
+                        "bot_message",
+                        "channel_join",
+                        "channel_leave",
+                    ):
                         continue
 
-                # Step 3: paginate through message history
-                history_cursor = ""
-                while True:
-                    try:
-                        history_resp = _slack_api_conversations_history(
-                            token, chan_id, cursor=history_cursor
-                        )
-                    except Exception:
-                        break  # Skip channels we can't read
-                    if not history_resp.get("ok", True):
-                        break  # not_in_channel or other error
-                    messages: List[Dict[str, Any]] = history_resp.get("messages", [])
+                    ts: str = msg.get("ts", "")
+                    user_id: str = msg.get("user", "")
+                    text: str = msg.get("text", "")
+                    thread_ts: Optional[str] = msg.get("thread_ts")
 
-                    for msg in messages:
-                        # Skip bot messages and non-content subtypes
-                        if msg.get("bot_id") or msg.get("subtype") in (
-                            "message_changed",
-                            "message_deleted",
-                            "bot_message",
-                            "channel_join",
-                            "channel_leave",
-                        ):
-                            continue
+                    user_info = user_map.get(user_id, {})
+                    author_name: str = user_info.get("name", user_id)
+                    author_email: str = user_info.get("email", "")
 
-                        ts: str = msg.get("ts", "")
-                        user_id: str = msg.get("user", "")
-                        text: str = msg.get("text", "")
-                        thread_ts: Optional[str] = msg.get("thread_ts")
+                    timestamp = _ts_to_datetime(ts)
+                    url = _slack_archive_url(team_domain, chan_id, ts)
 
-                        user_info = user_map.get(user_id, {})
-                        author = user_info.get("name", user_id)
+                    # v1 schema participants: lowercase email when we have
+                    # one, else the display name — matches the Gmail
+                    # connector's contract (one identity per participant)
+                    # so cross-source queries work.
+                    canonical = (author_email or author_name).lower()
+                    participants = [canonical] if canonical else []
+                    participants_raw = [user_id] if user_id else []
 
-                        timestamp = _ts_to_datetime(ts)
-                        url = _slack_archive_url("", chan_id, ts)
+                    # Encode workspace into doc_id so research_loop can
+                    # rebuild a workspace-qualified permalink from
+                    # source + document_id alone.
+                    doc_id = f"slack:{team_domain}:{chan_id}:{ts}"
 
-                        doc = Document(
-                            doc_id=f"slack:{chan_id}:{ts}",
-                            source="slack",
-                            doc_type="message",
-                            content=text,
-                            title=f"#{chan_name}",
-                            author=author,
-                            timestamp=timestamp,
-                            thread_id=thread_ts,
-                            url=url,
-                            metadata={
-                                "channel_id": chan_id,
-                                "channel_name": chan_name,
-                                "user_id": user_id,
-                                "ts": ts,
-                            },
-                        )
-                        synced += 1
-                        yield doc
+                    # Channel rows get ``#name``; DM rows get
+                    # ``DM with <peer>`` (more useful than ``#dm-alice``
+                    # in result chips).
+                    if is_im:
+                        title = f"DM with {chan_name.removeprefix('dm-')}"
+                    else:
+                        title = f"#{chan_name}"
 
-                    next_history_cursor: str = (
-                        history_resp.get("response_metadata", {}).get("next_cursor", "")
-                        or ""
+                    doc = Document(
+                        doc_id=doc_id,
+                        source="slack",
+                        doc_type="message",
+                        content=text,
+                        title=title,
+                        author=author_email or author_name,
+                        participants=participants,
+                        participants_raw=participants_raw,
+                        timestamp=timestamp,
+                        thread_id=thread_ts,
+                        channel=chan_name,
+                        url=url,
+                        metadata={
+                            "channel_id": chan_id,
+                            "channel_name": chan_name,
+                            "channel_type": channel_type,
+                            "user_id": user_id,
+                            "ts": ts,
+                            "team_id": team_id,
+                            "team_domain": team_domain,
+                            "workspace_name": workspace_name,
+                            "workspace_url": workspace_url,
+                        },
                     )
-                    if not history_resp.get("has_more") or not next_history_cursor:
-                        break
-                    history_cursor = next_history_cursor
+                    synced += 1
+                    yield doc
 
-            next_channels_cursor: str = (
-                channels_resp.get("response_metadata", {}).get("next_cursor", "") or ""
-            )
-            if not next_channels_cursor:
-                self._last_cursor = None
-                break
-            channels_cursor = next_channels_cursor
-            self._last_cursor = channels_cursor
+                next_history_cursor: str = (
+                    history_resp.get("response_metadata", {}).get("next_cursor", "")
+                    or ""
+                )
+                if not history_resp.get("has_more") or not next_history_cursor:
+                    break
+                history_cursor = next_history_cursor
 
         self._items_synced = synced
         self._last_sync = datetime.now()
+        self._last_cursor = None
+        self._last_error = None
 
     def sync_status(self) -> SyncStatus:
         """Return sync progress from the most recent :meth:`sync` call."""
@@ -394,6 +604,7 @@ class SlackConnector(BaseConnector):
             items_synced=self._items_synced,
             last_sync=self._last_sync,
             cursor=self._last_cursor,
+            error=self._last_error,
         )
 
     # ------------------------------------------------------------------

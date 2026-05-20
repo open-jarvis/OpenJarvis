@@ -114,7 +114,7 @@ export const SOURCE_CATALOG: ConnectorMeta[] = [
     category: 'communication',
     icon: 'Hash',
     color: 'text-purple-400',
-    description: 'Read messages from channels, DMs, and threads',
+    description: 'Read messages from every channel, private channel, DM, and group DM you have access to',
     unitLabel: 'messages',
     steps: [
       {
@@ -123,16 +123,16 @@ export const SOURCE_CATALOG: ConnectorMeta[] = [
         urlLabel: 'Open Slack Apps',
       },
       {
-        label: 'In the left sidebar, click "OAuth & Permissions". Scroll down to "Bot Token Scopes" and click "Add an OAuth Scope" to add EACH of these scopes one by one:',
+        label: 'In the left sidebar, click "OAuth & Permissions". Scroll down to "User Token Scopes" (NOT "Bot Token Scopes"). Click "Add an OAuth Scope" and add EACH of these scopes one by one:',
       },
       {
-        label: 'channels:read • channels:history • channels:join • groups:read • groups:history • im:read • im:history • mpim:read • mpim:history • chat:write • users:read • app_mentions:read',
+        label: 'channels:history • channels:read • groups:history • groups:read • im:history • im:read • mpim:history • mpim:read • users:read',
       },
       {
-        label: 'In the left sidebar, click "Install App" → click "Install to Workspace" → click "Allow". After installing, copy the "Bot User OAuth Token" that appears (starts with xoxb-)',
+        label: 'In the left sidebar, click "Install App" → click "Install to Workspace" → click "Allow". After installing, copy the "User OAuth Token" that appears (starts with xoxp-, NOT xoxb-)',
       },
       {
-        label: 'Paste the bot token below. After connecting, invite the bot to channels you want indexed by typing /invite @OpenJarvis in each channel',
+        label: 'Paste the user token below. Sync indexes every channel, private channel, DM, and group DM you have access to — no need to invite anything to channels',
       },
       {
         label: '(Optional) Set the app icon: in the left sidebar click "Basic Information" → scroll to "Display Information" → upload the OpenJarvis logo',
@@ -141,7 +141,7 @@ export const SOURCE_CATALOG: ConnectorMeta[] = [
       },
     ],
     inputFields: [
-      { name: 'token', placeholder: 'xoxb-...', type: 'password' },
+      { name: 'token', placeholder: 'xoxp-...', type: 'password' },
     ],
   },
   {
