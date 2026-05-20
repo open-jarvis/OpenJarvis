@@ -6,6 +6,7 @@ import json as json_mod
 import logging
 import sys
 import time
+from pathlib import Path
 
 import click
 from rich.console import Console
@@ -30,6 +31,40 @@ from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
 from openjarvis.telemetry.store import TelemetryStore
 
 logger = logging.getLogger(__name__)
+
+def _resolve_agent_template(config) -> str:
+    """Resolve base agent template text for SystemPromptBuilder."""
+    if config.agent.system_prompt:
+        return config.agent.system_prompt
+
+    if config.agent.system_prompt_path:
+        try:
+            prompt_path = Path(config.agent.system_prompt_path).expanduser()
+            if prompt_path.exists():
+                return prompt_path.read_text(encoding="utf-8")
+            logger.warning(
+                "agent.system_prompt_path is set but file was not found: %s",
+                prompt_path,
+            )
+        except Exception as exc:
+            logger.warning("Failed to read agent.system_prompt_path: %s", exc)
+
+    return config.agent.default_system_prompt
+
+
+def _build_prompt_builder(config):
+    """Build SystemPromptBuilder with USER.md / SOUL.md context."""
+    try:
+        from openjarvis.prompt.builder import SystemPromptBuilder
+
+        return SystemPromptBuilder(
+            agent_template=_resolve_agent_template(config),
+            memory_files_config=config.memory_files,
+            system_prompt_config=config.system_prompt,
+        )
+    except Exception as exc:
+        logger.warning("Failed to initialize SystemPromptBuilder: %s", exc)
+        return None
 
 
 def _get_memory_backend(config):
@@ -140,6 +175,7 @@ def _run_agent(
     temperature: float,
     max_tokens: int,
     capability_policy=None,
+    prompt_builder=None,
 ):
     """Instantiate and run an agent, returning the AgentResult."""
     # Import agents to trigger registration
@@ -168,6 +204,8 @@ def _run_agent(
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
+    if prompt_builder is not None:
+        agent_kwargs["prompt_builder"] = prompt_builder
     if getattr(agent_cls, "accepts_tools", False):
         agent_kwargs["tools"] = tools
         agent_kwargs["max_turns"] = config.agent.max_turns
@@ -389,6 +427,7 @@ def ask(
 
     # Load config
     config = load_config()
+    prompt_builder = _build_prompt_builder(config)
 
     # Track whether the user explicitly set --max-tokens
     user_set_max_tokens = max_tokens is not None
@@ -519,6 +558,7 @@ def ask(
                 temperature,
                 max_tokens,
                 capability_policy=sec.capability_policy,
+                prompt_builder=prompt_builder,
             )
         except EngineConnectionError as exc:
             console.print(f"[red]Engine error:[/red] {exc}")
@@ -564,7 +604,12 @@ def ask(
         return
 
     # Direct-to-engine mode (no agent)
-    messages = [Message(role=Role.USER, content=query_text)]
+    messages = []
+    if prompt_builder is not None:
+        system_prompt = prompt_builder.build()
+        if system_prompt:
+            messages.append(Message(role=Role.SYSTEM, content=system_prompt))
+    messages.append(Message(role=Role.USER, content=query_text))
 
     # Memory-augmented context injection
     if not no_context and config.agent.context_from_memory:
