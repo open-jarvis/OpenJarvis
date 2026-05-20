@@ -37,10 +37,12 @@ class TestDefaults:
         assert ec.vllm.host == "http://localhost:8000"
         assert ec.sglang.host == "http://localhost:30000"
         assert ec.llamacpp.host == "http://localhost:8080"
+        assert ec.lemonade.host == "http://localhost:13305"
         assert ec.llamacpp.binary_path == ""
         # Backward-compat properties still work
         assert ec.ollama_host == ""
         assert ec.vllm_host == "http://localhost:8000"
+        assert ec.lemonade_host == "http://localhost:13305"
 
 
 class TestRecommendEngine:
@@ -92,6 +94,17 @@ class TestTomlLoading:
         cfg = load_config(toml_file)
         assert cfg.engine.default == "vllm"
         assert cfg.memory.default_backend == "faiss"
+
+    def test_loads_nested_lemonade_host_override(self, tmp_path: Path) -> None:
+        toml_file = tmp_path / "config.toml"
+        toml_file.write_text(
+            '[engine]\ndefault = "lemonade"\n\n'
+            '[engine.lemonade]\nhost = "http://custom-lemonade:19000"\n'
+        )
+        cfg = load_config(toml_file)
+        assert cfg.engine.default == "lemonade"
+        assert cfg.engine.lemonade.host == "http://custom-lemonade:19000"
+        assert cfg.engine.lemonade_host == "http://custom-lemonade:19000"
 
 
 class TestGenerateToml:
@@ -213,6 +226,7 @@ class TestNestedEngineConfig:
         assert ec.vllm.host == "http://localhost:8000"
         assert ec.sglang.host == "http://localhost:30000"
         assert ec.llamacpp.host == "http://localhost:8080"
+        assert ec.lemonade.host == "http://localhost:13305"
         assert ec.llamacpp.binary_path == ""
 
     def test_backward_compat_setter(self) -> None:
@@ -249,6 +263,17 @@ class TestNestedEngineConfig:
         cfg = load_config(toml_file)
         assert cfg.engine.ollama.host == "http://old:11434"
         assert cfg.engine.vllm.host == "http://old:8000"
+
+    def test_loads_old_flat_lemonade_host(self, tmp_path: Path) -> None:
+        toml_file = tmp_path / "config.toml"
+        toml_file.write_text(
+            '[engine]\ndefault = "lemonade"\n'
+            'lemonade_host = "http://legacy-lemonade:19191"\n'
+        )
+        cfg = load_config(toml_file)
+        assert cfg.engine.default == "lemonade"
+        assert cfg.engine.lemonade.host == "http://legacy-lemonade:19191"
+        assert cfg.engine.lemonade_host == "http://legacy-lemonade:19191"
 
 
 class TestNestedLearningConfig:

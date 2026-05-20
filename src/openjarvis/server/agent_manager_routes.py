@@ -407,31 +407,13 @@ def _build_deep_research_tools(
 
     Returns an empty list if the knowledge DB does not exist.
     """
-    from pathlib import Path
+    from openjarvis.agents.deep_research_tools import build_deep_research_tools
 
-    if not knowledge_db_path:
-        from openjarvis.core.config import DEFAULT_CONFIG_DIR
-
-        knowledge_db_path = str(DEFAULT_CONFIG_DIR / "knowledge.db")
-
-    if not Path(knowledge_db_path).exists():
-        return []
-
-    from openjarvis.connectors.retriever import TwoStageRetriever
-    from openjarvis.connectors.store import KnowledgeStore
-    from openjarvis.tools.knowledge_search import KnowledgeSearchTool
-    from openjarvis.tools.knowledge_sql import KnowledgeSQLTool
-    from openjarvis.tools.scan_chunks import ScanChunksTool
-    from openjarvis.tools.think import ThinkTool
-
-    store = KnowledgeStore(knowledge_db_path)
-    retriever = TwoStageRetriever(store)
-    return [
-        KnowledgeSearchTool(retriever=retriever),
-        KnowledgeSQLTool(store=store),
-        ScanChunksTool(store=store, engine=engine, model=model),
-        ThinkTool(),
-    ]
+    return build_deep_research_tools(
+        engine=engine,
+        model=model,
+        knowledge_db_path=knowledge_db_path,
+    )
 
 
 def _merge_tool_call_fragments(

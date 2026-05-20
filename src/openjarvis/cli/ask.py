@@ -11,6 +11,10 @@ import click
 from rich.console import Console
 from rich.table import Table
 
+from openjarvis.agents.deep_research_tools import (
+    DEEP_RESEARCH_TOOL_IDS,
+    build_deep_research_tools,
+)
 from openjarvis.cli._tool_names import resolve_tool_names
 from openjarvis.cli.hints import hint_no_engine
 from openjarvis.core.config import load_config
@@ -310,6 +314,35 @@ def _build_tools(
     return tools
 
 
+def _build_agent_tools(
+    agent_name: str,
+    tool_names: list[str],
+    config,
+    engine,
+    model_name: str,
+):
+    """Instantiate tool objects for a specific agent.
+
+    Deep Research requires a source-aware KnowledgeStore-backed tool set.
+    The plain CLI path should mirror the server/managed-agent wiring so the
+    agent can actually use ``knowledge_search``, ``knowledge_sql``, and
+    ``scan_chunks`` against the populated knowledge DB.
+    """
+    tools = []
+    remaining_tool_names = tool_names
+
+    if agent_name == "deep_research":
+        tools.extend(build_deep_research_tools(engine=engine, model=model_name))
+        remaining_tool_names = [
+            name for name in tool_names if name not in DEEP_RESEARCH_TOOL_IDS
+        ]
+
+    if remaining_tool_names:
+        tools.extend(_build_tools(remaining_tool_names, config, engine, model_name))
+
+    return tools
+
+
 def _run_agent(
     agent_name: str,
     query_text: str,
@@ -337,11 +370,17 @@ def _run_agent(
 
     # Build tools
     tools = []
-    if tool_names:
+    if tool_names or agent_name == "deep_research":
         # Trigger tool registration
         import openjarvis.tools  # noqa: F401
 
-        tools = _build_tools(tool_names, config, engine, model_name)
+        tools = _build_agent_tools(
+            agent_name,
+            tool_names,
+            config,
+            engine,
+            model_name,
+        )
 
     # Build agent with appropriate kwargs
     agent_kwargs = {

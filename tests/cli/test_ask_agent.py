@@ -304,3 +304,76 @@ class TestBuildTools:
         config = JarvisConfig()
         tools = _build_tools(["calculator", "think"], config, mock_setup, "test-model")
         assert len(tools) == 2
+
+
+class _FakeTool:
+    def __init__(self, tool_id: str):
+        self.tool_id = tool_id
+
+
+class TestBuildAgentTools:
+    def test_deep_research_auto_injects_knowledge_tools(self, mock_setup):
+        from openjarvis.cli.ask import _build_agent_tools
+        from openjarvis.core.config import JarvisConfig
+
+        config = JarvisConfig()
+        fake_tools = [
+            _FakeTool("knowledge_search"),
+            _FakeTool("knowledge_sql"),
+            _FakeTool("scan_chunks"),
+            _FakeTool("think"),
+        ]
+
+        with patch.object(
+            _ask_mod,
+            "build_deep_research_tools",
+            return_value=fake_tools,
+        ):
+            tools = _build_agent_tools(
+                "deep_research",
+                [],
+                config,
+                mock_setup,
+                "test-model",
+            )
+
+        assert [tool.tool_id for tool in tools] == [
+            "knowledge_search",
+            "knowledge_sql",
+            "scan_chunks",
+            "think",
+        ]
+
+    def test_deep_research_merges_extra_requested_tools(self, mock_setup):
+        from openjarvis.cli.ask import _build_agent_tools
+        from openjarvis.core.config import JarvisConfig
+
+        _register_tools()
+        config = JarvisConfig()
+        fake_tools = [
+            _FakeTool("knowledge_search"),
+            _FakeTool("knowledge_sql"),
+            _FakeTool("scan_chunks"),
+            _FakeTool("think"),
+        ]
+
+        with patch.object(
+            _ask_mod,
+            "build_deep_research_tools",
+            return_value=fake_tools,
+        ):
+            tools = _build_agent_tools(
+                "deep_research",
+                ["calculator", "think"],
+                config,
+                mock_setup,
+                "test-model",
+            )
+
+        assert [tool.tool_id for tool in tools] == [
+            "knowledge_search",
+            "knowledge_sql",
+            "scan_chunks",
+            "think",
+            "calculator",
+        ]
