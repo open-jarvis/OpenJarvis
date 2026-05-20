@@ -4,15 +4,27 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from openjarvis.agents._stubs import (
     AgentContext,
     AgentResult,
     BaseAgent,
     ToolUsingAgent,
 )
+from openjarvis.core.config import JarvisConfig
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import Conversation, Message, Role, ToolCall, ToolResult
 from openjarvis.tools._stubs import BaseTool, ToolSpec
+
+
+@pytest.fixture(autouse=True)
+def _isolated_config(monkeypatch):
+    """Mock load_config so tests don't depend on the developer's ~/.openjarvis."""
+    cfg = JarvisConfig()
+    cfg.agent.inject_datetime = False  # keep system prompt assertions clean
+    monkeypatch.setattr("openjarvis.agents._stubs.load_config", lambda: cfg)
+    return cfg
 
 # ---------------------------------------------------------------------------
 # Concrete subclass for testing

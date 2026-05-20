@@ -879,6 +879,9 @@ class AgentConfig:
         "hardware through OpenJarvis. You are not a cloud service. Respond "
         "helpfully, concisely, and accurately."
     )
+    # Prompt middleware: inject current date/time so models don't hallucinate.
+    inject_datetime: bool = True
+    datetime_timezone: str = "Asia/Taipei"
 
     # Backward-compat property for old field name
     @property

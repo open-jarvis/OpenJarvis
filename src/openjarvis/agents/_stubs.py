@@ -146,16 +146,38 @@ class BaseAgent(ABC):
         elif system_prompt:
             effective_system_prompt = system_prompt
         elif _context_has_system:
+            # Context already supplied a SYSTEM message — do not stack a second
+            # one. Middleware (date/time injection, etc.) is skipped because
+            # the upstream SYSTEM message is assumed to be authoritative.
             effective_system_prompt = None
         else:
-            # Fall back to the config-level default (grounds local models)
             try:
                 cfg = load_config()
                 effective_system_prompt = cfg.agent.default_system_prompt or None
             except Exception:
                 effective_system_prompt = None
+
+        # Apply prompt middleware chain (date/time injection, etc.) — only
+        # when we are emitting a SYSTEM message ourselves.
+        if effective_system_prompt is not None:
+            try:
+                from openjarvis.agents.prompt_middleware import (
+                    apply_chain,
+                    build_default_middleware,
+                )
+
+                cfg = load_config()
+                chain = build_default_middleware(cfg)
+                effective_system_prompt = apply_chain(
+                    effective_system_prompt, chain
+                )
+            except Exception:
+                pass
+
         if effective_system_prompt:
-            messages.append(Message(role=Role.SYSTEM, content=effective_system_prompt))
+            messages.append(
+                Message(role=Role.SYSTEM, content=effective_system_prompt)
+            )
         if context and context.conversation.messages:
             messages.extend(context.conversation.messages)
         messages.append(Message(role=Role.USER, content=input))
