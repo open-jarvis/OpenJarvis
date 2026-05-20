@@ -408,13 +408,54 @@ async def telemetry_energy(request: Request):
 skills_router = APIRouter(prefix="/v1/skills", tags=["skills"])
 
 
+def _resolve_skill_manager(request: Request):
+    """Pull the live SkillManager from app.state, or lazily build one."""
+    sm = getattr(request.app.state, "skill_manager", None)
+    if sm is not None:
+        return sm
+    try:
+        from pathlib import Path
+
+        from openjarvis.core.config import load_config
+        from openjarvis.core.events import EventBus
+        from openjarvis.skills.manager import SkillManager
+
+        cfg = getattr(request.app.state, "config", None) or load_config()
+        bus = getattr(request.app.state, "bus", None) or EventBus()
+        sm = SkillManager(bus)
+        skills_dir = Path(cfg.skills.skills_dir).expanduser()
+        sm.discover(paths=[skills_dir])
+        request.app.state.skill_manager = sm
+        return sm
+    except Exception as exc:
+        logger.debug("Lazy SkillManager creation failed: %s", exc)
+        return None
+
+
 @skills_router.get("")
 async def list_skills(request: Request):
-    """List installed skills."""
+    """List installed skills with manifest metadata when available."""
+    sm = _resolve_skill_manager(request)
+    skills: List[Dict[str, Any]] = []
+    if sm is not None:
+        try:
+            for name in sorted(sm.skill_names()):
+                manifest = sm.resolve(name)
+                skills.append(
+                    {
+                        "name": manifest.name,
+                        "description": getattr(manifest, "description", "") or "",
+                        "steps": len(getattr(manifest, "steps", []) or []),
+                    }
+                )
+            return {"skills": skills}
+        except Exception as exc:
+            logger.debug("SkillManager.list failed: %s", exc)
+
+    # Fall back to the registry-only listing.
     try:
         from openjarvis.core.registry import SkillRegistry
 
-        skills = []
         for key in sorted(SkillRegistry.keys()):
             skills.append({"name": key})
         return {"skills": skills}
@@ -425,20 +466,73 @@ async def list_skills(request: Request):
 
 @skills_router.post("")
 async def install_skill(request: Request):
-    """Install a skill (placeholder)."""
-    return {
-        "status": "not_implemented",
-        "message": "Use TOML files in ~/.openjarvis/skills/",
-    }
+    """Install a skill by uploading a manifest body.
+
+    Body shape:
+      {"name": "...", "manifest": "<toml or markdown>", "format": "toml"|"md"}
+    Writes to ``config.skills.skills_dir/<name>.<format>`` and re-discovers.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    name = (body.get("name") or "").strip()
+    manifest = body.get("manifest")
+    fmt = (body.get("format") or "toml").strip().lower()
+    if not name or not manifest:
+        raise HTTPException(status_code=400, detail="name and manifest are required")
+    if fmt not in {"toml", "md"}:
+        raise HTTPException(status_code=400, detail="format must be 'toml' or 'md'")
+    # Guard against path traversal.
+    if "/" in name or ".." in name or name.startswith("."):
+        raise HTTPException(status_code=400, detail="Invalid skill name")
+
+    from pathlib import Path
+
+    from openjarvis.core.config import load_config
+
+    cfg = getattr(request.app.state, "config", None) or load_config()
+    skills_dir = Path(cfg.skills.skills_dir).expanduser()
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    target = skills_dir / f"{name}.{fmt}"
+    target.write_text(manifest, encoding="utf-8")
+
+    sm = _resolve_skill_manager(request)
+    if sm is not None:
+        try:
+            sm.discover(paths=[skills_dir])
+        except Exception as exc:
+            logger.warning("Re-discovery after install failed: %s", exc)
+
+    return {"status": "installed", "name": name, "path": str(target)}
 
 
 @skills_router.delete("/{skill_name}")
 async def remove_skill(skill_name: str, request: Request):
-    """Remove a skill (placeholder)."""
-    return {
-        "status": "not_implemented",
-        "message": "Skill removal not yet supported via API",
-    }
+    """Delete a skill manifest file from the configured skills_dir."""
+    if "/" in skill_name or ".." in skill_name or skill_name.startswith("."):
+        raise HTTPException(status_code=400, detail="Invalid skill name")
+
+    from pathlib import Path
+
+    from openjarvis.core.config import load_config
+
+    cfg = getattr(request.app.state, "config", None) or load_config()
+    skills_dir = Path(cfg.skills.skills_dir).expanduser()
+    removed: List[str] = []
+    for ext in ("toml", "md"):
+        candidate = skills_dir / f"{skill_name}.{ext}"
+        if candidate.exists():
+            candidate.unlink()
+            removed.append(str(candidate))
+    if not removed:
+        raise HTTPException(status_code=404, detail="Skill manifest not found")
+
+    sm = getattr(request.app.state, "skill_manager", None)
+    if sm is not None and skill_name in sm.skill_names():
+        sm._skills.pop(skill_name, None)
+    return {"status": "removed", "name": skill_name, "removed_paths": removed}
 
 
 # ---- Sessions routes ----

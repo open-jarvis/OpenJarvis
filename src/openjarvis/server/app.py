@@ -152,6 +152,7 @@ def create_app(
     speech_backend=None,
     agent_manager=None,
     agent_scheduler=None,
+    skill_manager=None,
     api_key: str = "",
     webhook_config: dict | None = None,
     cors_origins: list[str] | None = None,
@@ -220,6 +221,7 @@ def create_app(
     app.state.speech_backend = speech_backend
     app.state.agent_manager = agent_manager
     app.state.agent_scheduler = agent_scheduler
+    app.state.skill_manager = skill_manager
     app.state.session_start = time.time()
 
     # Wire up trace store if traces are enabled
