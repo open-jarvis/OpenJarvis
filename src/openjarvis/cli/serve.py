@@ -170,13 +170,16 @@ def serve(
             console.print("[red]No model available on engine.[/red]")
             sys.exit(1)
 
-    # Resolve agent
+    # Resolve agent (uses shared runtime_tools factory so tool/skill loading
+    # is identical to SystemBuilder and `jarvis ask`/`chat`).
     agent = None
     agent_key = agent_name or config.server.agent
+    agent_bundle = None
     if agent_key:
         try:
             import openjarvis.agents  # noqa: F401
             from openjarvis.core.registry import AgentRegistry
+            from openjarvis.system.runtime_tools import build_runtime_tools
 
             if AgentRegistry.contains(agent_key):
                 agent_cls = AgentRegistry.get(agent_key)
@@ -184,43 +187,20 @@ def serve(
                 if sec.capability_policy is not None:
                     agent_kwargs["capability_policy"] = sec.capability_policy
 
-                # Load tools for agents that support them
                 if getattr(agent_cls, "accepts_tools", False):
-                    import openjarvis.tools  # noqa: F401  # trigger registration
-                    from openjarvis.core.registry import ToolRegistry
-                    from openjarvis.tools._stubs import BaseTool
-
-                    _DEFAULT_TOOLS = {"think", "calculator", "web_search"}
-                    configured = config.agent.tools
-                    if configured:
-                        if isinstance(configured, list):
-                            allowed = {
-                                t.strip()
-                                for t in configured
-                                if isinstance(t, str) and t.strip()
-                            }
-                        else:
-                            allowed = {
-                                t.strip() for t in configured.split(",") if t.strip()
-                            }
-                    else:
-                        allowed = _DEFAULT_TOOLS
-
-                    tools = []
-                    for name in ToolRegistry.keys():
-                        if name not in allowed:
-                            continue
-                        tool_cls = ToolRegistry.get(name)
-                        if isinstance(tool_cls, type) and issubclass(
-                            tool_cls, BaseTool
-                        ):
-                            tools.append(tool_cls())
-                        elif isinstance(tool_cls, BaseTool):
-                            tools.append(tool_cls)
-                    if tools:
-                        agent_kwargs["tools"] = tools
-
-                if getattr(agent_cls, "accepts_tools", False):
+                    agent_bundle = build_runtime_tools(
+                        config,
+                        bus=bus,
+                        engine=engine,
+                        model=model_name,
+                        capability_policy=sec.capability_policy,
+                    )
+                    if agent_bundle.tools:
+                        agent_kwargs["tools"] = agent_bundle.tools
+                    if agent_bundle.skill_few_shot_examples:
+                        agent_kwargs["skill_few_shot_examples"] = (
+                            agent_bundle.skill_few_shot_examples
+                        )
                     agent_kwargs["max_turns"] = config.agent.max_turns
 
                 agent = agent_cls(engine, model_name, **agent_kwargs)
@@ -258,42 +238,21 @@ def serve(
         _channel_tools: list = []
         if channel_agent:
             try:
-                import openjarvis.agents
+                import openjarvis.agents  # noqa: F401
                 from openjarvis.core.registry import AgentRegistry
+                from openjarvis.system.runtime_tools import build_runtime_tools
 
                 if AgentRegistry.contains(channel_agent):
                     _ch_cls = AgentRegistry.get(channel_agent)
                     if getattr(_ch_cls, "accepts_tools", False):
-                        import openjarvis.tools
-                        from openjarvis.core.registry import ToolRegistry
-                        from openjarvis.tools._stubs import BaseTool
-
-                        _DEFAULT_TOOLS = {"think", "calculator", "web_search"}
-                        configured = config.agent.tools
-                        if configured:
-                            if isinstance(configured, list):
-                                _allowed = {
-                                    t.strip()
-                                    for t in configured
-                                    if isinstance(t, str) and t.strip()
-                                }
-                            else:
-                                _allowed = {
-                                    t.strip()
-                                    for t in configured.split(",")
-                                    if t.strip()
-                                }
-                        else:
-                            _allowed = _DEFAULT_TOOLS
-
-                        for _tname in ToolRegistry.keys():
-                            if _tname not in _allowed:
-                                continue
-                            _tcls = ToolRegistry.get(_tname)
-                            if isinstance(_tcls, type) and issubclass(_tcls, BaseTool):
-                                _channel_tools.append(_tcls())
-                            elif isinstance(_tcls, BaseTool):
-                                _channel_tools.append(_tcls)
+                        _ch_bundle = build_runtime_tools(
+                            config,
+                            bus=bus,
+                            engine=engine,
+                            model=model_name,
+                            capability_policy=sec.capability_policy,
+                        )
+                        _channel_tools = _ch_bundle.tools
             except Exception as exc:
                 logger.warning("Channel tools failed to load: %s", exc)
 
@@ -473,6 +432,7 @@ def serve(
         speech_backend=speech_backend,
         agent_manager=agent_manager,
         agent_scheduler=agent_scheduler,
+        skill_manager=(agent_bundle.skill_manager if agent_bundle else None),
         api_key=api_key,
         webhook_config=webhook_config,
         cors_origins=config.server.cors_origins,
