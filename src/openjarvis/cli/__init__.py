@@ -31,6 +31,7 @@ from openjarvis.cli.model import model
 from openjarvis.cli.operators_cmd import operators
 from openjarvis.cli.optimize_cmd import optimize_group
 from openjarvis.cli.pearl_cmd import pearl
+from openjarvis.cli.profile_cmd import profile
 from openjarvis.cli.quickstart_cmd import quickstart
 from openjarvis.cli.registry_cmd import registry
 from openjarvis.cli.scan_cmd import scan
@@ -113,6 +114,7 @@ cli.add_command(digest, "digest")
 cli.add_command(deep_research_setup, "deep-research-setup")
 cli.add_command(deep_research_setup, "research")
 cli.add_command(bootstrap_cmd, "_bootstrap")
+cli.add_command(profile, "profile")
 
 # Gateway CLI commands (lazy import to avoid pulling starlette)
 try:

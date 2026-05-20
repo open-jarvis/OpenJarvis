@@ -22,7 +22,11 @@ from openjarvis.tools._stubs import BaseTool, ToolSpec
 def _isolated_config(monkeypatch):
     """Mock load_config so tests don't depend on the developer's ~/.openjarvis."""
     cfg = JarvisConfig()
-    cfg.agent.inject_datetime = False  # keep system prompt assertions clean
+    # Disable every prompt-middleware step so SYSTEM-message assertions
+    # stay focused on the BaseAgent._build_messages logic itself.
+    cfg.agent.inject_datetime = False
+    cfg.agent.inject_profile = False
+    cfg.agent.inject_tool_affinity = False
     monkeypatch.setattr("openjarvis.agents._stubs.load_config", lambda: cfg)
     return cfg
 

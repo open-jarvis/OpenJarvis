@@ -87,6 +87,14 @@ def serve(
         except Exception as exc:
             logger.debug("Telemetry store init failed: %s", exc)
 
+    # Personalisation: track which tools the user actually leans on.
+    try:
+        from openjarvis.personalization.tool_affinity import wire_tool_affinity
+
+        wire_tool_affinity(bus)
+    except Exception as exc:
+        logger.debug("Failed to wire tool affinity tracker: %s", exc)
+
     resolved = get_engine(config, engine_key)
     if resolved is None:
         console.print(

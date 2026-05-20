@@ -47,15 +47,28 @@ def test_datetime_injector_strips_leading_newlines_on_empty_prompt() -> None:
 
 
 def test_build_default_middleware_respects_inject_datetime_flag() -> None:
+    """When all injectors are disabled the chain is empty."""
     cfg = SimpleNamespace(
-        agent=SimpleNamespace(inject_datetime=False, datetime_timezone="UTC"),
+        agent=SimpleNamespace(
+            inject_datetime=False,
+            datetime_timezone="UTC",
+            inject_profile=False,
+            inject_tool_affinity=False,
+        ),
     )
     assert build_default_middleware(cfg) == []
 
-    cfg2 = SimpleNamespace(
-        agent=SimpleNamespace(inject_datetime=True, datetime_timezone="UTC"),
+
+def test_build_default_middleware_includes_datetime_when_enabled() -> None:
+    cfg = SimpleNamespace(
+        agent=SimpleNamespace(
+            inject_datetime=True,
+            datetime_timezone="UTC",
+            inject_profile=False,
+            inject_tool_affinity=False,
+        ),
     )
-    chain = build_default_middleware(cfg2)
+    chain = build_default_middleware(cfg)
     assert len(chain) == 1
     assert isinstance(chain[0], DateTimeInjector)
     assert chain[0].timezone == "UTC"

@@ -65,16 +65,52 @@ class DateTimeInjector:
 def build_default_middleware(cfg) -> list[PromptMiddleware]:
     """Build the default middleware chain from a loaded config object.
 
-    Returns an empty list when ``cfg.agent.inject_datetime`` is False.
+    Steps applied in order (each respects its own enable flag):
+
+    1. ``DateTimeInjector`` — current date/time in configured timezone.
+    2. ``ProfileInjector`` — append USER.md "things I know about you".
+    3. ``ToolAffinityInjector`` — list the user's most-used tools.
     """
     chain: list[PromptMiddleware] = []
     agent_cfg = getattr(cfg, "agent", None)
     if agent_cfg is None:
         return chain
-    if not getattr(agent_cfg, "inject_datetime", True):
-        return chain
-    tz = getattr(agent_cfg, "datetime_timezone", "Asia/Taipei") or "Asia/Taipei"
-    chain.append(DateTimeInjector(timezone=tz))
+
+    if getattr(agent_cfg, "inject_datetime", True):
+        tz = (
+            getattr(agent_cfg, "datetime_timezone", "Asia/Taipei")
+            or "Asia/Taipei"
+        )
+        chain.append(DateTimeInjector(timezone=tz))
+
+    if getattr(agent_cfg, "inject_profile", True):
+        try:
+            from openjarvis.personalization.injector import ProfileInjector
+            from openjarvis.personalization.profile import (
+                DEFAULT_PROFILE_PATH,
+            )
+
+            profile_path = getattr(
+                agent_cfg, "profile_path", str(DEFAULT_PROFILE_PATH)
+            )
+            from pathlib import Path
+
+            chain.append(ProfileInjector(profile_path=Path(profile_path).expanduser()))
+        except Exception:
+            pass
+
+    if getattr(agent_cfg, "inject_tool_affinity", True):
+        try:
+            from openjarvis.personalization.injector import ToolAffinityInjector
+            from openjarvis.personalization.tool_affinity import (
+                ToolAffinityTracker,
+            )
+
+            tracker = ToolAffinityTracker()
+            chain.append(ToolAffinityInjector(tracker=tracker))
+        except Exception:
+            pass
+
     return chain
 
 

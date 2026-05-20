@@ -432,6 +432,14 @@ def ask(
         except Exception as exc:
             logger.debug("Failed to initialize telemetry store: %s", exc)
 
+    # Personalisation: track which tools the user actually leans on.
+    try:
+        from openjarvis.personalization.tool_affinity import wire_tool_affinity
+
+        wire_tool_affinity(bus)
+    except Exception as exc:
+        logger.debug("Failed to wire tool affinity tracker: %s", exc)
+
     # Discover engines
     register_builtin_models()
 

@@ -84,7 +84,16 @@ def chat(
 
             if AgentRegistry.contains(agent_key):
                 agent_cls = AgentRegistry.get(agent_key)
-                kwargs: dict = {"bus": EventBus()}
+                _bus = EventBus()
+                try:
+                    from openjarvis.personalization.tool_affinity import (
+                        wire_tool_affinity,
+                    )
+
+                    wire_tool_affinity(_bus)
+                except Exception:
+                    pass
+                kwargs: dict = {"bus": _bus}
 
                 if getattr(agent_cls, "accepts_tools", False):
                     tool_names_list = resolve_tool_names(
