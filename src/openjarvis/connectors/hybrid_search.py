@@ -54,6 +54,11 @@ class SearchHit:
     vector_score: float
     thread_id: str = ""
     thread_context: List[Dict[str, Any]] = field(default_factory=list)
+    # ``url`` is the connector-provided deep-link, persisted on
+    # ``knowledge_chunks.url``. Empty when the source didn't supply one — in
+    # that case callers may fall back to a doc_id-based reconstruction (Slack,
+    # Gmail), or render the citation as non-clickable.
+    url: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -435,7 +440,7 @@ class HybridSearch:
         meta_rows = self._store._conn.execute(
             f"""
             SELECT id, doc_id, content, source, title, author, participants,
-                   timestamp, thread_id, chunk_index
+                   timestamp, thread_id, chunk_index, url
             FROM knowledge_chunks
             WHERE id IN ({placeholders})
             """,
@@ -463,6 +468,7 @@ class HybridSearch:
                     vector_score=vec_score,
                     thread_id=r["thread_id"] or "",
                     thread_context=self._thread_context(r["thread_id"] or "", chunk_id),
+                    url=r["url"] or "",
                 )
             )
         return hits

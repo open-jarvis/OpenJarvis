@@ -41,6 +41,8 @@ _LIST_RESPONSE = {
     "cursor": None,
 }
 
+_NOTE_1_WEB_URL = "https://notes.granola.ai/d/e98b5d85-ff57-46ac-a0ce-849fc68d086f"
+
 _NOTE_1 = {
     "id": "not_abc12345678901",
     "title": "Sprint Planning",
@@ -70,6 +72,7 @@ _NOTE_1 = {
         "event_title": "Sprint Planning",
         "scheduled_start": "2024-03-15T10:00:00Z",
     },
+    "web_url": _NOTE_1_WEB_URL,
 }
 
 _NOTE_2 = {
@@ -82,6 +85,8 @@ _NOTE_2 = {
     "summary": {"markdown": "Reviewed new dashboard mockups."},
     "transcript": [],
     "calendar_event": None,
+    # Some notes have no associated web_url (e.g. quick notes without a
+    # calendar event). The connector must tolerate the absence.
 }
 
 # ---------------------------------------------------------------------------
@@ -172,8 +177,10 @@ def test_sync_yields_documents(
     assert doc1.channel == "Sprint Planning"
     # thread_id namespaces transcript chunks under one note.
     assert doc1.thread_id == "not_abc12345678901"
-    # url is built by the research-loop, not the connector.
-    assert doc1.url is None
+    # The connector persists the API-provided web_url verbatim. The web URL
+    # uses a different UUID than the API note_id so this is the *only* way
+    # to get a working deep-link to the note.
+    assert doc1.url == _NOTE_1_WEB_URL
     assert "Discussed sprint goals and capacity." in doc1.content
     assert "Let's start with the sprint goals." in doc1.content
     assert "I think we should focus on auth." in doc1.content
@@ -186,6 +193,8 @@ def test_sync_yields_documents(
     assert doc2.participants_raw == ["Bob"]
     assert doc2.channel == "meeting"
     assert doc2.thread_id == "not_def12345678901"
+    # Note 2's fixture has no web_url; the connector tolerates the absence.
+    assert doc2.url is None
     assert "Reviewed new dashboard mockups." in doc2.content
 
     # Verify the API was called correctly
@@ -346,12 +355,23 @@ def test_end_to_end_ingest_and_search(
     # thread_id is namespaced by the pipeline.
     assert target.thread_id == "granola:not_abc12345678901"
     assert target.participants == ["alice@co.com", "carol@co.com"]
-    # doc_id flows through the hit and matches the URL builder's expected shape.
     assert target.document_id == "granola:not_abc12345678901"
+    # The connector-supplied web_url survives ingest → store → hit and is
+    # what the research-loop client sees as the citation URL. The doc_id-
+    # based reconstruction can't recover this because the web UUID is
+    # different from the API note_id.
+    assert target.url == _NOTE_1_WEB_URL
 
-    # And the research-loop builder reconstructs the web deep-link.
-    from openjarvis.agents.research_loop import _hit_url  # noqa: PLC0415
-
-    assert _hit_url(target.source, target.document_id) == (
-        "https://notes.granola.ai/d/not_abc12345678901"
+    from openjarvis.agents.research_loop import (  # noqa: PLC0415
+        _hit_url,
+        build_sources_for_client,
     )
+
+    # _hit_url alone cannot reconstruct a Granola URL — there is no UUID
+    # in the doc_id. It must return empty, leaving the URL to be sourced
+    # from the stored ``SearchHit.url``.
+    assert _hit_url(target.source, target.document_id) == ""
+
+    # And the client-facing sources list does end up with the stored URL.
+    client_sources = build_sources_for_client([target])
+    assert client_sources[0]["url"] == _NOTE_1_WEB_URL

@@ -17,7 +17,9 @@ from openjarvis.agents.research_loop import (
     SYSTEM_PROMPT,
     ResearchAgent,
     _hit_url,
+    build_sources_for_client,
 )
+from openjarvis.connectors.hybrid_search import SearchHit
 
 
 class _MockEngine:
@@ -220,14 +222,68 @@ def test_hit_url_unknown_source_returns_empty() -> None:
     assert _hit_url("", "") == ""
 
 
-def test_hit_url_granola_full() -> None:
-    """A ``granola:{note_id}`` doc_id resolves to the Granola web deep-link."""
-    url = _hit_url("granola", "granola:not_abc12345678901")
-    assert url == "https://notes.granola.ai/d/not_abc12345678901"
+def _mk_hit(
+    *,
+    source: str = "granola",
+    document_id: str = "granola:not_abc12345678901",
+    url: str = "",
+    title: str = "Sprint Planning",
+) -> SearchHit:
+    """Tiny SearchHit factory for URL-routing tests."""
+    return SearchHit(
+        chunk_id="c1",
+        document_id=document_id,
+        chunk_idx=0,
+        title=title,
+        content_snippet="...",
+        source=source,
+        timestamp="2024-03-15T10:00:00",
+        participants=["alice@co.com"],
+        score=0.5,
+        bm25_score=0.5,
+        vector_score=0.5,
+        url=url,
+    )
 
 
-def test_hit_url_granola_empty_doc_id() -> None:
-    """A bare ``granola:`` prefix with no note_id yields the empty string."""
+def test_build_sources_prefers_stored_url_over_reconstruction() -> None:
+    """When the connector stored a URL, the client gets it verbatim.
+
+    The doc_id-based reconstruction is a *fallback* — sources like Granola
+    that supply the URL at ingest time must surface it unchanged.
+    """
+    stored = "https://notes.granola.ai/d/e98b5d85-ff57-46ac-a0ce-849fc68d086f"
+    sources = build_sources_for_client([_mk_hit(url=stored)])
+    assert sources[0]["url"] == stored
+
+
+def test_build_sources_falls_back_to_reconstruction_when_url_missing() -> None:
+    """Slack/Gmail still work without a stored URL — reconstructed from doc_id."""
+    sources = build_sources_for_client(
+        [
+            _mk_hit(
+                source="slack",
+                document_id="slack:acme:C123:1710500000.000100",
+                url="",
+                title="#general",
+            )
+        ]
+    )
+    assert (
+        sources[0]["url"]
+        == "https://acme.slack.com/archives/C123/p1710500000000100"
+    )
+
+
+def test_hit_url_granola_not_reconstructible() -> None:
+    """Granola doc_ids cannot reconstruct a web URL.
+
+    The Granola web app uses a UUID that is different from the API
+    ``note_id`` embedded in our doc_id. Citation URLs for Granola must
+    come from the stored ``SearchHit.url`` (populated at ingest time from
+    the API's ``web_url`` field). ``_hit_url`` therefore returns empty.
+    """
+    assert _hit_url("granola", "granola:not_abc12345678901") == ""
     assert _hit_url("granola", "granola:") == ""
     assert _hit_url("granola", "") == ""
 

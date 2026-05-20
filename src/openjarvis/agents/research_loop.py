@@ -232,11 +232,15 @@ def _bare_doc_id(source: str, document_id: str) -> str:
 
 
 def _hit_url(source: str, document_id: str) -> str:
-    """Build a clickable URL for a hit, when we know how to link it.
+    """Reconstruct a clickable URL from a hit's ``doc_id`` alone.
 
-    Gmail and Slack are the linkable sources today; anything else falls
-    back to an empty string and the client renders a non-clickable
-    citation chip.
+    Used as a *fallback* when the connector didn't persist a URL on the
+    chunk (``SearchHit.url`` is empty). Reconstruction only works for
+    sources whose doc_id encodes everything the permalink needs — Gmail
+    and Slack today. Sources whose doc_id is just an opaque ID (e.g.
+    Granola, where the web URL uses a different UUID than the API note_id)
+    must populate ``Document.url`` at ingest time; we can't make a working
+    link from the doc_id alone.
 
     Gmail ids land here in two flavors:
 
@@ -254,9 +258,6 @@ def _hit_url(source: str, document_id: str) -> str:
     be reconstructed without a side lookup. Legacy two-segment ids
     (``slack:{channel_id}:{ts}`` from earlier ingests) fall back to the
     workspace-less ``slack.com/archives/...`` form.
-
-    Granola doc_ids are ``granola:{note_id}``; the public Granola web
-    deep-link is ``https://notes.granola.ai/d/{note_id}``.
     """
     if source == "gmail" and document_id:
         msg_id = _bare_doc_id(source, document_id)
@@ -284,11 +285,6 @@ def _hit_url(source: str, document_id: str) -> str:
         if team_domain:
             return f"https://{team_domain}.slack.com/archives/{channel_id}/p{ts_clean}"
         return f"https://slack.com/archives/{channel_id}/p{ts_clean}"
-    if source == "granola" and document_id:
-        note_id = _bare_doc_id(source, document_id)
-        if not note_id:
-            return ""
-        return f"https://notes.granola.ai/d/{note_id}"
     return ""
 
 
@@ -308,6 +304,12 @@ def build_sources_for_client(
     out: List[Dict[str, Any]] = []
     for i, h in enumerate(hits[:total_cap]):
         sender = h.participants[0] if h.participants else ""
+        # Prefer the URL the connector stored at ingest time (Granola's
+        # ``web_url``, Notion's page URL, etc.) — it's the only reliable
+        # link for sources whose web URL doesn't derive from the doc_id.
+        # Fall back to the doc_id-based reconstruction for sources where
+        # that still works (Slack, Gmail).
+        url = h.url or _hit_url(h.source, h.document_id)
         out.append(
             {
                 "ref": i + 1,
@@ -315,7 +317,7 @@ def build_sources_for_client(
                 "sender": sender,
                 "date": _hit_date(h.timestamp),
                 "source_id": _bare_doc_id(h.source, h.document_id),
-                "url": _hit_url(h.source, h.document_id),
+                "url": url,
             }
         )
     return out

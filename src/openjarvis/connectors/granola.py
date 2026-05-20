@@ -323,6 +323,12 @@ class GranolaConnector(BaseConnector):
                 cal_event: Dict[str, Any] = note.get("calendar_event") or {}
                 channel: str = cal_event.get("event_title") or "meeting"
 
+                # ``web_url`` (e.g. https://notes.granola.ai/d/{uuid}) is the
+                # only reliable way to deep-link to a Granola note — the API
+                # ``note_id`` and the web UUID are different, so we must store
+                # what the API gives us here.
+                web_url: Optional[str] = note.get("web_url") or None
+
                 doc = Document(
                     doc_id=f"granola:{note_id}",
                     source="granola",
@@ -335,7 +341,7 @@ class GranolaConnector(BaseConnector):
                     channel=channel,
                     thread_id=note_id,
                     timestamp=timestamp,
-                    url=None,
+                    url=web_url,
                     metadata={
                         "note_id": note_id,
                         "owner_name": owner.get("name", ""),
