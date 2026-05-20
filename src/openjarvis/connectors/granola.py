@@ -10,6 +10,7 @@ Settings → API (requires Business or Enterprise plan).
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterator, List, Optional
 
@@ -20,6 +21,8 @@ from openjarvis.connectors.oauth import delete_tokens, load_tokens, save_tokens
 from openjarvis.core.config import DEFAULT_CONFIG_DIR
 from openjarvis.core.registry import ConnectorRegistry
 from openjarvis.tools._stubs import ToolSpec
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -286,6 +289,7 @@ class GranolaConnector(BaseConnector):
                 created_after=created_after,
             )
             notes: List[Dict[str, Any]] = list_resp.get("notes", [])
+            logger.info("Granola: Found %d notes on this page", len(notes))
 
             for note_summary in notes:
                 note_id: str = note_summary.get("id", "")
@@ -297,11 +301,18 @@ class GranolaConnector(BaseConnector):
 
                 title: str = note.get("title", "")
                 owner: Dict[str, Any] = note.get("owner") or {}
-                author: str = owner.get("email", "")
+                author: str = (owner.get("email") or "").lower()
 
                 attendees: List[Dict[str, Any]] = note.get("attendees") or []
                 participants: List[str] = [
-                    a.get("email", "") for a in attendees if a.get("email")
+                    (a.get("email") or "").lower()
+                    for a in attendees
+                    if a.get("email")
+                ]
+                participants_raw: List[str] = [
+                    a.get("name") or a.get("email") or ""
+                    for a in attendees
+                    if a.get("name") or a.get("email")
                 ]
 
                 created_at_str: str = note.get("created_at", "")
@@ -309,11 +320,8 @@ class GranolaConnector(BaseConnector):
 
                 content = _format_note_content(note)
 
-                # Build URL from calendar event if available, else None
-                cal_event: Optional[Dict[str, Any]] = note.get("calendar_event")
-                url: Optional[str] = None
-                if cal_event:
-                    url = note.get("url")
+                cal_event: Dict[str, Any] = note.get("calendar_event") or {}
+                channel: str = cal_event.get("event_title") or "meeting"
 
                 doc = Document(
                     doc_id=f"granola:{note_id}",
@@ -323,8 +331,11 @@ class GranolaConnector(BaseConnector):
                     title=title,
                     author=author,
                     participants=participants,
+                    participants_raw=participants_raw,
+                    channel=channel,
+                    thread_id=note_id,
                     timestamp=timestamp,
-                    url=url,
+                    url=None,
                     metadata={
                         "note_id": note_id,
                         "owner_name": owner.get("name", ""),
@@ -343,6 +354,7 @@ class GranolaConnector(BaseConnector):
 
         self._items_synced = synced
         self._last_sync = datetime.now(tz=timezone.utc)
+        logger.info("Granola: Sync complete, %d notes total", synced)
 
     def sync_status(self) -> SyncStatus:
         """Return sync progress from the most recent :meth:`sync` call."""

@@ -6,6 +6,7 @@ All Granola API calls are mocked; no network access is required.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import List
 from unittest.mock import patch
@@ -157,22 +158,34 @@ def test_sync_yields_documents(
 
     assert len(docs) == 2
 
-    # --- Note 1 ---
+    # --- Note 1 (has calendar_event + attendees) ---
     doc1 = next(d for d in docs if d.doc_id == "granola:not_abc12345678901")
     assert doc1.source == "granola"
     assert doc1.doc_type == "document"
     assert doc1.title == "Sprint Planning"
     assert doc1.author == "alice@co.com"
-    assert "alice@co.com" in doc1.participants
-    assert "carol@co.com" in doc1.participants
+    # Participants are lowercased emails (cross-source matching).
+    assert doc1.participants == ["alice@co.com", "carol@co.com"]
+    # participants_raw keeps the human-readable names.
+    assert doc1.participants_raw == ["Alice", "Carol"]
+    # channel is derived from calendar_event.event_title when present.
+    assert doc1.channel == "Sprint Planning"
+    # thread_id namespaces transcript chunks under one note.
+    assert doc1.thread_id == "not_abc12345678901"
+    # url is built by the research-loop, not the connector.
+    assert doc1.url is None
     assert "Discussed sprint goals and capacity." in doc1.content
     assert "Let's start with the sprint goals." in doc1.content
     assert "I think we should focus on auth." in doc1.content
 
-    # --- Note 2 ---
+    # --- Note 2 (no calendar_event → channel falls back to "meeting") ---
     doc2 = next(d for d in docs if d.doc_id == "granola:not_def12345678901")
     assert doc2.title == "Design Review"
     assert doc2.author == "bob@co.com"
+    assert doc2.participants == ["bob@co.com"]
+    assert doc2.participants_raw == ["Bob"]
+    assert doc2.channel == "meeting"
+    assert doc2.thread_id == "not_def12345678901"
     assert "Reviewed new dashboard mockups." in doc2.content
 
     # Verify the API was called correctly
@@ -245,3 +258,100 @@ def test_registry() -> None:
     assert ConnectorRegistry.contains("granola")
     cls = ConnectorRegistry.get("granola")
     assert cls.connector_id == "granola"
+
+
+# ---------------------------------------------------------------------------
+# Test 9 — sync logs the per-page and total note counts at INFO
+# ---------------------------------------------------------------------------
+
+
+@patch("openjarvis.connectors.granola._granola_api_list_notes")
+@patch("openjarvis.connectors.granola._granola_api_get_note")
+def test_sync_logs_note_count(
+    mock_get,
+    mock_list,
+    connector,
+    caplog,
+) -> None:
+    """sync() emits 'Found N notes' and 'Sync complete' INFO lines.
+
+    Matches the Slack connector's per-sync logging shape so operators can
+    grep server logs for sync activity.
+    """
+    creds_path = Path(connector._credentials_path)
+    creds_path.parent.mkdir(parents=True, exist_ok=True)
+    creds_path.write_text(json.dumps({"token": "grl_fake"}), encoding="utf-8")
+
+    mock_list.return_value = _LIST_RESPONSE
+    mock_get.side_effect = [_NOTE_1, _NOTE_2]
+
+    with caplog.at_level(logging.INFO, logger="openjarvis.connectors.granola"):
+        list(connector.sync())
+
+    text = caplog.text
+    assert "Granola: Found 2 notes on this page" in text
+    assert "Granola: Sync complete, 2 notes total" in text
+
+
+# ---------------------------------------------------------------------------
+# Test 10 — end-to-end: connector → pipeline → KnowledgeStore → HybridSearch
+# ---------------------------------------------------------------------------
+
+
+@patch("openjarvis.connectors.granola._granola_api_list_notes")
+@patch("openjarvis.connectors.granola._granola_api_get_note")
+def test_end_to_end_ingest_and_search(
+    mock_get,
+    mock_list,
+    connector,
+    tmp_path: Path,
+) -> None:
+    """Synced Granola notes are searchable via HybridSearch with v1 fields.
+
+    Lexical-only path (no embedder) so this stays a pure unit test — no
+    Ollama daemon needed. Confirms the v1 contract end-to-end: source,
+    namespaced thread_id, channel, participants, and that the research-loop
+    URL builder reconstructs the Granola web deep-link from the doc_id.
+    """
+    from openjarvis.connectors.hybrid_search import HybridSearch  # noqa: PLC0415
+    from openjarvis.connectors.pipeline import IngestionPipeline  # noqa: PLC0415
+    from openjarvis.connectors.store import KnowledgeStore  # noqa: PLC0415
+
+    creds_path = Path(connector._credentials_path)
+    creds_path.parent.mkdir(parents=True, exist_ok=True)
+    creds_path.write_text(json.dumps({"token": "grl_fake"}), encoding="utf-8")
+
+    mock_list.return_value = _LIST_RESPONSE
+    mock_get.side_effect = [_NOTE_1, _NOTE_2]
+
+    store = KnowledgeStore(db_path=tmp_path / "granola_e2e.db")
+    pipeline = IngestionPipeline(store)
+    chunks_stored = pipeline.ingest(connector.sync())
+
+    # Two notes; the chunker may split summary/transcript sections, so
+    # we just assert at least one chunk per note made it in.
+    assert chunks_stored >= 2
+
+    hybrid = HybridSearch(store)
+    hits = hybrid.search("sprint goals", limit=5)
+    assert len(hits) >= 1
+
+    target = next(
+        (h for h in hits if "Sprint Planning" in h.title),
+        None,
+    )
+    assert target is not None
+    assert target.source == "granola"
+    assert target.title == "Sprint Planning"
+    # thread_id is namespaced by the pipeline.
+    assert target.thread_id == "granola:not_abc12345678901"
+    assert target.participants == ["alice@co.com", "carol@co.com"]
+    # doc_id flows through the hit and matches the URL builder's expected shape.
+    assert target.document_id == "granola:not_abc12345678901"
+
+    # And the research-loop builder reconstructs the web deep-link.
+    from openjarvis.agents.research_loop import _hit_url  # noqa: PLC0415
+
+    assert _hit_url(target.source, target.document_id) == (
+        "https://notes.granola.ai/d/not_abc12345678901"
+    )

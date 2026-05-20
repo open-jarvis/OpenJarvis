@@ -245,6 +245,9 @@ def _hit_url(source: str, document_id: str) -> str:
     be reconstructed without a side lookup. Legacy two-segment ids
     (``slack:{channel_id}:{ts}`` from earlier ingests) fall back to the
     workspace-less ``slack.com/archives/...`` form.
+
+    Granola doc_ids are ``granola:{note_id}``; the public Granola web
+    deep-link is ``https://notes.granola.ai/d/{note_id}``.
     """
     if source == "gmail" and document_id:
         msg_id = _bare_doc_id(source, document_id)
@@ -272,6 +275,11 @@ def _hit_url(source: str, document_id: str) -> str:
         if team_domain:
             return f"https://{team_domain}.slack.com/archives/{channel_id}/p{ts_clean}"
         return f"https://slack.com/archives/{channel_id}/p{ts_clean}"
+    if source == "granola" and document_id:
+        note_id = _bare_doc_id(source, document_id)
+        if not note_id:
+            return ""
+        return f"https://notes.granola.ai/d/{note_id}"
     return ""
 
 

@@ -213,3 +213,15 @@ def test_hit_url_unknown_source_returns_empty() -> None:
     """Unsupported sources don't get a guessed URL."""
     assert _hit_url("notion", "notion:abc") == ""
     assert _hit_url("", "") == ""
+
+
+def test_hit_url_granola_full() -> None:
+    """A ``granola:{note_id}`` doc_id resolves to the Granola web deep-link."""
+    url = _hit_url("granola", "granola:not_abc12345678901")
+    assert url == "https://notes.granola.ai/d/not_abc12345678901"
+
+
+def test_hit_url_granola_empty_doc_id() -> None:
+    """A bare ``granola:`` prefix with no note_id yields the empty string."""
+    assert _hit_url("granola", "granola:") == ""
+    assert _hit_url("granola", "") == ""
