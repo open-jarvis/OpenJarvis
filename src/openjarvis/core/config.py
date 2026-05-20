@@ -882,6 +882,10 @@ class AgentConfig:
     # Prompt middleware: inject current date/time so models don't hallucinate.
     inject_datetime: bool = True
     datetime_timezone: str = "Asia/Taipei"
+    # Personalisation middleware (all local).
+    inject_profile: bool = True
+    profile_path: str = "~/.openjarvis/USER.md"
+    inject_tool_affinity: bool = True
 
     # Backward-compat property for old field name
     @property
