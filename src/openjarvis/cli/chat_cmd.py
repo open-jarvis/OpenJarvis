@@ -207,7 +207,18 @@ def chat(
         # Generate response
         try:
             if agent is not None:
-                response = agent.run(user_input)
+                # Pass conversation history so multi-turn agent chat stays
+                # coherent. AgentContext.conversation carries everything we
+                # have collected so far minus the just-appended user turn —
+                # the agent will append that itself.
+                from openjarvis.agents._stubs import AgentContext
+                from openjarvis.core.types import Conversation
+
+                conv = Conversation()
+                for msg in history[:-1]:
+                    conv.add(msg)
+                ctx = AgentContext(conversation=conv)
+                response = agent.run(user_input, context=ctx)
                 content = (
                     response.content if hasattr(response, "content") else str(response)
                 )
