@@ -357,6 +357,22 @@ def _run_agent(
     if capability_policy is not None:
         agent_kwargs["capability_policy"] = capability_policy
 
+    # Wire the SystemPromptBuilder so SOUL.md / MEMORY.md / USER.md persona
+    # files actually reach the model. Only passed to agents whose __init__
+    # accepts a `prompt_builder` kwarg (BaseAgent does; agents that override
+    # __init__ without forwarding it, e.g. OrchestratorAgent, opt out
+    # automatically and keep their existing system-prompt machinery).
+    import inspect as _inspect
+
+    if "prompt_builder" in _inspect.signature(agent_cls.__init__).parameters:
+        from openjarvis.prompt.builder import SystemPromptBuilder
+
+        agent_kwargs["prompt_builder"] = SystemPromptBuilder(
+            agent_template=config.agent.default_system_prompt or "",
+            memory_files_config=config.memory_files,
+            system_prompt_config=config.system_prompt,
+        )
+
     agent = agent_cls(engine, model_name, **agent_kwargs)
     ctx = AgentContext()
 
@@ -535,7 +551,11 @@ def _print_profile(
     "--agent",
     "agent_name",
     default=None,
-    help="Agent to use (simple, orchestrator).",
+    help=(
+        "Agent to use (simple, orchestrator, ...). "
+        "When omitted, falls back to ``agent.default_agent`` from config. "
+        "Pass ``--agent ''`` to force direct-to-engine mode (no agent)."
+    ),
 )
 @click.option(
     "--tools",
@@ -590,6 +610,16 @@ def ask(
 
     # Load config
     config = load_config()
+
+    # Honor `agent.default_agent` from config when --agent was not explicitly
+    # passed. Pass `--agent ""` to opt out and use direct-to-engine mode.
+    # Without this fallback, `[agent].default_system_prompt` and the
+    # SOUL.md / MEMORY.md / USER.md persona system are silently bypassed for
+    # the most common command (`jarvis ask "..."`).
+    if agent_name is None:
+        configured_default = (config.agent.default_agent or "").strip()
+        if configured_default:
+            agent_name = configured_default
 
     # Track whether the user explicitly set --max-tokens
     user_set_max_tokens = max_tokens is not None
@@ -715,8 +745,8 @@ def ask(
             model_name,
         )
 
-    # Agent mode
-    if agent_name is not None:
+    # Agent mode (treat empty-string `--agent ""` as explicit opt-out)
+    if agent_name:
         parsed_tools = resolve_tool_names(
             tool_names,
             getattr(config.tools, "enabled", None),
