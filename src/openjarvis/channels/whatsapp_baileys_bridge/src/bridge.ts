@@ -73,9 +73,10 @@ async function main(): Promise<void> {
       }
 
       if (connection === "close") {
+        // Baileys 7.x dropped DisconnectReason.unknown; treat absent statusCode
+        // as a transient error and reconnect, matching the previous behaviour.
         const statusCode =
-          (lastDisconnect?.error as any)?.output?.statusCode ??
-          DisconnectReason.unknown;
+          (lastDisconnect?.error as any)?.output?.statusCode ?? 0;
 
         if (statusCode === DisconnectReason.loggedOut) {
           emit({ type: "status", status: "disconnected" });
