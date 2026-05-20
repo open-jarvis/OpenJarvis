@@ -165,14 +165,27 @@ class SkillExecutor:
 
     @staticmethod
     def _render_template(template: str, ctx: Dict[str, Any]) -> str:
-        """Simple {key} placeholder rendering."""
+        """Render ``{key}`` placeholders into a JSON template.
+
+        Templates wrap string placeholders in double quotes by convention:
+        e.g. ``'{"query": "{query}"}'``. We therefore JSON-encode each value
+        and strip the surrounding quotes for strings so embedded quotes and
+        newlines escape correctly without producing ``""double quoted""``.
+        Non-string values (numbers, bool, list, dict) are emitted via
+        ``json.dumps`` and the template should not wrap them in quotes.
+        """
 
         def _replace(match: re.Match) -> str:
             key = match.group(1)
-            val = ctx.get(key, match.group(0))
+            if key not in ctx:
+                return match.group(0)
+            val = ctx[key]
+            encoded = json.dumps(val, ensure_ascii=False)
             if isinstance(val, str):
-                return val
-            return json.dumps(val)
+                # Strip the outer quotes produced by json.dumps so the
+                # template's own surrounding quotes remain valid JSON.
+                return encoded[1:-1]
+            return encoded
 
         return re.sub(r"\{(\w+)\}", _replace, template)
 
