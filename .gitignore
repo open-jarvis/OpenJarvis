@@ -102,6 +102,16 @@ src/openjarvis/channels/whatsapp_baileys_bridge/node_modules/
 # Second Repos
 Inline/
 scratch/
+JarvisNative/
+
+# Stray test-output artifacts that accidentally land at repo root.
+~/
+"~"
+MagicMock/
+
+# Local health-audit scratch (regenerated on demand).
+JARVIS_HEALTH_REPORT.md
+REVIEW.md
 
 # ---------------------------------------------------------------------------
 # Distillation runtime artifacts (defense in depth — these should always live
