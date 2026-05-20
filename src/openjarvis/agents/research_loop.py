@@ -102,7 +102,15 @@ SEARCH_TOOL_SPEC: Dict[str, Any] = {
                 },
                 "sources": {
                     "type": "array",
-                    "description": "Restrict to these connectors (e.g. ['gmail']).",
+                    "description": (
+                        "Restrict the search to one or more connectors. Use this "
+                        "whenever the user names a data source (e.g. \"in my "
+                        "Granola notes\" → ['granola']; \"check Slack and Gmail\" "
+                        "→ ['slack', 'gmail']). Valid IDs include: gmail, slack, "
+                        "granola, notion, obsidian, gcalendar, gdrive, gmail_imap, "
+                        "outlook, imessage, whatsapp, apple_notes, apple_contacts, "
+                        "gcontacts, google_tasks, github_notifications."
+                    ),
                     "items": {"type": "string"},
                 },
                 "limit": {
@@ -126,10 +134,11 @@ Strategy:
   1. If the user names a person, ALWAYS pass `person=` rather than relying on lexical match. Hybrid search will fuzzy-match name or address fragments.
   2. When the user mentions ANY time window — "this past week", "recently", "last month", "past few days", "yesterday" — you MUST translate it to a `time_range` parameter. Today is {today}.
   3. The `time_range` argument is a JSON object: `{{"start": "<ISO 8601>", "end": "<ISO 8601>"}}`. Either bound may be omitted, but pass at least one whenever the user gave you a temporal cue.
-  4. If the first structured search returns nothing useful, broaden with a semantic query and drop filters one at a time.
-  5. You have a clarify tool. Only use it AFTER at least one search attempt. Use it when: you found multiple ambiguous matches (e.g. 3 different people named John), search returned zero results and the query might need reframing, or the scope is too broad to synthesize meaningfully. Never use clarify before searching — always try first.
-  6. After receiving a clarify response, use the information to construct a precise search with the correct person, time_range, and query parameters. Never send an empty query or a query with no parameters — extract every concrete signal from the user's reply (names, dates, topics) and put it on the call.
-  7. Tool calls — search AND clarify — share a budget of 5 total. Spend wisely.
+  4. When the user names a specific data source — "my Granola notes", "in Slack", "from my email", "in Notion" — you MUST pass `sources=[...]` with the matching connector ID(s). Use lowercase IDs: granola, slack, gmail, notion, obsidian, gcalendar, gdrive, gmail_imap, outlook, imessage, whatsapp, apple_notes. Common synonyms: "meeting notes"/"meetings"/"transcripts" → granola; "email"/"inbox" → gmail; "DMs"/"channels" → slack. Without this filter the search returns mail/messages ABOUT a tool instead of records FROM that tool.
+  5. If the first structured search returns nothing useful, broaden with a semantic query and drop filters one at a time.
+  6. You have a clarify tool. Only use it AFTER at least one search attempt. Use it when: you found multiple ambiguous matches (e.g. 3 different people named John), search returned zero results and the query might need reframing, or the scope is too broad to synthesize meaningfully. Never use clarify before searching — always try first.
+  7. After receiving a clarify response, use the information to construct a precise search with the correct person, time_range, sources, and query parameters. Never send an empty query or a query with no parameters — extract every concrete signal from the user's reply (names, dates, topics, sources) and put it on the call.
+  8. Tool calls — search AND clarify — share a budget of 5 total. Spend wisely.
 
 Synthesis rules:
   - Cite sources as individual numbers in square brackets. Always separate — write [4] [7] [20], never [4, 7, 20]. Never format citations as markdown links. Just the number in brackets: [1]. The `ref` field on each hit is the citation number.

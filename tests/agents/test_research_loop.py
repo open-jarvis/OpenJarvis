@@ -12,7 +12,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from openjarvis.agents.research_loop import ResearchAgent, _hit_url
+from openjarvis.agents.research_loop import (
+    SEARCH_TOOL_SPEC,
+    SYSTEM_PROMPT,
+    ResearchAgent,
+    _hit_url,
+)
 
 
 class _MockEngine:
@@ -225,3 +230,106 @@ def test_hit_url_granola_empty_doc_id() -> None:
     """A bare ``granola:`` prefix with no note_id yields the empty string."""
     assert _hit_url("granola", "granola:") == ""
     assert _hit_url("granola", "") == ""
+
+
+# ---------------------------------------------------------------------------
+# Sources filter — propagated through _execute_search to HybridSearch.search
+# ---------------------------------------------------------------------------
+
+
+def test_search_with_sources_filter_is_passed_through(
+    stub_search: MagicMock,
+) -> None:
+    """A search tool call carrying ``sources=['granola']`` reaches HybridSearch.
+
+    Without this propagation, "tell me about my Granola notes" returns Gmail
+    emails that mention Granola instead of actual meeting notes.
+    """
+    engine = _MockEngine(
+        responses=[
+            {
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "s1",
+                        "name": "search",
+                        "arguments": json.dumps(
+                            {
+                                "query": "recent meetings",
+                                "sources": ["granola"],
+                            }
+                        ),
+                    }
+                ],
+                "usage": {},
+            },
+            _text_response("Here are your recent meetings."),
+        ]
+    )
+
+    agent = ResearchAgent(engine, stub_search, model="mock", max_iterations=2)
+    result = agent.run("tell me about my recent meetings from Granola")
+
+    stub_search.search.assert_called_once()
+    kwargs = stub_search.search.call_args.kwargs
+    assert kwargs.get("sources") == ["granola"]
+    # And the loop terminates with the synthesized answer.
+    assert "Here are your recent meetings." in result.answer
+
+
+def test_search_sources_coerces_scalar_to_list(stub_search: MagicMock) -> None:
+    """If the model sends ``sources='slack'`` (string), wrap it as ``['slack']``."""
+    engine = _MockEngine(
+        responses=[
+            {
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "s1",
+                        "name": "search",
+                        "arguments": json.dumps(
+                            {"query": "anything", "sources": "slack"}
+                        ),
+                    }
+                ],
+                "usage": {},
+            },
+            _text_response("done"),
+        ]
+    )
+    agent = ResearchAgent(engine, stub_search, model="mock", max_iterations=2)
+    agent.run("anything in slack")
+
+    kwargs = stub_search.search.call_args.kwargs
+    assert kwargs.get("sources") == ["slack"]
+
+
+# ---------------------------------------------------------------------------
+# Prompt + tool schema — the planner must see the sources directive
+# ---------------------------------------------------------------------------
+
+
+def test_tool_schema_sources_lists_known_connectors() -> None:
+    """The ``sources`` parameter description enumerates the common connector IDs.
+
+    Without explicit IDs in the description the planner makes up names like
+    "Granola" or "Slack workspace" instead of the lowercase connector IDs the
+    backend filter actually matches against.
+    """
+    sources_prop = SEARCH_TOOL_SPEC["function"]["parameters"]["properties"]["sources"]
+    desc = sources_prop["description"]
+    for connector_id in ("granola", "slack", "gmail", "notion"):
+        assert connector_id in desc
+
+
+def test_system_prompt_mandates_sources_extraction() -> None:
+    """The system prompt has a directive telling the planner to extract sources.
+
+    Without it, the model treats "from my Granola notes" as a topical cue
+    rather than a hard filter, and returns email about Granola instead of
+    Granola records.
+    """
+    assert "sources=" in SYSTEM_PROMPT
+    # Synonym mapping for the most-common alias.
+    assert "granola" in SYSTEM_PROMPT.lower()
+    assert "meeting notes" in SYSTEM_PROMPT.lower()
