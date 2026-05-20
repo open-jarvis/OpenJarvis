@@ -55,6 +55,50 @@ jarvis
 
 `jarvis init --preset <name>` switches to a starter config. Available presets: `morning-digest-mac`, `morning-digest-linux`, `morning-digest-minimal`, `deep-research`, `code-assistant`, `scheduled-monitor`, `chat-simple`.
 
+### Using OpenHermes with Ollama (example)
+
+If you want to pin OpenJarvis to `openhermes`, use this flow:
+
+1) Pull the model in Ollama:
+
+```bash
+ollama pull openhermes
+```
+
+2) Update `~/.openjarvis/config.toml`:
+
+```toml
+[intelligence]
+default_model = "openhermes"
+fallback_model = "openhermes"
+provider = "local"
+preferred_engine = "ollama"
+
+[server]
+model = "openhermes"
+```
+
+3) Restart your local OpenJarvis server (example for Windows PowerShell startup script):
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$HOME\.openjarvis\scripts\start-openjarvis-local.ps1"
+```
+
+4) Verify the model is actually used by the API:
+
+```powershell
+$body = @{ model = "openhermes"; messages = @(@{ role = "user"; content = "Reply exactly with: OPENHERMES_OK" }); stream = $false } | ConvertTo-Json -Depth 6
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/v1/chat/completions" -ContentType "application/json" -Body $body
+```
+
+5) Confirm telemetry recorded `openhermes`:
+
+```powershell
+python -c "import sqlite3,os,json; con=sqlite3.connect(os.path.expanduser('~/.openjarvis/telemetry.db')); con.row_factory=sqlite3.Row; row=con.execute('select timestamp, model_id, engine, total_tokens from telemetry order by timestamp desc limit 1').fetchone(); print(json.dumps(dict(row) if row else {'error':'no telemetry rows'}))"
+```
+
+Expected: latest row includes `"model_id": "openhermes"` and `"engine": "ollama"`.
+
 ## Starter Configs
 
 Install any preset with one command:
