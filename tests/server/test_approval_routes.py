@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-import tempfile
-from pathlib import Path
-from datetime import datetime, timezone
-
 import pytest
 
 from openjarvis.tools.approval_store import (
@@ -46,7 +42,7 @@ def approval_store(tmp_path):
 
 
 @pytest.fixture
-def client(approval_store):
+def client(approval_store):  # noqa: ARG001 — triggers store injection as a side-effect
     """TestClient with the approval router mounted on a minimal FastAPI app."""
     from openjarvis.server.approval_routes import router
 
@@ -169,7 +165,7 @@ class TestListPendingApprovals:
     def test_stale_expired_mixes_with_live(self, client, approval_store):
         """Only expired items are excluded; live items still appear."""
         stale_id = _queue(approval_store, description="Stale action")
-        live_id = _queue(approval_store, description="Live action")  # noqa: F841
+        _queue(approval_store, description="Live action")
         _expire(approval_store, stale_id)
         resp = client.get("/v1/approvals/pending")
         body = resp.json()
