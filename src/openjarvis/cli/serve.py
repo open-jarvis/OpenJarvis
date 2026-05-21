@@ -8,6 +8,7 @@ import sys
 import click
 from rich.console import Console
 
+from openjarvis.cli._banner import print_banner
 from openjarvis.core.config import load_config
 from openjarvis.core.events import EventBus
 from openjarvis.engine import (
@@ -40,7 +41,9 @@ logger = logging.getLogger(__name__)
     default=None,
     help="Agent for non-streaming requests (simple, orchestrator, react, openhands).",
 )
+@click.pass_context
 def serve(
+    ctx: click.Context,
     host: str | None,
     port: int | None,
     engine_key: str | None,
@@ -48,6 +51,7 @@ def serve(
     agent_name: str | None,
 ) -> None:
     """Start the OpenAI-compatible API server."""
+    print_banner(quiet=(ctx.obj or {}).get("quiet", False))
     console = Console(stderr=True)
 
     # Check for server dependencies

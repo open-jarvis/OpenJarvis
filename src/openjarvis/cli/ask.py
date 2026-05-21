@@ -11,6 +11,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
+from openjarvis.cli._banner import print_banner
 from openjarvis.cli._tool_names import resolve_tool_names
 from openjarvis.cli.hints import hint_no_engine
 from openjarvis.core.config import load_config
@@ -587,7 +588,9 @@ def _print_profile(
         "(default: ~/.openjarvis/knowledge.db)."
     ),
 )
+@click.pass_context
 def ask(
+    ctx: click.Context,
     query: tuple[str, ...],
     model_name: str | None,
     engine_key: str | None,
@@ -603,6 +606,8 @@ def ask(
     knowledge_db: str | None,
 ) -> None:
     """Ask Jarvis a question."""
+    quiet = (ctx.obj or {}).get("quiet", False) or output_json
+    print_banner(quiet=quiet)
     console = Console(stderr=True)
     query_text = " ".join(query)
 
