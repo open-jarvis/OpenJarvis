@@ -931,3 +931,36 @@ export async function getMemoryConfig(): Promise<MemoryConfig> {
   if (!res.ok) throw new Error('Failed to fetch memory config');
   return res.json();
 }
+
+// ---------------------------------------------------------------------------
+// Approvals
+// ---------------------------------------------------------------------------
+
+export interface PendingApproval {
+  id: string;
+  action_type: string;
+  description: string;
+  payload: Record<string, unknown>;
+  permission_key: string;
+  tier: 'trivial' | 'low' | 'medium' | 'high';
+  status: string;
+  created_at: string;
+  expires_at: string;
+}
+
+export async function fetchPendingApprovals(): Promise<PendingApproval[]> {
+  const res = await fetch(`${getBase()}/v1/approvals/pending`);
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  const data = await res.json();
+  return data.actions || [];
+}
+
+export async function approveAction(actionId: string): Promise<void> {
+  const res = await fetch(`${getBase()}/v1/approvals/${actionId}/approve`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+}
+
+export async function denyAction(actionId: string): Promise<void> {
+  const res = await fetch(`${getBase()}/v1/approvals/${actionId}/deny`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+}
