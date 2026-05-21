@@ -5,13 +5,13 @@ from __future__ import annotations
 import pytest
 
 from openjarvis.tools.approval_store import (
-    ApprovalStore,
     STATUS_APPROVED,
     STATUS_DENIED,
     STATUS_PENDING,
     TIER_HIGH,
     TIER_LOW,
     TIER_MEDIUM,
+    ApprovalStore,
 )
 
 try:
@@ -97,8 +97,8 @@ class TestListPendingApprovals:
         assert len(body["actions"]) == 1
 
     def test_returns_multiple_items(self, client, approval_store):
-        _queue(approval_store, action_type="email_send", description="Send weekly digest")
-        _queue(approval_store, action_type="file_delete", description="Delete temp files")
+        _queue(approval_store, action_type="email_send", description="Send digest")
+        _queue(approval_store, action_type="file_delete", description="Delete temps")
         resp = client.get("/v1/approvals/pending")
         assert resp.json()["count"] == 2
 
@@ -114,8 +114,15 @@ class TestListPendingApprovals:
         action = resp.json()["actions"][0]
 
         required_fields = {
-            "id", "action_type", "description", "payload",
-            "permission_key", "tier", "status", "created_at", "expires_at",
+            "id",
+            "action_type",
+            "description",
+            "payload",
+            "permission_key",
+            "tier",
+            "status",
+            "created_at",
+            "expires_at",
         }
         assert required_fields.issubset(action.keys()), (
             f"Missing fields: {required_fields - action.keys()}"
