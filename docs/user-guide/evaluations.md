@@ -443,7 +443,7 @@ Execution settings that apply to the entire suite.
 | `output_dir` | str | `"results/"` | Directory where JSONL and summary files are written |
 | `seed` | int | `42` | Random seed for dataset shuffling |
 | `telemetry` | bool | `false` | Enable GPU telemetry capture (energy, power, utilization, throughput) |
-| `gpu_metrics` | bool | `false` | Enable GPU metric polling via `pynvml` (requires `pynvml` or `nvidia-ml-py`) |
+| `gpu_metrics` | bool | `false` | Enable GPU metric polling via the NVML `pynvml` API (requires `nvidia-ml-py`) |
 
 ### `[[models]]`
 
