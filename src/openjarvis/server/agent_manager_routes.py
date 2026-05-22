@@ -1164,18 +1164,30 @@ async def _stream_managed_agent(
                             result = mcp_adapter.execute(**parsed_args)
                             tool_result_content = result.content
                         else:
-                            # Try to use ToolExecutor if tools are configured
-                            from openjarvis.core.registry import ToolRegistry
+                            # Instantiate via the shared factory so memory/
+                            # channel/llm tools get their dependencies
+                            # injected the same way ``jarvis ask`` does
+                            # (#395). Bare ``tool_cls()`` instantiation
+                            # leaves memory_* with backend=None → every
+                            # call returns "No memory backend configured."
+                            from openjarvis.core.config import load_config
                             from openjarvis.tools._stubs import (
                                 ToolCall as StubToolCall,
                             )
                             from openjarvis.tools._stubs import (
                                 ToolExecutor,
                             )
+                            from openjarvis.tools.factory import (
+                                instantiate_tool,
+                            )
 
-                            tool_cls = ToolRegistry.get(tool_name)
-                            if tool_cls is not None:
-                                tool_instance = tool_cls()
+                            tool_instance = instantiate_tool(
+                                tool_name,
+                                app_config=load_config(),
+                                engine=engine,
+                                model_name=model,
+                            )
+                            if tool_instance is not None:
                                 # Tools the user explicitly added to this
                                 # agent's toolkit are considered pre-approved —
                                 # selecting them in the wizard is the

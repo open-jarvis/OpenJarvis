@@ -28,6 +28,7 @@ from openjarvis.intelligence import (
 )
 from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
 from openjarvis.telemetry.store import TelemetryStore
+from openjarvis.tools.factory import instantiate_tool
 
 logger = logging.getLogger(__name__)
 
@@ -150,9 +151,7 @@ def _run_research(
             trace.print(f"  [dim]↳ Found {n} {label}[/dim]")
         elif etype == "clarify_call":
             q = event.get("question", "") or ""
-            trace.print(
-                f"  [dim]↳ Clarifying:[/dim] [dim italic]{q}[/dim italic]"
-            )
+            trace.print(f"  [dim]↳ Clarifying:[/dim] [dim italic]{q}[/dim italic]")
         # final_answer and clarify_response are handled outside the loop.
 
     agent = ResearchAgent(
@@ -208,8 +207,7 @@ def _run_research(
         src_word = "source" if len(cited) == 1 else "sources"
         trace.print()
         trace.print(
-            f"[dim]Deep Research · {elapsed:.1f}s · "
-            f"{len(cited)} {src_word} cited[/dim]"
+            f"[dim]Deep Research · {elapsed:.1f}s · {len(cited)} {src_word} cited[/dim]"
         )
 
 
@@ -243,12 +241,6 @@ def _get_memory_backend(config):
         return None
 
 
-_MEMORY_TOOLS = frozenset(
-    {"retrieval", "memory_store", "memory_search", "memory_index", "memory_retrieve"}
-)
-_CHANNEL_TOOLS = frozenset({"channel_send", "channel_list", "channel_status"})
-
-
 def _build_tools(
     tool_names: list[str],
     config,
@@ -259,54 +251,25 @@ def _build_tools(
 ):
     """Instantiate tool objects from names.
 
-    ``channel`` is an optional :class:`BaseChannel` used by ``channel_*``
-    tools. Threading it through here mirrors how memory backends are
-    injected; without it, channel tools have no backend and fail at
-    runtime.
-
-    Emits a WARNING when a memory tool is requested but no backend is
-    available, and when a channel tool is requested but no channel is
-    provided — these are the failure modes that silently cascade into
-    hallucinated or dropped replies downstream.
+    Delegates to :func:`openjarvis.tools.factory.instantiate_tool` so
+    the dispatch (memory backend injection, channel injection, llm
+    engine wiring) stays in one place — the streaming managed-agent
+    path uses the same helper.
     """
-    from openjarvis.core.registry import ToolRegistry
-
     tools = []
     for name in tool_names:
         name = name.strip()
         if not name:
             continue
-        if not ToolRegistry.contains(name):
-            continue
-        tool_cls = ToolRegistry.get(name)
-        # Instantiate with appropriate arguments
-        if name in _MEMORY_TOOLS:
-            backend = _get_memory_backend(config)
-            if backend is None:
-                logger.warning(
-                    "Tool %r was requested but no memory backend is "
-                    "available (default=%r). The tool will load but "
-                    "return no results — downstream agents may answer "
-                    "without grounding.",
-                    name,
-                    getattr(config.memory, "default_backend", "?"),
-                )
-            tools.append(tool_cls(backend=backend))
-        elif name in _CHANNEL_TOOLS:
-            if channel is None:
-                logger.warning(
-                    "Tool %r was requested but no channel was injected. "
-                    "The tool will load but every call will fail with "
-                    "'No channel backend configured'.",
-                    name,
-                )
-            tools.append(tool_cls(channel=channel))
-        elif name == "llm":
-            tools.append(tool_cls(engine=engine, model=model_name))
-        elif name == "file_read":
-            tools.append(tool_cls())
-        else:
-            tools.append(tool_cls())
+        tool = instantiate_tool(
+            name,
+            app_config=config,
+            engine=engine,
+            model_name=model_name,
+            channel=channel,
+        )
+        if tool is not None:
+            tools.append(tool)
     return tools
 
 
