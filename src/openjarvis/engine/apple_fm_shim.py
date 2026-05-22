@@ -1,12 +1,14 @@
 """Apple Foundation Models shim.
 
-Thin FastAPI server exposing Apple FM as OpenAI-compatible API.
-Only runs on macOS 15+ with Apple Silicon. Wraps python-apple-fm-sdk's
-LanguageModelSession as /v1/chat/completions and /v1/models endpoints.
+Thin FastAPI server exposing Apple Intelligence's on-device foundation
+model as an OpenAI-compatible API. Only runs on macOS 26+ with Apple
+Intelligence enabled. Wraps Apple's `apple-fm-sdk`'s
+``LanguageModelSession`` as ``/v1/chat/completions`` and ``/v1/models``
+endpoints.
 
-**Token counts:** The Apple FM SDK does not expose token counts. The shim
-returns 0 for all token counts. Throughput and energy benchmarks will
-reflect this limitation.
+**Token counts:** The Apple FM SDK does not expose token counts. The
+shim returns 0 for all token counts. Throughput and energy benchmarks
+will reflect this limitation.
 
 Usage:
     uvicorn openjarvis.engine.apple_fm_shim:app \
@@ -26,10 +28,15 @@ if platform.system() != "Darwin":
     sys.exit(1)
 
 try:
-    import apple_fm  # type: ignore[import-untyped]
+    import apple_fm_sdk  # type: ignore[import-untyped]
 except ImportError:
     print(
-        "apple_fm_shim: pip install python-apple-fm-sdk",
+        "apple_fm_shim: apple-fm-sdk is not available. The SDK is not on\n"
+        "PyPI yet; clone https://github.com/apple/python-apple-fm-sdk and\n"
+        "install from source:\n"
+        "    git clone https://github.com/apple/python-apple-fm-sdk\n"
+        "    uv pip install -e ./python-apple-fm-sdk\n"
+        "Requires macOS 26+, Xcode 26+, and Apple Intelligence enabled.",
         file=sys.stderr,
     )
     sys.exit(1)
@@ -70,12 +77,31 @@ def _build_prompt(messages: list[ChatMessage]) -> str:
     return "\n".join(parts)
 
 
+def _generation_options(req: ChatRequest) -> apple_fm_sdk.GenerationOptions:
+    """Build the per-request GenerationOptions from a ChatRequest.
+
+    Apple FM doesn't take ``max_tokens`` / ``temperature`` as positional
+    args to ``respond`` / ``stream_response`` — they live on a
+    ``GenerationOptions`` object passed via the ``options`` kwarg.
+    """
+    return apple_fm_sdk.GenerationOptions(
+        temperature=req.temperature,
+        maximum_response_tokens=req.max_tokens,
+    )
+
+
 @app.get("/health")
 def health() -> JSONResponse:
-    is_available = apple_fm.SystemLanguageModel.is_available()
-    status = "ok" if is_available else "unavailable"
-    code = 200 if is_available else 503
-    return JSONResponse({"status": status}, status_code=code)
+    # SystemLanguageModel.is_available() is an *instance* method that
+    # returns (bool, reason | None). Unpack so we can both gate the
+    # response code and surface the reason for unavailability.
+    available, reason = apple_fm_sdk.SystemLanguageModel().is_available()
+    if available:
+        return JSONResponse({"status": "ok"}, status_code=200)
+    return JSONResponse(
+        {"status": "unavailable", "reason": str(reason) if reason else None},
+        status_code=503,
+    )
 
 
 @app.get("/v1/models")
@@ -90,12 +116,13 @@ def list_models() -> JSONResponse:
     )
 
 
-@app.post("/v1/chat/completions")
+@app.post("/v1/chat/completions", response_model=None)
 async def chat_completions(
     req: ChatRequest,
 ) -> JSONResponse | StreamingResponse:
     prompt = _build_prompt(req.messages)
-    session = apple_fm.LanguageModelSession()
+    session = apple_fm_sdk.LanguageModelSession()
+    options = _generation_options(req)
 
     if req.stream:
 
@@ -103,7 +130,7 @@ async def chat_completions(
             cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"
             async for token in session.stream_response(
                 prompt,
-                max_tokens=req.max_tokens,
+                options=options,
             ):
                 chunk = {
                     "id": cid,
@@ -140,7 +167,7 @@ async def chat_completions(
             media_type="text/event-stream",
         )
 
-    text = await session.respond(prompt, max_tokens=req.max_tokens)
+    text = await session.respond(prompt, options=options)
     cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"
     return JSONResponse(
         {
