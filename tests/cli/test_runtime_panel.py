@@ -29,3 +29,22 @@ def test_runtime_summary_ollama() -> None:
 
 def test_max_num_ctx_constant() -> None:
     assert MAX_NUM_CTX == 200_000
+
+
+def test_zero_ctx_treated_as_default() -> None:
+    opts = ChatRuntimeOptions(num_ctx=0)
+    assert "num_ctx" not in opts.to_engine_kwargs()
+
+
+def test_parse_int_commas() -> None:
+    assert _parse_int("150,000", default=None) == 150_000
+
+
+def test_interactive_zero_ctx_becomes_default() -> None:
+    from unittest.mock import MagicMock, patch
+
+    from openjarvis.cli._runtime_panel import interactive_pick_runtime_options
+
+    with patch("builtins.input", side_effect=["0", ""]):
+        opts = interactive_pick_runtime_options(MagicMock(), engine_name="ollama")
+    assert opts.num_ctx is None
