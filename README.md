@@ -43,7 +43,7 @@ jarvis
 
 The Rust extension and bigger models continue downloading in the background while you chat. Run `jarvis doctor` to see status.
 
-**Platforms:** macOS (Intel + Apple Silicon), Linux, WSL2 on Windows.
+**Platforms:** macOS (Intel + Apple Silicon), Linux, Windows (Native/WSL2).
 
 **Manual install / contributors:** see [docs/getting-started/install.md](docs/getting-started/install.md).
 
