@@ -632,6 +632,7 @@ async def _stream_managed_agent(
     import uuid
 
     from openjarvis.core.types import Message, Role
+    from openjarvis.core.types import ToolCall as MsgToolCall
 
     agent_id = agent_record["id"]
     config = agent_record.get("config", {})
@@ -657,7 +658,13 @@ async def _stream_managed_agent(
         if app_state is not None and dr_tools:
             app_state._dr_tools = dr_tools
 
-    # Load prior conversation context (DESC order, reverse for chronological)
+    # Load prior conversation context (DESC order, reverse for chronological).
+    # Assistant turns with stored tool_calls are replayed as the proper
+    # OpenAI shape — assistant message with tool_calls followed by one
+    # tool-role message per result — so the model retains its prior
+    # tool-use pattern across turns. Without this, an agent that used
+    # tools on turn 1 sees only a plain prose summary in history and
+    # regresses to fabricating tool output on turn 2+.
     history = manager.list_messages(agent_id, limit=50)
     for m in reversed(history):
         if m["id"] == message_id:
@@ -665,7 +672,39 @@ async def _stream_managed_agent(
         if m["direction"] == "user_to_agent":
             llm_messages.append(Message(role=Role.USER, content=m["content"]))
         elif m["direction"] == "agent_to_user":
-            llm_messages.append(Message(role=Role.ASSISTANT, content=m["content"]))
+            stored_tcs = m.get("tool_calls") or []
+            if not stored_tcs:
+                llm_messages.append(Message(role=Role.ASSISTANT, content=m["content"]))
+                continue
+            # Synthesize tool_call ids — the original OpenAI ids aren't
+            # persisted (``store_agent_response`` collapses tool_calls to
+            # ``{tool, arguments, result, success, latency}`` for UI replay).
+            # Models don't care what the id string is so long as the
+            # assistant tool_calls and tool-role messages reference the
+            # same value.
+            synth_ids = [f"call_{m['id']}_{i}" for i in range(len(stored_tcs))]
+            llm_messages.append(
+                Message(
+                    role=Role.ASSISTANT,
+                    content=m["content"] or None,
+                    tool_calls=[
+                        MsgToolCall(
+                            id=synth_ids[i],
+                            name=tc.get("tool", ""),
+                            arguments=tc.get("arguments", ""),
+                        )
+                        for i, tc in enumerate(stored_tcs)
+                    ],
+                )
+            )
+            for i, tc in enumerate(stored_tcs):
+                llm_messages.append(
+                    Message(
+                        role=Role.TOOL,
+                        tool_call_id=synth_ids[i],
+                        content=tc.get("result") or "",
+                    )
+                )
 
     # Append the current user message
     llm_messages.append(Message(role=Role.USER, content=user_content))
