@@ -58,6 +58,14 @@ EOF
 need git
 need curl
 
+# ---- python detection ----
+PY_CMD="python3"
+if ! command -v python3 >/dev/null 2>&1; then
+    if command -v python >/dev/null 2>&1; then
+        PY_CMD="python"
+    fi
+fi
+
 # ---- env ----
 OPENJARVIS_HOME="${OPENJARVIS_HOME:-$HOME/.openjarvis}"
 OPENJARVIS_REPO_URL="${OPENJARVIS_REPO_URL:-https://github.com/open-jarvis/OpenJarvis.git}"
@@ -127,7 +135,7 @@ get_anon_id() {
         return
     fi
     local new_id
-    new_id="$(python3 -c 'import uuid; print(uuid.uuid4())' 2>/dev/null || echo "")"
+    new_id="$($PY_CMD -c 'import uuid; print(uuid.uuid4())' 2>/dev/null || echo "")"
     if [[ -z "$new_id" ]]; then
         return
     fi
@@ -168,7 +176,7 @@ beacon() {
     os="$(detect_os)"
     arch="$(detect_arch)"
 
-    python3 - "$ANALYTICS_HOST" "$ANALYTICS_KEY" "$event" "$anon_id" \
+    $PY_CMD - "$ANALYTICS_HOST" "$ANALYTICS_KEY" "$event" "$anon_id" \
         "$os" "$arch" "$stage" "$elapsed_ms" "$exit_code" \
         >/dev/null 2>&1 <<'PYEOF' || true
 import json
@@ -230,7 +238,7 @@ mark_done() {
     if [[ ! -f "$STATE_FILE" ]]; then
         echo '{}' > "$STATE_FILE"
     fi
-    python3 - "$STATE_FILE" "$1" "$WSL" <<'PYEOF'
+    $PY_CMD - "$STATE_FILE" "$1" "$WSL" <<'PYEOF'
 import json, sys
 path, key, wsl = sys.argv[1], sys.argv[2], sys.argv[3]
 with open(path) as f:

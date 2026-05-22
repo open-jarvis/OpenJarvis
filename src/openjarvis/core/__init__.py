@@ -9,6 +9,7 @@ from openjarvis.core.registry import (
     ModelRegistry,
     ToolRegistry,
 )
+from openjarvis.core.utils import get_python_executable, open_browser
 from openjarvis.core.types import (
     Conversation,
     Message,
@@ -24,10 +25,12 @@ __all__ = [
     "AgentRegistry",
     "Conversation",
     "EngineRegistry",
+    "get_python_executable",
     "MemoryRegistry",
     "Message",
     "ModelRegistry",
     "ModelSpec",
+    "open_browser",
     "Quantization",
     "Role",
     "TelemetryRecord",

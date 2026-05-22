@@ -10,6 +10,7 @@ from openjarvis.security.subprocess_sandbox import (
     kill_process_tree,
     run_sandboxed,
 )
+from openjarvis.core import get_python_executable
 
 # ---------------------------------------------------------------------------
 # build_safe_env tests
@@ -97,7 +98,7 @@ class TestRunSandboxed:
     def test_output_truncation(self) -> None:
         # Generate output larger than max_output_bytes
         result = run_sandboxed(
-            "python3 -c \"print('A' * 200)\"",
+            f"{get_python_executable()} -c \"print('A' * 200)\"",
             timeout=10.0,
             max_output_bytes=50,
         )
