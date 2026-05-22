@@ -960,6 +960,25 @@ async def _stream_managed_agent(
     if resolved_tools:
         stream_kwargs["tools"] = resolved_tools
 
+    # Per-agent sampler params. The OpenAI-compat engine already forwards
+    # unknown kwargs into the upstream /v1/chat/completions payload, so the
+    # plumbing already works — this just lets the agent's stored config
+    # drive it. Skipped if absent (full backward compat with existing agents).
+    # Names cover both OpenAI-style (frequency/presence_penalty, top_p) and
+    # llama.cpp / vLLM / mlx-style (repetition_penalty, top_k, min_p); the
+    # upstream engine accepts what it accepts and the _OpenAICompatibleEngine
+    # already swallows 400s for unknown payload keys (engine/_openai_compat.py).
+    for _sampler_key in (
+        "repetition_penalty",
+        "top_p",
+        "top_k",
+        "min_p",
+        "frequency_penalty",
+        "presence_penalty",
+    ):
+        if _sampler_key in config:
+            stream_kwargs[_sampler_key] = config[_sampler_key]
+
     # Discover MCP tools and merge into stream_kwargs
     mcp_adapters: Dict[str, Any] = {}
     if app_state is not None:

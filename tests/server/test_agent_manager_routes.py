@@ -385,6 +385,115 @@ class TestAgentManagerStreaming:
         # Last chunk should have finish_reason="stop"
         assert chunks[-1]["choices"][0]["finish_reason"] == "stop"
 
+    def test_send_message_stream_forwards_sampler_params(self, manager):
+        """Per-agent sampler params (repetition_penalty, top_p, top_k, min_p,
+        frequency_penalty, presence_penalty) configured on the agent flow
+        through to engine.stream_full(**kwargs). Other unrelated config keys
+        do NOT leak into kwargs."""
+        from openjarvis.engine._stubs import StreamChunk
+
+        captured_kwargs: dict = {}
+
+        async def _stream_full(messages, *, model, **kwargs):
+            captured_kwargs.update(kwargs)
+            yield StreamChunk(content="ok")
+            yield StreamChunk(finish_reason="stop")
+
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine._model = "test-model"
+        engine.stream_full = _stream_full
+
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient as TC
+
+        from openjarvis.server.agent_manager_routes import create_agent_manager_router
+
+        app = FastAPI()
+        app.state.engine = engine
+        app.state.bus = None
+        routers = create_agent_manager_router(manager)
+        for r in routers:
+            app.include_router(r)
+        client = TC(app)
+
+        agent = manager.create_agent(
+            name="sampler_agent",
+            agent_type="simple",
+            config={
+                "repetition_penalty": 1.1,
+                "top_p": 0.95,
+                "top_k": 40,
+                "min_p": 0.05,
+                "frequency_penalty": 0.2,
+                "presence_penalty": 0.1,
+                # Unrelated keys that must NOT be forwarded:
+                "custom_meta": "ignore-me",
+                "owner_email": "test@example.com",
+            },
+        )
+
+        resp = client.post(
+            f"/v1/managed-agents/{agent['id']}/messages",
+            json={"content": "hi", "stream": True},
+        )
+        assert resp.status_code == 200
+        assert captured_kwargs.get("repetition_penalty") == 1.1
+        assert captured_kwargs.get("top_p") == 0.95
+        assert captured_kwargs.get("top_k") == 40
+        assert captured_kwargs.get("min_p") == 0.05
+        assert captured_kwargs.get("frequency_penalty") == 0.2
+        assert captured_kwargs.get("presence_penalty") == 0.1
+        assert "custom_meta" not in captured_kwargs
+        assert "owner_email" not in captured_kwargs
+
+    def test_send_message_stream_omits_unset_sampler_params(self, manager):
+        """Agents without sampler params produce a kwargs dict that doesn't
+        contain any of them (backward compat — no extra keys reach engines
+        that might reject unknown payload fields)."""
+        from openjarvis.engine._stubs import StreamChunk
+
+        captured_kwargs: dict = {}
+
+        async def _stream_full(messages, *, model, **kwargs):
+            captured_kwargs.update(kwargs)
+            yield StreamChunk(content="ok")
+            yield StreamChunk(finish_reason="stop")
+
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine._model = "test-model"
+        engine.stream_full = _stream_full
+
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient as TC
+
+        from openjarvis.server.agent_manager_routes import create_agent_manager_router
+
+        app = FastAPI()
+        app.state.engine = engine
+        app.state.bus = None
+        routers = create_agent_manager_router(manager)
+        for r in routers:
+            app.include_router(r)
+        client = TC(app)
+
+        agent = manager.create_agent(name="plain_agent", agent_type="simple")
+        resp = client.post(
+            f"/v1/managed-agents/{agent['id']}/messages",
+            json={"content": "hi", "stream": True},
+        )
+        assert resp.status_code == 200
+        for key in (
+            "repetition_penalty",
+            "top_p",
+            "top_k",
+            "min_p",
+            "frequency_penalty",
+            "presence_penalty",
+        ):
+            assert key not in captured_kwargs
+
     def test_send_message_stream_error_handling(self, manager):
         """Engine errors are reported gracefully via SSE."""
 
