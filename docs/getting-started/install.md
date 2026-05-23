@@ -6,6 +6,18 @@ OpenJarvis ships a one-line installer for macOS, Linux, and WSL2.
 curl -fsSL https://openjarvis.ai/install.sh | bash
 ```
 
+!!! warning "`openjarvis.ai` SSL fallback (issue #337)"
+    If `curl` fails on `openjarvis.ai` with `sslv3 alert handshake failure`,
+    fetch the same script from the GitHub mirror until the domain is restored:
+
+    ```bash
+    curl -fsSL https://raw.githubusercontent.com/open-jarvis/OpenJarvis/main/scripts/install/install.sh | bash
+    ```
+
+    The installer itself pulls everything else (uv, the project source,
+    Ollama) from independent CDNs (`astral.sh`, `github.com`,
+    `ollama.com`), so the rest of install proceeds normally.
+
 About 3 minutes on a typical broadband connection. Type `jarvis` to start chatting.
 
 ## What the installer does
