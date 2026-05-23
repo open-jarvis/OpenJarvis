@@ -643,12 +643,25 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
 
     let root = project_root.as_ref().unwrap();
 
-    // Install dependencies automatically (handles fresh clones)
+    // Install dependencies automatically (handles fresh clones).
+    //
+    // Previously we ran `uv sync` with both stdout AND stderr piped to
+    // /dev/null and discarded the exit code (`let _ = …`). When `uv sync`
+    // failed — Windows path issues, network problems, lockfile conflicts —
+    // the user saw no error, the boot continued, `uv run jarvis serve`
+    // then ran in an under-provisioned venv, and the user waited the full
+    // 600s health-check window before getting "Jarvis server did not
+    // become healthy in time" with no actionable detail (issue #331).
+    //
+    // Now: capture stderr, check the exit status, surface a useful error
+    // to the user BEFORE the long server-start wait. The status detail
+    // message also indicates this can take a couple of minutes on first
+    // boot so users don't restart the app thinking it's stuck.
     {
         let mut s = status.lock().await;
-        s.detail = "Installing dependencies...".into();
+        s.detail = "Installing dependencies (uv sync — may take 1-2 min on first boot)...".into();
     }
-    let _ = tokio::process::Command::new(&uv_bin)
+    let sync_output = tokio::process::Command::new(&uv_bin)
         .args([
             "sync",
             "--extra", "server",
@@ -656,10 +669,47 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
             "--extra", "inference-google",
         ])
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
         .current_dir(root)
-        .status()
+        .output()
         .await;
+    match sync_output {
+        Ok(out) if !out.status.success() => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            // Take the last ~800 chars — uv's most useful diagnostic line
+            // is usually at the tail of the stream.
+            let tail: String = stderr
+                .chars()
+                .rev()
+                .take(800)
+                .collect::<String>()
+                .chars()
+                .rev()
+                .collect();
+            let mut s = status.lock().await;
+            s.error = Some(format!(
+                "`uv sync` failed in {} (exit {}). Last output:\n\n{}\n\n\
+                 Try opening a terminal in that directory and running \
+                 `uv sync --extra server` manually for the full output.",
+                root.display(),
+                out.status.code().unwrap_or(-1),
+                tail.trim(),
+            ));
+            return;
+        }
+        Err(e) => {
+            let mut s = status.lock().await;
+            s.error = Some(format!(
+                "Could not run `uv sync`: {}. Verify uv is installed at \
+                 `{}` and the OpenJarvis repo is at `{}`.",
+                e,
+                uv_bin,
+                root.display(),
+            ));
+            return;
+        }
+        Ok(_) => {} // success — fall through
+    }
 
     {
         let mut s = status.lock().await;

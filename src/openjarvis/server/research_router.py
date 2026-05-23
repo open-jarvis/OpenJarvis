@@ -149,7 +149,15 @@ class _LiveGPUSampler:
         self._t_start = 0.0
         self._t_last = 0.0
         try:
-            import pynvml  # type: ignore
+            # Suppress legacy pynvml deprecation FutureWarning (#389).
+            import warnings as _warnings
+            with _warnings.catch_warnings():
+                _warnings.filterwarnings(
+                    "ignore",
+                    message=r"The pynvml package is deprecated.*",
+                    category=FutureWarning,
+                )
+                import pynvml  # type: ignore
 
             pynvml.nvmlInit()
             count = pynvml.nvmlDeviceGetCount()

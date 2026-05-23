@@ -17,7 +17,16 @@ from openjarvis.telemetry.energy_monitor import (
 logger = logging.getLogger(__name__)
 
 try:
-    import pynvml
+    # See gpu_monitor.py for the rationale — suppress the legacy
+    # `pynvml` package's deprecation FutureWarning narrowly (#389).
+    import warnings
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r"The pynvml package is deprecated.*",
+            category=FutureWarning,
+        )
+        import pynvml
 
     _PYNVML_AVAILABLE = True
 except ImportError:

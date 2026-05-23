@@ -4980,9 +4980,9 @@ dependencies = [
     { name = "datasets" },
     { name = "ddgs" },
     { name = "httpx" },
+    { name = "nvidia-ml-py" },
     { name = "openai" },
     { name = "posthog" },
-    { name = "pynvml" },
     { name = "python-telegram-bot" },
     { name = "rich" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
@@ -5066,7 +5066,7 @@ docs = [
 ]
 energy-all = [
     { name = "amdsmi" },
-    { name = "pynvml" },
+    { name = "nvidia-ml-py" },
     { name = "zeus-ml" },
 ]
 energy-amd = [
@@ -5086,7 +5086,7 @@ framework-comparison = [
     { name = "polars" },
 ]
 gpu-metrics = [
-    { name = "pynvml" },
+    { name = "nvidia-ml-py" },
 ]
 inference-cloud = [
     { name = "anthropic" },
@@ -5222,6 +5222,9 @@ requires-dist = [
     { name = "mkdocstrings", extras = ["python"], marker = "extra == 'docs'", specifier = ">=0.25" },
     { name = "mlx-lm", marker = "sys_platform == 'darwin' and extra == 'inference-mlx'", specifier = ">=0.31.1" },
     { name = "numpy", marker = "extra == 'memory-faiss'", specifier = ">=1.24" },
+    { name = "nvidia-ml-py", specifier = ">=12.560.30" },
+    { name = "nvidia-ml-py", marker = "extra == 'energy-all'", specifier = ">=12.560.30" },
+    { name = "nvidia-ml-py", marker = "extra == 'gpu-metrics'", specifier = ">=12.560.30" },
     { name = "openai", specifier = ">=1.30" },
     { name = "openai", marker = "extra == 'inference-cloud'", specifier = ">=1.30" },
     { name = "openai", marker = "extra == 'media'", specifier = ">=1.30" },
@@ -5237,9 +5240,6 @@ requires-dist = [
     { name = "pygemma", marker = "extra == 'inference-gemma'", specifier = ">=0.1.3" },
     { name = "pymessenger", marker = "extra == 'channel-messenger'", specifier = ">=0.0.7" },
     { name = "pynostr", marker = "extra == 'channel-nostr'", specifier = ">=0.6" },
-    { name = "pynvml", specifier = ">=13.0.1" },
-    { name = "pynvml", marker = "extra == 'energy-all'", specifier = ">=12.0" },
-    { name = "pynvml", marker = "extra == 'gpu-metrics'", specifier = ">=12.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5" },
@@ -6872,18 +6872,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/46/cc/f1caeadc85bb975e425ee2b6ceeb1f2cdbc1d849bbdced9cdfbc50f9baa7/pynostr-0.7.0.tar.gz", hash = "sha256:05566e18ae0ba467ba1ac6b29d82c271e4ba618ff176df5e56d544c3dee042ba", size = 54696, upload-time = "2025-08-07T05:57:13.743Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/aa/5e/cbcbba2be3acdc9ffce2c109f7d6296fbe2918b170a56f5742b07e000e49/pynostr-0.7.0-py3-none-any.whl", hash = "sha256:9407a64f08f29ec230ff6c5c55404fe6ad77fef1eacf409d03cfd5508ca61834", size = 37829, upload-time = "2025-08-07T05:57:12.945Z" },
-]
-
-[[package]]
-name = "pynvml"
-version = "13.0.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "nvidia-ml-py" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/5c/57/da7dc63a79f59e082e26a66ac02d87d69ea316b35b35b7a00d82f3ce3d2f/pynvml-13.0.1.tar.gz", hash = "sha256:1245991d9db786b4d2f277ce66869bd58f38ac654e38c9397d18f243c8f6e48f", size = 35226, upload-time = "2025-09-05T20:33:25.377Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d7/4a/cac76c174bb439a0c46c9a4413fcbea5c6cabfb01879f7bbdb9fdfaed76c/pynvml-13.0.1-py3-none-any.whl", hash = "sha256:e2b20e0a501eeec951e2455b7ab444759cf048e0e13a57b08049fa2775266aa8", size = 28810, upload-time = "2025-09-05T20:33:24.13Z" },
 ]
 
 [[package]]

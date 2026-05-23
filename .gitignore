@@ -48,7 +48,11 @@ Thumbs.db
 *.log
 results/
 logs/
-traces/
+# Anchored to repo root — DO NOT use the unanchored form `traces/`.
+# hatchling honors .gitignore when building the wheel; an unanchored
+# `traces/` pattern matches src/openjarvis/traces/ and silently drops
+# the runtime module from the wheel (issue #372).
+/traces/
 coding_task_*
 get-pip.py
 # Junk from mocked-path tests that write to their mock's __repr__ as a path

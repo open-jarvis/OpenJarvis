@@ -35,6 +35,14 @@ OpenJarvis is that stack. It is a framework for local-first personal AI, built a
 curl -fsSL https://openjarvis.ai/install.sh | bash
 ```
 
+> **If you see `sslv3 alert handshake failure` on `openjarvis.ai`** ([issue #337](https://github.com/open-jarvis/OpenJarvis/issues/337)), use the GitHub mirror until the domain is restored:
+>
+> ```bash
+> curl -fsSL https://raw.githubusercontent.com/open-jarvis/OpenJarvis/main/scripts/install/install.sh | bash
+> ```
+>
+> Same script, served straight from this repo. The installer itself fetches everything else (uv, the project source, Ollama) from independent CDNs, so the rest of install proceeds normally.
+
 That's it. The installer handles everything: uv, the Python venv, Ollama, and pulling a small starter model. About 3 minutes on a typical broadband connection. Then:
 
 ```bash

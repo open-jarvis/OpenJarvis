@@ -201,7 +201,15 @@ class _NullSampler(_Sampler):
 
 def _try_start_nvml() -> Optional[_Sampler]:
     try:
-        import pynvml  # type: ignore
+        # Suppress legacy pynvml deprecation FutureWarning (#389).
+        import warnings as _warnings
+        with _warnings.catch_warnings():
+            _warnings.filterwarnings(
+                "ignore",
+                message=r"The pynvml package is deprecated.*",
+                category=FutureWarning,
+            )
+            import pynvml  # type: ignore
 
         pynvml.nvmlInit()
         handle = pynvml.nvmlDeviceGetHandleByIndex(0)
