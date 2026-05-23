@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS telemetry (
     std_itl_ms           REAL NOT NULL DEFAULT 0.0,
     is_streaming         INTEGER NOT NULL DEFAULT 0,
     mining_session_id    TEXT,
+    trace_id        TEXT    NOT NULL DEFAULT '',
     metadata        TEXT    NOT NULL DEFAULT '{}'
 );
 """
@@ -92,12 +93,13 @@ INSERT INTO telemetry (
     mean_itl_ms, median_itl_ms, p90_itl_ms, p95_itl_ms, p99_itl_ms, std_itl_ms,
     is_streaming,
     mining_session_id,
+    trace_id,
     metadata
 ) VALUES (
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 )
 """
 
@@ -129,6 +131,7 @@ _MIGRATE_COLUMNS = [
     ("is_streaming", "INTEGER NOT NULL DEFAULT 0"),
     ("prompt_tokens_evaluated", "INTEGER NOT NULL DEFAULT 0"),
     ("mining_session_id", "TEXT"),
+    ("trace_id", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 
@@ -198,6 +201,7 @@ class TelemetryStore:
                 rec.std_itl_ms,
                 1 if rec.is_streaming else 0,
                 rec.mining_session_id,
+                rec.trace_id,
                 json.dumps(rec.metadata),
             ),
         )

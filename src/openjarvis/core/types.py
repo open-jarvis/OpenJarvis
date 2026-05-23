@@ -162,6 +162,7 @@ class TelemetryRecord:
     energy_method: str = ""
     energy_vendor: str = ""
     batch_id: str = ""
+    trace_id: str = ""
     is_warmup: bool = False
     cpu_energy_joules: float = 0.0
     gpu_energy_joules: float = 0.0

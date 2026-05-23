@@ -7,7 +7,8 @@ from typing import Any, Dict, List, Optional
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, BaseAgent
 from openjarvis.core.events import EventBus, EventType
-from openjarvis.core.types import StepType, Trace, TraceStep
+from openjarvis.core.types import StepType, Trace, TraceStep, _trace_id
+from openjarvis.traces.context import trace_scope
 from openjarvis.traces.store import TraceStore
 
 
@@ -56,12 +57,18 @@ class TraceCollector:
         self._current_model = ""
         self._current_engine = ""
 
+        # Generate the trace_id up front so every telemetry row emitted during
+        # this run can be tagged with it (via the trace_scope ContextVar). This
+        # is the join key for downstream RoCS aggregation.
+        trace_id = _trace_id()
+
         # Subscribe to events for trace collection
         unsubs = self._subscribe()
 
         started_at = time.time()
         try:
-            result = self._agent.run(input, context=context, **kwargs)
+            with trace_scope(trace_id):
+                result = self._agent.run(input, context=context, **kwargs)
         finally:
             self._unsubscribe(unsubs)
 
@@ -82,6 +89,7 @@ class TraceCollector:
 
         # Build and persist the trace
         trace = Trace(
+            trace_id=trace_id,
             query=input,
             agent=getattr(self._agent, "agent_id", "unknown"),
             model=self._current_model,

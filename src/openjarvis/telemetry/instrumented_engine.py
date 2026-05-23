@@ -11,6 +11,7 @@ from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import Message, TelemetryRecord
 from openjarvis.engine._stubs import InferenceEngine, StreamChunk
 from openjarvis.telemetry.gpu_monitor import GpuSample
+from openjarvis.traces.context import get_current_trace_id
 
 # ---------------------------------------------------------------------------
 # ITL helpers
@@ -233,6 +234,7 @@ class InstrumentedEngine(InferenceEngine):
             gpu_energy_joules=gpu_energy_joules,
             dram_energy_joules=dram_energy_joules,
             tokens_per_joule=tokens_per_joule,
+            trace_id=get_current_trace_id(),
         )
 
         event_data = {
@@ -454,6 +456,7 @@ class InstrumentedEngine(InferenceEngine):
             gpu_energy_joules=gpu_energy_joules,
             dram_energy_joules=dram_energy_joules,
             tokens_per_joule=tokens_per_joule,
+            trace_id=get_current_trace_id(),
         )
 
         event_data = {
