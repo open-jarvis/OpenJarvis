@@ -186,9 +186,11 @@ def chat(
 
                     kwargs["interactive"] = True
                     kwargs["confirm_callback"] = _confirm
-                if engine_kwargs:
-                    kwargs["engine_options"] = engine_kwargs
                 agent = agent_cls(engine, model, **kwargs)
+                if agent is not None and engine_kwargs:
+                    # Agents like NativeReActAgent do not accept engine_options
+                    # in __init__; session opts live on BaseAgent._engine_options.
+                    setattr(agent, "_engine_options", dict(engine_kwargs))
         except Exception as exc:
             console.print(f"[yellow]Agent '{agent_key}' failed: {exc}[/yellow]")
 

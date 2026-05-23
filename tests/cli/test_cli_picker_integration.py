@@ -164,6 +164,42 @@ class TestRuntimePanelBranches:
 
 
 class TestChatPickerIntegration:
+    def test_native_react_gets_engine_options_via_setattr(self) -> None:
+        """NativeReActAgent rejects engine_options kwarg; chat uses setattr."""
+        import openjarvis.agents  # noqa: F401
+        from openjarvis.agents.native_react import NativeReActAgent
+        from openjarvis.core.registry import AgentRegistry
+
+        if not AgentRegistry.contains("native_react"):
+            AgentRegistry.register_value("native_react", NativeReActAgent)
+
+        engine = MagicMock()
+        engine.generate.return_value = {"content": "ok"}
+        cfg = JarvisConfig()
+        cfg.intelligence.default_model = "gemma4:e4b"
+        cfg.agent.default_agent = "native_react"
+        p = _chat_patches(engine, cfg)
+        with (
+            p[0],
+            p[1],
+            p[2],
+            patch(
+                "openjarvis.cli._model_switch.tty_wants_model_picker",
+                return_value=False,
+            ),
+            patch(
+                "openjarvis.cli._runtime_panel.tty_wants_runtime_panel",
+                return_value=False,
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--num-ctx", "8192", "--num-gpu", "0"],
+                input="/quit\n",
+            )
+        assert result.exit_code == 0
+        assert "failed" not in result.output.lower()
+
     def test_picker_selects_model_and_shows_runtime_banner(self) -> None:
         engine = MagicMock()
         engine.list_models.return_value = ["picked-model"]
