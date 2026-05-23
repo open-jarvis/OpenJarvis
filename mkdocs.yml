@@ -184,6 +184,7 @@ nav:
       - External MCP Servers: user-guide/mcp-external-servers.md
       - Scheduler: user-guide/scheduler.md
       - Telemetry: user-guide/telemetry.md
+      - Return on Cognitive Spend: user-guide/rocs.md
       - Security: user-guide/security.md
       - LLM-guided spec search: user-guide/llm-guided-spec-search.md
   - Leaderboard: leaderboard.md

@@ -26,6 +26,7 @@ Each inference call produces a `TelemetryRecord` with the following fields:
 | `cost_usd`           | `float`          | Estimated cost in USD                    |
 | `energy_joules`      | `float`          | Estimated energy consumption             |
 | `power_watts`        | `float`          | Power draw during inference              |
+| `trace_id`           | `str`            | Owning trace's id (empty for direct asks); joins to `TraceStore` for RoCS |
 | `metadata`           | `dict[str, Any]` | Additional metadata                      |
 
 ### TelemetryStore
@@ -167,6 +168,8 @@ jarvis telemetry export -f csv -o metrics.csv
 jarvis telemetry clear               # With confirmation prompt
 jarvis telemetry clear --yes         # Without confirmation
 ```
+
+For the joined telemetry × trace-feedback view (energy-weighted value per joule, per agent / model / engine), see [Return on Cognitive Spend](rocs.md).
 
 ---
 
