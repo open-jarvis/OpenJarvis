@@ -33,6 +33,7 @@ from openjarvis.cli.optimize_cmd import optimize_group
 from openjarvis.cli.pearl_cmd import pearl
 from openjarvis.cli.quickstart_cmd import quickstart
 from openjarvis.cli.registry_cmd import registry
+from openjarvis.cli.rocs_cmd import rocs
 from openjarvis.cli.scan_cmd import scan
 from openjarvis.cli.scheduler_cmd import scheduler
 from openjarvis.cli.self_update_cmd import self_update
@@ -89,6 +90,7 @@ cli.add_command(memory, "memory")
 cli.add_command(mine, "mine")
 cli.add_command(pearl, "pearl")
 cli.add_command(telemetry, "telemetry")
+cli.add_command(rocs, "rocs")
 cli.add_command(bench, "bench")
 cli.add_command(channel, "channel")
 cli.add_command(channels, "channels")

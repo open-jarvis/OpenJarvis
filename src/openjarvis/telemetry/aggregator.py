@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,70 @@ class EngineStats:
     avg_mean_itl_ms: float = 0.0
     avg_median_itl_ms: float = 0.0
     avg_p95_itl_ms: float = 0.0
+
+
+@dataclass(slots=True)
+class RoCSRow:
+    """Return on Cognitive Spend for one bucket (agent / model / engine / day).
+
+    The numerator is *energy-weighted feedback* — a trace's user score
+    contributes to RoCS in proportion to the joules it actually consumed, so
+    a thumbs-up on a heavy research_loop run counts for more than a thumbs-up
+    on a one-shot ask. The denominator is the total joules of *graded* calls
+    (calls whose trace has a feedback score). Ungraded calls are tracked
+    separately so the user can see how much spend is currently un-judgeable.
+
+    RoCS = sum(feedback * energy_joules) / sum(energy_joules where graded)
+    """
+
+    bucket: str = ""  # the group_by value (agent name, model id, engine, or "YYYY-MM-DD")
+    traces_count: int = 0  # distinct trace_ids in the window
+    graded_count: int = 0  # traces with feedback IS NOT NULL
+    ungraded_calls: int = 0  # telemetry rows with no trace_id OR trace not graded
+    total_energy_joules: float = 0.0  # all rows in bucket, graded or not
+    graded_energy_joules: float = 0.0  # only rows whose trace has feedback
+    weighted_value_joules: float = 0.0  # SUM(feedback * energy_joules) for graded
+    total_cost_usd: float = 0.0
+    total_completion_tokens: int = 0
+
+    @property
+    def rocs(self) -> float:
+        """Energy-weighted feedback per joule, in [0, 1]. 0.0 if no graded energy."""
+        if self.graded_energy_joules <= 0:
+            return 0.0
+        return self.weighted_value_joules / self.graded_energy_joules
+
+    @property
+    def pct_graded(self) -> float:
+        """Fraction of traces in this bucket that have user feedback, in [0, 1]."""
+        if self.traces_count <= 0:
+            return 0.0
+        return self.graded_count / self.traces_count
+
+    @property
+    def joules_per_trace(self) -> float:
+        """Average joules consumed per trace in this bucket (graded or not)."""
+        if self.traces_count <= 0:
+            return 0.0
+        return self.total_energy_joules / self.traces_count
+
+
+_VALID_GROUP_BY = {"agent", "model", "engine", "day"}
+
+
+def _group_by_sql(group_by: str) -> str:
+    """Return the SQL expression that produces the bucket value for a given group_by."""
+    if group_by == "agent":
+        return "COALESCE(tr.agent, '')"
+    if group_by == "model":
+        return "t.model_id"
+    if group_by == "engine":
+        return "t.engine"
+    if group_by == "day":
+        return "date(t.timestamp, 'unixepoch')"
+    raise ValueError(
+        f"group_by must be one of {sorted(_VALID_GROUP_BY)}, got {group_by!r}"
+    )
 
 
 @dataclass(slots=True)
@@ -392,6 +457,184 @@ class TelemetryAggregator:
             )
         return results
 
+    # ------------------------------------------------------------------
+    # Return on Cognitive Spend (RoCS)
+    # ------------------------------------------------------------------
+
+    @contextmanager
+    def _attach_traces_db(self, traces_db_path: str | Path) -> Iterator[None]:
+        """ATTACH the traces.db file as ``traces_db`` for the duration of the block.
+
+        Does NOT create the file if missing — callers must check existence first.
+        """
+        self._conn.execute(
+            "ATTACH DATABASE ? AS traces_db",
+            (str(traces_db_path),),
+        )
+        try:
+            yield
+        finally:
+            try:
+                self._conn.execute("DETACH DATABASE traces_db")
+            except sqlite3.OperationalError as exc:
+                logger.debug("DETACH traces_db failed (already detached?): %s", exc)
+
+    def compute_rocs(
+        self,
+        traces_db_path: str | Path,
+        *,
+        since: Optional[float] = None,
+        until: Optional[float] = None,
+        group_by: str = "agent",
+    ) -> List[RoCSRow]:
+        """Compute per-bucket Return on Cognitive Spend.
+
+        Joins ``telemetry`` ⨝ ``traces_db.traces`` on ``trace_id`` so each
+        telemetry row is associated with its owning trace's feedback (if any).
+
+        ``group_by`` ∈ {``"agent"``, ``"model"``, ``"engine"``, ``"day"``}. The
+        ``"day"`` bucket emits ``YYYY-MM-DD`` strings (UTC) for trend plots.
+
+        Returns one :class:`RoCSRow` per bucket, sorted by total_energy_joules
+        descending. Buckets with zero telemetry rows in the window are omitted.
+
+        If ``traces_db_path`` does not exist, treats *all* telemetry rows as
+        ungraded (so the user can still see spend even before any feedback).
+        """
+        if group_by not in _VALID_GROUP_BY:
+            raise ValueError(
+                f"group_by must be one of {sorted(_VALID_GROUP_BY)}, got {group_by!r}"
+            )
+
+        time_clauses, time_params = self._time_filter(since, until)
+        time_where = (
+            time_clauses.replace(" WHERE ", " WHERE t.").replace(" AND ", " AND t.")
+            if time_clauses
+            else ""
+        )
+
+        if not Path(str(traces_db_path)).exists():
+            return self._compute_rocs_no_traces(
+                group_by=group_by,
+                time_where=time_where,
+                time_params=time_params,
+            )
+
+        with self._attach_traces_db(traces_db_path):
+            return self._compute_rocs_joined(
+                group_by=group_by,
+                time_where=time_where,
+                time_params=time_params,
+            )
+
+    def compute_rocs_overall(
+        self,
+        traces_db_path: str | Path,
+        *,
+        since: Optional[float] = None,
+        until: Optional[float] = None,
+    ) -> RoCSRow:
+        """Compute a single overall RoCS row across the whole window.
+
+        Equivalent to summing :meth:`compute_rocs` rows but produced via a
+        single SQL aggregation (cheaper, exact). The ``bucket`` field is set
+        to ``"ALL"``.
+        """
+        rows = self.compute_rocs(
+            traces_db_path,
+            since=since,
+            until=until,
+            group_by="agent",
+        )
+        overall = RoCSRow(bucket="ALL")
+        for r in rows:
+            overall.traces_count += r.traces_count
+            overall.graded_count += r.graded_count
+            overall.ungraded_calls += r.ungraded_calls
+            overall.total_energy_joules += r.total_energy_joules
+            overall.graded_energy_joules += r.graded_energy_joules
+            overall.weighted_value_joules += r.weighted_value_joules
+            overall.total_cost_usd += r.total_cost_usd
+            overall.total_completion_tokens += r.total_completion_tokens
+        return overall
+
+    def _compute_rocs_joined(
+        self,
+        *,
+        group_by: str,
+        time_where: str,
+        time_params: list[Any],
+    ) -> List[RoCSRow]:
+        """Run the actual JOIN query when traces.db is attached."""
+        bucket_expr = _group_by_sql(group_by)
+        sql = (
+            f"SELECT {bucket_expr} AS bucket,"
+            " COUNT(DISTINCT CASE WHEN t.trace_id != '' THEN t.trace_id END)"
+            "   AS traces_count,"
+            " COUNT(DISTINCT CASE WHEN tr.feedback IS NOT NULL"
+            "   THEN tr.trace_id END) AS graded_count,"
+            " SUM(CASE WHEN t.trace_id = '' OR tr.feedback IS NULL"
+            "   THEN 1 ELSE 0 END) AS ungraded_calls,"
+            " SUM(t.energy_joules) AS total_energy_joules,"
+            " SUM(CASE WHEN tr.feedback IS NOT NULL"
+            "   THEN t.energy_joules ELSE 0 END) AS graded_energy_joules,"
+            " SUM(CASE WHEN tr.feedback IS NOT NULL"
+            "   THEN tr.feedback * t.energy_joules ELSE 0 END)"
+            "   AS weighted_value_joules,"
+            " SUM(t.cost_usd) AS total_cost_usd,"
+            " SUM(t.completion_tokens) AS total_completion_tokens"
+            " FROM telemetry t"
+            " LEFT JOIN traces_db.traces tr"
+            "   ON t.trace_id = tr.trace_id AND t.trace_id != ''"
+            f"{time_where}"
+            f" GROUP BY {bucket_expr}"
+            " ORDER BY total_energy_joules DESC"
+        )
+        rows = self._conn.execute(sql, time_params).fetchall()
+        return [self._row_to_rocs(r) for r in rows]
+
+    def _compute_rocs_no_traces(
+        self,
+        *,
+        group_by: str,
+        time_where: str,
+        time_params: list[Any],
+    ) -> List[RoCSRow]:
+        """Fallback when traces.db is missing — everything is ungraded."""
+        bucket_expr = _group_by_sql(group_by).replace("tr.agent", "''")
+        sql = (
+            f"SELECT {bucket_expr} AS bucket,"
+            " COUNT(DISTINCT CASE WHEN t.trace_id != '' THEN t.trace_id END)"
+            "   AS traces_count,"
+            " 0 AS graded_count,"
+            " COUNT(*) AS ungraded_calls,"
+            " SUM(t.energy_joules) AS total_energy_joules,"
+            " 0.0 AS graded_energy_joules,"
+            " 0.0 AS weighted_value_joules,"
+            " SUM(t.cost_usd) AS total_cost_usd,"
+            " SUM(t.completion_tokens) AS total_completion_tokens"
+            " FROM telemetry t"
+            f"{time_where}"
+            f" GROUP BY {bucket_expr}"
+            " ORDER BY total_energy_joules DESC"
+        )
+        rows = self._conn.execute(sql, time_params).fetchall()
+        return [self._row_to_rocs(r) for r in rows]
+
+    @staticmethod
+    def _row_to_rocs(r: sqlite3.Row) -> RoCSRow:
+        return RoCSRow(
+            bucket=r["bucket"] or "",
+            traces_count=r["traces_count"] or 0,
+            graded_count=r["graded_count"] or 0,
+            ungraded_calls=r["ungraded_calls"] or 0,
+            total_energy_joules=r["total_energy_joules"] or 0.0,
+            graded_energy_joules=r["graded_energy_joules"] or 0.0,
+            weighted_value_joules=r["weighted_value_joules"] or 0.0,
+            total_cost_usd=r["total_cost_usd"] or 0.0,
+            total_completion_tokens=r["total_completion_tokens"] or 0,
+        )
+
     def export_records(
         self,
         *,
@@ -421,5 +664,6 @@ __all__ = [
     "AggregatedStats",
     "EngineStats",
     "ModelStats",
+    "RoCSRow",
     "TelemetryAggregator",
 ]
