@@ -356,23 +356,79 @@ class AgentExecutor:
         if getattr(self, "_confirm_callback", None) is not None:
             agent_kwargs["interactive"] = True
             agent_kwargs["confirm_callback"] = self._confirm_callback
-        try:
-            agent_instance = agent_cls(engine, model, **agent_kwargs)
-        except TypeError:
-            agent_instance = agent_cls(engine, model)
 
-        # Build input from instruction + summary_memory + pending messages
+        # Wire cross-tick state plumbing into agent classes that accept it.
+        # Without this, MonitorOperative/Operative agents have no working
+        # session_store or memory_backend and silently no-op their state
+        # recall / persistence paths.
+        import inspect
+
+        init_sig = inspect.signature(agent_cls.__init__)
+        accepts_var_kw = any(
+            p.kind == inspect.Parameter.VAR_KEYWORD
+            for p in init_sig.parameters.values()
+        )
+
+        def _accepts(name: str) -> bool:
+            return accepts_var_kw or name in init_sig.parameters
+
+        state_kwargs: dict[str, Any] = {}
+        if _accepts("operator_id"):
+            state_kwargs["operator_id"] = agent["id"]
+        if self._system is not None:
+            if _accepts("session_store"):
+                state_kwargs["session_store"] = getattr(
+                    self._system, "session_store", None
+                )
+            if _accepts("memory_backend"):
+                state_kwargs["memory_backend"] = getattr(
+                    self._system, "memory_backend", None
+                )
+
+        try:
+            agent_instance = agent_cls(
+                engine, model, **agent_kwargs, **state_kwargs
+            )
+        except TypeError:
+            try:
+                agent_instance = agent_cls(engine, model, **agent_kwargs)
+            except TypeError:
+                agent_instance = agent_cls(engine, model)
+
+        # Build input from instruction + summary_memory + pending messages.
+        # NB: we deliberately do NOT inject the full previous response back
+        # in as "Previous context" — that caused the model to parrot its
+        # own prior output verbatim. Cross-tick continuity now lives in the
+        # agent's session_store / memory_backend; here we only surface a
+        # short tick-boundary marker so the model knows time has passed.
         import datetime
+        import re
 
         today = datetime.date.today().strftime("%A, %B %d, %Y")
         instruction = config.get("instruction", "")
-        memory = agent.get("summary_memory", "")
+        memory = (agent.get("summary_memory") or "").strip()
+        last_run_at = agent.get("last_run_at")
+
+        tick_note = ""
+        if memory:
+            first_sentence = re.split(r"(?<=[.!?])\s+", memory, maxsplit=1)[0]
+            first_sentence = first_sentence.strip()[:200]
+            if last_run_at:
+                ts = datetime.datetime.fromtimestamp(last_run_at).strftime(
+                    "%Y-%m-%d %H:%M"
+                )
+                tick_note = f"Last tick at {ts}: {first_sentence}"
+            else:
+                tick_note = f"Previous tick: {first_sentence}"
+
         if instruction:
-            input_text = f"Current date: {today}\n\nStanding instruction: {instruction}"
-            if memory:
-                input_text += f"\n\nPrevious context: {memory}"
+            input_text = (
+                f"Current date: {today}\n\nStanding instruction: {instruction}"
+            )
+            if tick_note:
+                input_text += f"\n\n{tick_note}"
         else:
-            base = memory or "Continue your assigned task."
+            base = tick_note or "Continue your assigned task."
             input_text = f"Current date: {today}\n\n{base}"
         pending = self._manager.get_pending_messages(agent["id"])
         if pending:
