@@ -31,11 +31,22 @@ OpenJarvis is that stack. It is a framework for local-first personal AI, built a
 
 ## Installation
 
+**macOS / Linux:**
+
 ```bash
 curl -fsSL https://openjarvis.ai/install.sh | bash
 ```
 
-> **If you see `sslv3 alert handshake failure` on `openjarvis.ai`** ([issue #337](https://github.com/open-jarvis/OpenJarvis/issues/337)), use the GitHub mirror until the domain is restored:
+**Windows:** the installer is a `bash` script and won't run in PowerShell or `cmd`. Pick one of:
+
+- **WSL2 (recommended for the CLI / Python SDK)** — one-time setup in an admin PowerShell, then run the same `curl … | bash` inside Ubuntu:
+  ```powershell
+  wsl --install -d Ubuntu-24.04
+  ```
+  Open the Ubuntu shell that gets installed, then follow [WSL2 install instructions](https://open-jarvis.github.io/OpenJarvis/getting-started/wsl2/).
+- **Desktop app** — download the `.exe` from the [Releases page](https://github.com/open-jarvis/OpenJarvis/releases) for the GUI experience, no terminal required.
+
+> **If `curl` fails on `openjarvis.ai` with `sslv3 alert handshake failure`** ([issue #337](https://github.com/open-jarvis/OpenJarvis/issues/337)), use the GitHub mirror until the domain is restored:
 >
 > ```bash
 > curl -fsSL https://raw.githubusercontent.com/open-jarvis/OpenJarvis/main/scripts/install/install.sh | bash
@@ -51,7 +62,7 @@ jarvis
 
 The Rust extension and bigger models continue downloading in the background while you chat. Run `jarvis doctor` to see status.
 
-**Platforms:** macOS (Intel + Apple Silicon), Linux, WSL2 on Windows.
+**Platforms:** macOS (Intel + Apple Silicon), Linux, WSL2 on Windows. Native Windows is not supported — use WSL2 or the desktop binary.
 
 **Manual install / contributors:** see [docs/getting-started/install.md](docs/getting-started/install.md).
 

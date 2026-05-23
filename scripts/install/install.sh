@@ -29,6 +29,40 @@ for arg in "$@"; do
     esac
 done
 
+# ---- non-WSL Windows refusal ----
+# Running the installer in Git Bash / MSYS2 / Cygwin on native Windows
+# (i.e. NOT inside WSL2) gets the user into a confusing failure state:
+# uv/git tooling installs to Windows paths the rest of OpenJarvis can't
+# reach, and Ollama integration silently breaks. The supported Windows
+# path is WSL2. Bail early with a clear next step rather than letting
+# users discover this 3 minutes into a doomed install.
+case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*)
+        cat >&2 <<'EOF'
+install.sh: native Windows (Git Bash / MSYS2 / Cygwin) is not supported.
+
+OpenJarvis runs on Windows via WSL2. Two paths:
+
+  1. WSL2 (recommended for the CLI). One-time setup in an admin PowerShell:
+
+       wsl --install -d Ubuntu-24.04
+
+     Open the Ubuntu shell that gets installed, then re-run:
+
+       curl -fsSL https://openjarvis.ai/install.sh | bash
+
+     (or the github mirror — see README if openjarvis.ai is down.)
+
+  2. Desktop app — download the .exe from the Releases page:
+     https://github.com/open-jarvis/OpenJarvis/releases
+
+See the WSL2 install guide for the full walkthrough:
+  https://open-jarvis.github.io/OpenJarvis/getting-started/wsl2/
+EOF
+        exit 1
+        ;;
+esac
+
 # ---- root refusal ----
 if [[ "$(id -u)" -eq 0 ]]; then
     cat >&2 <<'EOF'

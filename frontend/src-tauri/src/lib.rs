@@ -495,14 +495,33 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
 
     let uv_bin = resolve_bin("uv");
 
-    // Verify uv is actually installed
+    // Verify uv is actually installed. Concrete per-OS instructions —
+    // the generic "install it from astral.sh" was the #1 source of
+    // confusion on the Discord support thread; users couldn't tell whether
+    // to use winget, scoop, pip, or the official installer.
     if !std::path::Path::new(&uv_bin).exists() && uv_bin == "uv" {
         let mut s = status.lock().await;
-        s.error = Some(
-            "Could not find 'uv' (Python package manager). \
-             Install it from https://astral.sh/uv then relaunch."
-                .into(),
-        );
+        #[cfg(target_os = "windows")]
+        let msg = "Could not find 'uv' (Python package manager). \
+                   To install on Windows, open PowerShell and run:\n\n\
+                   powershell -ExecutionPolicy Bypass -c \"irm https://astral.sh/uv/install.ps1 | iex\"\n\n\
+                   Then close and relaunch this app. \
+                   (If the install completes but the app still can't find uv, \
+                   you may need to log out and back in so PATH refreshes.)";
+        #[cfg(target_os = "macos")]
+        let msg = "Could not find 'uv' (Python package manager). \
+                   To install on macOS, open Terminal and run:\n\n\
+                   curl -LsSf https://astral.sh/uv/install.sh | sh\n\n\
+                   Then relaunch this app.";
+        #[cfg(target_os = "linux")]
+        let msg = "Could not find 'uv' (Python package manager). \
+                   To install on Linux, open a terminal and run:\n\n\
+                   curl -LsSf https://astral.sh/uv/install.sh | sh\n\n\
+                   Then relaunch this app.";
+        #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+        let msg = "Could not find 'uv' (Python package manager). \
+                   Install it from https://astral.sh/uv then relaunch.";
+        s.error = Some(msg.into());
         return;
     }
 
