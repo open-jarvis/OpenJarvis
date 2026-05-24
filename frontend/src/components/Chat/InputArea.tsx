@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { MapPin, Send, Square } from 'lucide-react';
+import { Ear, MapPin, Send, Square } from 'lucide-react';
 import { useAppStore, generateId } from '../../lib/store';
 import { streamChat } from '../../lib/sse';
 import { fetchSavings, getBase } from '../../lib/api';
@@ -15,6 +15,8 @@ function stripThinkTags(text: string): string {
 
 export function InputArea() {
   const [input, setInput] = useState('');
+  const [wakeListening, setWakeListening] = useState(false);
+  const [wakeStatus, setWakeStatus] = useState('');
   const [weatherLocation, setWeatherLocation] = useState<{
     latitude: number;
     longitude: number;
@@ -24,6 +26,8 @@ export function InputArea() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const wakeRecognitionRef = useRef<any>(null);
+  const awaitingWakeCommandRef = useRef(false);
 
   const activeId = useAppStore((s) => s.activeId);
   const selectedModel = useAppStore((s) => s.selectedModel);
@@ -130,11 +134,11 @@ export function InputArea() {
     resetStream();
   }, [resetStream]);
 
-  const sendMessage = useCallback(async () => {
-    const content = input.trim();
+  const sendMessage = useCallback(async (overrideText?: string) => {
+    const content = (overrideText ?? input).trim();
     if (!content || streamState.isStreaming) return;
 
-    setInput('');
+    if (!overrideText) setInput('');
 
     let convId = activeId;
     if (!convId) {
@@ -372,6 +376,85 @@ export function InputArea() {
     weatherLocation,
   ]);
 
+  useEffect(() => {
+    if (!wakeListening || !speechEnabled || !speechAvailable) {
+      wakeRecognitionRef.current?.stop?.();
+      wakeRecognitionRef.current = null;
+      awaitingWakeCommandRef.current = false;
+      if (wakeListening && !speechEnabled) setWakeStatus('음성 입력을 먼저 켜주세요');
+      return;
+    }
+
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Recognition) {
+      setWakeStatus('브라우저 음성 인식을 지원하지 않습니다');
+      return;
+    }
+
+    let stopped = false;
+    const recognition = new Recognition();
+    wakeRecognitionRef.current = recognition;
+    recognition.lang = 'ko-KR';
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    setWakeStatus('Friday 대기 중');
+
+    recognition.onresult = (event: any) => {
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const text = String(event.results[i][0]?.transcript || '').trim();
+        if (!text) continue;
+        const lower = text.toLowerCase();
+        const hasWake = lower.includes('friday') || text.includes('프라이데이');
+
+        if (awaitingWakeCommandRef.current) {
+          awaitingWakeCommandRef.current = false;
+          setWakeStatus('명령 전송 중');
+          sendMessage(text);
+          return;
+        }
+
+        if (hasWake) {
+          const command = text
+            .replace(/friday/gi, '')
+            .replace(/프라이데이/g, '')
+            .trim();
+          if (command) {
+            setWakeStatus('명령 전송 중');
+            sendMessage(command);
+          } else {
+            awaitingWakeCommandRef.current = true;
+            setWakeStatus('듣고 있습니다');
+          }
+        }
+      }
+    };
+    recognition.onerror = () => {
+      setWakeStatus('Wake listening 오류');
+    };
+    recognition.onend = () => {
+      if (!stopped && wakeListening) {
+        try {
+          recognition.start();
+        } catch {
+          setWakeStatus('Wake listening 재시작 실패');
+        }
+      }
+    };
+
+    try {
+      recognition.start();
+    } catch {
+      setWakeStatus('Wake listening 시작 실패');
+    }
+
+    return () => {
+      stopped = true;
+      awaitingWakeCommandRef.current = false;
+      recognition.stop();
+      if (wakeRecognitionRef.current === recognition) wakeRecognitionRef.current = null;
+    };
+  }, [wakeListening, speechEnabled, speechAvailable, sendMessage]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -430,7 +513,19 @@ export function InputArea() {
               <MapPin size={16} />
             </button>
             <button
-              onClick={sendMessage}
+              onClick={() => setWakeListening((value) => !value)}
+              disabled={!speechEnabled || !speechAvailable || modelLoading}
+              className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer disabled:opacity-30 disabled:cursor-default"
+              style={{
+                background: wakeListening ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
+                color: wakeListening ? 'white' : 'var(--color-text-tertiary)',
+              }}
+              title="Friday wake listening"
+            >
+              <Ear size={16} />
+            </button>
+            <button
+              onClick={() => sendMessage()}
               disabled={!input.trim() || modelLoading}
               className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer disabled:opacity-30 disabled:cursor-default"
               style={{
@@ -449,6 +544,7 @@ export function InputArea() {
           <kbd className="font-mono">Enter</kbd> to send &middot;{' '}
           <kbd className="font-mono">Shift+Enter</kbd> for new line
           {locationStatus ? ` · ${locationStatus}` : ''}
+          {wakeStatus ? ` · ${wakeStatus}` : ''}
         </span>
       </div>
     </div>
