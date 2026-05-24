@@ -97,6 +97,10 @@ class _BaseOpenMeteoWeatherTool(BaseTool):
                         "type": "string",
                         "description": "IANA timezone. Defaults to Asia/Seoul.",
                     },
+                    "location_name": {
+                        "type": "string",
+                        "description": "Display name for Korean summaries.",
+                    },
                 },
                 "required": [],
             },
@@ -129,6 +133,7 @@ class _BaseOpenMeteoWeatherTool(BaseTool):
         timezone = str(
             params.get("timezone", getattr(self, "_timezone", SEOUL_TIMEZONE))
         )
+        location_name = str(params.get("location_name") or "서울")
 
         try:
             data = self._client.fetch_forecast(
@@ -139,7 +144,12 @@ class _BaseOpenMeteoWeatherTool(BaseTool):
             )
             return ToolResult(
                 tool_name=self.tool_id,
-                content=format_weather_summary(data, query, profile=profile),
+                content=format_weather_summary(
+                    data,
+                    query,
+                    profile=profile,
+                    location_name=location_name,
+                ),
                 success=True,
                 metadata={
                     "provider": "open-meteo",
@@ -147,6 +157,7 @@ class _BaseOpenMeteoWeatherTool(BaseTool):
                     "latitude": latitude,
                     "longitude": longitude,
                     "timezone": timezone,
+                    "location_name": location_name,
                     "raw": data,
                 },
             )

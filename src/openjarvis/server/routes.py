@@ -179,7 +179,10 @@ def _route_local_friday(req: ChatCompletionRequest):
         return None
     from openjarvis.friday_assistant import route_friday_command
 
-    return route_friday_command(query_text)
+    current_location = None
+    if isinstance(req.friday_context, dict):
+        current_location = req.friday_context.get("current_location")
+    return route_friday_command(query_text, current_location=current_location)
 
 
 def _local_chat_response(model: str, content: str) -> ChatCompletionResponse:

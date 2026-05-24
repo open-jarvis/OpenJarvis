@@ -9,6 +9,8 @@ from openjarvis.core.config import JarvisConfig
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
 from openjarvis.friday_assistant import (
+    KOREAN_CITY_LOCATIONS,
+    SEOUL_WEATHER_LOCATION,
     FridayAssistantRouter,
     FridayLocalStore,
     check_friday_status,
@@ -104,6 +106,46 @@ def test_notes_and_todos_persist_to_local_json(tmp_path):
     assert "장보기" in router.route("할 일 목록 보여줘").content
 
 
+def test_weather_default_location_commands_persist_to_local_json(tmp_path):
+    path = tmp_path / "friday_data.json"
+    router = FridayAssistantRouter(data_path=path)
+
+    set_result = router.route("내 기본 위치는 부산이야")
+    get_result = router.route("날씨 기본 위치 알려줘")
+
+    assert "부산" in set_result.content
+    assert "부산" in get_result.content
+    assert FridayLocalStore(path).get_weather_location()["name"] == "부산"
+
+
+def test_weather_default_location_falls_back_to_seoul(tmp_path):
+    router = FridayAssistantRouter(data_path=tmp_path / "friday_data.json")
+
+    result = router._resolve_weather_location("오늘 날씨 알려줘")
+
+    assert result.metadata["location"] == SEOUL_WEATHER_LOCATION
+
+
+def test_saved_default_location_used_when_no_city_is_present(tmp_path):
+    path = tmp_path / "friday_data.json"
+    store = FridayLocalStore(path)
+    store.set_weather_location(KOREAN_CITY_LOCATIONS["부산"])
+    router = FridayAssistantRouter(data_path=path)
+
+    result = router._resolve_weather_location("오늘 날씨 알려줘")
+
+    assert result.metadata["location"]["name"] == "부산"
+
+
+def test_city_name_detection_uses_explicit_city(tmp_path):
+    router = FridayAssistantRouter(data_path=tmp_path / "friday_data.json")
+
+    result = router._resolve_weather_location("강릉 풍속 알려줘")
+
+    assert result.metadata["location"]["name"] == "강릉"
+    assert result.metadata["location"]["latitude"] == 37.7519
+
+
 def test_status_check_uses_mocked_port_checker():
     def checker(host: str, port: int, timeout: float) -> bool:
         return port in {11434, 8000}
@@ -127,10 +169,82 @@ def test_weather_routing_uses_basic_and_detail_tools(tmp_path):
 
     assert basic_result.content == "기본 날씨입니다."
     assert basic_result.metadata["profile"] == "basic"
+    assert basic_result.metadata["location"]["name"] == "서울"
     assert detail_result.content == "상세 날씨입니다."
     assert detail_result.metadata["profile"] == "detail"
-    assert basic.calls == [{"query": "오늘 날씨 알려줘"}]
-    assert detail.calls == [{"query": "습도 알려줘"}]
+    assert basic.calls == [
+        {
+            "query": "오늘 날씨 알려줘",
+            "latitude": 37.566,
+            "longitude": 126.9784,
+            "timezone": "Asia/Seoul",
+            "location_name": "서울",
+        }
+    ]
+    assert detail.calls == [
+        {
+            "query": "습도 알려줘",
+            "latitude": 37.566,
+            "longitude": 126.9784,
+            "timezone": "Asia/Seoul",
+            "location_name": "서울",
+        }
+    ]
+
+
+def test_city_specific_weather_routing_passes_city_coordinates(tmp_path):
+    detail = _FakeWeatherTool("weather_detail", "제주 상세 날씨입니다.")
+    ToolRegistry.register_value("weather_detail", lambda: detail)
+    router = FridayAssistantRouter(data_path=tmp_path / "friday.json")
+
+    result = router.route("제주 자외선 알려줘")
+
+    assert result.metadata["profile"] == "detail"
+    assert result.metadata["location"]["name"] == "제주"
+    assert detail.calls[0]["latitude"] == 33.4996
+    assert detail.calls[0]["longitude"] == 126.5312
+    assert detail.calls[0]["location_name"] == "제주"
+
+
+def test_current_location_used_for_weather_without_storing(tmp_path):
+    basic = _FakeWeatherTool("weather_basic", "현재 위치 날씨입니다.")
+    ToolRegistry.register_value("weather_basic", lambda: basic)
+    path = tmp_path / "friday.json"
+    router = FridayAssistantRouter(
+        data_path=path,
+        current_location={
+            "name": "현재 위치",
+            "latitude": 35.0,
+            "longitude": 128.0,
+            "timezone": "Asia/Seoul",
+        },
+    )
+
+    result = router.route("오늘 날씨 알려줘")
+
+    assert result.metadata["location"]["name"] == "현재 위치"
+    assert basic.calls[0]["latitude"] == 35.0
+    assert FridayLocalStore(path).get_weather_location() is None
+
+
+def test_unknown_city_weather_returns_supported_city_message(tmp_path):
+    router = FridayAssistantRouter(data_path=tmp_path / "friday.json")
+
+    result = router.route("목포 날씨 알려줘")
+
+    assert result.success is False
+    assert "지원하는 날씨 도시가 아닙니다" in result.content
+
+
+def test_weather_routing_supports_rain_question_without_weather_word(tmp_path):
+    basic = _FakeWeatherTool("weather_basic", "비 예보입니다.")
+    ToolRegistry.register_value("weather_basic", lambda: basic)
+    router = FridayAssistantRouter(data_path=tmp_path / "friday.json")
+
+    result = router.route("내일 비 와?")
+
+    assert result.content == "비 예보입니다."
+    assert result.metadata["profile"] == "basic"
 
 
 def test_unmatched_message_falls_back_to_existing_llm_route(monkeypatch):

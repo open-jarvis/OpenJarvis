@@ -589,7 +589,14 @@ async def websocket_chat_stream(websocket: WebSocket):
 
             from openjarvis.friday_assistant import route_friday_command
 
-            local_result = route_friday_command(message)
+            current_location = None
+            friday_context = data.get("friday_context")
+            if isinstance(friday_context, dict):
+                current_location = friday_context.get("current_location")
+            local_result = route_friday_command(
+                message,
+                current_location=current_location,
+            )
             if local_result is not None:
                 await websocket.send_json(
                     {"type": "chunk", "content": local_result.content},

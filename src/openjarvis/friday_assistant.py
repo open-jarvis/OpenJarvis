@@ -22,6 +22,130 @@ from urllib.parse import urlparse
 from openjarvis.core.config import DEFAULT_CONFIG_DIR
 
 FRIDAY_DATA_PATH = DEFAULT_CONFIG_DIR / "friday_data.json"
+SEOUL_WEATHER_LOCATION = {
+    "name": "서울",
+    "latitude": 37.566,
+    "longitude": 126.9784,
+    "timezone": "Asia/Seoul",
+}
+
+KOREAN_CITY_LOCATIONS: dict[str, dict[str, Any]] = {
+    "서울": SEOUL_WEATHER_LOCATION,
+    "부산": {
+        "name": "부산",
+        "latitude": 35.1796,
+        "longitude": 129.0756,
+        "timezone": "Asia/Seoul",
+    },
+    "대구": {
+        "name": "대구",
+        "latitude": 35.8714,
+        "longitude": 128.6014,
+        "timezone": "Asia/Seoul",
+    },
+    "인천": {
+        "name": "인천",
+        "latitude": 37.4563,
+        "longitude": 126.7052,
+        "timezone": "Asia/Seoul",
+    },
+    "광주": {
+        "name": "광주",
+        "latitude": 35.1595,
+        "longitude": 126.8526,
+        "timezone": "Asia/Seoul",
+    },
+    "대전": {
+        "name": "대전",
+        "latitude": 36.3504,
+        "longitude": 127.3845,
+        "timezone": "Asia/Seoul",
+    },
+    "울산": {
+        "name": "울산",
+        "latitude": 35.5384,
+        "longitude": 129.3114,
+        "timezone": "Asia/Seoul",
+    },
+    "세종": {
+        "name": "세종",
+        "latitude": 36.48,
+        "longitude": 127.289,
+        "timezone": "Asia/Seoul",
+    },
+    "제주": {
+        "name": "제주",
+        "latitude": 33.4996,
+        "longitude": 126.5312,
+        "timezone": "Asia/Seoul",
+    },
+    "수원": {
+        "name": "수원",
+        "latitude": 37.2636,
+        "longitude": 127.0286,
+        "timezone": "Asia/Seoul",
+    },
+    "성남": {
+        "name": "성남",
+        "latitude": 37.42,
+        "longitude": 127.1265,
+        "timezone": "Asia/Seoul",
+    },
+    "고양": {
+        "name": "고양",
+        "latitude": 37.6584,
+        "longitude": 126.832,
+        "timezone": "Asia/Seoul",
+    },
+    "용인": {
+        "name": "용인",
+        "latitude": 37.2411,
+        "longitude": 127.1776,
+        "timezone": "Asia/Seoul",
+    },
+    "창원": {
+        "name": "창원",
+        "latitude": 35.2279,
+        "longitude": 128.6811,
+        "timezone": "Asia/Seoul",
+    },
+    "청주": {
+        "name": "청주",
+        "latitude": 36.6424,
+        "longitude": 127.489,
+        "timezone": "Asia/Seoul",
+    },
+    "전주": {
+        "name": "전주",
+        "latitude": 35.8242,
+        "longitude": 127.148,
+        "timezone": "Asia/Seoul",
+    },
+    "천안": {
+        "name": "천안",
+        "latitude": 36.8151,
+        "longitude": 127.1139,
+        "timezone": "Asia/Seoul",
+    },
+    "포항": {
+        "name": "포항",
+        "latitude": 36.019,
+        "longitude": 129.3435,
+        "timezone": "Asia/Seoul",
+    },
+    "강릉": {
+        "name": "강릉",
+        "latitude": 37.7519,
+        "longitude": 128.8761,
+        "timezone": "Asia/Seoul",
+    },
+    "춘천": {
+        "name": "춘천",
+        "latitude": 37.8813,
+        "longitude": 127.7298,
+        "timezone": "Asia/Seoul",
+    },
+}
 
 WEBSITE_ALIASES: dict[str, str] = {
     "구글": "https://www.google.com",
@@ -124,7 +248,31 @@ class FridayLocalStore:
     def list_todos(self) -> list[str]:
         return [str(item.get("text", "")) for item in self._load()["todos"]]
 
-    def _load(self) -> dict[str, list[dict[str, Any]]]:
+    def set_weather_location(self, location: dict[str, Any]) -> None:
+        data = self._load()
+        data["weather_default_location"] = {
+            "name": str(location["name"]),
+            "latitude": float(location["latitude"]),
+            "longitude": float(location["longitude"]),
+            "timezone": str(location.get("timezone") or "Asia/Seoul"),
+        }
+        self._save(data)
+
+    def get_weather_location(self) -> dict[str, Any] | None:
+        location = self._load().get("weather_default_location")
+        if not isinstance(location, dict):
+            return None
+        try:
+            return {
+                "name": str(location.get("name") or "현재 위치"),
+                "latitude": float(location["latitude"]),
+                "longitude": float(location["longitude"]),
+                "timezone": str(location.get("timezone") or "Asia/Seoul"),
+            }
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    def _load(self) -> dict[str, Any]:
         if not self.path.exists():
             return {"notes": [], "todos": []}
         try:
@@ -134,9 +282,10 @@ class FridayLocalStore:
         return {
             "notes": list(raw.get("notes") or []),
             "todos": list(raw.get("todos") or []),
+            "weather_default_location": raw.get("weather_default_location"),
         }
 
-    def _save(self, data: dict[str, list[dict[str, Any]]]) -> None:
+    def _save(self, data: dict[str, Any]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(
             json.dumps(data, ensure_ascii=False, indent=2) + "\n",
@@ -232,10 +381,12 @@ class FridayAssistantRouter:
         data_path: str | Path = FRIDAY_DATA_PATH,
         now_fn: Callable[[], datetime] | None = None,
         port_checker: Callable[[str, int, float], bool] | None = None,
+        current_location: dict[str, Any] | None = None,
     ) -> None:
         self.store = FridayLocalStore(data_path)
         self.now_fn = now_fn or datetime.now
         self.port_checker = port_checker
+        self.current_location = _normalize_location(current_location)
 
     def route(self, query: str) -> FridayAssistantResult | None:
         text = _compact(query)
@@ -244,6 +395,7 @@ class FridayAssistantRouter:
 
         handled = (
             self._route_time_date(text)
+            or self._route_weather_location_settings(text)
             or self._route_weather(text)
             or self._route_website(text)
             or self._route_app(text)
@@ -276,12 +428,56 @@ class FridayAssistantRouter:
             )
         return None
 
+    def _route_weather_location_settings(
+        self, text: str
+    ) -> FridayAssistantResult | None:
+        if "날씨 기본 위치" in text and any(k in text for k in ("알려", "뭐", "어디")):
+            location = self.store.get_weather_location() or SEOUL_WEATHER_LOCATION
+            source = "저장된" if self.store.get_weather_location() else "기본"
+            return FridayAssistantResult(
+                content=(
+                    f"{source} 날씨 위치는 {location['name']}입니다. "
+                    f"위도 {location['latitude']}, 경도 {location['longitude']}입니다."
+                ),
+                intent="weather_location_get",
+                metadata={"location": location},
+            )
+
+        city_name = _extract_default_location_city(text)
+        if city_name is None:
+            return None
+        location = KOREAN_CITY_LOCATIONS.get(city_name)
+        if location is None:
+            return FridayAssistantResult(
+                content=(
+                    f"{city_name}은 아직 지원하는 날씨 위치가 아닙니다. "
+                    "지원 도시 중 하나로 설정해 주세요."
+                ),
+                intent="weather_location_set",
+                success=False,
+                metadata={"city": city_name},
+            )
+        self.store.set_weather_location(location)
+        return FridayAssistantResult(
+            content=f"날씨 기본 위치를 {location['name']}로 설정했습니다.",
+            intent="weather_location_set",
+            metadata={"location": location},
+        )
+
     def _route_weather(self, text: str) -> FridayAssistantResult | None:
-        if "날씨" not in text and not any(k in text for k in DETAIL_WEATHER_KEYWORDS):
+        if (
+            "날씨" not in text
+            and "비" not in text
+            and not any(k in text for k in DETAIL_WEATHER_KEYWORDS)
+        ):
             return None
         if not any(k in text for k in ("날씨", "비", *DETAIL_WEATHER_KEYWORDS)):
             return None
 
+        location_result = self._resolve_weather_location(text)
+        if location_result.success is False:
+            return location_result
+        location = location_result.metadata["location"]
         profile = (
             "detail" if any(k in text for k in DETAIL_WEATHER_KEYWORDS) else "basic"
         )
@@ -291,11 +487,21 @@ class FridayAssistantRouter:
             from openjarvis.core.registry import ToolRegistry
 
             if ToolRegistry.contains(tool_name):
-                result = ToolRegistry.create(tool_name).execute(query=text)
+                result = ToolRegistry.create(tool_name).execute(
+                    query=text,
+                    latitude=location["latitude"],
+                    longitude=location["longitude"],
+                    timezone=location["timezone"],
+                    location_name=location["name"],
+                )
             elif ToolRegistry.contains("weather"):
                 result = ToolRegistry.create("weather").execute(
                     query=text,
                     profile=profile,
+                    latitude=location["latitude"],
+                    longitude=location["longitude"],
+                    timezone=location["timezone"],
+                    location_name=location["name"],
                 )
             else:
                 return None
@@ -311,7 +517,44 @@ class FridayAssistantRouter:
             content=result.content,
             intent="weather",
             success=result.success,
-            metadata={"profile": profile, "tool": result.tool_name},
+            metadata={
+                "profile": profile,
+                "tool": result.tool_name,
+                "location": location,
+            },
+        )
+
+    def _resolve_weather_location(self, text: str) -> FridayAssistantResult:
+        city_name = _find_city_name(text)
+        if city_name:
+            location = KOREAN_CITY_LOCATIONS[city_name]
+            return FridayAssistantResult(
+                content="",
+                intent="weather_location_resolve",
+                metadata={"location": location},
+            )
+
+        unknown_city = _extract_unknown_weather_city(text)
+        if unknown_city:
+            return FridayAssistantResult(
+                content=(
+                    f"{unknown_city}은 아직 지원하는 날씨 도시가 아닙니다. "
+                    "지원 도시를 말하거나 기본 위치를 설정해 주세요."
+                ),
+                intent="weather",
+                success=False,
+                metadata={"city": unknown_city},
+            )
+
+        location = (
+            self.current_location
+            or self.store.get_weather_location()
+            or SEOUL_WEATHER_LOCATION
+        )
+        return FridayAssistantResult(
+            content="",
+            intent="weather_location_resolve",
+            metadata={"location": location},
         )
 
     def _route_website(self, text: str) -> FridayAssistantResult | None:
@@ -392,11 +635,13 @@ def route_friday_command(
     data_path: str | Path = FRIDAY_DATA_PATH,
     now_fn: Callable[[], datetime] | None = None,
     port_checker: Callable[[str, int, float], bool] | None = None,
+    current_location: dict[str, Any] | None = None,
 ) -> FridayAssistantResult | None:
     return FridayAssistantRouter(
         data_path=data_path,
         now_fn=now_fn,
         port_checker=port_checker,
+        current_location=current_location,
     ).route(query)
 
 
@@ -419,6 +664,71 @@ def _find_alias(text: str, aliases: dict[str, str]) -> str | None:
 
 def _resolve_website(alias_or_url: str) -> str | None:
     return _find_alias(alias_or_url, WEBSITE_ALIASES) or _extract_safe_url(alias_or_url)
+
+
+def _find_city_name(text: str) -> str | None:
+    for city in KOREAN_CITY_LOCATIONS:
+        if city in text:
+            return city
+    return None
+
+
+def _extract_default_location_city(text: str) -> str | None:
+    if "기본 위치" not in text:
+        return None
+    known = _find_city_name(text)
+    if known:
+        return known
+    patterns = (
+        r"기본 위치를\s*([가-힣]{2,4})(?:으?로)\s*설정",
+        r"내 기본 위치는\s*([가-힣]{2,4}?)(?:이야|야|입니다|$)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            return match.group(1)
+    return None
+
+
+def _extract_unknown_weather_city(text: str) -> str | None:
+    candidates: list[str] = []
+    patterns = (
+        r"^([가-힣]{2,4})\s*(?:상세\s*)?날씨",
+        r"^([가-힣]{2,4})\s*(?:자외선|풍속|습도|기압|가시거리)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            candidates.append(match.group(1))
+
+    ignored = {
+        "오늘",
+        "내일",
+        "이번",
+        "이번주",
+        "상세",
+        "자세히",
+        "디테일",
+        "날씨",
+    }
+    for candidate in candidates:
+        if candidate not in ignored and candidate not in KOREAN_CITY_LOCATIONS:
+            return candidate
+    return None
+
+
+def _normalize_location(location: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not location:
+        return None
+    try:
+        return {
+            "name": str(location.get("name") or "현재 위치"),
+            "latitude": float(location["latitude"]),
+            "longitude": float(location["longitude"]),
+            "timezone": str(location.get("timezone") or "Asia/Seoul"),
+        }
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def _extract_safe_url(text: str) -> str | None:
@@ -454,6 +764,8 @@ __all__ = [
     "FridayAssistantResult",
     "FridayAssistantRouter",
     "FridayLocalStore",
+    "KOREAN_CITY_LOCATIONS",
+    "SEOUL_WEATHER_LOCATION",
     "WEBSITE_ALIASES",
     "check_friday_status",
     "open_macos_app",

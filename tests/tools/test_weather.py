@@ -153,6 +153,16 @@ def test_today_korean_summary():
     assert "비 가능성이 낮습니다" in summary
 
 
+def test_korean_summary_uses_location_name():
+    summary = format_weather_summary(
+        _OPEN_METEO_RESPONSE,
+        "부산 날씨 알려줘",
+        location_name="부산",
+    )
+    assert "현재 부산" in summary
+    assert "현재 서울" not in summary
+
+
 def test_detail_korean_summary():
     summary = format_weather_summary(
         _OPEN_METEO_RESPONSE, "상세 날씨 알려줘", profile="detail"
@@ -186,6 +196,7 @@ def test_weather_tool_execute_uses_basic_for_normal_chat():
 
     assert result.success is True
     assert result.metadata["profile"] == "basic"
+    assert result.metadata["location_name"] == "서울"
     client.fetch_forecast.assert_called_once_with(
         profile="basic",
         latitude=SEOUL_LATITUDE,
@@ -245,6 +256,28 @@ def test_weather_detail_tool_always_uses_detail_profile():
         latitude=SEOUL_LATITUDE,
         longitude=SEOUL_LONGITUDE,
         timezone=SEOUL_TIMEZONE,
+    )
+
+
+def test_weather_tool_accepts_location_name_for_summary():
+    client = MagicMock()
+    client.fetch_forecast.return_value = _OPEN_METEO_RESPONSE
+
+    result = WeatherBasicTool(client=client).execute(
+        query="부산 날씨 알려줘",
+        latitude=35.1796,
+        longitude=129.0756,
+        timezone="Asia/Seoul",
+        location_name="부산",
+    )
+
+    assert "부산" in result.content
+    assert result.metadata["location_name"] == "부산"
+    client.fetch_forecast.assert_called_once_with(
+        profile="basic",
+        latitude=35.1796,
+        longitude=129.0756,
+        timezone="Asia/Seoul",
     )
 
 

@@ -215,15 +215,19 @@ class OpenMeteoWeatherClient:
 
 
 def format_weather_summary(
-    data: Dict[str, Any], query: str = "", *, profile: WeatherProfile = "basic"
+    data: Dict[str, Any],
+    query: str = "",
+    *,
+    profile: WeatherProfile = "basic",
+    location_name: str = "서울",
 ) -> str:
     """Return a Korean weather summary for common Friday weather queries."""
     intent = _infer_intent(query)
     if profile == "detail":
-        return _format_detail_summary(data)
+        return _format_detail_summary(data, location_name)
     if intent == "week":
-        return _format_week_summary(data)
-    return _format_day_summary(data, intent)
+        return _format_week_summary(data, location_name)
+    return _format_day_summary(data, intent, location_name)
 
 
 def _infer_intent(query: str) -> Literal["today", "tomorrow", "week", "detail"]:
@@ -237,12 +241,12 @@ def _infer_intent(query: str) -> Literal["today", "tomorrow", "week", "detail"]:
     return "today"
 
 
-def _format_detail_summary(data: Dict[str, Any]) -> str:
+def _format_detail_summary(data: Dict[str, Any], location_name: str) -> str:
     current = data.get("current") or {}
     hourly = data.get("hourly") or {}
     daily = data.get("daily") or {}
     lines = [
-        "서울 상세 날씨입니다.",
+        f"{location_name} 상세 날씨입니다.",
         (
             f"현재 {_weather_code_ko(current.get('weather_code'))}, "
             f"기온 {_num(current.get('temperature_2m'), '°C')}"
@@ -262,7 +266,7 @@ def _format_detail_summary(data: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _format_week_summary(data: Dict[str, Any]) -> str:
+def _format_week_summary(data: Dict[str, Any], location_name: str) -> str:
     daily = data.get("daily") or {}
     dates = daily.get("time") or []
     codes = daily.get("weather_code") or []
@@ -270,7 +274,7 @@ def _format_week_summary(data: Dict[str, Any]) -> str:
     min_temps = daily.get("temperature_2m_min") or []
     precip_probs = daily.get("precipitation_probability_max") or []
     precip_sums = daily.get("precipitation_sum") or []
-    lines = ["이번 주 서울 날씨 요약입니다."]
+    lines = [f"이번 주 {location_name} 날씨 요약입니다."]
     for i, date in enumerate(dates[:7]):
         lines.append(
             "- "
@@ -282,7 +286,11 @@ def _format_week_summary(data: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _format_day_summary(data: Dict[str, Any], intent: str) -> str:
+def _format_day_summary(
+    data: Dict[str, Any],
+    intent: str,
+    location_name: str,
+) -> str:
     current = data.get("current") or {}
     daily = data.get("daily") or {}
     dates = daily.get("time") or []
@@ -302,12 +310,14 @@ def _format_day_summary(data: Dict[str, Any], intent: str) -> str:
 
     if intent == "today":
         header = (
-            f"현재 서울은 {_weather_code_ko(current.get('weather_code'))}, "
+            f"현재 {location_name}은 {_weather_code_ko(current.get('weather_code'))}, "
             f"기온 {_num(current.get('temperature_2m'), '°C')}"
             f"(체감 {_num(current.get('apparent_temperature'), '°C')})입니다."
         )
     else:
-        header = f"{label} 서울 날씨는 {_weather_code_ko(_at(codes, idx))}입니다."
+        header = (
+            f"{label} {location_name} 날씨는 {_weather_code_ko(_at(codes, idx))}입니다."
+        )
 
     rain_hint = "비 가능성이 낮습니다."
     precip_prob = _at(precip_probs, idx)

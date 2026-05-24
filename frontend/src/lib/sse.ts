@@ -7,6 +7,14 @@ export interface ChatRequest {
   stream: true;
   temperature?: number;
   max_tokens?: number;
+  friday_context?: {
+    current_location?: {
+      name?: string;
+      latitude: number;
+      longitude: number;
+      timezone?: string;
+    };
+  };
 }
 
 export async function* streamChat(

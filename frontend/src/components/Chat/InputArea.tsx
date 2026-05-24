@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Send, Square, Paperclip } from 'lucide-react';
+import { MapPin, Send, Square } from 'lucide-react';
 import { useAppStore, generateId } from '../../lib/store';
 import { streamChat } from '../../lib/sse';
 import { fetchSavings, getBase } from '../../lib/api';
@@ -15,6 +15,12 @@ function stripThinkTags(text: string): string {
 
 export function InputArea() {
   const [input, setInput] = useState('');
+  const [weatherLocation, setWeatherLocation] = useState<{
+    latitude: number;
+    longitude: number;
+    timezone: string;
+  } | null>(null);
+  const [locationStatus, setLocationStatus] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -77,6 +83,26 @@ export function InputArea() {
       });
     }
   }, [speechState, startRecording, stopRecording]);
+
+  const handleUseCurrentLocation = useCallback(() => {
+    if (!navigator.geolocation) {
+      setLocationStatus('위치 사용 불가');
+      return;
+    }
+    setLocationStatus('위치 확인 중...');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setWeatherLocation({
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Seoul',
+        });
+        setLocationStatus('날씨에 현재 위치 사용');
+      },
+      () => setLocationStatus('위치 권한이 필요합니다'),
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 },
+    );
+  }, []);
 
   const speakReply = useCallback((text: string) => {
     if (!speakReplies || !('speechSynthesis' in window)) return;
@@ -171,7 +197,23 @@ export function InputArea() {
 
     try {
       for await (const sseEvent of streamChat(
-        { model: selectedModel, messages: apiMessages, stream: true, temperature, max_tokens: maxTokens },
+        {
+          model: selectedModel,
+          messages: apiMessages,
+          stream: true,
+          temperature,
+          max_tokens: maxTokens,
+          friday_context: weatherLocation
+            ? {
+                current_location: {
+                  name: '현재 위치',
+                  latitude: weatherLocation.latitude,
+                  longitude: weatherLocation.longitude,
+                  timezone: weatherLocation.timezone,
+                },
+              }
+            : undefined,
+        },
         controller.signal,
       )) {
         const eventName = sseEvent.event;
@@ -327,6 +369,7 @@ export function InputArea() {
     setStreamState,
     resetStream,
     speakReply,
+    weatherLocation,
   ]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -375,6 +418,18 @@ export function InputArea() {
               reason={micReason}
             />
             <button
+              onClick={handleUseCurrentLocation}
+              disabled={streamState.isStreaming || modelLoading}
+              className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer disabled:opacity-30 disabled:cursor-default"
+              style={{
+                background: weatherLocation ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
+                color: weatherLocation ? 'white' : 'var(--color-text-tertiary)',
+              }}
+              title="Use current location for weather"
+            >
+              <MapPin size={16} />
+            </button>
+            <button
               onClick={sendMessage}
               disabled={!input.trim() || modelLoading}
               className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer disabled:opacity-30 disabled:cursor-default"
@@ -393,6 +448,7 @@ export function InputArea() {
         <span>
           <kbd className="font-mono">Enter</kbd> to send &middot;{' '}
           <kbd className="font-mono">Shift+Enter</kbd> for new line
+          {locationStatus ? ` · ${locationStatus}` : ''}
         </span>
       </div>
     </div>
