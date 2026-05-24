@@ -36,7 +36,15 @@ npm run tauri -- build
 ```
 
 The production build runs `npm run build:tauri`, which creates `frontend/dist`,
-then Tauri packages the macOS app.
+then Tauri packages the macOS `.app` bundle.
+
+For local personal builds, updater artifact generation is disabled and the
+bundle target is limited to the `.app` bundle in
+`frontend/src-tauri/tauri.conf.json`. This means `TAURI_SIGNING_PRIVATE_KEY` is
+not required. Future release builds can re-enable updater artifacts and DMG
+packaging by setting `bundle.createUpdaterArtifacts` back to `true`, restoring
+the desired bundle targets, and providing the appropriate Tauri signing key
+environment variables.
 
 The `.app` bundle is produced under:
 
@@ -44,9 +52,13 @@ The `.app` bundle is produced under:
 frontend/src-tauri/target/release/bundle/macos/
 ```
 
-Tauri may also produce disk images or archives under sibling directories in
-`frontend/src-tauri/target/release/bundle/`, depending on installed tooling and
-target settings.
+Local builds do not create updater artifacts or DMGs by default.
+
+To install the local app bundle after a successful build:
+
+```bash
+cp -R "src-tauri/target/release/bundle/macos/OpenJarvis Friday.app" /Applications/
+```
 
 ## Microphone Permission
 
