@@ -3,6 +3,7 @@ import { Ear, MapPin, Send, Square } from 'lucide-react';
 import { useAppStore, generateId } from '../../lib/store';
 import { streamChat } from '../../lib/sse';
 import { fetchSavings, getBase } from '../../lib/api';
+import { hasWakePhrase, stripWakePhrase, type WakeMode } from '../../lib/wake';
 import { MicButton } from './MicButton';
 import { useSpeech } from '../../hooks/useSpeech';
 import type { ChatMessage, ToolCallInfo, TokenUsage, MessageTelemetry } from '../../types';
@@ -16,7 +17,8 @@ function stripThinkTags(text: string): string {
 export function InputArea() {
   const [input, setInput] = useState('');
   const [wakeListening, setWakeListening] = useState(false);
-  const [wakeStatus, setWakeStatus] = useState('');
+  const [wakeMode, setWakeMode] = useState<WakeMode>('idle');
+  const [wakeMessage, setWakeMessage] = useState('');
   const [weatherLocation, setWeatherLocation] = useState<{
     latitude: number;
     longitude: number;
@@ -28,6 +30,8 @@ export function InputArea() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const wakeRecognitionRef = useRef<any>(null);
   const awaitingWakeCommandRef = useRef(false);
+  const wakeLastDetectedAtRef = useRef(0);
+  const wakeSendingRef = useRef(false);
 
   const activeId = useAppStore((s) => s.activeId);
   const selectedModel = useAppStore((s) => s.selectedModel);
@@ -381,13 +385,21 @@ export function InputArea() {
       wakeRecognitionRef.current?.stop?.();
       wakeRecognitionRef.current = null;
       awaitingWakeCommandRef.current = false;
-      if (wakeListening && !speechEnabled) setWakeStatus('음성 입력을 먼저 켜주세요');
+      wakeSendingRef.current = false;
+      if (wakeListening && !speechEnabled) {
+        setWakeMode('error');
+        setWakeMessage('음성 입력을 먼저 켜주세요');
+      } else if (!wakeListening) {
+        setWakeMode('idle');
+        setWakeMessage('');
+      }
       return;
     }
 
     const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!Recognition) {
-      setWakeStatus('브라우저 음성 인식을 지원하지 않습니다');
+      setWakeMode('error');
+      setWakeMessage('이 브라우저는 음성 인식을 지원하지 않습니다');
       return;
     }
 
@@ -397,46 +409,77 @@ export function InputArea() {
     recognition.lang = 'ko-KR';
     recognition.continuous = true;
     recognition.interimResults = false;
-    setWakeStatus('Friday 대기 중');
+    setWakeMode('wake');
+    setWakeMessage('Wake word 대기 중');
 
     recognition.onresult = (event: any) => {
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        if (!event.results[i].isFinal) continue;
         const text = String(event.results[i][0]?.transcript || '').trim();
         if (!text) continue;
-        const lower = text.toLowerCase();
-        const hasWake = lower.includes('friday') || text.includes('프라이데이');
+        const now = Date.now();
 
         if (awaitingWakeCommandRef.current) {
+          if (hasWakePhrase(text) && !stripWakePhrase(text)) {
+            wakeLastDetectedAtRef.current = now;
+            setWakeMode('command');
+            setWakeMessage('명령을 듣고 있습니다');
+            continue;
+          }
+          const commandText = hasWakePhrase(text) ? stripWakePhrase(text) : text;
+          if (!commandText) continue;
           awaitingWakeCommandRef.current = false;
-          setWakeStatus('명령 전송 중');
-          sendMessage(text);
+          wakeSendingRef.current = true;
+          setWakeMode('sending');
+          setWakeMessage('명령 전송 중');
+          sendMessage(commandText);
+          setTimeout(() => {
+            wakeSendingRef.current = false;
+            if (wakeListening) {
+              setWakeMode('wake');
+              setWakeMessage('Wake word 대기 중');
+            }
+          }, 800);
           return;
         }
 
-        if (hasWake) {
-          const command = text
-            .replace(/friday/gi, '')
-            .replace(/프라이데이/g, '')
-            .trim();
+        if (hasWakePhrase(text) && now - wakeLastDetectedAtRef.current > 1500) {
+          wakeLastDetectedAtRef.current = now;
+          setWakeMode('detected');
+          setWakeMessage('Wake word 감지됨');
+          const command = stripWakePhrase(text);
           if (command) {
-            setWakeStatus('명령 전송 중');
+            wakeSendingRef.current = true;
+            setWakeMode('sending');
+            setWakeMessage('명령 전송 중');
             sendMessage(command);
+            setTimeout(() => {
+              wakeSendingRef.current = false;
+              if (wakeListening) {
+                setWakeMode('wake');
+                setWakeMessage('Wake word 대기 중');
+              }
+            }, 800);
           } else {
             awaitingWakeCommandRef.current = true;
-            setWakeStatus('듣고 있습니다');
+            setWakeMode('command');
+            setWakeMessage('명령을 듣고 있습니다');
           }
         }
       }
     };
     recognition.onerror = () => {
-      setWakeStatus('Wake listening 오류');
+      if (wakeSendingRef.current) return;
+      setWakeMode('error');
+      setWakeMessage('마이크 오류가 발생했습니다');
     };
     recognition.onend = () => {
       if (!stopped && wakeListening) {
         try {
           recognition.start();
         } catch {
-          setWakeStatus('Wake listening 재시작 실패');
+          setWakeMode('error');
+          setWakeMessage('Wake listening 재시작 실패');
         }
       }
     };
@@ -444,12 +487,14 @@ export function InputArea() {
     try {
       recognition.start();
     } catch {
-      setWakeStatus('Wake listening 시작 실패');
+      setWakeMode('error');
+      setWakeMessage('Wake listening 시작 실패');
     }
 
     return () => {
       stopped = true;
       awaitingWakeCommandRef.current = false;
+      wakeSendingRef.current = false;
       recognition.stop();
       if (wakeRecognitionRef.current === recognition) wakeRecognitionRef.current = null;
     };
@@ -520,7 +565,7 @@ export function InputArea() {
                 background: wakeListening ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
                 color: wakeListening ? 'white' : 'var(--color-text-tertiary)',
               }}
-              title="Friday wake listening"
+              title="Friday Listening"
             >
               <Ear size={16} />
             </button>
@@ -544,7 +589,7 @@ export function InputArea() {
           <kbd className="font-mono">Enter</kbd> to send &middot;{' '}
           <kbd className="font-mono">Shift+Enter</kbd> for new line
           {locationStatus ? ` · ${locationStatus}` : ''}
-          {wakeStatus ? ` · ${wakeStatus}` : ''}
+          {wakeMode !== 'idle' ? ` · Friday Listening: ${wakeMessage}` : ''}
         </span>
       </div>
     </div>
