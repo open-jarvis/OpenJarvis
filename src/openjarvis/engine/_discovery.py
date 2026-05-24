@@ -30,6 +30,15 @@ _HOST_MAP: Dict[str, str | None] = {
 }
 
 
+def _cloud_allowed(config: JarvisConfig, engine_key: str | None = None) -> bool:
+    """Return whether cloud may be considered for this selection path."""
+    return (
+        engine_key == "cloud"
+        or config.engine.default == "cloud"
+        or config.engine.allow_cloud_fallback
+    )
+
+
 def _make_engine(key: str, config: JarvisConfig) -> InferenceEngine:
     """Instantiate a registered engine with the appropriate config host."""
     cls = EngineRegistry.get(key)
@@ -58,7 +67,10 @@ def discover_engines(config: JarvisConfig) -> List[Tuple[str, InferenceEngine]]:
     Results are sorted with the config default engine first.
     """
     healthy: List[Tuple[str, InferenceEngine]] = []
+    allow_cloud = _cloud_allowed(config)
     for key in EngineRegistry.keys():
+        if key == "cloud" and not allow_cloud:
+            continue
         try:
             engine = _make_engine(key, config)
             if engine.health():
@@ -106,7 +118,11 @@ def get_engine(
     if default_key and default_key not in keys_to_try:
         keys_to_try.append(default_key)
 
+    allow_cloud = _cloud_allowed(config, engine_key)
+
     for key in keys_to_try:
+        if key == "cloud" and not allow_cloud:
+            continue
         if not EngineRegistry.contains(key):
             continue
         try:
@@ -118,6 +134,8 @@ def get_engine(
 
     # Fallback to any healthy engine
     healthy = discover_engines(config)
+    if not allow_cloud:
+        healthy = [(key, engine) for key, engine in healthy if key != "cloud"]
     return healthy[0] if healthy else None
 
 

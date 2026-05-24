@@ -16,6 +16,7 @@ from openjarvis.core.config import (
     SandboxConfig,
     SchedulerConfig,
     SecurityConfig,
+    WeatherConfig,
     WhatsAppBaileysChannelConfig,
     generate_default_toml,
     load_config,
@@ -192,6 +193,15 @@ class TestAgentConfigNew:
         assert ac.tools == ""
         assert ac.max_turns == 10
 
+    def test_default_system_prompt_is_korean_first_friday(self) -> None:
+        prompt = AgentConfig().default_system_prompt
+        assert "Friday" in prompt
+        assert "Korean-first" in prompt
+        assert "Reply in Korean by default" in prompt
+        assert "unless the user asks for another language" in prompt
+        assert "concise, natural, and helpful" in prompt
+        assert "not a cloud service" in prompt
+
     def test_default_tools_backward_compat(self) -> None:
         ac = AgentConfig()
         ac.default_tools = "calculator,think"
@@ -204,6 +214,39 @@ class TestAgentConfigNew:
             not hasattr(ac.__class__, "temperature")
             or isinstance(getattr(ac.__class__, "temperature", None), property) is False
         )
+
+
+class TestWeatherConfig:
+    def test_defaults_are_local_first_seoul_profiles(self) -> None:
+        cfg = WeatherConfig()
+        assert cfg.latitude == 37.566
+        assert cfg.longitude == 126.9784
+        assert cfg.timezone == "Asia/Seoul"
+        assert cfg.default_profile == "basic"
+        assert cfg.detail_past_days == 7
+        assert cfg.history_days == 92
+
+    def test_load_config_tools_weather_section(self, tmp_path: Path) -> None:
+        toml_file = tmp_path / "config.toml"
+        toml_file.write_text(
+            """
+[tools.weather]
+latitude = 35.0
+longitude = 129.0
+timezone = "Asia/Seoul"
+default_profile = "detail"
+detail_past_days = 3
+history_days = 92
+""",
+            encoding="utf-8",
+        )
+
+        cfg = load_config(toml_file)
+        assert cfg.tools.weather.latitude == 35.0
+        assert cfg.tools.weather.longitude == 129.0
+        assert cfg.tools.weather.default_profile == "detail"
+        assert cfg.tools.weather.detail_past_days == 3
+        assert cfg.engine.allow_cloud_fallback is False
 
 
 class TestNestedEngineConfig:

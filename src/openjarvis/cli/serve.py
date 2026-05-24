@@ -23,6 +23,22 @@ from openjarvis.intelligence import (
 logger = logging.getLogger(__name__)
 
 
+def _cloud_multi_enabled(config, engine_name: str) -> bool:
+    """Return whether serve should expose cloud models alongside local models."""
+    import os
+
+    has_cloud_key = (
+        os.environ.get("OPENAI_API_KEY")
+        or os.environ.get("ANTHROPIC_API_KEY")
+        or os.environ.get("GEMINI_API_KEY")
+        or os.environ.get("GOOGLE_API_KEY")
+        or os.environ.get("OPENROUTER_API_KEY")
+    )
+    return bool(
+        config.engine.allow_cloud_fallback and has_cloud_key and engine_name != "cloud"
+    )
+
+
 @click.command()
 @click.option("--host", default=None, help="Bind address (default: config).")
 @click.option(
@@ -103,18 +119,9 @@ def serve(
     sec = setup_security(config, engine, bus)
     engine = sec.engine
 
-    # If cloud API keys are set, wrap with MultiEngine so both local
-    # and cloud models appear in the model list and can be used.
-    import os
-
-    _has_cloud = (
-        os.environ.get("OPENAI_API_KEY")
-        or os.environ.get("ANTHROPIC_API_KEY")
-        or os.environ.get("GEMINI_API_KEY")
-        or os.environ.get("GOOGLE_API_KEY")
-        or os.environ.get("OPENROUTER_API_KEY")
-    )
-    if _has_cloud and engine_name != "cloud":
+    # If explicitly enabled and cloud API keys are set, wrap with MultiEngine
+    # so both local and cloud models appear in the model list and can be used.
+    if _cloud_multi_enabled(config, engine_name):
         try:
             from openjarvis.engine.cloud import CloudEngine
             from openjarvis.engine.multi import MultiEngine
@@ -190,7 +197,7 @@ def serve(
                     from openjarvis.core.registry import ToolRegistry
                     from openjarvis.tools._stubs import BaseTool
 
-                    _DEFAULT_TOOLS = {"think", "calculator", "web_search"}
+                    _DEFAULT_TOOLS = {"think", "calculator", "web_search", "weather"}
                     configured = config.agent.tools
                     if configured:
                         if isinstance(configured, list):
@@ -268,7 +275,12 @@ def serve(
                         from openjarvis.core.registry import ToolRegistry
                         from openjarvis.tools._stubs import BaseTool
 
-                        _DEFAULT_TOOLS = {"think", "calculator", "web_search"}
+                        _DEFAULT_TOOLS = {
+                            "think",
+                            "calculator",
+                            "web_search",
+                            "weather",
+                        }
                         configured = config.agent.tools
                         if configured:
                             if isinstance(configured, list):

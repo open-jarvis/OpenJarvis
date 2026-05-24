@@ -7,6 +7,12 @@ import { MicButton } from './MicButton';
 import { useSpeech } from '../../hooks/useSpeech';
 import type { ChatMessage, ToolCallInfo, TokenUsage, MessageTelemetry } from '../../types';
 
+function stripThinkTags(text: string): string {
+  let cleaned = text.replace(/<think>[\s\S]*?<\/think>\s*/gi, '');
+  cleaned = cleaned.replace(/^[\s\S]*?<\/think>\s*/i, '');
+  return cleaned.trim();
+}
+
 export function InputArea() {
   const [input, setInput] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -18,6 +24,7 @@ export function InputArea() {
   const streamState = useAppStore((s) => s.streamState);
   const messages = useAppStore((s) => s.messages);
   const speechEnabled = useAppStore((s) => s.settings.speechEnabled);
+  const speakReplies = useAppStore((s) => s.settings.speakReplies);
   const maxTokens = useAppStore((s) => s.settings.maxTokens);
   const temperature = useAppStore((s) => s.settings.temperature);
   const createConversation = useAppStore((s) => s.createConversation);
@@ -46,9 +53,9 @@ export function InputArea() {
   }, [selectedModel, streamState.isStreaming, resetStream]);
 
   const micDisabled = !speechEnabled || !speechAvailable || streamState.isStreaming;
-  const micReason: 'not-enabled' | 'no-backend' | 'streaming' | undefined =
+  const micReason: 'not-enabled' | 'unsupported' | 'streaming' | undefined =
     !speechEnabled ? 'not-enabled'
-    : !speechAvailable ? 'no-backend'
+    : !speechAvailable ? 'unsupported'
     : streamState.isStreaming ? 'streaming'
     : undefined;
 
@@ -58,14 +65,28 @@ export function InputArea() {
         const text = await stopRecording();
         if (text) {
           setInput((prev) => (prev ? prev + ' ' + text : text));
+          textareaRef.current?.focus();
         }
       } catch {
         // Error is captured in useSpeech
       }
     } else {
-      await startRecording();
+      await startRecording('ko-KR', (text) => {
+        setInput((prev) => (prev ? prev + ' ' + text : text));
+        textareaRef.current?.focus();
+      });
     }
   }, [speechState, startRecording, stopRecording]);
+
+  const speakReply = useCallback((text: string) => {
+    if (!speakReplies || !('speechSynthesis' in window)) return;
+    const spoken = stripThinkTags(text);
+    if (!spoken) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(spoken);
+    utterance.lang = 'ko-KR';
+    window.speechSynthesis.speak(utterance);
+  }, [speakReplies]);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -279,6 +300,7 @@ export function InputArea() {
         telemetry,
         audioMeta,
       );
+      speakReply(accumulatedContent);
       if (timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;
@@ -304,6 +326,7 @@ export function InputArea() {
     updateLastAssistant,
     setStreamState,
     resetStream,
+    speakReply,
   ]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

@@ -23,6 +23,8 @@ EXPECTED_TOOLS = {
     "file_write",
     # web_search.py
     "web_search",
+    # weather.py
+    "weather",
     # code_interpreter.py
     "code_interpreter",
     # code_interpreter_docker.py

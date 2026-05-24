@@ -399,6 +399,7 @@ class EngineConfig:
     """Inference engine settings with nested per-engine configs."""
 
     default: str = "ollama"
+    allow_cloud_fallback: bool = False
     ollama: OllamaEngineConfig = field(default_factory=OllamaEngineConfig)
     vllm: VLLMEngineConfig = field(default_factory=VLLMEngineConfig)
     sglang: SGLangEngineConfig = field(default_factory=SGLangEngineConfig)
@@ -793,12 +794,25 @@ class BrowserConfig:
 
 
 @dataclass(slots=True)
+class WeatherConfig:
+    """Weather tool defaults for Open-Meteo."""
+
+    latitude: float = 37.566
+    longitude: float = 126.9784
+    timezone: str = "Asia/Seoul"
+    default_profile: str = "basic"
+    detail_past_days: int = 7
+    history_days: int = 92
+
+
+@dataclass(slots=True)
 class ToolsConfig:
     """Tools primitive settings — wraps storage and MCP configuration."""
 
     storage: StorageConfig = field(default_factory=StorageConfig)
     mcp: MCPConfig = field(default_factory=MCPConfig)
     browser: BrowserConfig = field(default_factory=BrowserConfig)
+    weather: WeatherConfig = field(default_factory=WeatherConfig)
     enabled: str = ""  # comma-separated default tools
 
 
@@ -814,9 +828,10 @@ class AgentConfig:
     system_prompt_path: str = ""  # path to system prompt file (.txt, .md)
     context_from_memory: bool = True  # inject relevant memory context into prompts
     default_system_prompt: str = (
-        "You are a helpful AI assistant running locally on the user's own "
-        "hardware through OpenJarvis. You are not a cloud service. Respond "
-        "helpfully, concisely, and accurately."
+        "You are Friday, a Korean-first personal AI assistant running locally "
+        "on the user's own hardware through OpenJarvis. Reply in Korean by "
+        "default unless the user asks for another language. Keep your tone "
+        "concise, natural, and helpful. You are not a cloud service."
     )
 
     # Backward-compat property for old field name
@@ -1641,6 +1656,7 @@ def generate_minimal_toml(
 
 [engine]
 default = "{engine}"
+# allow_cloud_fallback = false  # Opt in to cloud fallback only when API keys are set.
 {engine_host_section}
 [intelligence]
 default_model = "{model}"
@@ -1676,6 +1692,7 @@ def generate_default_toml(
 
 [engine]
 default = "{engine}"
+# allow_cloud_fallback = false  # Opt in to cloud fallback only when API keys are set.
 
 [engine.ollama]
 host = "http://localhost:11434"
@@ -1744,6 +1761,14 @@ enabled = true
 # timeout_ms = 30000
 # viewport_width = 1280
 # viewport_height = 720
+
+# [tools.weather]
+# latitude = 37.566
+# longitude = 126.9784
+# timezone = "Asia/Seoul"
+# default_profile = "basic"    # basic or detail
+# detail_past_days = 7         # detail profile default; keep light for chat
+# history_days = 92            # reserved for future heavy history mode
 
 [server]
 host = "0.0.0.0"
@@ -1924,6 +1949,7 @@ __all__ = [
     "VLLMEngineConfig",
     "WebChatChannelConfig",
     "WebhookChannelConfig",
+    "WeatherConfig",
     "WhatsAppBaileysChannelConfig",
     "WhatsAppChannelConfig",
     "WorkflowConfig",

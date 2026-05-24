@@ -124,3 +124,78 @@ class TestGetEngine:
             result = get_engine(cfg, engine_key="requested")
         assert result is not None
         assert result[0] == "running"
+
+    def test_does_not_fallback_to_cloud_by_default(self) -> None:
+        _reg("local", "local")
+        _reg("cloud", "cloud")
+
+        cfg = JarvisConfig()
+        cfg.engine.default = "local"
+        cfg.engine.allow_cloud_fallback = False
+
+        def _make(k, c):  # noqa: ANN001
+            return _FakeEngine(healthy=(k == "cloud"))
+
+        with mock.patch(
+            "openjarvis.engine._discovery._make_engine",
+            side_effect=_make,
+        ):
+            result = get_engine(cfg)
+        assert result is None
+
+    def test_cloud_fallback_requires_opt_in(self) -> None:
+        _reg("local", "local")
+        _reg("cloud", "cloud")
+
+        cfg = JarvisConfig()
+        cfg.engine.default = "local"
+        cfg.engine.allow_cloud_fallback = True
+
+        def _make(k, c):  # noqa: ANN001
+            return _FakeEngine(healthy=(k == "cloud"))
+
+        with mock.patch(
+            "openjarvis.engine._discovery._make_engine",
+            side_effect=_make,
+        ):
+            result = get_engine(cfg)
+        assert result is not None
+        assert result[0] == "cloud"
+
+    def test_explicit_cloud_default_still_works(self) -> None:
+        _reg("local", "local")
+        _reg("cloud", "cloud")
+
+        cfg = JarvisConfig()
+        cfg.engine.default = "cloud"
+        cfg.engine.allow_cloud_fallback = False
+
+        def _make(k, c):  # noqa: ANN001
+            return _FakeEngine(healthy=(k == "cloud"))
+
+        with mock.patch(
+            "openjarvis.engine._discovery._make_engine",
+            side_effect=_make,
+        ):
+            result = get_engine(cfg)
+        assert result is not None
+        assert result[0] == "cloud"
+
+    def test_explicit_cloud_engine_key_still_works(self) -> None:
+        _reg("local", "local")
+        _reg("cloud", "cloud")
+
+        cfg = JarvisConfig()
+        cfg.engine.default = "local"
+        cfg.engine.allow_cloud_fallback = False
+
+        def _make(k, c):  # noqa: ANN001
+            return _FakeEngine(healthy=(k == "cloud"))
+
+        with mock.patch(
+            "openjarvis.engine._discovery._make_engine",
+            side_effect=_make,
+        ):
+            result = get_engine(cfg, engine_key="cloud")
+        assert result is not None
+        assert result[0] == "cloud"

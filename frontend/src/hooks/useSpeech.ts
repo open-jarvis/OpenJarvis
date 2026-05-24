@@ -1,84 +1,126 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { transcribeAudio, fetchSpeechHealth } from '../lib/api';
 
-export type SpeechState = 'idle' | 'recording' | 'transcribing';
+export type SpeechState = 'idle' | 'recording';
+
+type SpeechRecognitionResultLike = {
+  readonly isFinal: boolean;
+  readonly [index: number]: { readonly transcript: string };
+};
+
+type SpeechRecognitionEventLike = {
+  readonly resultIndex: number;
+  readonly results: {
+    readonly length: number;
+    readonly [index: number]: SpeechRecognitionResultLike;
+  };
+};
+
+type BrowserSpeechRecognition = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
+
+declare global {
+  interface Window {
+    SpeechRecognition?: BrowserSpeechRecognitionConstructor;
+    webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor;
+  }
+}
 
 export function useSpeech() {
   const [state, setState] = useState<SpeechState>('idle');
   const [error, setError] = useState<string | null>(null);
   const [available, setAvailable] = useState(false);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const streamRef = useRef<MediaStream | null>(null);
+  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const transcriptRef = useRef('');
+  const callbackRef = useRef<((text: string) => void) | null>(null);
+  const resolveRef = useRef<((text: string) => void) | null>(null);
+  const rejectRef = useRef<((error: Error) => void) | null>(null);
 
-  // Check if speech backend is available on mount
   useEffect(() => {
-    fetchSpeechHealth()
-      .then((health) => setAvailable(health.available))
-      .catch(() => setAvailable(false));
+    setAvailable(Boolean(window.SpeechRecognition || window.webkitSpeechRecognition));
   }, []);
 
-  const startRecording = useCallback(async (): Promise<void> => {
+  const startRecording = useCallback(async (
+    lang = 'ko-KR',
+    onTranscript?: (text: string) => void,
+  ): Promise<void> => {
     setError(null);
 
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setError('Microphone not supported in this browser');
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Recognition) {
+      setError('Browser speech recognition is not supported');
       return;
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-
-      const recorder = new MediaRecorder(stream);
-      chunksRef.current = [];
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
+      transcriptRef.current = '';
+      callbackRef.current = onTranscript || null;
+      const recognition = new Recognition();
+      recognition.lang = lang;
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.onresult = (event) => {
+        let text = '';
+        for (let i = event.resultIndex; i < event.results.length; i += 1) {
+          text += event.results[i][0]?.transcript || '';
+          if (event.results[i].isFinal) {
+            transcriptRef.current = text.trim();
+          }
+        }
+        if (text.trim()) transcriptRef.current = text.trim();
+      };
+      recognition.onerror = () => {
+        const err = new Error('Speech recognition failed');
+        setError(err.message);
+        setState('idle');
+        rejectRef.current?.(err);
+        callbackRef.current = null;
+        resolveRef.current = null;
+        rejectRef.current = null;
+      };
+      recognition.onend = () => {
+        const text = transcriptRef.current;
+        setState('idle');
+        if (resolveRef.current) {
+          resolveRef.current(text);
+        } else if (text) {
+          callbackRef.current?.(text);
+        }
+        callbackRef.current = null;
+        resolveRef.current = null;
+        rejectRef.current = null;
       };
 
-      recorder.start();
-      mediaRecorderRef.current = recorder;
+      recognitionRef.current = recognition;
+      recognition.start();
       setState('recording');
     } catch (err) {
-      setError('Microphone access denied');
+      setError('Microphone access denied or unavailable');
       setState('idle');
     }
   }, []);
 
-  const stopRecording = useCallback(async (): Promise<string> => {
+  const stopRecording = useCallback((): Promise<string> => {
     return new Promise((resolve, reject) => {
-      const recorder = mediaRecorderRef.current;
-      if (!recorder || recorder.state !== 'recording') {
+      const recognition = recognitionRef.current;
+      if (!recognition || state !== 'recording') {
         reject(new Error('Not recording'));
         return;
       }
-
-      recorder.onstop = async () => {
-        setState('transcribing');
-
-        // Stop all audio tracks
-        streamRef.current?.getTracks().forEach((track) => track.stop());
-        streamRef.current = null;
-
-        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
-        chunksRef.current = [];
-
-        try {
-          const result = await transcribeAudio(blob);
-          setState('idle');
-          resolve(result.text);
-        } catch (err) {
-          setState('idle');
-          const msg = err instanceof Error ? err.message : 'Transcription failed';
-          setError(msg);
-          reject(err);
-        }
-      };
-
-      recorder.stop();
+      resolveRef.current = resolve;
+      rejectRef.current = reject;
+      recognition.stop();
     });
-  }, []);
+  }, [state]);
 
   return {
     state,
@@ -87,6 +129,6 @@ export function useSpeech() {
     startRecording,
     stopRecording,
     isRecording: state === 'recording',
-    isTranscribing: state === 'transcribing',
+    isTranscribing: false,
   };
 }

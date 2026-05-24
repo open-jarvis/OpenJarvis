@@ -18,7 +18,7 @@ import {
   Brain,
 } from 'lucide-react';
 import { useAppStore, type ThemeMode } from '../lib/store';
-import { checkHealth, fetchSpeechHealth, getMemoryStats } from '../lib/api';
+import { checkHealth, getMemoryStats } from '../lib/api';
 
 function OllamaModelList() {
   const [models, setModels] = useState<Array<{ name: string; size: number }>>([]);
@@ -119,7 +119,7 @@ export function SettingsPage() {
   const conversations = useAppStore((s) => s.conversations);
   const serverInfo = useAppStore((s) => s.serverInfo);
   const [healthy, setHealthy] = useState<boolean | null>(null);
-  const [speechBackendAvailable, setSpeechBackendAvailable] = useState<boolean | null>(null);
+  const [browserSpeechAvailable, setBrowserSpeechAvailable] = useState<boolean | null>(null);
   const [saved, setSaved] = useState(false);
 
   const [memoryStats, setMemoryStats] = useState<{ entries: number; backend: string } | null>(null);
@@ -141,9 +141,7 @@ export function SettingsPage() {
 
   useEffect(() => {
     checkHealth().then(setHealthy);
-    fetchSpeechHealth()
-      .then((h) => setSpeechBackendAvailable(h.available))
-      .catch(() => setSpeechBackendAvailable(false));
+    setBrowserSpeechAvailable(Boolean(window.SpeechRecognition || window.webkitSpeechRecognition));
     getMemoryStats()
       .then(setMemoryStats)
       .catch(() => setMemoryStats(null));
@@ -468,7 +466,7 @@ export function SettingsPage() {
 
           {/* Speech */}
           <Section title="Speech">
-            <SettingRow label="Speech-to-Text" description="Enable microphone input for voice dictation">
+            <SettingRow label="Voice input" description="Use browser speech recognition for Korean dictation">
               <button
                 onClick={() => { updateSettings({ speechEnabled: !settings.speechEnabled }); showSaved(); }}
                 className="relative w-11 h-6 rounded-full transition-colors cursor-pointer"
@@ -485,27 +483,43 @@ export function SettingsPage() {
                 />
               </button>
             </SettingRow>
-            <SettingRow label="Backend status" description="Requires Whisper, Deepgram, or another speech backend">
+            <SettingRow label="Speak replies" description="Read assistant replies aloud with browser speech synthesis">
+              <button
+                onClick={() => { updateSettings({ speakReplies: !settings.speakReplies }); showSaved(); }}
+                className="relative w-11 h-6 rounded-full transition-colors cursor-pointer"
+                style={{
+                  background: settings.speakReplies ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
+                }}
+              >
+                <span
+                  className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full transition-transform bg-white"
+                  style={{
+                    transform: settings.speakReplies ? 'translateX(20px)' : 'translateX(0)',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  }}
+                />
+              </button>
+            </SettingRow>
+            <SettingRow label="Browser status" description="Uses Web Speech API locally in the browser">
               <div className="flex items-center gap-2">
                 <span
                   className="w-2 h-2 rounded-full"
                   style={{
-                    background: speechBackendAvailable === true ? 'var(--color-success)'
-                      : speechBackendAvailable === false ? 'var(--color-text-tertiary)'
+                    background: browserSpeechAvailable === true ? 'var(--color-success)'
+                      : browserSpeechAvailable === false ? 'var(--color-text-tertiary)'
                       : 'var(--color-text-tertiary)',
                   }}
                 />
                 <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-                  {speechBackendAvailable === null ? 'Checking...'
-                    : speechBackendAvailable ? 'Available'
-                    : 'Not configured'}
+                  {browserSpeechAvailable === null ? 'Checking...'
+                    : browserSpeechAvailable ? 'Available'
+                    : 'Unavailable'}
                 </span>
               </div>
             </SettingRow>
-            {!speechBackendAvailable && speechBackendAvailable !== null && (
+            {!browserSpeechAvailable && browserSpeechAvailable !== null && (
               <div className="text-xs mt-2 px-1" style={{ color: 'var(--color-text-tertiary)' }}>
-                Set up a speech backend to use voice input.
-                See the <a href="https://open-jarvis.github.io/OpenJarvis/user-guide/tools/" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-accent)' }}>documentation</a> for details.
+                This browser does not expose speech recognition. Try Chrome or Safari for voice input.
               </div>
             )}
           </Section>
