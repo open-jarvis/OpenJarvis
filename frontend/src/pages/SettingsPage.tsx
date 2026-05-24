@@ -16,6 +16,7 @@ import {
   Key,
   Search,
   Brain,
+  Trophy,
 } from 'lucide-react';
 import { useAppStore, type ThemeMode } from '../lib/store';
 import { checkHealth, getMemoryStats } from '../lib/api';
@@ -118,6 +119,8 @@ export function SettingsPage() {
   const updateSettings = useAppStore((s) => s.updateSettings);
   const conversations = useAppStore((s) => s.conversations);
   const serverInfo = useAppStore((s) => s.serverInfo);
+  const optInEnabled = useAppStore((s) => s.optInEnabled);
+  const setOptInModalOpen = useAppStore((s) => s.setOptInModalOpen);
   const [healthy, setHealthy] = useState<boolean | null>(null);
   const [browserSpeechAvailable, setBrowserSpeechAvailable] = useState<boolean | null>(null);
   const [saved, setSaved] = useState(false);
@@ -522,6 +525,29 @@ export function SettingsPage() {
                 This browser does not expose speech recognition. Try Chrome or Safari for voice input.
               </div>
             )}
+          </Section>
+
+          {/* Savings Sharing */}
+          <Section title="Savings Sharing">
+            <SettingRow
+              label="Share Your Savings"
+              description="Leaderboard sharing is off by default. Open this only if you want to opt in."
+            >
+              <button
+                onClick={() => setOptInModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+                style={{
+                  background: optInEnabled ? 'var(--color-accent-subtle)' : 'var(--color-bg-secondary)',
+                  color: optInEnabled ? 'var(--color-accent)' : 'var(--color-text-secondary)',
+                  border: optInEnabled ? '1px solid var(--color-accent)' : '1px solid var(--color-border)',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = optInEnabled ? 'var(--color-accent-subtle)' : 'var(--color-bg-tertiary)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = optInEnabled ? 'var(--color-accent-subtle)' : 'var(--color-bg-secondary)')}
+              >
+                <Trophy size={12} />
+                {optInEnabled ? 'Manage Sharing' : 'Open Sharing'}
+              </button>
+            </SettingRow>
           </Section>
 
           {/* Data */}
