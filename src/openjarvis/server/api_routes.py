@@ -587,6 +587,18 @@ async def websocket_chat_stream(websocket: WebSocket):
                 )
                 continue
 
+            from openjarvis.friday_assistant import route_friday_command
+
+            local_result = route_friday_command(message)
+            if local_result is not None:
+                await websocket.send_json(
+                    {"type": "chunk", "content": local_result.content},
+                )
+                await websocket.send_json(
+                    {"type": "done", "content": local_result.content},
+                )
+                continue
+
             model = data.get("model") or getattr(
                 websocket.app.state,
                 "model",

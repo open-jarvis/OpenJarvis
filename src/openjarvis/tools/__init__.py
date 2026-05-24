@@ -43,6 +43,11 @@ except ImportError:
     pass
 
 try:
+    import openjarvis.tools.friday_assistant  # noqa: F401
+except ImportError:
+    pass
+
+try:
     import openjarvis.tools.code_interpreter  # noqa: F401
 except ImportError:
     pass

@@ -281,6 +281,12 @@ class Jarvis:
 
         Returns a dict with keys: content, usage, tool_results (if agent mode).
         """
+        from openjarvis.friday_assistant import route_friday_command
+
+        local_result = route_friday_command(query)
+        if local_result is not None:
+            return local_result.to_response()
+
         self._ensure_engine()
         if temperature is None:
             temperature = self._config.intelligence.temperature
@@ -342,6 +348,13 @@ class Jarvis:
         context: bool = True,
     ) -> AsyncIterator[str]:
         """Stream tokens as they are generated. Yields token strings."""
+        from openjarvis.friday_assistant import route_friday_command
+
+        local_result = route_friday_command(query)
+        if local_result is not None:
+            yield local_result.content
+            return
+
         self._ensure_engine()
         if temperature is None:
             temperature = self._config.intelligence.temperature
@@ -385,6 +398,19 @@ class Jarvis:
         The final dict has ``done: True`` along with the full concatenated
         ``content``, ``model``, and ``engine`` keys.
         """
+        from openjarvis.friday_assistant import route_friday_command
+
+        local_result = route_friday_command(query)
+        if local_result is not None:
+            yield {"token": local_result.content, "index": 0}
+            yield {
+                "done": True,
+                "content": local_result.content,
+                "model": "friday-local",
+                "engine": "local-rule",
+            }
+            return
+
         self._ensure_engine()
         if temperature is None:
             temperature = self._config.intelligence.temperature

@@ -390,6 +390,16 @@ def ask(
     # Load config
     config = load_config()
 
+    from openjarvis.friday_assistant import route_friday_command
+
+    local_result = route_friday_command(query_text)
+    if local_result is not None:
+        if output_json:
+            click.echo(json_mod.dumps(local_result.to_response(), indent=2))
+        else:
+            click.echo(local_result.content)
+        return
+
     # Track whether the user explicitly set --max-tokens
     user_set_max_tokens = max_tokens is not None
 

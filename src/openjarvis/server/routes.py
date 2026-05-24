@@ -46,9 +46,16 @@ def _to_messages(chat_messages) -> list[Message]:
 @router.post("/v1/chat/completions")
 async def chat_completions(request_body: ChatCompletionRequest, request: Request):
     """Handle chat completion requests (streaming and non-streaming)."""
+    model = request_body.model
+
+    local_result = _route_local_friday(request_body)
+    if local_result is not None:
+        if request_body.stream:
+            return _handle_local_stream(model, local_result.content)
+        return _local_chat_response(model, local_result.content)
+
     engine = request.app.state.engine
     agent = getattr(request.app.state, "agent", None)
-    model = request_body.model
 
     # Inject memory context into messages before dispatching
     config = getattr(request.app.state, "config", None)
@@ -159,6 +166,60 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
         bus=bus,
         complexity_info=complexity_info,
     )
+
+
+def _route_local_friday(req: ChatCompletionRequest):
+    """Return a local Friday result for the latest user message, if any."""
+    query_text = ""
+    for m in reversed(req.messages):
+        if m.role == "user" and m.content:
+            query_text = m.content
+            break
+    if not query_text:
+        return None
+    from openjarvis.friday_assistant import route_friday_command
+
+    return route_friday_command(query_text)
+
+
+def _local_chat_response(model: str, content: str) -> ChatCompletionResponse:
+    return ChatCompletionResponse(
+        model=model,
+        choices=[
+            Choice(
+                message=ChoiceMessage(role="assistant", content=content),
+                finish_reason="stop",
+            )
+        ],
+        usage=UsageInfo(),
+    )
+
+
+def _handle_local_stream(model: str, content: str) -> StreamingResponse:
+    chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+
+    async def generate():
+        first_chunk = ChatCompletionChunk(
+            id=chunk_id,
+            model=model,
+            choices=[StreamChoice(delta=DeltaMessage(role="assistant"))],
+        )
+        yield f"data: {first_chunk.model_dump_json()}\n\n"
+        content_chunk = ChatCompletionChunk(
+            id=chunk_id,
+            model=model,
+            choices=[StreamChoice(delta=DeltaMessage(content=content))],
+        )
+        yield f"data: {content_chunk.model_dump_json()}\n\n"
+        done_chunk = ChatCompletionChunk(
+            id=chunk_id,
+            model=model,
+            choices=[StreamChoice(delta=DeltaMessage(), finish_reason="stop")],
+        )
+        yield f"data: {done_chunk.model_dump_json()}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 
 def _handle_direct(

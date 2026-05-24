@@ -25,6 +25,14 @@ EXPECTED_TOOLS = {
     "web_search",
     # weather.py
     "weather",
+    "weather_basic",
+    "weather_detail",
+    # friday_assistant.py
+    "friday_time_date",
+    "friday_open_website",
+    "friday_open_app",
+    "friday_notes",
+    "friday_status",
     # code_interpreter.py
     "code_interpreter",
     # code_interpreter_docker.py

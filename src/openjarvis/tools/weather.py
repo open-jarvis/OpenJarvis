@@ -18,11 +18,15 @@ from openjarvis.weather.open_meteo import (
 )
 
 
-@ToolRegistry.register("weather")
-class WeatherTool(BaseTool):
-    """Fetch current weather and forecasts from Open-Meteo."""
+class _BaseOpenMeteoWeatherTool(BaseTool):
+    """Shared Open-Meteo weather tool implementation."""
 
     tool_id = "weather"
+    profile_override: WeatherProfile | None = None
+    description_profile = (
+        "Uses a small basic profile for normal chat and a detail profile for "
+        "explicit detailed weather requests."
+    )
     is_local = False
 
     def __init__(
@@ -61,11 +65,10 @@ class WeatherTool(BaseTool):
     @property
     def spec(self) -> ToolSpec:
         return ToolSpec(
-            name="weather",
+            name=self.tool_id,
             description=(
                 "Get current weather and forecasts from Open-Meteo. No API key "
-                "is required. Uses a small basic profile for normal chat and a "
-                "detail profile for explicit detailed weather requests."
+                f"is required. {self.description_profile}"
             ),
             parameters={
                 "type": "object",
@@ -107,12 +110,15 @@ class WeatherTool(BaseTool):
 
     def execute(self, **params: Any) -> ToolResult:
         query = str(params.get("query") or "오늘 날씨 알려줘")
-        profile = infer_weather_profile(
-            query,
-            requested=str(params.get("profile")) if params.get("profile") else None,
-        )
-        if self._default_profile == "detail" and "profile" not in params:
-            profile = infer_weather_profile(query, requested=self._default_profile)
+        if self.profile_override is not None:
+            profile = self.profile_override
+        else:
+            profile = infer_weather_profile(
+                query,
+                requested=str(params.get("profile")) if params.get("profile") else None,
+            )
+            if self._default_profile == "detail" and "profile" not in params:
+                profile = infer_weather_profile(query, requested=self._default_profile)
 
         latitude = float(
             params.get("latitude", getattr(self, "_latitude", SEOUL_LATITUDE))
@@ -132,7 +138,7 @@ class WeatherTool(BaseTool):
                 timezone=timezone,
             )
             return ToolResult(
-                tool_name="weather",
+                tool_name=self.tool_id,
                 content=format_weather_summary(data, query, profile=profile),
                 success=True,
                 metadata={
@@ -146,11 +152,42 @@ class WeatherTool(BaseTool):
             )
         except Exception as exc:
             return ToolResult(
-                tool_name="weather",
+                tool_name=self.tool_id,
                 content=f"날씨 정보를 가져오지 못했습니다: {exc}",
                 success=False,
                 metadata={"provider": "open-meteo", "profile": profile},
             )
 
 
-__all__ = ["WeatherTool"]
+@ToolRegistry.register("weather")
+class WeatherTool(_BaseOpenMeteoWeatherTool):
+    """Fetch current weather and forecasts from Open-Meteo."""
+
+    tool_id = "weather"
+
+
+@ToolRegistry.register("weather_basic")
+class WeatherBasicTool(_BaseOpenMeteoWeatherTool):
+    """Fetch a lightweight Open-Meteo forecast for everyday weather questions."""
+
+    tool_id = "weather_basic"
+    profile_override = "basic"
+    description_profile = (
+        "Always uses the lightweight basic profile for everyday Korean questions "
+        "like 오늘 날씨 알려줘, 내일 비 와?, and 이번 주 날씨 알려줘."
+    )
+
+
+@ToolRegistry.register("weather_detail")
+class WeatherDetailTool(_BaseOpenMeteoWeatherTool):
+    """Fetch a detailed Open-Meteo forecast for weather diagnostics."""
+
+    tool_id = "weather_detail"
+    profile_override = "detail"
+    description_profile = (
+        "Always uses the detail profile for detailed requests mentioning 상세, "
+        "자세히, 디테일, 습도, 기압, 풍속, 자외선, or 가시거리."
+    )
+
+
+__all__ = ["WeatherBasicTool", "WeatherDetailTool", "WeatherTool"]

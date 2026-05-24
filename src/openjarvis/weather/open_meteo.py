@@ -219,7 +219,7 @@ def format_weather_summary(
 ) -> str:
     """Return a Korean weather summary for common Friday weather queries."""
     intent = _infer_intent(query)
-    if profile == "detail" or intent == "detail":
+    if profile == "detail":
         return _format_detail_summary(data)
     if intent == "week":
         return _format_week_summary(data)

@@ -32,6 +32,12 @@ class QueryOrchestrator:
         prior_messages: Optional[List[Message]] = None,
     ) -> Dict[str, Any]:
         """Execute a query through the system and return a result dict."""
+        from openjarvis.friday_assistant import route_friday_command
+
+        local_result = route_friday_command(query)
+        if local_result is not None:
+            return local_result.to_response()
+
         s = self._system
         if temperature is None:
             temperature = s.config.intelligence.temperature

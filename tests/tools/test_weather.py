@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from openjarvis.core.config import EngineConfig
 from openjarvis.core.registry import ToolRegistry
-from openjarvis.tools.weather import WeatherTool
+from openjarvis.tools.weather import WeatherBasicTool, WeatherDetailTool, WeatherTool
 from openjarvis.weather.open_meteo import (
     SEOUL_LATITUDE,
     SEOUL_LONGITUDE,
@@ -82,6 +82,16 @@ def test_weather_tool_registered():
     ToolRegistry.register_value("weather", WeatherTool)
     assert ToolRegistry.contains("weather")
     assert ToolRegistry.get("weather").tool_id == "weather"
+
+
+def test_weather_profile_tools_registered():
+    ToolRegistry.register_value("weather_basic", WeatherBasicTool)
+    ToolRegistry.register_value("weather_detail", WeatherDetailTool)
+
+    assert ToolRegistry.contains("weather_basic")
+    assert ToolRegistry.contains("weather_detail")
+    assert ToolRegistry.get("weather_basic").tool_id == "weather_basic"
+    assert ToolRegistry.get("weather_detail").tool_id == "weather_detail"
 
 
 def test_basic_profile_does_not_include_heavy_minutely_15_data():
@@ -199,6 +209,53 @@ def test_weather_tool_execute_uses_detail_for_detail_query():
         longitude=SEOUL_LONGITUDE,
         timezone=SEOUL_TIMEZONE,
     )
+
+
+def test_weather_basic_tool_always_uses_basic_profile():
+    client = MagicMock()
+    client.fetch_forecast.return_value = _OPEN_METEO_RESPONSE
+
+    result = WeatherBasicTool(client=client).execute(query="습도랑 기압 자세히 알려줘")
+
+    assert result.success is True
+    assert result.tool_name == "weather_basic"
+    assert result.metadata["profile"] == "basic"
+    assert "오늘 서울 날씨" in result.content
+    assert "서울 상세 날씨" not in result.content
+    client.fetch_forecast.assert_called_once_with(
+        profile="basic",
+        latitude=SEOUL_LATITUDE,
+        longitude=SEOUL_LONGITUDE,
+        timezone=SEOUL_TIMEZONE,
+    )
+
+
+def test_weather_detail_tool_always_uses_detail_profile():
+    client = MagicMock()
+    client.fetch_forecast.return_value = _OPEN_METEO_RESPONSE
+
+    result = WeatherDetailTool(client=client).execute(query="오늘 날씨 알려줘")
+
+    assert result.success is True
+    assert result.tool_name == "weather_detail"
+    assert result.metadata["profile"] == "detail"
+    assert "서울 상세 날씨" in result.content
+    client.fetch_forecast.assert_called_once_with(
+        profile="detail",
+        latitude=SEOUL_LATITUDE,
+        longitude=SEOUL_LONGITUDE,
+        timezone=SEOUL_TIMEZONE,
+    )
+
+
+def test_weather_profile_tool_specs_use_specific_names():
+    basic = WeatherBasicTool(client=MagicMock()).spec
+    detail = WeatherDetailTool(client=MagicMock()).spec
+
+    assert basic.name == "weather_basic"
+    assert detail.name == "weather_detail"
+    assert basic.metadata["provider"] == "open-meteo"
+    assert detail.metadata["requires_api_key"] is False
 
 
 def test_default_basic_profile_does_not_override_detail_query():
