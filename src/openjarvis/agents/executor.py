@@ -23,6 +23,15 @@ logger = logging.getLogger(__name__)
 
 _MAX_RETRIES = 3
 
+# Default model for monitor_operative / long-horizon agent ticks. qwen3:8b
+# emits tool_calls but, when given the full MonitorOperative system prompt
+# alongside a `think` no-op tool, reliably picks `think` instead of the real
+# action tools — producing tickless prose from training-data memory.
+# gemma4:31b follows the function-calling protocol with the same prompt and
+# actually invokes web_search / memory_retrieve. Explicit ``config["model"]``
+# on an agent still wins.
+_AGENT_TICK_DEFAULT_MODEL = "gemma4:31b"
+
 
 class AgentExecutor:
     """Executes a single tick for a managed agent.
@@ -257,7 +266,11 @@ class AgentExecutor:
         engine = self._system.engine if self._system else None
         if engine is None:
             raise FatalError("No engine available in JarvisSystem")
-        model = config.get("model") or (self._system.model if self._system else "")
+        model = (
+            config.get("model")
+            or _AGENT_TICK_DEFAULT_MODEL
+            or (self._system.model if self._system else "")
+        )
         if not model:
             raise FatalError("No model configured for agent")
 
@@ -350,6 +363,13 @@ class AgentExecutor:
             agent_kwargs["system_prompt"] = sys_prompt
         if getattr(agent_cls, "accepts_tools", False) and tool_instances:
             agent_kwargs["tools"] = tool_instances
+        # Hand the agent our EventBus so its ToolExecutor can publish
+        # TOOL_CALL_START/END — without this, ToolExecutor's ``self._bus``
+        # is None and every tool call executes silently, which is why
+        # traces previously reported "0 steps" even when the model was
+        # actively invoking web_search/memory_*/etc.
+        if self._bus is not None:
+            agent_kwargs["bus"] = self._bus
         # Propagate confirmation policy from the AgentExecutor down to the
         # agent's own ToolExecutor. Set by CLI paths like `jarvis agents ask`
         # so non-interactive runs can auto-approve tool execution.
@@ -394,6 +414,23 @@ class AgentExecutor:
                 agent_instance = agent_cls(engine, model, **agent_kwargs)
             except TypeError:
                 agent_instance = agent_cls(engine, model)
+
+        # Inject the managed-agent UUID into the agent's ToolExecutor so
+        # emitted TOOL_CALL_START/END events carry it; the trace subscriber
+        # below filters by ``event.data["agent"] == agent_id`` and would
+        # otherwise drop every tool call (the class-level agent_id like
+        # "monitor_operative" doesn't match the runtime UUID).
+        inner_executor = getattr(agent_instance, "_executor", None)
+        if inner_executor is not None and hasattr(inner_executor, "_agent_id"):
+            inner_executor._agent_id = agent["id"]
+
+        logger.info(
+            "Agent %s: tool wiring — %d tools resolved (%s), agent class %s",
+            agent["name"],
+            len(tool_instances),
+            ", ".join(t.spec.name for t in tool_instances) or "none",
+            agent_cls.__name__,
+        )
 
         # Build input from instruction + summary_memory + pending messages.
         # NB: we deliberately do NOT inject the full previous response back

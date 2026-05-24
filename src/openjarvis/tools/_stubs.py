@@ -225,11 +225,18 @@ class ToolExecutor:
                     success=False,
                 )
 
-        # Emit start event
+        # Emit start event. ``agent`` carries the managed-agent UUID so the
+        # AgentExecutor's trace subscriber (which filters by agent_id) can
+        # actually match this event — without it, every tool call is silently
+        # dropped from traces.
         if self._bus:
             self._bus.publish(
                 EventType.TOOL_CALL_START,
-                {"tool": tool_call.name, "arguments": params},
+                {
+                    "tool": tool_call.name,
+                    "arguments": params,
+                    "agent": self._agent_id,
+                },
             )
 
         # Execute with timeout
@@ -289,6 +296,7 @@ class ToolExecutor:
                     "latency": latency,
                     "result": result_text,
                     "metadata": event_metadata,
+                    "agent": self._agent_id,
                 },
             )
 
