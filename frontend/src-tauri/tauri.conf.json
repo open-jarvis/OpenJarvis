@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "OpenJarvis",
+  "productName": "OpenJarvis Friday",
   "version": "0.1.0",
   "identifier": "com.openjarvis.desktop",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "OpenJarvis",
+        "title": "OpenJarvis Friday",
         "width": 1280,
         "height": 800,
         "minWidth": 900,
@@ -40,8 +40,8 @@
       "icons/icon.png"
     ],
     "category": "Utility",
-    "shortDescription": "On-device AI assistant with energy monitoring and trace debugging",
-    "longDescription": "OpenJarvis Desktop wraps the OpenJarvis research framework in a native desktop application with real-time energy monitoring, trace debugging, learning curve visualization, and memory browsing.",
+    "shortDescription": "Local-first Friday AI assistant for macOS",
+    "longDescription": "OpenJarvis Friday wraps the local-first OpenJarvis assistant frontend in a native macOS desktop application. It connects to the local OpenJarvis backend and Ollama runtime without cloud API keys.",
     "macOS": {
       "entitlements": "Entitlements.plist",
       "minimumSystemVersion": "10.15",

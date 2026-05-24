@@ -1,7 +1,7 @@
 [package]
 name = "openjarvis-desktop"
 version = "0.1.0"
-description = "OpenJarvis Desktop — Native AI assistant with energy monitoring, trace debugging, and learning visualization"
+description = "OpenJarvis Friday — local-first macOS AI assistant desktop app"
 edition = "2021"
 license = "MIT"
 
