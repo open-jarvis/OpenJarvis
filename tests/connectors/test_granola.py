@@ -375,3 +375,88 @@ def test_end_to_end_ingest_and_search(
     # And the client-facing sources list does end up with the stored URL.
     client_sources = build_sources_for_client([target])
     assert client_sources[0]["url"] == _NOTE_1_WEB_URL
+
+
+# ---------------------------------------------------------------------------
+# Test — API-key validation happens BEFORE the key is written to disk, so an
+# invalid key is rejected at connect time and can never overwrite a working
+# credential (the data-loss bug this guards against, GH #409).
+# ---------------------------------------------------------------------------
+
+
+class _FakeResponse:
+    """Minimal httpx.Response stand-in for the validation probe."""
+
+    def __init__(self, status_code: int) -> None:
+        self.status_code = status_code
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            import httpx  # noqa: PLC0415
+
+            raise httpx.HTTPStatusError(
+                "error", request=None, response=None  # type: ignore[arg-type]
+            )
+
+
+def test_validate_key_empty_raises() -> None:
+    """An empty key is rejected without any network call."""
+    from openjarvis.connectors.granola import (  # noqa: PLC0415
+        GranolaKeyError,
+        _granola_api_validate_key,
+    )
+
+    with pytest.raises(GranolaKeyError):
+        _granola_api_validate_key("")
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_validate_key_rejects_unauthorized(status: int) -> None:
+    """A 401/403 from GET /v1/notes raises GranolaKeyError with guidance."""
+    from openjarvis.connectors.granola import (  # noqa: PLC0415
+        GranolaKeyError,
+        _granola_api_validate_key,
+    )
+
+    with patch(
+        "openjarvis.connectors.granola.httpx.get",
+        return_value=_FakeResponse(status),
+    ) as mock_get:
+        with pytest.raises(GranolaKeyError) as excinfo:
+            _granola_api_validate_key("grl_bad_key")
+
+    assert str(excinfo.value) == (
+        "Invalid API key. Check your key in Granola Settings → API."
+    )
+    # The probe must hit GET /v1/notes with limit=1 (cheap validation call).
+    _, kwargs = mock_get.call_args
+    assert kwargs["params"] == {"limit": 1}
+
+
+@patch("openjarvis.connectors.granola._granola_api_validate_key")
+def test_handle_callback_persists_after_validation(mock_validate, connector) -> None:
+    """A valid key is written only after the validation probe succeeds."""
+    connector.handle_callback("grl_good_key")
+
+    mock_validate.assert_called_once_with("grl_good_key")
+    stored = json.loads(Path(connector._credentials_path).read_text())
+    assert stored["token"] == "grl_good_key"
+
+
+def test_handle_callback_invalid_key_does_not_overwrite_existing(connector) -> None:
+    """A bad key must not clobber an existing, working credential on disk."""
+    from openjarvis.connectors.granola import GranolaKeyError  # noqa: PLC0415
+
+    creds_path = Path(connector._credentials_path)
+    creds_path.write_text(json.dumps({"token": "grl_real_existing_key"}))
+
+    with patch(
+        "openjarvis.connectors.granola.httpx.get",
+        return_value=_FakeResponse(401),
+    ):
+        with pytest.raises(GranolaKeyError):
+            connector.handle_callback("fake-key-12345")
+
+    # The pre-existing credential must be untouched.
+    stored = json.loads(creds_path.read_text())
+    assert stored["token"] == "grl_real_existing_key"

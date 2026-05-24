@@ -150,6 +150,9 @@ def test_sync_yields_documents(
     assert doc1.content == "Hello world"
     assert doc1.thread_id == "thread1"
     assert "alice@example.com" in doc1.participants
+    # Deep-link permalink to the message must be populated at ingest time
+    # (GH #408) — not left empty for _hit_url to reconstruct later.
+    assert doc1.url == "https://mail.google.com/mail/u/0/#all/msg1"
 
     # --- Message 2 ---
     doc2 = next(d for d in docs if d.doc_id == "gmail:msg2")
@@ -157,6 +160,7 @@ def test_sync_yields_documents(
     assert doc2.author == "bob@example.com"
     assert doc2.content == "Budget reply"
     assert doc2.thread_id == "thread2"
+    assert doc2.url == "https://mail.google.com/mail/u/0/#all/msg2"
 
     # Verify the API was called correctly
     mock_list.assert_called_once()

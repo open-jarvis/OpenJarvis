@@ -560,3 +560,63 @@ def test_sync_logs_per_type_channel_counts(
     assert "1 private channels" in summary
     assert "2 DMs" in summary
     assert "1 group DMs" in summary
+
+
+# ---------------------------------------------------------------------------
+# Test — handle_callback verifies the token with a live auth.test BEFORE it
+# persists anything, so a syntactically-valid-but-dead token is rejected at
+# connect time instead of overwriting a working credential on disk.
+# ---------------------------------------------------------------------------
+
+
+@patch("openjarvis.connectors.slack_connector._slack_api_auth_test")
+def test_handle_callback_persists_after_auth_test_succeeds(
+    mock_auth, connector
+) -> None:
+    """A valid xoxp- token is persisted only after auth.test returns ok."""
+    mock_auth.return_value = _AUTH_TEST_RESPONSE
+
+    connector.handle_callback("xoxp-valid-user-token")
+
+    mock_auth.assert_called_once_with("xoxp-valid-user-token")
+    stored = json.loads(Path(connector._credentials_path).read_text())
+    assert stored["token"] == "xoxp-valid-user-token"
+
+
+@patch("openjarvis.connectors.slack_connector._slack_api_auth_test")
+def test_handle_callback_rejects_when_auth_test_fails(mock_auth, connector) -> None:
+    """A well-formed token Slack rejects (auth.test not ok) is never written."""
+    from openjarvis.connectors.slack_connector import SlackTokenError  # noqa: PLC0415
+
+    mock_auth.return_value = {"ok": False, "error": "invalid_auth"}
+
+    with pytest.raises(SlackTokenError) as excinfo:
+        connector.handle_callback("xoxp-revoked-token")
+
+    assert "invalid_auth" in str(excinfo.value)
+    assert not Path(connector._credentials_path).exists()
+
+
+@patch("openjarvis.connectors.slack_connector._slack_api_auth_test")
+def test_handle_callback_skips_auth_test_for_bad_shape(mock_auth, connector) -> None:
+    """Shape validation short-circuits before any network call is made."""
+    from openjarvis.connectors.slack_connector import SlackTokenError  # noqa: PLC0415
+
+    with pytest.raises(SlackTokenError):
+        connector.handle_callback("xoxb-bot-token")
+
+    mock_auth.assert_not_called()
+    assert not Path(connector._credentials_path).exists()
+
+
+def test_handle_callback_xoxb_message_wording(connector) -> None:
+    """The xoxb- rejection carries the user-facing 'can't read DMs' guidance."""
+    from openjarvis.connectors.slack_connector import SlackTokenError  # noqa: PLC0415
+
+    with pytest.raises(SlackTokenError) as excinfo:
+        connector.handle_callback("xoxb-bot-token")
+
+    assert str(excinfo.value) == (
+        "Bot tokens (xoxb-) can't read DMs. "
+        "Use a User OAuth Token (xoxp-) instead."
+    )

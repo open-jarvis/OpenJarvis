@@ -205,17 +205,13 @@ def _validate_user_token(token: str) -> None:
         raise SlackTokenError("Slack token is empty.")
     if token.startswith(_BOT_TOKEN_PREFIX):
         raise SlackTokenError(
-            "Slack bot tokens (xoxb-) can't see user-to-user DMs. "
-            "Use a User OAuth Token (xoxp-) from "
-            "api.slack.com/apps → OAuth & Permissions, "
-            "with User Token Scopes channels:history, channels:read, "
-            "groups:history, groups:read, im:history, im:read, "
-            "mpim:history, mpim:read, users:read."
+            "Bot tokens (xoxb-) can't read DMs. "
+            "Use a User OAuth Token (xoxp-) instead."
         )
     if not token.startswith(_USER_TOKEN_PREFIX):
         raise SlackTokenError(
-            "Slack token must be a User OAuth Token (starts with 'xoxp-'). "
-            "Got a token with an unexpected prefix."
+            "Invalid token format. Expected a Slack User OAuth Token "
+            "starting with xoxp-"
         )
 
 
@@ -337,14 +333,35 @@ class SlackConnector(BaseConnector):
         return f"{_SLACK_AUTH_ENDPOINT}?{urlencode(params)}"
 
     def handle_callback(self, code: str) -> None:
-        """Persist the supplied User OAuth Token after validating its shape.
+        """Validate and persist a supplied User OAuth Token.
 
         The connector ``/connect`` endpoint funnels manually-pasted tokens
         through this method (the parameter is named ``code`` for OAuth-flow
-        compatibility). Bot tokens (``xoxb-``) are rejected here so the
-        invalid credential never lands on disk.
+        compatibility). The token is checked two ways before it is allowed
+        to touch disk, so an invalid credential never overwrites a working
+        one:
+
+        1. **Shape** — must start with ``xoxp-`` (``xoxb-`` bot tokens and
+           any other prefix are rejected via :func:`_validate_user_token`).
+        2. **Liveness** — a live ``auth.test`` call must return ``ok`` so an
+           expired or revoked token is caught at connect time.
         """
         _validate_user_token(code)
+
+        # Verify the token actually works against Slack before persisting.
+        try:
+            auth_resp = _slack_api_auth_test(code)
+        except Exception as exc:  # noqa: BLE001 — surface as a token error
+            raise SlackTokenError(
+                f"Could not verify the Slack token (auth.test failed: {exc})."
+            ) from exc
+        if not auth_resp.get("ok", False):
+            err = str(auth_resp.get("error", "auth_failed"))
+            raise SlackTokenError(
+                f"Slack rejected the token (auth.test: {err}). "
+                "Check that it is a current User OAuth Token."
+            )
+
         save_tokens(self._credentials_path, {"token": code})
         self._last_error = None
 

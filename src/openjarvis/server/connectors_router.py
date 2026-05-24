@@ -320,9 +320,20 @@ def create_connectors_router():
                 if req.code:
                     instance.handle_callback(req.code)
                 elif req.token:
-                    # Some OAuth connectors accept a pre-existing token.
+                    # A credential pasted into the ``token`` field. Connectors
+                    # that accept a pre-existing access token expose ``_token``
+                    # and set it directly (their real OAuth code-exchange runs
+                    # via /oauth/start → /oauth/callback). Connectors that
+                    # persist a manually-supplied credential — the Slack user
+                    # token and the Granola API key — validate inside
+                    # handle_callback, so route through it to guarantee the
+                    # credential is verified before anything touches disk. A
+                    # failed validation raises and is turned into HTTP 400
+                    # below, leaving any existing credential intact.
                     if hasattr(instance, "_token"):
                         instance._token = req.token
+                    else:
+                        instance.handle_callback(req.token)
 
             else:
                 # Generic: try to store token or credentials if the instance

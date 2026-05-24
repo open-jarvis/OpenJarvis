@@ -76,6 +76,41 @@ def _granola_api_list_notes(
     return resp.json()
 
 
+class GranolaKeyError(ValueError):
+    """Raised when a Granola API key is missing or rejected by the API.
+
+    Surfaced through the ``/connect`` endpoint as an HTTP 400 so the user
+    sees why the key was refused instead of a silent failed sync later.
+    """
+
+
+def _granola_api_validate_key(api_key: str) -> None:
+    """Verify an API key with a minimal ``GET /v1/notes?limit=1`` probe.
+
+    Raises :class:`GranolaKeyError` when the key is empty or the API
+    responds 401/403, so an invalid key never overwrites a working
+    credential on disk. Other HTTP errors propagate via ``raise_for_status``.
+    """
+    if not api_key:
+        raise GranolaKeyError("Granola API key is empty.")
+    try:
+        resp = httpx.get(
+            f"{_GRANOLA_API_BASE}/v1/notes",
+            headers={"Authorization": f"Bearer {api_key}"},
+            params={"limit": 1},
+            timeout=30.0,
+        )
+    except httpx.HTTPError as exc:
+        raise GranolaKeyError(
+            f"Could not reach Granola to verify the key: {exc}"
+        ) from exc
+    if resp.status_code in (401, 403):
+        raise GranolaKeyError(
+            "Invalid API key. Check your key in Granola Settings → API."
+        )
+    resp.raise_for_status()
+
+
 def _granola_api_get_note(api_key: str, note_id: str) -> Dict[str, Any]:
     """Fetch a single Granola note by ID (includes transcript).
 
@@ -242,10 +277,15 @@ class GranolaConnector(BaseConnector):
         )
 
     def handle_callback(self, code: str) -> None:
-        """Persist the API key to the credentials file.
+        """Validate and persist the API key.
 
-        The *code* parameter holds the raw API key string provided by the user.
+        The *code* parameter holds the raw API key string provided by the
+        user. The key is verified with a live ``GET /v1/notes?limit=1``
+        probe *before* it is written, so an invalid key can never overwrite
+        a working credential on disk (raises :class:`GranolaKeyError` on a
+        401/403).
         """
+        _granola_api_validate_key(code)
         save_tokens(self._credentials_path, {"token": code})
 
     def sync(
