@@ -133,13 +133,19 @@ def _parse_param_count(model_name: str) -> float:
 
 
 _CLOUD_PREFIXES = ("gpt-", "claude-", "gemini-", "o1-", "o3-", "o4-")
+FRIDAY_FAST_LOCAL_MODEL = "qwen3:0.6b"
 
 
 def _pick_recommended_model(
     model_ids: list[str],
 ) -> dict[str, str]:
-    """Pick the second-largest local model from a list."""
+    """Pick the fast local Friday model when available."""
     local = [m for m in model_ids if not any(m.startswith(p) for p in _CLOUD_PREFIXES)]
+    if FRIDAY_FAST_LOCAL_MODEL in local:
+        return {
+            "model": FRIDAY_FAST_LOCAL_MODEL,
+            "reason": "Fast local Friday default model",
+        }
     if not local:
         return {
             "model": model_ids[0] if model_ids else "",

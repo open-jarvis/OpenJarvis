@@ -88,6 +88,43 @@ class TestChatCompletions:
         assert data["object"] == "chat.completion"
         assert data["choices"][0]["message"]["content"] == "Hello from server"
 
+    def test_invalid_model_returns_korean_message(self):
+        engine = _make_engine(models=["qwen3:0.6b"])
+        app = create_app(engine, "qwen3:0.6b")
+        client = TestClient(app)
+
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "qwen3.5:27b",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert (
+            data["choices"][0]["message"]["content"]
+            == "선택한 모델을 Ollama에서 찾을 수 없습니다. 설치된 모델을 선택해주세요."
+        )
+
+    def test_invalid_model_streams_korean_message(self):
+        engine = _make_engine(models=["qwen3:0.6b"])
+        app = create_app(engine, "qwen3:0.6b")
+        client = TestClient(app)
+
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "qwen3.5:27b",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "stream": True,
+            },
+        )
+
+        assert resp.status_code == 200
+        assert "선택한 모델을 Ollama에서 찾을 수 없습니다" in resp.text
+
     def test_completion_has_usage(self, client):
         resp = client.post(
             "/v1/chat/completions",

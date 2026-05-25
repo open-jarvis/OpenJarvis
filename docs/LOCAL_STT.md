@@ -16,11 +16,12 @@ Local backend STT is disabled by default. Add a `[voice]` section to `~/.openjar
 [voice]
 stt_enabled = true
 stt_engine = "whisper_cpp" # whisper_cpp, faster_whisper, custom, disabled
-stt_model = "/path/to/ggml-model.gguf"
+stt_model = "/Users/guru/.openjarvis/models/ggml-base.bin"
 stt_language = "ko"
-recording_seconds = 4
+recording_seconds = 2
 sample_rate = 16000
-whisper_cpp_path = "/path/to/whisper-cli"
+recorder_command = "/opt/homebrew/bin/rec"
+whisper_cpp_path = "/opt/homebrew/bin/whisper-cli"
 custom_command = ""
 ```
 
@@ -52,6 +53,7 @@ stt_engine = "whisper_cpp"
 whisper_cpp_path = "/opt/whisper.cpp/build/bin/whisper-cli"
 stt_model = "/models/ggml-base.bin"
 stt_language = "ko"
+recorder_command = "/opt/homebrew/bin/rec"
 ```
 
 For faster-whisper, install the optional local speech dependencies:

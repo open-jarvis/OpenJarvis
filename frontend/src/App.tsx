@@ -15,6 +15,8 @@ import { useAppStore } from './lib/store';
 import { fetchModels, fetchServerInfo, fetchSavings, submitSavings, isTauri } from './lib/api';
 import { OptInModal } from './components/OptInModal';
 
+const FRIDAY_FAST_LOCAL_MODEL = 'qwen3:0.6b';
+
 export default function App() {
   const [setupDone, setSetupDone] = useState(!isTauri());
   const handleSetupReady = useCallback(() => setSetupDone(true), []);
@@ -57,7 +59,10 @@ export default function App() {
     fetchModels()
       .then((m) => {
         setModels(m);
-        if (!selectedModel && m.length > 0) setSelectedModel(m[0].id);
+        if (m.length === 0) return;
+        if (selectedModel && m.some((model) => model.id === selectedModel)) return;
+        const fastModel = m.find((model) => model.id === FRIDAY_FAST_LOCAL_MODEL);
+        setSelectedModel((fastModel || m[0]).id);
       })
       .catch(() => setModels([]))
       .finally(() => setModelsLoading(false));

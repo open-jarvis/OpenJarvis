@@ -25,6 +25,9 @@ from openjarvis.server.models import (
 )
 
 router = APIRouter()
+MODEL_NOT_FOUND_MESSAGE = (
+    "선택한 모델을 Ollama에서 찾을 수 없습니다. 설치된 모델을 선택해주세요."
+)
 
 
 def _to_messages(chat_messages) -> list[Message]:
@@ -47,6 +50,10 @@ def _to_messages(chat_messages) -> list[Message]:
 async def chat_completions(request_body: ChatCompletionRequest, request: Request):
     """Handle chat completion requests (streaming and non-streaming)."""
     model = request_body.model
+    if not _is_model_available(request, model):
+        if request_body.stream:
+            return _handle_local_stream(model, MODEL_NOT_FOUND_MESSAGE)
+        return _local_chat_response(model, MODEL_NOT_FOUND_MESSAGE)
 
     local_result = _route_local_friday(request_body)
     if local_result is not None:
@@ -183,6 +190,22 @@ def _route_local_friday(req: ChatCompletionRequest):
     if isinstance(req.friday_context, dict):
         current_location = req.friday_context.get("current_location")
     return route_friday_command(query_text, current_location=current_location)
+
+
+def _is_model_available(request: Request, model: str) -> bool:
+    """Return whether the requested model is available locally."""
+    if not model:
+        return False
+    engine = getattr(request.app.state, "engine", None)
+    if engine is None:
+        return True
+    try:
+        model_ids = engine.list_models()
+    except Exception:
+        return True
+    if not model_ids:
+        return True
+    return model in model_ids
 
 
 def _local_chat_response(model: str, content: str) -> ChatCompletionResponse:

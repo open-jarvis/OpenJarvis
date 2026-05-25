@@ -97,6 +97,10 @@ The desktop app does not replace the existing LaunchAgent setup. The existing
 LaunchAgents can continue to start Ollama, the OpenJarvis backend, and the
 frontend automatically.
 
+For normal **OpenJarvis Friday.app** use, the frontend dev server on port 5173
+is not required. App-mode status reports `frontend dev server (5173): 꺼짐, 앱
+모드에서는 정상` when the bundled Tauri UI is being used.
+
 In production app builds, the frontend assets are bundled into the app, but the
 backend and Ollama are still local services. Make sure the backend is reachable
 at `127.0.0.1:8000` before using chat features.

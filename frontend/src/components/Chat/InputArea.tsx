@@ -22,6 +22,7 @@ function stripThinkTags(text: string): string {
 
 export function InputArea() {
   const [input, setInput] = useState('');
+  const [ttsStatus, setTtsStatus] = useState('');
   const [wakeListening, setWakeListening] = useState(false);
   const [wakeMode, setWakeMode] = useState<WakeMode>('idle');
   const [wakeMessage, setWakeMessage] = useState('');
@@ -156,13 +157,49 @@ export function InputArea() {
   }, []);
 
   const speakReply = useCallback((text: string) => {
-    if (!speakReplies || !('speechSynthesis' in window)) return;
+    if (!speakReplies) {
+      setTtsStatus('음성 응답이 꺼져 있습니다.');
+      return;
+    }
+    if (!('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) {
+      const message = '음성 응답을 사용할 수 없습니다. TTS 설정을 확인해주세요.';
+      setTtsStatus(message);
+      useAppStore.getState().addLogEntry({
+        timestamp: Date.now(),
+        level: 'warn',
+        category: 'chat',
+        message,
+      });
+      return;
+    }
     const spoken = stripThinkTags(text);
     if (!spoken) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(spoken);
-    utterance.lang = 'ko-KR';
-    window.speechSynthesis.speak(utterance);
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(spoken);
+      utterance.lang = 'ko-KR';
+      utterance.onerror = () => {
+        const message = '음성 응답을 사용할 수 없습니다. TTS 설정을 확인해주세요.';
+        setTtsStatus(message);
+        useAppStore.getState().addLogEntry({
+          timestamp: Date.now(),
+          level: 'warn',
+          category: 'chat',
+          message,
+        });
+      };
+      setTtsStatus('');
+      window.speechSynthesis.speak(utterance);
+    } catch {
+      const message = '음성 응답을 사용할 수 없습니다. TTS 설정을 확인해주세요.';
+      setTtsStatus(message);
+      useAppStore.getState().addLogEntry({
+        timestamp: Date.now(),
+        level: 'warn',
+        category: 'chat',
+        message,
+      });
+    }
   }, [speakReplies]);
 
   useEffect(() => {
@@ -640,6 +677,7 @@ export function InputArea() {
           {isTranscribing ? ' · 음성 인식 중...' : ''}
           {speechStatusMessage && speechState === 'idle' ? ` · ${speechStatusMessage}` : ''}
           {speechError ? ` · ${speechError}` : ''}
+          {ttsStatus ? ` · ${ttsStatus}` : ''}
           {wakeMode !== 'idle' ? ` · Friday Listening: ${wakeMessage}` : ''}
         </span>
       </div>

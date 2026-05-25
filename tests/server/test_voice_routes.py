@@ -165,8 +165,10 @@ def test_adapter_accepts_legacy_voice_language():
 def test_whisper_cpp_command_includes_korean_language(tmp_path, monkeypatch):
     audio_path = tmp_path / "clip.wav"
     model_path = tmp_path / "ggml-base.bin"
+    command_path = tmp_path / "whisper-cli"
     audio_path.write_bytes(b"wav")
     model_path.write_bytes(b"model")
+    command_path.write_text("#!/bin/sh\n")
     calls = []
 
     class Result:
@@ -180,7 +182,7 @@ def test_whisper_cpp_command_includes_korean_language(tmp_path, monkeypatch):
 
     monkeypatch.setattr("openjarvis.voice.adapters.subprocess.run", fake_run)
     adapter = WhisperCppSTTAdapter(
-        command_path="/opt/homebrew/bin/whisper-cli",
+        command_path=str(command_path),
         model_path=str(model_path),
         language="ko",
     )
@@ -195,8 +197,10 @@ def test_whisper_cpp_command_includes_korean_language(tmp_path, monkeypatch):
 def test_whisper_cpp_command_omits_language_for_auto(tmp_path, monkeypatch):
     audio_path = tmp_path / "clip.wav"
     model_path = tmp_path / "ggml-base.bin"
+    command_path = tmp_path / "whisper-cli"
     audio_path.write_bytes(b"wav")
     model_path.write_bytes(b"model")
+    command_path.write_text("#!/bin/sh\n")
     calls = []
 
     class Result:
@@ -210,7 +214,7 @@ def test_whisper_cpp_command_omits_language_for_auto(tmp_path, monkeypatch):
 
     monkeypatch.setattr("openjarvis.voice.adapters.subprocess.run", fake_run)
     adapter = WhisperCppSTTAdapter(
-        command_path="/opt/homebrew/bin/whisper-cli",
+        command_path=str(command_path),
         model_path=str(model_path),
         language="auto",
     )
@@ -220,6 +224,35 @@ def test_whisper_cpp_command_omits_language_for_auto(tmp_path, monkeypatch):
     assert result.ok is True
     cmd, _kwargs = calls[0]
     assert "-l" not in cmd
+
+
+def test_whisper_cpp_missing_command_returns_korean_setup_message(
+    tmp_path,
+    monkeypatch,
+):
+    model_path = tmp_path / "ggml-base.bin"
+    model_path.write_bytes(b"model")
+    monkeypatch.setattr("openjarvis.voice.adapters.shutil.which", lambda _name: None)
+
+    adapter = WhisperCppSTTAdapter(
+        command_path="",
+        model_path=str(model_path),
+        language="ko",
+    )
+
+    assert adapter.check_available() is False
+    assert "whisper-cli를 찾을 수 없습니다" in adapter.get_setup_message()
+
+
+def test_whisper_cpp_missing_model_returns_korean_setup_message():
+    adapter = WhisperCppSTTAdapter(
+        command_path="/opt/homebrew/bin/whisper-cli",
+        model_path="/missing/ggml-base.bin",
+        language="ko",
+    )
+
+    assert adapter.check_available() is False
+    assert "모델 파일을 찾을 수 없습니다" in adapter.get_setup_message()
 
 
 def test_recorder_prefers_configured_command(tmp_path):

@@ -114,16 +114,21 @@ class WhisperCppSTTAdapter(STTAdapter):
         self.language = _normalize_language(language)
 
     def _command(self) -> str:
+        if self.command_path:
+            path = Path(self.command_path).expanduser()
+            if path.exists():
+                return str(path)
+            return shutil.which(self.command_path) or ""
         return (
-            self.command_path
-            or shutil.which("whisper-cli")
+            shutil.which("whisper-cli")
             or shutil.which("main")
             or ""
         )
 
     def check_available(self) -> bool:
         command = self._command()
-        return bool(command and Path(self.model_path).expanduser().exists())
+        model = Path(self.model_path).expanduser() if self.model_path else None
+        return bool(command and model is not None and model.is_file())
 
     def transcribe_once(self, audio_path: Path) -> STTResult:
         command = self._command()
@@ -171,6 +176,17 @@ class WhisperCppSTTAdapter(STTAdapter):
         return STTResult(ok=True, text=proc.stdout.strip(), engine=self.engine)
 
     def get_setup_message(self) -> str:
+        if not self._command():
+            return (
+                "whisper-cli를 찾을 수 없습니다. "
+                "voice.whisper_cpp_path에 /opt/homebrew/bin/whisper-cli 같은 "
+                "로컬 whisper.cpp 실행 파일 경로를 설정해주세요."
+            )
+        if not self.model_path or not Path(self.model_path).expanduser().is_file():
+            return (
+                "whisper.cpp 모델 파일을 찾을 수 없습니다. "
+                "voice.stt_model에 로컬 GGUF/bin 모델 경로를 설정해주세요."
+            )
         return (
             "로컬 STT 설정이 필요합니다. whisper.cpp의 whisper-cli 경로를 "
             "voice.whisper_cpp_path에, GGUF 모델 경로를 voice.stt_model에 설정해주세요."

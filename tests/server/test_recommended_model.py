@@ -13,8 +13,18 @@ except ImportError:
 
 
 @pytest.mark.skipif(not HAS_FASTAPI, reason="fastapi not installed")
-def test_recommended_model_picks_second_largest():
-    """Should pick the second-largest local model."""
+def test_recommended_model_prefers_fast_friday_model():
+    """Should pick the fast local Friday model when installed."""
+    from openjarvis.server.agent_manager_routes import _pick_recommended_model
+
+    models = ["qwen3.5:9b", "qwen3:0.6b", "qwen3.5:35b"]
+    result = _pick_recommended_model(models)
+    assert result["model"] == "qwen3:0.6b"
+
+
+@pytest.mark.skipif(not HAS_FASTAPI, reason="fastapi not installed")
+def test_recommended_model_falls_back_to_second_largest_without_fast_model():
+    """Without qwen3:0.6b, keep the existing local sizing heuristic."""
     from openjarvis.server.agent_manager_routes import _pick_recommended_model
 
     models = ["qwen3.5:0.8b", "qwen3.5:4b", "qwen3.5:9b", "qwen3.5:35b"]
