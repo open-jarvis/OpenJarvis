@@ -1256,6 +1256,10 @@ class VoiceConfig:
     recorder_command: str = ""
     whisper_cpp_path: str = ""
     custom_command: str = ""
+    tts_mode: str = "macos_say"
+    tts_voice: str = "Yuna"
+    tts_rate: int = 175
+    tts_max_chars: int = 400
 
 
 @dataclass(slots=True)

@@ -82,6 +82,41 @@ def test_macos_app_allowlist_uses_subprocess_list_args():
         capture_output=True,
         text=True,
     )
+    assert "shell" not in run_mock.call_args.kwargs
+
+
+def test_macos_app_allowlist_supports_practical_aliases():
+    aliases = {
+        "크롬 열어줘": "Google Chrome",
+        "chrome open": "Google Chrome",
+        "사파리 열어줘": "Safari",
+        "safari open": "Safari",
+        "메모 열어줘": "Notes",
+        "notes open": "Notes",
+        "계산기 열어줘": "Calculator",
+        "calculator open": "Calculator",
+        "터미널 열어줘": "Terminal",
+        "terminal open": "Terminal",
+        "카카오톡 열어줘": "KakaoTalk",
+        "kakaotalk open": "KakaoTalk",
+    }
+
+    for query, app_name in aliases.items():
+        with (
+            patch("openjarvis.friday_assistant.platform.system", return_value="Darwin"),
+            patch("openjarvis.friday_assistant.subprocess.run") as run_mock,
+        ):
+            result = open_macos_app(query)
+
+        assert result.success is True
+        assert result.metadata["app"] == app_name
+        run_mock.assert_called_once_with(
+            ["open", "-a", app_name],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        assert "shell" not in run_mock.call_args.kwargs
 
 
 def test_macos_app_allowlist_rejects_unknown_app():
@@ -104,6 +139,55 @@ def test_notes_and_todos_persist_to_local_json(tmp_path):
     assert store.list_todos() == ["장보기"]
     assert "우산 챙기기" in router.route("메모 목록 보여줘").content
     assert "장보기" in router.route("할 일 목록 보여줘").content
+
+
+def test_last_note_delete_removes_only_most_recent_note(tmp_path):
+    path = tmp_path / "friday_data.json"
+    router = FridayAssistantRouter(data_path=path)
+    router.route("메모해줘: 첫 번째")
+    router.route("메모해줘: 두 번째")
+
+    result = router.route("마지막 메모 삭제")
+
+    assert result.success is True
+    assert "두 번째" in result.content
+    assert FridayLocalStore(path).list_notes() == ["첫 번째"]
+
+
+def test_last_note_delete_handles_empty_store(tmp_path):
+    router = FridayAssistantRouter(data_path=tmp_path / "friday_data.json")
+
+    result = router.route("마지막 메모 삭제")
+
+    assert result.success is False
+    assert result.content == "삭제할 메모가 없습니다."
+
+
+def test_todo_completion_marks_matching_local_todo_done(tmp_path):
+    path = tmp_path / "friday_data.json"
+    router = FridayAssistantRouter(data_path=path)
+    router.route("할 일 추가: 장보기")
+
+    result = router.route("할 일 완료: 장보기")
+
+    assert result.success is True
+    assert "장보기" in result.content
+    assert FridayLocalStore(path)._load()["todos"][0]["done"] is True
+
+
+def test_todo_completion_by_index_is_local_and_safe(tmp_path):
+    path = tmp_path / "friday_data.json"
+    router = FridayAssistantRouter(data_path=path)
+    router.route("할 일 추가: 장보기")
+    router.route("할 일 추가: 운동")
+
+    result = router.route("할 일 완료: 2")
+
+    todos = FridayLocalStore(path)._load()["todos"]
+    assert result.success is True
+    assert "운동" in result.content
+    assert todos[0]["done"] is False
+    assert todos[1]["done"] is True
 
 
 def test_weather_default_location_commands_persist_to_local_json(tmp_path):
@@ -258,6 +342,28 @@ def test_weather_routing_supports_rain_question_without_weather_word(tmp_path):
 
     assert result.content == "비 예보입니다."
     assert result.metadata["profile"] == "basic"
+
+
+def test_calendar_placeholder_does_not_access_cloud(tmp_path):
+    router = FridayAssistantRouter(data_path=tmp_path / "friday.json")
+
+    result = router.route("오늘 일정 보여줘")
+
+    assert result.success is False
+    assert result.intent == "calendar_placeholder"
+    assert result.content == "일정 기능은 아직 로컬 캘린더 연동 설정이 필요합니다."
+    assert result.metadata["local_only"] is True
+
+
+def test_file_search_placeholder_uses_allowlist_policy(tmp_path):
+    router = FridayAssistantRouter(data_path=tmp_path / "friday.json")
+
+    result = router.route("파일 찾아줘")
+
+    assert result.success is False
+    assert result.intent == "file_search_placeholder"
+    assert "전체 디스크는 검색하지 않습니다" in result.content
+    assert result.metadata["allowlisted_folders"] == []
 
 
 def test_unmatched_message_falls_back_to_existing_llm_route(monkeypatch):

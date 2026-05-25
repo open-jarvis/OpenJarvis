@@ -18,7 +18,7 @@ import {
   Brain,
   Trophy,
 } from 'lucide-react';
-import { useAppStore, type ThemeMode } from '../lib/store';
+import { useAppStore, type ThemeMode, type TtsMode } from '../lib/store';
 import { checkHealth, getMemoryStats } from '../lib/api';
 
 function OllamaModelList() {
@@ -112,6 +112,12 @@ const themeOptions: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
   { value: 'light', label: 'Light', icon: Sun },
   { value: 'dark', label: 'Dark', icon: Moon },
   { value: 'system', label: 'System', icon: Monitor },
+];
+
+const ttsModeOptions: { value: TtsMode; label: string }[] = [
+  { value: 'macos_say', label: 'macOS say' },
+  { value: 'browser_speech_synthesis', label: 'Browser speechSynthesis' },
+  { value: 'disabled', label: 'Disabled' },
 ];
 
 export function SettingsPage() {
@@ -502,6 +508,48 @@ export function SettingsPage() {
                   }}
                 />
               </button>
+            </SettingRow>
+            <SettingRow label="TTS mode" description="Friday.app prefers local macOS say; browser mode can keep speechSynthesis">
+              <select
+                value={settings.ttsMode}
+                onChange={(e) => { updateSettings({ ttsMode: e.target.value as TtsMode }); showSaved(); }}
+                className="px-2 py-1 rounded text-xs"
+                style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+              >
+                {ttsModeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </SettingRow>
+            <SettingRow label="macOS voice" description="Recommended Korean voice: Yuna">
+              <input
+                value={settings.ttsVoice}
+                onChange={(e) => { updateSettings({ ttsVoice: e.target.value }); showSaved(); }}
+                className="w-32 px-2 py-1 rounded text-xs"
+                style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+              />
+            </SettingRow>
+            <SettingRow label="TTS rate" description={`${settings.ttsRate} words per minute`}>
+              <input
+                type="number"
+                min="80"
+                max="320"
+                value={settings.ttsRate}
+                onChange={(e) => { updateSettings({ ttsRate: parseInt(e.target.value) || 175 }); showSaved(); }}
+                className="w-24 px-2 py-1 rounded text-xs"
+                style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+              />
+            </SettingRow>
+            <SettingRow label="TTS max length" description={`${settings.ttsMaxChars} characters per reply`}>
+              <input
+                type="number"
+                min="80"
+                max="1200"
+                value={settings.ttsMaxChars}
+                onChange={(e) => { updateSettings({ ttsMaxChars: parseInt(e.target.value) || 400 }); showSaved(); }}
+                className="w-24 px-2 py-1 rounded text-xs"
+                style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+              />
             </SettingRow>
             <SettingRow label="Browser status" description="Uses Web Speech API locally in the browser">
               <div className="flex items-center gap-2">

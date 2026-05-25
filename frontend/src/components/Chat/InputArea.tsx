@@ -2,8 +2,16 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { Ear, MapPin, Send, Square } from 'lucide-react';
 import { useAppStore, generateId } from '../../lib/store';
 import { streamChat } from '../../lib/sse';
-import { fetchSavings, getBase } from '../../lib/api';
-import { hasWakePhrase, stripWakePhrase, type WakeMode } from '../../lib/wake';
+import { fetchSavings, getBase, listenOnceVoice, speakVoice } from '../../lib/api';
+import {
+  evaluateLocalWakeText,
+  hasWakePhrase,
+  nextWakeStatusAfterCommand,
+  shouldRunLocalWakeLoop,
+  shouldContinueLocalWakeLoop,
+  stripWakePhrase,
+  type WakeMode,
+} from '../../lib/wake';
 import { MicButton } from './MicButton';
 import {
   getSpeechRecognitionConstructor,
@@ -34,11 +42,18 @@ export function InputArea() {
   const [locationStatus, setLocationStatus] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const ttsAbortRef = useRef<AbortController | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const wakeRecognitionRef = useRef<any>(null);
   const awaitingWakeCommandRef = useRef(false);
   const wakeLastDetectedAtRef = useRef(0);
   const wakeSendingRef = useRef(false);
+  const wakeLoopAbortRef = useRef<AbortController | null>(null);
+  const wakeLoopRunningRef = useRef(false);
+  const wakeListeningRef = useRef(false);
+  const wakeStopRequestedRef = useRef(false);
+  const wakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sendMessageRef = useRef<(overrideText?: string) => Promise<void>>(async () => {});
 
   const activeId = useAppStore((s) => s.activeId);
   const selectedModel = useAppStore((s) => s.selectedModel);
@@ -46,6 +61,10 @@ export function InputArea() {
   const messages = useAppStore((s) => s.messages);
   const speechEnabled = useAppStore((s) => s.settings.speechEnabled);
   const speakReplies = useAppStore((s) => s.settings.speakReplies);
+  const ttsMode = useAppStore((s) => s.settings.ttsMode);
+  const ttsVoice = useAppStore((s) => s.settings.ttsVoice);
+  const ttsRate = useAppStore((s) => s.settings.ttsRate);
+  const ttsMaxChars = useAppStore((s) => s.settings.ttsMaxChars);
   const maxTokens = useAppStore((s) => s.settings.maxTokens);
   const temperature = useAppStore((s) => s.settings.temperature);
   const createConversation = useAppStore((s) => s.createConversation);
@@ -108,14 +127,45 @@ export function InputArea() {
     }
   }, [speechState, startRecording, stopRecording]);
 
+  const clearWakeTimer = useCallback(() => {
+    if (wakeTimerRef.current) {
+      clearTimeout(wakeTimerRef.current);
+      wakeTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    wakeListeningRef.current = wakeListening;
+  }, [wakeListening]);
+
+  const stopWakeLoop = useCallback((showStopped = true) => {
+    wakeStopRequestedRef.current = true;
+    wakeListeningRef.current = false;
+    clearWakeTimer();
+    wakeLoopAbortRef.current?.abort();
+    wakeLoopAbortRef.current = null;
+    wakeLoopRunningRef.current = false;
+    awaitingWakeCommandRef.current = false;
+    wakeSendingRef.current = false;
+    setWakeListening(false);
+    setWakeMode('idle');
+    setWakeMessage(showStopped ? '호출 대기 중지됨' : '');
+  }, [clearWakeTimer]);
+
   const handleWakeToggle = useCallback(async () => {
     if (wakeListening) {
-      setWakeListening(false);
+      stopWakeLoop();
       return;
     }
     if (!speechEnabled) {
       setWakeMode('error');
       setWakeMessage('음성 입력을 먼저 켜주세요');
+      return;
+    }
+    if (isTauriAppMode()) {
+      wakeStopRequestedRef.current = false;
+      wakeListeningRef.current = true;
+      setWakeListening(true);
       return;
     }
     if (!getSpeechRecognitionConstructor()) {
@@ -129,12 +179,23 @@ export function InputArea() {
     }
     try {
       await requestMicrophonePermission();
+      wakeStopRequestedRef.current = false;
+      wakeListeningRef.current = true;
       setWakeListening(true);
     } catch (err) {
       setWakeMode('error');
       setWakeMessage(err instanceof Error ? err.message : '마이크 권한 확인에 실패했습니다');
     }
-  }, [speechEnabled, wakeListening]);
+  }, [speechEnabled, stopWakeLoop, wakeListening]);
+
+  useEffect(() => {
+    if (!wakeListening || !isTauriAppMode()) return;
+    const handleVisibilityChange = () => {
+      if (document.hidden) stopWakeLoop(false);
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [stopWakeLoop, wakeListening]);
 
   const handleUseCurrentLocation = useCallback(() => {
     if (!navigator.geolocation) {
@@ -156,12 +217,43 @@ export function InputArea() {
     );
   }, []);
 
-  const speakReply = useCallback((text: string) => {
-    if (!speakReplies) {
-      setTtsStatus('음성 응답이 꺼져 있습니다.');
-      return;
+  const stopTts = useCallback((notifyBackend = true) => {
+    ttsAbortRef.current?.abort();
+    ttsAbortRef.current = null;
+    try {
+      window.speechSynthesis?.cancel?.();
+    } catch {}
+    if (notifyBackend && isTauriAppMode()) {
+      void speakVoice({ stop: true }).catch(() => {});
     }
+  }, []);
+
+  const cleanSpeechText = useCallback((text: string) => {
+    let cleaned = stripThinkTags(text);
+    cleaned = cleaned.replace(/```[\s\S]*?```/g, ' ');
+    cleaned = cleaned.replace(/`[^`]+`/g, ' ');
+    cleaned = cleaned.replace(/https?:\/\/\S+/g, ' ');
+    cleaned = cleaned.replace(/^\s*[-*•]\s+/gm, '');
+    cleaned = cleaned.replace(/^\s*\d+[.)]\s+/gm, '');
+    cleaned = cleaned.replace(/#{1,6}\s*/g, '');
+    cleaned = cleaned.replace(/\*\*([^*]+)\*\*/g, '$1');
+    cleaned = cleaned.replace(/\b(ollama|tokens?|token\/sec|cost comparison)\b/gi, ' ');
+    cleaned = cleaned.replace(/Traceback \(most recent call last\):[\s\S]*/g, ' ');
+    cleaned = cleaned.replace(/\s+/g, ' ').trim();
+    return cleaned.slice(0, Math.max(1, ttsMaxChars || 400));
+  }, [ttsMaxChars]);
+
+  const speakWithBrowser = useCallback((text: string): boolean => {
     if (!('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) {
+      return false;
+    }
+    const spoken = cleanSpeechText(text);
+    if (!spoken) return true;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(spoken);
+    utterance.lang = 'ko-KR';
+    utterance.rate = Math.max(0.5, Math.min((ttsRate || 175) / 175, 1.5));
+    utterance.onerror = () => {
       const message = '음성 응답을 사용할 수 없습니다. TTS 설정을 확인해주세요.';
       setTtsStatus(message);
       useAppStore.getState().addLogEntry({
@@ -170,26 +262,52 @@ export function InputArea() {
         category: 'chat',
         message,
       });
+    };
+    utterance.onstart = () => setTtsStatus('음성 응답 중...');
+    utterance.onend = () => setTtsStatus('');
+    window.speechSynthesis.speak(utterance);
+    return true;
+  }, [cleanSpeechText, ttsRate]);
+
+  const speakReply = useCallback((text: string) => {
+    if (!speakReplies) {
+      setTtsStatus('음성 응답이 꺼져 있습니다.');
       return;
     }
-    const spoken = stripThinkTags(text);
-    if (!spoken) return;
-    try {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(spoken);
-      utterance.lang = 'ko-KR';
-      utterance.onerror = () => {
-        const message = '음성 응답을 사용할 수 없습니다. TTS 설정을 확인해주세요.';
-        setTtsStatus(message);
-        useAppStore.getState().addLogEntry({
-          timestamp: Date.now(),
-          level: 'warn',
-          category: 'chat',
-          message,
+    if (ttsMode === 'disabled') {
+      setTtsStatus('음성 응답이 꺼져 있습니다.');
+      return;
+    }
+    stopTts(false);
+    if (isTauriAppMode() && ttsMode === 'macos_say') {
+      const controller = new AbortController();
+      ttsAbortRef.current = controller;
+      setTtsStatus('음성 응답 중...');
+      void speakVoice({
+        text,
+        voice: ttsVoice || 'Yuna',
+        rate: ttsRate || 175,
+        max_chars: ttsMaxChars || 400,
+      }, controller.signal)
+        .then((result) => {
+          if (ttsAbortRef.current === controller) ttsAbortRef.current = null;
+          if (result.ok) {
+            setTtsStatus(result.message || '음성 응답 중...');
+            return;
+          }
+          const fallbackWorked = speakWithBrowser(text);
+          if (!fallbackWorked) setTtsStatus(result.message || 'TTS 음성을 찾을 수 없습니다. macOS 음성 설정을 확인해주세요.');
+        })
+        .catch((err: any) => {
+          if (err?.name === 'AbortError') return;
+          const fallbackWorked = speakWithBrowser(text);
+          if (!fallbackWorked) setTtsStatus('음성 응답을 사용할 수 없습니다. TTS 설정을 확인해주세요.');
         });
-      };
-      setTtsStatus('');
-      window.speechSynthesis.speak(utterance);
+      return;
+    }
+    if (speakWithBrowser(text)) return;
+    try {
+      setTtsStatus('음성 응답을 사용할 수 없습니다. TTS 설정을 확인해주세요.');
     } catch {
       const message = '음성 응답을 사용할 수 없습니다. TTS 설정을 확인해주세요.';
       setTtsStatus(message);
@@ -200,7 +318,7 @@ export function InputArea() {
         message,
       });
     }
-  }, [speakReplies]);
+  }, [speakReplies, speakWithBrowser, stopTts, ttsMaxChars, ttsMode, ttsRate, ttsVoice]);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -210,17 +328,19 @@ export function InputArea() {
   }, [input]);
 
   const stopStreaming = useCallback(() => {
+    stopTts();
     abortRef.current?.abort();
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
     resetStream();
-  }, [resetStream]);
+  }, [resetStream, stopTts]);
 
   const sendMessage = useCallback(async (overrideText?: string) => {
     const content = (overrideText ?? input).trim();
     if (!content || streamState.isStreaming) return;
+    stopTts();
 
     if (!overrideText) setInput('');
 
@@ -457,11 +577,20 @@ export function InputArea() {
     setStreamState,
     resetStream,
     speakReply,
+    stopTts,
     weatherLocation,
   ]);
 
   useEffect(() => {
+    sendMessageRef.current = sendMessage;
+  }, [sendMessage]);
+
+  useEffect(() => {
     if (!wakeListening || !speechEnabled) {
+      clearWakeTimer();
+      wakeLoopAbortRef.current?.abort();
+      wakeLoopAbortRef.current = null;
+      wakeLoopRunningRef.current = false;
       wakeRecognitionRef.current?.stop?.();
       wakeRecognitionRef.current = null;
       awaitingWakeCommandRef.current = false;
@@ -471,9 +600,176 @@ export function InputArea() {
         setWakeMessage('음성 입력을 먼저 켜주세요');
       } else if (!wakeListening) {
         setWakeMode('idle');
-        setWakeMessage('');
+        setWakeMessage(wakeStopRequestedRef.current ? '호출 대기 중지됨' : '');
       }
       return;
+    }
+
+    if (isTauriAppMode()) {
+      if (!shouldRunLocalWakeLoop({
+        wakeListening,
+        speechEnabled,
+        appMode: true,
+        documentHidden: document.hidden,
+      })) {
+        clearWakeTimer();
+        wakeLoopAbortRef.current?.abort();
+        wakeLoopAbortRef.current = null;
+        wakeLoopRunningRef.current = false;
+        setWakeMode('idle');
+        setWakeMessage(wakeStopRequestedRef.current ? '호출 대기 중지됨' : '');
+        return;
+      }
+      if (wakeLoopRunningRef.current) return;
+      wakeLoopRunningRef.current = true;
+      const controller = new AbortController();
+      wakeLoopAbortRef.current = controller;
+      let effectDisposed = false;
+
+      const delay = (ms: number) => new Promise<void>((resolve) => {
+        if (
+          !shouldContinueLocalWakeLoop({
+            wakeListening: wakeListeningRef.current,
+            stopRequested: wakeStopRequestedRef.current,
+            aborted: controller.signal.aborted,
+          })
+        ) {
+          resolve();
+          return;
+        }
+        const timer = window.setTimeout(() => {
+          if (wakeTimerRef.current === timer) wakeTimerRef.current = null;
+          resolve();
+        }, ms);
+        wakeTimerRef.current = timer;
+        controller.signal.addEventListener('abort', () => {
+          if (wakeTimerRef.current === timer) wakeTimerRef.current = null;
+          clearTimeout(timer);
+          resolve();
+        }, { once: true });
+      });
+
+      const listenOnce = async (): Promise<string> => {
+        try {
+          const result = await listenOnceVoice(controller.signal);
+          if (result.ok && result.text.trim()) return result.text.trim();
+          if (result.message) {
+            setWakeMessage(result.message);
+            await delay(1200);
+          }
+        } catch (err: any) {
+          if (err?.name !== 'AbortError') {
+            setWakeMode('error');
+            setWakeMessage('로컬 STT 오류가 발생했습니다');
+            await delay(1200);
+          }
+        }
+        return '';
+      };
+
+      const runLoop = async () => {
+        setWakeMode('wake');
+        setWakeMessage('호출어 대기 중');
+        while (
+          shouldContinueLocalWakeLoop({
+            wakeListening: wakeListeningRef.current,
+            stopRequested: wakeStopRequestedRef.current,
+            aborted: controller.signal.aborted,
+          })
+        ) {
+          if (
+            wakeSendingRef.current
+            || useAppStore.getState().streamState.isStreaming
+          ) {
+            await delay(800);
+            continue;
+          }
+
+          const text = await listenOnce();
+          if (
+            !shouldContinueLocalWakeLoop({
+              wakeListening: wakeListeningRef.current,
+              stopRequested: wakeStopRequestedRef.current,
+              aborted: controller.signal.aborted,
+            })
+          ) break;
+
+          const step = evaluateLocalWakeText(text, {
+            awaitingCommand: awaitingWakeCommandRef.current,
+            lastDetectedAt: wakeLastDetectedAtRef.current,
+            now: Date.now(),
+          });
+          awaitingWakeCommandRef.current = step.awaitingCommand;
+          wakeLastDetectedAtRef.current = step.lastDetectedAt;
+
+          if (step.action === 'duplicate_wake' || step.action === 'none') {
+            setWakeMode('wake');
+            setWakeMessage('호출어 대기 중');
+            await delay(400);
+            continue;
+          }
+
+          if (step.action === 'wake_detected') {
+            setWakeMode('detected');
+            setWakeMessage('프라이데이 감지됨');
+            await delay(300);
+            setWakeMode('command');
+            setWakeMessage('명령 듣는 중');
+            continue;
+          }
+
+          const command = step.command.trim();
+          if (!command) {
+            setWakeMode('wake');
+            setWakeMessage('호출어 대기 중');
+            continue;
+          }
+          wakeSendingRef.current = true;
+          setWakeMode('sending');
+          setWakeMessage('명령 전송 중');
+          await sendMessageRef.current(command);
+          wakeSendingRef.current = false;
+          if (
+            nextWakeStatusAfterCommand({
+              wakeListening: wakeListeningRef.current,
+              stopRequested: wakeStopRequestedRef.current,
+              aborted: controller.signal.aborted,
+            }) === 'wake'
+          ) {
+            setWakeMode('wake');
+            setWakeMessage('호출어 대기 중');
+          }
+          await delay(800);
+        }
+      };
+
+      void runLoop().finally(() => {
+        if (wakeTimerRef.current) {
+          clearTimeout(wakeTimerRef.current);
+          wakeTimerRef.current = null;
+        }
+        wakeLoopRunningRef.current = false;
+        if (wakeLoopAbortRef.current === controller) wakeLoopAbortRef.current = null;
+        wakeSendingRef.current = false;
+        if (wakeStopRequestedRef.current) {
+          setWakeMode('idle');
+          setWakeMessage('호출 대기 중지됨');
+        } else if (
+          !effectDisposed
+          && wakeListeningRef.current
+          && speechEnabled
+          && !document.hidden
+        ) {
+          setWakeMode('wake');
+          setWakeMessage('호출어 대기 중');
+        }
+      });
+
+      return () => {
+        effectDisposed = true;
+        clearWakeTimer();
+        controller.abort();
+      };
     }
 
     const Recognition = getSpeechRecognitionConstructor();
@@ -494,7 +790,7 @@ export function InputArea() {
     recognition.continuous = true;
     recognition.interimResults = false;
     setWakeMode('wake');
-    setWakeMessage('Wake word 대기 중');
+    setWakeMessage('호출어 대기 중');
 
     recognition.onresult = (event: any) => {
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
@@ -507,7 +803,7 @@ export function InputArea() {
           if (hasWakePhrase(text) && !stripWakePhrase(text)) {
             wakeLastDetectedAtRef.current = now;
             setWakeMode('command');
-            setWakeMessage('명령을 듣고 있습니다');
+            setWakeMessage('명령 듣는 중');
             continue;
           }
           const commandText = hasWakePhrase(text) ? stripWakePhrase(text) : text;
@@ -521,7 +817,7 @@ export function InputArea() {
             wakeSendingRef.current = false;
             if (wakeListening) {
               setWakeMode('wake');
-              setWakeMessage('Wake word 대기 중');
+              setWakeMessage('호출어 대기 중');
             }
           }, 800);
           return;
@@ -530,7 +826,7 @@ export function InputArea() {
         if (hasWakePhrase(text) && now - wakeLastDetectedAtRef.current > 1500) {
           wakeLastDetectedAtRef.current = now;
           setWakeMode('detected');
-          setWakeMessage('Wake word 감지됨');
+          setWakeMessage('프라이데이 감지됨');
           const command = stripWakePhrase(text);
           if (command) {
             wakeSendingRef.current = true;
@@ -541,13 +837,13 @@ export function InputArea() {
               wakeSendingRef.current = false;
               if (wakeListening) {
                 setWakeMode('wake');
-                setWakeMessage('Wake word 대기 중');
+                setWakeMessage('호출어 대기 중');
               }
             }, 800);
           } else {
             awaitingWakeCommandRef.current = true;
             setWakeMode('command');
-            setWakeMessage('명령을 듣고 있습니다');
+            setWakeMessage('명령 듣는 중');
           }
         }
       }
@@ -563,7 +859,7 @@ export function InputArea() {
           recognition.start();
         } catch {
           setWakeMode('error');
-          setWakeMessage('Wake listening 재시작 실패');
+          setWakeMessage('호출 대기 재시작 실패');
         }
       }
     };
@@ -572,7 +868,7 @@ export function InputArea() {
       recognition.start();
     } catch {
       setWakeMode('error');
-      setWakeMessage('Wake listening 시작 실패');
+      setWakeMessage('호출 대기 시작 실패');
     }
 
     return () => {
@@ -582,7 +878,7 @@ export function InputArea() {
       recognition.stop();
       if (wakeRecognitionRef.current === recognition) wakeRecognitionRef.current = null;
     };
-  }, [wakeListening, speechEnabled, sendMessage]);
+  }, [clearWakeTimer, wakeListening, speechEnabled]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -642,16 +938,17 @@ export function InputArea() {
               <MapPin size={16} />
             </button>
             <button
-              onClick={handleWakeToggle}
+              onClick={wakeListening ? () => stopWakeLoop() : handleWakeToggle}
               disabled={!speechEnabled || modelLoading}
               className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer disabled:opacity-30 disabled:cursor-default"
               style={{
                 background: wakeListening ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
                 color: wakeListening ? 'white' : 'var(--color-text-tertiary)',
               }}
-              title="Friday Listening"
+              title={wakeListening ? '호출 대기 중지' : '프라이데이 호출 대기'}
+              aria-label={wakeListening ? '호출 대기 중지' : '프라이데이 호출 대기'}
             >
-              <Ear size={16} />
+              {wakeListening ? <Square size={16} /> : <Ear size={16} />}
             </button>
             <button
               onClick={() => sendMessage()}
@@ -678,7 +975,7 @@ export function InputArea() {
           {speechStatusMessage && speechState === 'idle' ? ` · ${speechStatusMessage}` : ''}
           {speechError ? ` · ${speechError}` : ''}
           {ttsStatus ? ` · ${ttsStatus}` : ''}
-          {wakeMode !== 'idle' ? ` · Friday Listening: ${wakeMessage}` : ''}
+          {wakeMessage ? ` · 프라이데이 호출 대기: ${wakeMessage}` : ''}
         </span>
       </div>
     </div>

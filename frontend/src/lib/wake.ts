@@ -10,9 +10,66 @@ export const WAKE_PHRASES = [
   'friday',
   'hey friday',
   '프라이데이',
-  '프라이데',
   '헤이 프라이데이',
 ];
+
+export type LocalWakeStep =
+  | { action: 'none'; awaitingCommand: boolean; lastDetectedAt: number }
+  | { action: 'duplicate_wake'; awaitingCommand: boolean; lastDetectedAt: number }
+  | { action: 'wake_detected'; awaitingCommand: true; lastDetectedAt: number }
+  | { action: 'command_ready'; command: string; awaitingCommand: false; lastDetectedAt: number };
+
+export const WAKE_DEBOUNCE_MS = 3000;
+
+export function shouldRunLocalWakeLoop({
+  wakeListening,
+  speechEnabled,
+  appMode,
+  documentHidden,
+}: {
+  wakeListening: boolean;
+  speechEnabled: boolean;
+  appMode: boolean;
+  documentHidden: boolean;
+}): boolean {
+  return wakeListening && speechEnabled && appMode && !documentHidden;
+}
+
+export function isLocalWakeLoopStopped({
+  stopped,
+  aborted,
+}: {
+  stopped: boolean;
+  aborted: boolean;
+}): boolean {
+  return stopped || aborted;
+}
+
+export function shouldContinueLocalWakeLoop({
+  wakeListening,
+  stopRequested,
+  aborted,
+}: {
+  wakeListening: boolean;
+  stopRequested: boolean;
+  aborted: boolean;
+}): boolean {
+  return wakeListening && !stopRequested && !aborted;
+}
+
+export function nextWakeStatusAfterCommand({
+  wakeListening,
+  stopRequested,
+  aborted,
+}: {
+  wakeListening: boolean;
+  stopRequested: boolean;
+  aborted: boolean;
+}): 'wake' | 'stopped' {
+  return shouldContinueLocalWakeLoop({ wakeListening, stopRequested, aborted })
+    ? 'wake'
+    : 'stopped';
+}
 
 export function hasWakePhrase(text: string): boolean {
   const normalized = text.trim().toLowerCase();
@@ -21,7 +78,7 @@ export function hasWakePhrase(text: string): boolean {
 
 export function stripWakePhrase(text: string): string {
   let cleaned = text.trim();
-  for (const phrase of WAKE_PHRASES) {
+  for (const phrase of [...WAKE_PHRASES].sort((a, b) => b.length - a.length)) {
     cleaned = cleaned.replace(new RegExp(escapeRegExp(phrase), 'gi'), ' ');
   }
   return cleaned.replace(/\s+/g, ' ').trim();
@@ -29,4 +86,49 @@ export function stripWakePhrase(text: string): string {
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function evaluateLocalWakeText(
+  text: string,
+  {
+    awaitingCommand,
+    lastDetectedAt,
+    now,
+    debounceMs = WAKE_DEBOUNCE_MS,
+  }: {
+    awaitingCommand: boolean;
+    lastDetectedAt: number;
+    now: number;
+    debounceMs?: number;
+  },
+): LocalWakeStep {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return { action: 'none', awaitingCommand: false, lastDetectedAt };
+  }
+
+  if (awaitingCommand) {
+    const command = hasWakePhrase(trimmed) ? stripWakePhrase(trimmed) : trimmed;
+    if (!command) {
+      return { action: 'none', awaitingCommand: true, lastDetectedAt };
+    }
+    return {
+      action: 'command_ready',
+      command,
+      awaitingCommand: false,
+      lastDetectedAt,
+    };
+  }
+
+  if (!hasWakePhrase(trimmed)) {
+    return { action: 'none', awaitingCommand: false, lastDetectedAt };
+  }
+  if (now - lastDetectedAt < debounceMs) {
+    return { action: 'duplicate_wake', awaitingCommand: false, lastDetectedAt };
+  }
+  return {
+    action: 'wake_detected',
+    awaitingCommand: true,
+    lastDetectedAt: now,
+  };
 }

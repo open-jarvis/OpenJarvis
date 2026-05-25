@@ -191,11 +191,42 @@ export interface ListenOnceResponse {
   message?: string;
 }
 
-export async function listenOnceVoice(): Promise<ListenOnceResponse> {
+export async function listenOnceVoice(signal?: AbortSignal): Promise<ListenOnceResponse> {
   const res = await fetch(`${getBase()}/v1/voice/listen-once`, {
     method: 'POST',
+    signal,
   });
   if (!res.ok) throw new Error(`Failed to listen once: ${res.status}`);
+  return res.json();
+}
+
+export interface SpeakVoiceRequest {
+  text?: string;
+  voice?: string;
+  rate?: number;
+  max_chars?: number;
+  stop?: boolean;
+}
+
+export interface SpeakVoiceResponse {
+  ok: boolean;
+  engine: string;
+  message: string;
+  text: string;
+  chunks: string[];
+}
+
+export async function speakVoice(
+  payload: SpeakVoiceRequest,
+  signal?: AbortSignal,
+): Promise<SpeakVoiceResponse> {
+  const res = await fetch(`${getBase()}/v1/voice/speak`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal,
+  });
+  if (!res.ok) throw new Error(`Failed to speak: ${res.status}`);
   return res.json();
 }
 

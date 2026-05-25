@@ -57,6 +57,14 @@ class OptimizeRunRequest(BaseModel):
     max_samples: int = 50
 
 
+class VoiceSpeakRequest(BaseModel):
+    text: str = ""
+    voice: str = "Yuna"
+    rate: int = 175
+    max_chars: int = 400
+    stop: bool = False
+
+
 # ---- Agent routes ----
 
 agents_router = APIRouter(prefix="/v1/agents", tags=["agents"])
@@ -824,6 +832,35 @@ async def voice_listen_once(request: Request):
         "engine": result.engine,
         "mode": result.mode,
         "message": result.message,
+    }
+
+
+@voice_router.post("/speak")
+async def voice_speak(req: VoiceSpeakRequest):
+    """Speak text locally with macOS /usr/bin/say."""
+    from openjarvis.voice.tts import speak_macos_say, stop_macos_say
+
+    if req.stop:
+        stop_macos_say()
+        return {
+            "ok": True,
+            "engine": "macos_say",
+            "message": "음성 응답을 중지했습니다.",
+            "text": "",
+            "chunks": [],
+        }
+    result = speak_macos_say(
+        req.text,
+        voice=req.voice,
+        rate=req.rate,
+        max_chars=req.max_chars,
+    )
+    return {
+        "ok": result.ok,
+        "engine": result.engine,
+        "message": result.message,
+        "text": result.text,
+        "chunks": result.chunks or [],
     }
 
 

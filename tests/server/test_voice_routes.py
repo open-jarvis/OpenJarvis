@@ -22,6 +22,7 @@ from openjarvis.voice.recorder import (  # noqa: E402
     AudioRecorder,
     RecordingError,
 )
+from openjarvis.voice.tts import cleanup_tts_text, split_tts_chunks  # noqa: E402
 
 
 class MockRecorder:
@@ -133,6 +134,101 @@ def test_adapter_routing():
 
     cfg.voice.stt_engine = "disabled"
     assert create_stt_adapter(cfg.voice).engine == "disabled"
+
+
+def test_tts_text_cleanup_removes_markdown_urls_and_debug_metadata():
+    cleaned = cleanup_tts_text(
+        """
+        - **오늘 요약** https://example.com
+        ```python
+        raise RuntimeError("boom")
+        ```
+        ollama tokens cost comparison
+        일정은 오후 3시입니다.
+        """,
+        max_chars=200,
+    )
+
+    assert "https://" not in cleaned
+    assert "python" not in cleaned
+    assert "ollama" not in cleaned.lower()
+    assert "tokens" not in cleaned.lower()
+    assert "오늘 요약" in cleaned
+    assert "일정은 오후 3시입니다" in cleaned
+
+
+def test_tts_long_text_is_split():
+    chunks = split_tts_chunks("가" * 260, max_chars=80)
+
+    assert len(chunks) >= 4
+    assert all(len(chunk) <= 80 for chunk in chunks)
+
+
+def test_macos_say_uses_safe_list_args_without_shell(monkeypatch):
+    import openjarvis.voice.tts as tts
+
+    calls = []
+
+    class FakeSayPath:
+        def exists(self):
+            return True
+
+        def __str__(self):
+            return "/usr/bin/say"
+
+    class Proc:
+        def poll(self):
+            return 0
+
+    def fake_popen(command, **kwargs):
+        calls.append((command, kwargs))
+        return Proc()
+
+    monkeypatch.setattr(tts, "SAY_PATH", FakeSayPath())
+    result = tts.speak_macos_say(
+        "안녕하세요. 오늘 일정 알려드릴게요.",
+        voice="Yuna",
+        rate=175,
+        max_chars=400,
+        popen=fake_popen,
+    )
+
+    assert result.ok is True
+    command, kwargs = calls[0]
+    assert command[:5] == ["/usr/bin/say", "-v", "Yuna", "-r", "175"]
+    assert "shell" not in kwargs
+
+
+def test_macos_say_empty_text_does_not_speak(monkeypatch):
+    import openjarvis.voice.tts as tts
+
+    class FakeSayPath:
+        def exists(self):
+            return True
+
+    monkeypatch.setattr(tts, "SAY_PATH", FakeSayPath())
+    calls = []
+    result = tts.speak_macos_say("```code``` https://example.com", popen=calls.append)
+
+    assert result.ok is False
+    assert calls == []
+
+
+def test_voice_speak_endpoint_failure_does_not_raise(monkeypatch):
+    cfg = JarvisConfig()
+    client = make_client(cfg)
+
+    def fake_speak(*args, **kwargs):
+        from openjarvis.voice.tts import SpeakResult
+
+        return SpeakResult(ok=False, message="TTS 음성을 찾을 수 없습니다.")
+
+    monkeypatch.setattr("openjarvis.voice.tts.speak_macos_say", fake_speak)
+
+    response = client.post("/v1/voice/speak", json={"text": "안녕하세요"})
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is False
 
 
 def test_adapter_defaults_to_korean_language():

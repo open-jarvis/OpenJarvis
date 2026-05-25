@@ -63,6 +63,7 @@ function saveConversations(store: ConversationStore): void {
 }
 
 export type ThemeMode = 'light' | 'dark' | 'system';
+export type TtsMode = 'macos_say' | 'browser_speech_synthesis' | 'disabled';
 
 interface Settings {
   theme: ThemeMode;
@@ -74,6 +75,10 @@ interface Settings {
   maxTokens: number;
   speechEnabled: boolean;
   speakReplies: boolean;
+  ttsMode: TtsMode;
+  ttsVoice: string;
+  ttsRate: number;
+  ttsMaxChars: number;
 }
 
 function loadSettings(): Settings {
@@ -87,6 +92,10 @@ function loadSettings(): Settings {
     maxTokens: 4096,
     speechEnabled: false,
     speakReplies: false,
+    ttsMode: 'macos_say',
+    ttsVoice: 'Yuna',
+    ttsRate: 175,
+    ttsMaxChars: 400,
   };
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);

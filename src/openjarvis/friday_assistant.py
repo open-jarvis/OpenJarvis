@@ -175,6 +175,8 @@ APP_ALIASES: dict[str, str] = {
     "kakaotalk": "KakaoTalk",
 }
 
+FILE_SEARCH_ALLOWLIST: tuple[Path, ...] = ()
+
 DETAIL_WEATHER_KEYWORDS = (
     "상세",
     "자세히",
@@ -233,6 +235,15 @@ class FridayLocalStore:
     def list_notes(self) -> list[str]:
         return [str(item.get("text", "")) for item in self._load()["notes"]]
 
+    def delete_last_note(self) -> str | None:
+        data = self._load()
+        notes = data["notes"]
+        if not notes:
+            return None
+        note = notes.pop()
+        self._save(data)
+        return str(note.get("text", ""))
+
     def add_todo(self, text: str) -> int:
         data = self._load()
         data["todos"].append(
@@ -247,6 +258,28 @@ class FridayLocalStore:
 
     def list_todos(self) -> list[str]:
         return [str(item.get("text", "")) for item in self._load()["todos"]]
+
+    def complete_todo(self, text: str) -> str | None:
+        data = self._load()
+        todos = data["todos"]
+        target = text.strip()
+        if not target:
+            return None
+
+        index = _parse_one_based_index(target)
+        if index is not None and 0 <= index < len(todos):
+            todos[index]["done"] = True
+            self._save(data)
+            return str(todos[index].get("text", ""))
+
+        lowered = target.lower()
+        for item in todos:
+            todo_text = str(item.get("text", ""))
+            if lowered in todo_text.lower() or todo_text.lower() in lowered:
+                item["done"] = True
+                self._save(data)
+                return todo_text
+        return None
 
     def set_weather_location(self, location: dict[str, Any]) -> None:
         data = self._load()
@@ -418,6 +451,8 @@ class FridayAssistantRouter:
             or self._route_website(text)
             or self._route_app(text)
             or self._route_notes_todos(text)
+            or self._route_calendar(text)
+            or self._route_file_search(text)
             or self._route_status(text)
         )
         return handled
@@ -613,6 +648,19 @@ class FridayAssistantRouter:
             lines.extend(f"- {todo}" for todo in todos)
             return FridayAssistantResult(content="\n".join(lines), intent="list_todos")
 
+        if "마지막 메모 삭제" in text:
+            deleted = self.store.delete_last_note()
+            if deleted is None:
+                return FridayAssistantResult(
+                    content="삭제할 메모가 없습니다.",
+                    intent="delete_last_note",
+                    success=False,
+                )
+            return FridayAssistantResult(
+                content=f"마지막 메모를 삭제했습니다: {deleted}",
+                intent="delete_last_note",
+            )
+
         note = _extract_after(
             text,
             ("메모해줘:", "메모해 줘:", "메모해줘", "메모해 줘"),
@@ -635,7 +683,63 @@ class FridayAssistantRouter:
                 intent="add_todo",
             )
 
+        todo_done = _extract_after(
+            text,
+            ("할 일 완료:", "할일 완료:", "할 일 완료", "할일 완료"),
+        )
+        if todo_done:
+            completed = self.store.complete_todo(todo_done)
+            if completed is None:
+                return FridayAssistantResult(
+                    content="완료할 할 일을 찾지 못했습니다.",
+                    intent="complete_todo",
+                    success=False,
+                )
+            return FridayAssistantResult(
+                content=f"할 일을 완료했습니다: {completed}",
+                intent="complete_todo",
+            )
+
         return None
+
+    def _route_calendar(self, text: str) -> FridayAssistantResult | None:
+        if not any(k in text for k in ("일정", "캘린더", "calendar")):
+            return None
+        if not any(k in text for k in ("알려", "보여", "추가", "등록", "확인", "목록")):
+            return None
+        return FridayAssistantResult(
+            content="일정 기능은 아직 로컬 캘린더 연동 설정이 필요합니다.",
+            intent="calendar_placeholder",
+            success=False,
+            metadata={"local_only": True},
+        )
+
+    def _route_file_search(self, text: str) -> FridayAssistantResult | None:
+        if not any(k in text for k in ("파일", "문서")):
+            return None
+        if not any(k in text for k in ("찾아", "검색", "어디", "보여")):
+            return None
+        if not FILE_SEARCH_ALLOWLIST:
+            return FridayAssistantResult(
+                content=(
+                    "파일 검색은 아직 허용된 폴더 설정이 필요합니다. "
+                    "전체 디스크는 검색하지 않습니다."
+                ),
+                intent="file_search_placeholder",
+                success=False,
+                metadata={"allowlisted_folders": []},
+            )
+        return FridayAssistantResult(
+            content=(
+                "파일 검색은 허용된 폴더 안에서만 동작하도록 준비 중입니다. "
+                "전체 디스크는 검색하지 않습니다."
+            ),
+            intent="file_search_placeholder",
+            success=False,
+            metadata={
+                "allowlisted_folders": [str(path) for path in FILE_SEARCH_ALLOWLIST]
+            },
+        )
 
     def _route_status(self, text: str) -> FridayAssistantResult | None:
         if (
@@ -773,6 +877,13 @@ def _extract_after(text: str, markers: tuple[str, ...]) -> str:
     return ""
 
 
+def _parse_one_based_index(text: str) -> int | None:
+    match = re.search(r"\d+", text)
+    if not match:
+        return None
+    return int(match.group(0)) - 1
+
+
 def _is_port_open(host: str, port: int, timeout: float = 0.3) -> bool:
     try:
         with socket.create_connection((host, port), timeout=timeout):
@@ -783,6 +894,7 @@ def _is_port_open(host: str, port: int, timeout: float = 0.3) -> bool:
 
 __all__ = [
     "APP_ALIASES",
+    "FILE_SEARCH_ALLOWLIST",
     "FRIDAY_DATA_PATH",
     "FridayAssistantResult",
     "FridayAssistantRouter",
