@@ -64,6 +64,7 @@ function saveConversations(store: ConversationStore): void {
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type TtsMode = 'macos_say' | 'browser_speech_synthesis' | 'disabled';
+export const FRIDAY_FAST_LOCAL_MODEL = 'qwen3:0.6b';
 
 interface Settings {
   theme: ThemeMode;
@@ -86,7 +87,7 @@ function loadSettings(): Settings {
     theme: 'system',
     apiUrl: '',
     fontSize: 'default',
-    defaultModel: '',
+    defaultModel: FRIDAY_FAST_LOCAL_MODEL,
     defaultAgent: '',
     temperature: 0.7,
     maxTokens: 4096,
@@ -241,7 +242,9 @@ export const useAppStore = create<AppState>((set, get) => {
 
     models: [],
     modelsLoading: true,
-    selectedModel: '',
+    selectedModel: initial.activeId && initial.conversations[initial.activeId]
+      ? initial.conversations[initial.activeId].model
+      : loadSettings().defaultModel,
     serverInfo: null,
     savings: null,
 
@@ -249,7 +252,7 @@ export const useAppStore = create<AppState>((set, get) => {
 
     commandPaletteOpen: false,
     sidebarOpen: true,
-    systemPanelOpen: true,
+    systemPanelOpen: false,
 
     optInEnabled: localStorage.getItem(OPTIN_KEY) === 'true',
     optInDisplayName: localStorage.getItem(OPTIN_NAME_KEY) || '',

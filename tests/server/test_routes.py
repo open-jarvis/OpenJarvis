@@ -279,6 +279,94 @@ class TestChatCompletions:
 
 
 # ---------------------------------------------------------------------------
+# Voice speak tests
+# ---------------------------------------------------------------------------
+
+
+class TestVoiceSpeak:
+    def test_voice_speak_success(self, client, monkeypatch):
+        from openjarvis.voice.tts import SpeakResult
+
+        calls = []
+
+        def fake_speak(*args, **kwargs):
+            calls.append((args, kwargs))
+            return SpeakResult(
+                ok=True,
+                message="음성 응답 중...",
+                text="안녕하세요",
+                chunks=["안녕하세요"],
+            )
+
+        monkeypatch.setattr("openjarvis.voice.tts.speak_macos_say", fake_speak)
+
+        resp = client.post(
+            "/v1/voice/speak",
+            json={"text": "안녕하세요", "voice": "Yuna", "rate": 175},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "ok": True,
+            "engine": "macos_say",
+            "message": "음성 응답 중...",
+            "text": "안녕하세요",
+            "chunks": ["안녕하세요"],
+        }
+        assert calls == [
+            (("안녕하세요",), {"voice": "Yuna", "rate": 175, "max_chars": 400})
+        ]
+
+    def test_voice_speak_empty_text_returns_json_error(self, client, monkeypatch):
+        from openjarvis.voice.tts import SpeakResult
+
+        def fake_speak(*args, **kwargs):
+            return SpeakResult(ok=False, message="읽을 음성 응답이 없습니다.")
+
+        monkeypatch.setattr("openjarvis.voice.tts.speak_macos_say", fake_speak)
+
+        resp = client.post("/v1/voice/speak", json={"text": ""})
+
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is False
+        assert resp.json()["message"] == "읽을 음성 응답이 없습니다."
+
+    def test_voice_speak_stop(self, client, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            "openjarvis.voice.tts.stop_macos_say",
+            lambda: calls.append(True),
+        )
+
+        resp = client.post("/v1/voice/speak", json={"stop": True})
+
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        assert resp.json()["message"] == "음성 응답을 중지했습니다."
+        assert calls == [True]
+
+    def test_voice_speak_failure_does_not_raise(self, client, monkeypatch):
+        from openjarvis.voice.tts import SpeakResult
+
+        def fake_speak(*args, **kwargs):
+            return SpeakResult(
+                ok=False,
+                message="TTS 음성을 찾을 수 없습니다. macOS 음성 설정을 확인해주세요.",
+            )
+
+        monkeypatch.setattr("openjarvis.voice.tts.speak_macos_say", fake_speak)
+
+        resp = client.post("/v1/voice/speak", json={"text": "안녕하세요"})
+
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is False
+        assert (
+            resp.json()["message"]
+            == "TTS 음성을 찾을 수 없습니다. macOS 음성 설정을 확인해주세요."
+        )
+
+
+# ---------------------------------------------------------------------------
 # Models endpoint tests
 # ---------------------------------------------------------------------------
 

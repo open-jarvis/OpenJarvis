@@ -8,6 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from openjarvis.core.types import Message, Role
 from openjarvis.server.models import (
@@ -30,6 +31,14 @@ MODEL_NOT_FOUND_MESSAGE = (
 )
 
 
+class VoiceSpeakRequest(BaseModel):
+    text: str = ""
+    voice: str = "Yuna"
+    rate: int = 175
+    max_chars: int = 400
+    stop: bool = False
+
+
 def _to_messages(chat_messages) -> list[Message]:
     """Convert Pydantic ChatMessage objects to core Message objects."""
     messages = []
@@ -44,6 +53,36 @@ def _to_messages(chat_messages) -> list[Message]:
             )
         )
     return messages
+
+
+@router.post("/v1/voice/speak")
+async def voice_speak(request_body: VoiceSpeakRequest):
+    """Speak text locally with macOS /usr/bin/say."""
+    from openjarvis.voice.tts import speak_macos_say, stop_macos_say
+
+    if request_body.stop:
+        stop_macos_say()
+        return {
+            "ok": True,
+            "engine": "macos_say",
+            "message": "음성 응답을 중지했습니다.",
+            "text": "",
+            "chunks": [],
+        }
+
+    result = speak_macos_say(
+        request_body.text,
+        voice=request_body.voice,
+        rate=request_body.rate,
+        max_chars=request_body.max_chars,
+    )
+    return {
+        "ok": result.ok,
+        "engine": result.engine,
+        "message": result.message,
+        "text": result.text,
+        "chunks": result.chunks or [],
+    }
 
 
 @router.post("/v1/chat/completions")

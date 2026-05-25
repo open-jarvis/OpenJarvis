@@ -11,11 +11,9 @@ import { LogsPage } from './pages/LogsPage';
 import { CommandPalette } from './components/CommandPalette';
 import { SetupScreen } from './components/SetupScreen';
 import { Toaster } from './components/ui/sonner';
-import { useAppStore } from './lib/store';
+import { FRIDAY_FAST_LOCAL_MODEL, useAppStore } from './lib/store';
 import { fetchModels, fetchServerInfo, fetchSavings, submitSavings, isTauri } from './lib/api';
 import { OptInModal } from './components/OptInModal';
-
-const FRIDAY_FAST_LOCAL_MODEL = 'qwen3:0.6b';
 
 export default function App() {
   const [setupDone, setSetupDone] = useState(!isTauri());
@@ -111,8 +109,6 @@ export default function App() {
     return () => clearInterval(interval);
   }, [optInEnabled, optInDisplayName, optInAnonId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const toggleSystemPanel = useAppStore((s) => s.toggleSystemPanel);
-
   // Global keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -120,14 +116,10 @@ export default function App() {
         e.preventDefault();
         setCommandPaletteOpen(!commandPaletteOpen);
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === 'i') {
-        e.preventDefault();
-        toggleSystemPanel();
-      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [commandPaletteOpen, setCommandPaletteOpen, toggleSystemPanel]);
+  }, [commandPaletteOpen, setCommandPaletteOpen]);
 
   // Desktop auto-update check — disabled during local development.
   // Re-enable for production releases by uncommenting below.
