@@ -353,22 +353,38 @@ def open_macos_app(alias: str) -> FridayAssistantResult:
 
 def check_friday_status(
     port_checker: Callable[[str, int, float], bool] | None = None,
+    *,
+    desktop_app_mode: bool = True,
 ) -> FridayAssistantResult:
     checker = port_checker or _is_port_open
     targets = [
         ("Ollama", "127.0.0.1", 11434),
         ("backend", "127.0.0.1", 8000),
-        ("frontend", "127.0.0.1", 5173),
+        ("frontend dev server", "127.0.0.1", 5173),
     ]
     statuses = {name: checker(host, port, 0.3) for name, host, port in targets}
     lines = ["Friday 로컬 상태입니다."]
-    for name, _host, port in targets:
-        state = "실행 중" if statuses[name] else "응답 없음"
-        lines.append(f"- {name} ({port}): {state}")
+    ollama_state = "실행 중" if statuses["Ollama"] else "응답 없음"
+    backend_state = "실행 중" if statuses["backend"] else "응답 없음"
+    lines.append(f"- Ollama (11434): {ollama_state}")
+    lines.append(f"- backend (8000): {backend_state}")
+    if desktop_app_mode:
+        lines.append("- Friday.app: 앱 모드 사용 중")
+        frontend_state = (
+            "실행 중, 앱 모드에서는 선택 사항"
+            if statuses["frontend dev server"]
+            else "꺼짐, 앱 모드에서는 정상"
+        )
+        lines.append(f"- frontend dev server (5173): {frontend_state}")
+    else:
+        frontend_state = (
+            "실행 중" if statuses["frontend dev server"] else "응답 없음"
+        )
+        lines.append(f"- frontend dev server (5173): {frontend_state}")
     return FridayAssistantResult(
         content="\n".join(lines),
         intent="status",
-        metadata={"ports": statuses},
+        metadata={"ports": statuses, "desktop_app_mode": desktop_app_mode},
     )
 
 
@@ -382,11 +398,13 @@ class FridayAssistantRouter:
         now_fn: Callable[[], datetime] | None = None,
         port_checker: Callable[[str, int, float], bool] | None = None,
         current_location: dict[str, Any] | None = None,
+        desktop_app_mode: bool = True,
     ) -> None:
         self.store = FridayLocalStore(data_path)
         self.now_fn = now_fn or datetime.now
         self.port_checker = port_checker
         self.current_location = _normalize_location(current_location)
+        self.desktop_app_mode = desktop_app_mode
 
     def route(self, query: str) -> FridayAssistantResult | None:
         text = _compact(query)
@@ -625,7 +643,10 @@ class FridayAssistantRouter:
             or "서버 상태" in text
             or "로컬 모델 상태" in text
         ):
-            return check_friday_status(self.port_checker)
+            return check_friday_status(
+                self.port_checker,
+                desktop_app_mode=self.desktop_app_mode,
+            )
         return None
 
 
@@ -636,12 +657,14 @@ def route_friday_command(
     now_fn: Callable[[], datetime] | None = None,
     port_checker: Callable[[str, int, float], bool] | None = None,
     current_location: dict[str, Any] | None = None,
+    desktop_app_mode: bool = True,
 ) -> FridayAssistantResult | None:
     return FridayAssistantRouter(
         data_path=data_path,
         now_fn=now_fn,
         port_checker=port_checker,
         current_location=current_location,
+        desktop_app_mode=desktop_app_mode,
     ).route(query)
 
 

@@ -73,6 +73,24 @@ System Settings -> Privacy & Security -> Microphone
 Speech synthesis for replies uses local browser `speechSynthesis`; no cloud TTS
 service is required by the desktop wrapper.
 
+The macOS bundle includes `NSMicrophoneUsageDescription` so the app can appear
+in the microphone privacy list after it requests access. If **OpenJarvis
+Friday** does not appear in System Settings, launch the rebuilt app and click
+the microphone button or enable Friday Listening once. The app explicitly calls
+`navigator.mediaDevices.getUserMedia({ audio: true })` before starting voice
+recognition so macOS can show the permission prompt.
+
+If permission was denied, open:
+
+```text
+System Settings -> Privacy & Security -> Microphone -> OpenJarvis Friday
+```
+
+If the app says Web Speech recognition is unavailable in macOS app mode, the
+current WKWebView does not expose browser speech recognition. The mic button can
+fall back to the local backend listen-once STT endpoint when `[voice]` local STT
+is configured. See [Local STT](LOCAL_STT.md).
+
 ## LaunchAgents
 
 The desktop app does not replace the existing LaunchAgent setup. The existing

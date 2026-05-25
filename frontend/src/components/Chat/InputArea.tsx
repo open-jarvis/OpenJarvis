@@ -5,7 +5,13 @@ import { streamChat } from '../../lib/sse';
 import { fetchSavings, getBase } from '../../lib/api';
 import { hasWakePhrase, stripWakePhrase, type WakeMode } from '../../lib/wake';
 import { MicButton } from './MicButton';
-import { useSpeech } from '../../hooks/useSpeech';
+import {
+  getSpeechRecognitionConstructor,
+  getSpeechUnavailableMessage,
+  isTauriAppMode,
+  requestMicrophonePermission,
+  useSpeech,
+} from '../../hooks/useSpeech';
 import type { ChatMessage, ToolCallInfo, TokenUsage, MessageTelemetry } from '../../types';
 
 function stripThinkTags(text: string): string {
@@ -48,7 +54,15 @@ export function InputArea() {
   const resetStream = useAppStore((s) => s.resetStream);
   const modelLoading = useAppStore((s) => s.modelLoading);
 
-  const { state: speechState, available: speechAvailable, startRecording, stopRecording } = useSpeech();
+  const {
+    state: speechState,
+    error: speechError,
+    statusMessage: speechStatusMessage,
+    available: speechAvailable,
+    startRecording,
+    stopRecording,
+    isTranscribing,
+  } = useSpeech();
 
   // Abort in-flight stream when the user switches models mid-generation.
   // This prevents errors from trying to continue a stream with a stale model.
@@ -66,15 +80,16 @@ export function InputArea() {
     prevModelRef.current = selectedModel;
   }, [selectedModel, streamState.isStreaming, resetStream]);
 
-  const micDisabled = !speechEnabled || !speechAvailable || streamState.isStreaming;
+  const micDisabled = !speechEnabled || streamState.isStreaming;
   const micReason: 'not-enabled' | 'unsupported' | 'streaming' | undefined =
     !speechEnabled ? 'not-enabled'
-    : !speechAvailable ? 'unsupported'
+    : !speechAvailable && !isTauriAppMode() ? 'unsupported'
     : streamState.isStreaming ? 'streaming'
     : undefined;
 
   const handleMicClick = useCallback(async () => {
     if (speechState === 'recording') {
+      if (isTauriAppMode() && !getSpeechRecognitionConstructor()) return;
       try {
         const text = await stopRecording();
         if (text) {
@@ -91,6 +106,34 @@ export function InputArea() {
       });
     }
   }, [speechState, startRecording, stopRecording]);
+
+  const handleWakeToggle = useCallback(async () => {
+    if (wakeListening) {
+      setWakeListening(false);
+      return;
+    }
+    if (!speechEnabled) {
+      setWakeMode('error');
+      setWakeMessage('음성 입력을 먼저 켜주세요');
+      return;
+    }
+    if (!getSpeechRecognitionConstructor()) {
+      setWakeMode('error');
+      setWakeMessage(
+        isTauriAppMode()
+          ? '앱 모드의 로컬 연속 wake listening은 listen-once STT가 안정화된 뒤 추가됩니다.'
+          : getSpeechUnavailableMessage(),
+      );
+      return;
+    }
+    try {
+      await requestMicrophonePermission();
+      setWakeListening(true);
+    } catch (err) {
+      setWakeMode('error');
+      setWakeMessage(err instanceof Error ? err.message : '마이크 권한 확인에 실패했습니다');
+    }
+  }, [speechEnabled, wakeListening]);
 
   const handleUseCurrentLocation = useCallback(() => {
     if (!navigator.geolocation) {
@@ -381,7 +424,7 @@ export function InputArea() {
   ]);
 
   useEffect(() => {
-    if (!wakeListening || !speechEnabled || !speechAvailable) {
+    if (!wakeListening || !speechEnabled) {
       wakeRecognitionRef.current?.stop?.();
       wakeRecognitionRef.current = null;
       awaitingWakeCommandRef.current = false;
@@ -396,10 +439,14 @@ export function InputArea() {
       return;
     }
 
-    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const Recognition = getSpeechRecognitionConstructor();
     if (!Recognition) {
       setWakeMode('error');
-      setWakeMessage('이 브라우저는 음성 인식을 지원하지 않습니다');
+      setWakeMessage(
+        isTauriAppMode()
+          ? '앱 모드의 로컬 연속 wake listening은 listen-once STT가 안정화된 뒤 추가됩니다.'
+          : getSpeechUnavailableMessage(),
+      );
       return;
     }
 
@@ -498,7 +545,7 @@ export function InputArea() {
       recognition.stop();
       if (wakeRecognitionRef.current === recognition) wakeRecognitionRef.current = null;
     };
-  }, [wakeListening, speechEnabled, speechAvailable, sendMessage]);
+  }, [wakeListening, speechEnabled, sendMessage]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -558,8 +605,8 @@ export function InputArea() {
               <MapPin size={16} />
             </button>
             <button
-              onClick={() => setWakeListening((value) => !value)}
-              disabled={!speechEnabled || !speechAvailable || modelLoading}
+              onClick={handleWakeToggle}
+              disabled={!speechEnabled || modelLoading}
               className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer disabled:opacity-30 disabled:cursor-default"
               style={{
                 background: wakeListening ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
@@ -589,6 +636,10 @@ export function InputArea() {
           <kbd className="font-mono">Enter</kbd> to send &middot;{' '}
           <kbd className="font-mono">Shift+Enter</kbd> for new line
           {locationStatus ? ` · ${locationStatus}` : ''}
+          {speechState === 'recording' ? ' · 듣는 중...' : ''}
+          {isTranscribing ? ' · 음성 인식 중...' : ''}
+          {speechStatusMessage && speechState === 'idle' ? ` · ${speechStatusMessage}` : ''}
+          {speechError ? ` · ${speechError}` : ''}
           {wakeMode !== 'idle' ? ` · Friday Listening: ${wakeMessage}` : ''}
         </span>
       </div>

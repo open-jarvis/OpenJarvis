@@ -1243,6 +1243,22 @@ class SpeechConfig:
 
 
 @dataclass(slots=True)
+class VoiceConfig:
+    """Local voice input settings for app-mode listen-once STT."""
+
+    stt_enabled: bool = False
+    stt_engine: str = "disabled"
+    stt_model: str = ""
+    stt_language: str = ""
+    language: str = ""
+    recording_seconds: int = 4
+    sample_rate: int = 16000
+    recorder_command: str = ""
+    whisper_cpp_path: str = ""
+    custom_command: str = ""
+
+
+@dataclass(slots=True)
 class OptimizeConfig:
     """Configuration optimization settings."""
 
@@ -1386,6 +1402,7 @@ class JarvisConfig:
     a2a: A2AConfig = field(default_factory=A2AConfig)
     operators: OperatorsConfig = field(default_factory=OperatorsConfig)
     speech: SpeechConfig = field(default_factory=SpeechConfig)
+    voice: VoiceConfig = field(default_factory=VoiceConfig)
     optimize: OptimizeConfig = field(default_factory=OptimizeConfig)
     agent_manager: AgentManagerConfig = field(default_factory=AgentManagerConfig)
     memory_files: MemoryFilesConfig = field(default_factory=MemoryFilesConfig)
@@ -1600,6 +1617,7 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
             "a2a",
             "operators",
             "speech",
+            "voice",
             "optimize",
             "agent_manager",
             "digest",
@@ -1947,6 +1965,7 @@ __all__ = [
     "ToolsConfig",
     "TracesConfig",
     "VLLMEngineConfig",
+    "VoiceConfig",
     "WebChatChannelConfig",
     "WebhookChannelConfig",
     "WeatherConfig",

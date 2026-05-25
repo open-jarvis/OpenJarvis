@@ -15,11 +15,13 @@ export function MicButton({ state, onClick, disabled, reason }: MicButtonProps) 
     reason === 'not-enabled'
       ? 'Enable in Settings'
       : reason === 'unsupported'
-        ? 'Browser speech recognition unavailable'
+        ? '현재 macOS 앱 모드에서는 Web Speech 음성 인식이 지원되지 않습니다. 로컬 STT 모듈 연결이 필요합니다.'
         : reason === 'streaming'
           ? 'Wait for response'
+          : state === 'transcribing'
+            ? '음성 인식 중...'
           : state === 'recording'
-            ? 'Stop recording'
+            ? '듣는 중...'
             : 'Voice input (ko-KR)';
 
   const isInactive = disabled;
@@ -33,19 +35,22 @@ export function MicButton({ state, onClick, disabled, reason }: MicButtonProps) 
       <button
         onClick={onClick}
         disabled={isInactive}
+        title={tooltipText}
         className="p-2 rounded-xl transition-all shrink-0"
         style={{
           background: state === 'recording'
             ? 'var(--color-error)'
+            : state === 'transcribing'
+              ? 'var(--color-accent)'
             : 'transparent',
-          color: state === 'recording'
+          color: state === 'recording' || state === 'transcribing'
             ? 'white'
             : isInactive
               ? 'var(--color-text-tertiary)'
               : 'var(--color-text-secondary)',
           cursor: isInactive ? 'default' : 'pointer',
           opacity: isInactive ? 0.35 : 1,
-          animation: state === 'recording' ? 'pulse 1.5s ease-in-out infinite' : 'none',
+          animation: state === 'recording' || state === 'transcribing' ? 'pulse 1.5s ease-in-out infinite' : 'none',
         }}
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
@@ -53,7 +58,7 @@ export function MicButton({ state, onClick, disabled, reason }: MicButtonProps) 
           <path d="M3.5 6.5A.5.5 0 0 1 4 7v1a4 4 0 0 0 8 0V7a.5.5 0 0 1 1 0v1a5 5 0 0 1-4.5 4.975V15h3a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1h3v-2.025A5 5 0 0 1 3 8V7a.5.5 0 0 1 .5-.5z" />
         </svg>
       </button>
-      {showTooltip && isInactive && (
+      {showTooltip && (isInactive || reason === 'unsupported') && (
         <div
           className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1.5 rounded-lg text-xs whitespace-nowrap pointer-events-none"
           style={{

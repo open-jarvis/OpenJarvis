@@ -183,6 +183,22 @@ export async function fetchServerInfo(): Promise<ServerInfo> {
   return res.json();
 }
 
+export interface ListenOnceResponse {
+  ok: boolean;
+  text: string;
+  engine: string;
+  mode: 'local_backend';
+  message?: string;
+}
+
+export async function listenOnceVoice(): Promise<ListenOnceResponse> {
+  const res = await fetch(`${getBase()}/v1/voice/listen-once`, {
+    method: 'POST',
+  });
+  if (!res.ok) throw new Error(`Failed to listen once: ${res.status}`);
+  return res.json();
+}
+
 export async function checkHealth(): Promise<boolean> {
   if (isTauri()) {
     try {

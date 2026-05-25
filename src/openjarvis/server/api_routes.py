@@ -760,6 +760,7 @@ async def learning_policy(request: Request):
 # ---- Speech routes ----
 
 speech_router = APIRouter(prefix="/v1/speech", tags=["speech"])
+voice_router = APIRouter(prefix="/v1/voice", tags=["voice"])
 
 
 @speech_router.post("/transcribe")
@@ -799,6 +800,30 @@ async def speech_health(request: Request):
     return {
         "available": backend.health(),
         "backend": backend.backend_id,
+    }
+
+
+@voice_router.post("/listen-once")
+async def voice_listen_once(request: Request):
+    """Record one local microphone clip and transcribe it with local STT."""
+    config = getattr(request.app.state, "config", None)
+    if config is None:
+        from openjarvis.core.config import load_config
+
+        config = load_config()
+
+    recorder = getattr(request.app.state, "voice_recorder", None)
+    adapter = getattr(request.app.state, "voice_stt_adapter", None)
+
+    from openjarvis.voice import listen_once
+
+    result = listen_once(config.voice, recorder=recorder, adapter=adapter)
+    return {
+        "ok": result.ok,
+        "text": result.text,
+        "engine": result.engine,
+        "mode": result.mode,
+        "message": result.message,
     }
 
 
@@ -913,6 +938,7 @@ def include_all_routes(app) -> None:
     app.include_router(websocket_router)
     app.include_router(learning_router)
     app.include_router(speech_router)
+    app.include_router(voice_router)
     app.include_router(feedback_router)
     app.include_router(optimize_router)
 
@@ -962,6 +988,7 @@ __all__ = [
     "websocket_router",
     "learning_router",
     "speech_router",
+    "voice_router",
     "feedback_router",
     "optimize_router",
 ]

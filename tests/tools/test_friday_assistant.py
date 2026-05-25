@@ -154,7 +154,20 @@ def test_status_check_uses_mocked_port_checker():
 
     assert "Ollama (11434): 실행 중" in result.content
     assert "backend (8000): 실행 중" in result.content
-    assert "frontend (5173): 응답 없음" in result.content
+    assert "Friday.app: 앱 모드 사용 중" in result.content
+    assert "frontend dev server (5173): 꺼짐, 앱 모드에서는 정상" in result.content
+    assert result.metadata["desktop_app_mode"] is True
+
+
+def test_status_check_can_report_frontend_as_required_for_dev_server_mode():
+    def checker(host: str, port: int, timeout: float) -> bool:
+        return port in {11434, 8000}
+
+    result = check_friday_status(checker, desktop_app_mode=False)
+
+    assert "Friday.app: 앱 모드 사용 중" not in result.content
+    assert "frontend dev server (5173): 응답 없음" in result.content
+    assert result.metadata["desktop_app_mode"] is False
 
 
 def test_weather_routing_uses_basic_and_detail_tools(tmp_path):

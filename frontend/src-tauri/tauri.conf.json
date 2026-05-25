@@ -44,6 +44,7 @@
     "longDescription": "OpenJarvis Friday wraps the local-first OpenJarvis assistant frontend in a native macOS desktop application. It connects to the local OpenJarvis backend and Ollama runtime without cloud API keys.",
     "macOS": {
       "entitlements": "Entitlements.plist",
+      "infoPlist": "Info.plist",
       "minimumSystemVersion": "10.15",
       "exceptionDomain": "",
       "frameworks": [],
