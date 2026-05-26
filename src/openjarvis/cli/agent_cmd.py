@@ -543,6 +543,18 @@ def run_agent(agent_id):
         f"Status: {updated['status']}, runs: {runs}"
     )
 
+    # Print the agent's actual output. summary_memory holds the latest tick's
+    # findings (or an "ERROR: ..." detail on failure); render it as markdown so
+    # the headers/bullets the agent produced come through formatted.
+    findings = (updated.get("summary_memory") or "").strip()
+    if findings:
+        from rich.markdown import Markdown
+
+        console.print("\n[bold]--- Findings ---[/bold]\n")
+        console.print(Markdown(findings))
+    else:
+        console.print("[dim](No findings recorded for this tick.)[/dim]")
+
 
 @agent.command("status")
 def status():
