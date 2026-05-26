@@ -337,7 +337,10 @@ def serve(
             am_db = config.agent_manager.db_path or str(
                 Path("~/.openjarvis/agents.db").expanduser()
             )
-            agent_manager = AgentManager(db_path=am_db)
+            # The server owns the scheduler and is the authoritative tick
+            # runner — on boot it holds no locks, so it (and only it) sweeps
+            # any zombie running→idle left by a previous crash.
+            agent_manager = AgentManager(db_path=am_db, clear_stale_running=True)
         except Exception as exc:
             logger.debug("Agent manager init failed: %s", exc)
 

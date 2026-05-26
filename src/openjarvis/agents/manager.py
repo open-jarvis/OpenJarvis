@@ -93,7 +93,14 @@ _SUMMARY_MAX = 2000
 class AgentManager:
     """Persistent agent lifecycle manager with SQLite backing."""
 
-    def __init__(self, db_path: str) -> None:
+    # A tick that hasn't touched its DB row in this many seconds is treated
+    # as a zombie (its worker died without running end_tick). start_tick()
+    # will overtake such a lock instead of refusing forever. The executor
+    # bumps updated_at at start and on every tool/inference event, so a live
+    # tick stays well under this window.
+    _STALE_TICK_SECONDS = 600
+
+    def __init__(self, db_path: str, *, clear_stale_running: bool = False) -> None:
         self._db_path = str(db_path)
         self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
@@ -126,7 +133,16 @@ class AgentManager:
             except sqlite3.OperationalError:
                 pass  # Column already exists
         self._conn.commit()
-        self._clear_stale_running_state()
+        # Only the authoritative long-running process (the API server, which
+        # owns the scheduler) may sweep running→idle on boot. Short-lived CLI
+        # commands (`jarvis agents list/info/...`) and the SystemBuilder path
+        # used by `run`/`ask` MUST NOT: they share this DB with a server that
+        # may be mid-tick, and an unconditional sweep here flips an actively
+        # running agent back to "idle" — which is exactly why `list` reported
+        # "idle" while a tick was running elsewhere. Zombies left by a crashed
+        # worker are recovered lazily by start_tick()'s stale-lock overtake.
+        if clear_stale_running:
+            self._clear_stale_running_state()
 
     def _clear_stale_running_state(self) -> None:
         """Reset any agent stuck in ``status='running'`` on startup.
@@ -137,10 +153,10 @@ class AgentManager:
         in ``running`` forever. The :meth:`start_tick` guard then rejects
         every subsequent run with "Agent is already running".
 
-        A freshly-started process holds zero tick locks by definition, so
-        any persisted ``running`` is a zombie. Sweep it back to ``idle``
-        and clear the activity string so the UI doesn't show a stale
-        "Preparing tick..." indicator.
+        The server boot holds zero tick locks by definition, so any persisted
+        ``running`` is a zombie. Sweep it back to ``idle`` and clear the
+        activity string so the UI doesn't show a stale "Preparing tick..."
+        indicator. Call this only from a process that owns tick execution.
         """
         cur = self._conn.execute(
             "UPDATE managed_agents SET status = 'idle', current_activity = '',"
@@ -268,10 +284,23 @@ class AgentManager:
     # ── Tick concurrency guard ────────────────────────────────────
 
     def start_tick(self, agent_id: str) -> None:
-        """Mark agent as running. Raises ValueError if already running."""
+        """Mark agent as running. Raises ValueError if already running.
+
+        A row that has been ``running`` longer than ``_STALE_TICK_SECONDS``
+        without any update is treated as a zombie left by a dead worker and
+        overtaken rather than refused — otherwise a crash with no server
+        around to sweep it would wedge the agent forever.
+        """
         agent = self.get_agent(agent_id)
         if agent and agent["status"] == "running":
-            raise ValueError(f"Agent {agent_id} is already executing a tick")
+            age = time.time() - (agent.get("updated_at") or 0)
+            if age < self._STALE_TICK_SECONDS:
+                raise ValueError(f"Agent {agent_id} is already executing a tick")
+            logger.warning(
+                "Agent %s: overtaking stale tick lock (running, idle for %.0fs)",
+                agent_id,
+                age,
+            )
         self._set_status(agent_id, "running")
 
     def end_tick(self, agent_id: str) -> None:
