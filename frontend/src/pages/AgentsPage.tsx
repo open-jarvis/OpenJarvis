@@ -9,7 +9,6 @@ import {
   fetchAgentChannels,
   bindAgentChannel,
   unbindAgentChannel,
-  fetchAgentMessages,
   fetchTemplates,
   createManagedAgent,
   pauseManagedAgent,
@@ -17,10 +16,11 @@ import {
   deleteManagedAgent,
   runManagedAgent,
   recoverManagedAgent,
-  sendAgentMessage,
+  askAgent,
   fetchLearningLog,
   triggerLearning,
   fetchAgentTraces,
+  fetchAgentTrace,
   fetchManagedAgent,
   fetchAvailableTools,
   saveToolCredentials,
@@ -32,8 +32,9 @@ import {
   sendblueTest,
   sendblueHealth,
 } from '../lib/api';
-import type { AgentTask, ChannelBinding, AgentTemplate, AgentMessage, ManagedAgent, LearningLogEntry, AgentTrace, ToolInfo } from '../lib/api';
+import type { AgentTask, ChannelBinding, AgentTemplate, ManagedAgent, LearningLogEntry, AgentTrace, AgentTraceDetail, ToolInfo } from '../lib/api';
 import { useAgentEvents } from '../lib/useAgentEvents';
+import type { AgentEvent } from '../lib/useAgentEvents';
 import {
   Plus,
   Bot,
@@ -60,6 +61,7 @@ import {
   Copy,
   Check,
   Pencil,
+  Loader2,
 } from 'lucide-react';
 import { SOURCE_CATALOG } from '../types/connectors';
 import type { ConnectRequest } from '../types/connectors';
@@ -1403,20 +1405,20 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
     let cancelled = false;
     async function checkModel() {
       try {
-        const res = await fetch('http://localhost:11434/api/tags');
-        if (!res.ok) { setModelAvailable('unknown'); return; }
-        const data = await res.json();
-        const loadedNames: string[] = (data.models || []).map((m: { name: string }) => m.name);
-        if (!cancelled) {
-          setOllamaModels(loadedNames);
-          if (currentModel === '(default)') {
-            setModelAvailable(loadedNames.length > 0 ? 'available' : 'unknown');
-          } else {
-            const isLoaded = loadedNames.some(
-              (n) => n === currentModel || n.startsWith(currentModel + ':') || currentModel.startsWith(n.split(':')[0])
-            );
-            setModelAvailable(isLoaded ? 'available' : 'unavailable');
-          }
+        // Ask the backend which models are installed rather than hitting
+        // Ollama directly from the browser: the backend always knows where
+        // Ollama lives (incl. remote) and there's no cross-origin/CORS issue,
+        // which is what made the check spuriously report "Not available".
+        const installed = (await fetchModels()).map((m) => m.id);
+        if (cancelled) return;
+        setOllamaModels(installed);
+        if (currentModel === '(default)') {
+          setModelAvailable(installed.length > 0 ? 'available' : 'unknown');
+        } else {
+          const isInstalled = installed.some(
+            (n) => n === currentModel || n.startsWith(currentModel + ':') || currentModel.startsWith(n.split(':')[0])
+          );
+          setModelAvailable(isInstalled ? 'available' : 'unavailable');
         }
       } catch {
         if (!cancelled) setModelAvailable('unknown');
@@ -1428,21 +1430,15 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
 
   async function startEditingModel() {
     try {
-      const fetched = await fetchModels();
-      setModels(fetched.map((m) => m.id));
-    } catch { /* ignore */ }
-    // Also refresh Ollama models for availability indication
-    try {
-      const res = await fetch('http://localhost:11434/api/tags');
-      if (res.ok) {
-        const data = await res.json();
-        setOllamaModels((data.models || []).map((m: { name: string }) => m.name));
-      }
+      const fetched = (await fetchModels()).map((m) => m.id);
+      setModels(fetched);
+      // Same backend list drives both the dropdown and the availability dots.
+      setOllamaModels(fetched);
     } catch { /* ignore */ }
     setEditingModel(true);
   }
 
-  function isModelLoaded(modelId: string): boolean {
+  function isModelInstalled(modelId: string): boolean {
     return ollamaModels.some(
       (n) => n === modelId || n.startsWith(modelId + ':') || modelId.startsWith(n.split(':')[0])
     );
@@ -1480,10 +1476,10 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
           style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
         >
           {models.map((m) => {
-            const loaded = isModelLoaded(m);
+            const installed = isModelInstalled(m);
             return (
-              <option key={m} value={m} style={!loaded ? { color: 'var(--color-text-tertiary)' } : undefined}>
-                {m}{!loaded ? ' (not loaded)' : ''}
+              <option key={m} value={m} style={!installed ? { color: 'var(--color-text-tertiary)' } : undefined}>
+                {m}{!installed ? ' (not installed)' : ''}
               </option>
             );
           })}
@@ -1546,498 +1542,421 @@ function AgentConfigGrid({ agent, onAgentUpdated }: { agent: ManagedAgent; onAge
 // Detail view — Interact tab
 // ---------------------------------------------------------------------------
 
-/** AgentMessage extended with optional response metadata for the footer. */
-type InteractMessage = AgentMessage & {
-  _elapsed?: string;
-  _toolCalls?: number;
-  _usage?: Record<string, number>;
-  _telemetry?: Record<string, unknown>;
-  _toolCallDetails?: ToolCallInfo[];
-};
+/** One entry in the live activity feed assembled from agent events. */
+type LiveItem =
+  | { kind: 'note'; id: string; label: string }
+  | { kind: 'tool'; id: string; tool: ToolCallInfo };
 
-function AgentResponseFooter({
-  msg, copiedId, onCopy,
-}: {
-  msg: InteractMessage;
-  copiedId: string | null;
-  onCopy: (id: string) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const u = msg._usage;
-  const t = msg._telemetry as Record<string, unknown> | undefined;
-  const elapsed = msg._elapsed;
-  const toolCallDetails = msg._toolCallDetails || [];
-  const toolCalls = msg._toolCalls ?? toolCallDetails.length;
-
-  // Build summary line like Chat: "ollama - qwen3.5:9b - 18.3s - 50 tokens"
-  const parts: string[] = [];
-  if (t?.engine) parts.push(String(t.engine));
-  if (t?.model_id) parts.push(String(t.model_id));
-  if (elapsed) parts.push(`${elapsed}s`);
-  if (u?.prompt_tokens) parts.push(`${u.prompt_tokens} input tokens`);
-  if (u?.completion_tokens) parts.push(`${u.completion_tokens} output tokens`);
-  if (toolCalls > 0) parts.push(`${toolCalls} tool ${toolCalls === 1 ? 'call' : 'calls'}`);
-
-  const summary = parts.length > 0 ? parts.join(' - ') : elapsed ? `${elapsed}s` : '';
-
-  // Build expanded rows
-  const rows: Array<{ label: string; value: string }> = [];
-  if (t?.engine) rows.push({ label: 'Engine', value: `${t.engine}${t.model_id ? ` (${t.model_id})` : ''}` });
-  if (u) {
-    const tokenParts = [];
-    if (u.completion_tokens) tokenParts.push(`${u.completion_tokens} generated`);
-    if (u.prompt_tokens) tokenParts.push(`${u.prompt_tokens} prompt`);
-    if (tokenParts.length) rows.push({ label: 'Tokens', value: tokenParts.join(' · ') });
-  }
-  if (toolCallDetails.length > 0) {
-    toolCallDetails.forEach((tc, i) => {
-      const prefix = toolCallDetails.length > 1 ? `Tool ${i + 1}` : 'Tool';
-      const args = tc.arguments ? ` ${tc.arguments}` : '';
-      rows.push({ label: prefix, value: `${tc.tool}(${args.trim()})` });
-    });
-  } else if (toolCalls > 0) {
-    rows.push({ label: 'Tool calls', value: `${toolCalls}` });
-  }
-  if (t?.tokens_per_sec) rows.push({ label: 'Speed', value: `${Math.round(Number(t.tokens_per_sec))} tok/s` });
-  if (t?.total_ms) rows.push({ label: 'Latency', value: `${(Number(t.total_ms) / 1000).toFixed(1)}s total` });
-
-  if (!summary) return null;
-
-  return (
-    <div style={{ borderTop: '1px solid var(--color-border-subtle)', marginTop: 6 }}>
-      <div style={{ display: 'flex', alignItems: 'center', paddingTop: 4 }}>
-        <button
-          onClick={() => rows.length > 0 && setExpanded(!expanded)}
-          style={{
-            flex: 1, display: 'flex', alignItems: 'center', gap: 6,
-            background: 'none', border: 'none', cursor: rows.length > 0 ? 'pointer' : 'default',
-            padding: 0, textAlign: 'left',
-          }}
-        >
-          <span style={{ width: 4, height: 4, borderRadius: '50%', background: 'var(--color-accent)', flexShrink: 0 }} />
-          <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', fontFamily: 'system-ui' }}>
-            {summary}
-          </span>
-          {rows.length > 0 && (
-            <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>
-              {expanded ? '▲' : '▼'}
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => onCopy(msg.id)}
-          style={{
-            background: 'none', border: 'none', cursor: 'pointer',
-            color: 'var(--color-text-tertiary)', padding: 2,
-            display: 'flex', alignItems: 'center',
-          }}
-          title="Copy response"
-        >
-          {copiedId === msg.id ? <Check size={12} /> : <Copy size={12} />}
-        </button>
-      </div>
-      {expanded && rows.length > 0 && (
-        <div style={{
-          borderRadius: 6, marginTop: 4, padding: '6px 10px',
-          background: 'rgba(0, 0, 0, 0.15)',
-        }}>
-          <div style={{
-            display: 'grid', gridTemplateColumns: 'auto 1fr',
-            columnGap: 12, rowGap: 2,
-          }}>
-            {rows.map((row) => (
-              <div key={row.label} style={{ display: 'contents' }}>
-                <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', fontFamily: 'monospace' }}>
-                  {row.label}
-                </span>
-                <span style={{ fontSize: 11, color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>
-                  {row.value}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
+/** Convert a persisted trace step into a ToolCallInfo for ToolCallCard. */
+function stepToToolCall(
+  step: AgentTraceDetail['steps'][number],
+  idx: number,
+): ToolCallInfo {
+  const input = (step.input ?? {}) as { tool?: string; args?: unknown };
+  const out = step.output as unknown;
+  const result =
+    typeof out === 'string'
+      ? out
+      : out && typeof out === 'object' && 'result' in out
+        ? String((out as { result: unknown }).result ?? '')
+        : out != null
+          ? JSON.stringify(out)
+          : '';
+  const args = input.args;
+  return {
+    id: `step-${idx}`,
+    tool: input.tool || step.step_type || 'step',
+    arguments:
+      typeof args === 'string' ? args : args != null ? JSON.stringify(args) : '',
+    status: 'success',
+    result,
+    latency: step.duration ? step.duration * 1000 : undefined,
+  };
 }
 
-function InteractTab({ agentId, agentStatus }: { agentId: string; agentStatus: string }) {
-  const [messages, setMessages] = useState<InteractMessage[]>([]);
+// ---------------------------------------------------------------------------
+// Interact tab — trace viewer (top) + follow-up chat (bottom).
+//
+// The chat input doesn't open a side-channel chat; it triggers a real ad-hoc
+// agent run (execute_tick) with the user's question as input. The trace area
+// shows that run live (tick + tool calls over the events WebSocket) and, when
+// idle, the last run's trace steps plus the agent's resulting findings — so
+// users can interrogate the agent about its work ("tell me more about X").
+// ---------------------------------------------------------------------------
+function InteractTab({ agentId, agentStatus, onRunStateChange }: { agentId: string; agentStatus: string; onRunStateChange?: () => void }) {
+  const [agent, setAgent] = useState<ManagedAgent | null>(null);
+  const [activity, setActivity] = useState('');
+  const [running, setRunning] = useState(agentStatus === 'running');
+  const [liveItems, setLiveItems] = useState<LiveItem[]>([]);
+  const [lastTrace, setLastTrace] = useState<AgentTraceDetail | null>(null);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
-  const [waitingForResponse, setWaitingForResponse] = useState(false);
-  const [progressLabel, setProgressLabel] = useState('');
-  const [streamingContent, setStreamingContent] = useState('');
-  const [streamingToolCalls, setStreamingToolCalls] = useState<ToolCallInfo[]>([]);
-  const [currentActivity, setCurrentActivity] = useState('');
-  const [liveStatus, setLiveStatus] = useState(agentStatus);
-  const [streamElapsedMs, setStreamElapsedMs] = useState(0);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [question, setQuestion] = useState(''); // question driving the current/last run
+  const [elapsedMs, setElapsedMs] = useState(0);
+
+  const startRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // Tail-mode flag: when the user is pinned to the bottom of the transcript
-  // (within NEAR_BOTTOM_THRESHOLD px) we keep auto-scrolling as new content
-  // streams in. If they manually scroll up, we stop following so the view
-  // doesn't get yanked back down.
-  const isNearBottomRef = useRef(true);
+  const runningRef = useRef(running);
+  runningRef.current = running;
+  const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Keep a ref of local metadata so polling doesn't overwrite it
-  const localMetaRef = useRef<Map<string, {
-    _elapsed?: string;
-    _toolCalls?: number;
-    _usage?: Record<string, number>;
-    _telemetry?: Record<string, unknown>;
-    _toolCallDetails?: ToolCallInfo[];
-  }>>(new Map());
+  const clearTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
 
-  const loadData = useCallback(async () => {
+  // Load idle snapshot: agent record (status + findings) and the latest trace.
+  const loadIdle = useCallback(async () => {
     try {
-      const [msgs, agent] = await Promise.all([
-        fetchAgentMessages(agentId),
-        fetchManagedAgent(agentId),
-      ]);
-      // Merge server messages with locally-stored metadata, and hydrate
-      // server-persisted tool_calls into _toolCallDetails so they survive
-      // page reloads.
-      const merged: InteractMessage[] = msgs.map((m) => {
-        const meta = localMetaRef.current.get(m.content?.slice(0, 100) || '');
-        const base = meta ? { ...m, ...meta } : { ...m };
-        if (!base._toolCallDetails && m.tool_calls && m.tool_calls.length > 0) {
-          base._toolCallDetails = m.tool_calls.map((tc, i) => ({
-            id: `${m.id}-tc-${i}`,
-            tool: tc.tool,
-            arguments: tc.arguments || '',
-            status: tc.success === false ? 'error' : 'success',
-            result: tc.result,
-            latency: tc.latency,
-          }));
-          if (base._toolCalls == null) base._toolCalls = m.tool_calls.length;
+      const a = await fetchManagedAgent(agentId);
+      setAgent(a);
+      setActivity(a.current_activity || '');
+      try {
+        const traces = await fetchAgentTraces(agentId, 1);
+        if (traces.length > 0) {
+          const detail = await fetchAgentTrace(agentId, traces[0].id);
+          setLastTrace(detail);
         }
-        return base;
-      });
-      setMessages(merged);
-      setLiveStatus(agent.status);
-      setCurrentActivity(agent.current_activity || '');
+      } catch {
+        /* trace store may be empty */
+      }
     } catch {
-      // ignore
+      /* ignore */
     }
   }, [agentId]);
 
   useEffect(() => {
-    loadData();
-    // Fallback slow poll — WS is primary, this catches missed events / dropped sockets
-    const interval = setInterval(loadData, 30000);
-    return () => clearInterval(interval);
-  }, [loadData]);
+    loadIdle();
+  }, [loadIdle]);
 
-  // Event-driven refresh — fires when the server reports agent activity
-  useAgentEvents(agentId, loadData, [
-    'agent_tick_start',
-    'agent_tick_end',
-    'agent_tick_error',
-    'agent_message_received',
-    'tool_call_end',
-    'inference_end',
-  ]);
-
-  useEffect(() => { setLiveStatus(agentStatus); }, [agentStatus]);
-
-  // Clean up elapsed-time timer on unmount
+  // Tick the elapsed timer while running.
   useEffect(() => {
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-    };
-  }, []);
-
-  // Track whether the user is near the bottom. Called on every scroll
-  // event; only flips the ref, never triggers a re-render.
-  const handleScroll = useCallback(() => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-    isNearBottomRef.current = distance < 80; // px threshold
-  }, []);
-
-  // Initial landing: jump to the bottom once the first batch of messages
-  // arrives. Subsequent poll updates honor the tail-mode ref.
-  const hasScrolled = useRef(false);
-  useEffect(() => {
-    if (!hasScrolled.current && messages.length > 0) {
-      bottomRef.current?.scrollIntoView({ behavior: 'auto' });
-      hasScrolled.current = true;
-      isNearBottomRef.current = true;
+    if (!running) {
+      clearTimer();
+      return;
     }
-  }, [messages]);
+    if (!startRef.current) startRef.current = Date.now();
+    timerRef.current = setInterval(
+      () => setElapsedMs(Date.now() - startRef.current),
+      100,
+    );
+    return clearTimer;
+  }, [running, clearTimer]);
 
-  // Stream auto-follow: only scroll while the user is pinned to the bottom.
-  // If they've scrolled up to re-read something, stay put.
-  useEffect(() => {
-    if (streamingContent && isNearBottomRef.current) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [streamingContent]);
+  const finishRun = useCallback(() => {
+    setRunning(false);
+    startRef.current = 0;
+    clearTimer();
+    // Give the backend a beat to persist summary_memory + trace, then refresh
+    // both this tab and the parent (so the detail/list status badge flips back
+    // from "running" to "idle" without waiting for the slow background poll).
+    setTimeout(() => {
+      loadIdle();
+      onRunStateChange?.();
+    }, 500);
+  }, [clearTimer, loadIdle, onRunStateChange]);
 
-  async function handleSend(mode: 'immediate' | 'queued') {
-    if (!input.trim()) return;
-    const text = input.trim();
-    setInput('');
-    setSending(true);
-
-    // Show user message immediately as a local bubble
-    const localMsg: AgentMessage = {
-      id: `local-${Date.now()}`,
-      agent_id: agentId,
-      direction: 'user_to_agent',
-      content: text,
-      mode,
-      status: 'delivered',
-      created_at: Date.now() / 1000,
-    };
-    setMessages((prev) => [localMsg, ...prev]);
-    setSending(false);
-    setWaitingForResponse(true);
-    setProgressLabel('Initializing agent...');
-    setStreamingContent('');
-    setStreamingToolCalls([]);
-    // Sending is explicit user intent — always scroll and re-engage
-    // tail-mode so the subsequent stream follows along.
-    isNearBottomRef.current = true;
-    requestAnimationFrame(() => {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-    });
-
-    // Start elapsed-time timer
-    const startTime = Date.now();
-    setStreamElapsedMs(0);
-    timerRef.current = setInterval(() => {
-      setStreamElapsedMs(Date.now() - startTime);
-    }, 100);
-
-    let toolCount = 0;
-    let responseUsage: Record<string, number> | undefined;
-    let responseTelemetry: Record<string, unknown> | undefined;
-    const collectedToolCalls: ToolCallInfo[] = [];
-    try {
-      const response = await sendAgentMessage(agentId, text, mode, {
-        onProgress: (label) => {
-          setProgressLabel(label);
-          toolCount++;
-        },
-        onContentDelta: (_delta, full) => setStreamingContent(full),
-        onToolCallStart: ({ tool, arguments: args }) => {
-          toolCount++;
+  // Live trace: assemble events from the agent events WebSocket.
+  const onEvent = useCallback(
+    (ev: AgentEvent) => {
+      const data = ev.data || {};
+      switch (ev.type) {
+        case 'agent_tick_start': {
+          startRef.current = Date.now();
+          setElapsedMs(0);
+          setRunning(true);
+          setErrorMsg('');
+          setLiveItems([{ kind: 'note', id: `start-${ev.timestamp}`, label: 'Run started' }]);
+          break;
+        }
+        case 'tool_call_start': {
+          const id = `tc-${ev.timestamp}-${Math.random().toString(36).slice(2, 6)}`;
+          const args = data.arguments;
           const tc: ToolCallInfo = {
-            id: `tc-${Date.now()}-${collectedToolCalls.length}`,
-            tool,
-            arguments: args,
+            id,
+            tool: String(data.tool || 'tool'),
+            arguments:
+              typeof args === 'string' ? args : args != null ? JSON.stringify(args) : '',
             status: 'running',
           };
-          collectedToolCalls.push(tc);
-          setStreamingToolCalls([...collectedToolCalls]);
-          setProgressLabel(`Calling ${tool}...`);
-        },
-        onToolCallEnd: ({ tool, success, latency, result }) => {
-          const match = [...collectedToolCalls]
-            .reverse()
-            .find((t) => t.tool === tool && t.status === 'running');
-          if (match) {
-            match.status = success ? 'success' : 'error';
-            match.latency = latency;
-            match.result = result;
+          setLiveItems((prev) => [...prev, { kind: 'tool', id, tool: tc }]);
+          break;
+        }
+        case 'tool_call_end': {
+          setLiveItems((prev) => {
+            const next = [...prev];
+            for (let i = next.length - 1; i >= 0; i--) {
+              const it = next[i];
+              if (
+                it.kind === 'tool' &&
+                it.tool.tool === String(data.tool) &&
+                it.tool.status === 'running'
+              ) {
+                next[i] = {
+                  ...it,
+                  tool: {
+                    ...it.tool,
+                    status: data.success === false ? 'error' : 'success',
+                    result:
+                      typeof data.result === 'string' ? data.result : it.tool.result,
+                    latency:
+                      typeof data.latency === 'number'
+                        ? data.latency * 1000
+                        : it.tool.latency,
+                  },
+                };
+                break;
+              }
+            }
+            return next;
+          });
+          break;
+        }
+        case 'agent_tick_end':
+        case 'agent_tick_error': {
+          if (ev.type === 'agent_tick_error') {
+            setErrorMsg(String(data.error || 'The run failed.'));
           }
-          setStreamingToolCalls([...collectedToolCalls]);
-          setProgressLabel('');
-        },
-        onDone: (_content, usage, telemetry) => {
-          setStreamingContent('');
-          responseUsage = usage;
-          responseTelemetry = telemetry;
-        },
-      });
-      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-      // Add the agent's response as a local bubble immediately
-      if (response && response.content) {
-        const meta = {
-          _elapsed: elapsed,
-          _toolCalls: toolCount,
-          _usage: responseUsage,
-          _telemetry: responseTelemetry,
-          _toolCallDetails: collectedToolCalls.length > 0 ? [...collectedToolCalls] : undefined,
-        };
-        // Store metadata keyed by content prefix so polling preserves it
-        localMetaRef.current.set(response.content.slice(0, 100), meta);
-        setMessages((prev) => [
-          {
-            ...response,
-            id: response.id || `response-${Date.now()}`,
-            direction: 'agent_to_user' as const,
-            ...meta,
-          },
-          ...prev,
-        ]);
+          finishRun();
+          break;
+        }
       }
-      // Also refresh from server to sync any persisted messages
-      await loadData();
+    },
+    [finishRun],
+  );
+
+  useAgentEvents(agentId, onEvent, [
+    'agent_tick_start',
+    'tool_call_start',
+    'tool_call_end',
+    'agent_tick_end',
+    'agent_tick_error',
+  ]);
+
+  // Fallback poll — WS is primary, but this catches missed tick_end events and
+  // runs started elsewhere (e.g. the scheduler or the Overview "Run" button).
+  useEffect(() => {
+    const iv = setInterval(async () => {
+      try {
+        const a = await fetchManagedAgent(agentId);
+        setActivity(a.current_activity || '');
+        if (a.status === 'running' && !runningRef.current) {
+          setRunning(true);
+        } else if (a.status !== 'running' && runningRef.current) {
+          finishRun();
+        }
+      } catch {
+        /* ignore */
+      }
+    }, 3000);
+    return () => clearInterval(iv);
+  }, [agentId, finishRun]);
+
+  // Keep pinned to the newest live item.
+  useEffect(() => {
+    if (running) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [liveItems, running]);
+
+  async function handleAsk() {
+    const q = input.trim();
+    if (!q || running || sending) return;
+    setInput('');
+    setQuestion(q);
+    setErrorMsg('');
+    setSending(true);
+    setLiveItems([{ kind: 'note', id: 'queued', label: 'Starting run…' }]);
+    startRef.current = Date.now();
+    setElapsedMs(0);
+    try {
+      // immediate, non-streamed → triggers a real agent run that consumes the
+      // question as input. tick_start over the WS confirms; poll is the backstop.
+      await askAgent(agentId, q);
+      setRunning(true);
+      onRunStateChange?.(); // flip the parent status badge to "running" now
     } catch {
-      // ignore
+      setErrorMsg('Could not start the agent run.');
+      setLiveItems([]);
     } finally {
-      setWaitingForResponse(false);
-      setStreamingContent('');
-      setStreamingToolCalls([]);
-      setProgressLabel('');
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-      setStreamElapsedMs(0);
+      setSending(false);
     }
   }
 
-  // Reverse so newest messages appear at the bottom (closest to input).
-  // Filter out agent responses with empty content.
-  const displayMessages = [...messages]
-    .filter((m) => m.direction === 'user_to_agent' || m.content.trim())
-    .reverse();
+  const isBusy = running || sending;
+  const findings = agent?.summary_memory?.trim() || '';
+  const traceSteps = lastTrace?.steps ?? [];
 
   return (
-    <div className="flex flex-col" style={{ minHeight: 320 }}>
+    <div className="flex flex-col" style={{ minHeight: 360 }}>
+      {/* ── Trace area header ──────────────────────────────── */}
+      <div className="flex items-center justify-between mb-2">
+        <div
+          className="flex items-center gap-2 text-sm font-medium"
+          style={{ color: 'var(--color-text)' }}
+        >
+          <Activity size={14} style={{ color: 'var(--color-accent)' }} />
+          Activity trace
+        </div>
+        <div
+          className="flex items-center gap-2 text-xs"
+          style={{ color: 'var(--color-text-tertiary)' }}
+        >
+          {isBusy ? (
+            <>
+              <span
+                className="inline-block w-2 h-2 rounded-full animate-pulse"
+                style={{ background: 'var(--color-accent)' }}
+              />
+              Running{elapsedMs > 0 ? ` · ${(elapsedMs / 1000).toFixed(1)}s` : ''}
+            </>
+          ) : (
+            <>
+              {agent?.last_run_at
+                ? `Last run ${new Date(agent.last_run_at * 1000).toLocaleString()}`
+                : 'Idle'}
+              {lastTrace && ` · ${lastTrace.outcome}`}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ── Trace area body ────────────────────────────────── */}
       <div
-        ref={scrollContainerRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-y-auto space-y-3 pb-4"
-        style={{ maxHeight: 'calc(100vh - 400px)' }}
+        className="flex-1 overflow-y-auto rounded-lg p-3 space-y-3"
+        style={{
+          background: 'var(--color-bg-secondary)',
+          border: '1px solid var(--color-border)',
+          maxHeight: 'calc(100vh - 360px)',
+          minHeight: 200,
+        }}
       >
-        {displayMessages.length === 0 && !waitingForResponse && (
-          <div className="text-sm text-center py-8" style={{ color: 'var(--color-text-tertiary)' }}>
-            No messages yet. Send a message to interact with this agent.
+        {question && (
+          <div className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+            <span style={{ color: 'var(--color-text-secondary)' }}>Question:</span> {question}
           </div>
         )}
-        {displayMessages.map((msg) => (
-          <div key={msg.id} className="space-y-2">
-            {/* Tool calls rendered as their own full-width entries (like Claude Code) */}
-            {msg.direction === 'agent_to_user' && msg._toolCallDetails && msg._toolCallDetails.length > 0 && (
-              <div className="flex flex-col items-start gap-2 max-w-[75%]">
-                {msg._toolCallDetails.map((tc) => (
-                  <ToolCallCard key={tc.id} toolCall={tc} />
+
+        {errorMsg && (
+          <div
+            className="text-sm px-3 py-2 rounded-lg"
+            style={{
+              background: 'rgba(255,80,80,0.08)',
+              border: '1px solid var(--color-error)',
+              color: 'var(--color-error)',
+            }}
+          >
+            {errorMsg}
+          </div>
+        )}
+
+        {isBusy ? (
+          /* LIVE view — current tick */
+          <>
+            {liveItems.map((it) =>
+              it.kind === 'tool' ? (
+                <ToolCallCard key={it.id} toolCall={it.tool} />
+              ) : (
+                <div
+                  key={it.id}
+                  className="flex items-center gap-2 text-sm"
+                  style={{ color: 'var(--color-text-secondary)' }}
+                >
+                  <span
+                    className="inline-block w-2 h-2 rounded-full animate-pulse"
+                    style={{ background: 'var(--color-accent)' }}
+                  />
+                  {it.label}
+                </div>
+              ),
+            )}
+            <div
+              className="flex items-center gap-2 text-sm"
+              style={{ color: 'var(--color-text-secondary)' }}
+            >
+              <Loader2 size={13} className="animate-spin" style={{ color: 'var(--color-accent)' }} />
+              {activity || 'Agent is working…'}
+            </div>
+          </>
+        ) : (
+          /* IDLE view — last run's trace + findings */
+          <>
+            {traceSteps.length > 0 && (
+              <div className="space-y-2">
+                {traceSteps.map((s, i) => (
+                  <ToolCallCard key={i} toolCall={stepToToolCall(s, i)} />
                 ))}
               </div>
             )}
-            {/* Message bubble */}
-            <div className={`flex ${msg.direction === 'user_to_agent' ? 'justify-end' : 'justify-start'}`}>
+            {findings ? (
               <div
-                className="max-w-[75%] px-3 py-2 rounded-lg text-sm"
+                className="px-3 py-2 rounded-lg text-sm"
                 style={{
-                  background: msg.direction === 'user_to_agent' ? 'var(--color-accent)' : 'var(--color-bg-secondary)',
-                  color: msg.direction === 'user_to_agent' ? 'var(--color-on-accent)' : 'var(--color-text)',
-                  border: msg.direction === 'agent_to_user' ? '1px solid var(--color-border)' : 'none',
+                  background: 'var(--color-bg)',
+                  border: '1px solid var(--color-border)',
+                  color: 'var(--color-text)',
                 }}
               >
-                {msg.direction === 'agent_to_user' ? (
-                  <div className="prose prose-sm prose-invert max-w-none"><ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown></div>
-                ) : (
-                  <p>{msg.content}</p>
-                )}
-                <p className="text-xs mt-1 opacity-70">
-                  {msg.status === 'pending' ? 'sending...' : new Date(msg.created_at * 1000).toLocaleTimeString()}
-                </p>
-                {msg.direction === 'agent_to_user' && (
-                  <AgentResponseFooter msg={msg} copiedId={copiedId} onCopy={(id) => {
-                    navigator.clipboard.writeText(msg.content);
-                    setCopiedId(id);
-                    setTimeout(() => setCopiedId(null), 2000);
-                  }} />
-                )}
-              </div>
-            </div>
-          </div>
-        ))}
-        {/* Progress indicator — shown when waiting but no streamed content or tool calls yet */}
-        {(waitingForResponse || sending) && !streamingContent && streamingToolCalls.length === 0 && (
-          <div className="flex justify-start">
-            <div
-              className="px-3 py-2 rounded-lg text-sm"
-              style={{
-                background: 'var(--color-bg-secondary)',
-                border: '1px solid var(--color-border)',
-                color: 'var(--color-text-secondary)',
-              }}
-            >
-              <div className="flex items-center gap-2">
-                <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--color-accent)' }} />
-                {sending
-                  ? 'Sending message...'
-                  : progressLabel || 'Agent is thinking...'}
-              </div>
-            </div>
-          </div>
-        )}
-        {/* Live tool call cards rendered as their own entries in the flow */}
-        {waitingForResponse && streamingToolCalls.length > 0 && (
-          <div className="flex flex-col items-start gap-2 max-w-[75%]">
-            {streamingToolCalls.map((tc) => (
-              <ToolCallCard key={tc.id} toolCall={tc} />
-            ))}
-          </div>
-        )}
-        {/* Streaming content bubble — real-time response */}
-        {waitingForResponse && streamingContent && (
-          <div className="flex justify-start">
-            <div
-              className="max-w-[75%] px-3 py-2 rounded-lg text-sm"
-              style={{
-                background: 'var(--color-bg-secondary)',
-                border: '1px solid var(--color-border)',
-                color: 'var(--color-text)',
-              }}
-            >
-              {progressLabel && (
-                <div className="flex items-center gap-2 mb-2 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-                  <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--color-accent)' }} />
-                  {progressLabel}
+                <div className="text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>
+                  Result
                 </div>
-              )}
-              <div className="prose prose-sm prose-invert max-w-none">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingContent}</ReactMarkdown>
+                <div className="prose prose-sm prose-invert max-w-none">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{findings}</ReactMarkdown>
+                </div>
               </div>
-              <p className="text-xs mt-1 opacity-70">
-                {streamElapsedMs > 0 && `${(streamElapsedMs / 1000).toFixed(1)}s elapsed`}
-              </p>
-            </div>
-          </div>
+            ) : (
+              traceSteps.length === 0 && (
+                <div
+                  className="text-sm text-center py-8"
+                  style={{ color: 'var(--color-text-tertiary)' }}
+                >
+                  No runs yet. Ask a question below to run the agent.
+                </div>
+              )
+            )}
+          </>
         )}
         <div ref={bottomRef} />
       </div>
-      {/* Input area */}
-      <div
-        className="mt-3 pt-3"
-        style={{ borderTop: '1px solid var(--color-border)' }}
-      >
+
+      {/* ── Follow-up chat input ───────────────────────────── */}
+      <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--color-border)' }}>
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
-              handleSend('immediate');
+              handleAsk();
             }
           }}
-          placeholder="Send a message to this agent..."
+          placeholder={isBusy ? 'Agent is running…' : "Ask a follow-up about this agent's work…"}
+          disabled={isBusy}
           className="w-full px-3 py-2 rounded-lg text-sm bg-transparent outline-none resize-none"
-          style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)', minHeight: 72 }}
+          style={{
+            border: '1px solid var(--color-border)',
+            color: 'var(--color-text)',
+            minHeight: 64,
+            opacity: isBusy ? 0.6 : 1,
+          }}
         />
-        <div className="flex gap-2 mt-2">
+        <div className="flex items-center justify-between mt-2">
+          <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+            Sends your question as an ad-hoc run — results appear in the trace above.
+          </span>
           <button
-            onClick={() => handleSend('immediate')}
-            disabled={sending || waitingForResponse || !input.trim()}
+            onClick={handleAsk}
+            disabled={isBusy || !input.trim()}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm cursor-pointer font-medium"
-            style={{ background: 'var(--color-accent)', color: 'var(--color-on-accent)', opacity: sending || !input.trim() ? 0.5 : 1 }}
+            style={{
+              background: 'var(--color-accent)',
+              color: 'var(--color-on-accent)',
+              opacity: isBusy || !input.trim() ? 0.5 : 1,
+            }}
           >
-            <Send size={13} /> Send
+            {isBusy ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+            {isBusy ? 'Running' : 'Ask'}
           </button>
         </div>
       </div>
@@ -3616,10 +3535,15 @@ export function AgentsPage() {
           }
           prevStatuses.current[agent.id] = agent.status;
         }
+        // Keep the agent list — and the derived selectedAgent status badge —
+        // live. This poll previously fetched statuses only to fire error
+        // toasts and threw the result away, so a detail header could stay
+        // stuck on "running" after a tick finished on the backend.
+        setManagedAgents(agents);
       } catch {}
-    }, 30000);
+    }, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [setManagedAgents]);
 
   if (loading) {
     return (
@@ -3903,7 +3827,7 @@ export function AgentsPage() {
         )}
 
         {/* Tab: Interact */}
-        {detailTab === 'interact' && <InteractTab agentId={selectedAgent.id} agentStatus={selectedAgent.status} />}
+        {detailTab === 'interact' && <InteractTab agentId={selectedAgent.id} agentStatus={selectedAgent.status} onRunStateChange={refresh} />}
 
         {/* Tab: Channels */}
         {detailTab === 'channels' && (

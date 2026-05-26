@@ -722,6 +722,25 @@ export async function sendAgentMessage(
   return res.json();
 }
 
+/**
+ * Ask the agent a question by triggering an ad-hoc run.
+ *
+ * Posts the question as an `immediate`, non-streamed message — the backend
+ * stores it and spawns a real agent tick (`execute_tick`) that consumes it as
+ * the run's input (tools, trace, and all), rather than a raw one-shot chat.
+ * Returns immediately with the stored user message; progress is observed via
+ * the `/v1/agents/events` WebSocket and the resulting trace.
+ */
+export async function askAgent(agentId: string, content: string): Promise<AgentMessage> {
+  const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content, mode: 'immediate', stream: false }),
+  });
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return res.json();
+}
+
 export async function fetchAgentMessages(agentId: string): Promise<AgentMessage[]> {
   const res = await fetch(`${getBase()}/v1/managed-agents/${agentId}/messages`);
   if (!res.ok) throw new Error(`Failed: ${res.status}`);

@@ -4987,6 +4987,7 @@ dependencies = [
     { name = "rich" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "tomlkit" },
+    { name = "websockets" },
 ]
 
 [package.optional-dependencies]
@@ -5268,6 +5269,7 @@ requires-dist = [
     { name = "vllm", marker = "extra == 'inference-vllm'", specifier = ">=0.16.0" },
     { name = "wandb", marker = "extra == 'eval-wandb'", specifier = ">=0.17" },
     { name = "wasmtime", marker = "extra == 'sandbox-wasm'", specifier = ">=25" },
+    { name = "websockets", specifier = ">=15.0.1" },
     { name = "zeus-ml", extras = ["apple"], marker = "extra == 'energy-all'" },
     { name = "zeus-ml", extras = ["apple"], marker = "extra == 'energy-apple'" },
     { name = "zulip", marker = "extra == 'channel-zulip'", specifier = ">=0.9" },

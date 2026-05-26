@@ -768,7 +768,16 @@ async def _stream_managed_agent(
 
     agent_id = agent_record["id"]
     config = agent_record.get("config", {})
-    model = config.get("model", getattr(engine, "_model", ""))
+    # Resolve the model: prefer the agent's own config, then the server's
+    # resolved model (app.state.model — what the engine was booted with),
+    # and only then the legacy engine._model attr. OllamaEngine takes the
+    # model per-call and exposes no _model attr, so without the app_state
+    # fallback this resolved to "" and Ollama 400'd on an empty model.
+    model = (
+        config.get("model")
+        or getattr(app_state, "model", None)
+        or getattr(engine, "_model", "")
+    )
     system_prompt = config.get("system_prompt")
     temperature = config.get("temperature", 0.7)
     max_tokens = config.get("max_tokens", 1024)

@@ -167,7 +167,17 @@ class AgentManager:
     ) -> Dict[str, Any]:
         agent_id = uuid.uuid4().hex[:12]
         now = time.time()
-        config_json = json.dumps(config or {})
+        # Pin the model the executor will actually use into the agent's config
+        # so the UI reflects what runs. Without this, config has no "model" and
+        # the executor silently falls back to _AGENT_TICK_DEFAULT_MODEL while
+        # the Overview shows a stale/default value. Lazy import avoids any
+        # import-order coupling with the executor module.
+        from openjarvis.agents.executor import _AGENT_TICK_DEFAULT_MODEL
+
+        config = dict(config or {})
+        if not config.get("model"):
+            config["model"] = _AGENT_TICK_DEFAULT_MODEL
+        config_json = json.dumps(config)
         self._conn.execute(
             "INSERT INTO managed_agents"
             " (id, name, agent_type, config_json,"
