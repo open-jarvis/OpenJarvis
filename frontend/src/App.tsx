@@ -21,7 +21,12 @@ export default function App() {
   const [setupDone, setSetupDone] = useState(!isTauri());
   const handleSetupReady = useCallback(() => {
     setSetupDone(true);
-    track('setup_completed', { preset: 'default' });
+    // Only fire once per install — guard against setup screen re-appearing
+    // on reinstalls or dev reloads.
+    if (!localStorage.getItem('oj-setup-completed')) {
+      localStorage.setItem('oj-setup-completed', '1');
+      track('setup_completed', { preset: 'default' });
+    }
   }, []);
   const prevModelRef = useRef<string>('');
   const setModels = useAppStore((s) => s.setModels);
