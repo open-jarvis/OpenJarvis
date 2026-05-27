@@ -769,6 +769,51 @@ def _run_cell_locked(
             completed[0] += 1
             _heartbeat(completed[0], len(tasks), full_row, t_start)
 
+    # Hard watchdog. The per-task ``worker.join(timeout=task_timeout_s)`` in
+    # ``_run_one`` is supposed to bound any single task, but in practice we've
+    # seen the main loop wedge in ``futex_wait_queue`` despite the join
+    # returning — likely a daemon thread holding a non-Python lock that the
+    # GC / atexit handler trips on. Defense in depth: if no row hits
+    # ``results.jsonl`` in ``watchdog_stale_s = 2 * task_timeout_s + 600``
+    # seconds, ``os._exit(2)`` the whole process. The wrapper script's
+    # resume logic will pick up unscored tasks on the next invocation, and
+    # we don't burn another 30+ min on a wedge. Disabled when
+    # ``task_timeout_s <= 0`` (matches the legacy in-process timeout knob).
+    watchdog_stale_s = (2 * task_timeout_s + 600) if task_timeout_s > 0 else 0
+    watchdog_stop = threading.Event()
+
+    def _watchdog() -> None:
+        baseline_mtime = (
+            results_path.stat().st_mtime if results_path.exists() else time.time()
+        )
+        last_seen = baseline_mtime
+        while not watchdog_stop.wait(60.0):
+            try:
+                cur = (
+                    results_path.stat().st_mtime
+                    if results_path.exists()
+                    else last_seen
+                )
+            except Exception:
+                cur = last_seen
+            if cur > last_seen:
+                last_seen = cur
+                continue
+            if time.time() - last_seen > watchdog_stale_s:
+                print(
+                    f"[watchdog] results.jsonl stale for "
+                    f"{int(time.time() - last_seen)}s "
+                    f"(threshold {int(watchdog_stale_s)}s) — hard-exit, "
+                    f"resume on next invocation.",
+                    flush=True,
+                )
+                os._exit(2)
+
+    if watchdog_stale_s > 0:
+        threading.Thread(
+            target=_watchdog, name="hybrid-runner-watchdog", daemon=True
+        ).start()
+
     # GPU energy sampler covers the same wall-clock window as ``wall_time_s``
     # so the two numbers can be divided into an effective Watts figure.
     # Sampler is best-effort: NVML failures degrade to ``energy_j_total=0``
@@ -782,6 +827,8 @@ def _run_cell_locked(
                 futures = [ex.submit(_process, t) for t in pending]
                 for fut in as_completed(futures):
                     fut.result()
+
+    watchdog_stop.set()
 
     _write_summary(
         out_dir, cell_name, cell, tasks, t_start,
