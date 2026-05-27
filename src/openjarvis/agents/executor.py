@@ -660,11 +660,12 @@ class AgentExecutor:
                     budget_kwargs["total_cost_increment"] = cost
                 self._manager.update_agent(agent_id, **budget_kwargs)
 
-                self._manager.update_summary_memory(
-                    agent_id,
-                    result.content[:2000],
-                )
-                self._manager.store_agent_response(agent_id, result.content[:2000])
+                # Store the full response. update_summary_memory enforces the
+                # rolling-summary cap (_SUMMARY_MAX) itself, and the chat
+                # message keeps the complete report. The old [:2000] slices
+                # double-truncated and cut findings off mid-sentence.
+                self._manager.update_summary_memory(agent_id, result.content)
+                self._manager.store_agent_response(agent_id, result.content)
 
             # Budget enforcement (post-tick check)
             agent_data = self._manager.get_agent(agent_id)

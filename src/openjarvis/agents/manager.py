@@ -87,7 +87,11 @@ CREATE TABLE IF NOT EXISTS agent_learning_log (
 );
 """
 
-_SUMMARY_MAX = 2000
+# Rolling summary fed back into the next tick's prompt, so it stays bounded —
+# but 2000 chars clipped real research reports mid-sentence (the findings the
+# UI/CLI show come from here). 16k (~4k tokens) holds a full report while
+# keeping per-tick prompt growth in check.
+_SUMMARY_MAX = 16000
 
 
 class AgentManager:
