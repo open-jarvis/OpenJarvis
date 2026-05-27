@@ -69,6 +69,27 @@ _BROWSER_SUB_TOOLS = {
 }
 
 
+def _resolve_memory_backend(config: Any) -> Any:
+    """Instantiate the configured memory backend, or None if unavailable.
+
+    Mirrors serve.py's setup so an agent tick that runs through the server
+    can actually use its memory_* tools. Returns None (so the tools degrade
+    gracefully) when memory context is disabled or the backend can't load.
+    """
+    if config is None or not getattr(config.agent, "context_from_memory", False):
+        return None
+    try:
+        import openjarvis.tools.storage  # noqa: F401
+        from openjarvis.core.registry import MemoryRegistry
+
+        key = config.memory.default_backend
+        if MemoryRegistry.contains(key):
+            return MemoryRegistry.create(key, db_path=config.memory.db_path)
+    except Exception:
+        logger.debug("Lightweight system: memory backend init failed", exc_info=True)
+    return None
+
+
 class _LightweightSystem:
     """Minimal system facade for the executor — avoids rebuilding the
     full JarvisSystem (which picks a random model from Ollama)."""
@@ -77,7 +98,12 @@ class _LightweightSystem:
         self.engine = engine
         self.model = model
         self.config = config
-        self.memory_backend = None
+        # Wire the configured memory backend so an agent's memory_store /
+        # memory_retrieve tools work when the tick runs through the server.
+        # The executor injects system.memory_backend into those tools; this
+        # facade previously left it None, so they reported "No memory backend
+        # configured" even though the backend was configured and active.
+        self.memory_backend = _resolve_memory_backend(config)
 
 
 def _make_lightweight_system(
