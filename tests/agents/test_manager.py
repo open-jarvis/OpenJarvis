@@ -146,11 +146,16 @@ class TestSummaryMemory:
         assert updated["summary_memory"] == "Key finding: X is Y"
 
     def test_summary_max_length(self, manager):
+        # Import the cap from the module so this test follows the constant
+        # rather than hardcoding a number that drifts every time the cap is
+        # tuned (it was 2000, then 16000 after the truncation fix).
+        from openjarvis.agents.manager import _SUMMARY_MAX
+
         agent = manager.create_agent(name="test", agent_type="simple")
-        long_text = "x" * 3000
+        long_text = "x" * (_SUMMARY_MAX + 1000)
         manager.update_summary_memory(agent["id"], long_text)
         updated = manager.get_agent(agent["id"])
-        assert len(updated["summary_memory"]) <= 2000
+        assert len(updated["summary_memory"]) == _SUMMARY_MAX
 
 
 class TestConcurrency:
