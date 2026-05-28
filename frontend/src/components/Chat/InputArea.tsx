@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Send, Square, Paperclip, Search } from 'lucide-react';
+import { toast } from 'sonner';
 import { useAppStore, generateId } from '../../lib/store';
 import { streamChat, streamResearch } from '../../lib/sse';
 import { fetchSavings, getBase } from '../../lib/api';
@@ -155,6 +156,10 @@ export function InputArea() {
   const sendMessage = useCallback(async () => {
     const content = input.trim();
     if (!content || streamState.isStreaming) return;
+    if (!selectedModel) {
+      toast.error('Pick a model first (⌘K)');
+      return;
+    }
 
     setInput('');
 
@@ -555,7 +560,7 @@ export function InputArea() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Message OpenJarvis..."
+          placeholder={selectedModel ? 'Message OpenJarvis...' : 'Pick a model first (⌘K)...'}
           rows={1}
           className="flex-1 bg-transparent outline-none resize-none text-sm leading-relaxed"
           style={{ color: 'var(--color-text)', maxHeight: '200px' }}
@@ -580,13 +585,13 @@ export function InputArea() {
             />
             <button
               onClick={sendMessage}
-              disabled={!input.trim() || modelLoading}
+              disabled={!input.trim() || modelLoading || !selectedModel}
+              title={selectedModel ? 'Send message' : 'Pick a model first (⌘K)'}
               className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer disabled:opacity-30 disabled:cursor-default"
               style={{
                 background: input.trim() ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
                 color: input.trim() ? 'white' : 'var(--color-text-tertiary)',
               }}
-              title="Send message"
             >
               <Send size={16} />
             </button>
