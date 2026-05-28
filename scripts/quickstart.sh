@@ -52,10 +52,10 @@ if command -v python3 &>/dev/null; then
   PY_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
   PY_MAJOR=$(echo "$PY_VERSION" | cut -d. -f1)
   PY_MINOR=$(echo "$PY_VERSION" | cut -d. -f2)
-  if [ "$PY_MAJOR" -ge 3 ] && [ "$PY_MINOR" -ge 10 ]; then
+  if [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -ge 10 ] && [ "$PY_MINOR" -le 13 ]; then
     ok "Python $PY_VERSION"
   else
-    fail "Python 3.10+ required (found $PY_VERSION)"
+    fail "Python 3.10-3.13 required (found $PY_VERSION)"
   fi
 else
   fail "Python 3 not found. Install from https://python.org"

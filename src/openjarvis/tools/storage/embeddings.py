@@ -100,20 +100,46 @@ class OllamaEmbedder(Embedder):
 
     def _embed_batch(self, texts: List[str]) -> List[List[float]]:
         """Issue one HTTP request for ``texts`` and return raw vectors."""
-        resp = self._httpx.post(
-            f"{self._base_url}/api/embed",
-            json={"model": self._model, "input": texts},
-            timeout=self._timeout_s,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        embeddings = data.get("embeddings")
-        if not embeddings:
-            raise RuntimeError(
-                f"Ollama returned no embeddings for model {self._model!r}. "
-                f"Response keys: {list(data.keys())}"
+        try:
+            resp = self._httpx.post(
+                f"{self._base_url}/api/embed",
+                json={"model": self._model, "input": texts},
+                timeout=self._timeout_s,
             )
-        return embeddings
+            resp.raise_for_status()
+            data = resp.json()
+            embeddings = data.get("embeddings")
+            if embeddings is None and data.get("embedding") is not None:
+                embeddings = [data["embedding"]]
+            if not embeddings:
+                raise RuntimeError(
+                    f"Ollama returned no embeddings for model {self._model!r}. "
+                    f"Response keys: {list(data.keys())}"
+                )
+            return embeddings
+        except self._httpx.HTTPStatusError as exc:
+            if exc.response is None or exc.response.status_code != 404:
+                raise
+            # Ollama compatibility fallback for older servers that still expose
+            # the singular /api/embeddings endpoint.
+            vectors: List[List[float]] = []
+            for text in texts:
+                legacy_resp = self._httpx.post(
+                    f"{self._base_url}/api/embeddings",
+                    json={"model": self._model, "prompt": text},
+                    timeout=self._timeout_s,
+                )
+                legacy_resp.raise_for_status()
+                legacy_data = legacy_resp.json()
+                vec = legacy_data.get("embedding")
+                if not vec:
+                    raise RuntimeError(
+                        f"Ollama legacy embeddings endpoint returned no vector "
+                        f"for model {self._model!r}. "
+                        f"Response keys: {list(legacy_data.keys())}"
+                    )
+                vectors.append(vec)
+            return vectors
 
     def embed(self, texts: list[str]) -> Any:
         """Return a numpy array of shape ``(len(texts), dim)``.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -27,6 +28,76 @@ from openjarvis.core.registry import (
     ToolRegistry,
     TTSRegistry,
 )
+from tests.rust_shim import create_openjarvis_rust_module
+
+_ENV_MARKERS = frozenset(
+    {
+        "live",
+        "cloud",
+        "live_channel",
+        "live_external",
+        "docker",
+        "nvidia",
+        "amd",
+        "apple",
+        "macos15",
+    }
+)
+
+
+def _env_tests_opted_in() -> bool:
+    raw = os.environ.get("OPENJARVIS_RUN_ENV_TESTS", "")
+    return raw.lower() in {"1", "true", "yes", "on"}
+
+
+def _install_rust_shim_if_needed() -> None:
+    try:
+        import openjarvis_rust  # noqa: F401
+    except ImportError:
+        sys.modules["openjarvis_rust"] = create_openjarvis_rust_module()
+
+    try:
+        from openjarvis._rust_bridge import get_rust_module
+
+        get_rust_module.cache_clear()
+    except Exception:
+        # Keep tests resilient even if the bridge module is unavailable
+        # at this import stage.
+        pass
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    _install_rust_shim_if_needed()
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--run-env-tests",
+        action="store_true",
+        default=False,
+        help=(
+            "Run tests marked as requiring live services, credentials, "
+            "Docker, or platform-specific hardware."
+        ),
+    )
+
+
+def pytest_collection_modifyitems(
+    config: pytest.Config,
+    items: list[pytest.Item],
+) -> None:
+    if config.getoption("--run-env-tests") or _env_tests_opted_in():
+        return
+
+    skip_env = pytest.mark.skip(
+        reason=(
+            "Environment-dependent test skipped by default. "
+            "Use --run-env-tests or set OPENJARVIS_RUN_ENV_TESTS=1."
+        )
+    )
+    for item in items:
+        marker_names = {mark.name for mark in item.iter_markers()}
+        if marker_names & _ENV_MARKERS:
+            item.add_marker(skip_env)
 
 
 @pytest.fixture(autouse=True)

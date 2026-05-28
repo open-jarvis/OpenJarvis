@@ -263,6 +263,60 @@ class TestAskAgentOption:
         )
         assert result.exit_code == 0
 
+    def test_no_agent_includes_memory_file_persona_prompt(
+        self,
+        runner,
+        mock_setup,
+        tmp_path,
+    ):
+        cfg = _ask_mod.load_config.return_value
+        soul = tmp_path / "SOUL.md"
+        user = tmp_path / "USER.md"
+        memory = tmp_path / "MEMORY.md"
+        soul.write_text("SOUL_SENTINEL")
+        user.write_text("USER_SENTINEL")
+        memory.write_text("MEMORY_SENTINEL")
+        cfg.memory_files.soul_path = str(soul)
+        cfg.memory_files.user_path = str(user)
+        cfg.memory_files.memory_path = str(memory)
+
+        result = runner.invoke(cli, ["ask", "Hello"])
+        assert result.exit_code == 0
+
+        call = mock_setup.generate.call_args
+        messages = call.args[0]
+        assert messages[0].role == "system"
+        assert "SOUL_SENTINEL" in messages[0].content
+        assert "USER_SENTINEL" in messages[0].content
+        assert "MEMORY_SENTINEL" in messages[0].content
+
+    def test_agent_mode_includes_memory_file_persona_prompt(
+        self,
+        runner,
+        mock_setup,
+        tmp_path,
+    ):
+        cfg = _ask_mod.load_config.return_value
+        soul = tmp_path / "SOUL.md"
+        user = tmp_path / "USER.md"
+        memory = tmp_path / "MEMORY.md"
+        soul.write_text("SOUL_AGENT_SENTINEL")
+        user.write_text("USER_AGENT_SENTINEL")
+        memory.write_text("MEMORY_AGENT_SENTINEL")
+        cfg.memory_files.soul_path = str(soul)
+        cfg.memory_files.user_path = str(user)
+        cfg.memory_files.memory_path = str(memory)
+
+        result = runner.invoke(cli, ["ask", "--agent", "simple", "Hello"])
+        assert result.exit_code == 0
+
+        call = mock_setup.generate.call_args
+        messages = call.args[0]
+        assert messages[0].role == "system"
+        assert "SOUL_AGENT_SENTINEL" in messages[0].content
+        assert "USER_AGENT_SENTINEL" in messages[0].content
+        assert "MEMORY_AGENT_SENTINEL" in messages[0].content
+
     @pytest.mark.parametrize(
         ("tools_enabled", "agent_tools"),
         [

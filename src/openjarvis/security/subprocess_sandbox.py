@@ -61,6 +61,17 @@ def build_safe_env(
 
 def kill_process_tree(pid: int) -> None:
     """Kill a process and all its children (best effort)."""
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        except OSError as exc:
+            logger.debug("Failed to terminate process tree %d: %s", pid, exc)
+        return
     try:
         os.killpg(os.getpgid(pid), signal.SIGTERM)
     except (OSError, ProcessLookupError) as exc:
@@ -93,6 +104,11 @@ def run_sandboxed(
 
     result = SandboxResult()
     try:
+        popen_kwargs: Dict[str, object] = {}
+        if os.name == "nt":
+            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            popen_kwargs["preexec_fn"] = os.setsid  # New process group
         proc = subprocess.Popen(
             command,
             shell=True,
@@ -101,7 +117,7 @@ def run_sandboxed(
             text=True,
             env=env,
             cwd=cwd,
-            preexec_fn=os.setsid,  # New process group
+            **popen_kwargs,
         )
         try:
             stdout, stderr = proc.communicate(timeout=timeout)
@@ -110,7 +126,10 @@ def run_sandboxed(
             result.returncode = proc.returncode
         except subprocess.TimeoutExpired:
             kill_process_tree(proc.pid)
-            proc.wait(timeout=5)
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                logger.debug("Timed out waiting for process %d to exit", proc.pid)
             result.timed_out = True
             result.killed = True
             result.returncode = -1

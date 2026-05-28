@@ -51,6 +51,8 @@ def test_get_status_missing(monkeypatch):
 
 
 def test_file_permissions(cred_path):
+    if os.name == "nt":
+        pytest.skip("POSIX mode bits are not reliably represented on Windows.")
     save_credential("web_search", "TAVILY_API_KEY", "tvly-x", path=cred_path)
     mode = oct(cred_path.stat().st_mode & 0o777)
     assert mode == "0o600"
