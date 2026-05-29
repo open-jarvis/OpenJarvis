@@ -47,18 +47,23 @@ echo "  └───────────────────────
 echo -e "${NC}"
 
 # ── 1. Check Python ──────────────────────────────────────────────────
+# Prefer python3, fall back to python (Windows / minimal distros that ship
+# only the unversioned name).
 info "Checking Python..."
 if command -v python3 &>/dev/null; then
-  PY_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-  PY_MAJOR=$(echo "$PY_VERSION" | cut -d. -f1)
-  PY_MINOR=$(echo "$PY_VERSION" | cut -d. -f2)
-  if [ "$PY_MAJOR" -ge 3 ] && [ "$PY_MINOR" -ge 10 ]; then
-    ok "Python $PY_VERSION"
-  else
-    fail "Python 3.10+ required (found $PY_VERSION)"
-  fi
+  PY_CMD="python3"
+elif command -v python &>/dev/null; then
+  PY_CMD="python"
 else
   fail "Python 3 not found. Install from https://python.org"
+fi
+PY_VERSION=$("$PY_CMD" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+PY_MAJOR=$(echo "$PY_VERSION" | cut -d. -f1)
+PY_MINOR=$(echo "$PY_VERSION" | cut -d. -f2)
+if [ "$PY_MAJOR" -ge 3 ] && [ "$PY_MINOR" -ge 10 ]; then
+  ok "Python $PY_VERSION ($PY_CMD)"
+else
+  fail "Python 3.10+ required (found $PY_VERSION)"
 fi
 
 # ── 2. Check / install uv ───────────────────────────────────────────
@@ -182,6 +187,7 @@ info "Opening $URL ..."
 case "$(uname -s)" in
   Darwin) open "$URL" ;;
   Linux)  xdg-open "$URL" 2>/dev/null || true ;;
+  MINGW*|MSYS*|CYGWIN*) cmd /c start "" "$URL" 2>/dev/null || true ;;
   *)      true ;;
 esac
 

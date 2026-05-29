@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+import shlex
 import tempfile
 
+from openjarvis.core import get_python_executable
 from openjarvis.security.subprocess_sandbox import (
     build_safe_env,
     kill_process_tree,
@@ -97,7 +99,7 @@ class TestRunSandboxed:
     def test_output_truncation(self) -> None:
         # Generate output larger than max_output_bytes
         result = run_sandboxed(
-            "python3 -c \"print('A' * 200)\"",
+            f"{shlex.quote(get_python_executable())} -c \"print('A' * 200)\"",
             timeout=10.0,
             max_output_bytes=50,
         )
