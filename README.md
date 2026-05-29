@@ -39,13 +39,18 @@ curl -fsSL https://open-jarvis.github.io/OpenJarvis/install.sh | bash
 
 The installer handles everything for you — including [uv](https://docs.astral.sh/uv/), the Python venv, Ollama, and a small starter model. You don't need to install anything first.
 
-**Windows:** the installer is a `bash` script and won't run in PowerShell or `cmd`. Pick one of:
+**Windows:** the bash installer won't run in PowerShell or `cmd`. Pick one of:
 
 - **WSL2 (recommended for the CLI / Python SDK)** — one-time setup in an admin PowerShell, then run the same `curl … | bash` inside Ubuntu:
   ```powershell
   wsl --install -d Ubuntu-24.04
   ```
   Open the Ubuntu shell that gets installed, then follow [WSL2 install instructions](https://open-jarvis.github.io/OpenJarvis/getting-started/wsl2/).
+- **Native PowerShell (advanced)** — Phase-1 of the [native Windows RFC (#298)](https://github.com/open-jarvis/OpenJarvis/issues/298). Same `uv sync --extra server`, no WSL2 / no Docker:
+  ```powershell
+  irm https://open-jarvis.github.io/OpenJarvis/install.ps1 | iex
+  ```
+  See [native Windows install guide](https://open-jarvis.github.io/OpenJarvis/getting-started/windows-native/).
 - **Desktop app** — download the [Windows installer (`.exe`)](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-v1.0.2/OpenJarvis_1.0.1_x64-setup.exe) from the latest [desktop release](https://github.com/open-jarvis/OpenJarvis/releases/tag/desktop-v1.0.2) (macOS `.dmg` and Linux `.deb`/`.rpm`/`.AppImage` are there too) for the GUI experience, no terminal required. **Prerequisite:** the desktop app expects [uv](https://docs.astral.sh/uv/) to be installed already — if it isn't, install it first in PowerShell, then launch the app:
   ```powershell
   powershell -ExecutionPolicy Bypass -c "irm https://astral.sh/uv/install.ps1 | iex"
@@ -59,7 +64,7 @@ jarvis
 
 The Rust extension and bigger models continue downloading in the background while you chat. Run `jarvis doctor` to see status.
 
-**Platforms:** macOS (Intel + Apple Silicon), Linux, WSL2 on Windows. Native Windows is not supported — use WSL2 or the desktop binary.
+**Platforms:** macOS (Intel + Apple Silicon), Linux, WSL2 on Windows, and Phase-1 native Windows (PowerShell install + scheduled-task service — see [#298](https://github.com/open-jarvis/OpenJarvis/issues/298)).
 
 **Manual install / contributors:** see [docs/getting-started/install.md](docs/getting-started/install.md).
 

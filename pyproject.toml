@@ -160,6 +160,7 @@ packages = ["src/openjarvis"]
 "src/openjarvis/agents/claude_code_runner" = "_node_modules/claude_code_runner"
 "src/openjarvis/channels/whatsapp_baileys_bridge" = "_node_modules/whatsapp_baileys_bridge"
 "scripts/install" = "_install_scripts"
+"deploy/windows" = "_deploy/windows"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
