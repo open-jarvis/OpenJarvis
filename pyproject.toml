@@ -184,8 +184,13 @@ select = ["E", "F", "I", "W"]
 "src/openjarvis/evals/datasets/*.py" = ["E501"]
 "src/openjarvis/evals/scorers/*.py" = ["E501"]
 # hybrid/ is research code with long prompt strings and paradigm-specific
-# config dicts — same relaxation as evals research code above.
-"src/openjarvis/agents/hybrid/*.py" = ["E501"]
+# config dicts — same relaxation as evals research code above. The ``**`` glob
+# also covers subpackages (e.g. hybrid/skillorchestra/), which the prior
+# ``hybrid/*.py`` glob missed.
+"src/openjarvis/agents/hybrid/**/*.py" = ["E501"]
+# research_loop.py carries long prompt strings too (documented in CLAUDE.md);
+# the ignore was missing here.
+"src/openjarvis/agents/research_loop.py" = ["E501"]
 
 [dependency-groups]
 dev = [

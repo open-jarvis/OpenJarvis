@@ -34,7 +34,6 @@ import threading
 import time
 from typing import List, Optional
 
-
 _NVML_WARNED = False
 
 

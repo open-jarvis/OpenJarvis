@@ -61,7 +61,6 @@ from openjarvis.agents.hybrid._prices import (
 )
 from openjarvis.core.registry import AgentRegistry
 
-
 # Gemini's FunctionDeclaration.parameters expects a Schema-shaped dict (or
 # Schema object) with capitalized type strings ("OBJECT", "STRING"). The
 # OpenAI/Anthropic JSON-Schema lower-case form is silently dropped — the
@@ -257,7 +256,7 @@ def _run_bash(
         try:
             stdout_b, stderr_b = proc.communicate(timeout=10)
         except subprocess.TimeoutExpired:
-            stdout_b, stderr_b = b"", b"";
+            stdout_b, stderr_b = b"", b""
         stdout_b = stdout_b or b""
         stderr_b = stderr_b or b""
         exit_code = -1

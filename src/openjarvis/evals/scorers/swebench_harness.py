@@ -189,7 +189,9 @@ def _patch_modal_sandbox_source() -> None:
     isn't — safe to run repeatedly. No-op if upstream ever fixes this.
     """
     try:
-        from swebench.harness.modal_eval import run_evaluation_modal as _m  # type: ignore[import-not-found]
+        from swebench.harness.modal_eval import (
+            run_evaluation_modal as _m,  # type: ignore[import-not-found]
+        )
     except Exception:
         return
     src_path = getattr(_m, "__file__", None)
@@ -232,7 +234,9 @@ def _patch_modal_sandbox_write_file() -> None:
     still letting real write failures (patch/eval script) surface.
     """
     try:
-        from swebench.harness.modal_eval import run_evaluation_modal as _m  # type: ignore[import-not-found]
+        from swebench.harness.modal_eval import (
+            run_evaluation_modal as _m,  # type: ignore[import-not-found]
+        )
     except Exception:
         return
     runtime = getattr(_m, "ModalSandboxRuntime", None)
@@ -266,7 +270,9 @@ def _sentinel_present_on_disk() -> bool:
     silently regress to the broken version.
     """
     try:
-        from swebench.harness.modal_eval import run_evaluation_modal as _m  # type: ignore[import-not-found]
+        from swebench.harness.modal_eval import (
+            run_evaluation_modal as _m,  # type: ignore[import-not-found]
+        )
     except Exception:
         return False
     src_path = getattr(_m, "__file__", None)

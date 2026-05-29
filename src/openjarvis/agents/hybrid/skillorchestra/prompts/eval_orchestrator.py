@@ -34,7 +34,7 @@ SKILL_ORCHESTRATOR_PROMPT = """You are a skill-based orchestrator for multi-step
 ### Search Skills
 {search_skills}
 
-### Code|Enhance Reasoning Skills  
+### Code|Enhance Reasoning Skills
 {reasoning_skills}
 
 ### Answer Skills
@@ -90,7 +90,7 @@ SKILL_ANALYSIS_ORCHESTRATOR_PROMPT = """You are a skill-based orchestrator for m
 ## Quick Reference: What You Need to Do
 
 **CRITICAL REQUIREMENT**: Before making ANY tool call, you MUST:
-1. Inside <think>...</think>, analyze required skills and output in <skill_analysis> tags 
+1. Inside <think>...</think>, analyze required skills and output in <skill_analysis> tags
 2. Then choose the appropriate tool with the selected model based on the skill analysis.
 
 **The context above may be long - scroll back to see the problem and context, then follow the instructions below.**
@@ -106,7 +106,7 @@ SKILL_ANALYSIS_ORCHESTRATOR_PROMPT = """You are a skill-based orchestrator for m
 ### Search Skills
 {search_skills}
 
-### Reasoning Skills  
+### Reasoning Skills
 {reasoning_skills}
 
 ### Answer Skills

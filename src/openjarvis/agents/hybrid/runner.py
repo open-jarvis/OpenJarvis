@@ -26,7 +26,6 @@ import threading
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from concurrent.futures import TimeoutError as FuturesTimeoutError
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
