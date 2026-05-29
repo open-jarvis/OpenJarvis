@@ -15,6 +15,14 @@
 
 ---
 
+<div align="center">
+
+https://github.com/user-attachments/assets/REPLACE-WITH-UPLOADED-VIDEO-URL
+
+</div>
+
+---
+
 > **[Documentation](https://open-jarvis.github.io/OpenJarvis/)**
 >
 > **[Project Site](https://scalingintelligence.stanford.edu/blogs/openjarvis/)**
