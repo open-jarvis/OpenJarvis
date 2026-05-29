@@ -13,5 +13,6 @@ When a real-world bug report uncovers a new failure mode, add an entry here at t
 
 - [run-as-root.md](run-as-root.md) — installer refuses to run as root
 - [missing-git.md](missing-git.md) — installer refuses without `git` on PATH
+- [windows-powershell.md](windows-powershell.md) — PowerShell users get `install.ps1` guidance instead of `bash: not recognized`
 
 (Add new entries as the catalog grows.)

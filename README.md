@@ -39,7 +39,12 @@ curl -fsSL https://open-jarvis.github.io/OpenJarvis/install.sh | bash
 
 The installer handles everything for you — including [uv](https://docs.astral.sh/uv/), the Python venv, Ollama, and a small starter model. You don't need to install anything first.
 
-**Windows:** the installer is a `bash` script and won't run in PowerShell or `cmd`. Pick one of:
+**Windows:** the `curl … | bash` installer won't run in PowerShell or `cmd` (you'll see `bash: not recognized`). Run this in PowerShell for guidance — or pick one of the options below:
+
+```powershell
+irm https://open-jarvis.github.io/OpenJarvis/install.ps1 | iex
+```
+
 
 - **WSL2 (recommended for the CLI / Python SDK)** — one-time setup in an admin PowerShell, then run the same `curl … | bash` inside Ubuntu:
   ```powershell

@@ -147,6 +147,7 @@ nav:
   - Getting Started:
       - Installation: getting-started/installation.md
       - macOS Guide: getting-started/macos.md
+      - Windows (WSL2): getting-started/wsl2.md
       - Quick Start: getting-started/quickstart.md
       - Code Snippets: getting-started/snippets.md
       - Configuration: getting-started/configuration.md
