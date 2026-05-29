@@ -46,7 +46,12 @@ def create_ws_router(event_bus: EventBus) -> Any:
         }
         for ws, (queue, loop) in list(clients.items()):
             agent_filter = getattr(ws, "_agent_filter", None)
-            event_agent = (event.data or {}).get("agent_id")
+            # Tick events carry "agent_id"; tool-call events carry "agent".
+            # Match either so a per-agent subscriber actually receives the
+            # tool calls that make up its live trace (without this, only
+            # tick_start/end pass the filter and the trace looks empty).
+            data = event.data or {}
+            event_agent = data.get("agent_id") or data.get("agent")
             if agent_filter and event_agent != agent_filter:
                 continue
             try:

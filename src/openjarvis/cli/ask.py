@@ -207,10 +207,14 @@ def _run_research(
     if result.answer:
         cited = {int(n) for n in re.findall(r"\[(\d+)\]", result.answer)}
         src_word = "source" if len(cited) == 1 else "sources"
+        # Report the model and engine that actually served the query rather
+        # than hardcoding: planner_model is the resolved model passed to the
+        # agent, and engine_id is the backend's own identifier ("ollama").
+        engine_label = getattr(engine, "engine_id", type(engine).__name__)
         trace.print()
         trace.print(
             f"[dim]Deep Research · {elapsed:.1f}s · "
-            f"{len(cited)} {src_word} cited[/dim]"
+            f"{len(cited)} {src_word} cited · {planner_model} · {engine_label}[/dim]"
         )
 
 

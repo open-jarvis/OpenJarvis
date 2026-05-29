@@ -438,7 +438,12 @@ export const useAppStore = create<AppState>((set, get) => {
 
     // ── Models & server ────────────────────────────────────────────
 
-    setModels: (models: ModelInfo[]) => set({ models }),
+    setModels: (models: ModelInfo[]) =>
+      set((state) =>
+        !state.selectedModel && models.length > 0
+          ? { models, selectedModel: models[0].id }
+          : { models },
+      ),
     setModelsLoading: (loading: boolean) => set({ modelsLoading: loading }),
     setSelectedModel: (model: string) => set({ selectedModel: model }),
     setServerInfo: (info: ServerInfo | null) => set({ serverInfo: info }),

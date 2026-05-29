@@ -121,6 +121,23 @@ class BaseAgent(ABC):
             payload.update(data)
             self._bus.publish(EventType.AGENT_TURN_END, payload)
 
+    def _apply_persona(self, system_prompt: Optional[str]) -> Optional[str]:
+        """Append SOUL/MEMORY/USER persona to a self-assembled system prompt.
+
+        Agents like ``monitor_operative`` / ``operative`` build their own
+        system prompt and bypass ``_build_messages`` (and thus the prompt
+        builder). This lets them honor the same persona files as one-shot
+        ``jarvis ask`` (#376) by *appending* persona to — never replacing —
+        their specialized instructions. No-op when no ``prompt_builder`` is
+        wired or no persona files exist.
+        """
+        if self._prompt_builder is None:
+            return system_prompt
+        persona = self._prompt_builder.persona_sections()
+        if not persona:
+            return system_prompt
+        return f"{system_prompt}\n\n{persona}" if system_prompt else persona
+
     def _build_messages(
         self,
         input: str,
@@ -307,6 +324,7 @@ class ToolUsingAgent(BaseAgent):
         interactive: bool = False,
         confirm_callback: Optional[Any] = None,
         skill_few_shot_examples: Optional[List[str]] = None,
+        prompt_builder: Optional[Any] = None,
     ) -> None:
         super().__init__(
             engine,
@@ -314,6 +332,7 @@ class ToolUsingAgent(BaseAgent):
             bus=bus,
             temperature=temperature,
             max_tokens=max_tokens,
+            prompt_builder=prompt_builder,
         )
         from openjarvis.tools._stubs import ToolExecutor
 

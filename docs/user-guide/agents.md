@@ -13,6 +13,7 @@ Agents are the agentic logic layer of OpenJarvis. They determine how a query is 
 | `RLMAgent`          | `rlm`             | Yes             | Yes        | Recursive LM with persistent REPL            |
 | `OpenHandsAgent`    | `openhands`       | No              | Yes        | Wraps real openhands-sdk                     |
 | `ClaudeCodeAgent`   | `claude_code`     | No              | Yes        | Claude Agent SDK via Node.js subprocess       |
+| `OpenCodeAgent`     | `opencode`        | No              | Yes        | [opencode](https://opencode.ai) coding agent on your local engine |
 | `OperativeAgent`    | `operative`       | Yes             | Yes        | Persistent scheduled agent with state management |
 | `MonitorOperativeAgent` | `monitor_operative` | Yes        | Yes        | Long-horizon agent with 4 configurable strategy axes |
 
@@ -380,6 +381,64 @@ jarvis ask --agent claude_code "Refactor the tests to use pytest fixtures"
 
 !!! info "accepts_tools = False"
     `ClaudeCodeAgent` does not accept OpenJarvis tools via `--tools`. Tool access for the Claude agent is configured separately via the `allowed_tools` constructor parameter, which passes tool names understood by the Claude Agent SDK itself.
+
+---
+
+## OpenCodeAgent
+
+The `OpenCodeAgent` delegates coding tasks to [opencode](https://opencode.ai), the open-source coding agent, running it **on your local engine**. opencode handles the agentic loop, file edits, and tool use; OpenJarvis supplies the model — keeping coding-agent work local-first.
+
+!!! warning "Requirements"
+    Requires the `opencode` binary on `PATH` (`npm i -g opencode-ai` or `brew install anomalyco/tap/opencode`). It is **not** bundled; `run()` returns a clear error if it is missing. No `ANTHROPIC_API_KEY` needed — inference goes through your OpenJarvis engine.
+
+**How it works:**
+
+1. Derives an OpenAI-compatible base URL from the `engine` (e.g. Ollama/vLLM/llama.cpp at `<host>/v1`) and writes an `opencode.json` in the workspace registering it as an `@ai-sdk/openai-compatible` provider (`openjarvis/<model>`).
+2. Spawns a headless `opencode serve` (loopback, random port) and waits for `/global/health`.
+3. Creates a session (`POST /session`) and sends the task (`POST /session/{id}/message`) with `model={providerID, modelID}` and the selected `agent` (`build` or `plan`).
+4. Parses the returned message `parts` — text parts → `content`, tool parts → `tool_results` — into an `AgentResult`.
+5. `close()` disposes the session/server.
+
+**Constructor parameters (selected):**
+
+| Parameter           | Type              | Default          | Description                                              |
+|---------------------|-------------------|------------------|----------------------------------------------------------|
+| `engine`            | `InferenceEngine` | --               | Used to derive the local OpenAI-compatible provider URL  |
+| `model`             | `str`             | --               | Model id served at the provider (e.g. `qwen3:8b`)        |
+| `workspace`         | `str`             | `os.getcwd()`    | Directory opencode operates in                           |
+| `agent`             | `str`             | `"build"`        | opencode agent: `build` (full access) or `plan` (read-only) |
+| `provider_base_url` | `str`             | derived          | Override the engine-derived OpenAI base URL              |
+| `provider_id`       | `str`             | `"openjarvis"`   | opencode provider id to register/use                     |
+| `model_id`          | `str`             | `model`          | Model id within the provider                             |
+| `server_password`   | `str`             | `$OPENCODE_SERVER_PASSWORD` | Optional basic-auth for the opencode server   |
+| `timeout`           | `int`             | `600`            | HTTP timeout in seconds                                  |
+
+```python
+from openjarvis.agents.opencode import OpenCodeAgent
+
+agent = OpenCodeAgent(engine, "qwen3:8b", workspace="/path/to/project", agent="build")
+result = agent.run("Add type hints to utils.py and run the tests")
+print(result.content)
+agent.close()
+```
+
+```bash
+# Via CLI (opencode must be installed)
+jarvis ask --agent opencode "Refactor the parser to use a state machine"
+```
+
+!!! tip "Pass-through providers"
+    If the `engine` has no derivable base URL, pass `model` as `provider/model` (e.g. `ollama/llama3`) and opencode resolves it from its own configuration — no `opencode.json` is written.
+
+!!! warning "Model capability matters"
+    opencode's agentic loop (planning + correct tool calls + multi-step
+    follow-through) needs a reasonably capable model. In testing, a **27B**
+    local model (Qwen3.5-27B served via vLLM) solved a 7-task coding suite
+    cleanly (create / edit / bug-fix / implement-to-pass-tests / multi-file,
+    verified by running the code and tests). An **8B** model (qwen3:8b) was
+    unreliable — malformed tool calls, syntactically broken code, and
+    half-finished tasks. Prefer a capable local model (or a cloud model) for
+    real coding work.
 
 ---
 

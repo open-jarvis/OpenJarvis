@@ -975,8 +975,10 @@ class ServerConfig:
         default_factory=lambda: [
             "http://localhost:3000",
             "http://localhost:5173",
+            "http://localhost:5174",
             "http://127.0.0.1:3000",
             "http://127.0.0.1:5173",
+            "http://127.0.0.1:5174",
             # Tauri 2 production webview origins.
             # macOS / Linux / iOS use the custom scheme; Windows /
             # Android use http(s)://tauri.localhost. All three must

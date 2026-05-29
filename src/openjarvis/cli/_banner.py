@@ -1,27 +1,23 @@
-"""Startup banner — arc-reactor logo + OpenJarvis wordmark."""
-
-# ruff: noqa: E501 — Rich markup tags inflate source-line length; the rendered
-# banner stays under 80 displayed columns.
+"""Startup banner — OpenJarvis wordmark + tagline."""
 
 from __future__ import annotations
 
-# Reactor on the left (5 lines, ~12 cols) + small ASCII wordmark on the right.
-# Last line carries the tagline so the whole block stays under 8 lines / 80 cols.
-_BANNER_LINES = (
-    r"   [blue]╭─────╮[/blue]      [bold bright_blue] ___                  _                 _    [/]",
-    r"  [blue]╱[/blue] [bright_blue]╭───╮[/bright_blue] [blue]╲[/blue]    [bold bright_blue]/ _ \ _ __  ___ _ _  | | __ _ _ ___  _(_)___[/]",
-    r" [blue]│[/blue]  [bright_blue]│[/bright_blue] [bold bright_white]◉[/] [bright_blue]│[/bright_blue]  [blue]│[/blue]  [bold bright_blue]| | | | '_ \/ -_) ' \ | |/ _` | '_\ V /| (_-<[/]",
-    r"  [blue]╲[/blue] [bright_blue]╰───╯[/bright_blue] [blue]╱[/blue]    [bold bright_blue]\___/| .__/\___|_||_||_|\__,_|_|  \_/ |_/__/[/]",
-    r"   [blue]╰─────╯[/blue]          [dim]|_|[/dim]     [cyan]Private AI on your machine[/cyan]",
+# "OpenJarvis" rendered in the figlet "standard" font. Stored as plain text
+# (no inline Rich markup) so the backslashes in the glyphs don't collide with
+# Rich's [tag] markup or Python raw-string escaping — colour is applied at
+# print time via a style argument. The "standard" font renders a clearly
+# readable capital J (the bottom-left \___/ hook), unlike the cramped prior
+# art where the J read as an I.
+_WORDMARK = (
+    '  ___                       _                  _     ',
+    ' / _ \\ _ __   ___ _ __     | | __ _ _ ____   _(_)___ ',
+    "| | | | '_ \\ / _ \\ '_ \\ _  | |/ _` | '__\\ \\ / / / __|",
+    '| |_| | |_) |  __/ | | | |_| | (_| | |   \\ V /| \\__ \\',
+    ' \\___/| .__/ \\___|_| |_|\\___/ \\__,_|_|    \\_/ |_|___/',
+    '      |_|                                            ',
 )
 
-_PLAIN_BANNER = (
-    r"   ╭─────╮       ___                  _                 _    ",
-    r"  ╱ ╭───╮ ╲     / _ \ _ __  ___ _ _  | | __ _ _ ___  _(_)___ ",
-    r" │  │ ◉ │  │   | | | | '_ \/ -_) ' \ | |/ _` | '_\ V /| (_-< ",
-    r"  ╲ ╰───╯ ╱     \___/| .__/\___|_||_||_|\__,_|_|  \_/ |_/__/ ",
-    r"   ╰─────╯           |_|     Private AI on your machine     ",
-)
+_TAGLINE = "Personal AI, On Personal Devices"
 
 
 def print_banner(quiet: bool = False) -> None:
@@ -32,10 +28,12 @@ def print_banner(quiet: bool = False) -> None:
         from rich.console import Console
 
         console = Console()
-        for line in _BANNER_LINES:
-            console.print(line, highlight=False)
+        for line in _WORDMARK:
+            console.print(line, style="bold bright_blue", highlight=False, markup=False)
+        console.print(f"      {_TAGLINE}", style="cyan", highlight=False, markup=False)
         console.print()
     except ImportError:
-        for line in _PLAIN_BANNER:
+        for line in _WORDMARK:
             print(line)
+        print(f"      {_TAGLINE}")
         print()

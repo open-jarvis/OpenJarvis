@@ -404,6 +404,21 @@ class AgentExecutor:
                 state_kwargs["memory_backend"] = getattr(
                     self._system, "memory_backend", None
                 )
+            # Wire SOUL.md / MEMORY.md / USER.md persona files into persistent
+            # agents, mirroring the one-shot `jarvis ask` path so they no
+            # longer apply to CLI calls only (#376).
+            cfg = getattr(self._system, "config", None)
+            if cfg is not None and _accepts("prompt_builder"):
+                from openjarvis.prompt.builder import SystemPromptBuilder
+
+                state_kwargs["prompt_builder"] = SystemPromptBuilder(
+                    agent_template=getattr(
+                        cfg.agent, "default_system_prompt", ""
+                    )
+                    or "",
+                    memory_files_config=cfg.memory_files,
+                    system_prompt_config=cfg.system_prompt,
+                )
 
         try:
             agent_instance = agent_cls(
@@ -645,11 +660,12 @@ class AgentExecutor:
                     budget_kwargs["total_cost_increment"] = cost
                 self._manager.update_agent(agent_id, **budget_kwargs)
 
-                self._manager.update_summary_memory(
-                    agent_id,
-                    result.content[:2000],
-                )
-                self._manager.store_agent_response(agent_id, result.content[:2000])
+                # Store the full response. update_summary_memory enforces the
+                # rolling-summary cap (_SUMMARY_MAX) itself, and the chat
+                # message keeps the complete report. The old [:2000] slices
+                # double-truncated and cut findings off mid-sentence.
+                self._manager.update_summary_memory(agent_id, result.content)
+                self._manager.store_agent_response(agent_id, result.content)
 
             # Budget enforcement (post-tick check)
             agent_data = self._manager.get_agent(agent_id)

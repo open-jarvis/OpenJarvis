@@ -45,9 +45,9 @@ class SystemPromptBuilder:
             parts.append(f"\n\n## Previous State\n\n{self._previous_state}")
         return "".join(parts)
 
-    def _build_frozen_prefix(self) -> str:
+    def _persona_sections(self) -> list[str]:
+        """The SOUL / MEMORY / USER sections (no agent template, no skills)."""
         sections: list[str] = []
-        sections.append(self._agent_template)
         soul = self._load_file(
             self._mf_config.soul_path,
             self._sp_config.soul_max_chars,
@@ -66,6 +66,22 @@ class SystemPromptBuilder:
         )
         if user:
             sections.append(f"## User Profile\n\n{user}")
+        return sections
+
+    def persona_sections(self) -> str:
+        """Just the SOUL / MEMORY / USER persona, joined.
+
+        For agents that assemble their own system prompt (monitor_operative,
+        operative) and want to *append* persona without letting the builder
+        replace their specialized instructions (#376). Returns "" when no
+        persona files are present.
+        """
+        return "\n\n".join(self._persona_sections())
+
+    def _build_frozen_prefix(self) -> str:
+        sections: list[str] = []
+        sections.append(self._agent_template)
+        sections.extend(self._persona_sections())
         # XML skill catalog (preferred over legacy markdown list)
         if self._skill_catalog_xml:
             sections.append("## Available Skills\n\n" + self._skill_catalog_xml)

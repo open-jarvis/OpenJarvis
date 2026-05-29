@@ -69,6 +69,27 @@ _BROWSER_SUB_TOOLS = {
 }
 
 
+def _resolve_memory_backend(config: Any) -> Any:
+    """Instantiate the configured memory backend, or None if unavailable.
+
+    Mirrors serve.py's setup so an agent tick that runs through the server
+    can actually use its memory_* tools. Returns None (so the tools degrade
+    gracefully) when memory context is disabled or the backend can't load.
+    """
+    if config is None or not getattr(config.agent, "context_from_memory", False):
+        return None
+    try:
+        import openjarvis.tools.storage  # noqa: F401
+        from openjarvis.core.registry import MemoryRegistry
+
+        key = config.memory.default_backend
+        if MemoryRegistry.contains(key):
+            return MemoryRegistry.create(key, db_path=config.memory.db_path)
+    except Exception:
+        logger.debug("Lightweight system: memory backend init failed", exc_info=True)
+    return None
+
+
 class _LightweightSystem:
     """Minimal system facade for the executor — avoids rebuilding the
     full JarvisSystem (which picks a random model from Ollama)."""
@@ -77,7 +98,12 @@ class _LightweightSystem:
         self.engine = engine
         self.model = model
         self.config = config
-        self.memory_backend = None
+        # Wire the configured memory backend so an agent's memory_store /
+        # memory_retrieve tools work when the tick runs through the server.
+        # The executor injects system.memory_backend into those tools; this
+        # facade previously left it None, so they reported "No memory backend
+        # configured" even though the backend was configured and active.
+        self.memory_backend = _resolve_memory_backend(config)
 
 
 def _make_lightweight_system(
@@ -398,6 +424,139 @@ def _resolve_tool_specs(
     return resolved
 
 
+# Per-agent sampler params forwarded to the engine when present in config.
+# The OpenAI-compat engine passes **kwargs straight through to the upstream
+# payload, so these reach local servers (vLLM / mlx_lm / etc.) that support
+# them. Only forwarded when explicitly set, so default agents send nothing
+# extra and engines that don't support a key never receive it. (#386)
+_SAMPLER_PARAM_KEYS = (
+    "top_p",
+    "top_k",
+    "min_p",
+    "repetition_penalty",
+    "frequency_penalty",
+    "presence_penalty",
+)
+
+
+def _sampler_kwargs(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract per-agent sampler params from a managed agent's config (#386)."""
+    out: Dict[str, Any] = {}
+    for key in _SAMPLER_PARAM_KEYS:
+        val = config.get(key)
+        if val is not None:
+            out[key] = val
+    return out
+
+
+def _replay_history_messages(
+    history: List[Dict[str, Any]],
+    exclude_id: str,
+) -> List[Any]:
+    """Rebuild prior-turn LLM messages from stored managed-agent history.
+
+    When a stored assistant turn recorded ``tool_calls``, replay them as an
+    assistant tool-use message followed by the corresponding tool-result
+    messages — so the model sees its own prior tool pattern instead of
+    regressing to fabricated tool output on later turns. Without this, only
+    the assistant's text is replayed and the tool-use signal is lost (#382).
+    """
+    from openjarvis.core.types import Message, Role, ToolCall
+
+    messages: List[Any] = []
+    for m in reversed(history):
+        if m.get("id") == exclude_id:
+            continue
+        direction = m.get("direction")
+        if direction == "user_to_agent":
+            messages.append(Message(role=Role.USER, content=m.get("content") or ""))
+        elif direction == "agent_to_user":
+            stored = m.get("tool_calls")
+            if stored:
+                calls = []
+                results = []
+                for i, tc in enumerate(stored):
+                    call_id = f"hist-{m.get('id', '')}-{i}"
+                    calls.append(
+                        ToolCall(
+                            id=call_id,
+                            name=tc.get("tool", ""),
+                            arguments=tc.get("arguments") or "",
+                        )
+                    )
+                    results.append(
+                        Message(
+                            role=Role.TOOL,
+                            content=str(tc.get("result", "")),
+                            tool_call_id=call_id,
+                            name=tc.get("tool", ""),
+                        )
+                    )
+                messages.append(
+                    Message(
+                        role=Role.ASSISTANT,
+                        content=m.get("content") or None,
+                        tool_calls=calls,
+                    )
+                )
+                messages.extend(results)
+            else:
+                messages.append(
+                    Message(role=Role.ASSISTANT, content=m.get("content") or "")
+                )
+    return messages
+
+
+def _instantiate_managed_tool(
+    tool_cls: Any,
+    name: str,
+    *,
+    engine: Any,
+    model: str,
+    app_state: Any,
+) -> Any:
+    """Instantiate a tool with the same dependency injection as the canonical
+    ``cli/ask.py`` path, so ``memory_*`` / ``channel_*`` / ``llm`` tools work
+    instead of silently failing with "No backend configured" (#395).
+    """
+    try:
+        from openjarvis.cli.ask import (
+            _CHANNEL_TOOLS,
+            _MEMORY_TOOLS,
+            _get_memory_backend,
+        )
+    except Exception:  # pragma: no cover - cli import should always succeed
+        _MEMORY_TOOLS = frozenset()
+        _CHANNEL_TOOLS = frozenset()
+        _get_memory_backend = None
+
+    if name in _MEMORY_TOOLS:
+        backend = getattr(app_state, "memory_backend", None) if app_state else None
+        if backend is None and app_state is not None and _get_memory_backend:
+            cfg = getattr(app_state, "config", None)
+            if cfg is not None:
+                backend = _get_memory_backend(cfg)
+        if backend is None:
+            logger.warning(
+                "Memory tool %r instantiated without a backend — calls will "
+                "return no results.",
+                name,
+            )
+        return tool_cls(backend=backend)
+    if name in _CHANNEL_TOOLS:
+        channel = getattr(app_state, "channel_bridge", None) if app_state else None
+        if channel is None:
+            logger.warning(
+                "Channel tool %r instantiated without a channel — calls will "
+                "fail with 'No channel backend configured'.",
+                name,
+            )
+        return tool_cls(channel=channel)
+    if name == "llm":
+        return tool_cls(engine=engine, model=model)
+    return tool_cls()
+
+
 def _build_deep_research_tools(
     engine: Any,
     model: str,
@@ -635,7 +794,16 @@ async def _stream_managed_agent(
 
     agent_id = agent_record["id"]
     config = agent_record.get("config", {})
-    model = config.get("model", getattr(engine, "_model", ""))
+    # Resolve the model: prefer the agent's own config, then the server's
+    # resolved model (app.state.model — what the engine was booted with),
+    # and only then the legacy engine._model attr. OllamaEngine takes the
+    # model per-call and exposes no _model attr, so without the app_state
+    # fallback this resolved to "" and Ollama 400'd on an empty model.
+    model = (
+        config.get("model")
+        or getattr(app_state, "model", None)
+        or getattr(engine, "_model", "")
+    )
     system_prompt = config.get("system_prompt")
     temperature = config.get("temperature", 0.7)
     max_tokens = config.get("max_tokens", 1024)
@@ -657,15 +825,11 @@ async def _stream_managed_agent(
         if app_state is not None and dr_tools:
             app_state._dr_tools = dr_tools
 
-    # Load prior conversation context (DESC order, reverse for chronological)
+    # Load prior conversation context (DESC order, reverse for chronological).
+    # Replaying recorded tool_calls (assistant tool-use + tool results) keeps
+    # multi-turn tool behaviour from regressing to fabricated output (#382).
     history = manager.list_messages(agent_id, limit=50)
-    for m in reversed(history):
-        if m["id"] == message_id:
-            continue
-        if m["direction"] == "user_to_agent":
-            llm_messages.append(Message(role=Role.USER, content=m["content"]))
-        elif m["direction"] == "agent_to_user":
-            llm_messages.append(Message(role=Role.ASSISTANT, content=m["content"]))
+    llm_messages.extend(_replay_history_messages(history, message_id))
 
     # Append the current user message
     llm_messages.append(Message(role=Role.USER, content=user_content))
@@ -960,6 +1124,10 @@ async def _stream_managed_agent(
     if resolved_tools:
         stream_kwargs["tools"] = resolved_tools
 
+    # Forward any per-agent sampler params (repetition_penalty, top_p, …) so
+    # locally-hosted models can be tuned per agent (#386).
+    stream_kwargs.update(_sampler_kwargs(config))
+
     # Discover MCP tools and merge into stream_kwargs
     mcp_adapters: Dict[str, Any] = {}
     if app_state is not None:
@@ -1175,7 +1343,17 @@ async def _stream_managed_agent(
 
                             tool_cls = ToolRegistry.get(tool_name)
                             if tool_cls is not None:
-                                tool_instance = tool_cls()
+                                # Inject backend / channel / engine the same
+                                # way cli/ask.py does, else memory_* / channel_*
+                                # / llm tools fail with "No backend configured"
+                                # on every call (#395).
+                                tool_instance = _instantiate_managed_tool(
+                                    tool_cls,
+                                    tool_name,
+                                    engine=engine,
+                                    model=model,
+                                    app_state=app_state,
+                                )
                                 # Tools the user explicitly added to this
                                 # agent's toolkit are considered pre-approved —
                                 # selecting them in the wizard is the

@@ -24,6 +24,7 @@ def _cartesia_synthesize(
     model: str = "sonic",
     output_format: str = "mp3",
     speed: float = 1.0,
+    language: str = "en",
 ) -> bytes:
     """Call the Cartesia TTS API and return raw audio bytes."""
     resp = httpx.post(
@@ -41,7 +42,7 @@ def _cartesia_synthesize(
                 "sample_rate": 24000,
                 "encoding": "mp3" if output_format == "mp3" else "pcm_f32le",
             },
-            "language": "en",
+            "language": language,
             **({"speed": speed} if speed != 1.0 else {}),
         },
         timeout=120.0,
@@ -56,9 +57,10 @@ class CartesiaTTSBackend(TTSBackend):
 
     backend_id = "cartesia"
 
-    def __init__(self, *, api_key: str = "", model: str = "sonic") -> None:
+    def __init__(self, *, api_key: str = "", model: str = "sonic", language: str = "en") -> None:
         self._api_key = api_key or os.environ.get("CARTESIA_API_KEY", "")
         self._model = model
+        self._language = language or os.environ.get("CARTESIA_LANGUAGE", "en")
 
     def synthesize(
         self,
@@ -67,6 +69,7 @@ class CartesiaTTSBackend(TTSBackend):
         voice_id: str = "",
         speed: float = 1.0,
         output_format: str = "mp3",
+        language: str = "",
     ) -> TTSResult:
         if not self._api_key:
             raise RuntimeError("CARTESIA_API_KEY not set")
@@ -82,6 +85,7 @@ class CartesiaTTSBackend(TTSBackend):
             model=self._model,
             output_format=output_format,
             speed=speed,
+            language=language or self._language,
         )
 
         return TTSResult(

@@ -139,6 +139,7 @@ class MonitorOperativeAgent(ToolUsingAgent):
             max_tokens=max_tokens,
             interactive=interactive,
             confirm_callback=confirm_callback,
+            prompt_builder=kwargs.get("prompt_builder"),
         )
         # Validate strategies
         if memory_extraction not in VALID_MEMORY_EXTRACTION:
@@ -215,6 +216,9 @@ class MonitorOperativeAgent(ToolUsingAgent):
             sys_parts.append(f"\n## Previous State\n{previous_state}")
 
         system_prompt = "\n\n".join(sys_parts) if sys_parts else None
+        # Honor SOUL.md / MEMORY.md / USER.md persona files like `jarvis ask`,
+        # appended so the monitor's own instructions are preserved (#376).
+        system_prompt = self._apply_persona(system_prompt)
 
         # 3. Load session history
         session_messages = self._load_session()

@@ -189,6 +189,8 @@ def create_app(
         else [
             "http://localhost:5173",
             "http://127.0.0.1:5173",
+            "http://localhost:5174",
+            "http://127.0.0.1:5174",
             # Tauri 2 production webview origins:
             #   macOS / Linux / iOS  -> tauri://localhost
             #   Windows / Android    -> http://tauri.localhost (default),
