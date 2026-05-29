@@ -11,13 +11,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Dict, List
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
+
+from openjarvis.core import open_browser
 
 CONFIG_DIR = Path.home() / ".openjarvis" / "connectors"
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -144,7 +145,7 @@ def do_google() -> None:
         })
     )
     print("  Opening browser...")
-    webbrowser.open(url)
+    open_browser(url)
     code = _wait_for_code()
 
     resp = httpx.post(
@@ -192,7 +193,7 @@ def do_strava() -> None:
         })
     )
     print("  Opening browser...")
-    webbrowser.open(url)
+    open_browser(url)
     code = _wait_for_code()
 
     resp = httpx.post(
@@ -303,7 +304,7 @@ def do_spotify() -> None:
         })
     )
     print("  Opening browser...")
-    webbrowser.open(url)
+    open_browser(url)
     code = _wait_for_code(port=spotify_port)
 
     import base64
