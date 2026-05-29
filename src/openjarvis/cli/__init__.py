@@ -17,7 +17,6 @@ from openjarvis.cli.compose_cmd import compose
 from openjarvis.cli.config_cmd import config
 from openjarvis.cli.connect_cmd import connect
 from openjarvis.cli.daemon_cmd import restart, start, status, stop
-from openjarvis.cli.deep_research_setup_cmd import deep_research_setup
 from openjarvis.cli.digest_cmd import digest
 from openjarvis.cli.doctor_cmd import doctor
 from openjarvis.cli.eval_cmd import eval_group
@@ -117,8 +116,22 @@ cli.add_command(config, "config")
 cli.add_command(scan, "scan")
 cli.add_command(connect, "connect")
 cli.add_command(digest, "digest")
-cli.add_command(deep_research_setup, "deep-research-setup")
-cli.add_command(deep_research_setup, "research")
+# deep-research setup pulls the ingestion pipeline (embeddings/numpy). Guard it
+# so a broken or slow numpy on Windows — which can raise at IMPORT time, not
+# just ImportError (#404) — can never take down the whole CLI, including
+# `jarvis serve`. Invoking `jarvis deep-research-setup` without the deps still
+# errors clearly on demand.
+try:
+    from openjarvis.cli.deep_research_setup_cmd import deep_research_setup
+
+    cli.add_command(deep_research_setup, "deep-research-setup")
+    cli.add_command(deep_research_setup, "research")
+except Exception as _dr_exc:
+    import logging as _logging
+
+    _logging.getLogger(__name__).debug(
+        "deep-research command unavailable: %s", _dr_exc
+    )
 cli.add_command(self_update, "self-update")
 cli.add_command(bootstrap_cmd, "_bootstrap")
 

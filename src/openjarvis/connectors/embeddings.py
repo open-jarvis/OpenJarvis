@@ -13,10 +13,16 @@ so ingestion never fails because a sidecar service is down.
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
-import numpy as np
 import requests
+
+# numpy is imported lazily inside the functions that use it (not at module
+# load). The CLI imports this module eagerly via the deep-research command
+# chain, so a module-level `import numpy` makes a broken/slow numpy on Windows
+# crash every `jarvis` command — including `jarvis serve` (#404, #309).
+if TYPE_CHECKING:
+    import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +116,8 @@ class OllamaEmbedder:
             )
             return None
 
+        import numpy as np
+
         arr = np.asarray(vec, dtype=np.float32)
         if self._dim is None:
             self._dim = int(arr.shape[0])
@@ -136,16 +144,20 @@ class OllamaEmbedder:
 
 
 def decode_embedding(
-    blob: Optional[bytes], *, dtype: type = np.float32
+    blob: Optional[bytes], *, dtype=None
 ) -> Optional[np.ndarray]:
     """Reconstruct a 1-D vector from a BLOB written by ``OllamaEmbedder.embed``.
 
     Returns ``None`` when the input is missing or zero-length so callers can
-    treat absent embeddings uniformly.
+    treat absent embeddings uniformly. ``dtype`` defaults to ``np.float32``
+    (resolved lazily; passing ``np.float32`` as a default arg would import
+    numpy at module load).
     """
     if not blob:
         return None
-    return np.frombuffer(blob, dtype=dtype)
+    import numpy as np
+
+    return np.frombuffer(blob, dtype=dtype if dtype is not None else np.float32)
 
 
 __all__ = [

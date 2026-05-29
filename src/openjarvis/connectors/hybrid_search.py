@@ -24,8 +24,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-import numpy as np
-
+# numpy imported lazily inside _vector_recall (see embeddings.py) so importing
+# this module never forces numpy at load time (#404, #309).
 from openjarvis.connectors.embeddings import OllamaEmbedder, decode_embedding
 from openjarvis.connectors.store import KnowledgeStore
 
@@ -254,6 +254,8 @@ class HybridSearch:
         """Return ``[(chunk_id, cosine_score), ...]`` from a brute-force scan."""
         if self._embedder is None:
             return []
+        import numpy as np
+
         q_blob = self._embedder.embed(query)
         q_vec = decode_embedding(q_blob)
         if q_vec is None or q_vec.size == 0:

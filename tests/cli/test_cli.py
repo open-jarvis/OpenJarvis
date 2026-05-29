@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import subprocess
 import sys
 from pathlib import Path
 from unittest import mock
@@ -136,3 +137,29 @@ class TestCLI:
         assert config_path.exists()
         content = config_path.read_text()
         assert "[engine]" in content
+
+
+class TestStartupResilience:
+    """Importing the CLI must not force heavy/native deps (#404, #309).
+
+    A broken or slow numpy on Windows otherwise raises at import time and takes
+    down every `jarvis` command — including `jarvis serve` — because the CLI
+    eagerly pulls the deep-research command chain (-> embeddings -> numpy).
+    """
+
+    def test_importing_cli_does_not_import_numpy(self) -> None:
+        # Run in a fresh subprocess: the pytest session itself almost certainly
+        # has numpy loaded from other tests, so an in-process check is useless.
+        code = (
+            "import openjarvis.cli, sys; "
+            "leaked=[m for m in sys.modules if m=='numpy' or m.startswith('numpy.')]; "
+            "assert not leaked, leaked; "
+            "print('numpy-free')"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True
+        )
+        assert result.returncode == 0, (
+            "importing openjarvis.cli pulled in numpy (a broken numpy would then "
+            f"crash `jarvis serve`):\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
