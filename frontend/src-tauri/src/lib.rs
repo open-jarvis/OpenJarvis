@@ -291,10 +291,29 @@ impl ChildHandle {
     }
 }
 
-#[derive(Default)]
+/// Rolling buffer holding the most recent ~16 KB of jarvis stderr.
+///
+/// Populated by a background drainer task spawned at boot so the pipe
+/// never fills and back-pressures `jarvis serve`; consumed by the boot
+/// path when surfacing failure messages.
+type StderrTail = Arc<Mutex<Vec<u8>>>;
+
+const STDERR_TAIL_LIMIT: usize = 16 * 1024;
+
 struct BackendManager {
     ollama: Option<ChildHandle>,
     jarvis: Option<ChildHandle>,
+    jarvis_stderr_tail: StderrTail,
+}
+
+impl Default for BackendManager {
+    fn default() -> Self {
+        Self {
+            ollama: None,
+            jarvis: None,
+            jarvis_stderr_tail: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
 }
 
 impl BackendManager {
@@ -360,6 +379,134 @@ async fn wait_for_url(url: &str, timeout: Duration) -> bool {
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
     false
+}
+
+/// Outcome of waiting for `jarvis serve` to become healthy.
+///
+/// Unlike [`wait_for_url`] this differentiates "server is up but degraded"
+/// (HTTP 503 — usually inference engine failed to load) from "server never
+/// came up" and from "child process died before serving anything", because
+/// each needs a different user-facing message.
+#[derive(Debug)]
+enum JarvisStartResult {
+    /// `/health` returned 2xx.
+    Ready,
+    /// Server replied 503. The body is the actionable message (typically
+    /// "engine not ready" or a model-load error).
+    ServiceUnavailable(String),
+    /// The `jarvis serve` child exited before `/health` returned 2xx.
+    EarlyExit { code: Option<i32>, stderr: String },
+    /// Deadline elapsed without ever seeing 2xx or an early exit.
+    Timeout,
+}
+
+/// Spawn a detached task that continuously drains `jarvis serve`'s
+/// stderr into a rolling tail buffer.
+///
+/// We MUST keep reading stderr for as long as the child runs — `jarvis
+/// serve` is chatty (engine load progress, request logs), and the OS
+/// pipe buffer is small (4 KB on Windows, 64 KB on Linux). Once full,
+/// the child's next stderr write blocks indefinitely and the server
+/// hangs mid-operation. The drainer reads in chunks and keeps only the
+/// last `STDERR_TAIL_LIMIT` bytes — enough to surface a tail trace if
+/// the child later dies, without unbounded memory growth.
+///
+/// Returns immediately after spawning the task; the task ends naturally
+/// when the child closes stderr (i.e. exits).
+fn spawn_jarvis_stderr_drainer(mut stderr: tokio::process::ChildStderr, tail: StderrTail) {
+    use tokio::io::AsyncReadExt;
+    tokio::spawn(async move {
+        let mut buf = vec![0u8; 4096];
+        loop {
+            match stderr.read(&mut buf).await {
+                Ok(0) => break,  // EOF — child closed stderr
+                Err(_) => break, // pipe broke — also done
+                Ok(n) => {
+                    let mut t = tail.lock().await;
+                    t.extend_from_slice(&buf[..n]);
+                    if t.len() > STDERR_TAIL_LIMIT {
+                        let drop_n = t.len() - STDERR_TAIL_LIMIT;
+                        t.drain(..drop_n);
+                    }
+                }
+            }
+        }
+    });
+}
+
+/// Read whatever the stderr drainer has buffered so far.
+///
+/// Safe to call at any time; returns an empty string before the
+/// drainer has seen any bytes. Trimmed.
+async fn read_jarvis_stderr_tail(backend: &SharedBackend) -> String {
+    let tail = backend.lock().await.jarvis_stderr_tail.clone();
+    let bytes = tail.lock().await.clone();
+    String::from_utf8_lossy(&bytes).trim().to_string()
+}
+
+/// Poll `jarvis serve` health, watching the child process state so we
+/// never wait 10 minutes for a process that crashed in the first second.
+async fn wait_for_jarvis_health(
+    url: &str,
+    timeout: Duration,
+    backend: &SharedBackend,
+) -> JarvisStartResult {
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return JarvisStartResult::Timeout,
+    };
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        // 1. Has the child already exited? `try_wait` is non-blocking; on
+        // Windows where uv / python / the Rust extension can fail to load
+        // very fast, this catches the crash within ~500ms instead of after
+        // the full HTTP timeout window.
+        let exit_status = {
+            let mut mgr = backend.lock().await;
+            match mgr.jarvis.as_mut() {
+                Some(h) => h.child.try_wait().ok().flatten(),
+                None => None,
+            }
+        };
+        if let Some(status) = exit_status {
+            let stderr = read_jarvis_stderr_tail(backend).await;
+            return JarvisStartResult::EarlyExit {
+                code: status.code(),
+                stderr,
+            };
+        }
+
+        // 2. Try the health endpoint.
+        match client.get(url).send().await {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    return JarvisStartResult::Ready;
+                }
+                if status == reqwest::StatusCode::SERVICE_UNAVAILABLE {
+                    // Server is up but the inference engine is not. This
+                    // is a terminal-for-us state — polling won't change
+                    // anything; the user has to fix their engine config.
+                    let body = resp.text().await.unwrap_or_default();
+                    return JarvisStartResult::ServiceUnavailable(body);
+                }
+                // Other non-2xx (e.g. 404 during a brief routing-table
+                // warmup window) — fall through and keep polling.
+            }
+            Err(_) => {
+                // Connection refused / DNS / timeout — server still
+                // booting. Keep polling.
+            }
+        }
+
+        if tokio::time::Instant::now() >= deadline {
+            return JarvisStartResult::Timeout;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
 }
 
 async fn ollama_has_model(model: &str) -> bool {
@@ -790,8 +937,19 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
     let jarvis_child = cmd.spawn();
 
     match jarvis_child {
-        Ok(child) => {
-            backend.lock().await.jarvis = Some(ChildHandle { child });
+        Ok(mut child) => {
+            // Start draining stderr immediately. If we wait until the
+            // health check returns we risk filling the 4 KB Windows pipe
+            // buffer during startup logging and hanging the child before
+            // it can bind its HTTP port — exactly the symptom in #309.
+            let stderr_handle = child.stderr.take();
+            let mut mgr = backend.lock().await;
+            let tail = mgr.jarvis_stderr_tail.clone();
+            mgr.jarvis = Some(ChildHandle { child });
+            drop(mgr);
+            if let Some(stderr) = stderr_handle {
+                spawn_jarvis_stderr_drainer(stderr, tail);
+            }
         }
         Err(e) => {
             let mut s = status.lock().await;
@@ -806,38 +964,71 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
     }
 
     let server_url = format!("http://127.0.0.1:{}/health", JARVIS_PORT);
-    let server_ok = wait_for_url(&server_url, Duration::from_secs(600)).await;
-
-    if !server_ok {
-        // Try to read stderr from the failed process for a useful error
-        let mut stderr_msg = String::new();
-        {
-            let mut mgr = backend.lock().await;
-            if let Some(ref mut h) = mgr.jarvis {
-                if let Some(ref mut stderr) = h.child.stderr.take() {
-                    use tokio::io::AsyncReadExt;
-                    let mut buf = vec![0u8; 4096];
-                    if let Ok(n) = stderr.read(&mut buf).await {
-                        stderr_msg = String::from_utf8_lossy(&buf[..n]).to_string();
-                    }
-                }
-            }
-        }
-        let detail = if stderr_msg.is_empty() {
-            format!(
-                "Jarvis server did not start. Check that:\n\
-                 1. uv is installed ({})\n\
-                 2. The OpenJarvis repo is at {}\n\
-                 3. Run 'uv sync' in that directory",
-                uv_bin,
+    match wait_for_jarvis_health(&server_url, Duration::from_secs(600), &backend).await {
+        JarvisStartResult::Ready => {}
+        JarvisStartResult::ServiceUnavailable(body) => {
+            let mut s = status.lock().await;
+            s.error = Some(format!(
+                "Jarvis server is running but the inference engine is not available \
+                 (HTTP 503). This usually means the configured model couldn't be loaded.\n\n\
+                 Check the server logs, or run 'uv run jarvis serve --port {} --model {}' \
+                 from {} to see the engine error.\n\n\
+                 Server response:\n{}",
+                JARVIS_PORT,
+                startup_model,
                 root.display(),
-            )
-        } else {
-            format!("Server failed to start: {}", stderr_msg.trim())
-        };
-        let mut s = status.lock().await;
-        s.error = Some(detail);
-        return;
+                body.trim(),
+            ));
+            return;
+        }
+        JarvisStartResult::EarlyExit { code, stderr } => {
+            // `None` here means the OS didn't expose an exit code — on
+            // Unix that's a signal kill (SIGKILL/SIGSEGV/...), on Windows
+            // it means the process was terminated externally (Task
+            // Manager, parent-of-parent, AV). "unknown" covers both.
+            let code_str = code
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "unknown".into());
+            let mut s = status.lock().await;
+            s.error = Some(if stderr.is_empty() {
+                format!(
+                    "Jarvis server exited (code {}) before becoming ready.\n\n\
+                     No stderr output. Check that:\n\
+                     1. uv is installed ({})\n\
+                     2. The OpenJarvis repo is at {}\n\
+                     3. 'uv sync' completes in that directory",
+                    code_str,
+                    uv_bin,
+                    root.display(),
+                )
+            } else {
+                format!(
+                    "Jarvis server exited (code {}) before becoming ready.\n\nStderr:\n{}",
+                    code_str, stderr,
+                )
+            });
+            return;
+        }
+        JarvisStartResult::Timeout => {
+            let stderr = read_jarvis_stderr_tail(&backend).await;
+            let mut s = status.lock().await;
+            s.error = Some(if stderr.is_empty() {
+                format!(
+                    "Jarvis server did not become ready within 10 minutes. Check that:\n\
+                     1. uv is installed ({})\n\
+                     2. The OpenJarvis repo is at {}\n\
+                     3. Run 'uv sync' in that directory",
+                    uv_bin,
+                    root.display(),
+                )
+            } else {
+                format!(
+                    "Jarvis server did not become ready within 10 minutes.\n\nStderr:\n{}",
+                    stderr,
+                )
+            });
+            return;
+        }
     }
 
     {
