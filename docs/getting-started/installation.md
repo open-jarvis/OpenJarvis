@@ -238,7 +238,7 @@ See the [Python SDK guide](../user-guide/python-sdk.md) for the full API referen
 
 | Requirement | Version | Install | Notes |
 |-------------|---------|---------|-------|
-| Python | 3.10+ | [python.org](https://www.python.org/downloads/) | Required |
+| Python | 3.10–3.13 | [python.org](https://www.python.org/downloads/) | Required. 3.14+ not yet supported (a core dependency lacks 3.14 wheels). |
 | uv | latest | `curl -LsSf https://astral.sh/uv/install.sh \| sh` or `brew install uv` (macOS) | Python package & project manager |
 | Git | any | [git-scm.com](https://git-scm.com/) or `brew install git` (macOS) | Required |
 | Rust | stable | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` | Required for the Rust extension |

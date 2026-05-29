@@ -94,7 +94,7 @@ cd OpenJarvis
 
 The script handles everything:
 
-1. Checks for Python 3.10+ and Node.js 18+
+1. Checks for Python 3.10–3.13 and Node.js 18+
 2. Installs Ollama if not present and pulls a starter model
 3. Installs Python and frontend dependencies
 4. Starts the backend API server and frontend dev server

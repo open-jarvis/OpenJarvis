@@ -90,13 +90,20 @@ jobs:
   # interpolation), so there is no workflow-injection surface here.
   test-windows:
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.12 = common; 3.13 = the supported ceiling — installing there guards
+        # against a numpy/native wheel gap at the top of the range (#350), which
+        # is exactly how the source-build failure slips in on Windows.
+        python-version: ["3.12", "3.13"]
     steps:
       - uses: actions/checkout@v6
 
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v8.0.0

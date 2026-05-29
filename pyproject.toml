@@ -7,7 +7,11 @@ name = "OpenJarvis"
 version = "0.1.1"
 description = "OpenJarvis — modular AI assistant backend with composable intelligence primitives"
 readme = "README.md"
-requires-python = ">=3.10"
+# Upper bound: numpy 2.2.x (pinned transitively via datasets/pandas) ships no
+# cp314 Windows wheel, so under Python 3.14 uv would compile numpy from source
+# (Meson) and fail on Windows boxes without a C toolchain (#350). Cap to the
+# range that has prebuilt wheels; matches the classifiers (3.10–3.13).
+requires-python = ">=3.10,<3.14"
 license = {text = "Apache-2.0"}
 authors = [
     {name = "Open Jarvis Contributors"},
