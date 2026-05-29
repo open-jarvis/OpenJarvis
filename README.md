@@ -16,9 +16,7 @@
 ---
 
 <div align="center">
-
-https://github.com/user-attachments/assets/REPLACE-WITH-UPLOADED-VIDEO-URL
-
+  <video src="https://github.com/open-jarvis/OpenJarvis/releases/download/readme-media/openjarvis_demo_reel_v2.mp4" controls width="100%"></video>
 </div>
 
 ---
