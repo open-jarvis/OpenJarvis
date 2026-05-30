@@ -80,7 +80,10 @@ class SystemPromptBuilder:
 
     def _build_frozen_prefix(self) -> str:
         sections: list[str] = []
-        sections.append(self._agent_template)
+        if getattr(self._sp_config, "prefix", ""):
+            sections.append(self._sp_config.prefix)
+        if self._agent_template:
+            sections.append(self._agent_template)
         sections.extend(self._persona_sections())
         # XML skill catalog (preferred over legacy markdown list)
         if self._skill_catalog_xml:
