@@ -220,4 +220,32 @@ class TestCheckSsrf:
         assert result is not None
 
 
-__all__ = ["TestCheckSsrf", "TestIsPrivateIp"]
+class TestCheckSsrfPythonFallback:
+    """When the Rust extension is not compiled, ``check_ssrf`` must fall back
+    to the pure-Python implementation rather than raising ``ImportError`` or
+    being silently skipped — the SSRF guard is security-critical.
+    """
+
+    def test_falls_back_to_python_when_rust_unavailable(self):
+        with patch("openjarvis._rust_bridge.RUST_AVAILABLE", False):
+            result = check_ssrf("http://169.254.169.254/latest/meta-data/")
+        assert result is not None
+        assert "cloud metadata" in result.lower() or "Blocked host" in result
+
+    def test_fallback_blocks_private_ip(self):
+        with patch("openjarvis._rust_bridge.RUST_AVAILABLE", False):
+            with patch("openjarvis.security.ssrf.socket.getaddrinfo") as mock_dns:
+                mock_dns.return_value = [(2, 1, 6, "", ("10.0.0.5", 0))]
+                result = check_ssrf("http://internal-service.local/api")
+        assert result is not None
+        assert "private IP" in result
+
+    def test_fallback_allows_public_url_without_rust(self):
+        with patch("openjarvis._rust_bridge.RUST_AVAILABLE", False):
+            with patch("openjarvis.security.ssrf.socket.getaddrinfo") as mock_dns:
+                mock_dns.return_value = [(2, 1, 6, "", ("93.184.216.34", 0))]
+                result = check_ssrf("https://example.com")
+        assert result is None
+
+
+__all__ = ["TestCheckSsrf", "TestCheckSsrfPythonFallback", "TestIsPrivateIp"]
