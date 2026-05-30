@@ -13,6 +13,8 @@ FROM python:3.12-slim-bookworm AS builder
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src/ src/
+COPY scripts/install scripts/install
+COPY deploy/windows deploy/windows
 
 # Copy built frontend into the server static directory
 COPY --from=frontend /src/openjarvis/server/static src/openjarvis/server/static/
