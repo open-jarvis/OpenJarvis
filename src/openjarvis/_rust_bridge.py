@@ -32,7 +32,21 @@ def get_rust_module() -> _types.ModuleType:
     return openjarvis_rust
 
 
-RUST_AVAILABLE: bool = True
+def _detect_rust() -> bool:
+    """Return ``True`` if the compiled ``openjarvis_rust`` extension is importable.
+
+    Computed once at import time. Modules with a Python fallback (e.g.
+    ``security.ssrf``) consult this flag instead of hardcoding availability,
+    so the fallback is actually reachable when the extension was not built.
+    """
+    try:
+        get_rust_module()
+    except ImportError:
+        return False
+    return True
+
+
+RUST_AVAILABLE: bool = _detect_rust()
 
 
 # ---------------------------------------------------------------------------
