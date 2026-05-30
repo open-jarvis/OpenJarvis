@@ -1038,19 +1038,14 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
         s.detail = "All systems ready.".into();
     }
 
-    // Phase 4: Pull remaining Qwen3.5 models in the background.
-    // The app is already usable with qwen3.5:2b; as each model finishes
-    // it appears in the model list automatically.
-    let fitting = models_that_fit();
-    tokio::spawn(async move {
-        for model in fitting {
-            if model != STARTUP_MODEL && model != FALLBACK_MODEL {
-                if !ollama_has_model(model).await {
-                    let _ = pull_model(model).await;
-                }
-            }
-        }
-    });
+    // Phase 4: done. We intentionally do NOT auto-pull the rest of the
+    // Qwen3.5 ladder here. The previous behavior walked every model that
+    // "fit" in RAM (up to qwen3.5:122b ≈ 81 GB) and pulled each one in an
+    // un-cancellable background task — so the app silently consumed tens of
+    // gigabytes with no way to stop short of deleting it. The startup model
+    // pulled in Phase 2 is enough to make the app fully usable; additional
+    // models are now opt-in (Settings → "ollama pull <model>", or the
+    // `pull_model` command invoked from the UI).
 }
 
 // ---------------------------------------------------------------------------
