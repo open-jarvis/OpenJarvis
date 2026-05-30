@@ -97,6 +97,87 @@ fn default_local_model(ram_gb: f64) -> &'static str {
     }
 }
 
+/// A resolved boot plan derived purely from the inference config + RAM.
+/// Pure and side-effect-free so it can be unit-tested without spawning
+/// processes or touching the network.
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BootPlan {
+    /// Whether to start and wait for the bundled Ollama.
+    launch_ollama: bool,
+    /// The single Ollama model to pull (None for custom endpoints).
+    model_to_pull: Option<String>,
+    /// Optional `(ENV_NAME, value)` host override injected into the
+    /// `jarvis serve` child (e.g. `("LMSTUDIO_HOST", "http://localhost:1234")`).
+    host_env: Option<(String, String)>,
+    /// Args appended after `uv run jarvis serve --port <port>`.
+    serve_args: Vec<String>,
+}
+
+/// Default OpenAI-compatible engine key used when a custom endpoint config
+/// omits one (LM Studio is the canonical local server).
+const CUSTOM_FALLBACK_ENGINE: &str = "lmstudio";
+
+/// Decide what to launch/pull/serve from the inference config + system RAM.
+/// Pure: no I/O, no spawning.
+#[allow(dead_code)]
+fn boot_plan(cfg: &InferenceConfig, ram_gb: f64) -> BootPlan {
+    match cfg.kind {
+        SourceKind::Ollama => {
+            let model = cfg
+                .model
+                .clone()
+                .unwrap_or_else(|| default_local_model(ram_gb).to_string());
+            BootPlan {
+                launch_ollama: true,
+                model_to_pull: Some(model.clone()),
+                host_env: None,
+                serve_args: vec![
+                    "--engine".into(),
+                    "ollama".into(),
+                    "--model".into(),
+                    model,
+                    "--agent".into(),
+                    "simple".into(),
+                ],
+            }
+        }
+        SourceKind::Custom => {
+            let engine = cfg
+                .engine
+                .clone()
+                .unwrap_or_else(|| CUSTOM_FALLBACK_ENGINE.to_string());
+            let env_name = format!("{}_HOST", engine.to_ascii_uppercase());
+            // Only override the engine host when the user actually configured
+            // one. An empty `<ENGINE>_HOST=""` would be parsed as an invalid
+            // URL by most OpenAI-compatible clients — worse than leaving it
+            // unset and letting the engine use its default.
+            let host_env = cfg
+                .host
+                .clone()
+                .filter(|h| !h.is_empty())
+                .map(|h| (env_name, h));
+            // `model` may be empty if the config is malformed; `jarvis serve`
+            // surfaces a clear error then (there is no universal default model
+            // for an arbitrary endpoint).
+            let model = cfg.model.clone().unwrap_or_default();
+            BootPlan {
+                launch_ollama: false,
+                model_to_pull: None,
+                host_env,
+                serve_args: vec![
+                    "--engine".into(),
+                    engine,
+                    "--model".into(),
+                    model,
+                    "--agent".into(),
+                    "simple".into(),
+                ],
+            }
+        }
+    }
+}
+
 /// Get the user home directory, handling both Unix (HOME) and Windows (USERPROFILE).
 fn home_dir() -> String {
     std::env::var("HOME")
@@ -2074,8 +2155,9 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        default_local_model, format_uv_sync_failure, format_uv_sync_spawn_error,
-        normalize_host, parse_inference_config, uv_sync_stderr_tail, SourceKind,
+        boot_plan, default_local_model, format_uv_sync_failure, format_uv_sync_spawn_error,
+        normalize_host, parse_inference_config, uv_sync_stderr_tail, InferenceConfig,
+        SourceKind,
     };
     use std::path::Path;
 
@@ -2180,5 +2262,80 @@ mod tests {
         assert_eq!(normalize_host("http://localhost:1234/v1/"), "http://localhost:1234");
         assert_eq!(normalize_host("http://localhost:1234/"), "http://localhost:1234");
         assert_eq!(normalize_host("http://host:8000"), "http://host:8000");
+    }
+
+    #[test]
+    fn boot_plan_ollama_launches_and_pulls_one_model() {
+        let cfg = InferenceConfig { kind: SourceKind::Ollama, ..Default::default() };
+        let plan = boot_plan(&cfg, 16.0);
+        assert!(plan.launch_ollama);
+        assert_eq!(plan.model_to_pull.as_deref(), Some("qwen3.5:4b"));
+        assert!(plan.host_env.is_none());
+        assert!(plan.serve_args.windows(2).any(|w| w == ["--engine", "ollama"]));
+        assert!(plan.serve_args.windows(2).any(|w| w == ["--model", "qwen3.5:4b"]));
+    }
+
+    #[test]
+    fn boot_plan_ollama_respects_pinned_model() {
+        let cfg = InferenceConfig {
+            kind: SourceKind::Ollama,
+            model: Some("qwen3.5:9b".into()),
+            ..Default::default()
+        };
+        let plan = boot_plan(&cfg, 16.0);
+        assert_eq!(plan.model_to_pull.as_deref(), Some("qwen3.5:9b"));
+    }
+
+    #[test]
+    fn boot_plan_custom_skips_ollama_and_sets_host_env() {
+        let cfg = InferenceConfig {
+            kind: SourceKind::Custom,
+            model: Some("qwen2.5-7b".into()),
+            host: Some("http://localhost:1234".into()),
+            engine: Some("lmstudio".into()),
+        };
+        let plan = boot_plan(&cfg, 16.0);
+        assert!(!plan.launch_ollama);
+        assert!(plan.model_to_pull.is_none());
+        assert_eq!(
+            plan.host_env,
+            Some(("LMSTUDIO_HOST".to_string(), "http://localhost:1234".to_string()))
+        );
+        assert!(plan.serve_args.windows(2).any(|w| w == ["--engine", "lmstudio"]));
+        assert!(plan.serve_args.windows(2).any(|w| w == ["--model", "qwen2.5-7b"]));
+    }
+
+    #[test]
+    fn boot_plan_custom_defaults_engine_to_lmstudio() {
+        let cfg = InferenceConfig {
+            kind: SourceKind::Custom,
+            model: Some("m".into()),
+            host: Some("http://h:1".into()),
+            engine: None,
+        };
+        let plan = boot_plan(&cfg, 16.0);
+        assert_eq!(plan.host_env.as_ref().unwrap().0, "LMSTUDIO_HOST");
+        assert!(plan.serve_args.windows(2).any(|w| w == ["--engine", "lmstudio"]));
+    }
+
+    #[test]
+    fn boot_plan_custom_omits_host_env_when_no_host() {
+        // No configured host → don't inject `<ENGINE>_HOST=""` (an empty URL).
+        let cfg = InferenceConfig {
+            kind: SourceKind::Custom,
+            model: Some("m".into()),
+            host: None,
+            engine: Some("lmstudio".into()),
+        };
+        let plan = boot_plan(&cfg, 16.0);
+        assert!(plan.host_env.is_none());
+    }
+
+    #[test]
+    fn boot_plan_ollama_uses_fallback_model_on_low_ram() {
+        // Below the smallest model's min_ram → default_local_model → FALLBACK_MODEL.
+        let cfg = InferenceConfig { kind: SourceKind::Ollama, ..Default::default() };
+        let plan = boot_plan(&cfg, 1.0);
+        assert_eq!(plan.model_to_pull.as_deref(), Some(super::FALLBACK_MODEL));
     }
 }
