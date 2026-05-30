@@ -69,6 +69,7 @@ export interface SetupStatus {
   server_ready: boolean;
   model_ready: boolean;
   error: string | null;
+  source?: 'ollama' | 'custom'; // drives source-aware setup labels
 }
 
 export async function getSetupStatus(): Promise<SetupStatus | null> {

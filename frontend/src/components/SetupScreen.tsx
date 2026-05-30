@@ -146,7 +146,14 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
 
         {/* Steps */}
         <div className="flex flex-col gap-2 mb-8">
-          {STEPS.map((step) => (
+          {(status?.source === 'custom'
+            ? [
+                { key: 'ollama_ready' as const, label: 'Inference Engine', icon: Cpu, detail: 'Connecting to your server...' },
+                { key: 'model_ready' as const, label: 'Endpoint', icon: Database, detail: 'Checking endpoint...' },
+                { key: 'server_ready' as const, label: 'API Server', icon: Server, detail: 'Starting server...' },
+              ]
+            : STEPS
+          ).map((step) => (
             <StepRow
               key={step.key}
               icon={step.icon}

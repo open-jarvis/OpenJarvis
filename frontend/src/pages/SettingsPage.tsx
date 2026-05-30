@@ -19,7 +19,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { useAppStore, type ThemeMode } from '../lib/store';
-import { checkHealth, fetchSpeechHealth, getMemoryStats } from '../lib/api';
+import { checkHealth, fetchSpeechHealth, getMemoryStats, getInferenceSource, setInferenceSource, type InferenceSource } from '../lib/api';
 import { isAutoUpdateDisabled, setAutoUpdateDisabled } from '../components/Desktop/UpdateChecker';
 
 function OllamaModelList() {
@@ -161,6 +161,35 @@ export function SettingsPage() {
   const [memoryMaxTokens, setMemoryMaxTokens] = useState(() => {
     try { return parseInt(localStorage.getItem('openjarvis-memory-max-tokens') || '2048'); } catch { return 2048; }
   });
+
+  const [srcKind, setSrcKind] = useState<InferenceSource['kind']>('ollama');
+  const [customHost, setCustomHost] = useState('http://localhost:1234/v1');
+  const [customModel, setCustomModel] = useState('');
+  const [customEngine, setCustomEngine] = useState('lmstudio');
+  const [customKey, setCustomKey] = useState('');
+  const [srcMsg, setSrcMsg] = useState('');
+
+  useEffect(() => {
+    getInferenceSource().then((s) => {
+      setSrcKind(s.kind);
+      if (s.host) setCustomHost(s.host);
+      if (s.model) setCustomModel(s.model);
+      if (s.engine) setCustomEngine(s.engine);
+    }).catch(() => {});
+  }, []);
+
+  const saveSource = useCallback(async () => {
+    try {
+      if (srcKind === 'custom') {
+        await setInferenceSource({ kind: 'custom', host: customHost, model: customModel, engine: customEngine, apiKey: customKey || undefined });
+      } else {
+        await setInferenceSource({ kind: 'ollama' });
+      }
+      setSrcMsg('Saved — restart the app to apply.');
+    } catch (e: any) {
+      setSrcMsg(e?.message ?? 'Failed to save.');
+    }
+  }, [srcKind, customHost, customModel, customEngine, customKey]);
 
   useEffect(() => {
     checkHealth().then(setHealthy);
@@ -315,6 +344,58 @@ export function SettingsPage() {
                   border: '1px solid var(--color-border)',
                 }}
               />
+            </SettingRow>
+          </Section>
+
+          {/* Inference source */}
+          <Section title="Inference source">
+            <SettingRow label="Source" description="Where the app runs models. Applies after restart.">
+              <select
+                value={srcKind}
+                onChange={(e) => { setSrcKind(e.target.value as InferenceSource['kind']); setSrcMsg(''); }}
+                className="text-sm px-3 py-1.5 rounded-lg outline-none w-56"
+                style={{ background: 'var(--color-bg-secondary)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }}
+              >
+                <option value="ollama">Bundled Ollama (default)</option>
+                <option value="custom">Custom OpenAI-compatible server</option>
+              </select>
+            </SettingRow>
+            {srcKind === 'custom' && (
+              <>
+                <SettingRow label="Server URL" description="e.g. LM Studio: http://localhost:1234/v1">
+                  <input type="text" value={customHost} onChange={(e) => { setCustomHost(e.target.value); setSrcMsg(''); }} placeholder="http://localhost:1234/v1"
+                    className="text-sm px-3 py-1.5 rounded-lg outline-none w-56"
+                    style={{ background: 'var(--color-bg-secondary)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }} />
+                </SettingRow>
+                <SettingRow label="Model" description="Model id served by your endpoint">
+                  <input type="text" value={customModel} onChange={(e) => { setCustomModel(e.target.value); setSrcMsg(''); }} placeholder="qwen2.5-7b-instruct"
+                    className="text-sm px-3 py-1.5 rounded-lg outline-none w-56"
+                    style={{ background: 'var(--color-bg-secondary)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }} />
+                </SettingRow>
+                <SettingRow label="Server type" description="OpenAI-compatible engine">
+                  <select value={customEngine} onChange={(e) => { setCustomEngine(e.target.value); setSrcMsg(''); }}
+                    className="text-sm px-3 py-1.5 rounded-lg outline-none w-56"
+                    style={{ background: 'var(--color-bg-secondary)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }}>
+                    <option value="lmstudio">LM Studio</option>
+                    <option value="vllm">vLLM</option>
+                    <option value="sglang">SGLang</option>
+                    <option value="llamacpp">llama.cpp</option>
+                    <option value="mlx">MLX</option>
+                  </select>
+                </SettingRow>
+                <SettingRow label="API key (optional)" description="Only if your server requires one">
+                  <input type="password" value={customKey} onChange={(e) => { setCustomKey(e.target.value); setSrcMsg(''); }} placeholder="leave blank if none"
+                    className="text-sm px-3 py-1.5 rounded-lg outline-none w-56"
+                    style={{ background: 'var(--color-bg-secondary)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }} />
+                </SettingRow>
+              </>
+            )}
+            <SettingRow label="" description={srcMsg}>
+              <button onClick={saveSource}
+                className="text-sm px-3 py-1.5 rounded-lg outline-none cursor-pointer"
+                style={{ background: 'var(--color-accent, var(--color-bg-tertiary))', color: 'var(--color-text)', border: '1px solid var(--color-border)' }}>
+                Save inference source
+              </button>
             </SettingRow>
           </Section>
 
