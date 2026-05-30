@@ -73,20 +73,127 @@ EOF
 fi
 
 # ---- prereq probe ----
+#
+# `git` and `curl` are the only host tools we require. On the supported
+# platforms we can auto-install both; if that fails we fall back to a
+# clear "here's the exact command" error rather than a generic refusal.
 need() {
-    if ! command -v "$1" >/dev/null 2>&1; then
-        cat >&2 <<EOF
-install.sh: '$1' is required but not found.
+    if command -v "$1" >/dev/null 2>&1; then
+        return 0
+    fi
+    case "$(uname -s)" in
+        Darwin)  bootstrap_macos_tool "$1" ;;
+        Linux)   bootstrap_linux_tool "$1" ;;
+        *)       fail_missing_tool "$1" ;;
+    esac
+}
 
-Install hints:
-  macOS:        xcode-select --install (provides git, curl)
-  Debian/Ubuntu: sudo apt install git curl
-  Fedora/RHEL:   sudo dnf install git curl
-  Arch:          sudo pacman -S git curl
+bootstrap_macos_tool() {
+    local tool="$1"
+    # On macOS, git AND curl ship as part of the Xcode Command Line Tools.
+    # `xcode-select --install` opens a system dialog — useless in a
+    # headless SSH session, so refuse fast there rather than polling for
+    # 20 minutes against something that will never arrive.
+    if [[ -z "${SSH_TTY:-}${SSH_CONNECTION:-}" ]]; then
+        :  # local GUI session — proceed
+    else
+        cat >&2 <<EOF
+install.sh: '$tool' not found, and this looks like a headless SSH session
+(SSH_CONNECTION is set). The xcode-select GUI installer can't run here.
+
+Install '$tool' over SSH with one of:
+  - From a GUI login: 'xcode-select --install' (then re-run this script)
+  - Or: a third-party manager — Homebrew / MacPorts / nix
+
+Re-run this script once '$tool' is on PATH.
 EOF
         exit 1
     fi
+    echo "install.sh: '$tool' not found — installing Xcode Command Line Tools (provides git + curl)..."
+    echo "  A system dialog will open. Click 'Install' and accept the license."
+    xcode-select --install 2>/dev/null || true
+    local waited=0
+    while ! command -v "$tool" >/dev/null 2>&1; do
+        if (( waited >= 600 )); then  # 10 minutes
+            echo "install.sh: timed out waiting for Xcode Command Line Tools."
+            echo "  Finish the install via the dialog, then re-run this command."
+            exit 1
+        fi
+        sleep 5
+        waited=$((waited + 5))
+        if (( waited % 60 == 0 )); then
+            echo "  …still waiting for '$tool' to appear (${waited}s)"
+        fi
+    done
+    echo "  '$tool' installed."
 }
+
+bootstrap_linux_tool() {
+    local tool="$1"
+    # We need passwordless sudo (or already-root) — stdin is the curl
+    # pipe, so an interactive password prompt will either hang or fail
+    # silently under `set -euo pipefail`. Check up-front and fail with a
+    # clear message rather than a confusing hang.
+    if [[ "$(id -u)" -ne 0 ]] && ! sudo -n true 2>/dev/null; then
+        cat >&2 <<EOF
+install.sh: '$tool' is not installed, and we need sudo to install it via
+the system package manager — but sudo would prompt for a password and
+stdin is occupied by the curl pipe.
+
+Two ways forward:
+
+  1. Install '$tool' yourself, then re-run this installer:
+       Debian/Ubuntu: sudo apt install -y $tool
+       Fedora/RHEL:   sudo dnf install -y $tool
+       Arch:          sudo pacman -S $tool
+
+  2. Pre-authenticate sudo before piping (caches credentials for 5 min):
+       sudo -v && curl -fsSL https://open-jarvis.github.io/OpenJarvis/install.sh | bash
+EOF
+        exit 1
+    fi
+    local sudo=""
+    [[ "$(id -u)" -ne 0 ]] && sudo="sudo"
+    echo "install.sh: '$tool' not found — installing via the system package manager..."
+    # Use `;` not `&&` between update and install so a transient apt
+    # update failure (mirror flake, expired cache) doesn't block install
+    # from a still-usable local index.
+    if command -v apt-get >/dev/null 2>&1; then
+        $sudo apt-get update -q || true
+        $sudo apt-get install -y "$tool"
+    elif command -v dnf >/dev/null 2>&1; then
+        $sudo dnf install -y "$tool"
+    elif command -v yum >/dev/null 2>&1; then
+        $sudo yum install -y "$tool"
+    elif command -v pacman >/dev/null 2>&1; then
+        $sudo pacman -S --noconfirm "$tool"
+    elif command -v zypper >/dev/null 2>&1; then
+        $sudo zypper install -y "$tool"
+    elif command -v apk >/dev/null 2>&1; then
+        $sudo apk add --no-cache "$tool"
+    else
+        fail_missing_tool "$tool"
+    fi
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        fail_missing_tool "$tool"
+    fi
+}
+
+fail_missing_tool() {
+    cat >&2 <<EOF
+install.sh: '$1' is required but not found and we couldn't install it automatically.
+
+Install hints:
+  macOS:         xcode-select --install (provides git, curl)
+  Debian/Ubuntu: sudo apt install $1
+  Fedora/RHEL:   sudo dnf install $1
+  Arch:          sudo pacman -S $1
+
+Re-run this script once '$1' is on PATH.
+EOF
+    exit 1
+}
+
 need git
 need curl
 
@@ -318,7 +425,26 @@ copy_scripts() {
 }
 
 create_venv() {
-    uv venv --python 3.11 "$VENV_DIR"
+    # `uv venv --python 3.11` fails on hosts that don't have Python 3.11
+    # installed at all (fresh macOS without xcode-select, fresh Ubuntu
+    # 24.04 which only ships 3.12, etc). uv can bootstrap its own
+    # interpreter — use that path so the user never has to pre-install
+    # Python.
+    #
+    # We capture stderr to a log file instead of /dev/null so a genuine
+    # failure (disk full, broken venv dir, permission denied) is still
+    # surfaceable when the bootstrap fallback ultimately fails.
+    local err_log="$STATE_DIR/venv-create.err"
+    if ! uv venv --python 3.11 "$VENV_DIR" 2>"$err_log"; then
+        echo "    No system Python 3.11 — uv will download a managed one..."
+        uv python install 3.11
+        if ! uv venv --python 3.11 "$VENV_DIR"; then
+            echo "    venv creation failed. First attempt's stderr:"
+            sed 's/^/      /' "$err_log" >&2
+            return 1
+        fi
+    fi
+    rm -f "$err_log"
 }
 
 editable_install() {
@@ -337,23 +463,54 @@ install_ollama() {
 start_ollama() {
     if pgrep -f "ollama serve" >/dev/null 2>&1; then
         echo "    ollama serve already running"
+        wait_for_ollama || true
         return 0
     fi
     if [[ "$WSL" -eq 1 ]] || ! command -v systemctl >/dev/null 2>&1; then
         nohup ollama serve > "$STATE_DIR/ollama.log" 2>&1 &
-        sleep 1
     else
         systemctl --user start ollama 2>/dev/null \
-            || (nohup ollama serve > "$STATE_DIR/ollama.log" 2>&1 & sleep 1)
+            || nohup ollama serve > "$STATE_DIR/ollama.log" 2>&1 &
     fi
+    # `|| true` is load-bearing — wait_for_ollama returns 1 on timeout
+    # and we're under `set -euo pipefail` via the `step` wrapper. We want
+    # the warning to surface in the final banner, not abort the install.
+    wait_for_ollama || true
 }
+
+# Poll `ollama list` until the daemon responds, up to 60 seconds. Replaces
+# the old fixed `sleep 1` which raced the model pull on slower hosts.
+# Cold-start latency on low-spec ARM boards or under heavy load can run
+# past 30s; 60 is the conservative ceiling. Returns 1 on timeout — caller
+# MUST guard with `|| true` (see start_ollama).
+wait_for_ollama() {
+    local waited=0
+    while ! ollama list >/dev/null 2>&1; do
+        if (( waited >= 60 )); then
+            echo "    warning: ollama daemon not responding after 60s — check $STATE_DIR/ollama.log"
+            return 1
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+}
+
+# Tracks whether the foreground model pull actually succeeded. If it
+# didn't, the final completion banner needs to say so loudly rather than
+# claiming chat is ready.
+MODEL_PULL_OK=0
 
 pull_default_model() {
     if [[ "$MINIMAL" -eq 1 ]]; then
         echo "    --minimal set; skipping model pull"
+        MODEL_PULL_OK=1  # nothing to pull → not a failure
         return 0
     fi
-    ollama pull qwen3.5:2b || echo "    warning: ollama pull failed; bg-orchestrator will retry"
+    if ollama pull qwen3.5:2b; then
+        MODEL_PULL_OK=1
+    else
+        echo "    warning: ollama pull failed; bg-orchestrator will retry in the background"
+    fi
 }
 
 write_config() {
@@ -368,6 +525,11 @@ install_symlinks() {
     ln -sf "$SCRIPTS_DIR/jarvis-uninstall.sh" "$HOME/.local/bin/jarvis-uninstall"
 }
 
+# Tracks whether the user needs to source ~/.bashrc / ~/.zshrc / open a
+# new terminal before `jarvis` will resolve. Set only when ensure_path
+# actually modified the user's rc file.
+PATH_MODIFIED=0
+
 ensure_path() {
     case ":$PATH:" in
         *":$HOME/.local/bin:"*) return 0 ;;
@@ -379,6 +541,9 @@ ensure_path() {
         rc="$HOME/.bashrc"
     fi
     if grep -q "OpenJarvis" "$rc" 2>/dev/null; then
+        # rc already has our PATH line from a prior install; just remind.
+        PATH_MODIFIED=1
+        PATH_MODIFIED_RC="$rc"
         return 0
     fi
     {
@@ -386,7 +551,8 @@ ensure_path() {
         echo '# OpenJarvis'
         echo 'export PATH="$HOME/.local/bin:$PATH"'
     } >> "$rc"
-    echo "    Added ~/.local/bin to PATH in $rc — run: source $rc"
+    PATH_MODIFIED=1
+    PATH_MODIFIED_RC="$rc"
 }
 
 detach_bg_orchestrator() {
@@ -443,10 +609,53 @@ beacon "install_completed" "" "$INSTALL_TOTAL_MS"
 # Clear ERR trap — we succeeded; any later non-zero exit shouldn't beacon a failure.
 trap - ERR
 
+echo
+echo "Done."
+echo
+
+# Tell the truth about what the user has to do next, given (a) whether
+# the foreground model pull actually succeeded and (b) whether the PATH
+# update needs a shell refresh. The four combinations:
+#
+#   PATH ok + model ok   -> "type jarvis"
+#   PATH new + model ok  -> "source rc && jarvis  (or open new terminal)"
+#   PATH ok + model bad  -> "model still downloading; jarvis doctor"
+#   PATH new + model bad -> "source rc && jarvis doctor; chat works once download finishes"
+#
+# `jarvis` and `jarvis doctor` need PATH equally, so the source/restart
+# guidance goes first when PATH was modified.
+NEXT_CMD="jarvis"
+if [[ "$MODEL_PULL_OK" -ne 1 ]]; then
+    NEXT_CMD="jarvis doctor"
+fi
+
+if [[ "$PATH_MODIFIED" -eq 1 ]]; then
+    cat <<EOF
+A PATH update was written to ${PATH_MODIFIED_RC:-your shell rc file}. To
+pick it up in THIS terminal:
+
+  source ${PATH_MODIFIED_RC:-~/.bashrc} && $NEXT_CMD
+
+Or open a new terminal and run: $NEXT_CMD
+
+EOF
+else
+    cat <<EOF
+Run: $NEXT_CMD
+
+EOF
+fi
+
+if [[ "$MODEL_PULL_OK" -ne 1 ]]; then
+    cat <<EOF
+NOTE: the qwen3.5:2b model didn't finish downloading. 'jarvis doctor'
+shows the retry progress; chat will work once the download completes
+in the background.
+
+EOF
+fi
+
 cat <<EOF
-
-Done. Type 'jarvis' to start chatting.
-
 Background work continues silently:
   - Rust toolchain + maturin extension build
   - Bigger model downloads
