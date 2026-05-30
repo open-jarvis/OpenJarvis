@@ -80,7 +80,7 @@ class SystemPromptBuilder:
 
     def _build_frozen_prefix(self) -> str:
         sections: list[str] = []
-        if getattr(self._sp_config, "prefix", ""):
+        if self._sp_config.prefix:
             sections.append(self._sp_config.prefix)
         if self._agent_template:
             sections.append(self._agent_template)
