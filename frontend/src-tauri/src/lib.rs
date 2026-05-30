@@ -100,7 +100,6 @@ fn default_local_model(ram_gb: f64) -> &'static str {
 /// A resolved boot plan derived purely from the inference config + RAM.
 /// Pure and side-effect-free so it can be unit-tested without spawning
 /// processes or touching the network.
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct BootPlan {
     /// Whether to start and wait for the bundled Ollama.
@@ -120,7 +119,6 @@ const CUSTOM_FALLBACK_ENGINE: &str = "lmstudio";
 
 /// Decide what to launch/pull/serve from the inference config + system RAM.
 /// Pure: no I/O, no spawning.
-#[allow(dead_code)]
 fn boot_plan(cfg: &InferenceConfig, ram_gb: f64) -> BootPlan {
     match cfg.kind {
         SourceKind::Ollama => {
@@ -419,6 +417,8 @@ struct SetupStatus {
     server_ready: bool,
     model_ready: bool,
     error: Option<String>,
+    /// "ollama" | "custom" — lets the setup UI relabel the progress steps.
+    source: String,
 }
 
 impl Default for SetupStatus {
@@ -430,6 +430,7 @@ impl Default for SetupStatus {
             server_ready: false,
             model_ready: false,
             error: None,
+            source: "ollama".into(),
         }
     }
 }
@@ -451,6 +452,28 @@ async fn wait_for_url(url: &str, timeout: Duration) -> bool {
             if resp.status().is_success() {
                 return true;
             }
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    false
+}
+
+/// True if a custom OpenAI-compatible endpoint answers at all (any HTTP
+/// status counts — even a 404 proves the server is up). `host` is the bare
+/// base URL; we probe `<host>/v1/models`.
+async fn endpoint_reachable(host: &str, timeout: Duration) -> bool {
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(3))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let url = format!("{}/v1/models", host.trim_end_matches('/'));
+    let deadline = tokio::time::Instant::now() + timeout;
+    while tokio::time::Instant::now() < deadline {
+        if client.get(&url).send().await.is_ok() {
+            return true;
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
@@ -684,80 +707,143 @@ fn format_uv_sync_spawn_error(root: &std::path::Path, uv_bin: &str, err: &str) -
 // ---------------------------------------------------------------------------
 
 async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
-    // Phase 1: Start Ollama
+    // Decide the inference source (default Ollama) before launching anything.
+    let cfg = read_inference_config();
+    let plan = boot_plan(&cfg, total_ram_gb());
     {
         let mut s = status.lock().await;
-        s.phase = "ollama".into();
-        s.detail = "Starting inference engine...".into();
-    }
-
-    // Try the bundled sidecar first, fall back to system ollama
-    let ollama_child = {
-        let ollama_bin = resolve_bin("ollama");
-        let sidecar = tokio::process::Command::new(&ollama_bin)
-            .arg("serve")
-            .env("OLLAMA_HOST", format!("127.0.0.1:{}", OLLAMA_PORT))
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn();
-        match sidecar {
-            Ok(child) => Some(child),
-            Err(_) => None,
+        s.source = match cfg.kind {
+            SourceKind::Ollama => "ollama",
+            SourceKind::Custom => "custom",
         }
-    };
-
-    if let Some(child) = ollama_child {
-        backend.lock().await.ollama = Some(ChildHandle { child });
+        .into();
     }
 
-    let ollama_url = format!("http://127.0.0.1:{}/api/tags", OLLAMA_PORT);
-    let ollama_ok = wait_for_url(&ollama_url, Duration::from_secs(30)).await;
+    // For the Ollama path, the model pull may fall back to FALLBACK_MODEL; we
+    // record what is actually available here so the serve command below uses
+    // it instead of the originally-planned tag. None on the custom path.
+    let mut serve_model_override: Option<String> = None;
 
-    if !ollama_ok {
-        let mut s = status.lock().await;
-        s.error = Some("Could not start Ollama. Install it from https://ollama.com".into());
-        return;
-    }
-
-    {
-        let mut s = status.lock().await;
-        s.ollama_ready = true;
-        s.detail = "Inference engine ready.".into();
-    }
-
-    // Phase 2: Pull one small model (qwen3.5:2b) so the app can open fast.
-    // Remaining models are pulled in the background after the server starts.
-    {
-        let mut s = status.lock().await;
-        s.phase = "model".into();
-        s.detail = format!("Checking for {}...", STARTUP_MODEL);
-    }
-
-    if !ollama_has_model(STARTUP_MODEL).await {
+    if plan.launch_ollama {
+        // Phase 1: Start Ollama
         {
             let mut s = status.lock().await;
-            s.detail = format!("Downloading {}... (this may take a minute)", STARTUP_MODEL);
+            s.phase = "ollama".into();
+            s.detail = "Starting inference engine...".into();
         }
-        if let Err(e) = pull_model(STARTUP_MODEL).await {
-            // If the startup model fails, try the tiny fallback
-            eprintln!("Warning: failed to pull {}: {}", STARTUP_MODEL, e);
-            if !ollama_has_model(FALLBACK_MODEL).await {
+
+        // Try the bundled sidecar first, fall back to system ollama
+        let ollama_child = {
+            let ollama_bin = resolve_bin("ollama");
+            let sidecar = tokio::process::Command::new(&ollama_bin)
+                .arg("serve")
+                .env("OLLAMA_HOST", format!("127.0.0.1:{}", OLLAMA_PORT))
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
+            match sidecar {
+                Ok(child) => Some(child),
+                Err(_) => None,
+            }
+        };
+
+        if let Some(child) = ollama_child {
+            backend.lock().await.ollama = Some(ChildHandle { child });
+        }
+
+        let ollama_url = format!("http://127.0.0.1:{}/api/tags", OLLAMA_PORT);
+        if !wait_for_url(&ollama_url, Duration::from_secs(30)).await {
+            let mut s = status.lock().await;
+            s.error = Some("Could not start Ollama. Install it from https://ollama.com".into());
+            return;
+        }
+
+        {
+            let mut s = status.lock().await;
+            s.ollama_ready = true;
+            s.detail = "Inference engine ready.".into();
+        }
+
+        // Phase 2: Pull the single default model (see default_local_model /
+        // boot_plan). We deliberately do NOT pull any others.
+        let model = plan
+            .model_to_pull
+            .clone()
+            .unwrap_or_else(|| STARTUP_MODEL.to_string());
+        {
+            let mut s = status.lock().await;
+            s.phase = "model".into();
+            s.detail = format!("Checking for {}...", model);
+        }
+
+        if !ollama_has_model(&model).await {
+            {
                 let mut s = status.lock().await;
-                s.detail = format!("Downloading {}...", FALLBACK_MODEL);
-                drop(s);
-                if let Err(e2) = pull_model(FALLBACK_MODEL).await {
-                    let mut s = status.lock().await;
-                    s.error = Some(format!("Failed to download model: {}", e2));
-                    return;
+                s.detail = format!("Downloading {}... (this may take a minute)", model);
+            }
+            if let Err(e) = pull_model(&model).await {
+                // If the chosen model fails, try the tiny fallback
+                eprintln!("Warning: failed to pull {}: {}", model, e);
+                if !ollama_has_model(FALLBACK_MODEL).await {
+                    {
+                        let mut s = status.lock().await;
+                        s.detail = format!("Downloading {}...", FALLBACK_MODEL);
+                    }
+                    if let Err(e2) = pull_model(FALLBACK_MODEL).await {
+                        let mut s = status.lock().await;
+                        s.error = Some(format!("Failed to download model: {}", e2));
+                        return;
+                    }
                 }
             }
         }
-    }
 
-    {
-        let mut s = status.lock().await;
-        s.model_ready = true;
-        s.detail = "Model ready.".into();
+        // The pull may have fallen back to FALLBACK_MODEL; serve and persist
+        // whatever is actually available now, not the originally-planned tag.
+        let resolved_model = if ollama_has_model(&model).await {
+            model
+        } else {
+            FALLBACK_MODEL.to_string()
+        };
+        serve_model_override = Some(resolved_model.clone());
+
+        // Persist the resolved model so Settings shows it and future boots reuse it.
+        let mut persisted = cfg.clone();
+        persisted.model = Some(resolved_model);
+        let _ = write_inference_config(&persisted);
+
+        {
+            let mut s = status.lock().await;
+            s.model_ready = true;
+            s.detail = "Model ready.".into();
+        }
+    } else {
+        // Custom OpenAI-compatible endpoint: never start Ollama, never download.
+        let host = plan
+            .host_env
+            .as_ref()
+            .map(|(_, v)| v.clone())
+            .unwrap_or_default();
+        {
+            let mut s = status.lock().await;
+            s.phase = "model".into();
+            s.detail = format!("Connecting to {}...", host);
+        }
+        if host.is_empty() || !endpoint_reachable(&host, Duration::from_secs(15)).await {
+            let mut s = status.lock().await;
+            s.error = Some(format!(
+                "Could not reach your custom inference server at {}. \
+                 Start the server (e.g. LM Studio) and check the URL in Settings, then relaunch.",
+                if host.is_empty() { "(no URL set)" } else { host.as_str() }
+            ));
+            return;
+        }
+        {
+            let mut s = status.lock().await;
+            s.ollama_ready = true;
+            s.model_ready = true;
+            s.detail = "Connected to custom endpoint.".into();
+        }
     }
 
     // Phase 3: Start jarvis serve
@@ -924,17 +1010,6 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
         }
     }
 
-    // Use the second-largest fitting model; fall back to STARTUP_MODEL or
-    // FALLBACK_MODEL below if it isn't already downloaded.
-    let pref = default_local_model(total_ram_gb());
-    let startup_model = if ollama_has_model(pref).await {
-        pref
-    } else if ollama_has_model(STARTUP_MODEL).await {
-        STARTUP_MODEL
-    } else {
-        FALLBACK_MODEL
-    };
-
     let root = project_root.as_ref().unwrap();
 
     // Install dependencies automatically (handles fresh clones).
@@ -984,29 +1059,40 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
 
     {
         let mut s = status.lock().await;
-        s.detail = format!(
-            "Starting server with {} from {}...",
-            startup_model,
-            root.display(),
-        );
+        s.detail = format!("Starting API server from {}...", root.display());
     }
 
     let mut cmd = tokio::process::Command::new(&uv_bin);
-    cmd.args([
-        "run",
-        "jarvis",
-        "serve",
-        "--port",
-        &JARVIS_PORT.to_string(),
-        "--model",
-        startup_model,
-        "--agent",
-        "simple",
-    ])
-    .stdout(std::process::Stdio::null())
-    .stderr(std::process::Stdio::piped())
-    .current_dir(root);
+    let mut serve_argv: Vec<String> = vec![
+        "run".into(),
+        "jarvis".into(),
+        "serve".into(),
+        "--port".into(),
+        JARVIS_PORT.to_string(),
+    ];
+    serve_argv.extend(plan.serve_args.iter().cloned());
+    // If the Ollama pull fell back to a different tag than planned, serve the
+    // tag that is actually present. boot_plan always emits `--model` followed
+    // immediately by its value, so `i + 1` is in bounds.
+    if let Some(m) = &serve_model_override {
+        match serve_argv.iter().position(|a| a == "--model") {
+            Some(i) if i + 1 < serve_argv.len() => serve_argv[i + 1] = m.clone(),
+            _ => eprintln!(
+                "Warning: resolved model {:?} could not be applied; \
+                 '--model <value>' not found in serve args {:?}",
+                m, serve_argv
+            ),
+        }
+    }
+    cmd.args(&serve_argv)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .current_dir(root);
 
+    // Inject the custom-endpoint host override, if any.
+    if let Some((name, value)) = &plan.host_env {
+        cmd.env(name, value);
+    }
     // Inject cloud API keys from ~/.openjarvis/cloud-keys.env
     for (key, value) in read_cloud_keys() {
         cmd.env(&key, &value);
@@ -1048,11 +1134,16 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
             s.error = Some(format!(
                 "Jarvis server is running but the inference engine is not available \
                  (HTTP 503). This usually means the configured model couldn't be loaded.\n\n\
-                 Check the server logs, or run 'uv run jarvis serve --port {} --model {}' \
+                 Check the server logs, or run 'uv run jarvis serve --port {}{}' \
                  from {} to see the engine error.\n\n\
                  Server response:\n{}",
                 JARVIS_PORT,
-                startup_model,
+                // Show the args actually passed (after `serve --port <port>`),
+                // including any post-fallback `--model` override.
+                match serve_argv.get(5..) {
+                    Some(rest) if !rest.is_empty() => format!(" {}", rest.join(" ")),
+                    _ => String::new(),
+                },
                 root.display(),
                 body.trim(),
             ));
@@ -1581,7 +1672,6 @@ fn parse_inference_config(text: &str) -> InferenceConfig {
 }
 
 /// Read the on-disk inference config, or the Ollama default if absent.
-#[allow(dead_code)]
 fn read_inference_config() -> InferenceConfig {
     match std::fs::read_to_string(inference_config_path()) {
         Ok(text) => parse_inference_config(&text),
@@ -1590,7 +1680,6 @@ fn read_inference_config() -> InferenceConfig {
 }
 
 /// Write the inference config to disk (pretty JSON).
-#[allow(dead_code)]
 fn write_inference_config(cfg: &InferenceConfig) -> Result<(), String> {
     let path = inference_config_path();
     if let Some(parent) = path.parent() {
