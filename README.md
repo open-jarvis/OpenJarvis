@@ -16,7 +16,7 @@
 ---
 
 <div align="center">
-  <img alt="OpenJarvis demo reel" src="assets/openjarvis_demo_reel.webp" width="100%">
+  <img alt="OpenJarvis demo reel" src="assets/openjarvis_demo_reel.webp" width="75%">
 </div>
 
 ---
