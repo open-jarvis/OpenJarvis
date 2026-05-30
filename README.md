@@ -31,83 +31,44 @@ OpenJarvis is that stack. It is a framework for local-first personal AI, built a
 
 ## Installation
 
-**macOS / Linux:**
+Pick your platform and run one command. Each installer handles [uv](https://docs.astral.sh/uv/), the Python venv, Ollama, and a starter model — about 3 minutes on broadband.
 
-```bash
-curl -fsSL https://open-jarvis.github.io/OpenJarvis/install.sh | bash
-```
+| Platform | One-liner |
+|---|---|
+| **macOS · Linux · WSL2** | `curl -fsSL https://open-jarvis.github.io/OpenJarvis/install.sh \| bash` |
+| **Native Windows** | `irm https://open-jarvis.github.io/OpenJarvis/install.ps1 \| iex` |
+| **Desktop GUI** | Download `.exe` / `.dmg` / `.deb` / `.rpm` / `.AppImage` from the [latest release](https://github.com/open-jarvis/OpenJarvis/releases) |
 
-The installer handles everything for you — including [uv](https://docs.astral.sh/uv/), the Python venv, Ollama, and a small starter model. You don't need to install anything first.
+Then `jarvis` to start. The Rust extension and larger models continue downloading in the background; `jarvis doctor` shows status.
 
-**Windows:** the bash installer won't run in PowerShell or `cmd`. Pick one of:
-
-- **WSL2 (recommended for the CLI / Python SDK)** — one-time setup in an admin PowerShell, then run the same `curl … | bash` inside Ubuntu:
-  ```powershell
-  wsl --install -d Ubuntu-24.04
-  ```
-  Open the Ubuntu shell that gets installed, then follow [WSL2 install instructions](https://open-jarvis.github.io/OpenJarvis/getting-started/wsl2/).
-- **Native PowerShell (advanced)** — Phase-1 of the [native Windows RFC (#298)](https://github.com/open-jarvis/OpenJarvis/issues/298). Same `uv sync --extra server`, no WSL2 / no Docker:
-  ```powershell
-  irm https://open-jarvis.github.io/OpenJarvis/install.ps1 | iex
-  ```
-  See [native Windows install guide](https://open-jarvis.github.io/OpenJarvis/getting-started/windows-native/).
-- **Desktop app** — download the [Windows installer (`.exe`)](https://github.com/open-jarvis/OpenJarvis/releases/download/desktop-v1.0.2/OpenJarvis_1.0.1_x64-setup.exe) from the latest [desktop release](https://github.com/open-jarvis/OpenJarvis/releases/tag/desktop-v1.0.2) (macOS `.dmg` and Linux `.deb`/`.rpm`/`.AppImage` are there too) for the GUI experience, no terminal required. **Prerequisite:** the desktop app expects [uv](https://docs.astral.sh/uv/) to be installed already — if it isn't, install it first in PowerShell, then launch the app:
-  ```powershell
-  powershell -ExecutionPolicy Bypass -c "irm https://astral.sh/uv/install.ps1 | iex"
-  ```
-
-About 3 minutes on a typical broadband connection. Then:
-
-```bash
-jarvis
-```
-
-The Rust extension and bigger models continue downloading in the background while you chat. Run `jarvis doctor` to see status.
-
-**Platforms:** macOS (Intel + Apple Silicon), Linux, WSL2 on Windows, and Phase-1 native Windows (PowerShell install + scheduled-task service — see [#298](https://github.com/open-jarvis/OpenJarvis/issues/298)).
-
-**Manual install / contributors:** see [docs/getting-started/install.md](docs/getting-started/install.md).
+Platform-specific notes (WSL2 setup, native-Windows scheduled-task service, desktop prerequisites, manual / contributor install): see the [installation docs](https://open-jarvis.github.io/OpenJarvis/getting-started/install/).
 
 ## Quick Start
 
 ```bash
-curl -fsSL https://open-jarvis.github.io/OpenJarvis/install.sh | bash
-jarvis
+jarvis                          # start chatting (default: chat-simple)
+jarvis init --preset <name>     # switch to a starter config
 ```
 
-`jarvis init --preset <name>` switches to a starter config. Available presets: `morning-digest-mac`, `morning-digest-linux`, `morning-digest-minimal`, `deep-research`, `code-assistant`, `scheduled-monitor`, `chat-simple`.
+> Prefix `jarvis ...` with `uv run`, or `source .venv/bin/activate` first.
 
-## Starter Configs
+| Preset | What it does |
+|---|---|
+| `morning-digest-mac` / `morning-digest-linux` / `morning-digest-minimal` | Spoken daily briefing from email, calendar, health, news |
+| `deep-research` | Multi-hop research across indexed docs with citations |
+| `code-assistant` | Agent with code execution, file I/O, and shell access |
+| `scheduled-monitor` | Stateful agent on a schedule with memory |
+| `chat-simple` | Lightweight conversation, no tools |
 
-Install any preset with one command:
+Example:
 
 ```bash
-uv run jarvis init --preset morning-digest-mac   # or any preset below
+jarvis init --preset morning-digest-mac
+jarvis connect gdrive          # one OAuth covers Gmail / Calendar / Tasks
+jarvis digest --fresh          # generate and play your first briefing
 ```
 
-> Prefix every `jarvis ...` invocation with `uv run`, or activate the venv first (`source .venv/bin/activate`) so plain `jarvis ...` works for the rest of your shell session.
-
-| Preset | Use Case | What it does |
-|--------|----------|-------------|
-| `morning-digest-mac` | Daily Briefing (Mac) | Spoken briefing from email, calendar, health, news with Jarvis voice |
-| `morning-digest-linux` | Daily Briefing (Linux) | Same, with vLLM support for GPU servers |
-| `morning-digest-minimal` | Daily Briefing (minimal) | Just Gmail + Calendar, runs on any machine |
-| `deep-research` | Research Assistant | Multi-hop research across indexed docs with citations |
-| `code-assistant` | Code Companion | Agent with code execution, file I/O, and shell access |
-| `scheduled-monitor` | Persistent Monitor | Stateful agent that runs on a schedule with memory |
-| `chat-simple` | Simple Chat | Lightweight conversation, no tools needed |
-
-```bash
-# Example: Morning Digest on Mac
-uv run jarvis init --preset morning-digest-mac
-uv run jarvis connect gdrive          # one OAuth flow covers Gmail, Calendar, Tasks
-uv run jarvis digest --fresh          # generate and play your first briefing
-
-# Example: Deep Research
-uv run jarvis init --preset deep-research
-uv run jarvis memory index ./docs/    # requires the Rust extension — see Setup above
-uv run jarvis ask "Summarize all emails about Project X"
-```
+Per-preset deep dives: [morning digest](https://open-jarvis.github.io/OpenJarvis/user-guide/morning-digest/) · [deep research](https://open-jarvis.github.io/OpenJarvis/user-guide/deep-research/) · [code assistant](https://open-jarvis.github.io/OpenJarvis/user-guide/code-assistant/) · [scheduled monitor](https://open-jarvis.github.io/OpenJarvis/user-guide/scheduled-monitor/) · [chat simple](https://open-jarvis.github.io/OpenJarvis/user-guide/chat-simple/) · or the full [quickstart guide](https://open-jarvis.github.io/OpenJarvis/getting-started/quickstart/).
 
 ### Skills
 
