@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
+    import tomli as tomllib
+
 ROOT = Path(__file__).resolve().parent.parent.parent
 DOCKER_DIR = ROOT / "deploy" / "docker"
 
@@ -19,6 +24,19 @@ class TestDockerFiles:
         content = (DOCKER_DIR / "Dockerfile").read_text()
         assert "ENTRYPOINT" in content
         assert "jarvis" in content
+
+    def test_dockerfile_copies_forced_package_includes(self):
+        content = (DOCKER_DIR / "Dockerfile").read_text()
+        install_step = content.index('uv pip install --system ".[server]"')
+        project = tomllib.loads((ROOT / "pyproject.toml").read_text())
+        force_include = project["tool"]["hatch"]["build"]["targets"]["wheel"][
+            "force-include"
+        ]
+
+        for source in force_include:
+            if source.startswith("src/"):
+                continue
+            assert content.index(f"COPY {source} ") < install_step
 
     def test_docker_compose_valid_yaml(self):
         import importlib
