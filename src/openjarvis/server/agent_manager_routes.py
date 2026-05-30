@@ -811,8 +811,27 @@ async def _stream_managed_agent(
 
     # Build conversation messages from history + current input
     llm_messages: List[Message] = []
-    if system_prompt:
-        llm_messages.append(Message(role=Role.SYSTEM, content=system_prompt))
+
+    # Wire the SystemPromptBuilder to inject SOUL.md / MEMORY.md / USER.md
+    from openjarvis.prompt.builder import SystemPromptBuilder
+
+    app_config = getattr(app_state, "config", None)
+    if app_config is None:
+        from openjarvis.core.config import load_config
+
+        app_config = load_config()
+
+    builder = SystemPromptBuilder(
+        agent_template=system_prompt or "",
+        memory_files_config=app_config.memory_files,
+        system_prompt_config=app_config.system_prompt,
+    )
+    final_system_prompt = builder.build()
+
+    if final_system_prompt and final_system_prompt.strip():
+        llm_messages.append(
+            Message(role=Role.SYSTEM, content=final_system_prompt.strip())
+        )
 
     # Resolve agent type and class for DeepResearch tool wiring
     agent_type = agent_record.get("agent_type", "")
