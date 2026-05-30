@@ -9,6 +9,7 @@ license = "MIT"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+toml_edit = "0.22"
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-notification = "2"
 tauri-plugin-shell = "2"

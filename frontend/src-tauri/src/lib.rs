@@ -106,9 +106,10 @@ struct BootPlan {
     launch_ollama: bool,
     /// The single Ollama model to pull (None for custom endpoints).
     model_to_pull: Option<String>,
-    /// Optional `(ENV_NAME, value)` host override injected into the
-    /// `jarvis serve` child (e.g. `("LMSTUDIO_HOST", "http://localhost:1234")`).
-    host_env: Option<(String, String)>,
+    /// Optional `(engine_key, bare_host)` override for a custom endpoint,
+    /// e.g. `("lmstudio", "http://localhost:1234")`. Written into
+    /// ~/.openjarvis/config.toml so `jarvis serve` picks it up.
+    engine_host: Option<(String, String)>,
     /// Args appended after `uv run jarvis serve --port <port>`.
     serve_args: Vec<String>,
 }
@@ -129,7 +130,7 @@ fn boot_plan(cfg: &InferenceConfig, ram_gb: f64) -> BootPlan {
             BootPlan {
                 launch_ollama: true,
                 model_to_pull: Some(model.clone()),
-                host_env: None,
+                engine_host: None,
                 serve_args: vec![
                     "--engine".into(),
                     "ollama".into(),
@@ -145,16 +146,14 @@ fn boot_plan(cfg: &InferenceConfig, ram_gb: f64) -> BootPlan {
                 .engine
                 .clone()
                 .unwrap_or_else(|| CUSTOM_FALLBACK_ENGINE.to_string());
-            let env_name = format!("{}_HOST", engine.to_ascii_uppercase());
-            // Only override the engine host when the user actually configured
-            // one. An empty `<ENGINE>_HOST=""` would be parsed as an invalid
-            // URL by most OpenAI-compatible clients — worse than leaving it
-            // unset and letting the engine use its default.
-            let host_env = cfg
+            // Record (engine_key, bare_host) only when a host is configured, so
+            // boot can write `[engine.<key>] host = ...` into config.toml. An
+            // empty host is dropped (no override).
+            let engine_host = cfg
                 .host
                 .clone()
                 .filter(|h| !h.is_empty())
-                .map(|h| (env_name, h));
+                .map(|h| (engine.clone(), h));
             // `model` may be empty if the config is malformed; `jarvis serve`
             // surfaces a clear error then (there is no universal default model
             // for an arbitrary endpoint).
@@ -162,7 +161,7 @@ fn boot_plan(cfg: &InferenceConfig, ram_gb: f64) -> BootPlan {
             BootPlan {
                 launch_ollama: false,
                 model_to_pull: None,
-                host_env,
+                engine_host,
                 serve_args: vec![
                     "--engine".into(),
                     engine,
@@ -820,7 +819,7 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
     } else {
         // Custom OpenAI-compatible endpoint: never start Ollama, never download.
         let host = plan
-            .host_env
+            .engine_host
             .as_ref()
             .map(|(_, v)| v.clone())
             .unwrap_or_default();
@@ -837,6 +836,16 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
                 if host.is_empty() { "(no URL set)" } else { host.as_str() }
             ));
             return;
+        }
+        // Point `jarvis serve` at the user's endpoint by writing the engine
+        // host into ~/.openjarvis/config.toml (the env var alone is shadowed by
+        // the engine's non-empty default host in the Python layer).
+        if let Some((engine, host)) = &plan.engine_host {
+            if let Err(e) = set_engine_host_in_config(engine, host) {
+                let mut s = status.lock().await;
+                s.error = Some(format!("Could not write engine config: {}", e));
+                return;
+            }
         }
         {
             let mut s = status.lock().await;
@@ -1089,10 +1098,6 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
         .stderr(std::process::Stdio::piped())
         .current_dir(root);
 
-    // Inject the custom-endpoint host override, if any.
-    if let Some((name, value)) = &plan.host_env {
-        cmd.env(name, value);
-    }
     // Inject cloud API keys from ~/.openjarvis/cloud-keys.env
     for (key, value) in read_cloud_keys() {
         cmd.env(&key, &value);
@@ -1741,6 +1746,32 @@ fn write_inference_config(cfg: &InferenceConfig) -> Result<(), String> {
     std::fs::write(&path, json + "\n").map_err(|e| format!("Failed to save inference config: {}", e))
 }
 
+/// Upsert `[engine.<engine>] host = "<host>"` into an existing config.toml
+/// string, preserving all other content/formatting. Pure: string in, string out.
+fn upsert_engine_host(existing: &str, engine: &str, host: &str) -> Result<String, String> {
+    let mut doc = existing
+        .parse::<toml_edit::DocumentMut>()
+        .map_err(|e| format!("Invalid config.toml: {}", e))?;
+    doc["engine"][engine]["host"] = toml_edit::value(host);
+    Ok(doc.to_string())
+}
+
+/// Write the custom-endpoint host into ~/.openjarvis/config.toml so
+/// `jarvis serve` (which reads that file via load_config) points at it.
+/// The `<ENGINE>_HOST` env var is unreliable — it is shadowed by the engine's
+/// non-empty default host in the Python layer — so config.toml is the override.
+fn set_engine_host_in_config(engine: &str, host: &str) -> Result<(), String> {
+    let path = std::path::PathBuf::from(home_dir())
+        .join(".openjarvis")
+        .join("config.toml");
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    let updated = upsert_engine_host(&existing, engine, host)?;
+    std::fs::write(&path, updated).map_err(|e| format!("Failed to write config.toml: {}", e))
+}
+
 /// Normalize a user-entered server URL to a bare base host: trim whitespace,
 /// drop a trailing `/v1` segment (the engine re-appends its own api prefix),
 /// then drop any trailing slash.
@@ -2299,8 +2330,8 @@ pub fn run() {
 mod tests {
     use super::{
         boot_plan, default_local_model, format_uv_sync_failure, format_uv_sync_spawn_error,
-        normalize_host, parse_inference_config, uv_sync_stderr_tail, InferenceConfig,
-        SourceKind,
+        normalize_host, parse_inference_config, upsert_engine_host, uv_sync_stderr_tail,
+        InferenceConfig, SourceKind,
     };
     use std::path::Path;
 
@@ -2413,7 +2444,7 @@ mod tests {
         let plan = boot_plan(&cfg, 16.0);
         assert!(plan.launch_ollama);
         assert_eq!(plan.model_to_pull.as_deref(), Some("qwen3.5:4b"));
-        assert!(plan.host_env.is_none());
+        assert!(plan.engine_host.is_none());
         assert!(plan.serve_args.windows(2).any(|w| w == ["--engine", "ollama"]));
         assert!(plan.serve_args.windows(2).any(|w| w == ["--model", "qwen3.5:4b"]));
     }
@@ -2430,7 +2461,7 @@ mod tests {
     }
 
     #[test]
-    fn boot_plan_custom_skips_ollama_and_sets_host_env() {
+    fn boot_plan_custom_skips_ollama_and_sets_engine_host() {
         let cfg = InferenceConfig {
             kind: SourceKind::Custom,
             model: Some("qwen2.5-7b".into()),
@@ -2441,8 +2472,8 @@ mod tests {
         assert!(!plan.launch_ollama);
         assert!(plan.model_to_pull.is_none());
         assert_eq!(
-            plan.host_env,
-            Some(("LMSTUDIO_HOST".to_string(), "http://localhost:1234".to_string()))
+            plan.engine_host,
+            Some(("lmstudio".to_string(), "http://localhost:1234".to_string()))
         );
         assert!(plan.serve_args.windows(2).any(|w| w == ["--engine", "lmstudio"]));
         assert!(plan.serve_args.windows(2).any(|w| w == ["--model", "qwen2.5-7b"]));
@@ -2457,13 +2488,13 @@ mod tests {
             engine: None,
         };
         let plan = boot_plan(&cfg, 16.0);
-        assert_eq!(plan.host_env.as_ref().unwrap().0, "LMSTUDIO_HOST");
+        assert_eq!(plan.engine_host.as_ref().unwrap().0, "lmstudio");
         assert!(plan.serve_args.windows(2).any(|w| w == ["--engine", "lmstudio"]));
     }
 
     #[test]
-    fn boot_plan_custom_omits_host_env_when_no_host() {
-        // No configured host → don't inject `<ENGINE>_HOST=""` (an empty URL).
+    fn boot_plan_custom_omits_engine_host_when_no_host() {
+        // No configured host → don't set engine_host (no override to write).
         let cfg = InferenceConfig {
             kind: SourceKind::Custom,
             model: Some("m".into()),
@@ -2471,7 +2502,7 @@ mod tests {
             engine: Some("lmstudio".into()),
         };
         let plan = boot_plan(&cfg, 16.0);
-        assert!(plan.host_env.is_none());
+        assert!(plan.engine_host.is_none());
     }
 
     #[test]
@@ -2480,5 +2511,32 @@ mod tests {
         let cfg = InferenceConfig { kind: SourceKind::Ollama, ..Default::default() };
         let plan = boot_plan(&cfg, 1.0);
         assert_eq!(plan.model_to_pull.as_deref(), Some(super::FALLBACK_MODEL));
+    }
+
+    #[test]
+    fn upsert_engine_host_writes_into_empty_config() {
+        let out = upsert_engine_host("", "lmstudio", "http://localhost:1234").unwrap();
+        let doc: toml_edit::DocumentMut = out.parse().unwrap();
+        assert_eq!(
+            doc["engine"]["lmstudio"]["host"].as_str(),
+            Some("http://localhost:1234")
+        );
+    }
+
+    #[test]
+    fn upsert_engine_host_preserves_existing_content() {
+        let existing = "[intelligence]\ndefault_model = \"keep-me\"\n";
+        let out = upsert_engine_host(existing, "vllm", "http://host:8000").unwrap();
+        let doc: toml_edit::DocumentMut = out.parse().unwrap();
+        assert_eq!(doc["intelligence"]["default_model"].as_str(), Some("keep-me"));
+        assert_eq!(doc["engine"]["vllm"]["host"].as_str(), Some("http://host:8000"));
+    }
+
+    #[test]
+    fn upsert_engine_host_updates_existing_host() {
+        let existing = "[engine.lmstudio]\nhost = \"http://old:1\"\n";
+        let out = upsert_engine_host(existing, "lmstudio", "http://new:2").unwrap();
+        let doc: toml_edit::DocumentMut = out.parse().unwrap();
+        assert_eq!(doc["engine"]["lmstudio"]["host"].as_str(), Some("http://new:2"));
     }
 }
