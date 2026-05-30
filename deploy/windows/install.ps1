@@ -77,6 +77,54 @@ function Write-Fail  ($msg) {
 }
 
 # ---------------------------------------------------------------------------
+# Shared helpers — winget bootstrap + PATH refresh
+# ---------------------------------------------------------------------------
+
+# Pull the latest Machine + User PATH from the registry into the current
+# PowerShell session. Tools installed by `winget install` (Python, git,
+# Ollama, etc.) update the User PATH, but the running process inherits
+# the parent shell's environment — so without this refresh the just-
+# installed tool stays invisible to subsequent `Get-Command` calls.
+#
+# CRITICAL: registry PATH entries can be REG_EXPAND_SZ (with literal
+# `%VAR%` placeholders); the Python.org installer in per-user mode adds
+# entries like `%LOCALAPPDATA%\Programs\Python\Python313\` unexpanded.
+# `GetEnvironmentVariable` returns the raw string and PowerShell does
+# NOT auto-expand on assignment to `$env:Path`, so `Get-Command python`
+# would miss the just-installed binary. Expand explicitly.
+function Update-PathFromRegistry {
+    $machinePath = [System.Environment]::GetEnvironmentVariable('Path', 'Machine')
+    $userPath    = [System.Environment]::GetEnvironmentVariable('Path', 'User')
+    $combined    = "$machinePath;$userPath"
+    $env:Path = [System.Environment]::ExpandEnvironmentVariables($combined)
+}
+
+# Bootstrap a tool by winget id. Returns the resolved command source on
+# success, $null on failure. Caller decides whether failure is fatal.
+function Install-WithWinget {
+    param(
+        [string] $WingetId,    # e.g. 'Python.Python.3.13'
+        [string] $CommandName  # e.g. 'python' or 'git'
+    )
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        # Windows 10 pre-2004 / Windows Server / locked-down corporate
+        # images may not have winget. Fall back to the caller's manual
+        # instructions.
+        return $null
+    }
+    Write-Info "  Installing $WingetId via winget (silent)..."
+    & winget install --id $WingetId --silent --accept-source-agreements --accept-package-agreements 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn2 "  winget install $WingetId exited $LASTEXITCODE"
+        return $null
+    }
+    Update-PathFromRegistry
+    $cmd = Get-Command $CommandName -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    return $null
+}
+
+# ---------------------------------------------------------------------------
 # 1. OS check
 # ---------------------------------------------------------------------------
 
@@ -109,16 +157,20 @@ function Get-PythonCommand {
 Write-Info "Checking Python (3.10 - 3.13)..."
 $pythonExe = Get-PythonCommand
 if (-not $pythonExe) {
-    Write-Fail @"
-Python 3.10 - 3.13 not found on PATH.
+    Write-Info "Python not on PATH — attempting auto-install via winget..."
+    $pythonExe = Install-WithWinget -WingetId 'Python.Python.3.13' -CommandName 'python'
+    if (-not $pythonExe) {
+        Write-Fail @"
+Python 3.10 - 3.13 not found and auto-install via winget failed.
 
-Install from https://python.org (check 'Add python.exe to PATH' during
-install) or via winget:
+Install manually from https://python.org (check 'Add python.exe to PATH'
+during install) or via winget:
 
     winget install Python.Python.3.13
 
 Then re-run this installer.
 "@
+    }
 }
 
 $verRaw = & $pythonExe --version 2>&1
@@ -144,15 +196,19 @@ Write-Ok "Python $pyMajor.$pyMinor ($pythonExe)"
 Write-Info "Checking git..."
 $gitExe = (Get-Command git -ErrorAction SilentlyContinue).Source
 if (-not $gitExe) {
-    Write-Fail @"
-git not found on PATH.
+    Write-Info "git not on PATH — attempting auto-install via winget..."
+    $gitExe = Install-WithWinget -WingetId 'Git.Git' -CommandName 'git'
+    if (-not $gitExe) {
+        Write-Fail @"
+git not found and auto-install via winget failed.
 
-Install via winget:
+Install manually via winget:
 
     winget install Git.Git
 
 or download from https://git-scm.com, then re-run this installer.
 "@
+    }
 }
 Write-Ok "git ($gitExe)"
 
@@ -239,16 +295,163 @@ try {
 Write-Ok "Dependencies installed"
 
 # ---------------------------------------------------------------------------
-# 7. Optional: register the scheduled-task service
+# 7. Ollama — install + start + wait for daemon
+# ---------------------------------------------------------------------------
+
+Write-Info "Checking Ollama..."
+$ollamaExe = (Get-Command ollama -ErrorAction SilentlyContinue).Source
+if (-not $ollamaExe) {
+    Write-Info "  Ollama not on PATH — downloading the official installer (~150 MB)..."
+    $ollamaSetup = Join-Path $env:TEMP 'OllamaSetup.exe'
+    # SilentlyContinue is load-bearing in PS 5.1: the default progress
+    # bar renderer slows Invoke-WebRequest down 30x on large downloads
+    # (a known PS5.1 issue), turning a 30s download into 15+ minutes.
+    $prevProgress = $ProgressPreference
+    $ProgressPreference = 'SilentlyContinue'
+    try {
+        Invoke-WebRequest `
+            -Uri 'https://ollama.com/download/OllamaSetup.exe' `
+            -OutFile $ollamaSetup `
+            -UseBasicParsing
+    } catch {
+        Remove-Item $ollamaSetup -ErrorAction SilentlyContinue  # clean up partial download
+        $ProgressPreference = $prevProgress
+        Write-Fail "Ollama download failed: $($_.Exception.Message)`nInstall manually from https://ollama.com, then re-run."
+    } finally {
+        $ProgressPreference = $prevProgress
+    }
+    # OllamaSetup.exe is built with NSIS, whose silent-install flag is
+    # /S (uppercase). The Inno-Setup-style /silent would open the GUI
+    # and hang `Start-Process -Wait` indefinitely.
+    Write-Info "  Running OllamaSetup.exe /S (this can take a minute)..."
+    Start-Process -FilePath $ollamaSetup -ArgumentList '/S' -Wait
+    Remove-Item $ollamaSetup -ErrorAction SilentlyContinue
+    Update-PathFromRegistry
+    $ollamaExe = (Get-Command ollama -ErrorAction SilentlyContinue).Source
+    if (-not $ollamaExe) {
+        Write-Fail "Ollama installer ran but 'ollama' isn't on PATH. Open a fresh PowerShell and re-run, or install manually from https://ollama.com."
+    }
+}
+Write-Ok "Ollama ($ollamaExe)"
+
+# Make sure the daemon is actually responsive before pulling. The Ollama
+# Windows installer launches the tray app at install time, but on a re-
+# run with an existing install the daemon may not be running yet.
+Write-Info "Waiting for Ollama daemon..."
+$ollamaReady = $false
+for ($i = 0; $i -lt 60; $i++) {
+    & $ollamaExe list 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        $ollamaReady = $true
+        break
+    }
+    if ($i -eq 5) {
+        # Daemon clearly isn't auto-running — start it ourselves. Ollama
+        # for Windows uses the tray app `ollama app.exe`; falling back to
+        # `ollama serve` works headless.
+        Start-Process -FilePath $ollamaExe -ArgumentList 'serve' -WindowStyle Hidden -ErrorAction SilentlyContinue
+    }
+    Start-Sleep -Seconds 1
+}
+if (-not $ollamaReady) {
+    Write-Warn2 "Ollama daemon didn't become ready in 60s. Continuing — bg-orchestrator will retry later."
+}
+
+# ---------------------------------------------------------------------------
+# 8. Pull a starter model (qwen3.5:2b — ~1.5 GB)
+# ---------------------------------------------------------------------------
+
+$modelPullOk = $false
+if ($ollamaReady) {
+    Write-Info "Pulling qwen3.5:2b (~1.5 GB) so 'jarvis' works on first run..."
+    & $ollamaExe pull 'qwen3.5:2b'
+    if ($LASTEXITCODE -eq 0) {
+        $modelPullOk = $true
+        Write-Ok "Starter model ready"
+    } else {
+        Write-Warn2 "ollama pull failed; the bg-orchestrator will retry once Ollama is reachable."
+    }
+} else {
+    Write-Warn2 "Skipping model pull — daemon wasn't ready."
+}
+
+# ---------------------------------------------------------------------------
+# 9. jarvis.cmd shim — so bare `jarvis` works in any new PowerShell
+# ---------------------------------------------------------------------------
+
+$binDir = Join-Path $installRoot 'bin'
+$shimPath = Join-Path $binDir 'jarvis.cmd'
+
+if (-not (Test-Path $binDir)) {
+    New-Item -ItemType Directory -Path $binDir | Out-Null
+}
+
+# %~dp0 in a .cmd file resolves to the directory containing the script,
+# so the shim is self-locating — moving %LOCALAPPDATA%\OpenJarvis won't
+# break it as long as the user moves the whole tree. `uv` is resolved
+# from PATH at runtime (astral installer adds it to User PATH); avoids
+# pinning to the install-time uv.exe path which can shift on uv updates.
+$shimContent = @"
+@echo off
+setlocal
+set "SRC=%~dp0..\src"
+uv run --project "%SRC%" jarvis %*
+"@
+Set-Content -Path $shimPath -Value $shimContent -Encoding ASCII
+
+# Add %LOCALAPPDATA%\OpenJarvis\bin to User PATH if it isn't already
+# there. The current process won't see it until restart — handled in the
+# final banner.
+#
+# Compare against the EXPANDED form: a previous install may have written
+# the entry as `%LOCALAPPDATA%\OpenJarvis\bin` (unexpanded) into User
+# PATH, and a literal `-ieq` against the expanded `$binDir` would miss
+# it and append a duplicate every re-run.
+$userPath = [System.Environment]::GetEnvironmentVariable('Path', 'User')
+$pathOnUser = $false
+if ($userPath) {
+    foreach ($entry in ($userPath -split ';')) {
+        $expanded = [System.Environment]::ExpandEnvironmentVariables($entry)
+        if ($expanded -ieq $binDir) { $pathOnUser = $true; break }
+    }
+}
+$pathNeedsRefresh = $false
+if (-not $pathOnUser) {
+    $newUserPath = if ($userPath) { "$userPath;$binDir" } else { $binDir }
+    [System.Environment]::SetEnvironmentVariable('Path', $newUserPath, 'User')
+    $pathNeedsRefresh = $true
+}
+Write-Ok "jarvis shim installed at $shimPath"
+
+# ---------------------------------------------------------------------------
+# 10. Optional: register the scheduled-task service
 # ---------------------------------------------------------------------------
 
 $serviceScript = Join-Path $srcDir 'deploy\windows\jarvis-service.ps1'
 $shouldInstallService = $false
 
+# Pre-check admin if the user wants the service — Register-ScheduledTask
+# requires elevation. We do this before the prompt so we don't ask "do
+# you want the service?" only to fail with Access Denied after they say
+# yes.
+$isAdmin = ([Security.Principal.WindowsPrincipal] `
+    [Security.Principal.WindowsIdentity]::GetCurrent()
+).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+if ($Service -and -not $isAdmin) {
+    Write-Fail "-Service was requested, but this PowerShell is not elevated. Register-ScheduledTask needs admin rights — re-run from an elevated PowerShell, or drop -Service."
+}
 if ($Service) {
     $shouldInstallService = $true
 } elseif ($SkipService) {
     $shouldInstallService = $false
+} elseif (-not $isAdmin) {
+    # Default to skip-with-explanation when we can't elevate, rather
+    # than prompting and then failing at Register-ScheduledTask.
+    Write-Warn2 "Skipping scheduled-task setup — this PowerShell is not elevated."
+    Write-Warn2 "  Register-ScheduledTask requires admin. To install the service later:"
+    Write-Warn2 "    Right-click PowerShell -> Run as administrator, then run:"
+    Write-Warn2 "    powershell -ExecutionPolicy Bypass -File `"$serviceScript`" install"
 } else {
     # Interactive prompt only when there's a real user at the keyboard
     # AND stdin isn't piped. [Environment]::UserInteractive is the
@@ -262,7 +465,7 @@ if ($Service) {
         $shouldInstallService = ($reply -match '^[yY]')
     } else {
         Write-Warn2 "Non-interactive install — skipping scheduled-task setup."
-        Write-Warn2 "To register the service later, run:"
+        Write-Warn2 "To register the service later, run (from an elevated PowerShell):"
         Write-Warn2 "  powershell -ExecutionPolicy Bypass -File `"$serviceScript`" install"
     }
 }
@@ -289,8 +492,30 @@ Write-Host "  │   OpenJarvis install complete    │" -ForegroundColor Green
 Write-Host "  └──────────────────────────────────┘" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Repo:    $srcDir"
-Write-Host "  Run it:  cd `"$srcDir`"; uv run jarvis serve"
+
+# Tell the truth about what the user can run next, given (a) whether the
+# starter model finished pulling and (b) whether the User-PATH update
+# needs a fresh PowerShell to take effect.
+$nextCmd = if ($modelPullOk) { 'jarvis' } else { 'jarvis doctor' }
+
+if ($pathNeedsRefresh) {
+    Write-Host ""
+    Write-Host "  Run it:  open a NEW PowerShell, then: $nextCmd" -ForegroundColor Yellow
+    Write-Host "           (the jarvis shim was added to your User PATH; the"
+    Write-Host "            current PowerShell won't see it until restart)"
+} else {
+    Write-Host "  Run it:  $nextCmd"
+}
+
+if (-not $modelPullOk) {
+    Write-Host ""
+    Write-Host "  NOTE: the qwen3.5:2b model didn't finish downloading." -ForegroundColor Yellow
+    Write-Host "        Chat will fail until the bg-orchestrator finishes the retry."
+    Write-Host "        'jarvis doctor' shows progress."
+}
+
 if ($shouldInstallService) {
+    Write-Host ""
     Write-Host "  Service: schtasks /Query /TN OpenJarvis     (status)"
     Write-Host "           powershell -File `"$serviceScript`" uninstall    (remove)"
 }
