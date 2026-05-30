@@ -16,7 +16,7 @@
 ---
 
 <div align="center">
-  <video src="https://github.com/open-jarvis/OpenJarvis/releases/download/readme-media/openjarvis_demo_reel_v2.mp4" controls width="100%"></video>
+  <img alt="OpenJarvis demo reel" src="assets/openjarvis_demo_reel.webp" width="100%">
 </div>
 
 ---
