@@ -1434,6 +1434,7 @@ class MemoryFilesConfig:
 class SystemPromptConfig:
     """Limits and strategy for system-prompt assembly."""
 
+    prefix: str = ""
     soul_max_chars: int = 4000
     memory_max_chars: int = 2500
     user_max_chars: int = 1500
@@ -1810,6 +1811,10 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
             "agent_manager",
             "digest",
             "proactive",
+            "memory_files",
+            "system_prompt",
+            "compression",
+            "skills",
         )
         for section_name in top_sections:
             if section_name in data:
