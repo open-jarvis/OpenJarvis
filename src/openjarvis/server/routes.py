@@ -147,8 +147,23 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
             return await _handle_agent_stream(agent, bus, model, request_body)
         return await _handle_stream(engine, model, request_body, complexity_info)
 
-    # Non-streaming: use agent if available, otherwise direct engine call
-    if agent is not None:
+    # Non-streaming: use agent if available, otherwise direct engine call.
+    #
+    # EXCEPTION: when the client explicitly passed `tools`, they're asking
+    # for raw OpenAI-compat function-calling — return the model's
+    # tool_call decision verbatim. Routing through `_handle_agent` would
+    # call `agent.run(input_text)`, which IGNORES `request_body.tools`,
+    # runs the agent's own internal tool loop with its own (different)
+    # tool spec, and returns only `result.content` — so the model's
+    # tool_calls vanish and the user sees a generic acknowledgement
+    # (e.g. "Understood. If you have another request...") that the
+    # agent's re-prompted LLM produced. See #414.
+    #
+    # If a future caller needs agent orchestration WITH client-supplied
+    # tools (e.g. injecting MCP tools through this endpoint and wanting
+    # the agent to execute them), add an explicit opt-in header rather
+    # than removing this guard — silent re-routing is what produced #414.
+    if agent is not None and not request_body.tools:
         return _handle_agent(agent, model, request_body, complexity_info)
 
     bus = getattr(request.app.state, "bus", None)
