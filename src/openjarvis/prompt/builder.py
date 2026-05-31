@@ -1,9 +1,22 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Literal, Optional, Tuple
 
 from openjarvis.core.config import MemoryFilesConfig, SystemPromptConfig
+
+PromptCacheSegment = Literal["frozen_prefix", "dynamic_suffix"]
+
+
+@dataclass(frozen=True, slots=True)
+class PromptSection:
+    """Inspectable prompt section emitted by SystemPromptBuilder."""
+
+    name: str
+    content: str
+    source: str
+    cache_segment: PromptCacheSegment
 
 
 class SystemPromptBuilder:
@@ -34,6 +47,7 @@ class SystemPromptBuilder:
         else:
             self._skill_few_shot = list(skill_few_shot or [])
         self._frozen_prefix: Optional[str] = None
+        self._frozen_sections: Optional[list[PromptSection]] = None
 
     def build(self) -> str:
         if self._frozen_prefix is None:
@@ -44,6 +58,34 @@ class SystemPromptBuilder:
         if self._previous_state:
             parts.append(f"\n\n## Previous State\n\n{self._previous_state}")
         return "".join(parts)
+
+    def sections(self) -> list[PromptSection]:
+        """Return prompt sections with lightweight cache/debug metadata."""
+        sections = [*self._get_frozen_sections()]
+        if self._session_context:
+            sections.append(
+                PromptSection(
+                    name="session_context",
+                    content=f"## Session Context\n\n{self._session_context}",
+                    source="session_context",
+                    cache_segment="dynamic_suffix",
+                )
+            )
+        if self._previous_state:
+            sections.append(
+                PromptSection(
+                    name="previous_state",
+                    content=f"## Previous State\n\n{self._previous_state}",
+                    source="previous_state",
+                    cache_segment="dynamic_suffix",
+                )
+            )
+        return sections
+
+    def _get_frozen_sections(self) -> list[PromptSection]:
+        if self._frozen_sections is None:
+            self._frozen_sections = self._build_frozen_sections()
+        return self._frozen_sections
 
     def _persona_sections(self) -> list[str]:
         """The SOUL / MEMORY / USER sections (no agent template, no skills)."""
@@ -79,12 +121,29 @@ class SystemPromptBuilder:
         return "\n\n".join(self._persona_sections())
 
     def _build_frozen_prefix(self) -> str:
-        sections: list[str] = []
-        sections.append(self._agent_template)
-        sections.extend(self._persona_sections())
+        return "\n\n".join(section.content for section in self._get_frozen_sections())
+
+    def _build_frozen_sections(self) -> list[PromptSection]:
+        sections: list[PromptSection] = []
+        sections.append(
+            PromptSection(
+                name="agent_template",
+                content=self._agent_template,
+                source="agent_template",
+                cache_segment="frozen_prefix",
+            )
+        )
+        sections.extend(self._persona_prompt_sections())
         # XML skill catalog (preferred over legacy markdown list)
         if self._skill_catalog_xml:
-            sections.append("## Available Skills\n\n" + self._skill_catalog_xml)
+            sections.append(
+                PromptSection(
+                    name="skill_catalog",
+                    content="## Available Skills\n\n" + self._skill_catalog_xml,
+                    source="skill_catalog_xml",
+                    cache_segment="frozen_prefix",
+                )
+            )
         elif self._skill_index:
             skill_lines = []
             for name, desc in self._skill_index:
@@ -92,11 +151,69 @@ class SystemPromptBuilder:
                 if len(desc) > self._sp_config.skill_desc_max_chars:
                     truncated = truncated[:-3] + "..."
                 skill_lines.append(f"- **{name}**: {truncated}")
-            sections.append("## Available Skills\n\n" + "\n".join(skill_lines))
+            sections.append(
+                PromptSection(
+                    name="skill_index",
+                    content="## Available Skills\n\n" + "\n".join(skill_lines),
+                    source="skill_index",
+                    cache_segment="frozen_prefix",
+                )
+            )
         if self._skill_few_shot:
             examples = "\n\n".join(self._skill_few_shot)
-            sections.append("## Skill Examples\n\n" + examples)
-        return "\n\n".join(sections)
+            sections.append(
+                PromptSection(
+                    name="skill_examples",
+                    content="## Skill Examples\n\n" + examples,
+                    source="skill_few_shot_examples",
+                    cache_segment="frozen_prefix",
+                )
+            )
+        return sections
+
+    def _persona_prompt_sections(self) -> list[PromptSection]:
+        sections: list[PromptSection] = []
+        self._append_file_section(
+            sections=sections,
+            name="soul",
+            heading="Agent Persona",
+            path_str=self._mf_config.soul_path,
+            max_chars=self._sp_config.soul_max_chars,
+        )
+        self._append_file_section(
+            sections=sections,
+            name="memory",
+            heading="Agent Memory",
+            path_str=self._mf_config.memory_path,
+            max_chars=self._sp_config.memory_max_chars,
+        )
+        self._append_file_section(
+            sections=sections,
+            name="user",
+            heading="User Profile",
+            path_str=self._mf_config.user_path,
+            max_chars=self._sp_config.user_max_chars,
+        )
+        return sections
+
+    def _append_file_section(
+        self,
+        sections: list[PromptSection],
+        name: str,
+        heading: str,
+        path_str: str,
+        max_chars: int,
+    ) -> None:
+        content = self._load_file(path_str, max_chars)
+        if content:
+            sections.append(
+                PromptSection(
+                    name=name,
+                    content=f"## {heading}\n\n{content}",
+                    source=str(Path(path_str).expanduser()),
+                    cache_segment="frozen_prefix",
+                )
+            )
 
     def _load_file(self, path_str: str, max_chars: int) -> str:
         path = Path(path_str).expanduser()

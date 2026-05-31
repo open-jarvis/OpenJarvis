@@ -109,6 +109,57 @@ def test_dynamic_section_appended(memory_dir: Path):
     assert "Platform: CLI" in prompt
 
 
+def test_sections_expose_prompt_metadata(memory_dir: Path):
+    from openjarvis.prompt.builder import SystemPromptBuilder
+
+    builder = SystemPromptBuilder(
+        agent_template="You are Jarvis.",
+        memory_files_config=MemoryFilesConfig(
+            soul_path=str(memory_dir / "SOUL.md"),
+            memory_path=str(memory_dir / "MEMORY.md"),
+            user_path=str(memory_dir / "USER.md"),
+        ),
+        system_prompt_config=SystemPromptConfig(),
+        session_context="Platform: CLI | Session: abc123",
+        previous_state="Last task: summarize telemetry.",
+    )
+
+    sections = builder.sections()
+
+    assert [section.name for section in sections] == [
+        "agent_template",
+        "soul",
+        "memory",
+        "user",
+        "session_context",
+        "previous_state",
+    ]
+    assert sections[1].source == str(memory_dir / "SOUL.md")
+    assert sections[1].cache_segment == "frozen_prefix"
+    assert sections[-1].cache_segment == "dynamic_suffix"
+    assert builder.build() == "\n\n".join(section.content for section in sections)
+
+
+def test_sections_keep_frozen_file_content_stable(memory_dir: Path):
+    from openjarvis.prompt.builder import SystemPromptBuilder
+
+    builder = SystemPromptBuilder(
+        agent_template="You are Jarvis.",
+        memory_files_config=MemoryFilesConfig(
+            soul_path=str(memory_dir / "SOUL.md"),
+            memory_path=str(memory_dir / "MEMORY.md"),
+            user_path=str(memory_dir / "USER.md"),
+        ),
+        system_prompt_config=SystemPromptConfig(),
+    )
+
+    first = builder.sections()
+    (memory_dir / "MEMORY.md").write_text("- CHANGED CONTENT")
+    second = builder.sections()
+
+    assert first == second
+
+
 def test_missing_files_handled(tmp_path: Path):
     from openjarvis.prompt.builder import SystemPromptBuilder
 
