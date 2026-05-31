@@ -308,6 +308,104 @@ class TestChatCompletions:
                     content += delta_content
         assert content == "Hello world"
 
+    def test_streaming_with_tools_emits_tool_calls_and_bypasses_agent(self):
+        """Regression for the streaming analog of #414.
+
+        When the client streams (`stream:true`) WITH explicit `tools`, the
+        response must carry the model's real tool_calls (sourced from
+        engine.stream_full) and a finish_reason of "tool_calls" — NOT route
+        through the agent bridge, which ignores request_body.tools, runs the
+        agent's own tool loop, and word-splits generic filler content,
+        dropping the tool_calls the caller asked for.
+        """
+        from openjarvis.core.events import EventBus
+        from openjarvis.engine._stubs import StreamChunk
+
+        engine = _make_engine()
+
+        async def mock_stream_full(
+            messages,
+            *,
+            model,
+            temperature=0.7,
+            max_tokens=1024,
+            **kwargs,
+        ):
+            # Ollama-shape: a complete tool_call arrives in a single chunk
+            # carrying finish_reason="tool_calls".
+            yield StreamChunk(
+                tool_calls=[
+                    {
+                        "index": 0,
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": '{"city": "Paris"}',
+                        },
+                    }
+                ],
+                finish_reason="tool_calls",
+            )
+
+        engine.stream_full = mock_stream_full
+        # bus present + agent registered == the exact live condition under
+        # which the pre-fix code routed to the (broken) agent stream bridge.
+        agent = _make_agent(content="GENERIC AGENT FILLER")
+        app = create_app(engine, "test-model", agent=agent, bus=EventBus())
+        client = TestClient(app)
+
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [
+                    {"role": "user", "content": "Weather in Paris? Use get_weather."}
+                ],
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "get_weather",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {"city": {"type": "string"}},
+                                "required": ["city"],
+                            },
+                        },
+                    }
+                ],
+                "stream": True,
+            },
+        )
+        assert resp.status_code == 200
+        assert "text/event-stream" in resp.headers.get("content-type", "")
+
+        tool_call_names: list[str] = []
+        finish_reasons: list[str] = []
+        collected_content = ""
+        for line in resp.text.strip().split("\n"):
+            if not line.startswith("data:") or "[DONE]" in line:
+                continue
+            data = json.loads(line[5:].strip())
+            choice = data.get("choices", [{}])[0]
+            delta = choice.get("delta", {})
+            for tc in delta.get("tool_calls") or []:
+                tool_call_names.append(tc["function"]["name"])
+            if delta.get("content"):
+                collected_content += delta["content"]
+            if choice.get("finish_reason"):
+                finish_reasons.append(choice["finish_reason"])
+
+        # The real tool_call must be streamed through to the client.
+        assert "get_weather" in tool_call_names
+        # finish_reason must signal tool_calls, not a plain stop.
+        assert "tool_calls" in finish_reasons
+        # The agent's filler must NOT have been streamed...
+        assert "GENERIC AGENT FILLER" not in collected_content
+        # ...and the agent must not have been invoked at all.
+        assert not agent.run.called
+
     def test_finish_reason_default(self, client):
         resp = client.post(
             "/v1/chat/completions",

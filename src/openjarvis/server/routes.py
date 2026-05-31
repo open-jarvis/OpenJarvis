@@ -138,13 +138,19 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
             )
 
     if request_body.stream:
-        bus = getattr(request.app.state, "bus", None)
-        # Use the agent stream bridge only when tools are present (the
-        # bridge runs agent.run() synchronously and word-splits the result,
-        # so it can't stream tokens in real-time).  For plain chat, stream
-        # directly from the engine for true token-by-token output.
-        if agent is not None and bus is not None and request_body.tools:
-            return await _handle_agent_stream(agent, bus, model, request_body)
+        # When the client passes `tools`, stream the model's raw
+        # OpenAI-compat function-calling decision directly from the engine
+        # (bypassing the agent) — the streaming mirror of the non-streaming
+        # #454 fix.  Routing tools through the agent stream bridge ignored
+        # `request_body.tools`, ran the agent's own tool loop, and
+        # word-split generic filler content into fake token deltas, so the
+        # caller's tool_calls were dropped entirely (the streaming analog of
+        # #414).  For plain chat (no tools), stream token-by-token directly
+        # from the engine for true real-time output.
+        if request_body.tools:
+            return await _handle_stream_tools(
+                engine, model, request_body, complexity_info
+            )
         return await _handle_stream(engine, model, request_body, complexity_info)
 
     # Non-streaming: use agent if available, otherwise direct engine call.
@@ -306,11 +312,113 @@ def _handle_agent(
     )
 
 
-async def _handle_agent_stream(agent, bus, model, req):
-    """Stream agent response with EventBus events via SSE."""
-    from openjarvis.server.stream_bridge import create_agent_stream
+async def _handle_stream_tools(
+    engine,
+    model: str,
+    req: ChatCompletionRequest,
+    complexity_info=None,
+):
+    """Stream a raw OpenAI-compat function-calling response via SSE.
 
-    return await create_agent_stream(agent, bus, model, req)
+    Used when the client passes `tools` together with `stream:true`.  Sources
+    tool_calls from ``engine.stream_full()`` (which forwards the tools to the
+    backend and parses tool_calls out of the streamed response) and emits them
+    as SSE deltas, bypassing the agent entirely.  This is the streaming mirror
+    of the non-streaming ``_handle_direct`` tool path.
+
+    Engines without a tool-aware ``stream_full`` override fall back to the
+    base-class default (content tokens + a ``stop`` finish_reason, no
+    tool_calls) — identical to the prior plain-stream behaviour, so this never
+    regresses non-tool-capable engines.
+    """
+    from openjarvis.server.cloud_router import is_cloud_model
+
+    messages = _to_messages(req.messages)
+    chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+    use_cloud = is_cloud_model(model)
+
+    async def generate():
+        # Send the role chunk first (OpenAI convention).
+        first_chunk = ChatCompletionChunk(
+            id=chunk_id,
+            model=model,
+            choices=[StreamChoice(delta=DeltaMessage(role="assistant"))],
+        )
+        yield f"data: {first_chunk.model_dump_json()}\n\n"
+
+        finish_reason = "stop"
+        try:
+            async for sc in engine.stream_full(
+                messages,
+                model=model,
+                temperature=req.temperature,
+                max_tokens=req.max_tokens,
+                tools=req.tools,
+            ):
+                if sc.content:
+                    content_chunk = ChatCompletionChunk(
+                        id=chunk_id,
+                        model=model,
+                        choices=[StreamChoice(delta=DeltaMessage(content=sc.content))],
+                    )
+                    yield f"data: {content_chunk.model_dump_json()}\n\n"
+                if sc.tool_calls:
+                    tc_chunk = ChatCompletionChunk(
+                        id=chunk_id,
+                        model=model,
+                        choices=[
+                            StreamChoice(delta=DeltaMessage(tool_calls=sc.tool_calls))
+                        ],
+                    )
+                    yield f"data: {tc_chunk.model_dump_json()}\n\n"
+                if sc.finish_reason:
+                    finish_reason = sc.finish_reason
+        except Exception as exc:
+            import logging
+
+            logging.getLogger("openjarvis.server").error(
+                "Tool stream error: %s",
+                exc,
+                exc_info=True,
+            )
+            error_chunk = ChatCompletionChunk(
+                id=chunk_id,
+                model=model,
+                choices=[
+                    StreamChoice(
+                        delta=DeltaMessage(
+                            content=f"\n\nError during generation: {exc}",
+                        ),
+                        finish_reason="stop",
+                    )
+                ],
+            )
+            yield f"data: {error_chunk.model_dump_json()}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+
+        import json as _json
+
+        finish_data = ChatCompletionChunk(
+            id=chunk_id,
+            model=model,
+            choices=[StreamChoice(delta=DeltaMessage(), finish_reason=finish_reason)],
+        )
+        finish_dict = _json.loads(finish_data.model_dump_json())
+        # Tag the finish chunk with the engine label, matching _handle_stream
+        # so UI/telemetry consumers see the same field on the tools path.
+        finish_dict.setdefault("telemetry", {})
+        finish_dict["telemetry"]["engine"] = "cloud" if use_cloud else "ollama"
+        if complexity_info is not None:
+            finish_dict["complexity"] = complexity_info.model_dump()
+        yield f"data: {_json.dumps(finish_dict)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )
 
 
 async def _handle_stream(
