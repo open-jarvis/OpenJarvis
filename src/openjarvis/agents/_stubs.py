@@ -18,6 +18,10 @@ from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import Conversation, Message, Role, ToolResult
 from openjarvis.engine._stubs import InferenceEngine
 
+from openjarvis.memory.memory_manager import MemoryManager
+
+memory = MemoryManager()
+
 
 @dataclass(slots=True)
 class AgentContext:
@@ -73,7 +77,7 @@ class BaseAgent(ABC):
         self._bus = bus
         self._prompt_builder = prompt_builder
 
-        # Three-tier resolution: explicit arg > config > class default > hardcoded
+
         if temperature is not None and max_tokens is not None:
             self._temperature = temperature
             self._max_tokens = max_tokens
@@ -102,9 +106,6 @@ class BaseAgent(ABC):
                     else getattr(self, "_default_max_tokens", 1024)
                 )
 
-    # ------------------------------------------------------------------
-    # Concrete helpers
-    # ------------------------------------------------------------------
 
     def _emit_turn_start(self, input: str) -> None:
         """Publish ``AGENT_TURN_START`` if an event bus is available."""
@@ -158,6 +159,12 @@ class BaseAgent(ABC):
             and any(m.role == Role.SYSTEM for m in context.conversation.messages)
         )
 
+
+        memory_context = memory.build_context(input)
+        if memory_context:
+            messages.append(Message(role=Role.SYSTEM, content=memory_context))
+
+
         if self._prompt_builder is not None:
             effective_system_prompt = self._prompt_builder.build()
         elif system_prompt:
@@ -175,6 +182,7 @@ class BaseAgent(ABC):
             messages.append(Message(role=Role.SYSTEM, content=effective_system_prompt))
         if context and context.conversation.messages:
             messages.extend(context.conversation.messages)
+
         messages.append(Message(role=Role.USER, content=input))
         return messages
 
@@ -212,6 +220,15 @@ class BaseAgent(ABC):
                     "finish_reason": result.get("finish_reason", ""),
                 },
             )
+
+
+        assistant_content = result.get("content", "")
+        if assistant_content:
+            try:
+                memory.add(assistant_content, role="assistant")
+            except Exception:
+                pass
+
 
         return result
 
@@ -360,6 +377,7 @@ class ToolUsingAgent(BaseAgent):
                 self._max_turns = getattr(self, "_default_max_turns", 10)
 
         # Loop guard
+             # Loop guard
         self._loop_guard = None
         try:
             from openjarvis.agents.loop_guard import LoopGuard, LoopGuardConfig
@@ -368,10 +386,16 @@ class ToolUsingAgent(BaseAgent):
                 loop_guard_config = LoopGuardConfig()
             elif isinstance(loop_guard_config, dict):
                 loop_guard_config = LoopGuardConfig(**loop_guard_config)
+
             if loop_guard_config.enabled:
                 self._loop_guard = LoopGuard(loop_guard_config, bus=bus)
         except ImportError:
             pass
 
 
-__all__ = ["AgentContext", "AgentResult", "BaseAgent", "ToolUsingAgent"]
+__all__ = [
+    "AgentContext",
+    "AgentResult",
+    "BaseAgent",
+    "ToolUsingAgent",
+]
