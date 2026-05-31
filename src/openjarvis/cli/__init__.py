@@ -50,14 +50,25 @@ from openjarvis.cli.workflow_cmd import workflow
 @click.version_option(version=openjarvis.__version__, prog_name="jarvis")
 @click.option("--verbose", is_flag=True, default=False, help="Enable debug logging")
 @click.option("--quiet", is_flag=True, default=False, help="Suppress non-error output")
+@click.option(
+    "--pick-model",
+    "pick_model_bare",
+    is_flag=True,
+    default=False,
+    help=(
+        "Bare ``jarvis``: force interactive model list "
+        "(overrides JARVIS_SKIP_MODEL_PICK)."
+    ),
+)
 @click.pass_context
-def cli(ctx: click.Context, verbose: bool, quiet: bool) -> None:
+def cli(ctx: click.Context, verbose: bool, quiet: bool, pick_model_bare: bool) -> None:
     """Top-level CLI group."""
     from openjarvis.cli.log_config import setup_logging
 
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
     ctx.obj["quiet"] = quiet
+    ctx.obj["pick_model_bare"] = pick_model_bare
     setup_logging(verbose=verbose, quiet=quiet)
 
     # Check for updates on interactive commands. The banner is noise in

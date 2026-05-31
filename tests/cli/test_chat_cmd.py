@@ -69,6 +69,9 @@ class TestChatCommand:
         assert result.exit_code == 0
         assert "--engine" in result.output
         assert "--model" in result.output
+        assert "--pick-model" in result.output
+        assert "--num-ctx" in result.output
+        assert "--num-gpu" in result.output
         assert "--agent" in result.output
         assert "--tools" in result.output
         assert "--system" in result.output
@@ -109,6 +112,14 @@ class TestChatAgents:
             patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
             patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
             patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.cli._model_switch.tty_wants_model_picker",
+                return_value=False,
+            ),
+            patch(
+                "openjarvis.cli._runtime_panel.tty_wants_runtime_panel",
+                return_value=False,
+            ),
         ):
             result = CliRunner().invoke(
                 chat,
@@ -135,6 +146,14 @@ class TestChatAgents:
             patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
             patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
             patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.cli._model_switch.tty_wants_model_picker",
+                return_value=False,
+            ),
+            patch(
+                "openjarvis.cli._runtime_panel.tty_wants_runtime_panel",
+                return_value=False,
+            ),
         ):
             result = CliRunner().invoke(
                 chat,

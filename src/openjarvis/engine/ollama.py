@@ -23,6 +23,26 @@ from openjarvis.engine._stubs import StreamChunk
 logger = logging.getLogger(__name__)
 
 
+def _ollama_request_options(
+    *,
+    temperature: float,
+    max_tokens: int,
+    kwargs: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Build Ollama ``options`` dict from generate/stream kwargs."""
+    options: Dict[str, Any] = {
+        "temperature": temperature,
+        "num_predict": max_tokens,
+    }
+    if kwargs.get("num_ctx") is not None:
+        options["num_ctx"] = int(kwargs["num_ctx"])
+    else:
+        options["num_ctx"] = 8192
+    if kwargs.get("num_gpu") is not None:
+        options["num_gpu"] = int(kwargs["num_gpu"])
+    return options
+
+
 @EngineRegistry.register("ollama")
 class OllamaEngine(InferenceEngine):
     """Ollama backend via its native HTTP API."""
@@ -70,11 +90,11 @@ class OllamaEngine(InferenceEngine):
             "model": model,
             "messages": msg_dicts,
             "stream": False,
-            "options": {
-                "temperature": temperature,
-                "num_predict": max_tokens,
-                "num_ctx": kwargs.get("num_ctx", 8192),
-            },
+            "options": _ollama_request_options(
+                temperature=temperature,
+                max_tokens=max_tokens,
+                kwargs=kwargs,
+            ),
         }
         # Disable extended thinking by default (Qwen3.5 etc.).
         # When enabled, thinking tokens consume the entire budget and
@@ -186,11 +206,11 @@ class OllamaEngine(InferenceEngine):
             "model": model,
             "messages": messages_to_dicts(messages),
             "stream": True,
-            "options": {
-                "temperature": temperature,
-                "num_predict": max_tokens,
-                "num_ctx": kwargs.get("num_ctx", 8192),
-            },
+            "options": _ollama_request_options(
+                temperature=temperature,
+                max_tokens=max_tokens,
+                kwargs=kwargs,
+            ),
         }
         # Mirror generate()'s default: disable extended thinking unless the
         # caller opted in. Qwen3/etc. with thinking on can stall the visible
@@ -265,11 +285,11 @@ class OllamaEngine(InferenceEngine):
             "model": model,
             "messages": msg_dicts,
             "stream": True,
-            "options": {
-                "temperature": temperature,
-                "num_predict": max_tokens,
-                "num_ctx": kwargs.get("num_ctx", 8192),
-            },
+            "options": _ollama_request_options(
+                temperature=temperature,
+                max_tokens=max_tokens,
+                kwargs=kwargs,
+            ),
         }
         if "think" not in kwargs:
             payload["think"] = False
