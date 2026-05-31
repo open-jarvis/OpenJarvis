@@ -171,6 +171,85 @@ class TestChatCompletions:
         data = resp.json()
         assert data["choices"][0]["message"]["content"] == "Hello from agent"
 
+    def test_with_tools_bypasses_agent(self):
+        """Regression for #414.
+
+        When the client passes explicit `tools` AND an agent is
+        registered, the request must go to `_handle_direct` (which
+        preserves tool_calls from the engine) rather than `_handle_agent`
+        (which calls `agent.run()` ignoring `request_body.tools` and
+        returns only `result.content`, dropping tool_calls and
+        substituting whatever generic content the agent's re-prompted
+        LLM produced).
+        """
+        engine = _make_engine()
+        engine.generate.return_value = {
+            "content": "",
+            "tool_calls": [
+                {"id": "c1", "name": "list_files", "arguments": '{"directory":"/tmp"}'},
+            ],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8},
+            "model": "test-model",
+            "finish_reason": "tool_calls",
+        }
+        agent = _make_agent(content="GENERIC AGENT FILLER")
+        app = create_app(engine, "test-model", agent=agent)
+        client = TestClient(app)
+
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "Use list_files on /tmp."}],
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "list_files",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {"directory": {"type": "string"}},
+                                "required": ["directory"],
+                            },
+                        },
+                    },
+                ],
+            },
+        )
+        assert resp.status_code == 200
+        msg = resp.json()["choices"][0]["message"]
+        # The engine's tool_calls must survive — proves we bypassed
+        # _handle_agent and reached _handle_direct.
+        assert msg["tool_calls"] is not None
+        assert msg["tool_calls"][0]["function"]["name"] == "list_files"
+        # Content must be the engine's empty string, NOT the agent's
+        # filler. If this assertion fails, the agent ran and produced
+        # filler content while dropping the real tool_calls — exactly
+        # the bug #414 reported.
+        assert msg["content"] == ""
+        assert "GENERIC AGENT FILLER" not in (msg["content"] or "")
+        # And the engine was actually called (proves we hit _handle_direct
+        # rather than short-circuiting somewhere else).
+        assert engine.generate.called
+        # And the agent was NOT called (proves the bypass worked).
+        assert not agent.run.called
+
+    def test_without_tools_still_uses_agent(self, client_with_agent):
+        """Counterpart to test_with_tools_bypasses_agent: when no tools
+        are requested, the agent path is still used (preserves existing
+        behavior for plain chat through an agent)."""
+        resp = client_with_agent.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        # No tools → agent path → agent's content surfaces.
+        assert data["choices"][0]["message"]["content"] == "Hello from agent"
+
     def test_agent_with_conversation(self, client_with_agent):
         resp = client_with_agent.post(
             "/v1/chat/completions",
