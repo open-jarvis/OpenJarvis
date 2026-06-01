@@ -439,6 +439,26 @@ _SAMPLER_PARAM_KEYS = (
 )
 
 
+def _build_managed_system_prompt(system_prompt: str, app_config: Any) -> str:
+    """Build the streaming managed-agent system prompt via SystemPromptBuilder.
+
+    Routes the agent's own ``system_prompt`` through the same builder the
+    CLI/ask path uses, so SOUL.md / MEMORY.md / USER.md persona files are
+    injected for streaming chat too (#431). Returns the assembled prompt
+    (caller decides whether to append a SYSTEM message); an agent with
+    neither persona nor template yields an empty string, preserving the
+    prior no-SYSTEM-message behavior.
+    """
+    from openjarvis.prompt.builder import SystemPromptBuilder
+
+    builder = SystemPromptBuilder(
+        agent_template=system_prompt or "",
+        memory_files_config=getattr(app_config, "memory_files", None),
+        system_prompt_config=getattr(app_config, "system_prompt", None),
+    )
+    return builder.build()
+
+
 def _sampler_kwargs(config: Dict[str, Any]) -> Dict[str, Any]:
     """Extract per-agent sampler params from a managed agent's config (#386)."""
     out: Dict[str, Any] = {}
@@ -813,20 +833,16 @@ async def _stream_managed_agent(
     llm_messages: List[Message] = []
 
     # Wire the SystemPromptBuilder to inject SOUL.md / MEMORY.md / USER.md
-    from openjarvis.prompt.builder import SystemPromptBuilder
-
+    # persona files (parity with the CLI/ask path) — see #431.
     app_config = getattr(app_state, "config", None)
     if app_config is None:
         from openjarvis.core.config import load_config
 
         app_config = load_config()
 
-    builder = SystemPromptBuilder(
-        agent_template=system_prompt or "",
-        memory_files_config=app_config.memory_files,
-        system_prompt_config=app_config.system_prompt,
+    final_system_prompt = _build_managed_system_prompt(
+        system_prompt or "", app_config
     )
-    final_system_prompt = builder.build()
 
     if final_system_prompt and final_system_prompt.strip():
         llm_messages.append(
