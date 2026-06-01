@@ -70,6 +70,10 @@ export type ThemeMode = 'light' | 'dark' | 'system';
 interface Settings {
   theme: ThemeMode;
   apiUrl: string;
+  // Local server API key (OPENJARVIS_API_KEY). Sent as a Bearer token on
+  // /v1 + /api requests so a key-protected `jarvis serve` doesn't 401 the
+  // frontend (#266). Empty = no auth header (keyless local default).
+  apiKey: string;
   fontSize: 'small' | 'default' | 'large';
   defaultModel: string;
   defaultAgent: string;
@@ -82,6 +86,7 @@ function loadSettings(): Settings {
   const defaults: Settings = {
     theme: 'system',
     apiUrl: '',
+    apiKey: '',
     fontSize: 'default',
     defaultModel: '',
     defaultAgent: '',

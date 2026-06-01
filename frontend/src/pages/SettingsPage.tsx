@@ -345,6 +345,21 @@ export function SettingsPage() {
                 }}
               />
             </SettingRow>
+            <SettingRow label="API key" description="Required only if the server was started with an API key">
+              <input
+                type="password"
+                value={settings.apiKey}
+                onChange={(e) => { updateSettings({ apiKey: e.target.value }); showSaved(); }}
+                placeholder="OPENJARVIS_API_KEY"
+                autoComplete="off"
+                className="text-sm px-3 py-1.5 rounded-lg outline-none w-56"
+                style={{
+                  background: 'var(--color-bg-secondary)',
+                  color: 'var(--color-text)',
+                  border: '1px solid var(--color-border)',
+                }}
+              />
+            </SettingRow>
           </Section>
 
           {/* Inference source */}
