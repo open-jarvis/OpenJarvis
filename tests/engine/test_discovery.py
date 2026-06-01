@@ -73,6 +73,55 @@ class TestDiscoverEngines:
             result = discover_engines(cfg)
         assert result[0][0] == "b"
 
+    def test_health_checks_run_concurrently(self) -> None:
+        """Regression for #263 — discovery must probe engines in parallel.
+
+        Each engine's health() does a blocking network probe with its own
+        timeout, so serial discovery cost = sum of probe times. With N
+        engines each sleeping S, parallel discovery wall-time must stay far
+        below N*S (closer to S). We don't measure real time precisely (CI is
+        noisy); instead we record concurrency: the max number of health()
+        calls in flight simultaneously must exceed 1.
+        """
+        import threading
+        import time
+
+        n_engines = 6
+        sleep_s = 0.15
+        for i in range(n_engines):
+            _reg(f"slow{i}", f"slow{i}")
+
+        lock = threading.Lock()
+        in_flight = 0
+        max_in_flight = 0
+
+        class _SlowEngine(_FakeEngine):
+            def health(self) -> bool:
+                nonlocal in_flight, max_in_flight
+                with lock:
+                    in_flight += 1
+                    max_in_flight = max(max_in_flight, in_flight)
+                time.sleep(sleep_s)
+                with lock:
+                    in_flight -= 1
+                return True
+
+        cfg = JarvisConfig()
+        with mock.patch(
+            "openjarvis.engine._discovery._make_engine",
+            side_effect=lambda k, c: _SlowEngine(healthy=True),
+        ):
+            start = time.monotonic()
+            result = discover_engines(cfg)
+            elapsed = time.monotonic() - start
+
+        # All slow engines were discovered (plus any real registered ones).
+        assert len([r for r in result if r[0].startswith("slow")]) == n_engines
+        # Concurrency actually happened — more than one probe overlapped.
+        assert max_in_flight > 1, f"probes ran serially (max_in_flight={max_in_flight})"
+        # Wall-time is well under the serial sum (n*sleep), allowing slack.
+        assert elapsed < n_engines * sleep_s * 0.7
+
 
 class TestDiscoverModels:
     def test_aggregate_models(self) -> None:

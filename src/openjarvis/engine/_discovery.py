@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Tuple
 
 from openjarvis.core.config import JarvisConfig
@@ -106,15 +107,30 @@ def discover_engines(config: JarvisConfig) -> List[Tuple[str, InferenceEngine]]:
     Results are sorted with the config default engine first.
     """
     _maybe_register_mining_sidecar_engine()
-    healthy: List[Tuple[str, InferenceEngine]] = []
-    for key in EngineRegistry.keys():
+
+    # Probe engines concurrently: each health() does a blocking network
+    # check with its own timeout, so a serial loop costs the SUM of all
+    # probe timeouts (dead localhost ports especially). Running them in
+    # threads collapses that to roughly the slowest single probe. The
+    # healthy.sort() below normalizes order, so completion order is
+    # irrelevant and the result is identical to the serial version (#263).
+    keys = list(EngineRegistry.keys())
+
+    def _probe(key: str) -> Tuple[str, InferenceEngine] | None:
         try:
             engine = _make_engine(key, config)
             if engine.health():
-                healthy.append((key, engine))
+                return (key, engine)
         except Exception as exc:
             logger.debug("Engine %r failed during discovery: %s", key, exc)
-            continue
+        return None
+
+    healthy: List[Tuple[str, InferenceEngine]] = []
+    if keys:
+        with ThreadPoolExecutor(max_workers=len(keys)) as pool:
+            for result in pool.map(_probe, keys):
+                if result is not None:
+                    healthy.append(result)
 
     default_key = config.engine.default
 

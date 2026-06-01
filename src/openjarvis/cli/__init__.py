@@ -68,9 +68,21 @@ def cli(ctx: click.Context, verbose: bool, quiet: bool) -> None:
 
     research_mode_active = "--research" in sys.argv
     if not quiet and ctx.invoked_subcommand and not research_mode_active:
+        import threading
+
         from openjarvis.cli._version_check import check_for_updates
 
-        check_for_updates(ctx.invoked_subcommand)
+        # Run the PyPI version poll off the hot path: on a cache miss it does
+        # a blocking urlopen (up to 3s) that otherwise delays every command,
+        # notably `jarvis serve` startup (#263). It's best-effort and never
+        # raises, and the nudge prints to stderr, so a daemon thread is safe —
+        # for long-lived commands (serve) it finishes; for short commands that
+        # exit first, the check is simply skipped this run (same as a miss).
+        threading.Thread(
+            target=check_for_updates,
+            args=(ctx.invoked_subcommand,),
+            daemon=True,
+        ).start()
 
     # First-run guard — routes bare `jarvis` to chat or init.
     if ctx.invoked_subcommand is None:
@@ -129,9 +141,7 @@ try:
 except Exception as _dr_exc:
     import logging as _logging
 
-    _logging.getLogger(__name__).debug(
-        "deep-research command unavailable: %s", _dr_exc
-    )
+    _logging.getLogger(__name__).debug("deep-research command unavailable: %s", _dr_exc)
 cli.add_command(self_update, "self-update")
 cli.add_command(bootstrap_cmd, "_bootstrap")
 
