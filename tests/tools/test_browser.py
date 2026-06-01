@@ -135,28 +135,55 @@ class TestBrowserNavigateTool:
         assert result.success is False
         assert "SSRF blocked" in result.content
 
-    def test_execute_ssrf_module_missing(self):
-        """When ssrf module is not available, skip check and proceed."""
+    def test_execute_ssrf_check_is_not_bypassable(self):
+        """The SSRF check must never be silently skipped (#225/#467).
+
+        Previously browser navigation wrapped the SSRF check in
+        ``except ImportError: pass``, so an environment where the check
+        couldn't be imported silently disabled SSRF protection. ``check_ssrf``
+        now has a pure-Python fallback and is always reachable, so the import
+        no longer fails — and the guard must not be bypassed. Here a real
+        blocked URL is rejected even though navigation would otherwise
+        succeed, proving the check runs unconditionally.
+        """
         from openjarvis.tools.browser import BrowserNavigateTool
 
+        mock_ssrf_module = MagicMock()
+        mock_ssrf_module.check_ssrf.return_value = (
+            "URL resolves to private IP: 127.0.0.1"
+        )
         page = _make_mock_page()
         session = _make_mock_session(page)
 
-        # Make the ssrf import fail inside execute
-        import builtins
+        with patch("openjarvis.tools.browser._session", session):
+            with patch.dict(
+                "sys.modules",
+                {"openjarvis.security.ssrf": mock_ssrf_module},
+            ):
+                tool = BrowserNavigateTool()
+                result = tool.execute(url="http://127.0.0.1:8080/admin")
 
-        original_import = builtins.__import__
+        # Blocked — the check ran and was honored, not skipped.
+        assert result.success is False
+        assert "SSRF blocked" in result.content
 
-        def _mock_import(name, *args, **kwargs):
-            if name == "openjarvis.security.ssrf":
-                raise ImportError("No module named 'openjarvis.security.ssrf'")
-            return original_import(name, *args, **kwargs)
+    def test_execute_allows_public_url(self):
+        """The always-on SSRF check must not break legitimate navigation."""
+        from openjarvis.tools.browser import BrowserNavigateTool
+
+        mock_ssrf_module = MagicMock()
+        mock_ssrf_module.check_ssrf.return_value = None  # public URL, allowed
+        page = _make_mock_page()
+        session = _make_mock_session(page)
 
         with patch("openjarvis.tools.browser._session", session):
-            with patch.object(builtins, "__import__", side_effect=_mock_import):
+            with patch.dict(
+                "sys.modules",
+                {"openjarvis.security.ssrf": mock_ssrf_module},
+            ):
                 tool = BrowserNavigateTool()
                 result = tool.execute(url="https://example.com")
-        # Should succeed since SSRF check is skipped
+
         assert result.success is True
 
     def test_execute_success(self):
