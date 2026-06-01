@@ -114,6 +114,97 @@ class TestCloudEngineGenerate:
         assert result["usage"]["completion_tokens"] == 8
 
 
+class TestOpenAIUnsupportedTemperatureRetry:
+    """Regression for #426.
+
+    Some OpenAI models (e.g. gpt-5) reject a non-default ``temperature``
+    with HTTP 400 ``unsupported_value``. A brand-new install defaults to
+    such a model, so the very first prompt 400s. The engine must detect
+    this specific error and retry once without ``temperature``.
+    """
+
+    def _fake_resp(self):
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content="ok"),
+                    finish_reason="stop",
+                )
+            ],
+            usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+            model="gpt-5",
+        )
+
+    def test_retries_without_temperature_on_unsupported_value(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+        calls: list[dict] = []
+        err = Exception(
+            "Error code: 400 - {'error': {'message': \"Unsupported value: "
+            "'temperature' does not support 0.7 with this model. Only the "
+            "default (1) value is supported.\", 'type': "
+            "'invalid_request_error', 'param': 'temperature', 'code': "
+            "'unsupported_value'}}"
+        )
+
+        def create(**kwargs):
+            calls.append(kwargs)
+            if "temperature" in kwargs:
+                raise err
+            return self._fake_resp()
+
+        fake_client = mock.MagicMock()
+        fake_client.chat.completions.create.side_effect = create
+
+        EngineRegistry.register_value("cloud", CloudEngine)
+        engine = CloudEngine()
+        engine._openai_client = fake_client
+
+        result = engine.generate(
+            [Message(role=Role.USER, content="Hi")],
+            model="gpt-5",
+            temperature=0.7,
+        )
+        # The call succeeded via the retry.
+        assert result["content"] == "ok"
+        # First attempt sent temperature, retry dropped it.
+        assert len(calls) == 2
+        assert "temperature" in calls[0]
+        assert "temperature" not in calls[1]
+
+    def test_unrelated_400_is_not_retried(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+        calls: list[dict] = []
+        err = Exception("Error code: 400 - context_length_exceeded")
+
+        def create(**kwargs):
+            calls.append(kwargs)
+            raise err
+
+        fake_client = mock.MagicMock()
+        fake_client.chat.completions.create.side_effect = create
+
+        EngineRegistry.register_value("cloud", CloudEngine)
+        engine = CloudEngine()
+        engine._openai_client = fake_client
+
+        with pytest.raises(Exception):  # noqa: B017 - re-raised unchanged
+            engine.generate(
+                [Message(role=Role.USER, content="Hi")],
+                model="gpt-4o",
+                temperature=0.7,
+            )
+        # No temperature-retry for an unrelated 400 — exactly one attempt.
+        assert len(calls) == 1
+
+
 # ---------------------------------------------------------------------------
 # Codex provider support (OpenAI Responses API)
 # ---------------------------------------------------------------------------

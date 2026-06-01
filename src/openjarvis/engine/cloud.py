@@ -136,6 +136,25 @@ def _is_openai_reasoning_model(model: str) -> bool:
     return m == "gpt-5-mini" or m.startswith("gpt-5-mini-")
 
 
+def _is_unsupported_temperature_error(exc: Exception) -> bool:
+    """True if an OpenAI 400 says the model rejects a non-default temperature.
+
+    Some models (e.g. gpt-5) only accept the default temperature and return
+    ``code: unsupported_value`` for ``param: temperature`` (see #426). We
+    can't enumerate every such model up front, so detect the error and retry
+    without temperature — mirroring the tools-400 retry in the local engines.
+    """
+    message = str(exc).lower()
+    if "temperature" not in message:
+        return False
+    return (
+        "unsupported_value" in message
+        or "unsupported value" in message
+        or "only the default" in message
+        or "does not support" in message
+    )
+
+
 def estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
     """Estimate USD cost based on the hardcoded pricing table."""
     # Try exact match first, then prefix match
@@ -165,8 +184,14 @@ def _serialize_anthropic_block(block: Any) -> Dict[str, Any]:
         "type": getattr(block, "type", None) or type(block).__name__,
     }
     for attr in (
-        "id", "name", "input", "text", "thinking", "signature",
-        "tool_use_id", "content",
+        "id",
+        "name",
+        "input",
+        "text",
+        "thinking",
+        "signature",
+        "tool_use_id",
+        "content",
     ):
         if not hasattr(block, attr):
             continue
@@ -521,7 +546,19 @@ class CloudEngine(InferenceEngine):
                 create_kwargs["response_format"] = response_format
 
         t0 = time.monotonic()
-        resp = self._openai_client.chat.completions.create(**create_kwargs)
+        try:
+            resp = self._openai_client.chat.completions.create(**create_kwargs)
+        except Exception as exc:
+            # Some models reject a non-default temperature with a 400
+            # unsupported_value (see #426). Retry once without it rather
+            # than failing the user's first prompt.
+            if "temperature" in create_kwargs and _is_unsupported_temperature_error(
+                exc
+            ):
+                create_kwargs.pop("temperature", None)
+                resp = self._openai_client.chat.completions.create(**create_kwargs)
+            else:
+                raise
         elapsed = time.monotonic() - t0
         choice = resp.choices[0]
         usage = resp.usage
