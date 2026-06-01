@@ -118,6 +118,42 @@ class TestAppleFmShimSdkMigration:
         assert rec["stream_calls"][-1]["options"] is rec["options"][-1]
         assert "data: [DONE]" in body
 
+    def test_stream_emits_incremental_deltas_from_cumulative_snapshots(self, shim):
+        """Regression for #378.
+
+        Apple FM's stream_response yields CUMULATIVE text snapshots, but
+        OpenAI clients concatenate delta.content. The shim must emit the
+        incremental suffix per chunk, so concatenating the deltas
+        reconstructs the final snapshot exactly — with no duplicated or
+        dropped characters.
+        """
+        import json as _json
+
+        mod, rec = shim  # fixture streams ["Sure! ", "Sure! The ", "Sure! The answer."]
+        client = TestClient(mod.app)
+        with client.stream(
+            "POST",
+            "/v1/chat/completions",
+            json={"messages": [{"role": "user", "content": "hi"}], "stream": True},
+        ) as resp:
+            assert resp.status_code == 200
+            body = "".join(resp.iter_text())
+
+        # Collect content deltas from the SSE chunks.
+        deltas: list[str] = []
+        for line in body.splitlines():
+            if not line.startswith("data:") or "[DONE]" in line:
+                continue
+            payload = _json.loads(line[len("data:") :].strip())
+            content = payload["choices"][0]["delta"].get("content")
+            if content:
+                deltas.append(content)
+
+        # Incremental, not cumulative: concatenation equals the final
+        # snapshot, and no single delta repeats the whole prefix.
+        assert "".join(deltas) == "Sure! The answer."
+        assert deltas == ["Sure! ", "The ", "answer."]
+
     def test_health_unpacks_is_available_tuple(self, monkeypatch):
         monkeypatch.setattr(platform, "system", lambda: "Darwin")
         rec = _install_stub_sdk(available=(False, "Apple Intelligence disabled"))

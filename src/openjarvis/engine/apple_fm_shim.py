@@ -128,10 +128,23 @@ async def chat_completions(
 
         async def generate():
             cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"
-            async for token in session.stream_response(
+            # Apple FM yields cumulative snapshots, OpenAI clients expect
+            # incremental deltas — diff against the last snapshot to convert
+            # (see #378).
+            sent = ""
+            async for snapshot in session.stream_response(
                 prompt,
                 options=options,
             ):
+                if not snapshot.startswith(sent):
+                    # Snapshot diverged (model revised earlier text);
+                    # fall back to resending the full snapshot.
+                    delta = snapshot
+                else:
+                    delta = snapshot[len(sent) :]
+                sent = snapshot
+                if not delta:
+                    continue
                 chunk = {
                     "id": cid,
                     "object": "chat.completion.chunk",
@@ -140,7 +153,7 @@ async def chat_completions(
                     "choices": [
                         {
                             "index": 0,
-                            "delta": {"content": token},
+                            "delta": {"content": delta},
                             "finish_reason": None,
                         }
                     ],
