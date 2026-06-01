@@ -26,17 +26,38 @@ class TestDockerFiles:
         assert "jarvis" in content
 
     def test_dockerfile_copies_forced_package_includes(self):
-        content = (DOCKER_DIR / "Dockerfile").read_text()
-        install_step = content.index('uv pip install --system ".[server]"')
+        # Every Dockerfile that builds the wheel from an explicit `COPY src/`
+        # context (rather than `COPY . .`) must also copy the non-src
+        # force-include paths before installing, or hatchling's wheel build
+        # fails (see #447). Guard ALL such Dockerfiles, not just the CPU one,
+        # so the GPU variants can't silently regress.
         project = tomllib.loads((ROOT / "pyproject.toml").read_text())
         force_include = project["tool"]["hatch"]["build"]["targets"]["wheel"][
             "force-include"
         ]
+        non_src_includes = [s for s in force_include if not s.startswith("src/")]
 
-        for source in force_include:
-            if source.startswith("src/"):
-                continue
-            assert content.index(f"COPY {source} ") < install_step
+        install_marker = 'uv pip install --system ".[server]"'
+        wheel_dockerfiles = [
+            p
+            for p in sorted(DOCKER_DIR.glob("Dockerfile*"))
+            if install_marker in p.read_text() and "COPY src/ src/" in p.read_text()
+        ]
+        # Sanity: we actually found the wheel-building Dockerfiles to guard.
+        assert wheel_dockerfiles, "no wheel-building Dockerfiles found to check"
+
+        for dockerfile in wheel_dockerfiles:
+            content = dockerfile.read_text()
+            install_step = content.index(install_marker)
+            for source in non_src_includes:
+                copy_marker = f"COPY {source} "
+                assert copy_marker in content, (
+                    f"{dockerfile.name} is missing '{copy_marker.strip()}' "
+                    f"(a non-src force-include path)"
+                )
+                assert content.index(copy_marker) < install_step, (
+                    f"{dockerfile.name} copies '{source}' after the install step"
+                )
 
     def test_docker_compose_valid_yaml(self):
         import importlib

@@ -17,6 +17,8 @@ RUN apt-get update && \
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src/ src/
+COPY scripts/install scripts/install
+COPY deploy/windows deploy/windows
 
 COPY --from=frontend /src/openjarvis/server/static src/openjarvis/server/static/
 
