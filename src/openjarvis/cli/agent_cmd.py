@@ -88,7 +88,13 @@ def list_agents() -> None:
             )
         console.print(table)
     except Exception as exc:
-        console.print(f"[red]Error: {exc}[/red]")
+        # Escape the dynamic exception text: Rich re-parses console.print
+        # arguments as markup, so an exception message containing "[...]"
+        # raises a secondary MarkupError (see #297). Keep the static
+        # "Error:" label styled; render the message literally.
+        from rich.markup import escape
+
+        console.print(f"[red]Error:[/red] {escape(str(exc))}")
 
 
 @agent.command("create")
