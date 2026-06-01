@@ -32,8 +32,7 @@ impl LoopGuard {
         // Check identical calls
         if self.seen_hashes.contains(&hash) {
             return Some(format!(
-                "Loop detected: identical call to '{}' with same arguments",
-                tool_name
+                "Loop detected: identical call to '{tool_name}' with same arguments"
             ));
         }
         self.seen_hashes.insert(hash);

@@ -355,7 +355,7 @@ impl<M: CompletionModel + 'static> OjAgent for MonitorOperativeAgent<M> {
                 // Loop guard check
                 if let Some(loop_msg) = guard.check(&action, &action_input) {
                     return Ok(AgentResult {
-                        content: format!("Agent stopped: {}", loop_msg),
+                        content: format!("Agent stopped: {loop_msg}"),
                         tool_results: all_tool_results,
                         turns: turn,
                         metadata: self.strategy_metadata(),
@@ -379,7 +379,7 @@ impl<M: CompletionModel + 'static> OjAgent for MonitorOperativeAgent<M> {
                 let compressed = self.compress_observation(&tool_result.content);
 
                 history.push(RigMessage::assistant(&text));
-                current_input = format!("Observation: {}", compressed);
+                current_input = format!("Observation: {compressed}");
 
                 all_tool_results.push(tool_result);
             } else {

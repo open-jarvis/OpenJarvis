@@ -119,7 +119,7 @@ impl InferenceEngine for OllamaEngine {
                         ToolCall {
                             id: tc["id"]
                                 .as_str()
-                                .unwrap_or(&format!("call_{}", i))
+                                .unwrap_or(&format!("call_{i}"))
                                 .to_string(),
                             name: func["name"].as_str().unwrap_or("").to_string(),
                             arguments: args,

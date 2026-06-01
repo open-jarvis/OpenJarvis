@@ -104,8 +104,7 @@ pub fn get_engine_static(
         ))),
         other => Err(OpenJarvisError::Engine(
             openjarvis_core::error::EngineError::ModelNotFound(format!(
-                "Unknown engine: {}",
-                other
+                "Unknown engine: {other}"
             )),
         )),
     }

@@ -107,8 +107,7 @@ fn rig_request_to_oj_messages(request: &CompletionRequest) -> Vec<Message> {
             .collect::<Vec<_>>()
             .join("\n\n");
         messages.push(Message::system(format!(
-            "Relevant context:\n{}",
-            doc_context
+            "Relevant context:\n{doc_context}"
         )));
     }
 

@@ -143,7 +143,7 @@ impl<M: CompletionModel + 'static> OjAgent for NativeReActAgent<M> {
             if let Some((action, action_input)) = Self::parse_action(&text) {
                 if let Some(loop_msg) = guard.check(&action, &action_input) {
                     return Ok(AgentResult {
-                        content: format!("Agent stopped: {}", loop_msg),
+                        content: format!("Agent stopped: {loop_msg}"),
                         tool_results: all_tool_results,
                         turns: turn,
                         metadata: HashMap::new(),

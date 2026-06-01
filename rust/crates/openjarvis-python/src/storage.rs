@@ -266,8 +266,7 @@ impl PyHybridMemory {
                 }
                 other => {
                     return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                        "Unknown backend key: {}. Supported: sqlite, bm25, faiss, colbert",
-                        other
+                        "Unknown backend key: {other}. Supported: sqlite, bm25, faiss, colbert"
                     )));
                 }
             };

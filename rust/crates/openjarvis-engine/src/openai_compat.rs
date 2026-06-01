@@ -84,7 +84,7 @@ impl OpenAICompatEngine {
         if let Some(ref key) = self.api_key {
             headers.insert(
                 reqwest::header::AUTHORIZATION,
-                format!("Bearer {}", key).parse().unwrap(),
+                format!("Bearer {key}").parse().unwrap(),
             );
         }
         headers
@@ -239,7 +239,7 @@ impl InferenceEngine for OpenAICompatEngine {
         if let Some(ref key) = self.api_key {
             headers.insert(
                 reqwest::header::AUTHORIZATION,
-                format!("Bearer {}", key).parse().unwrap(),
+                format!("Bearer {key}").parse().unwrap(),
             );
         }
 

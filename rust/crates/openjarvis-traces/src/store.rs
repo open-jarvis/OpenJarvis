@@ -233,8 +233,8 @@ mod tests {
         let store = TraceStore::in_memory().unwrap();
         for i in 0..5 {
             let trace = Trace {
-                trace_id: format!("t{}", i),
-                query: format!("query {}", i),
+                trace_id: format!("t{i}"),
+                query: format!("query {i}"),
                 ..Default::default()
             };
             store.save(&trace).unwrap();

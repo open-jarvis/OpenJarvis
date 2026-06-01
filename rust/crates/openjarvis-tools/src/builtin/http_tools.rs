@@ -83,7 +83,7 @@ impl BaseTool for HttpRequestTool {
                 } else {
                     body
                 };
-                let content = format!("Status: {}\n{}", status, truncated);
+                let content = format!("Status: {status}\n{truncated}");
                 if status < 400 {
                     Ok(ToolResult::success("http_request", content))
                 } else {
@@ -92,7 +92,7 @@ impl BaseTool for HttpRequestTool {
             }
             Err(e) => Ok(ToolResult::failure(
                 "http_request",
-                format!("Request failed: {}", e),
+                format!("Request failed: {e}"),
             )),
         }
     }

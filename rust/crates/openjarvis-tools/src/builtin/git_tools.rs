@@ -21,7 +21,7 @@ fn run_git(args: &[&str], cwd: Option<&str>) -> Result<String, String> {
                 Err(String::from_utf8_lossy(&output.stderr).to_string())
             }
         }
-        Err(e) => Err(format!("Failed to run git: {}", e)),
+        Err(e) => Err(format!("Failed to run git: {e}")),
     }
 }
 
@@ -84,7 +84,7 @@ impl BaseTool for GitLogTool {
     fn execute(&self, params: &Value) -> Result<ToolResult, OpenJarvisError> {
         let cwd = params["cwd"].as_str();
         let n = params["n"].as_i64().unwrap_or(10);
-        match run_git(&["log", "--oneline", &format!("-{}", n)], cwd) {
+        match run_git(&["log", "--oneline", &format!("-{n}")], cwd) {
             Ok(output) => Ok(ToolResult::success("git_log", output)),
             Err(e) => Ok(ToolResult::failure("git_log", e)),
         }

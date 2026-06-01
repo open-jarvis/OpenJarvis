@@ -24,7 +24,7 @@ impl SGLangEngine {
         let host = if host.starts_with("http") {
             host
         } else {
-            format!("http://{}", host)
+            format!("http://{host}")
         };
         let host = host.trim_end_matches('/').to_string();
         let timeout = std::time::Duration::from_secs_f64(timeout_secs);
@@ -115,8 +115,7 @@ impl InferenceEngine for SGLangEngine {
             let status = resp.status();
             let body = resp.text().unwrap_or_default();
             return Err(OpenJarvisError::Engine(EngineError::Http(format!(
-                "SGLang returned {}: {}",
-                status, body
+                "SGLang returned {status}: {body}"
             ))));
         }
 

@@ -78,8 +78,7 @@ impl AgentAdvisorPolicy {
                 recs.push(Recommendation {
                     rec_type: "routing".to_string(),
                     suggestion: format!(
-                        "Query class '{}' has {} failures — consider different model or agent",
-                        qclass, count,
+                        "Query class '{qclass}' has {count} failures — consider different model or agent",
                     ),
                     severity: "high".to_string(),
                 });
@@ -160,7 +159,7 @@ mod tests {
         let traces: Vec<TraceInfo> = (0..5)
             .map(|i| TraceInfo {
                 outcome: "failure".into(),
-                query: format!("query {}", i),
+                query: format!("query {i}"),
                 tool_call_count: 8,
                 total_latency_seconds: 2.0,
             })
@@ -178,7 +177,7 @@ mod tests {
         let traces: Vec<TraceInfo> = (0..5)
             .map(|i| TraceInfo {
                 outcome: "failure".into(),
-                query: format!("def func_{}():", i),
+                query: format!("def func_{i}():"),
                 tool_call_count: 2,
                 total_latency_seconds: 1.0,
             })
