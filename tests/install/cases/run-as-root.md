@@ -15,7 +15,7 @@ User runs `sudo bash install.sh` or invokes the installer from a root shell.
 Re-run as the regular user (without sudo):
 
 ```bash
-curl -fsSL https://openjarvis.ai/install.sh | bash
+curl -fsSL https://open-jarvis.github.io/OpenJarvis/install.sh | bash
 ```
 
 ## Test
