@@ -187,9 +187,7 @@ class RLMRepl:
                     f"{tool_name} expects keyword args or a single "
                     f"{primary_arg!r} argument"
                 )
-                raise TypeError(
-                    message
-                )
+                raise TypeError(message)
             return self._tool_call(tool_name, params)
 
         _wrapper.__name__ = tool_name
