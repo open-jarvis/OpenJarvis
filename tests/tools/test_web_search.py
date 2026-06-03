@@ -170,7 +170,9 @@ class TestWebSearchTool:
 
         tool = WebSearchTool(api_key="test-key", max_results=3)
         tool.execute(query="test", max_results=7)
-        mock_client.search.assert_called_once_with("test", max_results=7)
+        mock_client.search.assert_called_once_with(
+            "test", max_results=7, search_depth="advanced"
+        )
 
     def test_to_openai_function(self):
         tool = WebSearchTool(api_key="test-key")
@@ -230,6 +232,82 @@ class TestWebSearchTool:
     def test_registry_registration(self):
         ToolRegistry.register_value("web_search", WebSearchTool)
         assert ToolRegistry.contains("web_search")
+
+    def test_tavily_results_use_labeled_content_format(self, monkeypatch):
+        """Regression for #390: results expose page CONTENT under labeled
+        Source/Summary headings (so agents synthesize content, not echo
+        URLs), and Tavily is queried with search_depth='advanced'."""
+        import builtins
+
+        mock_client = MagicMock()
+        mock_client.search.return_value = {
+            "results": [
+                {
+                    "title": "Result 1",
+                    "url": "https://example.com/1",
+                    "content": "Content about test.",
+                },
+            ]
+        }
+        mock_tavily_module = MagicMock()
+        mock_tavily_module.TavilyClient.return_value = mock_client
+        original_import = builtins.__import__
+
+        def _mock_import(name, *args, **kwargs):
+            if name == "tavily":
+                return mock_tavily_module
+            if name == "tavily.errors":
+                mock_errors = MagicMock()
+                mock_errors.UsageLimitExceededError = Exception
+                return mock_errors
+            return original_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", _mock_import)
+
+        tool = WebSearchTool(api_key="test-key")
+        result = tool.execute(query="test query")
+        assert result.success is True
+        # Labeled structure with the page content surfaced.
+        assert "### Result 1" in result.content
+        assert "Source: https://example.com/1" in result.content
+        assert "Summary: Content about test." in result.content
+        # search_depth='advanced' is what pulls richer content from Tavily.
+        _, kwargs = mock_client.search.call_args
+        assert kwargs.get("search_depth") == "advanced"
+
+    def test_tavily_falls_back_to_snippet_when_no_content(self, monkeypatch):
+        """When a Tavily result lacks 'content', the 'snippet' field is used
+        for the Summary rather than rendering an empty summary."""
+        import builtins
+
+        mock_client = MagicMock()
+        mock_client.search.return_value = {
+            "results": [
+                {
+                    "title": "Snippet Only",
+                    "url": "https://example.com/s",
+                    "snippet": "Fallback snippet text.",
+                },
+            ]
+        }
+        mock_tavily_module = MagicMock()
+        mock_tavily_module.TavilyClient.return_value = mock_client
+        original_import = builtins.__import__
+
+        def _mock_import(name, *args, **kwargs):
+            if name == "tavily":
+                return mock_tavily_module
+            if name == "tavily.errors":
+                mock_errors = MagicMock()
+                mock_errors.UsageLimitExceededError = Exception
+                return mock_errors
+            return original_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", _mock_import)
+
+        tool = WebSearchTool(api_key="test-key")
+        result = tool.execute(query="test query")
+        assert "Summary: Fallback snippet text." in result.content
 
 
 # ---------------------------------------------------------------------------

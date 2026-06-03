@@ -120,12 +120,15 @@ class WebSearchTool(BaseTool):
         from ddgs import DDGS
 
         ddgs = DDGS()
-        results = list(ddgs.text(query, max_results=max_results))
-        formatted = "\n\n".join(
-            f"**{r.get('title', 'Untitled')}**\n"
-            f"{r.get('href', '')}\n{r.get('body', '')}"
-            for r in results
-        )
+        raw_results = list(ddgs.text(query, max_results=max_results))
+        results = []
+        for r in raw_results:
+            title = r.get("title", "Untitled")
+            url = r.get("href", "")
+            snippet = r.get("body", "")
+            results.append(f"### {title}\nSource: {url}\nSummary: {snippet}")
+
+        formatted = "\n\n---\n\n".join(results)
         return formatted
 
     def execute(self, **params: Any) -> ToolResult:
@@ -161,13 +164,20 @@ class WebSearchTool(BaseTool):
             from tavily import TavilyClient
 
             client = TavilyClient(api_key=self._api_key)
-            response = client.search(query, max_results=max_results)
-            results = response.get("results", [])
-            formatted = "\n\n".join(
-                f"**{r.get('title', 'Untitled')}**\n"
-                f"{r.get('url', '')}\n{r.get('content', '')}"
-                for r in results
+            response = client.search(
+                query, max_results=max_results, search_depth="advanced"
             )
+            results = response.get("results", [])
+            formatted_parts = []
+            for r in results:
+                title = r.get("title", "Untitled")
+                url = r.get("url", "")
+                content = r.get("content", "") or r.get("snippet", "")
+                formatted_parts.append(
+                    f"### {title}\nSource: {url}\nSummary: {content}"
+                )
+
+            formatted = "\n\n---\n\n".join(formatted_parts)
             return ToolResult(
                 tool_name="web_search",
                 content=formatted or "No results found.",
