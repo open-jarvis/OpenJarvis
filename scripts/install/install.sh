@@ -202,12 +202,14 @@ need curl
 # on minimal distros that only ship the unversioned name. This is used by
 # the analytics beacon and state-file helpers below — uv installs its own
 # interpreter into the venv later, so this is only for the bootstrap shims.
-PY_CMD="python3"
-if ! command -v python3 >/dev/null 2>&1; then
-    if command -v python >/dev/null 2>&1; then
-        PY_CMD="python"
-    fi
+PY_CMD=""
+if command -v python3 >/dev/null 2>&1; then
+    PY_CMD="python3"
+elif command -v python >/dev/null 2>&1; then
+    PY_CMD="python"
 fi
+# If still not found, set to true to allow scripts to continue without crashing
+[[ -z "$PY_CMD" ]] && PY_CMD="true"
 
 # ---- env ----
 OPENJARVIS_HOME="${OPENJARVIS_HOME:-$HOME/.openjarvis}"
