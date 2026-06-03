@@ -41,10 +41,14 @@ EOF2
         # Make it look like a git repo so subsequent .git checks pass.
         mkdir -p "$target/.git"
         # Also create a pyproject.toml so editable install would work in real life.
+        # Includes requires-python so parse_requires_python in create_venv
+        # has something to match against — install.sh tracks the project's
+        # allowed range (#476).
         cat > "$target/pyproject.toml" <<EOF2
 [project]
 name = "OpenJarvis"
 version = "0.1.1"
+requires-python = ">=3.10,<3.14"
 EOF2
         ;;
     pull)
