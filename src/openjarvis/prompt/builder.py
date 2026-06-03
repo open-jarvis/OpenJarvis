@@ -35,7 +35,8 @@ class SystemPromptBuilder:
         skill_few_shot_examples: Optional[List[str]] = None,
     ) -> None:
         self._agent_template = agent_template
-        self._mf_config = memory_files_config or MemoryFilesConfig()
+        _mf = memory_files_config or MemoryFilesConfig()
+        self._mf_config = self._resolve_persona(_mf)
         self._sp_config = system_prompt_config or SystemPromptConfig()
         self._skill_index = skill_index or []
         self._session_context = session_context
@@ -250,3 +251,34 @@ class SystemPromptBuilder:
                 + text[-tail_size:]
             )
         return text[:max_chars] + "\n[...truncated...]"
+
+    @staticmethod
+    def _resolve_persona(mf: MemoryFilesConfig) -> MemoryFilesConfig:
+        """Resolve persona_name to effective file paths.
+        - "" (empty) -> use mf's existing paths (global default, unchanged)
+        - "none"      -> empty paths (opt-out, no persona injected)
+        - "<name>"    -> ~/.openjarvis/personas/<name>/{SOUL,MEMORY,USER}.md
+        """
+        if not mf.persona_name:
+            return mf
+        if mf.persona_name == "none":
+            return MemoryFilesConfig(
+                soul_path="",
+                memory_path="",
+                user_path="",
+                nudge_interval=mf.nudge_interval,
+            )
+        name = mf.persona_name
+        if ".." in name or "/" in name or "\\" in name or name.startswith("/"):
+            raise ValueError(
+                f"Invalid persona name {name!r}: must be a simple "
+                "identifier (no path separators or '..')."
+            )
+        base = Path.home() / ".openjarvis" / "personas" / name
+        return MemoryFilesConfig(
+            soul_path=str(base / "SOUL.md"),
+            memory_path=str(base / "MEMORY.md"),
+            user_path=str(base / "USER.md"),
+            nudge_interval=mf.nudge_interval,
+            persona_name=name,
+        )

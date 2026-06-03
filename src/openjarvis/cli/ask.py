@@ -151,9 +151,7 @@ def _run_research(
             trace.print(f"  [dim]↳ Found {n} {label}[/dim]")
         elif etype == "clarify_call":
             q = event.get("question", "") or ""
-            trace.print(
-                f"  [dim]↳ Clarifying:[/dim] [dim italic]{q}[/dim italic]"
-            )
+            trace.print(f"  [dim]↳ Clarifying:[/dim] [dim italic]{q}[/dim italic]")
         # final_answer and clarify_response are handled outside the loop.
 
     agent = ResearchAgent(
@@ -326,6 +324,7 @@ def _run_agent(
     temperature: float,
     max_tokens: int,
     capability_policy=None,
+    memory_files_config=None,
 ):
     """Instantiate and run an agent, returning the AgentResult."""
     # Import agents to trigger registration
@@ -374,7 +373,7 @@ def _run_agent(
 
         agent_kwargs["prompt_builder"] = SystemPromptBuilder(
             agent_template=config.agent.default_system_prompt or "",
-            memory_files_config=config.memory_files,
+            memory_files_config=memory_files_config or config.memory_files,
             system_prompt_config=config.system_prompt,
         )
 
@@ -592,6 +591,15 @@ def _print_profile(
         "(default: ~/.openjarvis/knowledge.db)."
     ),
 )
+@click.option(
+    "--persona",
+    "persona_name",
+    default=None,
+    help=(
+        "Named persona dir under ~/.openjarvis/personas/<name>/ "
+        "(overrides config). Pass 'none' to disable all persona files."
+    ),
+)
 @click.pass_context
 def ask(
     ctx: click.Context,
@@ -608,6 +616,7 @@ def ask(
     enable_profile: bool,
     research_mode: bool,
     knowledge_db: str | None,
+    persona_name: str | None,
 ) -> None:
     """Ask Jarvis a question."""
     quiet = (ctx.obj or {}).get("quiet", False) or output_json
@@ -619,6 +628,15 @@ def ask(
 
     # Load config
     config = load_config()
+
+    # Resolve effective MemoryFilesConfig with --persona override
+    import dataclasses as _dc
+
+    effective_mf = (
+        _dc.replace(config.memory_files, persona_name=persona_name)
+        if persona_name is not None
+        else config.memory_files
+    )
 
     # Honor `agent.default_agent` from config when --agent was not explicitly
     # passed. Pass `--agent ""` to opt out and use direct-to-engine mode.
@@ -773,6 +791,7 @@ def ask(
                 temperature,
                 max_tokens,
                 capability_policy=sec.capability_policy,
+                memory_files_config=effective_mf,
             )
         except EngineConnectionError as exc:
             console.print(f"[red]Engine error:[/red] {exc}")
