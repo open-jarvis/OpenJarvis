@@ -106,6 +106,25 @@ class TestTomlLoading:
         assert cfg.engine.lemonade.host == "http://custom-lemonade:19000"
         assert cfg.engine.lemonade_host == "http://custom-lemonade:19000"
 
+    def test_system_prompt_block_parsed(self, tmp_path: Path) -> None:
+        """Regression for #401: the [system_prompt] block (and its prefix)
+        must reach the runtime config, not be dropped by load_config()."""
+        toml_file = tmp_path / "config.toml"
+        toml_file.write_text(
+            '[system_prompt]\nprefix = "You are Jarvis."\nsoul_max_chars = 999\n'
+        )
+        cfg = load_config(toml_file)
+        assert cfg.system_prompt.prefix == "You are Jarvis."
+        assert cfg.system_prompt.soul_max_chars == 999
+
+    def test_config_without_system_prompt_block_defaults(self, tmp_path: Path) -> None:
+        """Backward compatibility: a config lacking [system_prompt] keeps
+        the empty-prefix default (no behavior change for existing configs)."""
+        toml_file = tmp_path / "config.toml"
+        toml_file.write_text('[engine]\ndefault = "ollama"\n')
+        cfg = load_config(toml_file)
+        assert cfg.system_prompt.prefix == ""
+
 
 class TestGenerateToml:
     def test_contains_engine_section(self) -> None:

@@ -125,14 +125,26 @@ class SystemPromptBuilder:
 
     def _build_frozen_sections(self) -> list[PromptSection]:
         sections: list[PromptSection] = []
-        sections.append(
-            PromptSection(
-                name="agent_template",
-                content=self._agent_template,
-                source="agent_template",
-                cache_segment="frozen_prefix",
+        # Config-driven persona prefix from [system_prompt] prefix (#401),
+        # prepended ahead of the agent template so it leads the frozen prefix.
+        if self._sp_config.prefix:
+            sections.append(
+                PromptSection(
+                    name="prefix",
+                    content=self._sp_config.prefix,
+                    source="system_prompt.prefix",
+                    cache_segment="frozen_prefix",
+                )
             )
-        )
+        if self._agent_template:
+            sections.append(
+                PromptSection(
+                    name="agent_template",
+                    content=self._agent_template,
+                    source="agent_template",
+                    cache_segment="frozen_prefix",
+                )
+            )
         sections.extend(self._persona_prompt_sections())
         # XML skill catalog (preferred over legacy markdown list)
         if self._skill_catalog_xml:
