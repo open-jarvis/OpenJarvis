@@ -275,6 +275,7 @@ def _do_download(engine: str, model: str, spec, console: Console) -> None:
             "code-assistant",
             "scheduled-monitor",
             "chat-simple",
+            "personal-assistant-mac",
         ],
         case_sensitive=False,
     ),
@@ -322,6 +323,22 @@ def init(
             raise SystemExit(1)
         DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         DEFAULT_CONFIG_PATH.write_text(preset_path.read_text())
+        if preset == "personal-assistant-mac":
+            persona_src = (
+                examples_dir.parent
+                / "prompts"
+                / "personas"
+                / "personal-assistant-mac.md"
+            )
+            persona_dst = (
+                DEFAULT_CONFIG_DIR
+                / "prompts"
+                / "personas"
+                / "personal-assistant-mac.md"
+            )
+            if persona_src.exists():
+                persona_dst.parent.mkdir(parents=True, exist_ok=True)
+                persona_dst.write_text(persona_src.read_text())
         console.print(
             f"[green]Preset '{preset}' installed to {DEFAULT_CONFIG_PATH}[/green]"
         )

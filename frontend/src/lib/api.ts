@@ -187,7 +187,7 @@ export interface ListenOnceResponse {
   ok: boolean;
   text: string;
   engine: string;
-  mode: 'local_backend';
+  mode: 'local_backend' | 'uploaded_audio';
   message?: string;
 }
 
@@ -200,11 +200,35 @@ export async function listenOnceVoice(signal?: AbortSignal): Promise<ListenOnceR
   return res.json();
 }
 
+export async function transcribeVoice(
+  audio: Blob,
+  filename = 'microphone.webm',
+  language = 'ko',
+  signal?: AbortSignal,
+): Promise<ListenOnceResponse> {
+  const form = new FormData();
+  form.append('file', audio, filename);
+  form.append('language', language);
+  const res = await fetch(`${getBase()}/v1/voice/transcribe`, {
+    method: 'POST',
+    body: form,
+    signal,
+  });
+  if (!res.ok) throw new Error(`Failed to transcribe voice: ${res.status}`);
+  return res.json();
+}
+
 export interface SpeakVoiceRequest {
   text?: string;
+  mode?: string;
   voice?: string;
-  rate?: number;
+  rate?: number | string;
   max_chars?: number;
+  pause_ms?: number;
+  naturalize?: boolean;
+  gemini_api_key?: string;
+  gemini_voice?: string;
+  edge_voice?: string;
   stop?: boolean;
 }
 

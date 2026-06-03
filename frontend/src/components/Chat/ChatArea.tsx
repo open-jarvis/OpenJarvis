@@ -4,7 +4,7 @@ import { MessageBubble } from './MessageBubble';
 import { InputArea } from './InputArea';
 import { StreamingDots } from './StreamingDots';
 import { useAppStore } from '../../lib/store';
-import { Sparkles, Database, MessageSquare, X } from 'lucide-react';
+import { ArrowRight, Database, MessageSquare, Navigation, X } from 'lucide-react';
 import { listConnectors } from '../../lib/connectors-api';
 
 function getGreeting(): string {
@@ -50,15 +50,14 @@ export function ChatArea() {
       {/* Data sources banner */}
       {hasConnectedSources === false && !bannerDismissed && (
         <div
-          className="mx-4 mb-2 flex items-center gap-3 px-4 py-3 rounded-lg text-sm shrink-0"
+          className="mx-4 mt-3 mb-2 flex items-center gap-3 px-4 py-3 rounded-lg text-sm shrink-0 quiet-panel"
           style={{
-            background: 'var(--color-accent-subtle)',
-            border: '1px solid var(--color-border)',
+            background: 'color-mix(in srgb, var(--color-accent) 8%, var(--color-surface))',
           }}
         >
           <Database size={16} style={{ color: 'var(--color-accent)', flexShrink: 0 }} />
           <span style={{ color: 'var(--color-text-secondary)', flex: 1 }}>
-            Connect your data sources (Gmail, iMessage, Slack, etc.) to get personalized answers.
+            Data sources are not connected.
           </span>
           <button
             onClick={() => navigate('/data-sources')}
@@ -82,54 +81,46 @@ export function ChatArea() {
         className="flex-1 overflow-y-auto"
       >
         {isEmpty ? (
-          <div className="flex flex-col items-center justify-center h-full px-4">
-            <div
-              className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4"
-              style={{ background: 'var(--color-accent-subtle)', color: 'var(--color-accent)' }}
-            >
-              <Sparkles size={24} />
-            </div>
-            <h2 className="text-xl font-semibold mb-2" style={{ color: 'var(--color-text)' }}>
-              {getGreeting()}
-            </h2>
-            <p className="text-sm text-center max-w-sm mb-6" style={{ color: 'var(--color-text-secondary)' }}>
-              Ask anything. Your AI runs locally — private, fast, and always available.
-            </p>
-
-            {/* Quick action hints */}
-            <div className="flex gap-3">
+          <div className="h-full px-5 py-5 md:px-8 md:py-8">
+            <div className="mx-auto flex h-full max-w-[var(--chat-max-width)] flex-col justify-end">
+              <div className="mb-6">
+                <div className="text-xs mb-2" style={{ color: 'var(--color-text-tertiary)' }}>
+                  {getGreeting()}
+                </div>
+                <h1 className="text-2xl md:text-3xl font-semibold leading-tight" style={{ color: 'var(--color-text)' }}>
+                  Friday
+                </h1>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <button
+                  onClick={() => navigate('/settings')}
+                  className="quiet-panel flex items-center justify-between gap-3 rounded-lg px-4 py-3 text-left text-sm cursor-pointer transition-colors"
+                  style={{ color: 'var(--color-text)' }}
+                >
+                  <span>음성 설정</span>
+                  <ArrowRight size={15} style={{ color: 'var(--color-text-tertiary)' }} />
+                </button>
+                <button
+                  onClick={() => navigate('/settings')}
+                  className="quiet-panel flex items-center justify-between gap-3 rounded-lg px-4 py-3 text-left text-sm cursor-pointer transition-colors"
+                  style={{ color: 'var(--color-text)' }}
+                >
+                  <span>TMAP 설정</span>
+                  <Navigation size={15} style={{ color: 'var(--color-text-tertiary)' }} />
+                </button>
               <button
                 onClick={() => navigate('/data-sources')}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs cursor-pointer transition-colors"
-                style={{
-                  background: 'var(--color-bg-secondary)',
-                  border: '1px solid var(--color-border)',
-                  color: 'var(--color-text-secondary)',
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--color-accent)')}
-                onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--color-border)')}
+                className="quiet-panel flex items-center justify-between gap-3 rounded-lg px-4 py-3 text-left text-sm cursor-pointer transition-colors"
+                style={{ color: 'var(--color-text)' }}
               >
-                <Database size={14} style={{ color: 'var(--color-accent)' }} />
-                Connect Data Sources
-              </button>
-              <button
-                onClick={() => { navigate('/data-sources'); setTimeout(() => window.dispatchEvent(new CustomEvent('switch-tab', { detail: 'messaging' })), 100); }}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs cursor-pointer transition-colors"
-                style={{
-                  background: 'var(--color-bg-secondary)',
-                  border: '1px solid var(--color-border)',
-                  color: 'var(--color-text-secondary)',
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--color-accent)')}
-                onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--color-border)')}
-              >
-                <MessageSquare size={14} style={{ color: 'var(--color-accent)' }} />
-                Set Up Messaging Channels
-              </button>
+                  <span>데이터 연결</span>
+                  <Database size={15} style={{ color: 'var(--color-text-tertiary)' }} />
+                </button>
+              </div>
             </div>
           </div>
         ) : (
-          <div className="max-w-[var(--chat-max-width)] mx-auto px-4 py-6">
+          <div className="max-w-[var(--chat-max-width)] mx-auto px-4 py-7 md:px-6">
             {messages.map((msg) => (
               <MessageBubble key={msg.id} message={msg} />
             ))}

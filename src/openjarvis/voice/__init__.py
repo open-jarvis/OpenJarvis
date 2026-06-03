@@ -10,7 +10,11 @@ from openjarvis.voice.service import ListenOnceResult, listen_once
 from openjarvis.voice.tts import (
     SpeakResult,
     cleanup_tts_text,
+    speak_edge_tts,
+    speak_elevenlabs_tts,
     speak_macos_say,
+    speak_piper_tts,
+    speak_with_provider,
     split_tts_chunks,
     stop_macos_say,
 )
@@ -25,7 +29,11 @@ __all__ = [
     "create_stt_adapter",
     "cleanup_tts_text",
     "listen_once",
+    "speak_edge_tts",
+    "speak_elevenlabs_tts",
     "speak_macos_say",
+    "speak_piper_tts",
+    "speak_with_provider",
     "split_tts_chunks",
     "stop_macos_say",
 ]

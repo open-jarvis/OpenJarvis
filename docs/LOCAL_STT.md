@@ -2,11 +2,14 @@
 
 OpenJarvis keeps the existing browser voice path:
 
-- Chrome/browser mode uses Web Speech (`SpeechRecognition` / `webkitSpeechRecognition`) when the browser exposes it.
+- Chrome/browser mode can use the free browser Web Speech API (`SpeechRecognition` / `webkitSpeechRecognition`) when the browser exposes it.
+- If Web Speech is unavailable but `MediaRecorder` is available, the mic button records browser microphone audio and uploads it to `POST /v1/voice/transcribe`.
 - Tauri macOS app mode tries Web Speech if available.
 - If Web Speech is unavailable in the Tauri app, the mic button calls the local backend endpoint `POST /v1/voice/listen-once`.
 
-Audio stays local. The listen-once endpoint records a short microphone clip on the Mac and sends it only to the configured local STT adapter.
+Audio stays local. The listen-once endpoint records a short microphone clip on the Mac and sends it only to the configured local STT adapter. The upload endpoint accepts the browser-recorded clip and transcribes it with the configured local speech backend or local STT adapter.
+
+In Settings > Speech, set **STT mode** to **Free Web Speech** for free web-mode voice input. Use Chrome or Safari for the best browser support.
 
 ## Configuration
 
@@ -79,6 +82,14 @@ Start the backend, then run:
 curl -X POST http://127.0.0.1:8000/v1/voice/listen-once
 ```
 
+For browser-recorded audio:
+
+```bash
+curl -X POST http://127.0.0.1:8000/v1/voice/transcribe \
+  -F file=@clip.webm \
+  -F language=ko
+```
+
 Successful response:
 
 ```json
@@ -95,4 +106,24 @@ If STT is disabled or missing, the endpoint returns `ok: false` with a Korean se
 
 ## Wake Listening
 
-Browser wake listening still uses Web Speech where available. Continuous local wake listening in the Tauri app is intentionally not implemented yet; it should be added after listen-once local STT is stable.
+Browser wake listening uses Web Speech where available. In Settings > Speech,
+turn on **Always-on wake** to start wake listening automatically when the app
+opens. The wake button in the chat input can still start or stop listening
+manually.
+
+Default wake phrases are:
+
+- `프라이데이`
+- `헤이 프라이데이`
+- `friday`
+- `hey friday`
+
+You can add custom comma-separated phrases in **Wake phrases**. For example:
+
+```text
+프라이데이, 자비스, 오케이 자비스
+```
+
+In browser mode, keep the page open and use Chrome or Safari. In Tauri macOS app
+mode, Friday repeats the local `listen-once` STT endpoint while wake listening is
+enabled, so local STT must be configured for continuous wake listening.

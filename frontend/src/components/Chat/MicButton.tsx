@@ -15,7 +15,7 @@ export function MicButton({ state, onClick, disabled, reason }: MicButtonProps) 
     reason === 'not-enabled'
       ? 'Enable in Settings'
       : reason === 'unsupported'
-        ? '현재 macOS 앱 모드에서는 Web Speech 음성 인식이 지원되지 않습니다. 로컬 STT 모듈 연결이 필요합니다.'
+        ? '무료 Web Speech API를 사용할 수 없습니다. Chrome 또는 Safari 웹 모드를 사용해주세요.'
         : reason === 'streaming'
           ? 'Wait for response'
           : state === 'transcribing'

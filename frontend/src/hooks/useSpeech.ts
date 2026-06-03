@@ -1,7 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { listenOnceVoice } from '../lib/api';
+import { listenOnceVoice, transcribeVoice } from '../lib/api';
 
 export type SpeechState = 'idle' | 'recording' | 'transcribing';
+export type SpeechInputMode = 'free_web_speech' | 'auto' | 'local_stt';
 
 type SpeechRecognitionResultLike = {
   readonly isFinal: boolean;
@@ -34,7 +35,7 @@ export const MICROPHONE_DENIED_MESSAGE =
 export const MICROPHONE_UNAVAILABLE_MESSAGE =
   '현재 앱 환경에서 마이크 접근 API를 사용할 수 없습니다.';
 export const TAURI_SPEECH_UNAVAILABLE_MESSAGE =
-  '현재 macOS 앱 모드에서는 Web Speech 음성 인식이 지원되지 않습니다. 로컬 STT 모듈 연결이 필요합니다.';
+  '현재 macOS 앱 모드에서는 Web Speech 음성 인식이 지원되지 않습니다. 로컬 STT를 사용합니다.';
 
 declare global {
   interface Window {
@@ -55,7 +56,18 @@ export function isTauriAppMode(): boolean {
 export function getSpeechUnavailableMessage(): string {
   return isTauriAppMode()
     ? TAURI_SPEECH_UNAVAILABLE_MESSAGE
-    : 'Browser speech recognition is not supported';
+    : '이 브라우저는 음성 인식과 마이크 녹음 업로드를 지원하지 않습니다';
+}
+
+export function isFreeWebSpeechAvailable(): boolean {
+  return Boolean(getSpeechRecognitionConstructor());
+}
+
+function canRecordWithMediaRecorder(): boolean {
+  return Boolean(
+    typeof navigator.mediaDevices?.getUserMedia === 'function'
+      && typeof MediaRecorder !== 'undefined',
+  );
 }
 
 export async function requestMicrophonePermission(): Promise<void> {
@@ -78,6 +90,9 @@ export function useSpeech() {
   const [statusMessage, setStatusMessage] = useState<string>('');
   const [available, setAvailable] = useState(false);
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaChunksRef = useRef<BlobPart[]>([]);
+  const mediaMimeTypeRef = useRef('audio/webm');
   const backendListenRef = useRef(false);
   const transcriptRef = useRef('');
   const callbackRef = useRef<((text: string) => void) | null>(null);
@@ -85,7 +100,22 @@ export function useSpeech() {
   const rejectRef = useRef<((error: Error) => void) | null>(null);
 
   useEffect(() => {
-    setAvailable(Boolean(getSpeechRecognitionConstructor()) || isTauriAppMode());
+    setAvailable(
+      Boolean(getSpeechRecognitionConstructor())
+        || canRecordWithMediaRecorder()
+        || isTauriAppMode(),
+    );
+  }, []);
+
+  const getPreferredMimeType = useCallback((): string => {
+    const candidates = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/mp4',
+      'audio/ogg;codecs=opus',
+      'audio/ogg',
+    ];
+    return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || '';
   }, []);
 
   const startBackendListenOnce = useCallback(async (
@@ -121,16 +151,97 @@ export function useSpeech() {
   const startRecording = useCallback(async (
     lang = 'ko-KR',
     onTranscript?: (text: string) => void,
+    mode: SpeechInputMode = 'free_web_speech',
   ): Promise<void> => {
     setError(null);
 
     const Recognition = getSpeechRecognitionConstructor();
-    if (!Recognition) {
-      if (!isTauriAppMode()) {
+    if (mode === 'local_stt' || !Recognition) {
+      if (mode === 'free_web_speech' && !Recognition) {
+        setError(
+          '무료 브라우저 Web Speech API를 사용할 수 없습니다. Chrome 또는 Safari의 웹 모드에서 다시 시도해주세요.',
+        );
+        return;
+      }
+      if (!canRecordWithMediaRecorder()) {
+        if (isTauriAppMode()) {
+          await startBackendListenOnce(onTranscript);
+          return;
+        }
         setError(getSpeechUnavailableMessage());
         return;
       }
-      await startBackendListenOnce(onTranscript);
+      try {
+        await requestMicrophonePermission();
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mimeType = getPreferredMimeType();
+        const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+        mediaChunksRef.current = [];
+        mediaMimeTypeRef.current = mimeType || 'audio/webm';
+        callbackRef.current = onTranscript || null;
+        recorder.ondataavailable = (event) => {
+          if (event.data.size > 0) mediaChunksRef.current.push(event.data);
+        };
+        recorder.onerror = () => {
+          const message = '마이크 녹음에 실패했습니다';
+          setError(message);
+          setStatusMessage(message);
+          setState('idle');
+          stream.getTracks().forEach((track) => track.stop());
+          rejectRef.current?.(new Error(message));
+        };
+        recorder.onstop = async () => {
+          setState('transcribing');
+          setStatusMessage('음성 인식 중...');
+          stream.getTracks().forEach((track) => track.stop());
+          try {
+            const audio = new Blob(mediaChunksRef.current, {
+              type: mediaMimeTypeRef.current,
+            });
+            const extension = mediaMimeTypeRef.current.includes('mp4')
+              ? 'm4a'
+              : mediaMimeTypeRef.current.includes('ogg')
+                ? 'ogg'
+                : 'webm';
+            const result = await transcribeVoice(
+              audio,
+              `microphone.${extension}`,
+              lang.split('-')[0] || 'ko',
+            );
+            const text = result.text.trim();
+            if (result.ok && text) {
+              setStatusMessage('인식 완료');
+              callbackRef.current?.(text);
+              resolveRef.current?.(text);
+            } else {
+              const message = result.message || '로컬 STT 설정이 필요합니다';
+              setError(message);
+              setStatusMessage(message);
+              rejectRef.current?.(new Error(message));
+            }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : '음성 인식에 실패했습니다';
+            setError(message);
+            setStatusMessage(message);
+            rejectRef.current?.(new Error(message));
+          } finally {
+            mediaChunksRef.current = [];
+            callbackRef.current = null;
+            resolveRef.current = null;
+            rejectRef.current = null;
+            mediaRecorderRef.current = null;
+            setState('idle');
+          }
+        };
+        mediaRecorderRef.current = recorder;
+        setStatusMessage('듣는 중...');
+        setState('recording');
+        recorder.start();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : MICROPHONE_DENIED_MESSAGE);
+        setStatusMessage('마이크 권한 또는 STT 엔진을 확인해주세요');
+        setState('idle');
+      }
       return;
     }
 
@@ -197,13 +308,20 @@ export function useSpeech() {
       setStatusMessage('마이크 권한 또는 STT 엔진을 확인해주세요');
       setState('idle');
     }
-  }, [startBackendListenOnce]);
+  }, [getPreferredMimeType, startBackendListenOnce]);
 
   const stopRecording = useCallback((): Promise<string> => {
     return new Promise((resolve, reject) => {
       const recognition = recognitionRef.current;
+      const mediaRecorder = mediaRecorderRef.current;
       if (backendListenRef.current) {
         reject(new Error('Backend listen-once cannot be stopped'));
+        return;
+      }
+      if (mediaRecorder && state === 'recording') {
+        resolveRef.current = resolve;
+        rejectRef.current = reject;
+        mediaRecorder.stop();
         return;
       }
       if (!recognition || state !== 'recording') {

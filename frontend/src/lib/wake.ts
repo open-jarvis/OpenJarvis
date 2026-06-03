@@ -72,13 +72,31 @@ export function nextWakeStatusAfterCommand({
 }
 
 export function hasWakePhrase(text: string): boolean {
+  return hasWakePhraseFromList(text, WAKE_PHRASES);
+}
+
+export function normalizeWakePhrases(phrases: string[] | string | undefined): string[] {
+  const raw = Array.isArray(phrases)
+    ? phrases
+    : String(phrases || '').split(/[,;\n]/);
+  const cleaned = raw.map((phrase) => phrase.trim()).filter(Boolean);
+  return Array.from(new Set([...cleaned, ...WAKE_PHRASES]));
+}
+
+export function hasWakePhraseFromList(text: string, phrases?: string[]): boolean {
   const normalized = text.trim().toLowerCase();
-  return WAKE_PHRASES.some((phrase) => normalized.includes(phrase));
+  return normalizeWakePhrases(phrases).some((phrase) =>
+    normalized.includes(phrase.toLowerCase()),
+  );
 }
 
 export function stripWakePhrase(text: string): string {
+  return stripWakePhraseFromList(text, WAKE_PHRASES);
+}
+
+export function stripWakePhraseFromList(text: string, phrases?: string[]): string {
   let cleaned = text.trim();
-  for (const phrase of [...WAKE_PHRASES].sort((a, b) => b.length - a.length)) {
+  for (const phrase of normalizeWakePhrases(phrases).sort((a, b) => b.length - a.length)) {
     cleaned = cleaned.replace(new RegExp(escapeRegExp(phrase), 'gi'), ' ');
   }
   return cleaned.replace(/\s+/g, ' ').trim();
@@ -95,11 +113,13 @@ export function evaluateLocalWakeText(
     lastDetectedAt,
     now,
     debounceMs = WAKE_DEBOUNCE_MS,
+    wakePhrases,
   }: {
     awaitingCommand: boolean;
     lastDetectedAt: number;
     now: number;
     debounceMs?: number;
+    wakePhrases?: string[];
   },
 ): LocalWakeStep {
   const trimmed = text.trim();
@@ -108,7 +128,9 @@ export function evaluateLocalWakeText(
   }
 
   if (awaitingCommand) {
-    const command = hasWakePhrase(trimmed) ? stripWakePhrase(trimmed) : trimmed;
+    const command = hasWakePhraseFromList(trimmed, wakePhrases)
+      ? stripWakePhraseFromList(trimmed, wakePhrases)
+      : trimmed;
     if (!command) {
       return { action: 'none', awaitingCommand: true, lastDetectedAt };
     }
@@ -120,7 +142,7 @@ export function evaluateLocalWakeText(
     };
   }
 
-  if (!hasWakePhrase(trimmed)) {
+  if (!hasWakePhraseFromList(trimmed, wakePhrases)) {
     return { action: 'none', awaitingCommand: false, lastDetectedAt };
   }
   if (now - lastDetectedAt < debounceMs) {

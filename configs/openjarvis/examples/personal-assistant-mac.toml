@@ -1,0 +1,46 @@
+# Personal Assistant for macOS — agentic local assistant with desktop control
+# Copy to ~/.openjarvis/config.toml
+#
+# Usage:
+#   jarvis ask "내 오늘 할 일을 정리하고 필요한 앱을 열어줘"
+#   jarvis ask "Safari로 https://openai.com 을 열어줘"
+#   jarvis ask "조사 작업을 맡길 하위 agent를 하나 만들어줘"
+
+[engine]
+default = "mlx"
+
+[engine.mlx]
+host = "http://localhost:8080"
+
+[intelligence]
+default_model = "qwen3.5:9b"
+temperature = 0.4
+max_tokens = 2048
+
+[agent]
+default_agent = "orchestrator"
+max_turns = 12
+objective = "Act as a Korean-first macOS personal assistant that can plan, use tools, manage child agents, and operate local desktop workflows with confirmation."
+system_prompt_path = "~/.openjarvis/prompts/personas/personal-assistant-mac.md"
+context_from_memory = true
+
+[tools]
+enabled = [
+  "think",
+  "calculator",
+  "file_read",
+  "file_write",
+  "shell_exec",
+  "web_search",
+  "memory_manage",
+  "user_profile_manage",
+  "skill_manage",
+  "agent_spawn",
+  "agent_send",
+  "agent_list",
+  "agent_kill",
+  "mac_automation",
+]
+
+[security]
+profile = "balanced"

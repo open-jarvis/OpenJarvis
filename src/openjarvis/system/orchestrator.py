@@ -73,6 +73,7 @@ class QueryOrchestrator:
             if detected:
                 use_agent = detected
         if use_agent and use_agent != "none":
+            system_prompt = system_prompt or self._configured_system_prompt()
             return self._run_agent(
                 query,
                 messages,
@@ -112,6 +113,20 @@ class QueryOrchestrator:
             if AgentRegistry.contains("morning_digest"):
                 return "morning_digest"
 
+        return None
+
+    def _configured_system_prompt(self) -> Optional[str]:
+        """Return the configured agent system prompt, if one is set."""
+        from pathlib import Path
+
+        cfg = self._system.config.agent
+        if cfg.system_prompt:
+            return cfg.system_prompt
+        if cfg.system_prompt_path:
+            try:
+                return Path(cfg.system_prompt_path).expanduser().read_text()
+            except OSError as exc:
+                logger.warning("Failed to read agent system_prompt_path: %s", exc)
         return None
 
     def _run_agent(

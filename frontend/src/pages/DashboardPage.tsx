@@ -7,7 +7,7 @@ export function DashboardPage() {
   const stamp = now.toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
 
   return (
-    <div className="flex-1 overflow-y-auto px-6 py-10">
+    <div className="flex-1 overflow-y-auto px-6 py-8">
       <div className="max-w-5xl mx-auto">
         <header className="mb-6">
           <div className="flex items-center justify-between">
@@ -18,9 +18,6 @@ export function DashboardPage() {
               {stamp}
             </div>
           </div>
-          <p className="text-sm mt-2 max-w-2xl" style={{ color: 'var(--color-text-secondary)' }}>
-            Live telemetry for the on-device inference engine — power draw, token throughput, and cost savings versus cloud APIs.
-          </p>
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">

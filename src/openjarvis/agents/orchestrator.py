@@ -60,6 +60,9 @@ class OrchestratorAgent(ToolUsingAgent):
         parallel_tools: bool = True,
         interactive: bool = False,
         confirm_callback=None,
+        capability_policy: Optional[Any] = None,
+        agent_id: Optional[str] = None,
+        skill_few_shot_examples: Optional[List[str]] = None,
     ) -> None:
         super().__init__(
             engine,
@@ -71,6 +74,9 @@ class OrchestratorAgent(ToolUsingAgent):
             max_tokens=max_tokens,
             interactive=interactive,
             confirm_callback=confirm_callback,
+            capability_policy=capability_policy,
+            agent_id=agent_id,
+            skill_few_shot_examples=skill_few_shot_examples,
         )
         self._mode = mode
         self._system_prompt = system_prompt

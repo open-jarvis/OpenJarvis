@@ -1,7 +1,7 @@
 """Local rule-based assistant actions for Friday.
 
 This module handles small deterministic assistant commands before they reach
-the LLM. Everything here is local-first: no cloud APIs, no API keys, and no
+the LLM. Everything here keeps risky actions deterministic and avoids
 free-form shell execution.
 """
 
@@ -19,7 +19,12 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
 
-from openjarvis.core.config import DEFAULT_CONFIG_DIR
+from openjarvis.core.config import DEFAULT_CONFIG_DIR, load_config
+from openjarvis.navigation.tmap import (
+    TmapClient,
+    TmapNavigationError,
+    format_navigation_summary,
+)
 
 FRIDAY_DATA_PATH = DEFAULT_CONFIG_DIR / "friday_data.json"
 SEOUL_WEATHER_LOCATION = {
@@ -431,12 +436,14 @@ class FridayAssistantRouter:
         now_fn: Callable[[], datetime] | None = None,
         port_checker: Callable[[str, int, float], bool] | None = None,
         current_location: dict[str, Any] | None = None,
+        navigation_context: dict[str, Any] | None = None,
         desktop_app_mode: bool = True,
     ) -> None:
         self.store = FridayLocalStore(data_path)
         self.now_fn = now_fn or datetime.now
         self.port_checker = port_checker
         self.current_location = _normalize_location(current_location)
+        self.navigation_context = navigation_context or {}
         self.desktop_app_mode = desktop_app_mode
 
     def route(self, query: str) -> FridayAssistantResult | None:
@@ -445,7 +452,8 @@ class FridayAssistantRouter:
             return None
 
         handled = (
-            self._route_time_date(text)
+            self._route_navigation(text)
+            or self._route_time_date(text)
             or self._route_weather_location_settings(text)
             or self._route_weather(text)
             or self._route_website(text)
@@ -610,6 +618,87 @@ class FridayAssistantRouter:
             metadata={"location": location},
         )
 
+    def _route_navigation(self, text: str) -> FridayAssistantResult | None:
+        if not _looks_like_navigation(text):
+            return None
+
+        destination_query = _extract_navigation_destination(text)
+        if not destination_query:
+            return FridayAssistantResult(
+                content="목적지를 알려주시면 길안내를 시작할 수 있습니다.",
+                intent="navigation",
+                success=False,
+            )
+
+        if not self.current_location:
+            return FridayAssistantResult(
+                content=(
+                    "현재 위치가 필요합니다. 채팅 입력창의 위치 버튼을 눌러 "
+                    "위치 권한을 허용한 뒤 다시 말해주세요."
+                ),
+                intent="navigation",
+                success=False,
+                metadata={"requires_location": True},
+            )
+
+        api_key = _resolve_tmap_api_key(self.navigation_context)
+        if not api_key:
+            return FridayAssistantResult(
+                content=(
+                    "TMAP API 키가 필요합니다. Settings의 Navigation에서 "
+                    "TMAP API key를 입력한 뒤 다시 요청해주세요."
+                ),
+                intent="navigation",
+                success=False,
+                metadata={"requires_tmap_api_key": True},
+            )
+
+        mode = _resolve_navigation_mode(text, self.navigation_context)
+        try:
+            client = TmapClient(api_key)
+            destination = client.search_place(
+                destination_query,
+                longitude=self.current_location["longitude"],
+                latitude=self.current_location["latitude"],
+            )
+            summary = client.route(
+                start_longitude=self.current_location["longitude"],
+                start_latitude=self.current_location["latitude"],
+                destination=destination,
+                mode=mode,
+            )
+        except (TmapNavigationError, OSError, ValueError) as exc:
+            return FridayAssistantResult(
+                content=f"TMAP 길안내를 가져오지 못했습니다: {exc}",
+                intent="navigation",
+                success=False,
+                metadata={"destination_query": destination_query, "mode": mode},
+            )
+        except Exception as exc:
+            return FridayAssistantResult(
+                content=f"TMAP 길안내를 가져오지 못했습니다: {exc}",
+                intent="navigation",
+                success=False,
+                metadata={"destination_query": destination_query, "mode": mode},
+            )
+
+        return FridayAssistantResult(
+            content=format_navigation_summary(summary),
+            intent="navigation",
+            metadata={
+                "provider": "tmap",
+                "destination": {
+                    "name": summary.destination.name,
+                    "latitude": summary.destination.latitude,
+                    "longitude": summary.destination.longitude,
+                    "address": summary.destination.address,
+                },
+                "mode": summary.mode,
+                "distance_meters": summary.distance_meters,
+                "duration_seconds": summary.duration_seconds,
+            },
+        )
+
     def _route_website(self, text: str) -> FridayAssistantResult | None:
         if not _has_open_verb(text):
             return None
@@ -761,6 +850,7 @@ def route_friday_command(
     now_fn: Callable[[], datetime] | None = None,
     port_checker: Callable[[str, int, float], bool] | None = None,
     current_location: dict[str, Any] | None = None,
+    navigation_context: dict[str, Any] | None = None,
     desktop_app_mode: bool = True,
 ) -> FridayAssistantResult | None:
     return FridayAssistantRouter(
@@ -768,6 +858,7 @@ def route_friday_command(
         now_fn=now_fn,
         port_checker=port_checker,
         current_location=current_location,
+        navigation_context=navigation_context,
         desktop_app_mode=desktop_app_mode,
     ).route(query)
 
@@ -856,6 +947,110 @@ def _normalize_location(location: dict[str, Any] | None) -> dict[str, Any] | Non
         }
     except (KeyError, TypeError, ValueError):
         return None
+
+
+def _looks_like_navigation(text: str) -> bool:
+    navigation_keywords = (
+        "길안내",
+        "길 안내",
+        "내비",
+        "네비",
+        "경로",
+        "목적지",
+        "도착 예정",
+        "예상 시간",
+    )
+    movement_phrases = (
+        "까지 가",
+        "까지 안내",
+        "까지 데려",
+        "까지 얼마나",
+        "까지 몇 분",
+        "까지 몇분",
+        "까지 몇 시간",
+        "까지 몇시간",
+        "얼마나 걸",
+        "몇 분 걸",
+        "몇분 걸",
+        "몇 시간 걸",
+        "몇시간 걸",
+        "가는 길",
+    )
+    return any(keyword in text for keyword in navigation_keywords) or any(
+        phrase in text for phrase in movement_phrases
+    )
+
+
+def _extract_navigation_destination(text: str) -> str:
+    cleaned = text
+    replacements = (
+        "현재 위치에서",
+        "여기서",
+        "지금 위치에서",
+        "자동차로",
+        "차로",
+        "운전해서",
+        "걸어서",
+        "도보로",
+        "길안내해줘",
+        "길 안내해줘",
+        "길안내 해줘",
+        "길 안내 해줘",
+        "길안내",
+        "길 안내",
+        "내비 켜줘",
+        "네비 켜줘",
+        "내비",
+        "네비",
+        "경로 알려줘",
+        "경로",
+        "안내해줘",
+        "안내 해줘",
+        "가는 길 알려줘",
+        "가는 길",
+        "얼마나 걸려",
+        "얼마나 걸릴까",
+        "얼마나 걸리니",
+        "얼마나 걸리나요",
+        "몇 분 걸려",
+        "몇분 걸려",
+        "몇 시간 걸려",
+        "몇시간 걸려",
+        "도착 예정 시간이",
+        "도착 예정 시간",
+        "목적지",
+        "가자",
+        "가줘",
+    )
+    for phrase in replacements:
+        cleaned = cleaned.replace(phrase, " ")
+    cleaned = re.sub(r"\s*까지(?:\s|$)", " ", cleaned)
+    cleaned = re.sub(r"[?!.,]", " ", cleaned)
+    return _compact(cleaned)
+
+
+def _resolve_navigation_mode(
+    text: str,
+    navigation_context: dict[str, Any],
+) -> str:
+    if any(keyword in text for keyword in ("걸어서", "도보", "걷는")):
+        return "walk"
+    if any(keyword in text for keyword in ("자동차", "운전", "차로")):
+        return "car"
+    mode = str(navigation_context.get("mode") or "").strip().lower()
+    if mode in {"walk", "pedestrian", "foot"}:
+        return "walk"
+    return "car"
+
+
+def _resolve_tmap_api_key(navigation_context: dict[str, Any]) -> str:
+    context_key = str(navigation_context.get("tmap_api_key") or "").strip()
+    if context_key:
+        return context_key
+    try:
+        return load_config().tools.navigation.tmap_api_key.strip()
+    except Exception:
+        return ""
 
 
 def _extract_safe_url(text: str) -> str | None:

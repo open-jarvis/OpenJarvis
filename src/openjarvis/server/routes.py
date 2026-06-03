@@ -33,9 +33,15 @@ MODEL_NOT_FOUND_MESSAGE = (
 
 class VoiceSpeakRequest(BaseModel):
     text: str = ""
+    mode: str | None = None
     voice: str = "Yuna"
-    rate: int = 175
+    rate: int | str = 165
     max_chars: int = 400
+    pause_ms: int = 250
+    naturalize: bool = True
+    gemini_api_key: str = ""
+    gemini_voice: str = ""
+    edge_voice: str = ""
     stop: bool = False
 
 
@@ -56,9 +62,9 @@ def _to_messages(chat_messages) -> list[Message]:
 
 
 @router.post("/v1/voice/speak")
-async def voice_speak(request_body: VoiceSpeakRequest):
-    """Speak text locally with macOS /usr/bin/say."""
-    from openjarvis.voice.tts import speak_macos_say, stop_macos_say
+async def voice_speak(request_body: VoiceSpeakRequest, request: Request):
+    """Speak text with the configured TTS provider and local fallback."""
+    from openjarvis.voice.tts import speak_with_provider, stop_macos_say
 
     if request_body.stop:
         stop_macos_say()
@@ -70,11 +76,36 @@ async def voice_speak(request_body: VoiceSpeakRequest):
             "chunks": [],
         }
 
-    result = speak_macos_say(
+    config = getattr(request.app.state, "config", None)
+    voice_config = getattr(config, "voice", None)
+    result = speak_with_provider(
         request_body.text,
-        voice=request_body.voice,
-        rate=request_body.rate,
-        max_chars=request_body.max_chars,
+        mode=request_body.mode or getattr(voice_config, "tts_mode", "macos_say"),
+        fallback_mode=getattr(voice_config, "tts_fallback_mode", "macos_say"),
+        voice=request_body.voice or getattr(voice_config, "tts_voice", "Yuna"),
+        rate=request_body.rate or getattr(voice_config, "tts_rate", 165),
+        max_chars=request_body.max_chars or getattr(voice_config, "tts_max_chars", 400),
+        pause_ms=request_body.pause_ms or getattr(voice_config, "tts_pause_ms", 250),
+        naturalize=request_body.naturalize
+        if request_body.naturalize is not None
+        else getattr(voice_config, "tts_naturalize", True),
+        enabled=getattr(voice_config, "tts_enabled", True),
+        elevenlabs_voice_id=getattr(voice_config, "elevenlabs_voice_id", ""),
+        elevenlabs_model=getattr(voice_config, "elevenlabs_model", "eleven_v3"),
+        gemini_model=getattr(
+            voice_config,
+            "gemini_model",
+            "gemini-2.5-flash-preview-tts",
+        ),
+        gemini_voice=(
+            request_body.gemini_voice
+            or getattr(voice_config, "gemini_voice", "Sulafat")
+        ),
+        gemini_api_key=request_body.gemini_api_key,
+        edge_voice=request_body.edge_voice
+        or getattr(voice_config, "edge_voice", "ko-KR-SunHiNeural"),
+        piper_path=getattr(voice_config, "piper_path", ""),
+        piper_model=getattr(voice_config, "piper_model", ""),
     )
     return {
         "ok": result.ok,
@@ -226,9 +257,15 @@ def _route_local_friday(req: ChatCompletionRequest):
     from openjarvis.friday_assistant import route_friday_command
 
     current_location = None
+    navigation_context = None
     if isinstance(req.friday_context, dict):
         current_location = req.friday_context.get("current_location")
-    return route_friday_command(query_text, current_location=current_location)
+        navigation_context = req.friday_context.get("navigation")
+    return route_friday_command(
+        query_text,
+        current_location=current_location,
+        navigation_context=navigation_context,
+    )
 
 
 def _is_model_available(request: Request, model: str) -> bool:

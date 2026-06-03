@@ -78,6 +78,13 @@ EXPECTED_TOOLS = {
     "kg_add_relation",
     "kg_query",
     "kg_neighbors",
+    # agent_tools.py
+    "agent_spawn",
+    "agent_send",
+    "agent_list",
+    "agent_kill",
+    # mac_automation.py
+    "mac_automation",
 }
 
 
@@ -94,7 +101,6 @@ def _reload_tool_modules() -> None:
         if (
             mod_name.startswith("openjarvis.tools.")
             and not mod_name.endswith("_stubs")
-            and not mod_name.endswith("agent_tools")
         ):
             try:
                 importlib.reload(sys.modules[mod_name])

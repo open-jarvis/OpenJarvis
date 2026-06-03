@@ -30,7 +30,7 @@ export function LogsPage() {
   };
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden px-6 py-10">
+    <div className="flex-1 flex flex-col overflow-hidden px-6 py-8">
       <div className="max-w-4xl mx-auto w-full flex flex-col flex-1 overflow-hidden">
         <header className="mb-6 shrink-0">
           <div className="flex items-center justify-between gap-3">
@@ -57,15 +57,11 @@ export function LogsPage() {
               </button>
             </div>
           </div>
-          <p className="text-sm mt-2 max-w-2xl" style={{ color: 'var(--color-text-secondary)' }}>
-            Recent activity — chat events, model switches, tool calls, and system messages from this session.
-          </p>
         </header>
 
         {/* Log entries */}
         <div
-          className="flex-1 overflow-y-auto rounded-xl p-4 font-mono text-xs leading-relaxed"
-          style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
+          className="quiet-panel flex-1 overflow-y-auto rounded-lg p-4 font-mono text-xs leading-relaxed"
         >
           {logEntries.length === 0 ? (
             <div className="text-center py-12" style={{ color: 'var(--color-text-tertiary)' }}>

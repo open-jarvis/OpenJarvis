@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from openjarvis.core.config import JarvisConfig  # noqa: E402
 from openjarvis.server.api_routes import voice_router  # noqa: E402
+from openjarvis.speech._stubs import TranscriptionResult  # noqa: E402
 from openjarvis.voice.adapters import (  # noqa: E402
     STTAdapter,
     STTResult,
@@ -88,6 +89,67 @@ def test_listen_once_success(tmp_path):
     assert not adapter.transcribed_path.exists()
 
 
+def test_transcribe_upload_uses_speech_backend():
+    cfg = JarvisConfig()
+
+    class Backend:
+        backend_id = "fake-speech"
+
+        def transcribe(self, audio, *, format="wav", language=None):
+            assert audio == b"fake audio"
+            assert format == "webm"
+            assert language == "ko"
+            return TranscriptionResult(
+                text="마이크 테스트",
+                language="ko",
+                confidence=0.9,
+                duration_seconds=1.2,
+            )
+
+    app = FastAPI()
+    app.state.config = cfg
+    app.state.speech_backend = Backend()
+    app.include_router(voice_router)
+
+    response = TestClient(app).post(
+        "/v1/voice/transcribe",
+        files={"file": ("clip.webm", b"fake audio", "audio/webm")},
+        data={"language": "ko"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is True
+    assert data["text"] == "마이크 테스트"
+    assert data["engine"] == "fake-speech"
+    assert data["mode"] == "uploaded_audio"
+    assert data["confidence"] == 0.9
+
+
+def test_transcribe_upload_uses_voice_adapter():
+    cfg = JarvisConfig()
+    cfg.voice.stt_enabled = True
+    cfg.voice.stt_engine = "custom"
+    adapter = MockAdapter(text="업로드 음성")
+
+    client = make_client(cfg, adapter=adapter)
+
+    response = client.post(
+        "/v1/voice/transcribe",
+        files={"file": ("clip.webm", b"fake audio", "audio/webm")},
+        data={"language": "ko"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is True
+    assert data["text"] == "업로드 음성"
+    assert data["engine"] == "mock"
+    assert data["mode"] == "uploaded_audio"
+    assert adapter.transcribed_path is not None
+    assert not adapter.transcribed_path.exists()
+
+
 def test_listen_once_missing_stt_engine(tmp_path):
     cfg = JarvisConfig()
     cfg.voice.stt_enabled = True
@@ -154,7 +216,66 @@ def test_tts_text_cleanup_removes_markdown_urls_and_debug_metadata():
     assert "ollama" not in cleaned.lower()
     assert "tokens" not in cleaned.lower()
     assert "오늘 요약" in cleaned
-    assert "일정은 오후 3시입니다" in cleaned
+    assert "일정은 오후 3시예요" in cleaned
+
+
+def test_tts_text_cleanup_removes_tables_emoji_and_http_errors():
+    table_cleaned = cleanup_tts_text(
+        """
+        | 항목 | 값 |
+        | --- | --- |
+        | 날씨 | 맑음 |
+        좋아요 ☀️
+        """,
+        max_chars=200,
+    )
+    error_cleaned = cleanup_tts_text("HTTP 405 Method Not Allowed 오류입니다.")
+
+    assert "|" not in table_cleaned
+    assert "☀" not in table_cleaned
+    assert "좋아요" in table_cleaned
+    assert error_cleaned == ""
+
+
+def test_tts_text_cleanup_removes_spoken_emoji_artifacts():
+    cleaned = cleanup_tts_text(
+        "좋아요 😊 ❤️ 👍🏽 ㅋㅋ 다음 작업을 진행할게요 :)",
+        max_chars=200,
+    )
+
+    assert "좋아요" in cleaned
+    assert "다음 작업을 진행할게요" in cleaned
+    assert "😊" not in cleaned
+    assert "❤" not in cleaned
+    assert "👍" not in cleaned
+    assert "ㅋㅋ" not in cleaned
+    assert ":)" not in cleaned
+
+
+def test_tts_text_cleanup_naturalizes_written_korean_for_speech():
+    cleaned = cleanup_tts_text(
+        "확인했습니다. 다음과 같습니다: macOS TTS API 설정이 필요합니다.",
+        max_chars=200,
+    )
+
+    assert cleaned == (
+        "확인했어요. 이렇게 정리했어요. 맥 오에스 티티에스 "
+        "에이피아이 설정이 필요해요."
+    )
+
+
+def test_tts_weather_text_is_naturalized_for_korean_speech():
+    cleaned = cleanup_tts_text(
+        "현재 서울은 부분적으로 흐림, 기온 20.5°C(체감 23.3°C)입니다. "
+        "오늘 예상 기온은 19°C~26.2°C, 최대 풍속은 4.8km/h, "
+        "자외선 지수는 7.8입니다.",
+        max_chars=400,
+    )
+
+    assert cleaned == (
+        "서울은 지금 조금 흐려요. 기온은 약 20도예요. "
+        "체감 온도는 23도 정도예요. 오늘은 19도에서 26도 사이로 예상돼요."
+    )
 
 
 def test_tts_long_text_is_split():
@@ -190,6 +311,7 @@ def test_macos_say_uses_safe_list_args_without_shell(monkeypatch):
         voice="Yuna",
         rate=175,
         max_chars=400,
+        pause_ms=0,
         popen=fake_popen,
     )
 
@@ -197,6 +319,61 @@ def test_macos_say_uses_safe_list_args_without_shell(monkeypatch):
     command, kwargs = calls[0]
     assert command[:5] == ["/usr/bin/say", "-v", "Yuna", "-r", "175"]
     assert "shell" not in kwargs
+
+
+def test_macos_say_speaks_short_chunks_with_pause(monkeypatch):
+    import threading
+
+    import openjarvis.voice.tts as tts
+
+    calls = []
+    sleeps = []
+    second_call = threading.Event()
+
+    class FakeSayPath:
+        def exists(self):
+            return True
+
+        def __str__(self):
+            return "/usr/bin/say"
+
+    class Proc:
+        def poll(self):
+            return 0
+
+        def wait(self):
+            return 0
+
+    def fake_popen(command, **kwargs):
+        calls.append((command, kwargs))
+        if len(calls) >= 2:
+            second_call.set()
+        return Proc()
+
+    monkeypatch.setattr(tts, "SAY_PATH", FakeSayPath())
+    monkeypatch.setattr(tts.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    result = tts.speak_macos_say(
+        "첫 문장이에요. 두 번째 문장이에요.",
+        voice="Yuna",
+        rate=165,
+        pause_ms=250,
+        popen=fake_popen,
+    )
+
+    assert result.ok is True
+    assert second_call.wait(1)
+    assert result.chunks == ["첫 문장이에요.", "두 번째 문장이에요."]
+    assert calls[0][0] == ["/usr/bin/say", "-v", "Yuna", "-r", "165", "첫 문장이에요."]
+    assert calls[1][0] == [
+        "/usr/bin/say",
+        "-v",
+        "Yuna",
+        "-r",
+        "165",
+        "두 번째 문장이에요.",
+    ]
+    assert sleeps == [0.25]
 
 
 def test_macos_say_empty_text_does_not_speak(monkeypatch):
@@ -214,6 +391,382 @@ def test_macos_say_empty_text_does_not_speak(monkeypatch):
     assert calls == []
 
 
+def test_elevenlabs_missing_key_returns_setup_message():
+    import openjarvis.voice.tts as tts
+
+    result = tts.speak_elevenlabs_tts(
+        "안녕하세요",
+        voice_id="voice-id",
+        env={},
+    )
+
+    assert result.ok is False
+    assert result.engine == "elevenlabs"
+    assert "클라우드 TTS 설정" in result.message
+
+
+def test_elevenlabs_tts_uses_env_key_without_logging_secret(monkeypatch, caplog):
+    import openjarvis.voice.tts as tts
+
+    captured = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return b"mp3"
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["headers"] = dict(request.header_items())
+        captured["body"] = request.data.decode("utf-8")
+        captured["timeout"] = timeout
+        return Response()
+
+    def fake_play(audio, **kwargs):
+        return tts.SpeakResult(ok=True, engine="elevenlabs", message="음성 응답 중...")
+
+    monkeypatch.setattr(tts, "play_audio_bytes", fake_play)
+
+    result = tts.speak_elevenlabs_tts(
+        "안녕하세요 https://example.com",
+        voice_id="voice-id",
+        model="eleven_v3",
+        env={"ELEVENLABS_API_KEY": "secret-eleven-key"},
+        urlopen=fake_urlopen,
+    )
+
+    assert result.ok is True
+    assert result.engine == "elevenlabs"
+    assert captured["url"] == "https://api.elevenlabs.io/v1/text-to-speech/voice-id"
+    assert captured["headers"]["Xi-api-key"] == "secret-eleven-key"
+    assert "https://example.com" not in captured["body"]
+    assert '"model_id": "eleven_v3"' in captured["body"]
+    assert '"style": 0.45' in captured["body"]
+    assert '"use_speaker_boost": true' in captured["body"]
+    assert captured["timeout"] == 20
+    assert "secret-eleven-key" not in caplog.text
+
+
+def test_gemini_tts_missing_key_returns_setup_message():
+    import openjarvis.voice.tts as tts
+
+    result = tts.speak_gemini_tts("안녕하세요", env={})
+
+    assert result.ok is False
+    assert result.engine == "gemini_tts"
+    assert "Gemini TTS API 키" in result.message
+
+
+def test_gemini_tts_uses_env_key_and_wav_audio(monkeypatch):
+    import base64
+    import json
+
+    import openjarvis.voice.tts as tts
+
+    captured = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return json.dumps(
+                {
+                    "candidates": [
+                        {
+                            "content": {
+                                "parts": [
+                                    {
+                                        "inlineData": {
+                                            "data": base64.b64encode(
+                                                b"\x00\x00"
+                                            ).decode("ascii")
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ).encode("utf-8")
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["headers"] = dict(request.header_items())
+        captured["body"] = json.loads(request.data.decode("utf-8"))
+        captured["timeout"] = timeout
+        return Response()
+
+    def fake_play(audio, **kwargs):
+        captured["audio_prefix"] = audio[:4]
+        captured["suffix"] = kwargs["suffix"]
+        return tts.SpeakResult(ok=True, engine="gemini_tts", message="음성 응답 중...")
+
+    monkeypatch.setattr(tts, "play_audio_bytes", fake_play)
+
+    result = tts.speak_gemini_tts(
+        "확인했습니다.",
+        voice="Yuna",
+        env={"GEMINI_API_KEY": "secret-gemini-key"},
+        urlopen=fake_urlopen,
+    )
+
+    assert result.ok is True
+    assert result.engine == "gemini_tts"
+    assert "gemini-2.5-flash-preview-tts:generateContent" in captured["url"]
+    assert "secret-gemini-key" in captured["url"]
+    assert captured["headers"]["Content-type"] == "application/json"
+    assert captured["body"]["generationConfig"]["responseModalities"] == ["AUDIO"]
+    voice_config = captured["body"]["generationConfig"]["speechConfig"]["voiceConfig"]
+    assert voice_config["prebuiltVoiceConfig"]["voiceName"] == "Sulafat"
+    assert captured["audio_prefix"] == b"RIFF"
+    assert captured["suffix"] == ".wav"
+    assert captured["timeout"] == 30
+
+
+def test_gemini_tts_accepts_request_api_key(monkeypatch):
+    import base64
+    import json
+
+    import openjarvis.voice.tts as tts
+
+    captured = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return json.dumps(
+                {
+                    "candidates": [
+                        {
+                            "content": {
+                                "parts": [
+                                    {
+                                        "inlineData": {
+                                            "data": base64.b64encode(
+                                                b"\x00\x00"
+                                            ).decode("ascii")
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ).encode("utf-8")
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        return Response()
+
+    monkeypatch.setattr(
+        tts,
+        "play_audio_bytes",
+        lambda *args, **kwargs: tts.SpeakResult(ok=True, engine="gemini_tts"),
+    )
+
+    result = tts.speak_gemini_tts(
+        "안녕하세요",
+        api_key="request-gemini-key",
+        env={},
+        urlopen=fake_urlopen,
+    )
+
+    assert result.ok is True
+    assert "request-gemini-key" in captured["url"]
+
+
+def test_cloud_tts_missing_config_falls_back_to_macos_say(monkeypatch):
+    import openjarvis.voice.tts as tts
+
+    monkeypatch.setattr(tts.os, "environ", {})
+    monkeypatch.setattr(
+        tts,
+        "speak_macos_say",
+        lambda *args, **kwargs: tts.SpeakResult(
+            ok=True,
+            engine="macos_say",
+            message="음성 응답 중...",
+        ),
+    )
+
+    result = tts.speak_with_provider(
+        "안녕하세요.",
+        mode="elevenlabs",
+        fallback_mode="macos_say",
+    )
+
+    assert result.ok is True
+    assert result.engine == "macos_say"
+    assert "클라우드 TTS 설정" in result.message
+
+
+def test_gemini_tts_missing_config_falls_back_to_macos_say(monkeypatch):
+    import openjarvis.voice.tts as tts
+
+    monkeypatch.setattr(tts.os, "environ", {})
+    monkeypatch.setattr(
+        tts,
+        "speak_macos_say",
+        lambda *args, **kwargs: tts.SpeakResult(
+            ok=True,
+            engine="macos_say",
+            message="음성 응답 중...",
+        ),
+    )
+
+    result = tts.speak_with_provider(
+        "안녕하세요.",
+        mode="gemini_tts",
+        fallback_mode="macos_say",
+    )
+
+    assert result.ok is True
+    assert result.engine == "macos_say"
+    assert "Gemini TTS API 키" in result.message
+
+
+def test_piper_missing_binary_or_model_falls_back_to_macos_say(monkeypatch, tmp_path):
+    import openjarvis.voice.tts as tts
+
+    monkeypatch.setattr(
+        tts,
+        "speak_macos_say",
+        lambda *args, **kwargs: tts.SpeakResult(
+            ok=True,
+            engine="macos_say",
+            message="음성 응답 중...",
+        ),
+    )
+
+    result = tts.speak_with_provider(
+        "안녕하세요.",
+        mode="piper",
+        fallback_mode="macos_say",
+        piper_path=str(tmp_path / "missing-piper"),
+        piper_model=str(tmp_path / "missing.onnx"),
+    )
+
+    assert result.ok is True
+    assert result.engine == "macos_say"
+    assert "Piper TTS 설정" in result.message
+
+
+def test_piper_uses_safe_list_args_without_shell(monkeypatch, tmp_path):
+    import openjarvis.voice.tts as tts
+
+    piper_path = tmp_path / "piper"
+    model_path = tmp_path / "voice.onnx"
+    piper_path.write_text("#!/bin/sh\n")
+    model_path.write_bytes(b"model")
+    calls = []
+
+    class Completed:
+        returncode = 0
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        Path(command[-1]).write_bytes(b"wav")
+        return Completed()
+
+    def fake_play(audio, **kwargs):
+        return tts.SpeakResult(ok=True, engine="piper", message="음성 응답 중...")
+
+    monkeypatch.setattr(tts, "play_audio_bytes", fake_play)
+
+    result = tts.speak_piper_tts(
+        "안녕하세요 https://example.com",
+        piper_path=str(piper_path),
+        model_path=str(model_path),
+        run=fake_run,
+    )
+
+    assert result.ok is True
+    command, kwargs = calls[0]
+    assert command[:4] == [str(piper_path), "--model", str(model_path), "--output_file"]
+    assert "https://example.com" not in kwargs["input"]
+    assert "shell" not in kwargs
+
+
+def test_edge_tts_uses_safe_module_command(monkeypatch):
+    import openjarvis.voice.tts as tts
+
+    calls = []
+
+    class Completed:
+        returncode = 0
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        Path(command[-1]).write_bytes(b"mp3")
+        return Completed()
+
+    def fake_play(audio, **kwargs):
+        return tts.SpeakResult(ok=True, engine="edge_tts", message="음성 응답 중...")
+
+    monkeypatch.setattr(tts, "play_audio_bytes", fake_play)
+
+    result = tts.speak_edge_tts(
+        "안녕하세요 https://example.com",
+        voice="ko-KR-InJoonNeural",
+        rate=165,
+        run=fake_run,
+    )
+
+    assert result.ok is True
+    command, kwargs = calls[0]
+    assert command[1:5] == ["-m", "edge_tts", "--voice", "ko-KR-InJoonNeural"]
+    assert "--write-media" in command
+    assert "https://example.com" not in command
+    assert "shell" not in kwargs
+
+
+def test_edge_tts_missing_config_falls_back_to_macos_say(monkeypatch):
+    import openjarvis.voice.tts as tts
+
+    monkeypatch.setattr(
+        tts,
+        "speak_edge_tts",
+        lambda *args, **kwargs: tts.SpeakResult(
+            ok=False,
+            engine="edge_tts",
+            message="edge failed",
+        ),
+    )
+    monkeypatch.setattr(
+        tts,
+        "speak_macos_say",
+        lambda *args, **kwargs: tts.SpeakResult(
+            ok=True,
+            engine="macos_say",
+            message="음성 응답 중...",
+        ),
+    )
+
+    result = tts.speak_with_provider(
+        "안녕하세요.",
+        mode="edge_tts",
+        fallback_mode="macos_say",
+    )
+
+    assert result.ok is True
+    assert result.engine == "macos_say"
+    assert "edge failed" in result.message
+
+
 def test_voice_speak_endpoint_failure_does_not_raise(monkeypatch):
     cfg = JarvisConfig()
     client = make_client(cfg)
@@ -229,6 +782,73 @@ def test_voice_speak_endpoint_failure_does_not_raise(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["ok"] is False
+
+
+def test_voice_speak_endpoint_cloud_missing_key_falls_back(monkeypatch):
+    cfg = JarvisConfig()
+    cfg.voice.tts_mode = "elevenlabs"
+    cfg.voice.tts_fallback_mode = "macos_say"
+    client = make_client(cfg)
+
+    import openjarvis.voice.tts as tts
+
+    monkeypatch.setattr(tts.os, "environ", {})
+    monkeypatch.setattr(
+        tts,
+        "speak_macos_say",
+        lambda *args, **kwargs: tts.SpeakResult(
+            ok=True,
+            engine="macos_say",
+            message="음성 응답 중...",
+        ),
+    )
+
+    response = client.post("/v1/voice/speak", json={"text": "안녕하세요"})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is True
+    assert data["engine"] == "macos_say"
+    assert "클라우드 TTS 설정" in data["message"]
+
+
+def test_voice_speak_endpoint_accepts_request_tts_mode(monkeypatch):
+    cfg = JarvisConfig()
+    cfg.voice.tts_mode = "macos_say"
+    cfg.voice.tts_fallback_mode = "macos_say"
+    client = make_client(cfg)
+
+    captured = {}
+
+    def fake_speak_with_provider(*args, **kwargs):
+        from openjarvis.voice.tts import SpeakResult
+
+        captured.update(kwargs)
+        return SpeakResult(ok=False, engine=kwargs["mode"], message="missing")
+
+    monkeypatch.setattr(
+        "openjarvis.voice.tts.speak_with_provider",
+        fake_speak_with_provider,
+    )
+
+    response = client.post(
+        "/v1/voice/speak",
+        json={
+            "text": "안녕하세요",
+            "mode": "gemini_tts",
+            "gemini_api_key": "request-gemini-key",
+            "gemini_voice": "Achird",
+            "edge_voice": "ko-KR-InJoonNeural",
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["mode"] == "gemini_tts"
+    assert captured["elevenlabs_model"] == "eleven_v3"
+    assert captured["gemini_model"] == "gemini-2.5-flash-preview-tts"
+    assert captured["gemini_api_key"] == "request-gemini-key"
+    assert captured["gemini_voice"] == "Achird"
+    assert captured["edge_voice"] == "ko-KR-InJoonNeural"
 
 
 def test_adapter_defaults_to_korean_language():

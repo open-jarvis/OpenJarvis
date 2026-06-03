@@ -102,13 +102,14 @@ export function MessageBubble({ message }: Props) {
 
   if (isUser) {
     return (
-      <div className="flex justify-end mb-4">
+      <div className="flex justify-end mb-5">
         <div
-          className="max-w-[85%] px-4 py-2.5 text-sm leading-relaxed"
+          className="max-w-[82%] px-4 py-3 text-sm leading-relaxed"
           style={{
             background: 'var(--color-user-bubble)',
             color: 'var(--color-user-bubble-text)',
-            borderRadius: 'var(--radius-xl) var(--radius-xl) var(--radius-sm) var(--radius-xl)',
+            border: '1px solid color-mix(in srgb, var(--color-accent) 22%, transparent)',
+            borderRadius: 'var(--radius-lg)',
             whiteSpace: 'pre-wrap',
             wordBreak: 'break-word',
           }}
@@ -122,7 +123,7 @@ export function MessageBubble({ message }: Props) {
   const cleanContent = useMemo(() => stripThinkTags(message.content), [message.content]);
 
   return (
-    <div className="group mb-6">
+    <div className="group mb-7">
       {/* Tool calls */}
       {message.toolCalls && message.toolCalls.length > 0 && (
         <div className="mb-3 flex flex-col gap-2">
@@ -137,7 +138,10 @@ export function MessageBubble({ message }: Props) {
 
       {/* Assistant message */}
       {cleanContent && (
-        <div className="prose max-w-none">
+        <div
+          className="prose max-w-none rounded-lg px-0 py-0 text-[0.94rem]"
+          style={{ color: 'var(--color-text)' }}
+        >
           <ReactMarkdown
             remarkPlugins={[remarkGfm, remarkMath]}
             rehypePlugins={[[rehypeHighlight, { detect: true }], rehypeKatex]}

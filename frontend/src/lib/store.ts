@@ -63,8 +63,26 @@ function saveConversations(store: ConversationStore): void {
 }
 
 export type ThemeMode = 'light' | 'dark' | 'system';
-export type TtsMode = 'macos_say' | 'browser_speech_synthesis' | 'disabled';
+export type TtsMode =
+  | 'macos_say'
+  | 'browser_speech_synthesis'
+  | 'gemini_tts'
+  | 'edge_tts'
+  | 'elevenlabs'
+  | 'piper'
+  | 'disabled';
+export type SpeechInputMode =
+  | 'free_web_speech'
+  | 'auto'
+  | 'local_stt';
+export type NavigationMode = 'car' | 'walk';
 export const FRIDAY_FAST_LOCAL_MODEL = 'qwen3:0.6b';
+
+export interface CurrentLocation {
+  latitude: number;
+  longitude: number;
+  timezone: string;
+}
 
 interface Settings {
   theme: ThemeMode;
@@ -75,11 +93,25 @@ interface Settings {
   temperature: number;
   maxTokens: number;
   speechEnabled: boolean;
+  speechInputMode: SpeechInputMode;
+  wakeAlwaysOn: boolean;
+  locationAlwaysOn: boolean;
+  wakePhrases: string;
   speakReplies: boolean;
   ttsMode: TtsMode;
   ttsVoice: string;
   ttsRate: number;
   ttsMaxChars: number;
+  ttsPauseMs: number;
+  ttsNaturalize: boolean;
+  geminiApiKey: string;
+  geminiVoice: string;
+  edgeVoice: string;
+  tmapApiKey: string;
+  navigationMode: NavigationMode;
+  manualLocationName: string;
+  manualLatitude: string;
+  manualLongitude: string;
 }
 
 function loadSettings(): Settings {
@@ -91,12 +123,26 @@ function loadSettings(): Settings {
     defaultAgent: '',
     temperature: 0.7,
     maxTokens: 4096,
-    speechEnabled: false,
+    speechEnabled: true,
+    speechInputMode: 'free_web_speech',
+    wakeAlwaysOn: true,
+    locationAlwaysOn: true,
+    wakePhrases: '프라이데이, 헤이 프라이데이, friday, hey friday',
     speakReplies: false,
     ttsMode: 'macos_say',
     ttsVoice: 'Yuna',
-    ttsRate: 175,
+    ttsRate: 165,
     ttsMaxChars: 400,
+    ttsPauseMs: 250,
+    ttsNaturalize: true,
+    geminiApiKey: '',
+    geminiVoice: 'Sulafat',
+    edgeVoice: 'ko-KR-SunHiNeural',
+    tmapApiKey: '',
+    navigationMode: 'car',
+    manualLocationName: '수동 위치',
+    manualLatitude: '',
+    manualLongitude: '',
   };
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
@@ -134,6 +180,8 @@ interface AppState {
   selectedModel: string;
   serverInfo: ServerInfo | null;
   savings: SavingsData | null;
+  currentLocation: CurrentLocation | null;
+  locationStatus: string;
 
   // Settings
   settings: Settings;
@@ -180,6 +228,8 @@ interface AppState {
   setSelectedModel: (model: string) => void;
   setServerInfo: (info: ServerInfo | null) => void;
   setSavings: (data: SavingsData | null) => void;
+  setCurrentLocation: (location: CurrentLocation | null) => void;
+  setLocationStatus: (status: string) => void;
 
   // Actions: settings
   updateSettings: (partial: Partial<Settings>) => void;
@@ -247,6 +297,8 @@ export const useAppStore = create<AppState>((set, get) => {
       : loadSettings().defaultModel,
     serverInfo: null,
     savings: null,
+    currentLocation: null,
+    locationStatus: '',
 
     settings: loadSettings(),
 
@@ -427,6 +479,8 @@ export const useAppStore = create<AppState>((set, get) => {
     setSelectedModel: (model: string) => set({ selectedModel: model }),
     setServerInfo: (info: ServerInfo | null) => set({ serverInfo: info }),
     setSavings: (data: SavingsData | null) => set({ savings: data }),
+    setCurrentLocation: (location: CurrentLocation | null) => set({ currentLocation: location }),
+    setLocationStatus: (status: string) => set({ locationStatus: status }),
 
     cachedConnectors: null,
     setCachedConnectors: (list) => set({ cachedConnectors: list }),

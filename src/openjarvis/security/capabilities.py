@@ -178,6 +178,11 @@ DEFAULT_TOOL_CAPABILITIES: Dict[str, List[str]] = {
     "memory_index": [Capability.MEMORY_WRITE],
     "schedule_task": [Capability.SCHEDULE_CREATE],
     "channel_send": [Capability.CHANNEL_SEND],
+    "agent_spawn": [Capability.SYSTEM_ADMIN],
+    "agent_send": [Capability.SYSTEM_ADMIN],
+    "agent_list": [Capability.SYSTEM_ADMIN],
+    "agent_kill": [Capability.SYSTEM_ADMIN],
+    "mac_automation": [Capability.SYSTEM_ADMIN],
 }
 
 

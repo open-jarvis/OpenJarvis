@@ -14,6 +14,10 @@ export interface ChatRequest {
       longitude: number;
       timezone?: string;
     };
+    navigation?: {
+      tmap_api_key?: string;
+      mode?: 'car' | 'walk';
+    };
   };
 }
 

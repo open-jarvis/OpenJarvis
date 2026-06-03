@@ -806,6 +806,14 @@ class WeatherConfig:
 
 
 @dataclass(slots=True)
+class NavigationConfig:
+    """Navigation defaults for TMAP route guidance."""
+
+    tmap_api_key: str = ""
+    default_mode: str = "car"
+
+
+@dataclass(slots=True)
 class ToolsConfig:
     """Tools primitive settings — wraps storage and MCP configuration."""
 
@@ -813,6 +821,7 @@ class ToolsConfig:
     mcp: MCPConfig = field(default_factory=MCPConfig)
     browser: BrowserConfig = field(default_factory=BrowserConfig)
     weather: WeatherConfig = field(default_factory=WeatherConfig)
+    navigation: NavigationConfig = field(default_factory=NavigationConfig)
     enabled: str = ""  # comma-separated default tools
 
 
@@ -1258,8 +1267,19 @@ class VoiceConfig:
     custom_command: str = ""
     tts_mode: str = "macos_say"
     tts_voice: str = "Yuna"
-    tts_rate: int = 175
+    tts_enabled: bool = True
+    tts_rate: int | str = 165
     tts_max_chars: int = 400
+    tts_pause_ms: int = 250
+    tts_naturalize: bool = True
+    tts_fallback_mode: str = "macos_say"
+    elevenlabs_voice_id: str = ""
+    elevenlabs_model: str = "eleven_v3"
+    gemini_model: str = "gemini-2.5-flash-preview-tts"
+    gemini_voice: str = "Sulafat"
+    edge_voice: str = "ko-KR-SunHiNeural"
+    piper_path: str = ""
+    piper_model: str = ""
 
 
 @dataclass(slots=True)
@@ -1950,6 +1970,7 @@ __all__ = [
     "MattermostChannelConfig",
     "MemoryConfig",
     "MetricsConfig",
+    "NavigationConfig",
     "OllamaEngineConfig",
     "OptimizeConfig",
     "RoutingLearningConfig",

@@ -314,7 +314,16 @@ class TestVoiceSpeak:
             "chunks": ["안녕하세요"],
         }
         assert calls == [
-            (("안녕하세요",), {"voice": "Yuna", "rate": 175, "max_chars": 400})
+            (
+                ("안녕하세요",),
+                {
+                    "voice": "Yuna",
+                    "rate": 175,
+                    "max_chars": 400,
+                    "pause_ms": 250,
+                    "naturalize": True,
+                },
+            )
         ]
 
     def test_voice_speak_empty_text_returns_json_error(self, client, monkeypatch):

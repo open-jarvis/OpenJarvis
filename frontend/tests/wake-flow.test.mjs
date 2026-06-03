@@ -4,11 +4,14 @@ import test from 'node:test';
 import {
   evaluateLocalWakeText,
   hasWakePhrase,
+  hasWakePhraseFromList,
   isLocalWakeLoopStopped,
   nextWakeStatusAfterCommand,
+  normalizeWakePhrases,
   shouldRunLocalWakeLoop,
   shouldContinueLocalWakeLoop,
   stripWakePhrase,
+  stripWakePhraseFromList,
 } from 'file:///private/tmp/openjarvis-wake-tests/wake.js';
 
 test('detects Korean and English wake phrases', () => {
@@ -81,6 +84,27 @@ test('debounces duplicate wake phrases', () => {
 
 test('strips wake phrase from command text', () => {
   assert.equal(stripWakePhrase('헤이 프라이데이 오늘 날씨 알려줘'), '오늘 날씨 알려줘');
+});
+
+test('detects and strips custom wake phrases', () => {
+  const phrases = normalizeWakePhrases('자비스, 오케이 자비스');
+
+  assert.equal(hasWakePhraseFromList('오케이 자비스 오늘 일정 알려줘', phrases), true);
+  assert.equal(
+    stripWakePhraseFromList('오케이 자비스 오늘 일정 알려줘', phrases),
+    '오늘 일정 알려줘',
+  );
+});
+
+test('custom wake phrase can trigger local wake flow', () => {
+  const step = evaluateLocalWakeText('자비스', {
+    awaitingCommand: false,
+    lastDetectedAt: 0,
+    now: 10_000,
+    wakePhrases: ['자비스'],
+  });
+
+  assert.equal(step.action, 'wake_detected');
 });
 
 test('local wake loop only runs in active app mode', () => {

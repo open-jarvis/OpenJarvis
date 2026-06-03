@@ -14,6 +14,7 @@ import { Toaster } from './components/ui/sonner';
 import { FRIDAY_FAST_LOCAL_MODEL, useAppStore } from './lib/store';
 import { fetchModels, fetchServerInfo, fetchSavings, submitSavings, isTauri } from './lib/api';
 import { OptInModal } from './components/OptInModal';
+import { watchCurrentLocation } from './lib/location';
 
 export default function App() {
   const [setupDone, setSetupDone] = useState(!isTauri());
@@ -24,6 +25,8 @@ export default function App() {
   const selectedModel = useAppStore((s) => s.selectedModel);
   const setServerInfo = useAppStore((s) => s.setServerInfo);
   const setSavings = useAppStore((s) => s.setSavings);
+  const setCurrentLocation = useAppStore((s) => s.setCurrentLocation);
+  const setLocationStatus = useAppStore((s) => s.setLocationStatus);
   const settings = useAppStore((s) => s.settings);
   const commandPaletteOpen = useAppStore((s) => s.commandPaletteOpen);
   const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen);
@@ -34,6 +37,7 @@ export default function App() {
   const optInModalOpen = useAppStore((s) => s.optInModalOpen);
   const setOptInModalOpen = useAppStore((s) => s.setOptInModalOpen);
   const savings = useAppStore((s) => s.savings);
+  const locationWatchRef = useRef<number | null>(null);
 
   // Apply theme class to <html>
   useEffect(() => {
@@ -70,6 +74,60 @@ export default function App() {
   useEffect(() => {
     fetchServerInfo().then(setServerInfo).catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const stopWatch = () => {
+      if (locationWatchRef.current !== null) {
+        navigator.geolocation?.clearWatch(locationWatchRef.current);
+        locationWatchRef.current = null;
+      }
+    };
+
+    if (!settings.locationAlwaysOn) {
+      stopWatch();
+      setLocationStatus('');
+      return stopWatch;
+    }
+
+    const manualLatitude = Number.parseFloat(settings.manualLatitude);
+    const manualLongitude = Number.parseFloat(settings.manualLongitude);
+    const hasManualLocation = Number.isFinite(manualLatitude)
+      && Number.isFinite(manualLongitude);
+    const useManualLocation = (status = '수동 현재 위치 사용 중') => {
+      if (!hasManualLocation) return false;
+      setCurrentLocation({
+        latitude: manualLatitude,
+        longitude: manualLongitude,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Seoul',
+      });
+      setLocationStatus(status);
+      return true;
+    };
+
+    setLocationStatus('위치 권한 확인 중');
+    stopWatch();
+    locationWatchRef.current = watchCurrentLocation(
+      (location) => {
+        setCurrentLocation(location);
+        setLocationStatus('현재 위치 상시 사용 중');
+      },
+      (message) => {
+        if (!useManualLocation(`${message} · 수동 위치 사용 중`)) {
+          setCurrentLocation(null);
+          setLocationStatus(message);
+        }
+        stopWatch();
+      },
+    );
+
+    return stopWatch;
+  }, [
+    settings.locationAlwaysOn,
+    settings.manualLatitude,
+    settings.manualLongitude,
+    setCurrentLocation,
+    setLocationStatus,
+  ]);
 
   // Poll savings and optionally share to Supabase
   useEffect(() => {

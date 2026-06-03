@@ -17,9 +17,17 @@ import {
   Search,
   Brain,
   Trophy,
+  Volume2,
 } from 'lucide-react';
-import { useAppStore, type ThemeMode, type TtsMode } from '../lib/store';
-import { checkHealth, getMemoryStats } from '../lib/api';
+import {
+  useAppStore,
+  type NavigationMode,
+  type SpeechInputMode,
+  type ThemeMode,
+  type TtsMode,
+} from '../lib/store';
+import { checkHealth, getMemoryStats, speakVoice } from '../lib/api';
+import { locationErrorMessage, requestCurrentLocation } from '../lib/location';
 
 function OllamaModelList() {
   const [models, setModels] = useState<Array<{ name: string; size: number }>>([]);
@@ -83,10 +91,9 @@ function CloudProviderStatus({ label, storageKey }: { label: string; storageKey:
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div
-      className="rounded-xl p-5"
-      style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
+      className="quiet-panel rounded-lg p-5"
     >
-      <h3 className="text-sm font-semibold mb-4" style={{ color: 'var(--color-text)' }}>
+      <h3 className="text-xs font-semibold uppercase mb-4" style={{ color: 'var(--color-text-secondary)' }}>
         {title}
       </h3>
       {children}
@@ -96,14 +103,14 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function SettingRow({ label, description, children }: { label: string; description?: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between py-3" style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-      <div>
-        <div className="text-sm" style={{ color: 'var(--color-text)' }}>{label}</div>
+    <div className="flex items-center justify-between gap-4 py-3" style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+      <div className="min-w-0">
+        <div className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>{label}</div>
         {description && (
           <div className="text-xs mt-0.5" style={{ color: 'var(--color-text-tertiary)' }}>{description}</div>
         )}
       </div>
-      <div>{children}</div>
+      <div className="shrink-0">{children}</div>
     </div>
   );
 }
@@ -117,12 +124,68 @@ const themeOptions: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
 const ttsModeOptions: { value: TtsMode; label: string }[] = [
   { value: 'macos_say', label: 'macOS say' },
   { value: 'browser_speech_synthesis', label: 'Browser speechSynthesis' },
+  { value: 'gemini_tts', label: 'Gemini 2.5 Flash TTS' },
+  { value: 'edge_tts', label: 'Edge TTS' },
+  { value: 'elevenlabs', label: 'ElevenLabs' },
+  { value: 'piper', label: 'Piper' },
   { value: 'disabled', label: 'Disabled' },
+];
+
+const speechInputModeOptions: { value: SpeechInputMode; label: string }[] = [
+  { value: 'free_web_speech', label: 'Free Web Speech' },
+  { value: 'auto', label: 'Auto fallback' },
+  { value: 'local_stt', label: 'Local STT upload' },
+];
+
+const geminiVoiceOptions = [
+  { value: 'Sulafat', label: 'Sulafat · Warm' },
+  { value: 'Achird', label: 'Achird · Friendly' },
+  { value: 'Vindemiatrix', label: 'Vindemiatrix · Gentle' },
+  { value: 'Achernar', label: 'Achernar · Soft' },
+  { value: 'Aoede', label: 'Aoede · Breezy' },
+  { value: 'Puck', label: 'Puck · Upbeat' },
+  { value: 'Kore', label: 'Kore · Firm' },
+  { value: 'Iapetus', label: 'Iapetus · Clear' },
+  { value: 'Zephyr', label: 'Zephyr · Bright' },
+  { value: 'Charon', label: 'Charon · Informative' },
+  { value: 'Fenrir', label: 'Fenrir · Excitable' },
+  { value: 'Leda', label: 'Leda · Youthful' },
+  { value: 'Orus', label: 'Orus · Firm' },
+  { value: 'Callirrhoe', label: 'Callirrhoe · Easy-going' },
+  { value: 'Autonoe', label: 'Autonoe · Bright' },
+  { value: 'Enceladus', label: 'Enceladus · Breathy' },
+  { value: 'Umbriel', label: 'Umbriel · Easy-going' },
+  { value: 'Algieba', label: 'Algieba · Smooth' },
+  { value: 'Despina', label: 'Despina · Smooth' },
+  { value: 'Erinome', label: 'Erinome · Clear' },
+  { value: 'Algenib', label: 'Algenib · Gravelly' },
+  { value: 'Rasalgethi', label: 'Rasalgethi · Informative' },
+  { value: 'Laomedeia', label: 'Laomedeia · Upbeat' },
+  { value: 'Alnilam', label: 'Alnilam · Firm' },
+  { value: 'Schedar', label: 'Schedar · Even' },
+  { value: 'Gacrux', label: 'Gacrux · Mature' },
+  { value: 'Pulcherrima', label: 'Pulcherrima · Forward' },
+  { value: 'Zubenelgenubi', label: 'Zubenelgenubi · Casual' },
+  { value: 'Sadachbia', label: 'Sadachbia · Lively' },
+  { value: 'Sadaltager', label: 'Sadaltager · Knowledgeable' },
+];
+
+const edgeVoiceOptions = [
+  { value: 'ko-KR-SunHiNeural', label: 'SunHi · Korean female' },
+  { value: 'ko-KR-InJoonNeural', label: 'InJoon · Korean male' },
+  { value: 'en-US-JennyNeural', label: 'Jenny · English female' },
+  { value: 'en-US-GuyNeural', label: 'Guy · English male' },
+  { value: 'ja-JP-NanamiNeural', label: 'Nanami · Japanese female' },
+  { value: 'zh-CN-XiaoxiaoNeural', label: 'Xiaoxiao · Chinese female' },
 ];
 
 export function SettingsPage() {
   const settings = useAppStore((s) => s.settings);
   const updateSettings = useAppStore((s) => s.updateSettings);
+  const currentLocation = useAppStore((s) => s.currentLocation);
+  const locationStatus = useAppStore((s) => s.locationStatus);
+  const setCurrentLocation = useAppStore((s) => s.setCurrentLocation);
+  const setLocationStatus = useAppStore((s) => s.setLocationStatus);
   const conversations = useAppStore((s) => s.conversations);
   const serverInfo = useAppStore((s) => s.serverInfo);
   const optInEnabled = useAppStore((s) => s.optInEnabled);
@@ -130,6 +193,8 @@ export function SettingsPage() {
   const [healthy, setHealthy] = useState<boolean | null>(null);
   const [browserSpeechAvailable, setBrowserSpeechAvailable] = useState<boolean | null>(null);
   const [saved, setSaved] = useState(false);
+  const [ttsSampleStatus, setTtsSampleStatus] = useState('');
+  const [locationRequesting, setLocationRequesting] = useState(false);
 
   const [memoryStats, setMemoryStats] = useState<{ entries: number; backend: string } | null>(null);
   const [memoryEnabled, setMemoryEnabled] = useState(() => {
@@ -159,6 +224,83 @@ export function SettingsPage() {
   const showSaved = () => {
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
+  };
+
+  const requestLocationNow = async () => {
+    updateSettings({ locationAlwaysOn: true });
+    setLocationRequesting(true);
+    setLocationStatus('위치 권한 확인 중');
+    try {
+      const location = await requestCurrentLocation();
+      setCurrentLocation(location);
+      setLocationStatus('현재 위치 사용 중');
+      showSaved();
+    } catch (err) {
+      setCurrentLocation(null);
+      setLocationStatus(locationErrorMessage(err));
+    } finally {
+      setLocationRequesting(false);
+    }
+  };
+
+  const applyManualLocation = () => {
+    const latitude = Number.parseFloat(settings.manualLatitude);
+    const longitude = Number.parseFloat(settings.manualLongitude);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      setCurrentLocation(null);
+      setLocationStatus('수동 위치 좌표를 확인해주세요');
+      return;
+    }
+    setCurrentLocation({
+      latitude,
+      longitude,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Seoul',
+    });
+    updateSettings({ locationAlwaysOn: true });
+    setLocationStatus(`${settings.manualLocationName || '수동 위치'} 사용 중`);
+    showSaved();
+  };
+
+  const playGeminiVoiceSample = async () => {
+    const key = settings.geminiApiKey.trim();
+    if (!key) {
+      setTtsSampleStatus('Gemini API key required');
+      return;
+    }
+    setTtsSampleStatus('Playing sample...');
+    try {
+      const result = await speakVoice({
+        text: '안녕하세요. 저는 프라이데이예요. 이렇게 자연스러운 목소리로 답변드릴게요.',
+        mode: 'gemini_tts',
+        voice: settings.ttsVoice || 'Yuna',
+        gemini_api_key: key,
+        gemini_voice: settings.geminiVoice || 'Sulafat',
+        max_chars: 180,
+        naturalize: true,
+      });
+      setTtsSampleStatus(result.ok ? 'Sample playing' : result.message || 'Sample failed');
+    } catch {
+      setTtsSampleStatus('Sample failed');
+    }
+  };
+
+  const playEdgeVoiceSample = async () => {
+    setTtsSampleStatus('Playing Edge sample...');
+    try {
+      const result = await speakVoice({
+        text: '안녕하세요. 엣지 티티에스 목소리 샘플입니다.',
+        mode: 'edge_tts',
+        edge_voice: settings.edgeVoice || 'ko-KR-SunHiNeural',
+        rate: settings.ttsRate || 165,
+        max_chars: 180,
+        naturalize: true,
+      });
+      setTtsSampleStatus(
+        result.ok ? 'Edge sample playing' : result.message || 'Edge sample failed',
+      );
+    } catch {
+      setTtsSampleStatus('Edge sample failed');
+    }
   };
 
   const handleExport = () => {
@@ -343,6 +485,101 @@ export function SettingsPage() {
             </SettingRow>
           </Section>
 
+          {/* Navigation */}
+          <Section title="Navigation">
+            <SettingRow label="TMAP API key" description="Stored locally in this browser for route guidance">
+              <input
+                type="password"
+                value={settings.tmapApiKey}
+                onChange={(e) => { updateSettings({ tmapApiKey: e.target.value }); showSaved(); }}
+                placeholder="TMAP appKey"
+                autoComplete="off"
+                spellCheck={false}
+                className="w-64 px-2 py-1 rounded text-xs"
+                style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+              />
+            </SettingRow>
+            <SettingRow
+              label="Always-on location"
+              description={
+                currentLocation
+                  ? `${locationStatus || '현재 위치 사용 중'} · ${currentLocation.latitude.toFixed(4)}, ${currentLocation.longitude.toFixed(4)}`
+                  : locationStatus || 'Keep current location updated while the app is open'
+              }
+            >
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={requestLocationNow}
+                  disabled={locationRequesting}
+                  className="px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-default"
+                  style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}
+                >
+                  {locationRequesting ? 'Checking...' : 'Request location'}
+                </button>
+                <button
+                  onClick={() => { updateSettings({ locationAlwaysOn: !settings.locationAlwaysOn }); showSaved(); }}
+                  className="relative w-11 h-6 rounded-full transition-colors cursor-pointer"
+                  style={{
+                    background: settings.locationAlwaysOn ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
+                  }}
+                >
+                  <span
+                    className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full transition-transform bg-white"
+                    style={{
+                      transform: settings.locationAlwaysOn ? 'translateX(20px)' : 'translateX(0)',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                    }}
+                  />
+                </button>
+              </div>
+            </SettingRow>
+            <SettingRow label="Manual location" description="Use these coordinates when browser location is unavailable">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <input
+                  value={settings.manualLocationName}
+                  onChange={(e) => { updateSettings({ manualLocationName: e.target.value }); showSaved(); }}
+                  placeholder="Name"
+                  className="w-24 px-2 py-1 rounded text-xs"
+                  style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                />
+                <input
+                  value={settings.manualLatitude}
+                  onChange={(e) => { updateSettings({ manualLatitude: e.target.value }); showSaved(); }}
+                  placeholder="Latitude"
+                  inputMode="decimal"
+                  className="w-24 px-2 py-1 rounded text-xs"
+                  style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                />
+                <input
+                  value={settings.manualLongitude}
+                  onChange={(e) => { updateSettings({ manualLongitude: e.target.value }); showSaved(); }}
+                  placeholder="Longitude"
+                  inputMode="decimal"
+                  className="w-24 px-2 py-1 rounded text-xs"
+                  style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                />
+                <button
+                  onClick={applyManualLocation}
+                  className="px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer"
+                  style={{ background: 'var(--color-accent)', color: 'var(--color-on-accent)' }}
+                >
+                  Apply
+                </button>
+              </div>
+            </SettingRow>
+            <SettingRow label="Default route mode" description="Used unless you say driving or walking in the request">
+              <select
+                value={settings.navigationMode}
+                onChange={(e) => { updateSettings({ navigationMode: e.target.value as NavigationMode }); showSaved(); }}
+                className="px-2 py-1 rounded text-xs"
+                style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+              >
+                <option value="car">Car</option>
+                <option value="walk">Walk</option>
+              </select>
+            </SettingRow>
+          </Section>
+
           {/* Memory */}
           <Section title="Memory">
             <SettingRow label="Memory status" description={memoryStats ? `${memoryStats.backend} backend — ${memoryStats.entries} entries` : 'Unable to reach memory service'}>
@@ -492,6 +729,50 @@ export function SettingsPage() {
                 />
               </button>
             </SettingRow>
+            <SettingRow label="STT mode" description="Use the free browser Web Speech API in web mode">
+              <select
+                value={settings.speechInputMode}
+                onChange={(e) => { updateSettings({ speechInputMode: e.target.value as SpeechInputMode }); showSaved(); }}
+                className="px-2 py-1 rounded text-xs"
+                style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+              >
+                {speechInputModeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </SettingRow>
+            <SettingRow label="Always-on wake" description="Start wake listening automatically when the app opens">
+              <button
+                onClick={() => {
+                  const nextWakeAlwaysOn = !settings.wakeAlwaysOn;
+                  updateSettings({
+                    wakeAlwaysOn: nextWakeAlwaysOn,
+                    speechEnabled: nextWakeAlwaysOn ? true : settings.speechEnabled,
+                  });
+                  showSaved();
+                }}
+                className="relative w-11 h-6 rounded-full transition-colors cursor-pointer"
+                style={{
+                  background: settings.wakeAlwaysOn ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
+                }}
+              >
+                <span
+                  className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full transition-transform bg-white"
+                  style={{
+                    transform: settings.wakeAlwaysOn ? 'translateX(20px)' : 'translateX(0)',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  }}
+                />
+              </button>
+            </SettingRow>
+            <SettingRow label="Wake phrases" description="Comma-separated call words">
+              <input
+                value={settings.wakePhrases}
+                onChange={(e) => { updateSettings({ wakePhrases: e.target.value }); showSaved(); }}
+                className="w-64 px-2 py-1 rounded text-xs"
+                style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+              />
+            </SettingRow>
             <SettingRow label="Speak replies" description="Read assistant replies aloud with browser speech synthesis">
               <button
                 onClick={() => { updateSettings({ speakReplies: !settings.speakReplies }); showSaved(); }}
@@ -521,6 +802,63 @@ export function SettingsPage() {
                 ))}
               </select>
             </SettingRow>
+            <SettingRow label="Gemini API key" description="Stored locally in this browser for Gemini TTS">
+              <input
+                type="password"
+                value={settings.geminiApiKey}
+                onChange={(e) => { updateSettings({ geminiApiKey: e.target.value }); showSaved(); }}
+                placeholder="AIza..."
+                autoComplete="off"
+                spellCheck={false}
+                className="w-64 px-2 py-1 rounded text-xs"
+                style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+              />
+            </SettingRow>
+            <SettingRow label="Gemini voice" description={ttsSampleStatus || 'Choose a Gemini voice and preview it'}>
+              <div className="flex items-center gap-2">
+                <select
+                  value={settings.geminiVoice}
+                  onChange={(e) => { updateSettings({ geminiVoice: e.target.value }); showSaved(); }}
+                  className="px-2 py-1 rounded text-xs"
+                  style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                >
+                  {geminiVoiceOptions.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={playGeminiVoiceSample}
+                  disabled={!settings.geminiApiKey.trim()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
+                  style={{ background: 'var(--color-bg-secondary)', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)' }}
+                >
+                  <Volume2 size={12} />
+                  Sample
+                </button>
+              </div>
+            </SettingRow>
+            <SettingRow label="Edge voice" description={ttsSampleStatus || 'Choose an edge-tts voice and preview it'}>
+              <div className="flex items-center gap-2">
+                <select
+                  value={settings.edgeVoice}
+                  onChange={(e) => { updateSettings({ edgeVoice: e.target.value }); showSaved(); }}
+                  className="px-2 py-1 rounded text-xs"
+                  style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                >
+                  {edgeVoiceOptions.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={playEdgeVoiceSample}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+                  style={{ background: 'var(--color-bg-secondary)', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)' }}
+                >
+                  <Volume2 size={12} />
+                  Sample
+                </button>
+              </div>
+            </SettingRow>
             <SettingRow label="macOS voice" description="Recommended Korean voice: Yuna">
               <input
                 value={settings.ttsVoice}
@@ -535,10 +873,38 @@ export function SettingsPage() {
                 min="80"
                 max="320"
                 value={settings.ttsRate}
-                onChange={(e) => { updateSettings({ ttsRate: parseInt(e.target.value) || 175 }); showSaved(); }}
+                onChange={(e) => { updateSettings({ ttsRate: parseInt(e.target.value) || 165 }); showSaved(); }}
                 className="w-24 px-2 py-1 rounded text-xs"
                 style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
               />
+            </SettingRow>
+            <SettingRow label="TTS pause" description={`${settings.ttsPauseMs ?? 250} ms between chunks`}>
+              <input
+                type="number"
+                min="0"
+                max="2000"
+                value={settings.ttsPauseMs ?? 250}
+                onChange={(e) => { updateSettings({ ttsPauseMs: parseInt(e.target.value) || 250 }); showSaved(); }}
+                className="w-24 px-2 py-1 rounded text-xs"
+                style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+              />
+            </SettingRow>
+            <SettingRow label="Natural Korean TTS" description="Shortens dense replies and weather into spoken Korean">
+              <button
+                onClick={() => { updateSettings({ ttsNaturalize: !(settings.ttsNaturalize ?? true) }); showSaved(); }}
+                className="relative w-11 h-6 rounded-full transition-colors"
+                style={{
+                  background: (settings.ttsNaturalize ?? true) ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
+                }}
+              >
+                <span
+                  className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full transition-transform bg-white"
+                  style={{
+                    transform: (settings.ttsNaturalize ?? true) ? 'translateX(20px)' : 'translateX(0)',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  }}
+                />
+              </button>
             </SettingRow>
             <SettingRow label="TTS max length" description={`${settings.ttsMaxChars} characters per reply`}>
               <input

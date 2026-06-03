@@ -17,6 +17,7 @@ import {
   Loader2,
   ScrollText,
   Database,
+  Command,
 } from 'lucide-react';
 import { ConversationList } from './ConversationList';
 import { useAppStore } from '../../lib/store';
@@ -80,16 +81,16 @@ export function Sidebar() {
         className={`
           flex flex-col h-full shrink-0 transition-all duration-200 ease-in-out overflow-hidden
           fixed md:relative z-30
-          ${sidebarOpen ? 'w-[260px]' : 'w-0'}
+          ${sidebarOpen ? 'w-[292px]' : 'w-0'}
         `}
         style={{
           background: 'var(--color-sidebar)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
+          backdropFilter: 'blur(24px)',
+          WebkitBackdropFilter: 'blur(24px)',
           borderRight: sidebarOpen ? '1px solid var(--color-border)' : 'none',
         }}
       >
-        <div className="flex flex-col h-full w-[260px]">
+        <div className="flex flex-col h-full w-[292px]">
           {/* Header */}
           <div className="flex items-center justify-between px-3 pt-3 pb-2">
             <button
@@ -101,6 +102,14 @@ export function Sidebar() {
             >
               <PanelLeftClose size={18} />
             </button>
+            <div className="flex-1 px-2 min-w-0">
+              <div className="text-xs font-semibold truncate" style={{ color: 'var(--color-text)' }}>
+                Friday Console
+              </div>
+              <div className="text-[11px] truncate" style={{ color: 'var(--color-text-tertiary)' }}>
+                local-first assistant
+              </div>
+            </div>
             <div className="flex items-center gap-1">
               <button
                 onClick={() => updateSettings({ theme: nextTheme })}
@@ -128,11 +137,12 @@ export function Sidebar() {
           {/* Model badge */}
           <button
             onClick={() => setCommandPaletteOpen(true)}
-            className="mx-3 mb-2 flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-colors cursor-pointer"
+            className="mx-3 mb-3 flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs transition-colors cursor-pointer"
             style={{
-              background: 'var(--color-bg-secondary)',
+              background: 'color-mix(in srgb, var(--color-surface) 70%, transparent)',
               color: 'var(--color-text-secondary)',
               border: '1px solid var(--color-border)',
+              boxShadow: 'var(--shadow-sm)',
             }}
             onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--color-bg-tertiary)')}
             onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--color-bg-secondary)')}
@@ -153,20 +163,15 @@ export function Sidebar() {
               )}
             </div>
             {!modelLoading && (
-              <kbd
-                className="text-[10px] px-1.5 py-0.5 rounded font-mono"
-                style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-tertiary)' }}
-              >
-                ⌘K
-              </kbd>
+              <Command size={13} style={{ color: 'var(--color-text-tertiary)' }} />
             )}
           </button>
 
           {/* Search */}
           <div className="px-3 mb-2">
             <div
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm"
-              style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm"
+              style={{ background: 'color-mix(in srgb, var(--color-surface) 58%, transparent)', border: '1px solid var(--color-border)' }}
             >
               <Search size={14} style={{ color: 'var(--color-text-tertiary)' }} />
               <input
@@ -186,18 +191,18 @@ export function Sidebar() {
           </div>
 
           {/* Bottom nav */}
-          <nav className="px-2 pb-3 pt-2 flex flex-col gap-0.5" style={{ borderTop: '1px solid var(--color-border)' }}>
+          <nav className="px-2 pb-3 pt-2 flex flex-col gap-1" style={{ borderTop: '1px solid var(--color-border)' }}>
             {navItems.map((item) => {
               const isActive = location.pathname === item.path;
               return (
                 <button
                   key={item.path}
                   onClick={() => navigate(item.path)}
-                  className="relative flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors w-full text-left cursor-pointer"
+                  className="relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors w-full text-left cursor-pointer"
                   style={{
-                    background: isActive ? 'var(--color-accent-subtle)' : 'transparent',
+                    background: isActive ? 'color-mix(in srgb, var(--color-accent) 13%, transparent)' : 'transparent',
                     color: isActive ? 'var(--color-text)' : 'var(--color-text-secondary)',
-                    fontWeight: isActive ? 500 : 400,
+                    fontWeight: isActive ? 650 : 450,
                   }}
                   onMouseEnter={(e) => {
                     if (!isActive) e.currentTarget.style.background = 'var(--color-bg-secondary)';

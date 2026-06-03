@@ -65,6 +65,15 @@ class TestMCPServer:
             schema = tool["inputSchema"]
             assert "properties" in schema
 
+    def test_auto_discover_includes_agent_and_mac_tools(self):
+        names = {tool.spec.name for tool in MCPServer().get_tools()}
+
+        assert "agent_spawn" in names
+        assert "agent_send" in names
+        assert "agent_list" in names
+        assert "agent_kill" in names
+        assert "mac_automation" in names
+
     def test_tools_call_calculator(self, server):
         req = MCPRequest(
             method="tools/call",

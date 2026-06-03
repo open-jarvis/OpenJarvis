@@ -59,9 +59,15 @@ class OptimizeRunRequest(BaseModel):
 
 class VoiceSpeakRequest(BaseModel):
     text: str = ""
+    mode: str | None = None
     voice: str = "Yuna"
-    rate: int = 175
+    rate: int | str = 165
     max_chars: int = 400
+    pause_ms: int = 250
+    naturalize: bool = True
+    gemini_api_key: str = ""
+    gemini_voice: str = ""
+    edge_voice: str = ""
     stop: bool = False
 
 
@@ -598,12 +604,15 @@ async def websocket_chat_stream(websocket: WebSocket):
             from openjarvis.friday_assistant import route_friday_command
 
             current_location = None
+            navigation_context = None
             friday_context = data.get("friday_context")
             if isinstance(friday_context, dict):
                 current_location = friday_context.get("current_location")
+                navigation_context = friday_context.get("navigation")
             local_result = route_friday_command(
                 message,
                 current_location=current_location,
+                navigation_context=navigation_context,
             )
             if local_result is not None:
                 await websocket.send_json(
@@ -835,10 +844,93 @@ async def voice_listen_once(request: Request):
     }
 
 
+@voice_router.post("/transcribe")
+async def voice_transcribe_upload(request: Request):
+    """Transcribe uploaded browser microphone audio with local STT."""
+    import tempfile
+    from pathlib import Path
+
+    form = await request.form()
+    audio_file = form.get("file")
+    if audio_file is None:
+        raise HTTPException(status_code=400, detail="Missing 'file' field")
+
+    audio_bytes = await audio_file.read()
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="Empty audio file")
+
+    language = str(form.get("language") or "ko")
+    filename = getattr(audio_file, "filename", "audio.webm")
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "webm"
+
+    backend = getattr(request.app.state, "speech_backend", None)
+    if backend is not None:
+        result = backend.transcribe(audio_bytes, format=ext, language=language)
+        return {
+            "ok": True,
+            "text": result.text,
+            "engine": getattr(backend, "backend_id", "speech"),
+            "mode": "uploaded_audio",
+            "message": "",
+            "language": result.language,
+            "confidence": result.confidence,
+            "duration_seconds": result.duration_seconds,
+        }
+
+    config = getattr(request.app.state, "config", None)
+    if config is None:
+        from openjarvis.core.config import load_config
+
+        config = load_config()
+
+    from openjarvis.voice.adapters import create_stt_adapter
+
+    adapter = getattr(request.app.state, "voice_stt_adapter", None)
+    stt_adapter = adapter or create_stt_adapter(config.voice)
+    if not config.voice.stt_enabled:
+        return {
+            "ok": False,
+            "text": "",
+            "engine": stt_adapter.engine,
+            "mode": "uploaded_audio",
+            "message": (
+                "로컬 STT가 비활성화되어 있습니다. "
+                "설정에서 voice.stt_enabled를 켜주세요."
+            ),
+        }
+    if not stt_adapter.check_available():
+        return {
+            "ok": False,
+            "text": "",
+            "engine": stt_adapter.engine,
+            "mode": "uploaded_audio",
+            "message": stt_adapter.get_setup_message(),
+        }
+
+    suffix = f".{ext}" if ext else ".webm"
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(audio_bytes)
+            tmp_path = Path(tmp.name)
+        stt_result = stt_adapter.transcribe_once(tmp_path)
+    finally:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
+
+    return {
+        "ok": stt_result.ok,
+        "text": stt_result.text,
+        "engine": stt_result.engine,
+        "mode": "uploaded_audio",
+        "message": stt_result.message,
+    }
+
+
 @voice_router.post("/speak")
-async def voice_speak(req: VoiceSpeakRequest):
-    """Speak text locally with macOS /usr/bin/say."""
-    from openjarvis.voice.tts import speak_macos_say, stop_macos_say
+async def voice_speak(req: VoiceSpeakRequest, request: Request):
+    """Speak text with the configured TTS provider and local fallback."""
+    from openjarvis.voice.tts import speak_with_provider, stop_macos_say
 
     if req.stop:
         stop_macos_say()
@@ -849,11 +941,37 @@ async def voice_speak(req: VoiceSpeakRequest):
             "text": "",
             "chunks": [],
         }
-    result = speak_macos_say(
+
+    config = getattr(request.app.state, "config", None)
+    voice_config = getattr(config, "voice", None)
+    result = speak_with_provider(
         req.text,
-        voice=req.voice,
-        rate=req.rate,
-        max_chars=req.max_chars,
+        mode=req.mode or getattr(voice_config, "tts_mode", "macos_say"),
+        fallback_mode=getattr(voice_config, "tts_fallback_mode", "macos_say"),
+        voice=req.voice or getattr(voice_config, "tts_voice", "Yuna"),
+        rate=req.rate or getattr(voice_config, "tts_rate", 165),
+        max_chars=req.max_chars or getattr(voice_config, "tts_max_chars", 400),
+        pause_ms=req.pause_ms or getattr(voice_config, "tts_pause_ms", 250),
+        naturalize=req.naturalize
+        if req.naturalize is not None
+        else getattr(voice_config, "tts_naturalize", True),
+        enabled=getattr(voice_config, "tts_enabled", True),
+        elevenlabs_voice_id=getattr(voice_config, "elevenlabs_voice_id", ""),
+        elevenlabs_model=getattr(voice_config, "elevenlabs_model", "eleven_v3"),
+        gemini_model=getattr(
+            voice_config,
+            "gemini_model",
+            "gemini-2.5-flash-preview-tts",
+        ),
+        gemini_voice=(
+            req.gemini_voice
+            or getattr(voice_config, "gemini_voice", "Sulafat")
+        ),
+        gemini_api_key=req.gemini_api_key,
+        edge_voice=req.edge_voice
+        or getattr(voice_config, "edge_voice", "ko-KR-SunHiNeural"),
+        piper_path=getattr(voice_config, "piper_path", ""),
+        piper_model=getattr(voice_config, "piper_model", ""),
     )
     return {
         "ok": result.ok,

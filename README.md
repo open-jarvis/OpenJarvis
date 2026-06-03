@@ -95,6 +95,7 @@ uv run jarvis init --preset morning-digest-mac   # or any preset below
 | `morning-digest-minimal` | Daily Briefing (minimal) | Just Gmail + Calendar, runs on any machine |
 | `deep-research` | Research Assistant | Multi-hop research across indexed docs with citations |
 | `code-assistant` | Code Companion | Agent with code execution, file I/O, and shell access |
+| `personal-assistant-mac` | macOS Personal Assistant | Agentic Korean-first Mac assistant with desktop automation and child-agent tools |
 | `scheduled-monitor` | Persistent Monitor | Stateful agent that runs on a schedule with memory |
 | `chat-simple` | Simple Chat | Lightweight conversation, no tools needed |
 
@@ -108,6 +109,10 @@ uv run jarvis digest --fresh          # generate and play your first briefing
 uv run jarvis init --preset deep-research
 uv run jarvis memory index ./docs/    # requires the Rust extension — see Setup above
 uv run jarvis ask "Summarize all emails about Project X"
+
+# Example: macOS Personal Assistant
+uv run jarvis init --preset personal-assistant-mac
+uv run jarvis ask "내 오늘 작업을 정리하고 필요한 앱을 열어줘"
 ```
 
 ### Skills

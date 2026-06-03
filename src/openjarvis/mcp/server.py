@@ -34,6 +34,11 @@ _TOOL_ANNOTATIONS: Dict[str, Dict[str, Any]] = {
     "channel_send": {"destructiveHint": True, "readOnlyHint": False},
     "channel_list": {"readOnlyHint": True, "destructiveHint": False},
     "channel_status": {"readOnlyHint": True, "destructiveHint": False},
+    "agent_spawn": {"destructiveHint": True, "readOnlyHint": False},
+    "agent_send": {"destructiveHint": True, "readOnlyHint": False},
+    "agent_list": {"readOnlyHint": True, "destructiveHint": False},
+    "agent_kill": {"destructiveHint": True, "readOnlyHint": False},
+    "mac_automation": {"destructiveHint": True, "readOnlyHint": False},
 }
 
 
@@ -102,6 +107,34 @@ class MCPServer:
             from openjarvis.tools.repl import ReplTool
 
             _tool_classes.append(ReplTool)
+        except ImportError:
+            pass
+
+        # Inter-agent lifecycle tools
+        try:
+            from openjarvis.tools.agent_tools import (
+                AgentKillTool,
+                AgentListTool,
+                AgentSendTool,
+                AgentSpawnTool,
+            )
+
+            _tool_classes.extend(
+                [
+                    AgentSpawnTool,
+                    AgentSendTool,
+                    AgentListTool,
+                    AgentKillTool,
+                ]
+            )
+        except ImportError:
+            pass
+
+        # macOS desktop automation
+        try:
+            from openjarvis.tools.mac_automation import MacAutomationTool
+
+            _tool_classes.append(MacAutomationTool)
         except ImportError:
             pass
 

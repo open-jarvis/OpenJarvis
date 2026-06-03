@@ -17,6 +17,7 @@ from openjarvis.friday_assistant import (
     open_macos_app,
     open_website,
 )
+from openjarvis.navigation import TmapPlace, TmapRouteSummary
 from openjarvis.sdk import Jarvis
 from openjarvis.tools._stubs import BaseTool, ToolSpec
 
@@ -322,6 +323,138 @@ def test_current_location_used_for_weather_without_storing(tmp_path):
     assert result.metadata["location"]["name"] == "현재 위치"
     assert basic.calls[0]["latitude"] == 35.0
     assert FridayLocalStore(path).get_weather_location() is None
+
+
+def test_navigation_requires_current_location(tmp_path):
+    router = FridayAssistantRouter(
+        data_path=tmp_path / "friday.json",
+        navigation_context={"tmap_api_key": "test-key"},
+    )
+
+    result = router.route("강남역까지 길안내해줘")
+
+    assert result.success is False
+    assert result.intent == "navigation"
+    assert "현재 위치가 필요합니다" in result.content
+
+
+def test_navigation_requires_tmap_api_key(tmp_path):
+    router = FridayAssistantRouter(
+        data_path=tmp_path / "friday.json",
+        current_location={
+            "name": "현재 위치",
+            "latitude": 37.5,
+            "longitude": 127.0,
+            "timezone": "Asia/Seoul",
+        },
+    )
+
+    result = router.route("강남역까지 길안내해줘")
+
+    assert result.success is False
+    assert result.intent == "navigation"
+    assert "TMAP API 키가 필요합니다" in result.content
+
+
+def test_navigation_returns_tmap_route_summary(tmp_path):
+    place = TmapPlace(
+        name="강남역",
+        latitude=37.4979,
+        longitude=127.0276,
+        address="서울 강남구 테헤란로",
+    )
+
+    class FakeTmapClient:
+        def __init__(self, api_key: str) -> None:
+            self.api_key = api_key
+
+        def search_place(self, query, *, longitude=None, latitude=None):
+            assert query == "강남역"
+            assert longitude == 127.0
+            assert latitude == 37.5
+            return place
+
+        def route(self, *, start_longitude, start_latitude, destination, mode="car"):
+            assert start_longitude == 127.0
+            assert start_latitude == 37.5
+            assert destination == place
+            assert mode == "car"
+            return TmapRouteSummary(
+                destination=place,
+                mode=mode,
+                distance_meters=2100,
+                duration_seconds=420,
+                taxi_fare_won=7600,
+                instructions=[
+                    "테헤란로를 따라 이동하세요",
+                    "강남역 방면으로 우회전하세요",
+                ],
+            )
+
+    router = FridayAssistantRouter(
+        data_path=tmp_path / "friday.json",
+        current_location={
+            "name": "현재 위치",
+            "latitude": 37.5,
+            "longitude": 127.0,
+            "timezone": "Asia/Seoul",
+        },
+        navigation_context={"tmap_api_key": "test-key", "mode": "car"},
+    )
+
+    with patch("openjarvis.friday_assistant.TmapClient", FakeTmapClient):
+        result = router.route("강남역까지 길안내해줘")
+
+    assert result.success is True
+    assert result.intent == "navigation"
+    assert "강남역까지의 거리는 2.1Km이며" in result.content
+    assert "예상 소요 시간은 약 7분입니다" in result.content
+    assert "예상 택시비" not in result.content
+    assert "주요 경로" not in result.content
+
+
+def test_navigation_duration_question_without_navigation_keyword(tmp_path):
+    place = TmapPlace(
+        name="서울역",
+        latitude=37.5547,
+        longitude=126.9707,
+        address="서울 중구",
+    )
+
+    class FakeTmapClient:
+        def __init__(self, api_key: str) -> None:
+            self.api_key = api_key
+
+        def search_place(self, query, *, longitude=None, latitude=None):
+            assert query == "서울역"
+            return place
+
+        def route(self, *, start_longitude, start_latitude, destination, mode="car"):
+            return TmapRouteSummary(
+                destination=destination,
+                mode=mode,
+                distance_meters=3200,
+                duration_seconds=780,
+                instructions=["한강대로를 따라 이동하세요"],
+            )
+
+    router = FridayAssistantRouter(
+        data_path=tmp_path / "friday.json",
+        current_location={
+            "name": "현재 위치",
+            "latitude": 37.5,
+            "longitude": 127.0,
+            "timezone": "Asia/Seoul",
+        },
+        navigation_context={"tmap_api_key": "test-key", "mode": "car"},
+    )
+
+    with patch("openjarvis.friday_assistant.TmapClient", FakeTmapClient):
+        result = router.route("서울역 까지 얼마나 걸려?")
+
+    assert result.intent == "navigation"
+    assert "서울역까지의 거리는 3.2Km이며" in result.content
+    assert "예상 소요 시간은 약 13분입니다" in result.content
 
 
 def test_unknown_city_weather_returns_supported_city_message(tmp_path):
