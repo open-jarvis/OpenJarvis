@@ -23,6 +23,19 @@ from openjarvis.engine._stubs import StreamChunk
 logger = logging.getLogger(__name__)
 
 
+def _default_num_ctx() -> int:
+    """Default context window (tokens). Override with ``JARVIS_NUM_CTX``.
+
+    Raised above Ollama's 4k default so an image (which costs many tokens)
+    plus a real conversation fit. 16k is comfortable for small models on a
+    typical consumer GPU.
+    """
+    try:
+        return int(os.environ.get("JARVIS_NUM_CTX", "16384"))
+    except ValueError:
+        return 16384
+
+
 @EngineRegistry.register("ollama")
 class OllamaEngine(InferenceEngine):
     """Ollama backend via its native HTTP API."""
@@ -73,7 +86,7 @@ class OllamaEngine(InferenceEngine):
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens,
-                "num_ctx": kwargs.get("num_ctx", 8192),
+                "num_ctx": kwargs.get("num_ctx", _default_num_ctx()),
             },
         }
         # Disable extended thinking by default (Qwen3.5 etc.).
@@ -189,7 +202,7 @@ class OllamaEngine(InferenceEngine):
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens,
-                "num_ctx": kwargs.get("num_ctx", 8192),
+                "num_ctx": kwargs.get("num_ctx", _default_num_ctx()),
             },
         }
         # Mirror generate()'s default: disable extended thinking unless the
@@ -268,7 +281,7 @@ class OllamaEngine(InferenceEngine):
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens,
-                "num_ctx": kwargs.get("num_ctx", 8192),
+                "num_ctx": kwargs.get("num_ctx", _default_num_ctx()),
             },
         }
         if "think" not in kwargs:
