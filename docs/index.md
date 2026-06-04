@@ -14,6 +14,18 @@ OpenJarvis is a research framework for composable, on-device AI systems.
 Build personal AI that runs on your hardware. Cloud APIs are optional.
 </p>
 
+<div class="grid cards" markdown>
+
+-   :material-image-multiple:{ .lg .middle } **See what people use it for**
+
+    ---
+
+    A gallery of real setups — morning briefs that summarize your overnight Slack and email, a Discord companion that knows your calendar, a code reviewer that works at 30,000 feet. Outcome-first, with links to the docs that explain how to build each one.
+
+    [:octicons-arrow-right-24: Browse the Showcase](showcase/index.md)
+
+</div>
+
 ---
 
 ## Why OpenJarvis?

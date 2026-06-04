@@ -150,6 +150,14 @@ nav:
       - Quick Start: getting-started/quickstart.md
       - Code Snippets: getting-started/snippets.md
       - Configuration: getting-started/configuration.md
+  - Showcase:
+      - Overview: showcase/index.md
+      - Morning Brief: showcase/morning-brief.md
+      - Memory That Doesn't Reset: showcase/persistent-memory.md
+      - Track Your Savings: showcase/cost-savings.md
+      - Discord Companion: showcase/discord-companion.md
+      - Offline Code Reviewer: showcase/coding-assistant.md
+      - Contributing: showcase/CONTRIBUTING.md
   - Tutorials:
       - Overview: tutorials/index.md
       - Deep Research Assistant: tutorials/deep-research.md

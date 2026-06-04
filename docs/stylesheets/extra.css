@@ -562,3 +562,18 @@
     display: none !important;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Showcase screenshots
+ *
+ * Hero images on docs/showcase/* pages. Constrains width on wide screens and
+ * adds a subtle border so placeholder/broken-image states still look intentional
+ * before community-contributed screenshots populate docs/assets/showcase/.
+ * ------------------------------------------------------------------------- */
+.showcase-screenshot {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid var(--md-default-fg-color--lightest, rgba(0, 0, 0, 0.08));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
