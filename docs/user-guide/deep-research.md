@@ -100,6 +100,9 @@ default_backend = "sqlite"
 # Summarize across multiple documents
 jarvis ask "Summarize all emails about the Q3 budget review"
 
+# Restrict a Google query to a named account profile
+jarvis ask "Summarize only my work Gmail about subscription renewals"
+
 # Cross-reference sources
 jarvis ask "What do papers A and B agree on regarding attention mechanisms?"
 
@@ -112,6 +115,35 @@ jarvis ask "List all action items from the meeting notes in ~/Documents/meetings
 # Research with web fallback
 jarvis ask "Compare our internal benchmarks with the latest published results"
 ```
+
+## Google Account-Scoped Research
+
+If you connect multiple Google profiles, the research agent can keep analysis
+scoped to one persona or compare across personas. Connect profiles with an
+alias:
+
+```bash
+jarvis connect google --account work
+jarvis connect google --account personal
+jarvis connect gdrive --account research
+```
+
+After sync, OpenJarvis exposes both connector-level sources and scoped sources:
+
+```text
+gmail
+gmail:work
+gdrive:research
+gcalendar:personal
+```
+
+The planner uses those aliases as structured filters. For example, "only work
+Gmail" becomes `sources=["gmail"], accounts=["work"]`, while "research Drive"
+becomes `sources=["gdrive"], accounts=["research"]`. Citations include the
+profile alias so the UI can show which account produced each source.
+
+For setup, migration, and test commands, see
+[Google Account Profiles](google-account-profiles.md).
 
 ## Indexing Different Data Sources
 

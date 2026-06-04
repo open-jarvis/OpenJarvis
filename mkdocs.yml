@@ -188,6 +188,7 @@ nav:
       - Simple Chat: user-guide/chat-simple.md
       - Agents: user-guide/agents.md
       - Channels & Connectors: user-guide/channels-and-connectors.md
+      - Google Account Profiles: user-guide/google-account-profiles.md
       - Tools: user-guide/tools.md
       - Memory: user-guide/memory.md
       - External MCP Servers: user-guide/mcp-external-servers.md
@@ -200,5 +201,6 @@ nav:
   - Leaderboard: leaderboard.md
   - Roadmap: development/roadmap.md
   - Development:
+      - Google Account Profiles Analysis Layer: development/google-account-profiles-analysis-layer.md
       - Mining: development/mining.md
       - Pearl Model Enablement: development/pearl-model-enablement.md

@@ -167,6 +167,37 @@ def test_sync_yields_documents(
     assert mock_get.call_count == 2
 
 
+@patch("openjarvis.connectors.gmail._gmail_api_list_messages")
+@patch("openjarvis.connectors.gmail._gmail_api_get_message")
+def test_sync_with_account_namespaces_ids_and_metadata(
+    mock_get,
+    mock_list,
+    tmp_path: Path,
+) -> None:
+    """Named Google accounts get collision-safe IDs and provenance metadata."""
+    from openjarvis.connectors import oauth  # noqa: PLC0415
+    from openjarvis.connectors.gmail import GmailConnector  # noqa: PLC0415
+
+    with patch.object(oauth, "_GOOGLE_ACCOUNTS_DIR", tmp_path / "google" / "accounts"):
+        conn = GmailConnector(account="work")
+
+    creds_path = Path(conn._credentials_path)
+    creds_path.parent.mkdir(parents=True, exist_ok=True)
+    creds_path.write_text(json.dumps({"token": "fake-access-token"}), encoding="utf-8")
+
+    mock_list.return_value = {"messages": [{"id": "msg1"}]}
+    mock_get.return_value = _MSG1
+
+    docs: List[Document] = list(conn.sync())
+
+    assert len(docs) == 1
+    assert docs[0].doc_id == "gmail:work:msg1"
+    assert docs[0].source_id == "work:msg1"
+    assert docs[0].metadata["account"] == "work"
+    assert docs[0].metadata["source_profile"] == "work"
+    assert docs[0].metadata["connector_instance"] == "gmail:work"
+
+
 # ---------------------------------------------------------------------------
 # Test 5 — disconnect removes the credentials file
 # ---------------------------------------------------------------------------

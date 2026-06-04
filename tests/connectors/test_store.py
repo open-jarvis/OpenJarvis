@@ -86,6 +86,31 @@ def test_retrieve_filter_by_source(ks: KnowledgeStore) -> None:
     assert len(obsidian_results) >= 1
 
 
+def test_retrieve_filter_by_source_account_alias(ks: KnowledgeStore) -> None:
+    """source='gmail:work' filters to Gmail chunks from that account alias."""
+    _store(
+        ks,
+        content="Email about project alpha",
+        source="gmail",
+        doc_type="email",
+        metadata={"account": "work"},
+    )
+    _store(
+        ks,
+        content="Email about project alpha",
+        source="gmail",
+        doc_type="email",
+        metadata={"account": "personal"},
+        chunk_index=1,
+    )
+
+    work_results = ks.retrieve("project alpha", top_k=10, source="gmail:work")
+
+    assert len(work_results) >= 1
+    assert all(r.metadata.get("account") == "work" for r in work_results)
+    assert "gmail:work" in ks.distinct_sources()
+
+
 def test_retrieve_filter_by_doc_type(ks: KnowledgeStore) -> None:
     """retrieve() with doc_type= filters correctly."""
     _store(

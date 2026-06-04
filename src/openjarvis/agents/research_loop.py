@@ -71,8 +71,9 @@ SEARCH_TOOL_SPEC: Dict[str, Any] = {
             "notes, calendar events, attachments). Combines BM25 lexical match "
             "with dense embedding similarity, ranked by reciprocal rank fusion. "
             "Use structured filters (person, time_range, sources) whenever the "
-            "user names a specific person or time window. Each call returns up "
-            "to 'limit' results with content snippets and thread context."
+            "user names a specific person, time window, connector, or account "
+            "alias. Each call returns up to 'limit' results with content "
+            "snippets and thread context."
         ),
         "parameters": {
             "type": "object",
@@ -107,10 +108,18 @@ SEARCH_TOOL_SPEC: Dict[str, Any] = {
                         "Restrict the search to one or more connectors. Use this "
                         "whenever the user names a data source (e.g. \"in my "
                         "Granola notes\" → ['granola']; \"check Slack and Gmail\" "
-                        "→ ['slack', 'gmail']). Valid IDs include: gmail, slack, "
-                        "granola, notion, obsidian, gcalendar, gdrive, gmail_imap, "
-                        "outlook, imessage, whatsapp, apple_notes, apple_contacts, "
-                        "gcontacts, google_tasks, github_notifications."
+                        "→ ['slack', 'gmail']). Named account sources use "
+                        "connector:account syntax, e.g. ['gmail:work'] or "
+                        "['gdrive:research']."
+                    ),
+                    "items": {"type": "string"},
+                },
+                "accounts": {
+                    "type": "array",
+                    "description": (
+                        "Restrict the search to one or more named account aliases "
+                        "across all matching connectors, e.g. ['work'] or "
+                        "['personal', 'research']."
                     ),
                     "items": {"type": "string"},
                 },
@@ -133,15 +142,16 @@ The user's corpus contains data from these sources only:
 
 You answer questions by calling two tools:
 
-    search(query, person=None, time_range=None, sources=None, limit=20)
+    search(query, person=None, time_range=None, sources=None, accounts=None, limit=20)
     clarify(question)
 
 Strategy:
   1. If the user names a person, ALWAYS pass `person=` rather than relying on lexical match. Hybrid search will fuzzy-match name or address fragments.
   2. When the user mentions ANY time window — "this past week", "recently", "last month", "past few days", "yesterday" — you MUST translate it to a `time_range` parameter. Today is {today}.
   3. The `time_range` argument is a JSON object: `{{"start": "<ISO 8601>", "end": "<ISO 8601>"}}`. Either bound may be omitted, but pass at least one whenever the user gave you a temporal cue.
-  4. When the user names a specific data source — "my Granola notes", "in Slack", "from my email" — you MUST pass `sources=[...]` with the matching connector ID. Only use IDs that appear in the connected-sources list above; do NOT invent or assume sources that are not connected. Common synonyms: "meeting notes"/"meetings"/"transcripts" → granola; "email"/"inbox" → gmail; "DMs"/"channels" → slack. Without this filter the search returns mail/messages ABOUT a tool instead of records FROM that tool.
+  4. When the user names a specific data source — "my Granola notes", "in Slack", "from my email" — you MUST pass `sources=[...]` with the matching connector ID. Account-scoped source IDs such as `gmail:work`, `gdrive:research`, and `gcalendar:family` are valid when they appear in the connected-sources list. Only use IDs that appear in the connected-sources list above; do NOT invent or assume sources that are not connected. Common synonyms: "meeting notes"/"meetings"/"transcripts" → granola; "email"/"inbox" → gmail; "DMs"/"channels" → slack. Without this filter the search returns mail/messages ABOUT a tool instead of records FROM that tool.
   4a. Never apologize about sources that aren't in the connected-sources list — if the user asks about "Notion" but Notion isn't connected, just say "Notion isn't connected, but here's what I found in {available_sources}" and answer from what is available.
+  4b. When the user names an account/profile/persona — "work account", "personal Drive", "research calendar", "only banqer" — pass `accounts=[...]` with the matching alias if that alias appears in connected sources. Use `sources=[...]` as well when the user also names a connector, e.g. sources=["gmail"], accounts=["work"] for work email only.
   5. If the first structured search returns nothing useful, broaden with a semantic query and drop filters one at a time.
   6. You have a clarify tool. Only use it AFTER at least one search attempt. Use it when: you found multiple ambiguous matches (e.g. 3 different people named John), search returned zero results and the query might need reframing, or the scope is too broad to synthesize meaningfully. Never use clarify before searching — always try first.
   7. After receiving a clarify response, use the information to construct a precise search with the correct person, time_range, sources, and query parameters. Never send an empty query or a query with no parameters — extract every concrete signal from the user's reply (names, dates, topics, sources) and put it on the call.
@@ -393,6 +403,8 @@ def build_sources_for_client(
                 "sender": sender,
                 "date": _hit_date(h.timestamp),
                 "source": h.source,
+                "account": h.account,
+                "source_profile": h.source_profile,
                 "source_id": _bare_doc_id(h.source, h.document_id),
                 "url": url,
             }
@@ -538,6 +550,9 @@ class ResearchAgent:
         sources = args.get("sources") or None
         if sources and not isinstance(sources, list):
             sources = [str(sources)]
+        accounts = args.get("accounts") or args.get("account") or None
+        if accounts and not isinstance(accounts, list):
+            accounts = [str(accounts)]
         limit = int(args.get("limit", 20) or 20)
         limit = max(1, min(limit, 20))
 
@@ -546,6 +561,7 @@ class ResearchAgent:
             person=person,
             time_range=time_range,
             sources=sources,
+            accounts=accounts,
             limit=limit,
         )
         titles = [h.title or (h.content_snippet[:60] + "…") for h in hits[:5]]
@@ -560,6 +576,7 @@ class ResearchAgent:
                     if time_range else None
                 ),
                 "sources": sources,
+                "accounts": accounts,
                 "limit": limit,
             },
             num_results=len(hits),

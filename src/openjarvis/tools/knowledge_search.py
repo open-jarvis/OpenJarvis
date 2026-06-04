@@ -57,7 +57,15 @@ class KnowledgeSearchTool(BaseTool):
                         "type": "string",
                         "description": (
                             "Filter by source connector"
-                            " (e.g. 'gmail', 'slack', 'obsidian')."
+                            " (e.g. 'gmail', 'slack', 'obsidian', or"
+                            " 'gmail:work' for a named account alias)."
+                        ),
+                    },
+                    "account": {
+                        "type": "string",
+                        "description": (
+                            "Optional named connector account alias "
+                            "(e.g. 'personal' or 'work')."
                         ),
                     },
                     "doc_type": {
@@ -111,6 +119,7 @@ class KnowledgeSearchTool(BaseTool):
 
         top_k: int = int(params.get("top_k", 10))
         source: Optional[str] = params.get("source")
+        account: Optional[str] = params.get("account")
         doc_type: Optional[str] = params.get("doc_type")
         author: Optional[str] = params.get("author")
         since: Optional[str] = params.get("since")
@@ -121,6 +130,7 @@ class KnowledgeSearchTool(BaseTool):
                 query,
                 top_k=top_k,
                 source=source or "",
+                account=account or "",
                 doc_type=doc_type or "",
                 author=author or "",
                 since=since or "",
@@ -131,6 +141,7 @@ class KnowledgeSearchTool(BaseTool):
                 query,
                 top_k=top_k,
                 source=source,
+                account=account,
                 doc_type=doc_type,
                 author=author,
                 since=since,

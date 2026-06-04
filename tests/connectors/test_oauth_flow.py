@@ -158,3 +158,44 @@ def test_gdrive_auth_url_returns_consent_url_with_client_id(
     url = conn.auth_url()
     assert "accounts.google.com" in url
     assert "test-id.apps.googleusercontent.com" in url
+
+
+def test_google_account_credentials_path_is_segmented(tmp_path: Path) -> None:
+    from openjarvis.connectors import oauth
+
+    with patch.object(oauth, "_GOOGLE_ACCOUNTS_DIR", tmp_path / "google" / "accounts"):
+        path = oauth.google_account_credentials_path("work")
+
+    assert path == str(tmp_path / "google" / "accounts" / "work.json")
+
+
+def test_run_connector_oauth_saves_named_google_account_only(tmp_path: Path) -> None:
+    from openjarvis.connectors import oauth
+
+    account_dir = tmp_path / "google" / "accounts"
+    legacy_dir = tmp_path / "legacy"
+
+    with (
+        patch.object(oauth, "_GOOGLE_ACCOUNTS_DIR", account_dir),
+        patch.object(oauth, "_CONNECTORS_DIR", legacy_dir),
+        patch("openjarvis.connectors.oauth.open_browser"),
+        patch("openjarvis.connectors.oauth._wait_for_callback_code", return_value="c"),
+        patch(
+            "openjarvis.connectors.oauth._exchange_token",
+            return_value={
+                "access_token": "ya29.work",
+                "refresh_token": "1//work",
+                "token_type": "Bearer",
+                "expires_in": 3600,
+            },
+        ),
+    ):
+        oauth.run_connector_oauth(
+            "gmail",
+            "client.apps.googleusercontent.com",
+            "secret",
+            account="work",
+        )
+
+    assert (account_dir / "work.json").exists()
+    assert not (legacy_dir / "gmail.json").exists()

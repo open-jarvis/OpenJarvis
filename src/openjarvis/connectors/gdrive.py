@@ -18,7 +18,10 @@ from openjarvis.connectors.oauth import (
     GOOGLE_ALL_SCOPES,
     build_google_auth_url,
     delete_tokens,
+    google_account_doc_id,
+    google_account_metadata,
     load_tokens,
+    normalize_account_alias,
     resolve_google_credentials,
     save_tokens,
 )
@@ -135,9 +138,11 @@ class GDriveConnector(BaseConnector):
     display_name = "Google Drive"
     auth_type = "oauth"
 
-    def __init__(self, credentials_path: str = "") -> None:
+    def __init__(self, credentials_path: str = "", account: str = "") -> None:
+        self._account = normalize_account_alias(account)
         self._credentials_path = resolve_google_credentials(
-            credentials_path or _DEFAULT_CREDENTIALS_PATH
+            credentials_path or _DEFAULT_CREDENTIALS_PATH,
+            account=self._account if not credentials_path else "",
         )
         self._items_synced: int = 0
         self._items_total: int = 0
@@ -270,7 +275,7 @@ class GDriveConnector(BaseConnector):
                     content = f"[File: {name}] ({mime_type})"
 
                 doc = Document(
-                    doc_id=f"gdrive:{file_id}",
+                    doc_id=google_account_doc_id("gdrive", file_id, self._account),
                     source="gdrive",
                     doc_type="document",
                     content=content,
@@ -280,6 +285,7 @@ class GDriveConnector(BaseConnector):
                     metadata={
                         "file_id": file_id,
                         "mime_type": mime_type,
+                        **google_account_metadata("gdrive", self._account),
                     },
                 )
                 synced += 1
@@ -330,6 +336,14 @@ class GDriveConnector(BaseConnector):
                             "description": "Maximum number of files to return",
                             "default": 20,
                         },
+                        "account": {
+                            "type": "string",
+                            "description": (
+                                "Optional Google account alias, e.g. 'personal' "
+                                "or 'work'."
+                            ),
+                            "default": self._account,
+                        },
                     },
                     "required": ["query"],
                 },
@@ -347,6 +361,14 @@ class GDriveConnector(BaseConnector):
                         "file_id": {
                             "type": "string",
                             "description": "Google Drive file ID",
+                        },
+                        "account": {
+                            "type": "string",
+                            "description": (
+                                "Optional Google account alias, e.g. 'personal' "
+                                "or 'work'."
+                            ),
+                            "default": self._account,
                         },
                     },
                     "required": ["file_id"],
@@ -374,6 +396,14 @@ class GDriveConnector(BaseConnector):
                             "type": "integer",
                             "description": "Maximum number of files to return",
                             "default": 20,
+                        },
+                        "account": {
+                            "type": "string",
+                            "description": (
+                                "Optional Google account alias, e.g. 'personal' "
+                                "or 'work'."
+                            ),
+                            "default": self._account,
                         },
                     },
                     "required": [],

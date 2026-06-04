@@ -186,6 +186,25 @@ The fastest way is to use the App Manifest — paste this JSON to configure ever
    - Your browser will open Google's consent page → grant read-only access
    - You'll see "Authorization successful!" → Drive data starts syncing
 
+### Named Google profiles
+
+Use a profile alias when you want multiple Google accounts on the same
+OpenJarvis install:
+
+```bash
+jarvis connect google --account work
+jarvis connect google --account personal
+jarvis connect gdrive --account research
+```
+
+Tokens are stored separately under
+`~/.openjarvis/connectors/google/accounts/<alias>.json`, and indexed chunks are
+tagged with that alias. Research queries can then scope analysis to one profile,
+for example `gmail:work` or `sources=["gdrive"], accounts=["research"]`.
+
+See [Google Account Profiles](google-account-profiles.md) for migration steps
+from the legacy single-profile token file and analysis examples.
+
 ### Troubleshooting
 
 | Issue | Solution |

@@ -230,6 +230,8 @@ def _mk_hit(
     document_id: str = "granola:not_abc12345678901",
     url: str = "",
     title: str = "Sprint Planning",
+    account: str = "",
+    source_profile: str = "",
 ) -> SearchHit:
     """Tiny SearchHit factory for URL-routing tests."""
     return SearchHit(
@@ -244,6 +246,8 @@ def _mk_hit(
         score=0.5,
         bm25_score=0.5,
         vector_score=0.5,
+        account=account,
+        source_profile=source_profile,
         url=url,
     )
 
@@ -257,6 +261,27 @@ def test_build_sources_prefers_stored_url_over_reconstruction() -> None:
     stored = "https://notes.granola.ai/d/e98b5d85-ff57-46ac-a0ce-849fc68d086f"
     sources = build_sources_for_client([_mk_hit(url=stored)])
     assert sources[0]["url"] == stored
+
+
+def test_build_sources_includes_account_metadata() -> None:
+    """Citation payloads include the Google profile alias for UI chips.
+
+    The frontend can show "Gmail / work" and follow-up queries can preserve
+    the same scope instead of silently falling back to all Gmail accounts.
+    """
+    sources = build_sources_for_client(
+        [
+            _mk_hit(
+                source="gmail",
+                document_id="gmail:work:msg-1",
+                account="work",
+                source_profile="work",
+            )
+        ]
+    )
+
+    assert sources[0]["account"] == "work"
+    assert sources[0]["source_profile"] == "work"
 
 
 def test_build_sources_falls_back_to_reconstruction_when_url_missing() -> None:
@@ -362,6 +387,70 @@ def test_search_sources_coerces_scalar_to_list(stub_search: MagicMock) -> None:
     assert kwargs.get("sources") == ["slack"]
 
 
+def test_search_with_accounts_filter_is_passed_through(
+    stub_search: MagicMock,
+) -> None:
+    """A planner-selected account alias reaches HybridSearch.search."""
+    engine = _MockEngine(
+        responses=[
+            {
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "s1",
+                        "name": "search",
+                        "arguments": json.dumps(
+                            {
+                                "query": "subscription renewals",
+                                "sources": ["gmail"],
+                                "accounts": ["work"],
+                            }
+                        ),
+                    }
+                ],
+                "usage": {},
+            },
+            _text_response("Found work subscription renewals."),
+        ]
+    )
+
+    agent = ResearchAgent(engine, stub_search, model="mock", max_iterations=2)
+    result = agent.run("summarize subscription renewals in work Gmail")
+
+    stub_search.search.assert_called_once()
+    kwargs = stub_search.search.call_args.kwargs
+    assert kwargs.get("sources") == ["gmail"]
+    assert kwargs.get("accounts") == ["work"]
+    assert result.tool_calls[0].arguments["accounts"] == ["work"]
+
+
+def test_search_account_scalar_is_coerced_to_list(stub_search: MagicMock) -> None:
+    """If the model sends ``account='personal'``, wrap it as ``['personal']``."""
+    engine = _MockEngine(
+        responses=[
+            {
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "s1",
+                        "name": "search",
+                        "arguments": json.dumps(
+                            {"query": "anything", "account": "personal"}
+                        ),
+                    }
+                ],
+                "usage": {},
+            },
+            _text_response("done"),
+        ]
+    )
+    agent = ResearchAgent(engine, stub_search, model="mock", max_iterations=2)
+    agent.run("anything from my personal profile")
+
+    kwargs = stub_search.search.call_args.kwargs
+    assert kwargs.get("accounts") == ["personal"]
+
+
 # ---------------------------------------------------------------------------
 # Prompt + tool schema — the planner must see the sources directive
 # ---------------------------------------------------------------------------
@@ -376,8 +465,21 @@ def test_tool_schema_sources_lists_known_connectors() -> None:
     """
     sources_prop = SEARCH_TOOL_SPEC["function"]["parameters"]["properties"]["sources"]
     desc = sources_prop["description"]
-    for connector_id in ("granola", "slack", "gmail", "notion"):
+    for connector_id in ("granola", "slack", "gmail", "gdrive"):
         assert connector_id in desc
+    assert "connector:account" in desc
+    assert "gmail:work" in desc
+
+
+def test_tool_schema_includes_accounts_filter() -> None:
+    """The planner has an explicit account/persona filter parameter."""
+    accounts_prop = (
+        SEARCH_TOOL_SPEC["function"]["parameters"]["properties"]["accounts"]
+    )
+    desc = accounts_prop["description"]
+    assert accounts_prop["type"] == "array"
+    assert "account aliases" in desc
+    assert "work" in desc
 
 
 def test_system_prompt_mandates_sources_extraction() -> None:
@@ -391,6 +493,9 @@ def test_system_prompt_mandates_sources_extraction() -> None:
     # Synonym mapping for the most-common alias.
     assert "granola" in SYSTEM_PROMPT.lower()
     assert "meeting notes" in SYSTEM_PROMPT.lower()
+    assert "accounts=" in SYSTEM_PROMPT
+    assert "gmail:work" in SYSTEM_PROMPT
+    assert "account/profile/persona" in SYSTEM_PROMPT
     # The dynamic placeholder is what's interpolated per-run.
     assert "{available_sources}" in SYSTEM_PROMPT
 
@@ -428,7 +533,6 @@ def test_available_sources_override_appears_in_prompt(
     # unconnected source, which is intentional.)
     assert "obsidian" not in sys_content.lower()
     assert "apple_notes" not in sys_content.lower()
-    assert "gdrive" not in sys_content.lower()
 
 
 def test_available_sources_fall_back_to_store(stub_search: MagicMock) -> None:

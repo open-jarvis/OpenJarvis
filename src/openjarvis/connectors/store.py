@@ -140,6 +140,16 @@ def _to_epoch(ts: Union[datetime, str, float, int]) -> float:
     return ts.timestamp()
 
 
+def _split_source_account(source: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    """Parse optional ``source:account`` filters while preserving legacy source."""
+    if not source or ":" not in source:
+        return source, None
+    base, account = source.split(":", 1)
+    if not base or not account:
+        return source, None
+    return base, account
+
+
 # ---------------------------------------------------------------------------
 # KnowledgeStore
 # ---------------------------------------------------------------------------
@@ -342,6 +352,7 @@ class KnowledgeStore(MemoryBackend):
         *,
         top_k: int = 5,
         source: Optional[str] = None,
+        account: Optional[str] = None,
         doc_type: Optional[str] = None,
         author: Optional[str] = None,
         since: Optional[Union[datetime, str]] = None,
@@ -354,7 +365,8 @@ class KnowledgeStore(MemoryBackend):
         ----------
         query:    Full-text search query.
         top_k:    Maximum number of results.
-        source:   Restrict to chunks from this source (e.g. "gmail").
+        source:   Restrict to chunks from this source (e.g. "gmail" or "gmail:work").
+        account:  Restrict to chunks from a named connector account alias.
         doc_type: Restrict to chunks of this type (e.g. "email").
         author:   Restrict to chunks authored by this person.
         since:    Exclude chunks whose timestamp is earlier than this value.
@@ -365,6 +377,8 @@ class KnowledgeStore(MemoryBackend):
 
         since_str = _to_iso(since) if since is not None else None
         until_str = _to_iso(until) if until is not None else None
+        source, source_account = _split_source_account(source)
+        account = account or source_account
 
         # Build the WHERE clause for filter columns
         filters: List[str] = []
@@ -373,6 +387,9 @@ class KnowledgeStore(MemoryBackend):
         if source is not None:
             filters.append("kc.source = ?")
             params.append(source)
+        if account is not None:
+            filters.append("json_extract(kc.metadata, '$.account') = ?")
+            params.append(account)
         if doc_type is not None:
             filters.append("kc.doc_type = ?")
             params.append(doc_type)
@@ -439,6 +456,7 @@ class KnowledgeStore(MemoryBackend):
                     "source": source,
                     "doc_type": doc_type,
                     "author": author,
+                    "account": account,
                     "since": since_str,
                     "until": until_str,
                 },
@@ -478,12 +496,29 @@ class KnowledgeStore(MemoryBackend):
         mention "Notion" or "Apple Notes" when nothing from those sources
         is in the corpus.
         """
-        rows = self._conn.execute(
-            "SELECT DISTINCT source FROM knowledge_chunks "
-            "WHERE source IS NOT NULL AND source != '' "
-            "ORDER BY source"
-        ).fetchall()
-        return [r[0] for r in rows]
+        try:
+            rows = self._conn.execute(
+                "SELECT DISTINCT source, "
+                "json_extract(metadata, '$.account') AS account "
+                "FROM knowledge_chunks "
+                "WHERE source IS NOT NULL AND source != '' "
+                "ORDER BY source, account"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            rows = self._conn.execute(
+                "SELECT DISTINCT source, NULL AS account FROM knowledge_chunks "
+                "WHERE source IS NOT NULL AND source != '' "
+                "ORDER BY source"
+            ).fetchall()
+
+        sources: set[str] = set()
+        for row in rows:
+            source = row["source"]
+            account = row["account"]
+            sources.add(source)
+            if account:
+                sources.add(f"{source}:{account}")
+        return sorted(sources)
 
     def close(self) -> None:
         """Close the underlying SQLite connection."""
