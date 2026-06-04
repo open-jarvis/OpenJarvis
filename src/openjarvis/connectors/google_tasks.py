@@ -51,11 +51,16 @@ class GoogleTasksConnector(BaseConnector):
 
     def __init__(self, *, credentials_path: str = "", account: str = "") -> None:
         self._account = normalize_account_alias(account)
+        self._explicit_credentials_path = bool(credentials_path)
         self._credentials_path = Path(
             resolve_google_credentials(
                 credentials_path or _DEFAULT_CREDENTIALS_PATH,
-                account=self._account if not credentials_path else "",
+                account=self._account,
+                allow_shared_fallback=not self._explicit_credentials_path,
             )
+        )
+        self._mirror_shared_credentials = (
+            not self._explicit_credentials_path and not self._account
         )
         self._status = SyncStatus()
 

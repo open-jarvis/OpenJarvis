@@ -5,6 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from openjarvis.connectors.gcalendar import GCalendarConnector
+from openjarvis.connectors.gcontacts import GContactsConnector
+from openjarvis.connectors.gdrive import GDriveConnector
+from openjarvis.connectors.gmail import GmailConnector
+from openjarvis.connectors.google_tasks import GoogleTasksConnector
+
 
 def test_exchange_google_token_calls_endpoint() -> None:
     from openjarvis.connectors.oauth import exchange_google_token
@@ -153,6 +161,122 @@ def test_google_account_credentials_path_is_segmented(tmp_path: Path) -> None:
         path = oauth.google_account_credentials_path("work")
 
     assert path == str(tmp_path / "google" / "accounts" / "work.json")
+
+
+def test_resolve_google_credentials_keeps_explicit_path_isolated(
+    tmp_path: Path,
+) -> None:
+    """An explicit temp credentials path must not fall back to shared Google auth."""
+    from openjarvis.connectors import oauth
+
+    shared = tmp_path / "google.json"
+    oauth.save_tokens(
+        str(shared),
+        {
+            "access_token": "ya29.shared",
+            "client_id": "shared-id",
+            "client_secret": "shared-secret",
+        },
+    )
+
+    explicit = str(tmp_path / "gdrive.json")
+    with patch.object(oauth, "_SHARED_GOOGLE_CREDENTIALS_PATH", str(shared)):
+        resolved = oauth.resolve_google_credentials(
+            explicit,
+            allow_shared_fallback=False,
+        )
+
+    assert resolved == explicit
+
+
+def test_resolve_google_credentials_still_falls_back_for_implicit_default(
+    tmp_path: Path,
+) -> None:
+    """The legacy implicit default path still resolves to shared Google auth."""
+    from openjarvis.connectors import oauth
+
+    shared = tmp_path / "google.json"
+    oauth.save_tokens(
+        str(shared),
+        {
+            "access_token": "ya29.shared",
+            "client_id": "shared-id",
+            "client_secret": "shared-secret",
+        },
+    )
+
+    default_path = str(tmp_path / "gdrive.json")
+    with patch.object(oauth, "_SHARED_GOOGLE_CREDENTIALS_PATH", str(shared)):
+        resolved = oauth.resolve_google_credentials(
+            default_path,
+            allow_shared_fallback=True,
+        )
+
+    assert resolved == str(shared)
+
+
+@pytest.mark.parametrize(
+    ("connector_cls", "credentials_name"),
+    [
+        (GDriveConnector, "gdrive"),
+        (GCalendarConnector, "gcalendar"),
+        (GContactsConnector, "gcontacts"),
+        (GmailConnector, "gmail"),
+        (GoogleTasksConnector, "google_tasks"),
+    ],
+)
+def test_google_connectors_keep_explicit_temp_paths_isolated(
+    connector_cls,
+    credentials_name: str,
+    tmp_path: Path,
+) -> None:
+    """Explicit temp credentials never read real host Google auth state."""
+    from openjarvis.connectors import oauth
+
+    shared = tmp_path / "google.json"
+    oauth.save_tokens(
+        str(shared),
+        {
+            "access_token": "ya29.shared",
+            "client_id": "shared-id",
+            "client_secret": "shared-secret",
+        },
+    )
+
+    explicit = str(tmp_path / f"{credentials_name}.json")
+    with patch.object(oauth, "_SHARED_GOOGLE_CREDENTIALS_PATH", str(shared)):
+        connector = connector_cls(credentials_path=explicit)
+
+    assert str(connector._credentials_path) == explicit
+    assert connector.is_connected() is False
+
+
+def test_persist_google_oauth_tokens_keeps_explicit_path_isolated(
+    tmp_path: Path,
+) -> None:
+    """Explicit temp OAuth paths stay isolated from the shared legacy file."""
+    from openjarvis.connectors import oauth
+
+    shared = tmp_path / "google.json"
+    explicit = tmp_path / "gdrive.json"
+    token_payload = {
+        "access_token": "ya29.work",
+        "refresh_token": "1//work",
+        "token_type": "Bearer",
+        "expires_in": 3600,
+        "client_id": "client.apps.googleusercontent.com",
+        "client_secret": "secret",
+    }
+
+    with patch.object(oauth, "_SHARED_GOOGLE_CREDENTIALS_PATH", str(shared)):
+        oauth._persist_google_oauth_tokens(
+            str(explicit),
+            token_payload,
+            mirror_shared_credentials=False,
+        )
+
+    assert explicit.exists()
+    assert not shared.exists()
 
 
 def test_run_connector_oauth_saves_named_google_account_only(tmp_path: Path) -> None:

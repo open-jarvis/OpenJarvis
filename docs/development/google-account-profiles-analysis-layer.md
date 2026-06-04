@@ -113,8 +113,8 @@ preserve the same profile scope.
 The connector sync API accepts an optional account query parameter:
 
 ```text
-POST /api/connectors/{connector_id}/sync?account=work
-GET  /api/connectors/{connector_id}/sync-status?account=work
+POST /v1/connectors/gmail/sync?account=work
+GET  /v1/connectors/gmail/sync?account=work
 ```
 
 Sync state is keyed by connector/profile pair. A long-running `gmail:work` sync

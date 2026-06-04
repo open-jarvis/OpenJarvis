@@ -129,11 +129,12 @@ hybrid.search("Q3 plan", sources=["gdrive"], accounts=["research"])
 
 ## UI And API Sync
 
-The connector sync API accepts an optional `account` query parameter:
+The connector sync API accepts an optional `account` query parameter. Use the
+real connector routes, not a synthetic `/v1/connectors/google/...` endpoint:
 
 ```text
-POST /api/connectors/google/sync?account=work
-GET  /api/connectors/google/sync-status?account=work
+POST /v1/connectors/gmail/sync?account=work
+GET  /v1/connectors/gmail/sync?account=work
 ```
 
 Sync status is tracked per connector/profile pair, so a long sync for

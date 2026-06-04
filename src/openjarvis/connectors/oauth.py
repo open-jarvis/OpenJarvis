@@ -317,21 +317,27 @@ def build_google_auth_url(
     return f"{_GOOGLE_AUTH_ENDPOINT}?{urlencode(params)}"
 
 
-def resolve_google_credentials(connector_path: str, *, account: str = "") -> str:
+def resolve_google_credentials(
+    connector_path: str,
+    *,
+    account: str = "",
+    allow_shared_fallback: bool = True,
+) -> str:
     """Return the best available Google credentials file path.
 
     With *account*, returns the segmented account credential file path under
     ``google/accounts/{alias}.json``. Without an account, checks the
-    connector-specific file first, then falls back to the shared
-    ``google.json``. Returns *connector_path* if neither exists (so
-    ``is_connected()`` correctly returns ``False``).
+    connector-specific file first, then optionally falls back to the shared
+    ``google.json`` when ``allow_shared_fallback`` is true. Returns
+    *connector_path* if neither exists (so ``is_connected()`` correctly
+    returns ``False``).
     """
     alias = normalize_account_alias(account)
     if alias:
         return google_account_credentials_path(alias)
     if Path(connector_path).exists():
         return connector_path
-    if Path(_SHARED_GOOGLE_CREDENTIALS_PATH).exists():
+    if allow_shared_fallback and Path(_SHARED_GOOGLE_CREDENTIALS_PATH).exists():
         return _SHARED_GOOGLE_CREDENTIALS_PATH
     return connector_path
 
@@ -368,6 +374,22 @@ def delete_tokens(path: str) -> None:
     p = Path(path)
     if p.exists():
         p.unlink()
+
+
+def _persist_google_oauth_tokens(
+    credentials_path: str,
+    token_payload: Dict[str, Any],
+    *,
+    mirror_shared_credentials: bool = True,
+) -> None:
+    """Persist Google OAuth tokens and optionally mirror to legacy shared auth."""
+    save_tokens(credentials_path, token_payload)
+
+    if mirror_shared_credentials and (
+        credentials_path != _SHARED_GOOGLE_CREDENTIALS_PATH
+        and not _is_google_account_credentials_path(credentials_path)
+    ):
+        save_tokens(_SHARED_GOOGLE_CREDENTIALS_PATH, token_payload)
 
 
 def refresh_google_token(path: str) -> Optional[str]:
@@ -478,6 +500,8 @@ def run_oauth_flow(
     client_secret: str,
     scopes: List[str],
     credentials_path: str,
+    *,
+    mirror_shared_credentials: bool = True,
     redirect_uri: str = _DEFAULT_REDIRECT_URI,
 ) -> Dict[str, Any]:
     """Run the full OAuth flow: browser consent, callback, token exchange.
@@ -502,6 +526,10 @@ def run_oauth_flow(
         List of OAuth scopes to request.
     credentials_path:
         Where to persist the resulting tokens.
+    mirror_shared_credentials:
+        When true, also mirror the resulting tokens into the legacy shared
+        Google credentials file. Set this to false for explicit temp paths or
+        named account aliases so tests and segmented profiles remain isolated.
     redirect_uri:
         Local callback URI.  Defaults to ``http://localhost:8789/callback``.
 
@@ -617,17 +645,11 @@ def run_oauth_flow(
         "client_id": client_id,
         "client_secret": client_secret,
     }
-    save_tokens(credentials_path, token_payload)
-
-    # Also save to the shared Google credentials file for the legacy flow so
-    # all Google connectors can use this token without a separate OAuth flow.
-    # Named account aliases must stay segmented and must not overwrite the
-    # default credentials.
-    if (
-        credentials_path != _SHARED_GOOGLE_CREDENTIALS_PATH
-        and not _is_google_account_credentials_path(credentials_path)
-    ):
-        save_tokens(_SHARED_GOOGLE_CREDENTIALS_PATH, token_payload)
+    _persist_google_oauth_tokens(
+        credentials_path,
+        token_payload,
+        mirror_shared_credentials=mirror_shared_credentials,
+    )
 
     return tokens
 
