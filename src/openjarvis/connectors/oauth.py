@@ -325,13 +325,16 @@ def resolve_google_credentials(
 ) -> str:
     """Return the best available Google credentials file path.
 
-    With *account*, returns the segmented account credential file path under
-    ``google/accounts/{alias}.json``. Without an account, checks the
-    connector-specific file first, then optionally falls back to the shared
-    ``google.json`` when ``allow_shared_fallback`` is true. Returns
-    *connector_path* if neither exists (so ``is_connected()`` correctly
-    returns ``False``).
+    When ``allow_shared_fallback`` is false, *connector_path* is treated as an
+    explicit caller-supplied path and always wins, even if an account alias is
+    also supplied. Otherwise, named accounts resolve to the segmented account
+    path under ``google/accounts/{alias}.json``. Default connectors check their
+    connector-specific file first, then optionally fall back to shared
+    ``google.json``.
     """
+    if not allow_shared_fallback:
+        return connector_path
+
     alias = normalize_account_alias(account)
     if alias:
         return google_account_credentials_path(alias)
