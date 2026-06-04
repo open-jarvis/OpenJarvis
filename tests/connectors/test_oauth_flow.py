@@ -166,10 +166,11 @@ def test_google_account_credentials_path_is_segmented(tmp_path: Path) -> None:
 def test_resolve_google_credentials_keeps_explicit_path_isolated(
     tmp_path: Path,
 ) -> None:
-    """An explicit temp credentials path must not fall back to shared Google auth."""
+    """An explicit temp credentials path must not fall back or segment."""
     from openjarvis.connectors import oauth
 
     shared = tmp_path / "google.json"
+    account_dir = tmp_path / "google" / "accounts"
     oauth.save_tokens(
         str(shared),
         {
@@ -180,9 +181,13 @@ def test_resolve_google_credentials_keeps_explicit_path_isolated(
     )
 
     explicit = str(tmp_path / "gdrive.json")
-    with patch.object(oauth, "_SHARED_GOOGLE_CREDENTIALS_PATH", str(shared)):
+    with (
+        patch.object(oauth, "_SHARED_GOOGLE_CREDENTIALS_PATH", str(shared)),
+        patch.object(oauth, "_GOOGLE_ACCOUNTS_DIR", account_dir),
+    ):
         resolved = oauth.resolve_google_credentials(
             explicit,
+            account="work",
             allow_shared_fallback=False,
         )
 
@@ -249,6 +254,34 @@ def test_google_connectors_keep_explicit_temp_paths_isolated(
 
     assert str(connector._credentials_path) == explicit
     assert connector.is_connected() is False
+
+
+@pytest.mark.parametrize(
+    ("connector_cls", "credentials_name"),
+    [
+        (GDriveConnector, "gdrive"),
+        (GCalendarConnector, "gcalendar"),
+        (GContactsConnector, "gcontacts"),
+        (GmailConnector, "gmail"),
+        (GoogleTasksConnector, "google_tasks"),
+    ],
+)
+def test_google_connectors_prefer_explicit_path_over_account_alias(
+    connector_cls,
+    credentials_name: str,
+    tmp_path: Path,
+) -> None:
+    """credentials_path wins even when account is supplied."""
+    from openjarvis.connectors import oauth
+
+    account_dir = tmp_path / "google" / "accounts"
+    explicit = str(tmp_path / f"{credentials_name}.json")
+
+    with patch.object(oauth, "_GOOGLE_ACCOUNTS_DIR", account_dir):
+        connector = connector_cls(credentials_path=explicit, account="work")
+
+    assert str(connector._credentials_path) == explicit
+    assert str(connector._credentials_path) != str(account_dir / "work.json")
 
 
 def test_persist_google_oauth_tokens_keeps_explicit_path_isolated(
