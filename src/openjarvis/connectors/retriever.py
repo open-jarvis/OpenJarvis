@@ -240,6 +240,7 @@ class TwoStageRetriever:
         *,
         top_k: int = 10,
         source: str = "",
+        account: str = "",
         doc_type: str = "",
         author: str = "",
         since: str = "",
@@ -254,7 +255,10 @@ class TwoStageRetriever:
         top_k:
             Maximum number of results to return.
         source:
-            Restrict to chunks from this source (e.g. ``"gmail"``).
+            Restrict to chunks from this source (e.g. ``"gmail"`` or
+            ``"gmail:work"``).
+        account:
+            Restrict to chunks from a named connector account alias.
         doc_type:
             Restrict to chunks of this doc type (e.g. ``"email"``).
         author:
@@ -276,6 +280,8 @@ class TwoStageRetriever:
         filter_kwargs = {}
         if source:
             filter_kwargs["source"] = source
+        if account:
+            filter_kwargs["account"] = account
         if doc_type:
             filter_kwargs["doc_type"] = doc_type
         if author:

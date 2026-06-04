@@ -65,6 +65,8 @@ try:
         code: Optional[str] = None
         email: Optional[str] = None
         password: Optional[str] = None
+        account: Optional[str] = None
+        profile: Optional[str] = None
 
 except ImportError:
     ConnectRequest = None  # type: ignore[assignment,misc]
@@ -95,12 +97,19 @@ def create_connectors_router():
     # Helpers
     # ------------------------------------------------------------------
 
-    def _get_or_create(connector_id: str) -> Any:
+    def _instance_key(connector_id: str, account: str = "") -> str:
+        return f"{connector_id}:{account}" if account else connector_id
+
+    def _get_or_create(connector_id: str, account: str = "") -> Any:
         """Return a cached connector instance, creating it if needed."""
-        if connector_id not in _instances:
+        key = _instance_key(connector_id, account)
+        if key not in _instances:
             cls = ConnectorRegistry.get(connector_id)
-            _instances[connector_id] = cls()
-        return _instances[connector_id]
+            try:
+                _instances[key] = cls(account=account) if account else cls()
+            except TypeError:
+                _instances[key] = cls()
+        return _instances[key]
 
     def _connector_summary(connector_id: str, instance: Any) -> Dict[str, Any]:
         """Build the dict returned by GET /connectors."""
@@ -147,7 +156,7 @@ def create_connectors_router():
             return "Connection timed out."
         return raw
 
-    def _start_sync(connector_id: str, instance: Any) -> str:
+    def _start_sync(connector_id: str, instance: Any, account: str = "") -> str:
         """Spawn a background sync; returns ``"started"`` or ``"already_syncing"``.
 
         Records baseline items in ``_sync_state`` so GET /{id}/sync polls
@@ -158,7 +167,8 @@ def create_connectors_router():
         """
         import threading
 
-        existing = _sync_threads.get(connector_id)
+        sync_key = _instance_key(connector_id, account)
+        existing = _sync_threads.get(sync_key)
         if existing and existing.is_alive():
             return "already_syncing"
 
@@ -178,7 +188,7 @@ def create_connectors_router():
         except Exception:  # noqa: BLE001
             baseline_items = 0
 
-        _sync_state[connector_id] = {
+        _sync_state[sync_key] = {
             "state": "syncing",
             "error": None,
             "baseline_items": baseline_items,
@@ -194,24 +204,24 @@ def create_connectors_router():
                 pipeline = IngestionPipeline(store=store)
                 engine = SyncEngine(pipeline=pipeline)
                 engine.sync(instance)
-                logger.info("Sync completed for %s", connector_id)
-                _sync_state[connector_id] = {
+                logger.info("Sync completed for %s", sync_key)
+                _sync_state[sync_key] = {
                     "state": "complete",
                     "error": None,
                     "baseline_items": baseline_items,
                 }
             except Exception as exc:
                 error_msg = _translate_sync_error(str(exc))
-                logger.error("Sync failed for %s: %s", connector_id, error_msg)
-                _sync_state[connector_id] = {
+                logger.error("Sync failed for %s: %s", sync_key, error_msg)
+                _sync_state[sync_key] = {
                     "state": "error",
                     "error": error_msg,
                     "baseline_items": baseline_items,
                 }
 
-        t = threading.Thread(target=_run_sync, daemon=True)
+        t = threading.Thread(target=_run_sync, daemon=True, name=f"sync-{sync_key}")
         t.start()
-        _sync_threads[connector_id] = t
+        _sync_threads[sync_key] = t
         return "started"
 
     # ------------------------------------------------------------------
@@ -303,7 +313,8 @@ def create_connectors_router():
                 status_code=404,
                 detail=f"Connector '{connector_id}' not found",
             )
-        instance = _get_or_create(connector_id)
+        account = (req.account or req.profile or "").strip()
+        instance = _get_or_create(connector_id, account)
 
         try:
             auth_type = getattr(instance, "auth_type", "unknown")
@@ -354,17 +365,18 @@ def create_connectors_router():
         # immediately — the user shouldn't have to click "Sync Now".
         sync_status: Optional[str] = None
         if instance.is_connected():
-            sync_status = _start_sync(connector_id, instance)
+            sync_status = _start_sync(connector_id, instance, account)
 
         return {
             "connector_id": connector_id,
+            "account": account or None,
             "connected": instance.is_connected(),
             "status": "connected" if instance.is_connected() else "pending",
             "sync_status": sync_status,
         }
 
     @router.post("/{connector_id}/disconnect")
-    async def disconnect_connector(connector_id: str):
+    async def disconnect_connector(connector_id: str, account: str = ""):
         """Disconnect a connector and clear its credentials."""
         _ensure_connectors_registered()
         if not ConnectorRegistry.contains(connector_id):
@@ -372,19 +384,22 @@ def create_connectors_router():
                 status_code=404,
                 detail=f"Connector '{connector_id}' not found",
             )
-        instance = _get_or_create(connector_id)
+        account = account.strip()
+        instance = _get_or_create(connector_id, account)
         try:
             instance.disconnect()
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc))
+        _instances.pop(_instance_key(connector_id, account), None)
         return {
             "connector_id": connector_id,
+            "account": account or None,
             "connected": False,
             "status": "disconnected",
         }
 
     @router.get("/{connector_id}/oauth/start")
-    async def oauth_start(connector_id: str, request: Request):
+    async def oauth_start(connector_id: str, request: Request, account: str = ""):
         """Redirect to the OAuth provider's consent page.
 
         The callback will come back to /v1/connectors/{id}/oauth/callback.
@@ -404,7 +419,8 @@ def create_connectors_router():
         if not provider:
             raise HTTPException(400, f"No OAuth provider for '{connector_id}'")
 
-        creds = get_client_credentials(provider)
+        account = account.strip()
+        creds = get_client_credentials(provider, account=account)
         if not creds:
             raise HTTPException(
                 400,
@@ -424,6 +440,8 @@ def create_connectors_router():
             "scope": " ".join(provider.scopes),
             **provider.extra_auth_params,
         }
+        if account:
+            params["state"] = account
         auth_url = f"{provider.auth_endpoint}?{urlencode(params)}"
 
         from fastapi.responses import RedirectResponse
@@ -435,13 +453,15 @@ def create_connectors_router():
         connector_id: str,
         code: str = "",
         error: str = "",
+        state: str = "",
+        account: str = "",
         request: Request = None,
     ):
         """Handle OAuth callback from the provider."""
         from fastapi.responses import HTMLResponse
 
         from openjarvis.connectors.oauth import (
-            _CONNECTORS_DIR,
+            _credential_paths_for_provider,
             _exchange_token,
             get_client_credentials,
             get_provider_for_connector,
@@ -470,7 +490,8 @@ def create_connectors_router():
         if not provider:
             raise HTTPException(400, f"No OAuth provider for '{connector_id}'")
 
-        creds = get_client_credentials(provider)
+        account_alias = (account or state or "").strip()
+        creds = get_client_credentials(provider, account=account_alias)
         if not creds:
             raise HTTPException(400, "No client credentials configured")
 
@@ -503,11 +524,11 @@ def create_connectors_router():
             "client_secret": client_secret,
         }
 
-        for filename in provider.credential_files:
-            save_tokens(str(_CONNECTORS_DIR / filename), payload)
+        for path in _credential_paths_for_provider(provider, account=account_alias):
+            save_tokens(str(path), payload)
 
         # Clear cached instance so it picks up new credentials
-        _instances.pop(connector_id, None)
+        _instances.pop(_instance_key(connector_id, account_alias), None)
 
         _style = "font-family:system-ui;text-align:center;padding:60px"
         return HTMLResponse(
@@ -521,7 +542,7 @@ def create_connectors_router():
         )
 
     @router.post("/{connector_id}/sync")
-    def trigger_sync(connector_id: str) -> Dict[str, Any]:
+    def trigger_sync(connector_id: str, account: str = "") -> Dict[str, Any]:
         """Trigger a sync in the background and return immediately."""
         _ensure_connectors_registered()
         if not ConnectorRegistry.contains(connector_id):
@@ -529,17 +550,22 @@ def create_connectors_router():
                 status_code=404,
                 detail=f"Connector '{connector_id}' not found",
             )
-        inst = _get_or_create(connector_id)
+        account = account.strip()
+        inst = _get_or_create(connector_id, account)
         if not inst.is_connected():
             raise HTTPException(
                 status_code=400,
                 detail=f"Connector '{connector_id}' is not connected",
             )
-        status = _start_sync(connector_id, inst)
-        return {"connector_id": connector_id, "status": status}
+        status = _start_sync(connector_id, inst, account)
+        return {
+            "connector_id": connector_id,
+            "account": account or None,
+            "status": status,
+        }
 
     @router.get("/{connector_id}/sync")
-    async def sync_status(connector_id: str):
+    async def sync_status(connector_id: str, account: str = ""):
         """Return the current sync status for a connector."""
         _ensure_connectors_registered()
         if not ConnectorRegistry.contains(connector_id):
@@ -547,15 +573,17 @@ def create_connectors_router():
                 status_code=404,
                 detail=f"Connector '{connector_id}' not found",
             )
-        instance = _get_or_create(connector_id)
+        account = account.strip()
+        instance = _get_or_create(connector_id, account)
         try:
             status = instance.sync_status()
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc))
 
         # Override with router-level sync state (background thread tracking)
-        bg = _sync_state.get(connector_id, {})
-        bg_thread = _sync_threads.get(connector_id)
+        sync_key = _instance_key(connector_id, account)
+        bg = _sync_state.get(sync_key, {})
+        bg_thread = _sync_threads.get(sync_key)
         is_bg_running = bg_thread is not None and bg_thread.is_alive()
 
         # Fall back to the SyncEngine's persistent checkpoint for items_synced
@@ -587,11 +615,17 @@ def create_connectors_router():
             # ISO 8601 strings sort correctly under MIN(); skip rows with no
             # timestamp and any tombstoned chunks so the display reflects
             # what's actually retrievable.
-            row = store._conn.execute(
+            oldest_sql = (
                 "SELECT MIN(timestamp) FROM knowledge_chunks "
-                "WHERE source = ? AND timestamp != '' AND deleted_at IS NULL",
-                (store_source,),
-            ).fetchone()
+                "WHERE source = ? AND timestamp != '' AND deleted_at IS NULL"
+            )
+            oldest_params: tuple[Any, ...]
+            if account:
+                oldest_sql += " AND json_extract(metadata, '$.account') = ?"
+                oldest_params = (store_source, account)
+            else:
+                oldest_params = (store_source,)
+            row = store._conn.execute(oldest_sql, oldest_params).fetchone()
             if row is not None and row[0]:
                 oldest_item_date = str(row[0])
         except Exception:  # noqa: BLE001

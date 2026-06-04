@@ -71,8 +71,15 @@ Example:
 ```bash
 jarvis init --preset morning-digest-mac
 jarvis connect gdrive          # one OAuth covers Gmail / Calendar / Tasks
+jarvis connect google --account work      # optional named Google profile
 jarvis digest --fresh          # generate and play your first briefing
 ```
+
+Named Google profiles let you connect accounts such as `personal`, `work`, or
+`subscriptions` side by side. Analysis can then stay scoped with prompts like
+`jarvis ask "Summarize only work Gmail about renewals"` or direct filters such
+as `source="gmail:work"`. See
+[Google Account Profiles](https://open-jarvis.github.io/OpenJarvis/user-guide/google-account-profiles/).
 
 Per-preset deep dives: [morning digest](https://open-jarvis.github.io/OpenJarvis/user-guide/morning-digest/) · [deep research](https://open-jarvis.github.io/OpenJarvis/user-guide/deep-research/) · [code assistant](https://open-jarvis.github.io/OpenJarvis/user-guide/code-assistant/) · [scheduled monitor](https://open-jarvis.github.io/OpenJarvis/user-guide/scheduled-monitor/) · [chat simple](https://open-jarvis.github.io/OpenJarvis/user-guide/chat-simple/) · or the full [quickstart guide](https://open-jarvis.github.io/OpenJarvis/getting-started/quickstart/).
 
