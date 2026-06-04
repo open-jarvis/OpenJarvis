@@ -74,6 +74,11 @@ class OrchestratorSFTConfig:
     trace_cache_path: str = "data/orchestrator_sft_traces.jsonl"
     regenerate_traces: bool = False
 
+    # ADP cold-start trace synthesis (see sft_data/build.py). Empty configs
+    # falls back to sft_data.adp_loader.DEFAULT_CONFIGS.
+    adp_configs: str = ""
+    distill_max_tasks: int = 2000
+
     # Checkpoint
     checkpoint_dir: str = "checkpoints/orchestrator_sft"
     save_every_n_epochs: int = 1
@@ -267,11 +272,34 @@ class OrchestratorSFTTrainer:
         )
 
     def _generate_traces(self) -> None:
-        """Generate SFT traces (placeholder — requires running engine)."""
+        """Generate SFT traces from the ADP corpus (no GPU / no API keys).
+
+        Builds the THOUGHT/TOOL/INPUT ``conversations`` JSONL by re-tiering
+        NeuLab ADP trajectories through the local↔cloud paradigms and keeping
+        the cheapest predicted-correct rendering per task. See
+        ``sft_data/build.py`` and the cold-start design doc.
+        """
+        from openjarvis.learning.intelligence.orchestrator.sft_data.build import (
+            build_sft_dataset,
+        )
+
         trace_path = Path(self.config.trace_cache_path)
-        trace_path.parent.mkdir(parents=True, exist_ok=True)
-        if not trace_path.exists():
-            trace_path.touch()
+        configs = (
+            [c.strip() for c in self.config.adp_configs.split(",") if c.strip()]
+            or None
+        )
+        try:
+            stats = build_sft_dataset(
+                str(trace_path),
+                max_tasks=self.config.distill_max_tasks,
+                **({"configs": configs} if configs else {}),
+            )
+            logger.info("Generated SFT traces: %s", stats)
+        except Exception as exc:  # network/datasets optional — fail soft to empty
+            logger.warning("ADP trace generation failed (%s); writing empty set", exc)
+            trace_path.parent.mkdir(parents=True, exist_ok=True)
+            if not trace_path.exists():
+                trace_path.touch()
 
     def _init_optimizer(self) -> None:
         if not HAS_TORCH or self.policy.model is None:

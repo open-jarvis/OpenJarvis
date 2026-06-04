@@ -1,0 +1,29 @@
+# Orchestrator SFT cold-start — Qwen3-8B (~9B, "easier to train").
+#
+# Fields map onto OrchestratorSFTConfig. Build the dataset first (no GPU):
+#   python -m openjarvis.learning.intelligence.orchestrator.sft_data.build \
+#       --out data/orchestrator_sft_traces.jsonl --max-tasks 2000
+# then train on a rented GPU with regenerate_traces = false.
+
+[model]
+model_name = "Qwen/Qwen3-8B"
+max_seq_length = 4096
+
+[training]
+num_epochs = 3
+batch_size = 8
+learning_rate = 2e-5
+weight_decay = 0.01
+warmup_ratio = 0.1
+gradient_checkpointing = true
+
+[data]
+trace_cache_path = "data/orchestrator_sft_traces.jsonl"
+regenerate_traces = false
+# Coding / agentic / tool-use ADP sub-configs (per the meeting steer).
+adp_configs = "codeactinstruct,code_feedback,openhands,agenttuning_os,swe-smith"
+distill_max_tasks = 2000
+
+[checkpoint]
+checkpoint_dir = "checkpoints/orchestrator_sft"
+save_every_n_epochs = 1
