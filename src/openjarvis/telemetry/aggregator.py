@@ -92,12 +92,22 @@ class TelemetryAggregator:
         self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
 
-    @staticmethod
     def _time_filter(
+        self,
         since: Optional[float] = None,
         until: Optional[float] = None,
+        current_methodology_only: bool = False,
     ) -> tuple[str, list[Any]]:
-        """Build a WHERE clause fragment for time-range filtering."""
+        """Build a WHERE clause fragment for time + methodology filtering.
+
+        ``current_methodology_only`` is opt-in (default False) because the
+        local dashboard still wants to render historical aggregates that
+        predate the per-record version stamp. The leaderboard ingest path
+        in ``server/routes.savings`` flips it to True so legacy rows (the
+        ones with NULL token_counting_version) don't pollute the public
+        per-token efficiency metric — they were the dominant source of
+        the bimodal Wh/token distribution.
+        """
         clauses: list[str] = []
         params: list[Any] = []
         if since is not None:
@@ -106,6 +116,11 @@ class TelemetryAggregator:
         if until is not None:
             clauses.append("timestamp <= ?")
             params.append(until)
+        if current_methodology_only and self._safe_col("token_counting_version"):
+            from openjarvis.core.types import TOKEN_COUNTING_VERSION
+
+            clauses.append("token_counting_version = ?")
+            params.append(TOKEN_COUNTING_VERSION)
         if clauses:
             return " WHERE " + " AND ".join(clauses), params
         return "", params
@@ -124,8 +139,11 @@ class TelemetryAggregator:
         *,
         since: Optional[float] = None,
         until: Optional[float] = None,
+        current_methodology_only: bool = False,
     ) -> List[ModelStats]:
-        where, params = self._time_filter(since, until)
+        where, params = self._time_filter(
+            since, until, current_methodology_only=current_methodology_only
+        )
 
         # Build optional columns for new fields (graceful on old DBs)
         extra_cols = ""
@@ -215,8 +233,11 @@ class TelemetryAggregator:
         *,
         since: Optional[float] = None,
         until: Optional[float] = None,
+        current_methodology_only: bool = False,
     ) -> List[EngineStats]:
-        where, params = self._time_filter(since, until)
+        where, params = self._time_filter(
+            since, until, current_methodology_only=current_methodology_only
+        )
 
         extra_cols = ""
         has_tpj = self._safe_col("tokens_per_joule")
@@ -305,9 +326,14 @@ class TelemetryAggregator:
         *,
         since: Optional[float] = None,
         until: Optional[float] = None,
+        current_methodology_only: bool = False,
     ) -> AggregatedStats:
-        model_stats = self.per_model_stats(since=since, until=until)
-        engine_stats = self.per_engine_stats(since=since, until=until)
+        model_stats = self.per_model_stats(
+            since=since, until=until, current_methodology_only=current_methodology_only
+        )
+        engine_stats = self.per_engine_stats(
+            since=since, until=until, current_methodology_only=current_methodology_only
+        )
         total_calls = sum(m.call_count for m in model_stats)
 
         def _weighted_avg(attr: str) -> float:

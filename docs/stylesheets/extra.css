@@ -440,6 +440,13 @@
   font-family: var(--md-code-font-family, monospace);
   font-size: 13px;
 }
+/* Placeholder for rows where energy / FLOPs telemetry didn't land.
+   Distinguishes "telemetry missing" from "user genuinely had 0 work
+   done" without making the row visually pop more than data rows. */
+.lb-missing {
+  color: var(--md-default-fg-color--light, #999);
+  font-style: italic;
+}
 
 /* ── DocSearch ───────────────────────────────────────────────────────── */
 #docsearch {

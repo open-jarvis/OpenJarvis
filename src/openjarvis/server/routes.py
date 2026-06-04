@@ -195,17 +195,50 @@ def _handle_direct(
     if req.tools:
         kwargs["tools"] = req.tools
     if bus:
+        from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
         from openjarvis.telemetry.wrapper import instrumented_generate
 
-        result = instrumented_generate(
-            engine,
-            messages,
-            model=model,
-            bus=bus,
-            temperature=req.temperature,
-            max_tokens=req.max_tokens,
-            **kwargs,
-        )
+        # `app.state.engine` may already be an InstrumentedEngine (the
+        # common case when telemetry is wired in). If we then wrap it
+        # with `instrumented_generate`, BOTH layers fire a
+        # TELEMETRY_RECORD per call:
+        #
+        #   - InstrumentedEngine.generate() publishes a FULL record
+        #     (energy_joules, GPU stats, token_counting_version, ...).
+        #   - instrumented_generate() publishes a BARE record (timing +
+        #     tokens only; no energy meter, no version stamp).
+        #
+        # The doubled count was the dominant driver of the bimodal
+        # Wh/token distribution on the public leaderboard.
+        #
+        # The fix below is NOT "unwrap and call instrumented_generate":
+        # that would have replaced "doubled records" with "every
+        # request emits only a bare record with no energy / no version",
+        # which the leaderboard's `current_methodology_only=True` filter
+        # would then drop entirely. Instead, when the engine is already
+        # an InstrumentedEngine, skip the wrapper and call `generate`
+        # directly — InstrumentedEngine publishes the full per-record
+        # event itself with energy + version intact. Only fall back to
+        # the lightweight wrapper for engines that aren't already
+        # instrumented.
+        if isinstance(engine, InstrumentedEngine):
+            result = engine.generate(
+                messages,
+                model=model,
+                temperature=req.temperature,
+                max_tokens=req.max_tokens,
+                **kwargs,
+            )
+        else:
+            result = instrumented_generate(
+                engine,
+                messages,
+                model=model,
+                bus=bus,
+                temperature=req.temperature,
+                max_tokens=req.max_tokens,
+                **kwargs,
+            )
     else:
         result = engine.generate(
             messages,
@@ -736,7 +769,11 @@ async def savings(request: Request):
 
     agg = TelemetryAggregator(db_path)
     try:
-        summary = agg.summary(since=session_start)
+        # current_methodology_only excludes pre-fix legacy rows from
+        # the leaderboard's per-token efficiency numerator/denominator
+        # — see the comment on _time_filter for the bimodal-Wh/token
+        # background.
+        summary = agg.summary(since=session_start, current_methodology_only=True)
         # Exclude cloud model tokens from savings — only local
         # inference counts toward cost savings.
         _cloud_prefixes = (
