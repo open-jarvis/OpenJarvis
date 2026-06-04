@@ -188,6 +188,11 @@ def serve(
                 if sec.capability_policy is not None:
                     agent_kwargs["capability_policy"] = sec.capability_policy
 
+                # MCP transports persisted on the agent at the bottom of
+                # this block — initialise here so the reference is valid
+                # even when accepts_tools is False (#461).
+                mcp_clients: list = []
+
                 # Load tools for agents that support them
                 if getattr(agent_cls, "accepts_tools", False):
                     import openjarvis.tools  # noqa: F401  # trigger registration
@@ -221,6 +226,22 @@ def serve(
                             tools.append(tool_cls())
                         elif isinstance(tool_cls, BaseTool):
                             tools.append(tool_cls)
+
+                    # MCP server tools from config.tools.mcp.servers
+                    # (#461 — these were silently dropped).
+                    from openjarvis.mcp.loader import load_mcp_tools_from_config
+
+                    mcp_tools, mcp_clients = load_mcp_tools_from_config(
+                        config.tools.mcp,
+                        allowed_names=allowed if configured else None,
+                    )
+                    if mcp_tools:
+                        existing = {t.spec.name for t in tools}
+                        for t in mcp_tools:
+                            if t.spec.name not in existing:
+                                tools.append(t)
+                                existing.add(t.spec.name)
+
                     if tools:
                         agent_kwargs["tools"] = tools
 
@@ -228,6 +249,10 @@ def serve(
                     agent_kwargs["max_turns"] = config.agent.max_turns
 
                 agent = agent_cls(engine, model_name, **agent_kwargs)
+                # Pin MCP transports to the agent's lifetime so HTTP
+                # connections don't close mid-request (#461).
+                if mcp_clients:
+                    agent._mcp_clients = mcp_clients
         except Exception as exc:
             import traceback
 
@@ -260,6 +285,10 @@ def serve(
         channel_agent = config.channel.default_agent or agent_key or "simple"
 
         _channel_tools: list = []
+        # MCP transports persisted at function scope (= server-process
+        # lifetime); see the comment near the channel-MCP-load block
+        # below. Initialise here so it's always bound. #461.
+        _channel_mcp_clients: list = []
         if channel_agent:
             try:
                 import openjarvis.agents
@@ -298,8 +327,30 @@ def serve(
                                 _channel_tools.append(_tcls())
                             elif isinstance(_tcls, BaseTool):
                                 _channel_tools.append(_tcls)
+
+                        # MCP tools for the channel agent too (#461).
+                        from openjarvis.mcp.loader import (
+                            load_mcp_tools_from_config,
+                        )
+
+                        _ch_mcp_tools, _ch_mcp_clients = load_mcp_tools_from_config(
+                            config.tools.mcp,
+                            allowed_names=_allowed if configured else None,
+                        )
+                        if _ch_mcp_tools:
+                            _existing = {t.spec.name for t in _channel_tools}
+                            for t in _ch_mcp_tools:
+                                if t.spec.name not in _existing:
+                                    _channel_tools.append(t)
+                                    _existing.add(t.spec.name)
+                        # Hold a reference at module / function scope —
+                        # the channel agent is constructed inside
+                        # JarvisSystem below; we extend its lifetime by
+                        # keeping the list bound here.
+                        _channel_mcp_clients = _ch_mcp_clients
             except Exception as exc:
                 logger.warning("Channel tools failed to load: %s", exc)
+                _channel_mcp_clients = []
 
         _wire_system = JarvisSystem(
             config=config,

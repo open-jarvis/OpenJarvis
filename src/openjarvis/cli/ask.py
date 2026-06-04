@@ -339,13 +339,35 @@ def _run_agent(
 
     agent_cls = AgentRegistry.get(agent_name)
 
-    # Build tools
+    # Build tools — local registry tools + MCP server tools from config
+    # (#461 — MCP tools were silently dropped because ask.py only used
+    # ToolRegistry).
     tools = []
     if tool_names:
         # Trigger tool registration
         import openjarvis.tools  # noqa: F401
 
         tools = _build_tools(tool_names, config, engine, model_name)
+
+    # MCP tools from config.tools.mcp.servers. Loaded regardless of
+    # tool_names — if the caller passed --tools, the loader filters MCP
+    # tools to those names; otherwise every MCP tool is included.
+    from openjarvis.mcp.loader import load_mcp_tools_from_config
+
+    mcp_tools, mcp_clients = load_mcp_tools_from_config(
+        config.tools.mcp,
+        allowed_names=set(tool_names) if tool_names else None,
+    )
+    if mcp_tools:
+        # Dedup against registry tools by spec.name — first occurrence wins
+        # so a registry tool always takes precedence over an MCP tool with
+        # the same name (avoids the "two tools with the same name" footgun
+        # the verdict flagged).
+        existing = {t.spec.name for t in tools}
+        for t in mcp_tools:
+            if t.spec.name not in existing:
+                tools.append(t)
+                existing.add(t.spec.name)
 
     # Build agent with appropriate kwargs
     agent_kwargs = {
@@ -378,6 +400,12 @@ def _run_agent(
         )
 
     agent = agent_cls(engine, model_name, **agent_kwargs)
+    # Hold MCP transports alive for the agent's lifetime — without this
+    # reference they'd be garbage-collected when this function returns
+    # and the underlying HTTP connections would close mid-execution (#461
+    # adversarial review caught this).
+    if mcp_clients:
+        agent._mcp_clients = mcp_clients
     ctx = AgentContext()
 
     # Inject memory context into conversation if available

@@ -100,6 +100,70 @@ class TestStreamableHTTPTransport:
         first_call_headers = mock_client.post.call_args[1]["headers"]
         assert "Mcp-Session-Id" not in first_call_headers
 
+    def test_authorization_header_with_token(self, _mock_httpx_client):
+        """Regression for #461 — token kwarg → Authorization: Bearer header."""
+        from openjarvis.mcp.transport import StreamableHTTPTransport
+
+        mock_client = _mock_httpx_client
+        mock_client.post.return_value = _make_http_response({})
+
+        transport = StreamableHTTPTransport(
+            "http://homeassistant.local:8123/mcp",
+            token="ha-long-lived-token-xyz",
+        )
+        transport.send(MCPRequest(method="tools/list", id=1))
+
+        headers = mock_client.post.call_args[1]["headers"]
+        assert headers["Authorization"] == "Bearer ha-long-lived-token-xyz"
+
+    def test_no_authorization_header_without_token(self, _mock_httpx_client):
+        """Backward compat — no token kwarg → no Authorization header."""
+        from openjarvis.mcp.transport import StreamableHTTPTransport
+
+        mock_client = _mock_httpx_client
+        mock_client.post.return_value = _make_http_response({})
+
+        transport = StreamableHTTPTransport("http://localhost:9583/mcp")
+        transport.send(MCPRequest(method="tools/list", id=1))
+
+        headers = mock_client.post.call_args[1]["headers"]
+        assert "Authorization" not in headers
+
+    def test_empty_token_does_not_send_header(self, _mock_httpx_client):
+        """token='' → no Authorization (empty/falsy tokens skip the header).
+
+        Matters because `cfg.get('token')` returns `''` if the user wrote
+        `token = ""` in config.toml. We don't want to send `Authorization:
+        Bearer ` (with a trailing space) — that's a malformed header that
+        most servers reject with a confusing 400 rather than 401.
+        """
+        from openjarvis.mcp.transport import StreamableHTTPTransport
+
+        mock_client = _mock_httpx_client
+        mock_client.post.return_value = _make_http_response({})
+
+        transport = StreamableHTTPTransport("http://localhost:9583/mcp", token="")
+        transport.send(MCPRequest(method="tools/list", id=1))
+
+        headers = mock_client.post.call_args[1]["headers"]
+        assert "Authorization" not in headers
+
+    def test_authorization_persists_across_requests(self, _mock_httpx_client):
+        """Authorization header must accompany every request, not just the first."""
+        from openjarvis.mcp.transport import StreamableHTTPTransport
+
+        mock_client = _mock_httpx_client
+        mock_client.post.return_value = _make_http_response({})
+
+        transport = StreamableHTTPTransport(
+            "http://localhost:9583/mcp", token="abc123"
+        )
+        for i in range(3):
+            transport.send(MCPRequest(method="tools/list", id=i))
+
+        for call in mock_client.post.call_args_list:
+            assert call[1]["headers"]["Authorization"] == "Bearer abc123"
+
     def test_connect_error_handling(self, _mock_httpx_client):
         """httpx.ConnectError should be wrapped in RuntimeError."""
         import httpx

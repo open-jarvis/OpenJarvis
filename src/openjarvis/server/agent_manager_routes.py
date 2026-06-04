@@ -687,12 +687,14 @@ def _get_mcp_tools(app_state: Any) -> Tuple[List[Dict[str, Any]], Dict[str, Any]
         cfg = _json.loads(server_cfg) if isinstance(server_cfg, str) else server_cfg
         name = cfg.get("name", "<unnamed>")
         url = cfg.get("url")
+        # Bearer token from config — mirrors the builder.py fix for #461.
+        token = cfg.get("token")
         command = cfg.get("command", "")
         args = cfg.get("args", [])
 
         try:
             if url:
-                transport = StreamableHTTPTransport(url=url)
+                transport = StreamableHTTPTransport(url=url, token=token)
             elif command:
                 transport = StdioTransport(command=[command] + args)
             else:
