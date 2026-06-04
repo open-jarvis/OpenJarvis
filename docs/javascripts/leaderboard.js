@@ -116,8 +116,15 @@
     }
 
     fetch(
+      // `methodology_version=gte.1` filter excludes rows that the
+      // leaderboard-correctness migration quarantined (version 0). Rows
+      // written by current and future clients carry version >= 1, so this
+      // is forward-compatible — pre-fix corrupt rows hide at the query
+      // level (fewer bytes over the wire than client-side outlier
+      // filtering), and downstream client-side checks remain as a
+      // belt-and-suspenders second line of defence.
       SUPABASE_URL +
-        "/rest/v1/savings_entries?select=display_name,dollar_savings,energy_wh_saved,flops_saved,total_calls,total_tokens&order=dollar_savings.desc&limit=1000",
+        "/rest/v1/savings_entries?select=display_name,dollar_savings,energy_wh_saved,flops_saved,total_calls,total_tokens&methodology_version=gte.1&order=dollar_savings.desc&limit=1000",
       {
         headers: {
           apikey: SUPABASE_ANON_KEY,
