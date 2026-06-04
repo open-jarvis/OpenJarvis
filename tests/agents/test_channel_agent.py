@@ -134,12 +134,16 @@ def _make_msg(
     channel: str = "fake",
     sender: str = "user1",
     session_id: str = "sess-001",
+    conversation_id: str = "",
+    message_id: str = "",
 ) -> ChannelMessage:
     return ChannelMessage(
         channel=channel,
         sender=sender,
         content=content,
         session_id=session_id,
+        conversation_id=conversation_id,
+        message_id=message_id,
     )
 
 
@@ -251,3 +255,64 @@ class TestChannelAgent:
         assert len(channel._sent) == 1
         sent_content = channel._sent[0]["content"]
         assert "openjarvis://research/" in sent_content
+
+    def test_reply_uses_conversation_id_as_destination_not_channel_type(self):
+        """Regression for #459 — Discord (and every per-adapter native API)
+        wants the per-channel destination ID, not the channel TYPE label.
+
+        Pre-fix:
+          self._channel.send(msg.channel, ...)        # "discord" → 404
+          conversation_id=msg.conversation_id          # channel-id used as msg-ref-id
+
+        Post-fix:
+          self._channel.send(msg.conversation_id, ...) # numeric channel id
+          conversation_id=msg.message_id               # the message being replied to
+        """
+        channel = FakeChannel()
+        agent = _make_agent("hi back")
+        ca = ChannelAgent(channel, agent)
+
+        # The exact ChannelMessage shape DiscordChannel actually produces:
+        # channel = "discord" (TYPE label), conversation_id = numeric Discord
+        # channel id, message_id = numeric Discord message id.
+        msg = _make_msg(
+            content="hello",
+            channel="discord",
+            conversation_id="987654321098765432",
+            message_id="111122223333444455",
+        )
+        channel.simulate_message(msg)
+        ca.shutdown()
+
+        assert len(channel._sent) == 1
+        sent = channel._sent[0]
+        # The destination must be the numeric channel id, not the TYPE label.
+        assert sent["channel"] == "987654321098765432"
+        assert sent["channel"] != "discord"
+        # The conversation_id kwarg must carry the message id (for reply
+        # threading), not the channel id.
+        assert sent["conversation_id"] == "111122223333444455"
+
+    def test_error_path_also_uses_conversation_id_as_destination(self):
+        """The except-clause friendly-error path has the same field-mapping
+        bug as the success path (channel_agent.py:115-119). Verify both
+        sites are fixed."""
+        channel = FakeChannel()
+        agent = MagicMock()
+        agent.run.side_effect = RuntimeError("model unavailable")
+        ca = ChannelAgent(channel, agent)
+
+        msg = _make_msg(
+            content="hello",
+            channel="discord",
+            conversation_id="987654321098765432",
+            message_id="111122223333444455",
+        )
+        channel.simulate_message(msg)
+        ca.shutdown()
+
+        assert len(channel._sent) == 1
+        sent = channel._sent[0]
+        assert sent["channel"] == "987654321098765432"
+        assert sent["conversation_id"] == "111122223333444455"
+        assert "Sorry" in sent["content"]

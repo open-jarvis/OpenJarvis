@@ -77,6 +77,17 @@ class TestSend:
             payload = mock_post.call_args[1]["json"]
             assert payload["message_reference"] == {"message_id": "msg-123"}
 
+    def test_send_refuses_empty_channel(self):
+        """Defensive guard for #459 follow-up: an empty `channel` arg
+        would build /channels//messages and silently 404. We refuse
+        fast so the upstream bug surfaces in the log instead of the
+        reply being blackholed."""
+        ch = DiscordChannel(bot_token="my-bot-token")
+        with patch("httpx.post") as mock_post:
+            result = ch.send("", "Hi there!")
+            assert result is False
+            mock_post.assert_not_called()
+
     def test_send_failure(self):
         ch = DiscordChannel(bot_token="my-bot-token")
 
