@@ -182,7 +182,7 @@ def create_connectors_router():
 
             cp = SyncEngine(
                 pipeline=IngestionPipeline(store=KnowledgeStore()),
-            ).get_checkpoint(connector_id)
+            ).get_checkpoint(sync_key)
             if cp and cp.get("items_synced") is not None:
                 baseline_items = int(cp["items_synced"])
         except Exception:  # noqa: BLE001
@@ -602,7 +602,7 @@ def create_connectors_router():
             store = KnowledgeStore()
             checkpoint = SyncEngine(
                 pipeline=IngestionPipeline(store=store),
-            ).get_checkpoint(connector_id)
+            ).get_checkpoint(sync_key)
 
             # Map connector_id → source field as written by the connector.
             # Most match 1:1, but the IMAP/OAuth Gmail connectors both write

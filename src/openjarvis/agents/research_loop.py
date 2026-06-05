@@ -546,6 +546,25 @@ class ResearchAgent:
     def _execute_search(self, args: Dict[str, Any]) -> ToolInvocation:
         query = str(args.get("query", "") or "")
         person = args.get("person") or None
+
+        def _norm_markerish(value: str) -> str:
+            return "".join(ch.lower() for ch in value if ch.isalnum())
+
+        if person:
+            person = str(person).strip() or None
+            # Small/local planners often misclassify exact marker strings,
+            # ticket IDs, and other search literals as a `person` filter. That
+            # turns a good lexical search into an impossible AND over
+            # participants/author. If the supposed person is just the query
+            # rewritten/normalized, treat it as a search term only.
+            if query and person:
+                norm_query = _norm_markerish(query)
+                norm_person = _norm_markerish(person)
+                marker_like_query = any(ch in query for ch in "_-0123456789")
+                if norm_person == norm_query or (
+                    marker_like_query and norm_person and norm_person in norm_query
+                ):
+                    person = None
         time_range = self._parse_time_range(args.get("time_range"))
         sources = args.get("sources") or None
         if sources and not isinstance(sources, list):
@@ -553,6 +572,22 @@ class ResearchAgent:
         accounts = args.get("accounts") or args.get("account") or None
         if accounts and not isinstance(accounts, list):
             accounts = [str(accounts)]
+        if person:
+            # The planner can also mistake an account alias from a scoped
+            # source like gmail:personal-main for a person filter (e.g.
+            # person="Personal Main" or person="work-credain"). Account
+            # scoping already happens through sources/accounts; adding the
+            # alias as a participant/author filter makes exact marker tests
+            # impossible to find. Strip person when it is just the named
+            # account/profile scope.
+            scoped_accounts: list[str] = []
+            for source in sources or []:
+                source_s = str(source)
+                if ":" in source_s:
+                    scoped_accounts.append(source_s.split(":", 1)[1])
+            scoped_accounts.extend(str(account) for account in (accounts or []))
+            if any(_norm_markerish(person) == _norm_markerish(account) for account in scoped_accounts):
+                person = None
         limit = int(args.get("limit", 20) or 20)
         limit = max(1, min(limit, 20))
 

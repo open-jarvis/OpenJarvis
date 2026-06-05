@@ -464,10 +464,12 @@ class HybridSearch:
         )
         fused = self._fuse(bm25, vector)
 
-        # Metadata-only fallback: empty query, or both legs produced nothing
-        # despite a non-empty query. Return the most recent rows matching the
-        # filter so the agent still gets a useful corpus snapshot.
-        if not fused:
+        # Metadata-only fallback: only for empty-query/filter-only searches
+        # such as "all mail from Kelly in May". For a non-empty query,
+        # returning recent rows on zero lexical/vector hits creates false
+        # positives, especially for account-boundary tests where "no hit in
+        # gmail:work" must not synthesize an unrelated work email as a match.
+        if not fused and not query.strip():
             sql = f"""
                 SELECT id FROM knowledge_chunks
                 WHERE {unaliased_filter_sql}
