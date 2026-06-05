@@ -55,7 +55,15 @@ class OllamaEngine(InferenceEngine):
             env_host = os.environ.get("OLLAMA_HOST")
             host = env_host or self._DEFAULT_HOST
         self._host = host.rstrip("/")
-        self._client = httpx.Client(base_url=self._host, timeout=timeout)
+        # Do not inherit proxy/environment transport settings for LAN Ollama.
+        # On macOS, httpx trust_env=True can route private-subnet requests
+        # through system proxy discovery and intermittently time out even when
+        # direct curl and trust_env=False succeed.
+        self._client = httpx.Client(
+            base_url=self._host,
+            timeout=timeout,
+            trust_env=False,
+        )
         # Last stream usage — captured from Ollama's final chunk
         self._last_stream_usage: Dict[str, int] = {}
 
@@ -408,7 +416,12 @@ class OllamaEngine(InferenceEngine):
 
     def health(self) -> bool:
         try:
-            resp = self._client.get("/api/tags", timeout=2.0)
+            # LAN-hosted Ollama can take longer than localhost to accept the
+            # first connection, especially while models/Rust extensions are
+            # warming. Keep the probe short enough for discovery, but not so
+            # short that `serve` rejects a reachable subnet Ollama instance.
+            timeout = float(os.environ.get("OPENJARVIS_OLLAMA_HEALTH_TIMEOUT", "10"))
+            resp = self._client.get("/api/tags", timeout=timeout)
             return resp.status_code == 200
         except Exception as exc:
             logger.debug("Ollama health check failed at %s: %s", self._host, exc)

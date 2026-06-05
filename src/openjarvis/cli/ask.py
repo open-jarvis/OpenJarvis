@@ -65,13 +65,14 @@ def _run_research(
     store = KnowledgeStore(**store_kwargs)
 
     # Research mode is wired specifically to Ollama: the planner prompt
-    # (gemma4:31b) and the function-call schema for search/clarify both
-    # assume Ollama's /api/chat tool semantics. Using the engine returned
-    # by get_engine() here is a foot-gun — discovery can pick any
-    # OpenAI-compatible engine registered on the same port as our own
-    # API server. research_router.py hardcodes OllamaEngine() for the
-    # same reason; mirror that here so CLI and HTTP behave identically.
-    engine = OllamaEngine()
+    # and the function-call schema for search/clarify both assume Ollama's
+    # /api/chat tool semantics. Using the engine returned by get_engine() here
+    # is a foot-gun — discovery can pick any OpenAI-compatible engine registered
+    # on the same port as our own API server. Honor configured/remote Ollama
+    # host though; otherwise LAN setups fall back to localhost during research.
+    cfg = load_config()
+    ollama_host = cfg.engine.ollama.host or None
+    engine = OllamaEngine(host=ollama_host)
 
     chunk_count = store._conn.execute(
         "SELECT COUNT(*) FROM knowledge_chunks"
@@ -84,7 +85,7 @@ def _run_research(
         chunk_count,
     )
 
-    embedder = OllamaEmbedder()
+    embedder = OllamaEmbedder(host=ollama_host or "http://localhost:11434")
     embedder_available = embedder.is_available()
     logger.debug("research: embedder available=%s", embedder_available)
     if not embedder_available:
@@ -94,7 +95,9 @@ def _run_research(
         )
         embedder = None
 
-    planner_model = model_name or DEFAULT_PLANNER_MODEL
+    planner_model = (
+        model_name or cfg.intelligence.default_model or DEFAULT_PLANNER_MODEL
+    )
     logger.debug("research: planner_model=%s", planner_model)
 
     # ---- Output styling --------------------------------------------------
