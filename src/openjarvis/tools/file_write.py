@@ -7,6 +7,10 @@ from typing import Any, List, Optional
 
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
+from openjarvis.tools._file_sandbox import (
+    resolve_allowed_dirs,
+    write_requires_confirmation,
+)
 from openjarvis.tools._stubs import BaseTool, ToolSpec
 
 # Maximum file size to write (10 MB)
@@ -23,7 +27,11 @@ class FileWriteTool(BaseTool):
         self,
         allowed_dirs: Optional[List[str]] = None,
     ) -> None:
-        self._allowed_dirs = [Path(d).resolve() for d in (allowed_dirs or [])]
+        # ``allowed_dirs`` may be None when the executor builds the tool with no
+        # args; the sandbox and confirmation policy are then resolved from
+        # env/config so configured settings actually take effect.
+        self._allowed_dirs = resolve_allowed_dirs(allowed_dirs)
+        self._requires_confirmation = write_requires_confirmation()
 
     @property
     def spec(self) -> ToolSpec:
@@ -60,6 +68,7 @@ class FileWriteTool(BaseTool):
                 "required": ["path", "content"],
             },
             category="filesystem",
+            requires_confirmation=self._requires_confirmation,
             required_capabilities=["file:write"],
         )
 

@@ -133,3 +133,24 @@ class TestFileWriteTool:
         )
         assert result.success is False
         assert "Invalid mode" in result.content
+
+    def test_confirmation_off_by_default(self, monkeypatch):
+        monkeypatch.delenv("OPENJARVIS_CONFIRM_FILE_WRITE", raising=False)
+        tool = FileWriteTool()
+        assert tool.spec.requires_confirmation is False
+
+    def test_confirmation_enabled_via_env(self, monkeypatch):
+        monkeypatch.setenv("OPENJARVIS_CONFIRM_FILE_WRITE", "1")
+        tool = FileWriteTool()
+        assert tool.spec.requires_confirmation is True
+
+    def test_workspace_env_restricts_writes(self, tmp_path, monkeypatch):
+        inside = tmp_path / "ws"
+        inside.mkdir()
+        monkeypatch.setenv("OPENJARVIS_WORKSPACE", str(inside))
+        tool = FileWriteTool()
+        blocked = tool.execute(path=str(tmp_path / "outside.txt"), content="x")
+        assert blocked.success is False
+        assert "Access denied" in blocked.content
+        allowed = tool.execute(path=str(inside / "ok.txt"), content="x")
+        assert allowed.success is True

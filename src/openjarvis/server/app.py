@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import pathlib
 import time
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
@@ -140,6 +141,29 @@ class _NoCacheStaticFiles(StaticFiles):
         await super().__call__(scope, receive, _send_with_headers)
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """Application lifespan — replaces deprecated on_event handlers.
+
+    Startup work is performed in ``create_app`` (it needs the constructor
+    args), so this only handles graceful shutdown of optional background
+    services such as the analytics bridge/client.
+    """
+    yield
+    bridge = getattr(app.state, "analytics_bridge", None)
+    if bridge is not None:
+        try:
+            bridge.stop()
+        except Exception:
+            pass
+    client = getattr(app.state, "analytics_client", None)
+    if client is not None:
+        try:
+            client.shutdown()
+        except Exception:
+            pass
+
+
 def create_app(
     engine,
     model: str,
@@ -152,6 +176,7 @@ def create_app(
     config=None,
     memory_backend=None,
     speech_backend=None,
+    tts_backend=None,
     agent_manager=None,
     agent_scheduler=None,
     api_key: str = "",
@@ -179,6 +204,7 @@ def create_app(
         title="OpenJarvis API",
         description="OpenAI-compatible API server for OpenJarvis",
         version="0.1.0",
+        lifespan=_lifespan,
     )
 
     from fastapi.middleware.cors import CORSMiddleware
@@ -191,6 +217,8 @@ def create_app(
             "http://127.0.0.1:5173",
             "http://localhost:5174",
             "http://127.0.0.1:5174",
+            "http://localhost:5178",
+            "http://127.0.0.1:5178",
             # Tauri 2 production webview origins:
             #   macOS / Linux / iOS  -> tauri://localhost
             #   Windows / Android    -> http://tauri.localhost (default),
@@ -222,6 +250,7 @@ def create_app(
     app.state.config = config
     app.state.memory_backend = memory_backend
     app.state.speech_backend = speech_backend
+    app.state.tts_backend = tts_backend
     app.state.agent_manager = agent_manager
     app.state.agent_scheduler = agent_scheduler
     app.state.session_start = time.time()
@@ -269,21 +298,6 @@ def create_app(
                 _bridge = EventBridge(_bus_ref, _client)
                 _bridge.start()
                 app.state.analytics_bridge = _bridge
-
-            @app.on_event("shutdown")
-            async def _shutdown_analytics() -> None:
-                bridge = getattr(app.state, "analytics_bridge", None)
-                if bridge is not None:
-                    try:
-                        bridge.stop()
-                    except Exception:
-                        pass
-                client = getattr(app.state, "analytics_client", None)
-                if client is not None:
-                    try:
-                        client.shutdown()
-                    except Exception:
-                        pass
     except Exception as _exc:
         logger.debug("Analytics init skipped: %s", _exc)
 

@@ -181,3 +181,47 @@ def test_registry() -> None:
     assert ConnectorRegistry.contains("gcalendar")
     cls = ConnectorRegistry.get("gcalendar")
     assert cls.connector_id == "gcalendar"
+
+
+# ---------------------------------------------------------------------------
+# create_event
+# ---------------------------------------------------------------------------
+
+
+def test_event_time_all_day_vs_datetime() -> None:
+    from openjarvis.connectors.gcalendar import GCalendarConnector
+
+    assert GCalendarConnector._event_time("2026-06-10", None) == {"date": "2026-06-10"}
+    block = GCalendarConnector._event_time("2026-06-10T09:00:00", "America/New_York")
+    assert block["dateTime"] == "2026-06-10T09:00:00"
+    assert block["timeZone"] == "America/New_York"
+
+
+@patch("openjarvis.connectors.gcalendar._gcal_api_event_insert")
+def test_create_event_builds_body(mock_insert, connector, tmp_path) -> None:
+    import json
+    from pathlib import Path
+
+    creds_path = Path(connector._credentials_path)
+    creds_path.write_text(json.dumps({"token": "fake-token"}), encoding="utf-8")
+    mock_insert.return_value = {"id": "evt1", "htmlLink": "https://cal/evt1"}
+
+    result = connector.create_event(
+        summary="Sync",
+        start="2026-06-10T09:00:00",
+        end="2026-06-10T09:30:00",
+        description="Weekly",
+        location="Room 1",
+        attendees=["a@x.com", "b@x.com"],
+        timezone="America/New_York",
+    )
+
+    assert result["id"] == "evt1"
+    # call_with_refresh(fn, creds_path, calendar_id, body)
+    args = mock_insert.call_args.args
+    # args: (token, calendar_id, body)
+    assert args[1] == "primary"
+    body = args[2]
+    assert body["summary"] == "Sync"
+    assert body["start"]["dateTime"] == "2026-06-10T09:00:00"
+    assert body["attendees"] == [{"email": "a@x.com"}, {"email": "b@x.com"}]

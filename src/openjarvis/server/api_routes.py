@@ -768,11 +768,60 @@ async def transcribe_speech(request: Request):
     # Detect format from filename
     filename = getattr(audio_file, "filename", "audio.wav")
     ext = filename.rsplit(".", 1)[-1] if "." in filename else "wav"
+    logger.info("transcribe upload: %d bytes ext=%s", len(audio_bytes), ext)
 
-    result = backend.transcribe(audio_bytes, format=ext, language=language or None)
+    # Browser MediaRecorder sends webm/opus — convert via ffmpeg before STT.
+    if ext.lower() not in ("wav",):
+        from openjarvis.speech.audio_convert import convert_to_wav
+
+        wav_bytes = convert_to_wav(audio_bytes, ext)
+        if wav_bytes is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Could not decode audio. Install ffmpeg and ensure it is on PATH.",
+            )
+        audio_bytes = wav_bytes
+        ext = "wav"
+
+    from openjarvis.speech.audio_convert import is_silent_wav, wav_rms
+    from openjarvis.speech.speech_filter import sanitize_transcription
+
+    if ext.lower() == "wav":
+        rms = wav_rms(audio_bytes)
+        silent = is_silent_wav(audio_bytes)
+        logger.info("transcribe wav rms=%.5f silent=%s", rms or 0.0, silent)
+        if silent:
+            return {
+                "text": "",
+                "language": "en",
+                "confidence": 0.0,
+                "duration_seconds": 0.0,
+            }
+
+    config = getattr(request.app.state, "config", None)
+    lang = (str(language).strip() if language else "") or None
+    if not lang:
+        lang = (
+            config.speech.language
+            if config is not None and config.speech.language
+            else "en"
+        )
+
+    try:
+        result = backend.transcribe(audio_bytes, format=ext, language=lang)
+    except Exception as exc:
+        logger.exception("Speech transcription failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    text = sanitize_transcription(result.text)
+    logger.info("transcribe result: %r (raw=%r)", text, result.text)
+    out_lang = result.language or lang or "en"
+    if config is not None and config.speech.task == "translate":
+        out_lang = "en"
+
     return {
-        "text": result.text,
-        "language": result.language,
+        "text": text,
+        "language": out_lang,
         "confidence": result.confidence,
         "duration_seconds": result.duration_seconds,
     }
@@ -788,6 +837,76 @@ async def speech_health(request: Request):
         "available": backend.health(),
         "backend": backend.backend_id,
     }
+
+
+class SynthesizeRequest(BaseModel):
+    text: str
+    voice_id: str = ""
+    speed: float = 1.0
+
+
+@speech_router.get("/tts/health")
+async def tts_health(request: Request):
+    """Check if a text-to-speech backend is available."""
+    backend = getattr(request.app.state, "tts_backend", None)
+    if backend is None:
+        return {"available": False, "reason": "No TTS backend configured"}
+    return {
+        "available": backend.health(),
+        "backend": backend.backend_id,
+    }
+
+
+@speech_router.post("/synthesize")
+async def synthesize_speech(req: SynthesizeRequest, request: Request):
+    """Synthesize text to spoken audio.
+
+    Streams MP3 chunks as they are produced (lower time-to-first-audio) unless
+    streaming is disabled in config, in which case the full clip is buffered
+    and returned as a single response. Either way the client receives
+    ``audio/mpeg`` and may buffer or stream it.
+    """
+    from fastapi.responses import Response, StreamingResponse
+
+    backend = getattr(request.app.state, "tts_backend", None)
+    if backend is None:
+        raise HTTPException(status_code=501, detail="TTS backend not configured")
+
+    text = req.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Missing text")
+
+    config = getattr(request.app.state, "config", None)
+    voice_id = req.voice_id
+    speed = req.speed
+    stream = True
+    if config is not None:
+        if not voice_id:
+            voice_id = config.speech.tts_voice_id
+        if speed == 1.0:
+            speed = config.speech.tts_speed
+        stream = getattr(config.speech, "tts_stream", True)
+
+    if stream:
+        def _gen():
+            try:
+                yield from backend.synthesize_stream(
+                    text, voice_id=voice_id, speed=speed
+                )
+            except Exception:
+                logger.exception("TTS streaming failed")
+                return
+
+        return StreamingResponse(_gen(), media_type="audio/mpeg")
+
+    import asyncio
+
+    def _run() -> bytes:
+        result = backend.synthesize(text, voice_id=voice_id, speed=speed)
+        return result.audio
+
+    audio = await asyncio.to_thread(_run)
+    return Response(content=audio, media_type="audio/mpeg")
 
 
 # ---- Feedback routes ----
