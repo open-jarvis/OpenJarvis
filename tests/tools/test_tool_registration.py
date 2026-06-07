@@ -94,6 +94,11 @@ EXPECTED_TOOLS = {
     "project_update_status",
     "quote_create",
     "contract_create",
+    # notification_tools.py
+    "notify_email",
+    "notify_sms",
+    "notify_push",
+    "notify",
 }
 
 
