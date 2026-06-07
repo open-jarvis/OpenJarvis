@@ -41,6 +41,9 @@ def sendblue_channel():
         api_key_id="test_key",
         api_secret_key="test_secret",
         from_number="+15551234567",
+        # Webhooks now fail closed without a secret, so configure one and have
+        # the test client send the matching header by default.
+        webhook_secret="testsecret",
     )
     ch.connect()
     return ch
@@ -61,7 +64,9 @@ def webhook_app(mock_bridge, sendblue_channel):
 
 @pytest.fixture
 def client(webhook_app):
-    return TestClient(webhook_app)
+    # Send the webhook secret by default so message-handling tests reach the
+    # bridge; fail-closed behavior is covered separately below.
+    return TestClient(webhook_app, headers={"x-sendblue-secret": "testsecret"})
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +174,7 @@ class TestSendBlueWebhook:
         app = FastAPI()
         router = create_webhook_router(bridge=None, sendblue_channel=sendblue_channel)
         app.include_router(router)
-        c = TestClient(app)
+        c = TestClient(app, headers={"x-sendblue-secret": "testsecret"})
 
         resp = c.post(
             "/webhooks/sendblue",
@@ -180,6 +185,27 @@ class TestSendBlueWebhook:
             },
         )
         assert resp.status_code == 200
+
+    def test_no_secret_configured_is_rejected(self, mock_bridge):
+        """Fail closed: a channel without a webhook_secret rejects all posts."""
+        from openjarvis.channels.sendblue import SendBlueChannel
+        from openjarvis.server.webhook_routes import create_webhook_router
+
+        ch = SendBlueChannel(
+            api_key_id="k", api_secret_key="s", from_number="+1555"
+        )
+        ch.connect()
+        app = FastAPI()
+        router = create_webhook_router(bridge=mock_bridge, sendblue_channel=ch)
+        app.include_router(router)
+        c = TestClient(app)
+
+        resp = c.post(
+            "/webhooks/sendblue",
+            json={"from_number": "+19127130720", "content": "Hi", "is_outbound": False},
+        )
+        assert resp.status_code == 403
+        mock_bridge.handle_incoming.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

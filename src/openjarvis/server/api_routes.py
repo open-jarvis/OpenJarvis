@@ -243,13 +243,38 @@ async def memory_config(request: Request):
 async def memory_index(req: MemoryIndexRequest, request: Request):
     """Index files from a path into memory."""
     try:
+        import os
         from pathlib import Path
 
+        from openjarvis.security.file_policy import is_sensitive_file
         from openjarvis.tools.storage.ingest import ingest_path
 
         target = Path(req.path).expanduser().resolve()
         if not target.exists():
             raise HTTPException(status_code=404, detail=f"Path not found: {req.path}")
+
+        # Sandbox: when workspace roots are configured via OPENJARVIS_WORKSPACE
+        # (os.pathsep-separated), only allow indexing inside them. This endpoint
+        # must not become an arbitrary-filesystem read primitive over the API.
+        workspace = os.environ.get("OPENJARVIS_WORKSPACE", "").strip()
+        if workspace:
+            roots = [
+                Path(d).expanduser().resolve()
+                for d in workspace.split(os.pathsep)
+                if d.strip()
+            ]
+            if not any(
+                target == root or root in target.parents for root in roots
+            ):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Path is outside the allowed workspace directories.",
+                )
+        # Never ingest sensitive files (.env, private keys, credentials, ...).
+        if target.is_file() and is_sensitive_file(target):
+            raise HTTPException(
+                status_code=403, detail="Refusing to index a sensitive file."
+            )
 
         backend = _get_memory_backend(request)
         if backend is None:
