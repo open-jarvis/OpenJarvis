@@ -76,9 +76,36 @@ jarvis digest --fresh          # generate and play your first briefing
 ```
 
 Named Google profiles let you connect accounts such as `personal`, `work`, or
-`subscriptions` side by side. Analysis can then stay scoped with prompts like
-`jarvis ask "Summarize only work Gmail about renewals"` or direct filters such
-as `source="gmail:work"`. See
+`subscriptions` side by side. Each profile gets its own OAuth token file, source
+IDs, provenance metadata, and sync checkpoint, so Gmail/Drive/Calendar/Tasks data
+from one account does not overwrite or resume from another account's state.
+
+```bash
+# Connect multiple Google identities side by side. The account alias comes
+# before the provider name.
+jarvis connect --account personal-main google
+jarvis connect --account work google
+jarvis connect --account subscriptions google
+
+# Sync or inspect one account at a time through the API server.
+jarvis serve --port 8000
+curl -X POST 'http://127.0.0.1:8000/v1/connectors/gmail/sync?account=personal-main'
+curl 'http://127.0.0.1:8000/v1/connectors/gmail/sync?account=personal-main'
+
+# Scope research to a single account by using source:account filters.
+jarvis ask --research \
+  "Search only gmail:personal-main for the renewal notice. Do not use other accounts."
+jarvis ask --research \
+  "Search only gmail:work for the quarterly planning thread. Do not use other accounts."
+```
+
+Account-scoped filters are available as `gmail:<account>`, `gdrive:<account>`,
+`gcalendar:<account>`, and `google_tasks:<account>` wherever connector sources
+are supported. The search layer treats zero matches inside an account as zero
+matches; it will not synthesize a recent unrelated email as a fallback result.
+Incremental syncs also re-fetch a small lookback window, configurable with
+`OPENJARVIS_SYNC_LOOKBACK_SECONDS`, so messages that arrive slightly before the
+last polling timestamp are not skipped. See
 [Google Account Profiles](https://open-jarvis.github.io/OpenJarvis/user-guide/google-account-profiles/).
 
 Per-preset deep dives: [morning digest](https://open-jarvis.github.io/OpenJarvis/user-guide/morning-digest/) · [deep research](https://open-jarvis.github.io/OpenJarvis/user-guide/deep-research/) · [code assistant](https://open-jarvis.github.io/OpenJarvis/user-guide/code-assistant/) · [scheduled monitor](https://open-jarvis.github.io/OpenJarvis/user-guide/scheduled-monitor/) · [chat simple](https://open-jarvis.github.io/OpenJarvis/user-guide/chat-simple/) · or the full [quickstart guide](https://open-jarvis.github.io/OpenJarvis/getting-started/quickstart/).
