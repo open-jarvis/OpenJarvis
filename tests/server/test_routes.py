@@ -571,10 +571,12 @@ class TestTraceRecording:
     def test_agent_completion_creates_trace(self):
         """A non-streaming agent completion records exactly one trace.
 
-        Reproduces the production wiring (server/app.py subscribes the store to
-        the bus). The collector both saves directly AND publishes
-        TRACE_COMPLETE, so 'exactly one' also guards against the UNIQUE-
-        constraint double-save crash.
+        The collector is the single writer: it saves directly and also
+        publishes TRACE_COMPLETE, but the store is NOT subscribed to the bus
+        (see server/app.py), so the trace is persisted exactly once. If the
+        store were re-subscribed, the collector's second save would raise
+        IntegrityError on the trace_id primary key and the request would 500 —
+        so asserting 200 + count == 1 guards that double-save regression.
         """
         from openjarvis.core.events import EventBus
 
