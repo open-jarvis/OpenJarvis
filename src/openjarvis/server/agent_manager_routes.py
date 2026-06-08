@@ -111,24 +111,35 @@ def _make_lightweight_system(
     model: str,
     config: Any = None,
 ) -> _LightweightSystem:
-    """Build a minimal system with a plain OllamaEngine.
+    """Build a minimal system with a fresh inference engine.
 
     The server's ``app.state.engine`` is heavily wrapped
     (MultiEngine -> InstrumentedEngine -> GuardrailsEngine) and can
-    return empty content from background threads.  Create a fresh
-    OllamaEngine directly (no health checks or model discovery that
-    could interfere with in-flight Ollama requests).
+    return empty content from background threads. Create a fresh
+    engine directly (no health checks or model discovery that
+    could interfere with in-flight requests).
     """
     try:
-        from openjarvis.engine.ollama import OllamaEngine
+        from openjarvis.engine._discovery import get_engine
 
         cfg = config
         if cfg is None:
             from openjarvis.core.config import load_config
 
             cfg = load_config()
-        host = cfg.engine.ollama.host if cfg else ""
-        plain_engine = OllamaEngine(host=host) if host else OllamaEngine()
+
+        pref = cfg.intelligence.preferred_engine
+        key = pref or cfg.engine.default
+        resolved = get_engine(cfg, key)
+
+        if resolved is not None:
+            plain_engine = resolved[1]
+        else:
+            from openjarvis.engine.ollama import OllamaEngine
+
+            host = cfg.engine.ollama.host if cfg else ""
+            plain_engine = OllamaEngine(host=host) if host else OllamaEngine()
+
         # Wrap with InstrumentedEngine so agent ticks are recorded
         # in telemetry (FLOPs, energy, cost savings).
         try:
@@ -842,9 +853,7 @@ async def _stream_managed_agent(
 
         app_config = load_config()
 
-    final_system_prompt = _build_managed_system_prompt(
-        system_prompt or "", app_config
-    )
+    final_system_prompt = _build_managed_system_prompt(system_prompt or "", app_config)
 
     if final_system_prompt and final_system_prompt.strip():
         llm_messages.append(
