@@ -554,6 +554,30 @@ async def prometheus_metrics(request: Request):
 websocket_router = APIRouter(tags=["websocket"])
 
 
+def _record_ws_trace(
+    trace_store,
+    *,
+    query: str,
+    result: str,
+    model: str,
+    started_at: float,
+    ended_at: float,
+) -> None:
+    """Record a trace for a completed WebSocket chat (best-effort)."""
+    if trace_store is None or not result:
+        return
+    from openjarvis.traces.collector import record_response_trace
+
+    record_response_trace(
+        trace_store,
+        query=query,
+        result=result,
+        model=model,
+        started_at=started_at,
+        ended_at=ended_at,
+    )
+
+
 @websocket_router.websocket("/v1/chat/stream")
 async def websocket_chat_stream(websocket: WebSocket):
     """Stream chat responses over a WebSocket connection.
@@ -608,6 +632,14 @@ async def websocket_chat_stream(websocket: WebSocket):
 
             messages = [{"role": "user", "content": message}]
 
+            # This WS path streams straight from the engine (no agent /
+            # TraceCollector), so record the interaction directly once it
+            # finishes — otherwise WebSocket chats never reach traces.db.
+            import time as _time
+
+            trace_store = getattr(websocket.app.state, "trace_store", None)
+            _ws_started_at = _time.time()
+
             try:
                 # Prefer streaming if the engine supports it
                 stream_fn = getattr(engine, "stream", None)
@@ -651,6 +683,14 @@ async def websocket_chat_stream(websocket: WebSocket):
                     await websocket.send_json(
                         {"type": "done", "content": full_content},
                     )
+                    _record_ws_trace(
+                        trace_store,
+                        query=message,
+                        result=full_content,
+                        model=model,
+                        started_at=_ws_started_at,
+                        ended_at=_time.time(),
+                    )
                 else:
                     # No stream method — single-shot generate
                     result = engine.generate(messages, model=model)
@@ -667,6 +707,14 @@ async def websocket_chat_stream(websocket: WebSocket):
                     )
                     await websocket.send_json(
                         {"type": "done", "content": content},
+                    )
+                    _record_ws_trace(
+                        trace_store,
+                        query=message,
+                        result=content,
+                        model=model,
+                        started_at=_ws_started_at,
+                        ended_at=_time.time(),
                     )
             except WebSocketDisconnect:
                 raise

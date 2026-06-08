@@ -106,7 +106,25 @@ class TraceStore:
         self._conn.commit()
 
     def save(self, trace: Trace) -> None:
-        """Persist a complete trace with all its steps."""
+        """Persist a complete trace with all its steps.
+
+        Idempotent by ``trace_id``: a given trace is written at most once.
+        ``TraceCollector`` both calls ``save()`` directly AND publishes a
+        ``TRACE_COMPLETE`` event; when a ``TraceStore`` is also subscribed to
+        that same bus (as the server does in ``server/app.py``), ``save()``
+        would otherwise run twice for one trace — the second trace ``INSERT``
+        hitting the ``UNIQUE`` constraint on ``trace_id`` (a 500 on every
+        agent completion) while the steps, which have no ``UNIQUE``
+        constraint, get duplicated. Skipping an already-stored ``trace_id``
+        makes the dual direct-save + bus-save path safe; traces are immutable
+        once written, so a re-save is always a no-op.
+        """
+        already = self._conn.execute(
+            "SELECT 1 FROM traces WHERE trace_id = ? LIMIT 1",
+            (trace.trace_id,),
+        ).fetchone()
+        if already is not None:
+            return
         self._conn.execute(
             _INSERT_TRACE,
             (
