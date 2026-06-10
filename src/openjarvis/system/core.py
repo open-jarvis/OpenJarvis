@@ -268,10 +268,20 @@ class JarvisSystem:
 
             if reply:
                 try:
+                    # Canonical channel send contract (see BaseChannel.send):
+                    # the first positional arg is the DESTINATION id, and the
+                    # `conversation_id=` kwarg is the inbound message id used as
+                    # a reply/thread reference.  ``cm.conversation_id`` holds the
+                    # real per-adapter destination (Discord/Slack channel id,
+                    # Telegram chat id, ...) while ``cm.channel`` is only the
+                    # channel TYPE label ("discord", "telegram", ...).  Passing
+                    # the type label as the destination produced HTTP 400s
+                    # (#515) and using the channel id as a reply reference
+                    # produced MESSAGE_REFERENCE_UNKNOWN_MESSAGE (#516).
                     channel_bridge.send(
-                        cm.channel,
+                        cm.conversation_id,
                         reply,
-                        conversation_id=cm.conversation_id,
+                        conversation_id=getattr(cm, "message_id", ""),
                     )
                 except Exception:
                     logger.exception("Channel send error")
