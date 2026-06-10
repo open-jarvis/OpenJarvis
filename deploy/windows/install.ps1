@@ -5,12 +5,12 @@
 .DESCRIPTION
     Phase-1 of the native-Windows-support RFC (#298). Mirrors the
     behavior of scripts/install/install.sh (the curl-pipe-bash installer
-    for Linux/WSL2/macOS) but for native Windows PowerShell — no WSL,
+    for Linux/WSL2/macOS) but for native Windows PowerShell - no WSL,
     no Docker, no MSYS2.
 
     Steps:
       1. Refuse non-Windows / Windows < 10.
-      2. Check Python 3.10 — 3.13 on PATH (3.14 has no numpy wheels yet,
+      2. Check Python 3.10 - 3.13 on PATH (3.14 has no numpy wheels yet,
          see #432).
       3. Check git on PATH.
       4. Install uv (https://astral.sh/uv) if absent.
@@ -65,7 +65,7 @@ if (-not $Service     -and $env:OPENJARVIS_SERVICE)      { $Service     = $true 
 if (-not $Force       -and $env:OPENJARVIS_FORCE)        { $Force       = $true }
 
 # ---------------------------------------------------------------------------
-# Output helpers — coloured but plain enough for Constrained Language Mode.
+# Output helpers - coloured but plain enough for Constrained Language Mode.
 # ---------------------------------------------------------------------------
 
 function Write-Info  ($msg) { Write-Host "[info]  $msg" -ForegroundColor Cyan }
@@ -77,13 +77,13 @@ function Write-Fail  ($msg) {
 }
 
 # ---------------------------------------------------------------------------
-# Shared helpers — winget bootstrap + PATH refresh
+# Shared helpers - winget bootstrap + PATH refresh
 # ---------------------------------------------------------------------------
 
 # Pull the latest Machine + User PATH from the registry into the current
 # PowerShell session. Tools installed by `winget install` (Python, git,
 # Ollama, etc.) update the User PATH, but the running process inherits
-# the parent shell's environment — so without this refresh the just-
+# the parent shell's environment - so without this refresh the just-
 # installed tool stays invisible to subsequent `Get-Command` calls.
 #
 # CRITICAL: registry PATH entries can be REG_EXPAND_SZ (with literal
@@ -157,7 +157,7 @@ function Get-PythonCommand {
 Write-Info "Checking Python (3.10 - 3.13)..."
 $pythonExe = Get-PythonCommand
 if (-not $pythonExe) {
-    Write-Info "Python not on PATH — attempting auto-install via winget..."
+    Write-Info "Python not on PATH - attempting auto-install via winget..."
     $pythonExe = Install-WithWinget -WingetId 'Python.Python.3.13' -CommandName 'python'
     if (-not $pythonExe) {
         Write-Fail @"
@@ -196,7 +196,7 @@ Write-Ok "Python $pyMajor.$pyMinor ($pythonExe)"
 Write-Info "Checking git..."
 $gitExe = (Get-Command git -ErrorAction SilentlyContinue).Source
 if (-not $gitExe) {
-    Write-Info "git not on PATH — attempting auto-install via winget..."
+    Write-Info "git not on PATH - attempting auto-install via winget..."
     $gitExe = Install-WithWinget -WingetId 'Git.Git' -CommandName 'git'
     if (-not $gitExe) {
         Write-Fail @"
@@ -227,7 +227,7 @@ if (-not $uvExe) {
     }
     # The astral installer puts uv at %USERPROFILE%\.local\bin\uv.exe and
     # adds that dir to the User PATH. The current process's PATH isn't
-    # refreshed automatically — prepend the install dir so the rest of
+    # refreshed automatically - prepend the install dir so the rest of
     # this script picks it up.
     $uvDir = Join-Path $env:USERPROFILE '.local\bin'
     if (Test-Path (Join-Path $uvDir 'uv.exe')) {
@@ -295,13 +295,13 @@ try {
 Write-Ok "Dependencies installed"
 
 # ---------------------------------------------------------------------------
-# 7. Ollama — install + start + wait for daemon
+# 7. Ollama - install + start + wait for daemon
 # ---------------------------------------------------------------------------
 
 Write-Info "Checking Ollama..."
 $ollamaExe = (Get-Command ollama -ErrorAction SilentlyContinue).Source
 if (-not $ollamaExe) {
-    Write-Info "  Ollama not on PATH — downloading the official installer (~150 MB)..."
+    Write-Info "  Ollama not on PATH - downloading the official installer (~150 MB)..."
     $ollamaSetup = Join-Path $env:TEMP 'OllamaSetup.exe'
     # SilentlyContinue is load-bearing in PS 5.1: the default progress
     # bar renderer slows Invoke-WebRequest down 30x on large downloads
@@ -340,13 +340,18 @@ Write-Ok "Ollama ($ollamaExe)"
 Write-Info "Waiting for Ollama daemon..."
 $ollamaReady = $false
 for ($i = 0; $i -lt 60; $i++) {
-    & $ollamaExe list 2>&1 | Out-Null
+    # 'ollama list' writes to stderr until the daemon is reachable; under
+    # $ErrorActionPreference='Stop' the 2>&1 merge surfaces that as a
+    # terminating NativeCommandError that would abort the whole install on
+    # the very first probe. Swallow it and rely on $LASTEXITCODE so the
+    # Start-Process serve fallback below actually runs (issue #522).
+    try { & $ollamaExe list 2>&1 | Out-Null } catch { }
     if ($LASTEXITCODE -eq 0) {
         $ollamaReady = $true
         break
     }
     if ($i -eq 5) {
-        # Daemon clearly isn't auto-running — start it ourselves. Ollama
+        # Daemon clearly isn't auto-running - start it ourselves. Ollama
         # for Windows uses the tray app `ollama app.exe`; falling back to
         # `ollama serve` works headless.
         Start-Process -FilePath $ollamaExe -ArgumentList 'serve' -WindowStyle Hidden -ErrorAction SilentlyContinue
@@ -354,11 +359,11 @@ for ($i = 0; $i -lt 60; $i++) {
     Start-Sleep -Seconds 1
 }
 if (-not $ollamaReady) {
-    Write-Warn2 "Ollama daemon didn't become ready in 60s. Continuing — bg-orchestrator will retry later."
+    Write-Warn2 "Ollama daemon didn't become ready in 60s. Continuing - bg-orchestrator will retry later."
 }
 
 # ---------------------------------------------------------------------------
-# 8. Pull a starter model (qwen3.5:2b — ~1.5 GB)
+# 8. Pull a starter model (qwen3.5:2b - ~1.5 GB)
 # ---------------------------------------------------------------------------
 
 $modelPullOk = $false
@@ -372,11 +377,11 @@ if ($ollamaReady) {
         Write-Warn2 "ollama pull failed; the bg-orchestrator will retry once Ollama is reachable."
     }
 } else {
-    Write-Warn2 "Skipping model pull — daemon wasn't ready."
+    Write-Warn2 "Skipping model pull - daemon wasn't ready."
 }
 
 # ---------------------------------------------------------------------------
-# 9. jarvis.cmd shim — so bare `jarvis` works in any new PowerShell
+# 9. jarvis.cmd shim - so bare `jarvis` works in any new PowerShell
 # ---------------------------------------------------------------------------
 
 $binDir = Join-Path $installRoot 'bin'
@@ -387,7 +392,7 @@ if (-not (Test-Path $binDir)) {
 }
 
 # %~dp0 in a .cmd file resolves to the directory containing the script,
-# so the shim is self-locating — moving %LOCALAPPDATA%\OpenJarvis won't
+# so the shim is self-locating - moving %LOCALAPPDATA%\OpenJarvis won't
 # break it as long as the user moves the whole tree. `uv` is resolved
 # from PATH at runtime (astral installer adds it to User PATH); avoids
 # pinning to the install-time uv.exe path which can shift on uv updates.
@@ -400,7 +405,7 @@ uv run --project "%SRC%" jarvis %*
 Set-Content -Path $shimPath -Value $shimContent -Encoding ASCII
 
 # Add %LOCALAPPDATA%\OpenJarvis\bin to User PATH if it isn't already
-# there. The current process won't see it until restart — handled in the
+# there. The current process won't see it until restart - handled in the
 # final banner.
 #
 # Compare against the EXPANDED form: a previous install may have written
@@ -430,7 +435,7 @@ Write-Ok "jarvis shim installed at $shimPath"
 $serviceScript = Join-Path $srcDir 'deploy\windows\jarvis-service.ps1'
 $shouldInstallService = $false
 
-# Pre-check admin if the user wants the service — Register-ScheduledTask
+# Pre-check admin if the user wants the service - Register-ScheduledTask
 # requires elevation. We do this before the prompt so we don't ask "do
 # you want the service?" only to fail with Access Denied after they say
 # yes.
@@ -439,7 +444,7 @@ $isAdmin = ([Security.Principal.WindowsPrincipal] `
 ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
 if ($Service -and -not $isAdmin) {
-    Write-Fail "-Service was requested, but this PowerShell is not elevated. Register-ScheduledTask needs admin rights — re-run from an elevated PowerShell, or drop -Service."
+    Write-Fail "-Service was requested, but this PowerShell is not elevated. Register-ScheduledTask needs admin rights - re-run from an elevated PowerShell, or drop -Service."
 }
 if ($Service) {
     $shouldInstallService = $true
@@ -448,7 +453,7 @@ if ($Service) {
 } elseif (-not $isAdmin) {
     # Default to skip-with-explanation when we can't elevate, rather
     # than prompting and then failing at Register-ScheduledTask.
-    Write-Warn2 "Skipping scheduled-task setup — this PowerShell is not elevated."
+    Write-Warn2 "Skipping scheduled-task setup - this PowerShell is not elevated."
     Write-Warn2 "  Register-ScheduledTask requires admin. To install the service later:"
     Write-Warn2 "    Right-click PowerShell -> Run as administrator, then run:"
     Write-Warn2 "    powershell -ExecutionPolicy Bypass -File `"$serviceScript`" install"
@@ -464,7 +469,7 @@ if ($Service) {
         $reply = Read-Host "Register OpenJarvis as a Windows scheduled task (auto-start at logon, loopback only)? [y/N]"
         $shouldInstallService = ($reply -match '^[yY]')
     } else {
-        Write-Warn2 "Non-interactive install — skipping scheduled-task setup."
+        Write-Warn2 "Non-interactive install - skipping scheduled-task setup."
         Write-Warn2 "To register the service later, run (from an elevated PowerShell):"
         Write-Warn2 "  powershell -ExecutionPolicy Bypass -File `"$serviceScript`" install"
     }
@@ -487,9 +492,9 @@ if ($shouldInstallService) {
 # ---------------------------------------------------------------------------
 
 Write-Host ""
-Write-Host "  ┌──────────────────────────────────┐" -ForegroundColor Green
-Write-Host "  │   OpenJarvis install complete    │" -ForegroundColor Green
-Write-Host "  └──────────────────────────────────┘" -ForegroundColor Green
+Write-Host "  +----------------------------------+" -ForegroundColor Green
+Write-Host "  |   OpenJarvis install complete    |" -ForegroundColor Green
+Write-Host "  +----------------------------------+" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Repo:    $srcDir"
 
