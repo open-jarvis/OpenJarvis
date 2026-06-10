@@ -561,6 +561,11 @@ class IntelligenceConfig:
     """The model — identity, paths, quantization, and generation defaults."""
 
     default_model: str = ""
+    # Optional per-CLI preset (used when ``-m`` omitted or ``-m smart``).
+    model_chat: str = ""
+    model_short: str = ""
+    model_long: str = ""
+    model_code: str = ""
     fallback_model: str = ""
     model_path: str = ""  # Local weights (HF repo, GGUF file, etc.)
     checkpoint_path: str = ""  # Checkpoint/adapter path
