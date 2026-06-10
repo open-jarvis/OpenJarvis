@@ -44,10 +44,9 @@ PRICING: Dict[str, tuple[float, float]] = {
     "gemini-3.1-flash-lite-preview": (0.30, 2.50),
     "gemini-3-flash-preview": (0.50, 3.00),
     "claude-haiku-4-5-20251001": (1.00, 5.00),
+    "MiniMax-M3": (0.60, 2.40),
     "MiniMax-M2.7": (0.30, 1.20),
     "MiniMax-M2.7-highspeed": (0.60, 2.40),
-    "MiniMax-M2.5": (0.30, 1.20),
-    "MiniMax-M2.5-highspeed": (0.60, 2.40),
 }
 
 # Well-known model IDs per provider
@@ -78,10 +77,9 @@ _GOOGLE_MODELS = [
     "gemini-3-flash-preview",
 ]
 _MINIMAX_MODELS = [
+    "MiniMax-M3",
     "MiniMax-M2.7",
     "MiniMax-M2.7-highspeed",
-    "MiniMax-M2.5",
-    "MiniMax-M2.5-highspeed",
 ]
 
 # OpenRouter models — prefixed with "openrouter/" so they can be identified

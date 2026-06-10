@@ -37,11 +37,11 @@ class TestMiniMaxCloudIntegration:
             EngineRegistry.register_value("cloud", CloudEngine)
         return CloudEngine()
 
-    def test_m27_highspeed_basic_chat(self, engine: CloudEngine) -> None:
-        """Send a simple message via M2.7-highspeed and verify non-empty response."""
+    def test_m3_basic_chat(self, engine: CloudEngine) -> None:
+        """Send a simple message via M3 and verify non-empty response."""
         result = engine.generate(
             [Message(role=Role.USER, content="Reply with exactly: hello world")],
-            model="MiniMax-M2.7-highspeed",
+            model="MiniMax-M3",
             temperature=0.01,
             max_tokens=32,
         )
@@ -50,14 +50,13 @@ class TestMiniMaxCloudIntegration:
         assert result["usage"]["completion_tokens"] > 0
         assert result["finish_reason"] in ("stop", "length")
 
-    def test_m27_highspeed_health(self, engine: CloudEngine) -> None:
+    def test_minimax_health(self, engine: CloudEngine) -> None:
         """Engine health should be True when MINIMAX_API_KEY is set."""
         assert engine.health() is True
 
-    def test_m27_highspeed_list_models(self, engine: CloudEngine) -> None:
+    def test_minimax_list_models(self, engine: CloudEngine) -> None:
         """MiniMax models should appear in list_models."""
         models = engine.list_models()
+        assert "MiniMax-M3" in models
         assert "MiniMax-M2.7" in models
         assert "MiniMax-M2.7-highspeed" in models
-        assert "MiniMax-M2.5" in models
-        assert "MiniMax-M2.5-highspeed" in models
