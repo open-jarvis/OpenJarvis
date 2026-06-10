@@ -221,32 +221,34 @@ class HttpRequestTool(BaseTool):
         current_url = url
         current_method = method
         body = content
-        with httpx.Client(follow_redirects=False, timeout=timeout) as client:
-            for _ in range(_MAX_REDIRECTS + 1):
-                response = client.request(
-                    current_method,
-                    current_url,
-                    headers=headers,
-                    content=body,
-                )
-                if response.status_code not in (301, 302, 303, 307, 308):
-                    return response
-                location = response.headers.get("location", "")
-                if not location:
-                    return response
-                # Resolve relative redirects against the URL we just fetched.
-                current_url = urllib.parse.urljoin(str(response.url), location)
-                ssrf_error = check_ssrf(current_url)
-                if ssrf_error:
-                    raise _SSRFRedirectError(ssrf_error)
-                # Per RFC 7231, 301/302/303 turn the method into GET and drop
-                # the body (except for HEAD).
-                if response.status_code in (301, 302, 303) and current_method != "HEAD":
-                    current_method = "GET"
-                    body = None
-            raise _SSRFRedirectError(
-                f"Exceeded maximum of {_MAX_REDIRECTS} redirects."
+        # Use module-level ``httpx.request`` (not a private Client) so the SSRF
+        # re-check seam stays patchable by callers' tests, with redirects
+        # disabled so we control every hop ourselves.
+        for _ in range(_MAX_REDIRECTS + 1):
+            response = httpx.request(
+                current_method,
+                current_url,
+                headers=headers,
+                content=body,
+                timeout=timeout,
+                follow_redirects=False,
             )
+            if response.status_code not in (301, 302, 303, 307, 308):
+                return response
+            location = response.headers.get("location", "")
+            if not location:
+                return response
+            # Resolve relative redirects against the URL we just fetched.
+            current_url = urllib.parse.urljoin(str(response.url), location)
+            ssrf_error = check_ssrf(current_url)
+            if ssrf_error:
+                raise _SSRFRedirectError(ssrf_error)
+            # Per RFC 7231, 301/302/303 turn the method into GET and drop
+            # the body (except for HEAD).
+            if response.status_code in (301, 302, 303) and current_method != "HEAD":
+                current_method = "GET"
+                body = None
+        raise _SSRFRedirectError(f"Exceeded maximum of {_MAX_REDIRECTS} redirects.")
 
 
 __all__ = ["HttpRequestTool"]
