@@ -229,6 +229,11 @@ class SystemPromptBuilder:
             )
 
     def _load_file(self, path_str: str, max_chars: int) -> str:
+        # An empty path means "no file" (e.g. the persona "none" opt-out, which
+        # resolves to empty paths). Guard before Path("") — which becomes "." —
+        # so reading it does not raise IsADirectoryError.
+        if not path_str:
+            return ""
         path = Path(path_str).expanduser()
         if not path.exists():
             return ""
