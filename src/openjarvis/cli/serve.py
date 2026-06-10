@@ -24,6 +24,61 @@ from openjarvis.intelligence import (
 logger = logging.getLogger(__name__)
 
 
+def _unique_model_ids(model_ids: list[str]) -> list[str]:
+    """Return model ids in first-seen order without duplicates."""
+    unique: list[str] = []
+    seen: set[str] = set()
+    for model_id in model_ids:
+        if model_id and model_id not in seen:
+            seen.add(model_id)
+            unique.append(model_id)
+    return unique
+
+
+def _safe_list_models(engine: object) -> list[str]:
+    try:
+        list_models = getattr(engine, "list_models")
+        return list(list_models())
+    except Exception as exc:
+        logger.debug("Failed to list models for selected server engine: %s", exc)
+        return []
+
+
+def _resolve_server_model(
+    requested_model: str | None,
+    *,
+    config: object,
+    engine_name: str,
+    engine: object,
+    all_models: dict[str, list[str]],
+) -> str:
+    """Pick a startup model that is present on the active server engine.
+
+    CLI ``--model`` remains authoritative. For config-driven startup, prefer the
+    configured server/default model only when the active engine can actually
+    serve it; otherwise use ``intelligence.fallback_model`` or the first
+    reachable model. This prevents MLX-preferred configs from hiding a healthy
+    Ollama fallback behind an empty/incorrect model map.
+    """
+    if requested_model:
+        return requested_model
+
+    candidates = [
+        getattr(config.server, "model", ""),
+        getattr(config.intelligence, "default_model", ""),
+        getattr(config.intelligence, "fallback_model", ""),
+    ]
+    available = _unique_model_ids(
+        _safe_list_models(engine) + list(all_models.get(engine_name, []))
+    )
+
+    for candidate in candidates:
+        if candidate and (not available or candidate in available):
+            return candidate
+
+    return available[0] if available else ""
+
+
 @click.command()
 @click.option("--host", default=None, help="Bind address (default: config).")
 @click.option(
@@ -107,10 +162,12 @@ def serve(
     sec = setup_security(config, engine, bus)
     engine = sec.engine
 
-    # If cloud API keys are set, wrap with MultiEngine so both local
-    # and cloud models appear in the model list and can be used.
+    # If cloud API keys are set, prepare a cloud engine. We build the
+    # MultiEngine after local discovery so healthy local fallbacks such as
+    # Ollama stay visible even when the configured preferred engine is MLX.
     import os
 
+    cloud_engine = None
     _has_cloud = (
         os.environ.get("OPENAI_API_KEY")
         or os.environ.get("ANTHROPIC_API_KEY")
@@ -121,12 +178,9 @@ def serve(
     if _has_cloud and engine_name != "cloud":
         try:
             from openjarvis.engine.cloud import CloudEngine
-            from openjarvis.engine.multi import MultiEngine
 
-            cloud = CloudEngine()
-            engine = MultiEngine([(engine_name, engine), ("cloud", cloud)])
-            engine_name = "multi"
-            if cloud.health():
+            cloud_engine = CloudEngine()
+            if cloud_engine.health():
                 console.print("  Cloud:  [cyan]enabled[/cyan] (API keys detected)")
             else:
                 console.print(
@@ -163,16 +217,46 @@ def serve(
     for ek, model_ids in all_models.items():
         merge_discovered_models(ek, model_ids)
 
+    multi_entries = [(engine_name, engine)]
+    for discovered_name, discovered_engine in all_engines:
+        if discovered_name != engine_name:
+            multi_entries.append((discovered_name, discovered_engine))
+    if cloud_engine is not None:
+        multi_entries.append(("cloud", cloud_engine))
+
+    if len(multi_entries) > 1:
+        from openjarvis.engine.multi import MultiEngine
+
+        engine = MultiEngine(multi_entries)
+        engine_name = "multi"
+        all_models[engine_name] = engine.list_models()
+        merge_discovered_models(engine_name, all_models[engine_name])
+
     # Resolve model
-    if model_name is None:
-        model_name = config.server.model or config.intelligence.default_model
+    configured_model = (
+        model_name or config.server.model or config.intelligence.default_model
+    )
+    model_name = _resolve_server_model(
+        model_name,
+        config=config,
+        engine_name=engine_name,
+        engine=engine,
+        all_models=all_models,
+    )
+    if configured_model and model_name and model_name != configured_model:
+        console.print(
+            "[yellow]Configured model "
+            f"{configured_model!r} is not reachable; using {model_name!r}.[/yellow]"
+        )
     if not model_name:
-        engine_models = all_models.get(engine_name, [])
-        if engine_models:
-            model_name = engine_models[0]
-        else:
-            console.print("[red]No model available on engine.[/red]")
-            sys.exit(1)
+        console.print(
+            "[red]No model available on any reachable engine.[/red]\n\n"
+            "Start an inference backend and make sure it lists at least one model.\n"
+            "For Ollama: [cyan]ollama serve[/cyan] and "
+            "[cyan]ollama pull qwen3.5:9b[/cyan].\n"
+            "For MLX: start the MLX OpenAI-compatible server on the configured host."
+        )
+        sys.exit(1)
 
     # Resolve agent
     agent = None

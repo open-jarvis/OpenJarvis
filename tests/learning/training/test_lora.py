@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import pytest
 
 from openjarvis.learning.training.lora import HAS_TORCH, LoRATrainer, LoRATrainingConfig
@@ -145,3 +147,55 @@ class TestLoRATrainerWithTorch:
 
         assert result["status"] == "skipped"
         assert "reason" in result
+
+
+@pytest.mark.skipif(not HAS_TORCH, reason="torch not installed")
+class TestLoRATrainStepMasking:
+    """Regression for #521: _train_step must exclude padding from the loss labels.
+
+    The pre-fix code passed ``labels=input_ids`` (the *same* tensor), so the loss
+    counted every padded EOS position and an in-place mask would also corrupt
+    ``input_ids``. ``_train_step`` must build a masked clone: ``-100`` wherever
+    ``attention_mask == 0``, equal to ``input_ids`` elsewhere, leaving
+    ``input_ids`` untouched.
+    """
+
+    def test_train_step_masks_padding_in_labels(self) -> None:
+        import torch
+
+        # Bypass __init__ (which loads a real model) and inject the minimal
+        # attributes _train_step touches before the forward pass.
+        trainer = LoRATrainer.__new__(LoRATrainer)
+        trainer.device = "cpu"
+
+        captured: dict = {}
+
+        class _StopForward(Exception):
+            pass
+
+        def _capture_model(*, input_ids, attention_mask, labels):
+            captured["labels"] = labels
+            raise _StopForward  # stop before backward()/optimizer.step()
+
+        trainer.model = _capture_model
+
+        batch_items = [
+            {
+                "input_ids": torch.tensor([11, 12, 0, 0]),
+                "attention_mask": torch.tensor([1, 1, 0, 0]),
+            },
+            {
+                "input_ids": torch.tensor([13, 14, 15, 0]),
+                "attention_mask": torch.tensor([1, 1, 1, 0]),
+            },
+        ]
+        with pytest.raises(_StopForward):
+            trainer._train_step(batch_items, optimizer=MagicMock())
+
+        ids = torch.stack([b["input_ids"] for b in batch_items])
+        mask = torch.stack([b["attention_mask"] for b in batch_items])
+        labels = captured["labels"]
+
+        assert (labels[mask == 0] == -100).all()  # padded -> ignored by loss
+        assert (labels[mask == 1] == ids[mask == 1]).all()  # real -> unchanged
+        assert (ids[mask == 0] != -100).all()  # input_ids not mutated in place

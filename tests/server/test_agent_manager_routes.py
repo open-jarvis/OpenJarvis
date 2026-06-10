@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -488,3 +489,51 @@ class TestResolveToolSpecs:
 
         assert _resolve_tool_specs(None) == []
         assert _resolve_tool_specs([]) == []
+
+
+class TestLightweightSystemEngineResolution:
+    """Regression for #477 / #514: the managed-agent lightweight system must
+    resolve the user's *configured* engine (preferred_engine, else
+    engine.default), not a hardcoded OllamaEngine. We assert the key passed to
+    ``get_engine`` — captured before the system is built — rather than the final
+    (telemetry-wrapped) engine object.
+    """
+
+    @staticmethod
+    def _cfg(preferred, default):
+        # context_from_memory absent on .agent -> memory backend resolves to None
+        return SimpleNamespace(
+            intelligence=SimpleNamespace(preferred_engine=preferred),
+            engine=SimpleNamespace(default=default, ollama=SimpleNamespace(host="")),
+            agent=SimpleNamespace(),
+        )
+
+    def _capture_get_engine(self, monkeypatch):
+        captured = {}
+
+        def fake_get_engine(cfg, key):
+            captured["key"] = key
+            return ("resolved", MagicMock())
+
+        monkeypatch.setattr("openjarvis.engine._discovery.get_engine", fake_get_engine)
+        return captured
+
+    def test_resolves_preferred_engine_over_default(self, monkeypatch):
+        pytest.importorskip("fastapi")
+        from openjarvis.server import agent_manager_routes as amr
+
+        captured = self._capture_get_engine(monkeypatch)
+        amr._make_lightweight_system(
+            engine=MagicMock(), model="m", config=self._cfg("vllm", "ollama")
+        )
+        assert captured["key"] == "vllm"
+
+    def test_falls_back_to_engine_default_without_preference(self, monkeypatch):
+        pytest.importorskip("fastapi")
+        from openjarvis.server import agent_manager_routes as amr
+
+        captured = self._capture_get_engine(monkeypatch)
+        amr._make_lightweight_system(
+            engine=MagicMock(), model="m", config=self._cfg(None, "llamacpp")
+        )
+        assert captured["key"] == "llamacpp"

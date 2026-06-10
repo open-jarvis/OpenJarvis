@@ -559,3 +559,78 @@ class TestCreateApp:
         engine = _make_engine()
         app = create_app(engine, "test-model")
         assert app.state.agent is None
+
+
+# ---------------------------------------------------------------------------
+# Trace recording — regression coverage for the empty-traces.db bug
+# (TraceCollector was never wired into the server chat endpoints).
+# ---------------------------------------------------------------------------
+
+
+class TestTraceRecording:
+    def test_agent_completion_creates_trace(self):
+        """A non-streaming agent completion records exactly one trace.
+
+        The collector is the single writer: it saves directly and also
+        publishes TRACE_COMPLETE, but the store is NOT subscribed to the bus
+        (see server/app.py), so the trace is persisted exactly once. If the
+        store were re-subscribed, the collector's second save would raise
+        IntegrityError on the trace_id primary key and the request would 500 —
+        so asserting 200 + count == 1 guards that double-save regression.
+        """
+        from openjarvis.core.events import EventBus
+
+        engine = _make_engine()
+        agent = _make_agent(content="traced reply")
+        app = create_app(
+            engine,
+            "test-model",
+            agent=agent,
+            bus=EventBus(record_history=False),
+        )
+        store = app.state.trace_store
+        assert store is not None, "traces enabled by default → store should exist"
+        assert store.count() == 0
+
+        client = TestClient(app)
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "What is 2+2?"}],
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["choices"][0]["message"]["content"] == "traced reply"
+
+        assert store.count() == 1  # not 2 — double-save must be idempotent
+        trace = store.list_traces(limit=1)[0]
+        assert trace.query == "What is 2+2?"
+        assert trace.result == "traced reply"
+
+    def test_streaming_completion_creates_trace(self):
+        """A streamed completion (no agent) records the assembled response."""
+        engine = _make_engine()
+        app = create_app(engine, "test-model")
+        store = app.state.trace_store
+        assert store is not None
+        assert store.count() == 0
+
+        client = TestClient(app)
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "stream please"}],
+                "stream": True,
+            },
+        )
+        assert resp.status_code == 200
+        # Drain the SSE body so the streaming generator runs to completion.
+        assert "data:" in resp.text
+
+        assert store.count() == 1
+        trace = store.list_traces(limit=1)[0]
+        assert trace.query == "stream please"
+        # _make_engine streams "Hello", " ", "world".
+        assert trace.result == "Hello world"
