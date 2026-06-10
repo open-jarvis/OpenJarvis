@@ -153,14 +153,30 @@ memory_router = APIRouter(prefix="/v1/memory", tags=["memory"])
 
 
 def _get_memory_backend(request: Request):
-    """Return the app-level memory backend, falling back to a fresh SQLiteMemory."""
+    """Return the app-level memory backend, falling back to a fresh SQLiteMemory.
+
+    Raises ``HTTPException(503)`` with an actionable message when the backend
+    cannot be built because the mandatory ``openjarvis_rust`` extension is not
+    installed in the serving venv. This is deliberately distinct from a benign
+    "memory not configured" case (which returns ``None``): a missing native
+    extension must fail loudly, never silently degrade (#502).
+    """
     backend = getattr(request.app.state, "memory_backend", None)
     if backend is None:
+        from openjarvis.tools.storage._stubs import MemoryBackendUnavailable
+
         try:
             from openjarvis.tools.storage.sqlite import SQLiteMemory
 
             backend = SQLiteMemory()
+        except MemoryBackendUnavailable as exc:
+            # The native extension is missing — surface a loud, actionable error
+            # rather than a misleading "no backend" / silent no-op.
+            logger.error("%s", exc)
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         except Exception:
+            # Memory is genuinely unconfigured for a benign reason — preserve
+            # the existing graceful "no backend" behaviour.
             return None
     return backend
 
@@ -170,7 +186,9 @@ async def memory_store(req: MemoryStoreRequest, request: Request):
     """Store content in memory."""
     backend = _get_memory_backend(request)
     if backend is None:
-        return {"status": "stored", "note": "no backend available"}
+        # Memory is intentionally disabled; report it honestly instead of a
+        # 200 that silently discards the write (#502).
+        raise HTTPException(status_code=503, detail="Memory is not configured")
     try:
         backend.store(req.content, metadata=req.metadata or {})
         return {"status": "stored"}
@@ -216,7 +234,13 @@ async def memory_stats(request: Request):
 
 @memory_router.get("/config")
 async def memory_config(request: Request):
-    """Return current memory configuration."""
+    """Return current memory configuration.
+
+    Reports memory as *unavailable* (rather than falsely claiming
+    ``backend_type: sqlite``) when the native ``openjarvis_rust`` extension is
+    missing, so the UI can show the real cause instead of a healthy-looking
+    config that backs a silent no-op (#502).
+    """
     try:
         config = getattr(request.app.state, "config", None)
         if config is None:
@@ -224,12 +248,30 @@ async def memory_config(request: Request):
 
             config = load_config()
         backend = getattr(request.app.state, "memory_backend", None)
+        available = True
+        detail: Optional[str] = None
+        if backend is None:
+            from openjarvis.tools.storage._stubs import MemoryBackendUnavailable
+
+            try:
+                from openjarvis.tools.storage.sqlite import SQLiteMemory
+
+                backend = SQLiteMemory()
+            except MemoryBackendUnavailable as exc:
+                available = False
+                detail = str(exc)
+            except Exception:
+                # Benign: cannot construct a probe backend here, but the
+                # configured default is still what would be used.
+                pass
         return {
             "backend_type": (
                 backend.backend_id
                 if backend is not None
                 else config.memory.default_backend
             ),
+            "available": available,
+            "detail": detail,
             "context_top_k": config.memory.context_top_k,
             "context_min_score": config.memory.context_min_score,
             "context_max_tokens": config.memory.context_max_tokens,
@@ -278,7 +320,7 @@ async def memory_index(req: MemoryIndexRequest, request: Request):
 
         backend = _get_memory_backend(request)
         if backend is None:
-            raise HTTPException(status_code=503, detail="No memory backend available")
+            raise HTTPException(status_code=503, detail="Memory is not configured")
 
         chunks = ingest_path(target)
         stored = 0
@@ -289,7 +331,16 @@ async def memory_index(req: MemoryIndexRequest, request: Request):
             backend.store(chunk.content, metadata=metadata)
             stored += 1
 
-        return {"status": "indexed", "chunks_indexed": stored}
+        result = {"status": "indexed", "chunks_indexed": stored}
+        if stored == 0:
+            # "indexed" must never silently mean "stored nothing". Surface why
+            # so a folder of short notes doesn't look like a successful no-op
+            # (#502 follow-up).
+            result["note"] = (
+                "no content was indexed — the path contained no readable "
+                "documents with indexable text"
+            )
+        return result
     except HTTPException:
         raise
     except Exception as exc:

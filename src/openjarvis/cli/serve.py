@@ -261,6 +261,11 @@ def serve(
     # Resolve agent
     agent = None
     agent_key = agent_name or config.server.agent
+    # Tool instances resolved for the primary agent are reused below to build
+    # the scheduler's ToolExecutor — avoiding a second full SystemBuilder.build()
+    # (which would re-discover the engine, re-resolve tools, re-open the channel,
+    # etc.). See the scheduler block near the bottom of this function (#263).
+    resolved_tools: list = []
     if agent_key:
         try:
             import openjarvis.agents  # noqa: F401
@@ -328,6 +333,8 @@ def serve(
 
                     if tools:
                         agent_kwargs["tools"] = tools
+                    # Reuse these for the scheduler's ToolExecutor (#263).
+                    resolved_tools = tools
 
                 if getattr(agent_cls, "accepts_tools", False):
                     agent_kwargs["max_turns"] = config.agent.max_turns
@@ -461,6 +468,24 @@ def serve(
     # Create app
     from openjarvis.server.app import create_app
 
+    # Set up memory backend for context injection. Built before the scheduler
+    # block so the executor's JarvisSystem can reference it (#263).
+    memory_backend = None
+    if config.agent.context_from_memory:
+        try:
+            import openjarvis.tools.storage  # noqa: F401
+            from openjarvis.core.registry import MemoryRegistry
+
+            mem_key = config.memory.default_backend
+            if MemoryRegistry.contains(mem_key):
+                memory_backend = MemoryRegistry.create(
+                    mem_key,
+                    db_path=config.memory.db_path,
+                )
+                console.print("  Memory:    [cyan]active[/cyan]")
+        except Exception as exc:
+            logger.debug("Memory backend init failed: %s", exc)
+
     # Set up agent manager
     agent_manager = None
     if config.agent_manager.enabled:
@@ -500,9 +525,55 @@ def serve(
                 event_bus=bus,
                 trace_store=_trace_store,
             )
-            from openjarvis.system import SystemBuilder
+            # Reuse the components already built inline above instead of a
+            # second full SystemBuilder.build() — the original double-build
+            # re-discovered the engine, re-instrumented it, re-resolved tools,
+            # re-opened the channel and re-created the agent manager, costing
+            # ~30-40s on top of an already-paid startup (#263). The executor
+            # only reads engine/model/config/memory_backend/tool_executor/
+            # session_store/channel_backend from the system (see
+            # AgentExecutor), all of which are wired here.
+            from openjarvis.sessions.session import SessionStore
+            from openjarvis.system import JarvisSystem
+            from openjarvis.tools._stubs import ToolExecutor
 
-            system = SystemBuilder(config).build()
+            _sched_session_store = None
+            if config.sessions.enabled:
+                try:
+                    from pathlib import Path as _SchedPath
+
+                    _sched_session_store = SessionStore(
+                        db_path=_SchedPath(config.sessions.db_path).expanduser(),
+                        max_age_hours=config.sessions.max_age_hours,
+                        consolidation_threshold=(
+                            config.sessions.consolidation_threshold
+                        ),
+                    )
+                except Exception as exc:
+                    logger.debug("Scheduler session store init failed: %s", exc)
+
+            _sched_tool_executor = (
+                ToolExecutor(resolved_tools, bus) if resolved_tools else None
+            )
+
+            system = JarvisSystem(
+                config=config,
+                bus=bus,
+                engine=engine,
+                engine_key=engine_name,
+                model=model_name,
+                agent=agent,
+                agent_name=agent_key or "",
+                tools=resolved_tools,
+                tool_executor=_sched_tool_executor,
+                memory_backend=memory_backend,
+                telemetry_store=telem_store,
+                trace_store=_trace_store,
+                session_store=_sched_session_store,
+                capability_policy=sec.capability_policy,
+                agent_manager=agent_manager,
+                agent_executor=executor,
+            )
             executor.set_system(system)
 
             agent_scheduler = AgentScheduler(
@@ -521,23 +592,6 @@ def serve(
             console.print("  Scheduler: [cyan]active[/cyan]")
         except Exception as exc:
             logger.debug("Agent scheduler init failed: %s", exc)
-
-    # Set up memory backend for context injection
-    memory_backend = None
-    if config.agent.context_from_memory:
-        try:
-            import openjarvis.tools.storage  # noqa: F401
-            from openjarvis.core.registry import MemoryRegistry
-
-            mem_key = config.memory.default_backend
-            if MemoryRegistry.contains(mem_key):
-                memory_backend = MemoryRegistry.create(
-                    mem_key,
-                    db_path=config.memory.db_path,
-                )
-                console.print("  Memory:    [cyan]active[/cyan]")
-        except Exception as exc:
-            logger.debug("Memory backend init failed: %s", exc)
 
     # --- Channel Gateway: API key, sessions, ChannelBridge ---
     import os as _os

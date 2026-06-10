@@ -66,13 +66,40 @@ def test_custom_config():
     assert len(chunks) >= 3
 
 
-def test_min_chunk_size_filters_tiny():
+def test_short_only_document_not_dropped():
+    """A whole document below min_chunk_size must still produce a chunk.
+
+    Regression for #502 follow-up: previously a folder of short notes indexed
+    to ``chunks_indexed: 0`` (HTTP 200), silently storing nothing. ``min_chunk_size``
+    should only discard tiny *trailing fragments*, never an entire short doc.
+    """
     cfg = ChunkConfig(chunk_size=100, chunk_overlap=0, min_chunk_size=50)
-    # 30 words is below min_chunk_size=50
+    # 30 words is below min_chunk_size=50, but it's the entire document.
     words = [f"w{i}" for i in range(30)]
     text = " ".join(words)
     chunks = chunk_text(text, config=cfg)
-    assert len(chunks) == 0
+    assert len(chunks) == 1
+    assert chunks[0].content == text
+
+
+def test_short_real_world_note_not_dropped():
+    """The exact repro from the issue: a ~4-word note must not vanish."""
+    chunks = chunk_text("hello world\nsome content\n", source="a.txt")
+    assert len(chunks) == 1
+    assert "hello world" in chunks[0].content
+
+
+def test_min_chunk_size_filters_tiny_trailing_fragment():
+    """A tiny fragment trailing a real chunk is still dropped by the floor."""
+    cfg = ChunkConfig(chunk_size=50, chunk_overlap=0, min_chunk_size=10)
+    # Two paragraphs: the first fills a real chunk, the second is a tiny tail.
+    para1 = " ".join(f"a{i}" for i in range(50))
+    para2 = " ".join(f"b{i}" for i in range(3))  # 3 words < min_chunk_size=10
+    text = f"{para1}\n\n{para2}"
+    chunks = chunk_text(text, config=cfg)
+    # The 3-word trailing fragment is discarded; only the real chunk remains.
+    assert len(chunks) == 1
+    assert "b0" not in chunks[0].content
 
 
 def test_source_propagated():

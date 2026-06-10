@@ -49,6 +49,54 @@ class TestMemoryRoutes:
         assert resp.status_code in (200, 500)
 
 
+class TestMemoryRustMissing:
+    """Regression for #502: when the native ``openjarvis_rust`` extension is
+    missing from the serving venv, memory ops must surface a CLEAR, ACTIONABLE
+    error — never the misleading "Failed to index path" or a 200 silent no-op.
+    """
+
+    @staticmethod
+    def _client(monkeypatch):
+        # Force the same failure mode as a venv without the compiled extension.
+        def _boom():
+            raise ImportError("No module named 'openjarvis_rust'")
+
+        import openjarvis._rust_bridge as bridge
+
+        monkeypatch.setattr(bridge, "get_rust_module", _boom)
+        return TestClient(_make_app())
+
+    def test_store_is_not_a_silent_noop(self, monkeypatch):
+        client = self._client(monkeypatch)
+        resp = client.post("/v1/memory/store", json={"content": "hi"})
+        # Must NOT return the old 200 {"status":"stored","note":"no backend..."}.
+        assert resp.status_code == 503
+        detail = resp.json()["detail"]
+        assert "openjarvis_rust" in detail
+        assert "maturin develop" in detail
+
+    def test_index_surfaces_actionable_detail(self, monkeypatch, tmp_path):
+        (tmp_path / "note.txt").write_text("hello world some content here")
+        client = self._client(monkeypatch)
+        resp = client.post("/v1/memory/index", json={"path": str(tmp_path)})
+        assert resp.status_code == 503
+        detail = resp.json()["detail"]
+        # The frontend reads this `detail`; it must point at the real cause,
+        # not blame the indexed path.
+        assert "openjarvis_rust" in detail
+        assert detail != "Failed to index path"
+        assert detail != "No memory backend available"
+
+    def test_config_reports_unavailable(self, monkeypatch):
+        client = self._client(monkeypatch)
+        resp = client.get("/v1/memory/config")
+        assert resp.status_code == 200
+        data = resp.json()
+        # Must not falsely report a healthy backend when none could be built.
+        assert data["available"] is False
+        assert "openjarvis_rust" in (data["detail"] or "")
+
+
 class TestBudgetRoutes:
     def test_get_budget(self):
         client = TestClient(_make_app())

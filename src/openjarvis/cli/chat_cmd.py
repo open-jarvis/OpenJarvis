@@ -28,12 +28,22 @@ def _read_input(prompt: str = "You> ") -> Optional[str]:
 @click.option("-a", "--agent", "agent_name", default=None, help="Agent type.")
 @click.option("--tools", default=None, help="Comma-separated tool names.")
 @click.option("--system", "system_prompt", default=None, help="Custom system prompt.")
+@click.option(
+    "--persona",
+    "persona_name",
+    default=None,
+    help=(
+        "Named persona dir under ~/.openjarvis/personas/<name>/ "
+        "(overrides config). Pass 'none' to disable all persona files."
+    ),
+)
 def chat(
     engine_key: str | None,
     model_name: str | None,
     agent_name: str | None,
     tools: str | None,
     system_prompt: str | None,
+    persona_name: str | None,
 ) -> None:
     """Start an interactive multi-turn chat session.
 
@@ -47,6 +57,14 @@ def chat(
     console = Console(stderr=True)
 
     config = load_config()
+
+    import dataclasses as _dc
+
+    effective_mf = (
+        _dc.replace(config.memory_files, persona_name=persona_name)
+        if persona_name is not None
+        else config.memory_files
+    )
 
     # Resolve engine
     from openjarvis.engine import get_engine
@@ -121,6 +139,21 @@ def chat(
 
                     kwargs["interactive"] = True
                     kwargs["confirm_callback"] = _confirm
+
+                import inspect as _inspect
+
+                if (
+                    "prompt_builder"
+                    in _inspect.signature(agent_cls.__init__).parameters
+                ):
+                    from openjarvis.prompt.builder import SystemPromptBuilder
+
+                    kwargs["prompt_builder"] = SystemPromptBuilder(
+                        agent_template=config.agent.default_system_prompt or "",
+                        memory_files_config=effective_mf,
+                        system_prompt_config=config.system_prompt,
+                    )
+
                 agent = agent_cls(engine, model, **kwargs)
         except Exception as exc:
             console.print(f"[yellow]Agent '{agent_key}' failed: {exc}[/yellow]")
@@ -147,6 +180,16 @@ def chat(
     _notifications = NotificationDispatcher(get_status())
 
     # Conversation state
+    if not system_prompt:
+        from openjarvis.prompt.builder import SystemPromptBuilder
+
+        builder = SystemPromptBuilder(
+            agent_template=config.agent.default_system_prompt or "",
+            memory_files_config=effective_mf,
+            system_prompt_config=config.system_prompt,
+        )
+        system_prompt = builder.build()
+
     history: List[Message] = []
     if system_prompt:
         history.append(Message(role=Role.SYSTEM, content=system_prompt))
