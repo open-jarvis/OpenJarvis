@@ -151,7 +151,13 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
             return await _handle_stream_tools(
                 engine, model, request_body, complexity_info
             )
-        return await _handle_stream(engine, model, request_body, complexity_info)
+        return await _handle_stream(
+            engine,
+            model,
+            request_body,
+            complexity_info,
+            trace_store=getattr(request.app.state, "trace_store", None),
+        )
 
     # Non-streaming: use agent if available, otherwise direct engine call.
     #
@@ -170,7 +176,14 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
     # the agent to execute them), add an explicit opt-in header rather
     # than removing this guard — silent re-routing is what produced #414.
     if agent is not None and not request_body.tools:
-        return _handle_agent(agent, model, request_body, complexity_info)
+        return _handle_agent(
+            agent,
+            model,
+            request_body,
+            complexity_info,
+            trace_store=getattr(request.app.state, "trace_store", None),
+            bus=getattr(request.app.state, "bus", None),
+        )
 
     bus = getattr(request.app.state, "bus", None)
     return _handle_direct(
@@ -195,17 +208,50 @@ def _handle_direct(
     if req.tools:
         kwargs["tools"] = req.tools
     if bus:
+        from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
         from openjarvis.telemetry.wrapper import instrumented_generate
 
-        result = instrumented_generate(
-            engine,
-            messages,
-            model=model,
-            bus=bus,
-            temperature=req.temperature,
-            max_tokens=req.max_tokens,
-            **kwargs,
-        )
+        # `app.state.engine` may already be an InstrumentedEngine (the
+        # common case when telemetry is wired in). If we then wrap it
+        # with `instrumented_generate`, BOTH layers fire a
+        # TELEMETRY_RECORD per call:
+        #
+        #   - InstrumentedEngine.generate() publishes a FULL record
+        #     (energy_joules, GPU stats, token_counting_version, ...).
+        #   - instrumented_generate() publishes a BARE record (timing +
+        #     tokens only; no energy meter, no version stamp).
+        #
+        # The doubled count was the dominant driver of the bimodal
+        # Wh/token distribution on the public leaderboard.
+        #
+        # The fix below is NOT "unwrap and call instrumented_generate":
+        # that would have replaced "doubled records" with "every
+        # request emits only a bare record with no energy / no version",
+        # which the leaderboard's `current_methodology_only=True` filter
+        # would then drop entirely. Instead, when the engine is already
+        # an InstrumentedEngine, skip the wrapper and call `generate`
+        # directly — InstrumentedEngine publishes the full per-record
+        # event itself with energy + version intact. Only fall back to
+        # the lightweight wrapper for engines that aren't already
+        # instrumented.
+        if isinstance(engine, InstrumentedEngine):
+            result = engine.generate(
+                messages,
+                model=model,
+                temperature=req.temperature,
+                max_tokens=req.max_tokens,
+                **kwargs,
+            )
+        else:
+            result = instrumented_generate(
+                engine,
+                messages,
+                model=model,
+                bus=bus,
+                temperature=req.temperature,
+                max_tokens=req.max_tokens,
+                **kwargs,
+            )
     else:
         result = engine.generate(
             messages,
@@ -255,8 +301,19 @@ def _handle_agent(
     model: str,
     req: ChatCompletionRequest,
     complexity_info=None,
+    *,
+    trace_store=None,
+    bus=None,
 ) -> ChatCompletionResponse:
-    """Run through agent."""
+    """Run through agent.
+
+    When *trace_store* is set, the agent run is wrapped in a
+    ``TraceCollector`` (mirroring ``system/orchestrator.py``) so every
+    completion records a ``Trace`` to ``traces.db``. Previously this endpoint
+    called ``agent.run()`` raw, so the server never produced traces:
+    ``traces.db`` stayed empty and spec_search's cold-start gate
+    (``check_readiness``, min 20 traces) could never open.
+    """
     from openjarvis.agents._stubs import AgentContext
 
     # Build context from prior messages
@@ -274,7 +331,13 @@ def _handle_agent(
     if model:
         agent._model = model
     try:
-        result = agent.run(input_text, context=ctx)
+        if trace_store is not None:
+            from openjarvis.traces.collector import TraceCollector
+
+            collector = TraceCollector(agent, store=trace_store, bus=bus)
+            result = collector.run(input_text, context=ctx)
+        else:
+            result = agent.run(input_text, context=ctx)
     finally:
         agent._model = original_model
 
@@ -426,8 +489,19 @@ async def _handle_stream(
     model: str,
     req: ChatCompletionRequest,
     complexity_info=None,
+    *,
+    trace_store=None,
 ):
-    """Stream response using SSE format."""
+    """Stream response using SSE format.
+
+    This path streams straight from the engine, bypassing the agent /
+    ``TraceCollector``. When *trace_store* is set we accumulate the streamed
+    tokens and record a minimal ``Trace`` once the stream completes
+    successfully — otherwise streamed chats (the desktop GUI's main path)
+    would never populate ``traces.db``.
+    """
+    import time
+
     from openjarvis.server.cloud_router import (
         is_cloud_model,
         stream_cloud,
@@ -437,11 +511,20 @@ async def _handle_stream(
     messages = _to_messages(req.messages)
     chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
 
+    # Last user message — recorded as the trace query.
+    query_text = ""
+    for _m in reversed(req.messages):
+        if _m.role == "user" and _m.content:
+            query_text = _m.content
+            break
+
     # Route directly to the right backend — bypasses engine routing entirely
     # so broken MultiEngine state can never misdirect requests.
     use_cloud = is_cloud_model(model)
 
     async def generate():
+        started_at = time.time()
+        full_content = ""
         # Send role chunk first
         first_chunk = ChatCompletionChunk(
             id=chunk_id,
@@ -494,6 +577,7 @@ async def _handle_stream(
                         max_tokens=req.max_tokens,
                     )
             async for token in token_iter:
+                full_content += token
                 chunk = ChatCompletionChunk(
                     id=chunk_id,
                     model=model,
@@ -529,6 +613,22 @@ async def _handle_stream(
             yield f"data: {error_chunk.model_dump_json()}\n\n"
             yield "data: [DONE]\n\n"
             return
+
+        # Record a trace for the completed stream (best-effort; never breaks
+        # the response). Mirrors the agent path so streamed chats also
+        # populate traces.db.
+        if trace_store is not None and full_content:
+            from openjarvis.traces.collector import record_response_trace
+
+            record_response_trace(
+                trace_store,
+                query=query_text,
+                result=full_content,
+                model=model,
+                engine="cloud" if use_cloud else "ollama",
+                started_at=started_at,
+                ended_at=time.time(),
+            )
 
         # Send finish chunk with usage data if available
         import json as _json
@@ -736,7 +836,11 @@ async def savings(request: Request):
 
     agg = TelemetryAggregator(db_path)
     try:
-        summary = agg.summary(since=session_start)
+        # current_methodology_only excludes pre-fix legacy rows from
+        # the leaderboard's per-token efficiency numerator/denominator
+        # — see the comment on _time_filter for the bimodal-Wh/token
+        # background.
+        summary = agg.summary(since=session_start, current_methodology_only=True)
         # Exclude cloud model tokens from savings — only local
         # inference counts toward cost savings.
         _cloud_prefixes = (

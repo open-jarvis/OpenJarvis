@@ -893,6 +893,13 @@ class CloudEngine(InferenceEngine):
             "max_tokens": max_tokens,
             "temperature": temperature,
         }
+        # Forward tools / tool_choice (OpenRouter is OpenAI-compatible).
+        tools = kwargs.pop("tools", None)
+        if tools:
+            create_kwargs["tools"] = tools
+        tool_choice = kwargs.pop("tool_choice", None)
+        if tool_choice is not None:
+            create_kwargs["tool_choice"] = tool_choice
         t0 = time.monotonic()
         resp = self._openrouter_client.chat.completions.create(**create_kwargs)
         elapsed = time.monotonic() - t0
@@ -900,7 +907,7 @@ class CloudEngine(InferenceEngine):
         usage = resp.usage
         prompt_tokens = usage.prompt_tokens if usage else 0
         completion_tokens = usage.completion_tokens if usage else 0
-        return {
+        result: Dict[str, Any] = {
             "content": choice.message.content or "",
             "usage": {
                 "prompt_tokens": prompt_tokens,
@@ -911,6 +918,19 @@ class CloudEngine(InferenceEngine):
             "finish_reason": choice.finish_reason or "stop",
             "ttft": elapsed,
         }
+        if getattr(choice.message, "tool_calls", None):
+            result["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": tc.type,
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
+                }
+                for tc in choice.message.tool_calls
+            ]
+        return result
 
     def _generate_minimax(
         self,
@@ -1195,6 +1215,13 @@ class CloudEngine(InferenceEngine):
             "temperature": temperature,
             "stream": True,
         }
+        # Forward tools / tool_choice (OpenRouter is OpenAI-compatible).
+        tools = kwargs.pop("tools", None)
+        if tools:
+            create_kwargs["tools"] = tools
+        tool_choice = kwargs.pop("tool_choice", None)
+        if tool_choice is not None:
+            create_kwargs["tool_choice"] = tool_choice
         resp = self._openrouter_client.chat.completions.create(**create_kwargs)
         for chunk in resp:
             delta = chunk.choices[0].delta if chunk.choices else None

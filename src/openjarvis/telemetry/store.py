@@ -55,6 +55,11 @@ CREATE TABLE IF NOT EXISTS telemetry (
     p99_itl_ms           REAL NOT NULL DEFAULT 0.0,
     std_itl_ms           REAL NOT NULL DEFAULT 0.0,
     is_streaming         INTEGER NOT NULL DEFAULT 0,
+    -- token_counting_version: nullable on purpose. Records inserted by
+    -- pre-fix builds left this NULL; the leaderboard aggregator treats
+    -- NULL as legacy and excludes those rows from per-token efficiency
+    -- sums (so the bimodal-Wh/token leaderboard population disappears).
+    token_counting_version INTEGER,
     mining_session_id    TEXT,
     metadata        TEXT    NOT NULL DEFAULT '{}'
 );
@@ -91,13 +96,14 @@ INSERT INTO telemetry (
     prefill_energy_joules, decode_energy_joules,
     mean_itl_ms, median_itl_ms, p90_itl_ms, p95_itl_ms, p99_itl_ms, std_itl_ms,
     is_streaming,
+    token_counting_version,
     mining_session_id,
     metadata
 ) VALUES (
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 )
 """
 
@@ -128,6 +134,10 @@ _MIGRATE_COLUMNS = [
     ("std_itl_ms", "REAL NOT NULL DEFAULT 0.0"),
     ("is_streaming", "INTEGER NOT NULL DEFAULT 0"),
     ("prompt_tokens_evaluated", "INTEGER NOT NULL DEFAULT 0"),
+    # `token_counting_version` is nullable on purpose — rows that existed
+    # before this migration ran predate per-record versioning and the
+    # aggregator filter treats them as legacy.
+    ("token_counting_version", "INTEGER"),
     ("mining_session_id", "TEXT"),
 ]
 
@@ -197,6 +207,7 @@ class TelemetryStore:
                 rec.p99_itl_ms,
                 rec.std_itl_ms,
                 1 if rec.is_streaming else 0,
+                rec.token_counting_version,
                 rec.mining_session_id,
                 json.dumps(rec.metadata),
             ),

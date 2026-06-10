@@ -250,6 +250,75 @@ class TestChatCompletions:
         # No tools → agent path → agent's content surfaces.
         assert data["choices"][0]["message"]["content"] == "Hello from agent"
 
+    def test_instrumented_engine_unwrapped_to_avoid_dual_telemetry(self):
+        """Regression for the leaderboard wonky-values bug.
+
+        When `app.state.engine` is already an `InstrumentedEngine` (which is
+        the common case when the server was constructed with telemetry
+        wired in), `_handle_direct` MUST NOT wrap it again with
+        `instrumented_generate`. Both layers publish `TELEMETRY_RECORD`
+        events, so wrapping twice would double-count every call into the
+        leaderboard pipeline and inflate per-token energy / FLOPs metrics
+        by 2× on every request — the dominant contributor to the bimodal
+        Wh/token distribution on the public leaderboard.
+
+        The fix unwraps the engine via `engine._inner` before passing it
+        to `instrumented_generate`. This test pins that contract.
+        """
+        from openjarvis.core.events import EventBus, EventType
+        from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
+
+        # Build a fresh engine + bus and explicitly wrap with
+        # InstrumentedEngine (mirrors the production app construction).
+        inner_engine = _make_engine(content="Telemetry test")
+        bus = EventBus()
+        wrapped = InstrumentedEngine(inner_engine, bus=bus)
+
+        received_records = []
+        bus.subscribe(
+            EventType.TELEMETRY_RECORD,
+            lambda data: received_records.append(data),
+        )
+
+        app = create_app(wrapped, "test-model")
+        app.state.bus = bus
+        client = TestClient(app)
+
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "hello"}],
+            },
+        )
+        assert resp.status_code == 200
+
+        # Exactly ONE telemetry record — not two. Pre-fix this asserted 2.
+        assert len(received_records) == 1, (
+            f"Expected exactly one TELEMETRY_RECORD event per request "
+            f"(got {len(received_records)}). When `app.state.engine` is "
+            f"already an InstrumentedEngine, routes.py must not also fire "
+            f"`instrumented_generate` — both layers publish and double "
+            f"the leaderboard's per-request counts."
+        )
+
+        # And the surviving record must be the InstrumentedEngine's
+        # FULL record (with token_counting_version stamped, ready for
+        # the leaderboard's current_methodology_only=True filter).
+        # If routes.py had instead unwrapped engine._inner and routed
+        # through the lightweight `instrumented_generate`, the record
+        # would carry no version stamp and `current_methodology_only`
+        # would drop it from leaderboard sums entirely. Pin that
+        # contract — see the adversarial review on PR #498.
+        from openjarvis.core.types import TOKEN_COUNTING_VERSION
+
+        rec = received_records[0].data["record"]
+        assert rec.token_counting_version == TOKEN_COUNTING_VERSION, (
+            "InstrumentedEngine path must stamp the methodology version "
+            "so the leaderboard's current-methodology filter accepts the "
+            "record."
+        )
+
     def test_agent_with_conversation(self, client_with_agent):
         resp = client_with_agent.post(
             "/v1/chat/completions",
@@ -490,3 +559,78 @@ class TestCreateApp:
         engine = _make_engine()
         app = create_app(engine, "test-model")
         assert app.state.agent is None
+
+
+# ---------------------------------------------------------------------------
+# Trace recording — regression coverage for the empty-traces.db bug
+# (TraceCollector was never wired into the server chat endpoints).
+# ---------------------------------------------------------------------------
+
+
+class TestTraceRecording:
+    def test_agent_completion_creates_trace(self):
+        """A non-streaming agent completion records exactly one trace.
+
+        The collector is the single writer: it saves directly and also
+        publishes TRACE_COMPLETE, but the store is NOT subscribed to the bus
+        (see server/app.py), so the trace is persisted exactly once. If the
+        store were re-subscribed, the collector's second save would raise
+        IntegrityError on the trace_id primary key and the request would 500 —
+        so asserting 200 + count == 1 guards that double-save regression.
+        """
+        from openjarvis.core.events import EventBus
+
+        engine = _make_engine()
+        agent = _make_agent(content="traced reply")
+        app = create_app(
+            engine,
+            "test-model",
+            agent=agent,
+            bus=EventBus(record_history=False),
+        )
+        store = app.state.trace_store
+        assert store is not None, "traces enabled by default → store should exist"
+        assert store.count() == 0
+
+        client = TestClient(app)
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "What is 2+2?"}],
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["choices"][0]["message"]["content"] == "traced reply"
+
+        assert store.count() == 1  # not 2 — double-save must be idempotent
+        trace = store.list_traces(limit=1)[0]
+        assert trace.query == "What is 2+2?"
+        assert trace.result == "traced reply"
+
+    def test_streaming_completion_creates_trace(self):
+        """A streamed completion (no agent) records the assembled response."""
+        engine = _make_engine()
+        app = create_app(engine, "test-model")
+        store = app.state.trace_store
+        assert store is not None
+        assert store.count() == 0
+
+        client = TestClient(app)
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "stream please"}],
+                "stream": True,
+            },
+        )
+        assert resp.status_code == 200
+        # Drain the SSE body so the streaming generator runs to completion.
+        assert "data:" in resp.text
+
+        assert store.count() == 1
+        trace = store.list_traces(limit=1)[0]
+        assert trace.query == "stream please"
+        # _make_engine streams "Hello", " ", "world".
+        assert trace.result == "Hello world"

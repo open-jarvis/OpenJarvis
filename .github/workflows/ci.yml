@@ -64,7 +64,7 @@ jobs:
 
       - name: Run tests
         run: |
-          uv run pytest tests/ -v --tb=short -m "not live and not cloud" \
+          uv run pytest tests/ -v --tb=short -m "not live and not cloud and not hub" \
             --cov=openjarvis \
             --cov-report=term-missing \
             --cov-report=xml \

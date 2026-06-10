@@ -69,6 +69,23 @@ class _OpenAICompatibleEngine(InferenceEngine):
             raise EngineConnectionError(
                 f"{self.engine_id} engine not reachable at {self._host}"
             ) from exc
+        except httpx.HTTPStatusError as exc:
+            error_detail = exc.response.text.strip()
+            if exc.response.status_code == 404:
+                detail_suffix = (
+                    f" Response body: {error_detail}" if error_detail else ""
+                )
+                raise EngineConnectionError(
+                    f"{self.engine_id} engine at {self._host} returned 404 for "
+                    f"{self._api_prefix}/chat/completions. Make sure this port "
+                    "is running an OpenAI-compatible chat server, not another "
+                    f"local web service.{detail_suffix}"
+                ) from exc
+            detail_suffix = f": {error_detail}" if error_detail else ""
+            raise EngineConnectionError(
+                f"{self.engine_id} engine at {self._host} returned HTTP "
+                f"{exc.response.status_code}{detail_suffix}"
+            ) from exc
         data = resp.json()
         choices = data.get("choices", [])
         if not choices:

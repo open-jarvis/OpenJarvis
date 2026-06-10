@@ -424,11 +424,22 @@ class TestSavings:
         assert "total_calls" in d
 
     def test_energy_scales_linearly(self) -> None:
-        """Energy should scale linearly with evaluated tokens (KV-cache model)."""
+        """Energy should scale linearly with evaluated tokens (KV-cache model).
+
+        The test must pass `prompt_tokens_evaluated` explicitly — under the
+        leaderboard-correctness fix, `compute_savings` no longer falls back
+        from a missing `prompt_tokens_evaluated` to the (multi-turn-inflated)
+        `prompt_tokens` sum. When the KV-cache-aware count is missing, FLOPs
+        derive from `completion_tokens` only. With completion=0, that path
+        produces zero energy and divides by zero. Passing the evaluated
+        count explicitly is the API contract that lets this invariant be
+        tested without depending on the (now intentionally conservative)
+        fallback behaviour.
+        """
         from openjarvis.server.savings import compute_savings
 
-        s1 = compute_savings(1000, 0)
-        s10 = compute_savings(10000, 0)
+        s1 = compute_savings(1000, 0, prompt_tokens_evaluated=1000)
+        s10 = compute_savings(10000, 0, prompt_tokens_evaluated=10000)
         # FLOPs = 2*P*T (linear), so 10x tokens => 10x FLOPs => 10x energy
         for p1, p10 in zip(s1.per_provider, s10.per_provider):
             ratio = p10.energy_wh / p1.energy_wh
@@ -437,10 +448,16 @@ class TestSavings:
             )
 
     def test_energy_wh_matches_direct_formula(self) -> None:
-        """Energy must equal flops * wh_per_flop for known constants."""
+        """Energy must equal flops * wh_per_flop for known constants.
+
+        Pass `prompt_tokens_evaluated` explicitly for the same reason as
+        `test_energy_scales_linearly` — the conservative-fallback fix in
+        savings.py means an unset `prompt_tokens_evaluated` produces 0
+        FLOPs and would make this test pass trivially with 0 == 0.
+        """
         from openjarvis.server.savings import CLOUD_PRICING, compute_savings
 
-        summary = compute_savings(10000, 0)
+        summary = compute_savings(10000, 0, prompt_tokens_evaluated=10000)
         for p in summary.per_provider:
             pricing = CLOUD_PRICING[p.provider]
             wh_per_flop = pricing["energy_wh_per_1k_tokens"] / (
@@ -449,6 +466,12 @@ class TestSavings:
             expected = p.flops * wh_per_flop
             assert abs(p.energy_wh - expected) < 1e-6, (
                 f"{p.provider}: energy_wh={p.energy_wh}, expected={expected}"
+            )
+            # Sanity: assert the formula isn't matching trivially with both
+            # sides equal to zero (would happen if FLOPs collapse to 0).
+            assert p.flops > 0, (
+                f"{p.provider}: FLOPs must be positive when "
+                f"prompt_tokens_evaluated is explicitly set"
             )
 
     def test_energy_not_zero(self) -> None:

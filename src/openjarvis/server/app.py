@@ -229,7 +229,16 @@ def create_app(
     # AuthMiddleware never sees WS upgrade requests). Empty = auth disabled.
     app.state.api_key = api_key
 
-    # Wire up trace store if traces are enabled
+    # Wire up trace store if traces are enabled.
+    #
+    # We deliberately do NOT subscribe the trace store to the bus. The chat
+    # endpoints persist through a TraceCollector that calls store.save()
+    # directly (mirroring system/orchestrator.py), and the collector ALSO
+    # publishes TRACE_COMPLETE. A store subscribed to that same bus would
+    # therefore save every agent trace twice — the second INSERT hitting the
+    # UNIQUE constraint on trace_id (a 500 on every completion). Keeping the
+    # collector the single writer is what makes the dual code path safe; only
+    # the telemetry store is bus-subscribed (see system/builder.py).
     app.state.trace_store = None
     try:
         from openjarvis.core.config import load_config
@@ -237,11 +246,7 @@ def create_app(
 
         cfg = config if config is not None else load_config()
         if cfg.traces.enabled:
-            _trace_store = TraceStore(db_path=cfg.traces.db_path)
-            app.state.trace_store = _trace_store
-            _bus = getattr(app.state, "bus", None)
-            if _bus is not None:
-                _trace_store.subscribe_to_bus(_bus)
+            app.state.trace_store = TraceStore(db_path=cfg.traces.db_path)
     except Exception:
         pass  # traces are optional; don't block server startup
 
