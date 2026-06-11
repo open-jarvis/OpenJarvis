@@ -33,6 +33,8 @@ class SystemBuilder:
             self._config = load_config()
 
         self._engine_key: Optional[str] = None
+        self._engine_instance: Optional[InferenceEngine] = None
+        self._engine_instance_key: Optional[str] = None
         self._model: Optional[str] = None
         self._agent_name: Optional[str] = None
         self._tool_names: Optional[List[str]] = None
@@ -48,6 +50,20 @@ class SystemBuilder:
 
     def engine(self, key: str) -> SystemBuilder:
         self._engine_key = key
+        return self
+
+    def engine_instance(
+        self, engine: InferenceEngine, key: str = "openai-compat"
+    ) -> SystemBuilder:
+        """Inject a pre-built engine instance, bypassing engine discovery.
+
+        Used by callers that must target one exact endpoint (e.g.
+        ``jarvis eval --base-url``). ``build()`` health-checks the instance
+        and raises a loud error if it is unreachable — it never silently
+        substitutes a different discovered engine.
+        """
+        self._engine_instance = engine
+        self._engine_instance_key = key
         return self
 
     def model(self, name: str) -> SystemBuilder:
@@ -303,6 +319,23 @@ class SystemBuilder:
         return system
 
     def _resolve_engine(self, config: JarvisConfig):
+        # An explicitly injected engine instance always wins and is never
+        # silently replaced: when the caller pinned an endpoint (e.g.
+        # ``jarvis eval --base-url``) and it is down, substituting whatever
+        # other engine discovery finds would silently run against the wrong
+        # model server. Fail loudly instead.
+        if self._engine_instance is not None:
+            engine = self._engine_instance
+            key = self._engine_instance_key or "openai-compat"
+            if not engine.health():
+                host = getattr(engine, "_host", "<unknown host>")
+                raise RuntimeError(
+                    f"Injected engine {key!r} is not reachable at {host} — "
+                    "is the endpoint running and serving GET /v1/models? "
+                    "Refusing to fall back to engine discovery."
+                )
+            return engine, key
+
         from openjarvis.engine._discovery import get_engine
 
         pref = config.intelligence.preferred_engine
@@ -313,7 +346,18 @@ class SystemBuilder:
                 "No inference engine available. "
                 "Make sure an engine is running (e.g. ollama serve)."
             )
-        return resolved[1], resolved[0]
+        resolved_key, engine = resolved
+        if self._engine_key and resolved_key != self._engine_key:
+            # get_engine() falls back to any healthy discovered engine; make
+            # the substitution visible when the caller asked for a specific
+            # engine (observed: requested vllm, silently got ollama@11434).
+            logger.warning(
+                "Requested engine %r is unavailable; using %r at %s instead",
+                self._engine_key,
+                resolved_key,
+                getattr(engine, "_host", "<unknown host>"),
+            )
+        return engine, resolved_key
 
     def _resolve_model(self, config: JarvisConfig, engine: InferenceEngine) -> str:
         if self._model:

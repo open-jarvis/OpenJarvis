@@ -1,14 +1,14 @@
 # Evaluations
 
-The OpenJarvis evaluation framework (`openjarvis-evals`) measures model **correctness and accuracy** on academic datasets. It is a separate package from the main OpenJarvis library and is designed specifically for research workflows where you need reproducible, dataset-driven quality assessments.
+The OpenJarvis evaluation framework (`openjarvis.evals`) measures model **correctness and accuracy** on academic datasets. It ships inside the main `openjarvis` package (at `src/openjarvis/evals/`) and is designed specifically for research workflows where you need reproducible, dataset-driven quality assessments.
 
 !!! info "Evals vs. Benchmarks"
     OpenJarvis has two distinct measurement systems that complement each other:
 
-    | System | Package | Measures | Entry Point |
-    |--------|---------|----------|-------------|
-    | **Evaluations** | `openjarvis-evals` | Correctness on academic datasets (accuracy, pass rate) | `openjarvis-eval` |
-    | **Benchmarks** | `openjarvis` | Engine performance (latency, throughput) | `jarvis bench` |
+    | System | Module | Measures | Entry Point |
+    |--------|--------|----------|-------------|
+    | **Evaluations** | `openjarvis.evals` | Correctness on academic datasets (accuracy, pass rate) | `jarvis eval` |
+    | **Benchmarks** | `openjarvis.bench` | Engine performance (latency, throughput) | `jarvis bench` |
 
     Use evaluations to answer "does this model get the right answer?" and benchmarks to answer "how fast does this model respond?". See the [Benchmarks guide](benchmarks.md) for the performance measurement system.
 
@@ -18,22 +18,38 @@ The OpenJarvis evaluation framework (`openjarvis-evals`) measures model **correc
 
 ## Installation
 
-The evaluation framework is a standalone package in the `evals/` directory. Install it alongside OpenJarvis:
+The evaluation framework is part of the main `openjarvis` package — no separate install or extra is required. The standard dev setup is enough:
 
 ```bash
-uv sync --extra eval
+uv sync --extra dev
 ```
 
-This installs the `openjarvis-eval` CLI entry point and all required dependencies (`datasets`, `huggingface-hub`, `tqdm`, `rich`).
+The framework's core dependencies (`click`, `datasets`, `rich`) are base dependencies of `openjarvis`. Two optional extras enable experiment tracking integrations:
+
+```bash
+uv sync --extra dev --extra eval-wandb     # Weights & Biases run tracking
+uv sync --extra dev --extra eval-sheets    # Google Sheets results export
+```
 
 !!! note "Python version requirement"
-    Python 3.10 requires the `tomli` package for TOML config parsing. The `evals/pyproject.toml` includes this as a conditional dependency, so it is installed automatically.
+    Python 3.10 requires the `tomli` package for TOML config parsing. `openjarvis` declares it as a conditional dependency, so it is installed automatically.
+
+## Entry Points
+
+Two equivalent entry points expose the framework:
+
+| Command | Surface |
+|---------|---------|
+| `jarvis eval {list,run,compare,report}` | Canonical CLI. `run` covers the common options; `compare` and `report` post-process result files. |
+| `python -m openjarvis.evals {list,run,run-all,summarize,reparse-judge}` | Full research surface, including judge configuration, the agentic runner, and episode mode. |
+
+The `openjarvis-eval` console script is an alias for `python -m openjarvis.evals` — same commands, same options. This guide uses `jarvis eval` wherever its option set suffices and the module form for research-only options.
 
 ---
 
 ## Datasets
 
-The framework ships with **30+ datasets** covering academic reasoning, agentic tasks, retrieval, conversation quality, and practical use-case benchmarks. Datasets are grouped by category below.
+The framework ships with **40 registered benchmarks** covering academic reasoning, agentic tasks, coding, retrieval, conversation quality, and practical use-case benchmarks. Datasets are grouped by category below; `uv run python -m openjarvis.evals list` prints the authoritative registry.
 
 ### Use-Case Benchmarks
 
@@ -64,6 +80,7 @@ These benchmarks measure reasoning and knowledge on established academic dataset
 | **MATH-500** | `math500` | reasoning | Competition-level math problems |
 | **NaturalReasoning** | `natural-reasoning` | reasoning | Natural language reasoning |
 | **HLE** | `hle` | reasoning | Humanity's Last Exam hard challenges |
+| **LiveResearchBench** | `liveresearchbench` | reasoning | Recent research comprehension (Salesforce) |
 | **SimpleQA** | `simpleqa` | chat | Short-form factual question answering |
 | **IPW** | `ipw` | chat | Intelligence Per Watt mixed benchmark |
 
@@ -79,6 +96,11 @@ These benchmarks test multi-step agent capabilities including tool use, code gen
 | **TerminalBench** | `terminalbench` | agentic | Terminal-based task completion |
 | **TerminalBench Native** | `terminalbench-native` | agentic | TerminalBench with native Docker execution |
 | **TerminalBench V2.1** | `terminalbench-v2.1` | agentic | TB v2.1 Harbor-style Docker tasks |
+| **PinchBench** | `pinchbench` | agentic | Real-world agent tasks |
+| **TauBench** | `taubench` | agentic | Multi-turn customer service |
+| **DeepResearchBench** | `liveresearch` | agentic | Deep research report generation |
+| **DeepResearchBench (alias)** | `deepresearch` | agentic | Same benchmark as `liveresearch` |
+| **ToolCall-15** | `toolcall15` | agentic | Tool calling benchmark |
 | **LifelongAgent** | `lifelong-agent` | agentic | Sequential task learning across sessions |
 | **PaperArena** | `paperarena` | agentic | Scientific paper analysis |
 | **DeepPlanning** | `deepplanning` | agentic | Shopping constraint planning |
@@ -86,6 +108,14 @@ These benchmarks test multi-step agent capabilities including tool use, code gen
 | **AMA-Bench** | `ama-bench` | agentic | Agent memory assessment |
 | **WebChoreArena** | `webchorearena` | agentic | Web chore tasks |
 | **WorkArena** | `workarena` | agentic | WorkArena++ enterprise workflows |
+
+Both `liveresearch` and `deepresearch` are registered keys for the DeepResearchBench report-generation benchmark.
+
+### Coding Benchmarks
+
+| Dataset | Key | Category | Description |
+|---------|-----|----------|-------------|
+| **LiveCodeBench** | `livecodebench` | coding | Competitive programming |
 
 ### Retrieval Benchmarks
 
@@ -123,7 +153,7 @@ The framework includes two pre-built configs for evaluating models on the five c
 ### Cloud models
 
 ```bash
-uv run python -m openjarvis.evals --config src/openjarvis/evals/configs/use_case_v2_cloud.toml
+uv run jarvis eval run --config src/openjarvis/evals/configs/use_case_v2_cloud.toml
 ```
 
 This config evaluates **6 cloud models** (Claude Opus 4.6, Claude Haiku 4.5, Gemini 3.1 Pro, Gemini 3.1 Flash Lite, GPT-5.4, GPT-5 Mini) against all 5 use-case benchmarks with 30 samples each, producing a 6x5 = 30-run matrix. Results are written to `results/use-cases-v2-cloud/`.
@@ -131,7 +161,7 @@ This config evaluates **6 cloud models** (Claude Opus 4.6, Claude Haiku 4.5, Gem
 ### Local models
 
 ```bash
-uv run python -m openjarvis.evals --config src/openjarvis/evals/configs/use_case_v2_local.toml
+uv run jarvis eval run --config src/openjarvis/evals/configs/use_case_v2_local.toml
 ```
 
 This config evaluates **5 local models** via Ollama (Qwen3.5 122B-A10B, GPT-OSS 120B, GLM4, Qwen3.5 35B-A3B, GLM-4.7-Flash) against the same 5 benchmarks, producing a 5x5 = 25-run matrix. Uses 2 workers (suitable for single-GPU setups). Results are written to `results/use-cases-v2-local/`.
@@ -143,14 +173,21 @@ This config evaluates **5 local models** via Ollama (Qwen3.5 122B-A10B, GPT-OSS 
 
 ## Inference Backends
 
-Every evaluation run routes model calls through one of two backends:
+Every evaluation run routes model calls through one of four backends:
 
 | Backend | Key | Description |
 |---------|-----|-------------|
 | **jarvis-direct** | `jarvis-direct` | Engine-level inference via `SystemBuilder`. Works for local (Ollama, vLLM, llama.cpp) and cloud models. |
 | **jarvis-agent** | `jarvis-agent` | Agent-level inference with tool calling. Uses `JarvisSystem.ask()` with the specified agent and tools. |
+| **hermes** | `hermes` | Real Hermes Agent (Nous Research) via subprocess. Requires `--base-url` and `--api-key`. |
+| **openclaw** | `openclaw` | Real OpenClaw via Node subprocess. Requires `--base-url` and `--api-key`. |
 
 Use `jarvis-direct` for most evaluations. Use `jarvis-agent` when the benchmark requires tool use — for example, GAIA tasks that reference files that must be read with `file_read`, or arithmetic tasks that benefit from `calculator`.
+
+The `hermes` and `openclaw` backends shell out to external agent frameworks and need an OpenAI-compatible endpoint for their model calls: pass `--base-url`/`--api-key`, set the `JARVIS_BACKEND_BASE_URL`/`JARVIS_BACKEND_API_KEY` environment variables, or add a `[backend.external]` section to your config (see [Config Reference](#backendexternal)).
+
+!!! note "TerminalBench Native"
+    `jarvis eval run --backend` additionally accepts `terminalbench-native`, a Docker-based execution backend used by the TerminalBench Native benchmark.
 
 ---
 
@@ -159,73 +196,106 @@ Use `jarvis-direct` for most evaluations. Use `jarvis-agent` when the benchmark 
 ### List available benchmarks and backends
 
 ```bash
-openjarvis-eval list
+uv run python -m openjarvis.evals list
 ```
 
-Output:
+Abridged output (40 benchmarks, 4 backends):
 
 ```
-Benchmarks:
-  supergpqa    [reasoning  ] SuperGPQA multiple-choice
-  gaia         [agentic    ] GAIA agentic benchmark
-  frames       [rag        ] FRAMES multi-hop RAG
-  wildchat     [chat       ] WildChat conversation quality
-
-Backends:
-  jarvis-direct    Engine-level inference (local or cloud)
-  jarvis-agent     Agent-level inference with tool calling
+                         Available Benchmarks
+┌──────────────────────┬───────────┬───────────────────────────────────┐
+│ Name                 │ Category  │ Description                       │
+├──────────────────────┼───────────┼───────────────────────────────────┤
+│ supergpqa            │ reasoning │ SuperGPQA multiple-choice         │
+│ gpqa                 │ reasoning │ GPQA graduate-level MCQ           │
+│ ...                  │ ...       │ ...                               │
+│ livecodebench        │ coding    │ LiveCodeBench competitive progr.  │
+│ toolcall15           │ agentic   │ ToolCall-15 tool calling benchmark│
+└──────────────────────┴───────────┴───────────────────────────────────┘
+                         Available Backends
+┌───────────────┬──────────────────────────────────────────────────┐
+│ jarvis-direct │ Engine-level inference (local or cloud)          │
+│ jarvis-agent  │ Agent-level inference with tool calling          │
+│ hermes        │ Real Hermes Agent (Nous Research) via subprocess │
+│ openclaw      │ Real OpenClaw via Node subprocess                │
+└───────────────┴──────────────────────────────────────────────────┘
 ```
+
+`jarvis eval list` prints a similar table but currently shows a curated subset of the registry; the module form above is the authoritative listing.
 
 ### Run a single benchmark
 
 ```bash
-# Evaluate qwen3:8b on SuperGPQA (engine-level, 10 samples default)
-openjarvis-eval run -b supergpqa -m qwen3:8b
+# Evaluate qwen3:8b on SuperGPQA (engine-level, 10 samples)
+uv run jarvis eval run -b supergpqa -m qwen3:8b -n 10
 
-# Evaluate GPT-4o on GAIA using the agent backend with tools
-openjarvis-eval run -b gaia -m gpt-4o --backend jarvis-agent \
+# Evaluate GPT-5 Mini on GAIA using the agent backend with tools
+uv run jarvis eval run -b gaia -m gpt-5-mini --backend jarvis-agent \
     --agent orchestrator --tools calculator,file_read -n 50
 
-# Run FRAMES with vLLM engine, write output to a file
-openjarvis-eval run -b frames -m llama3:70b -e vllm \
+# Run FRAMES with the vLLM engine, write output to a file
+uv run jarvis eval run -b frames -m llama3:70b -e vllm \
     -o results/frames_llama70b.jsonl
 
 # Run WildChat with a higher temperature for chat quality
-openjarvis-eval run -b wildchat -m qwen3:8b --temperature 0.7 -n 100
+uv run jarvis eval run -b wildchat -m qwen3:8b --temperature 0.7 -n 100
 ```
 
-#### Full option reference
+#### `jarvis eval run` option reference
 
 | Option | Short | Type | Default | Description |
 |--------|-------|------|---------|-------------|
 | `--config` | `-c` | path | — | TOML config file; when provided, `-b` and `-m` are not required |
-| `--benchmark` | `-b` | choice | required* | `supergpqa`, `gaia`, `frames`, or `wildchat` |
-| `--backend` | | choice | `jarvis-direct` | `jarvis-direct` or `jarvis-agent` |
-| `--model` | `-m` | str | required* | Model identifier (e.g., `qwen3:8b`, `gpt-4o`) |
-| `--engine` | `-e` | str | auto | Engine key (`ollama`, `vllm`, `cloud`, ...) |
-| `--agent` | | str | `orchestrator` | Agent name for `jarvis-agent` backend |
-| `--tools` | | str | `""` | Comma-separated tool names (e.g., `calculator,file_read`) |
+| `--benchmark` | `-b` | str | required* | Any registered benchmark key (see `... list`) |
+| `--model` | `-m` | str | required* | Model identifier (e.g., `qwen3:8b`, `gpt-5-mini`) |
 | `--max-samples` | `-n` | int | all | Limit the number of samples evaluated |
-| `--max-workers` | `-w` | int | `4` | Parallel evaluation workers |
-| `--judge-model` | | str | `gpt-4o` | LLM used for judge-based scoring |
-| `--output` | `-o` | path | auto-generated | Output JSONL file path |
+| `--backend` | | choice | `jarvis-direct` | `jarvis-direct`, `jarvis-agent`, `hermes`, `openclaw`, or `terminalbench-native` |
+| `--base-url` | | str | — | OpenAI-compatible endpoint URL (env: `JARVIS_BACKEND_BASE_URL`) |
+| `--api-key` | | str | — | API key for the endpoint (env: `JARVIS_BACKEND_API_KEY`) |
+| `--agent` | | str | — | Agent name for `jarvis-agent` backend (e.g., `orchestrator`) |
+| `--engine` | `-e` | str | auto | Engine key (`ollama`, `vllm`, `cloud`, ...) |
+| `--tools` | | str | `""` | Comma-separated tool names (e.g., `calculator,file_read`) |
+| `--telemetry/--no-telemetry` | | flag | off | Enable telemetry collection during eval |
+| `--gpu-metrics/--no-gpu-metrics` | | flag | off | Enable GPU metric polling |
 | `--seed` | | int | `42` | Random seed for dataset shuffling |
-| `--split` | | str | dataset default | Override the dataset split |
 | `--temperature` | | float | `0.0` | Generation temperature |
 | `--max-tokens` | | int | `2048` | Maximum output tokens |
+| `--model-filter` | | str | — | Filter models by name substring (multi-model configs) |
+| `--output` | `-o` | path | auto-generated | Output JSONL file path |
+| `--wandb-project` / `--wandb-entity` / `--wandb-tags` / `--wandb-group` | | str | `""` | Weights & Biases tracking (requires `eval-wandb` extra) |
+| `--sheets-id` / `--sheets-worksheet` / `--sheets-creds` | | str | `""` | Google Sheets export (requires `eval-sheets` extra) |
 | `--verbose` | `-v` | flag | off | Enable debug logging |
 
 *Required when `--config` is not provided.
 
+#### Research-only options (`python -m openjarvis.evals run`)
+
+The module CLI accepts everything above plus research-grade options that `jarvis eval run` does not expose:
+
+| Option | Short | Type | Default | Description |
+|--------|-------|------|---------|-------------|
+| `--max-workers` | `-w` | int | `4` | Parallel evaluation workers |
+| `--judge-model` | | str | `gpt-5-mini-2025-08-07` | LLM used for judge-based scoring (see `--help` for the current default) |
+| `--judge-engine` | | str | `cloud` | Engine key for the LLM judge; use `vllm` to judge locally |
+| `--split` | | str | dataset default | Override the dataset split |
+| `--compact` | | flag | off | Dense single-table output |
+| `--trace-detail` | | flag | off | Full per-step trace listing |
+| `--agentic` | | flag | off | Use `AgenticRunner` for multi-turn agent execution |
+| `--episode-mode` | | flag | off | Sequential episode processing with lifelong learning (required for `lifelong-agent` and similar benchmarks) |
+| `--concurrency` | | int | `1` | Parallel query execution (AgenticRunner only) |
+| `--query-timeout` | | float | — | Per-query wall-clock timeout in seconds (AgenticRunner only) |
+
+Note: the module CLI's `--backend` choice covers `jarvis-direct`, `jarvis-agent`, `hermes`, and `openclaw`; `terminalbench-native` as a backend is available via `jarvis eval run` and TOML configs.
+
 ### Run all benchmarks at once
 
-The `run-all` command evaluates a single model against all four benchmarks sequentially and writes results to an output directory:
+The `run-all` command (module CLI only) evaluates a single model against **every registered benchmark** sequentially and writes results to an output directory:
 
 ```bash
-openjarvis-eval run-all -m qwen3:8b
+uv run python -m openjarvis.evals run-all -m qwen3:8b
 
 # With options
-openjarvis-eval run-all -m gpt-4o -n 100 --output-dir results/gpt4o/
+uv run python -m openjarvis.evals run-all -m gpt-5-mini -n 100 --output-dir results/gpt5mini/
 ```
 
 Output files are written as `{output_dir}/{benchmark}_{model-slug}.jsonl`. The model slug replaces `/` and `:` with `-`, so `qwen3:8b` becomes `qwen3-8b`.
@@ -235,7 +305,7 @@ Output files are written as `{output_dir}/{benchmark}_{model-slug}.jsonl`. The m
 After a run, inspect a JSONL results file:
 
 ```bash
-openjarvis-eval summarize results/supergpqa_qwen3-8b.jsonl
+uv run python -m openjarvis.evals summarize results/supergpqa_qwen3-8b.jsonl
 ```
 
 Output:
@@ -251,6 +321,55 @@ Accuracy:  0.7222
 Errors:    2
 ```
 
+The module CLI also provides `reparse-judge`, which re-parses stored judge output in a results file and recovers records whose judge verdicts initially failed to parse — useful after improving the judge-output parser without re-running inference.
+
+### Compare and report
+
+`jarvis eval` adds two post-processing commands for result files:
+
+```bash
+# Side-by-side metric comparison across runs
+uv run jarvis eval compare results/supergpqa_qwen3-8b.jsonl results/supergpqa_gpt-5-mini.jsonl
+
+# Detailed report (accuracy, latency, cost, per-subject breakdown) for one run
+uv run jarvis eval report results/supergpqa_qwen3-8b.jsonl
+```
+
+---
+
+## Evaluating an Already-Running Endpoint
+
+If you already have an OpenAI-compatible server running — `jarvis serve`, vLLM, SGLang, llama.cpp's server, or a hosted endpoint — point an eval directly at it with `--base-url` and `--api-key`:
+
+```bash
+# A vLLM server is already serving Qwen/Qwen3-8B on a GPU node:
+#   vllm serve Qwen/Qwen3-8B --port 8000
+uv run jarvis eval run -b supergpqa -m Qwen/Qwen3-8B \
+    --base-url http://gpu-node:8000/v1 \
+    --api-key local-key \
+    -n 50
+```
+
+The `-m` value must match a model id the server reports at `GET /v1/models`. Both flags fall back to the `JARVIS_BACKEND_BASE_URL` and `JARVIS_BACKEND_API_KEY` environment variables, so CI jobs can set them once:
+
+```bash
+export JARVIS_BACKEND_BASE_URL=http://gpu-node:8000/v1
+export JARVIS_BACKEND_API_KEY=local-key
+uv run jarvis eval run -b gaia -m Qwen/Qwen3-8B --backend jarvis-agent -n 25
+```
+
+For the external `hermes` and `openclaw` backends these values are **required** (the foreign frameworks need an endpoint to send model calls to).
+
+!!! tip "Engine-level alternative for vLLM"
+    The vLLM engine also honors the `VLLM_HOST` environment variable (default `http://localhost:8000`):
+
+    ```bash
+    VLLM_HOST=http://gpu-node:8000 uv run python -m openjarvis.evals run \
+        -b supergpqa -m Qwen/Qwen3-8B -e vllm -n 50
+    ```
+
+    `VLLM_HOST` is process-global — if the candidate and the judge both use the `vllm` engine, they share the same endpoint. Prefer `--base-url` when you need them separate.
+
 ---
 
 ## TOML Config System
@@ -260,7 +379,7 @@ For research workflows that compare multiple models across multiple benchmarks, 
 ### Running from a config
 
 ```bash
-openjarvis-eval run --config src/openjarvis/evals/configs/full-suite.toml
+uv run jarvis eval run --config src/openjarvis/evals/configs/full-suite.toml
 ```
 
 When `--config` is provided, the `-b`/`--benchmark` and `-m`/`--model` options are not required. All settings come from the config file. The CLI expands the matrix, prints a progress table, and writes results to the configured `output_dir`.
@@ -269,7 +388,7 @@ When `--config` is provided, the `-b`/`--benchmark` and `-m`/`--model` options a
 
 A config file has six sections: `[meta]`, `[defaults]`, `[judge]`, `[run]`, `[[models]]`, and `[[benchmarks]]`. Only `[[models]]` and `[[benchmarks]]` are required — all other sections are optional and fall back to built-in defaults.
 
-```toml title="evals/configs/full-suite.toml"
+```toml title="src/openjarvis/evals/configs/full-suite.toml"
 # Suite-level metadata (optional)
 [meta]
 name = "full-suite-v1"
@@ -353,7 +472,7 @@ For example, `temperature` is resolved as: use `[defaults].temperature` (0.0), t
 
 A config requires only one `[[models]]` and one `[[benchmarks]]` entry:
 
-```toml title="evals/configs/minimal.toml"
+```toml title="src/openjarvis/evals/configs/minimal.toml"
 [[models]]
 name = "qwen3:8b"
 
@@ -365,7 +484,7 @@ This runs SuperGPQA against qwen3:8b with all default settings. Use this as a st
 
 ### Single-run config with full options
 
-```toml title="evals/configs/single-run.toml"
+```toml title="src/openjarvis/evals/configs/single-run.toml"
 [meta]
 name = "single-run-example"
 description = "Evaluate SuperGPQA with a single model and full configuration"
@@ -425,7 +544,8 @@ Configuration for the LLM used as a judge in GAIA, FRAMES, and WildChat scoring.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `model` | str | `"gpt-4o"` | Judge model identifier |
+| `model` | str | `"gpt-5-mini-2025-08-07"` | Judge model identifier |
+| `engine` | str | `None` | Engine key for the judge (e.g., `"vllm"` to judge locally; defaults to cloud) |
 | `provider` | str | `None` | Provider override (e.g., `"openai"`) |
 | `temperature` | float | `0.0` | Judge sampling temperature |
 | `max_tokens` | int | `1024` | Maximum judge output tokens |
@@ -444,6 +564,20 @@ Execution settings that apply to the entire suite.
 | `seed` | int | `42` | Random seed for dataset shuffling |
 | `telemetry` | bool | `false` | Enable GPU telemetry capture (energy, power, utilization, throughput) |
 | `gpu_metrics` | bool | `false` | Enable GPU metric polling via `pynvml` (requires `pynvml` or `nvidia-ml-py`) |
+| `warmup_samples` | int | `0` | Untimed warmup samples before measurement |
+| `energy_vendor` | str | `""` | GPU energy vendor override |
+| `max_turns` | int | `None` | Maximum agent turns per query |
+| `wandb_project` / `wandb_entity` / `wandb_tags` / `wandb_group` | str | `""` | Weights & Biases tracking |
+| `sheets_spreadsheet_id` / `sheets_worksheet` / `sheets_credentials_path` | str | `""` / `"Results"` / `""` | Google Sheets export |
+
+### `[backend.external]`
+
+Endpoint settings for the `hermes` and `openclaw` backends. Environment variables override TOML values.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `base_url` | str | `None` | OpenAI-compatible endpoint URL (env: `JARVIS_BACKEND_BASE_URL`) |
+| `api_key` | str | `None` | API key for the endpoint (env: `JARVIS_BACKEND_API_KEY`) |
 
 ### `[[models]]`
 
@@ -451,7 +585,7 @@ One block per model. The `name` field is required.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `name` | str | required | Model identifier (e.g., `"qwen3:8b"`, `"gpt-4o"`) |
+| `name` | str | required | Model identifier (e.g., `"qwen3:8b"`, `"gpt-5-mini"`) |
 | `engine` | str | `None` | Engine key to use (`"ollama"`, `"vllm"`, `"cloud"`, ...) |
 | `provider` | str | `None` | Provider override for cloud models (e.g., `"openai"`) |
 | `temperature` | float | `None` | Override `[defaults].temperature` for this model |
@@ -468,10 +602,12 @@ One block per benchmark. The `name` field is required.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `name` | str | required | Benchmark key: `supergpqa`, `gaia`, `frames`, or `wildchat` |
-| `backend` | str | `"jarvis-direct"` | Inference backend: `jarvis-direct` or `jarvis-agent` |
+| `name` | str | required | Any registered benchmark key (see `uv run python -m openjarvis.evals list`) |
+| `backend` | str | `"jarvis-direct"` | `jarvis-direct`, `jarvis-agent`, `hermes`, `openclaw`, or `terminalbench-native` |
 | `max_samples` | int | `None` | Limit number of samples; `None` evaluates the full dataset |
 | `split` | str | `None` | Override the default dataset split |
+| `subset` | str | `None` | Dataset subset/variant (benchmark-specific) |
+| `record_ids` | list[str] | `None` | Evaluate only these record ids |
 | `agent` | str | `None` | Agent name for `jarvis-agent` backend (e.g., `"orchestrator"`) |
 | `tools` | list[str] | `[]` | Tool names for `jarvis-agent` backend |
 | `judge_model` | str | `None` | Override `[judge].model` for this benchmark only |
@@ -647,7 +783,7 @@ The `EvalRunner` processes samples concurrently using a `ThreadPoolExecutor`. Re
 
 ```bash
 # Use more workers for faster evaluation (if the engine supports concurrent requests)
-openjarvis-eval run -b supergpqa -m qwen3:8b -w 8 -n 500
+uv run python -m openjarvis.evals run -b supergpqa -m qwen3:8b -w 8 -n 500
 ```
 
 !!! warning "Worker count and engine load"

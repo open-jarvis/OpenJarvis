@@ -1,5 +1,7 @@
 """Data-driven registration of OpenAI-compatible inference engines."""
 
+from __future__ import annotations
+
 from openjarvis.core.registry import EngineRegistry
 from openjarvis.engine._openai_compat import _OpenAICompatibleEngine
 
@@ -25,4 +27,35 @@ for _key, (_cls_name, _default_host, _api_prefix) in _ENGINES.items():
     EngineRegistry.register(_key)(_cls)
     globals()[_cls_name] = _cls
 
-__all__ = [name for name, _, _ in _ENGINES.values()]
+
+def normalize_openai_base_url(url: str) -> str:
+    """Strip a single trailing ``/v1`` segment from a user-supplied base URL.
+
+    Users habitually pass ``http://host:8000/v1`` (the full OpenAI-compatible
+    prefix); the engine's ``_api_prefix`` re-appends ``/v1`` to every request
+    path, so a trailing copy would double up as ``/v1/v1``. Only a literal
+    trailing ``/v1`` is stripped — proxy/gateway path prefixes are preserved.
+    """
+    base = url.rstrip("/")
+    if base.endswith("/v1"):
+        base = base[: -len("/v1")]
+    return base
+
+
+class OpenAICompatEngine(_OpenAICompatibleEngine):
+    """Generic engine for an explicitly-provided OpenAI-compatible endpoint.
+
+    Deliberately NOT registered in ``EngineRegistry``: it is only ever
+    constructed with an explicit host (e.g. ``jarvis eval --base-url``), so
+    registering it would just add a useless localhost discovery probe and
+    interact with the per-test registry wipe.
+    """
+
+    engine_id = "openai-compat"
+    _api_prefix = "/v1"
+
+
+__all__ = [name for name, _, _ in _ENGINES.values()] + [
+    "OpenAICompatEngine",
+    "normalize_openai_base_url",
+]

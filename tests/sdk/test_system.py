@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -325,6 +325,85 @@ class TestSystemBuilder:
         assert builder._sandbox is True
         assert builder._scheduler is True
         assert builder._engine_key == "ollama"
+
+
+class TestSystemBuilderEngineInstance:
+    """Explicit engine injection (jarvis eval --base-url path)."""
+
+    @staticmethod
+    def _fake_engine(healthy: bool = True) -> MagicMock:
+        engine = MagicMock(
+            spec=["health", "can_serve", "generate", "list_models", "close"]
+        )
+        engine.health.return_value = healthy
+        engine._host = "http://127.0.0.1:18999"
+        return engine
+
+    def test_engine_instance_is_fluent(self):
+        builder = SystemBuilder(JarvisConfig())
+        engine = self._fake_engine()
+        result = builder.engine_instance(engine, key="my-endpoint")
+        assert result is builder
+        assert builder._engine_instance is engine
+        assert builder._engine_instance_key == "my-endpoint"
+
+    def test_resolve_engine_returns_injected_instance(self):
+        config = JarvisConfig()
+        engine = self._fake_engine(healthy=True)
+        builder = SystemBuilder(config).engine_instance(engine, key="endpoint")
+        resolved_engine, resolved_key = builder._resolve_engine(config)
+        assert resolved_engine is engine
+        assert resolved_key == "endpoint"
+
+    def test_unhealthy_injected_instance_raises_naming_host(self):
+        config = JarvisConfig()
+        engine = self._fake_engine(healthy=False)
+        builder = SystemBuilder(config).engine_instance(engine, key="endpoint")
+        with pytest.raises(RuntimeError, match=r"http://127\.0\.0\.1:18999"):
+            builder._resolve_engine(config)
+
+    def test_unhealthy_injected_instance_never_consults_discovery(self):
+        """The observed failure mode: an explicit endpoint must NOT be
+        silently replaced by whatever other engine discovery finds."""
+        config = JarvisConfig()
+        engine = self._fake_engine(healthy=False)
+        builder = SystemBuilder(config).engine_instance(engine)
+        with patch("openjarvis.engine._discovery.get_engine") as mock_get_engine:
+            with pytest.raises(RuntimeError, match="Refusing to fall back"):
+                builder._resolve_engine(config)
+        mock_get_engine.assert_not_called()
+
+    def test_healthy_injected_instance_never_consults_discovery(self):
+        config = JarvisConfig()
+        engine = self._fake_engine(healthy=True)
+        builder = SystemBuilder(config).engine_instance(engine, key="endpoint")
+        with patch("openjarvis.engine._discovery.get_engine") as mock_get_engine:
+            resolved_engine, _ = builder._resolve_engine(config)
+        assert resolved_engine is engine
+        mock_get_engine.assert_not_called()
+
+    def test_build_wires_injected_engine(self):
+        """build() must use the injected engine (possibly behind security
+        wrappers) instead of running discovery."""
+        config = JarvisConfig()
+        engine = self._fake_engine(healthy=True)
+        engine.list_models.return_value = ["stub-model"]
+        builder = (
+            SystemBuilder(config)
+            .engine_instance(engine, key="endpoint")
+            .model("stub-model")
+            .telemetry(False)
+            .traces(False)
+        )
+        system = builder.build()
+        try:
+            inner = system.engine
+            while hasattr(inner, "_engine"):
+                inner = inner._engine
+            assert inner is engine
+            assert system.engine_key == "endpoint"
+        finally:
+            system.close()
 
 
 class TestJarvisSystemClose:

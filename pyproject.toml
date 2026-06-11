@@ -152,6 +152,7 @@ Issues = "https://github.com/open-jarvis/OpenJarvis/issues"
 
 [project.scripts]
 jarvis = "openjarvis.cli:main"
+openjarvis-eval = "openjarvis.evals.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/openjarvis"]
