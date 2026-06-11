@@ -29,7 +29,7 @@ class OllamaEngine(InferenceEngine):
 
     engine_id = "ollama"
 
-    _DEFAULT_HOST = "http://localhost:11434"
+    _DEFAULT_HOST = "http://127.0.0.1:11434"
 
     def __init__(
         self,
