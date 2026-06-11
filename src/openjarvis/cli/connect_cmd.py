@@ -37,9 +37,19 @@ def _list_sources(registry: object) -> None:
     console.print(table)
 
 
-def _disconnect_source(registry: object, source: str) -> None:
+def _disconnect_source(registry: object, source: str, account: str = "") -> None:
     """Find and disconnect a registered source connector."""
     console = Console()
+
+    if source == "google" and account:
+        from openjarvis.connectors.oauth import (
+            delete_tokens,
+            google_account_credentials_path,
+        )
+
+        delete_tokens(google_account_credentials_path(account))
+        console.print(f"[green]Disconnected google:{account}.[/green]")
+        return
 
     if not registry.contains(source):  # type: ignore[attr-defined]
         console.print(f"[red]Unknown source: {source}[/red]")
@@ -47,16 +57,66 @@ def _disconnect_source(registry: object, source: str) -> None:
 
     connector_cls = registry.get(source)  # type: ignore[attr-defined]
     try:
-        instance = connector_cls()
+        try:
+            instance = connector_cls(account=account) if account else connector_cls()
+        except TypeError:
+            instance = connector_cls()
         instance.disconnect()
-        console.print(f"[green]Disconnected {source}.[/green]")
+        suffix = f":{account}" if account else ""
+        console.print(f"[green]Disconnected {source}{suffix}.[/green]")
     except Exception as exc:  # noqa: BLE001
         console.print(f"[red]Failed to disconnect {source}: {exc}[/red]")
 
 
-def _connect_source(registry: object, source: str, path: str = "") -> None:
+def _connect_source(
+    registry: object,
+    source: str,
+    path: str = "",
+    account: str = "",
+) -> None:
     """Route connector setup by auth_type."""
     console = Console()
+
+    if source == "google":
+        from openjarvis.connectors.oauth import (
+            OAUTH_PROVIDERS,
+            get_client_credentials,
+            run_connector_oauth,
+            save_client_credentials,
+        )
+
+        try:
+            provider = OAUTH_PROVIDERS["google"]
+            creds = get_client_credentials(provider, account=account)
+            client_id = creds[0] if creds else ""
+            client_secret = creds[1] if creds else ""
+
+            if not client_id or not client_secret:
+                console.print("[cyan]First-time setup for Google.[/cyan]")
+                console.print(
+                    f"[yellow]Create an OAuth app at: {provider.setup_url}[/yellow]"
+                )
+                console.print(f"[dim]{provider.setup_hint}[/dim]")
+                client_id = click.prompt("Client ID")
+                client_secret = click.prompt("Client Secret")
+                save_client_credentials(
+                    provider,
+                    client_id,
+                    client_secret,
+                    account=account,
+                )
+
+            run_connector_oauth(
+                "gmail",
+                client_id,
+                client_secret,
+                account=account,
+            )
+            suffix = f":{account}" if account else ""
+            console.print(f"[green]google{suffix} authorised successfully.[/green]")
+        except Exception as exc:  # noqa: BLE001
+            console.print(f"[red]OAuth flow failed for google: {exc}[/red]")
+        return
 
     if not registry.contains(source):  # type: ignore[attr-defined]
         console.print(f"[red]Unknown source: {source}[/red]")
@@ -104,9 +164,15 @@ def _connect_source(registry: object, source: str, path: str = "") -> None:
         )
 
         try:
-            instance = connector_cls()
+            try:
+                instance = (
+                    connector_cls(account=account) if account else connector_cls()
+                )
+            except TypeError:
+                instance = connector_cls()
             if instance.is_connected():
-                console.print(f"[green]{source} is already connected.[/green]")
+                suffix = f":{account}" if account else ""
+                console.print(f"[green]{source}{suffix} is already connected.[/green]")
                 return
 
             provider = get_provider_for_connector(source)
@@ -114,7 +180,7 @@ def _connect_source(registry: object, source: str, path: str = "") -> None:
                 console.print(f"[red]No OAuth provider configured for {source}.[/red]")
                 return
 
-            creds = get_client_credentials(provider)
+            creds = get_client_credentials(provider, account=account)
             client_id = creds[0] if creds else ""
             client_secret = creds[1] if creds else ""
 
@@ -126,10 +192,16 @@ def _connect_source(registry: object, source: str, path: str = "") -> None:
                 console.print(f"[dim]{provider.setup_hint}[/dim]")
                 client_id = click.prompt("Client ID")
                 client_secret = click.prompt("Client Secret")
-                save_client_credentials(provider, client_id, client_secret)
+                save_client_credentials(
+                    provider,
+                    client_id,
+                    client_secret,
+                    account=account,
+                )
 
-            run_connector_oauth(source, client_id, client_secret)
-            console.print(f"[green]{source} authorised successfully.[/green]")
+            run_connector_oauth(source, client_id, client_secret, account=account)
+            suffix = f":{account}" if account else ""
+            console.print(f"[green]{source}{suffix} authorised successfully.[/green]")
         except Exception as exc:  # noqa: BLE001
             console.print(f"[red]OAuth flow failed for {source}: {exc}[/red]")
 
@@ -193,6 +265,16 @@ def _connect_source(registry: object, source: str, path: str = "") -> None:
     default="",
     help="Path for filesystem connectors (e.g., Obsidian vault).",
 )
+@click.option(
+    "--account",
+    default="",
+    help="Named connector account alias (e.g., personal, work).",
+)
+@click.option(
+    "--profile",
+    default="",
+    help="Alias for --account.",
+)
 @click.pass_context
 def connect(
     ctx: click.Context,
@@ -201,11 +283,15 @@ def connect(
     trigger_sync: bool,
     disconnect_source: str,
     path: str,
+    account: str,
+    profile: str,
 ) -> None:
     """Manage data source connections (Gmail, Obsidian, etc.)."""
     # Lazy imports to avoid top-level side effects
     import openjarvis.connectors  # noqa: F401 — registers all connectors
     from openjarvis.core.registry import ConnectorRegistry
+
+    account_alias = account or profile
 
     if list_sources:
         _list_sources(ConnectorRegistry)
@@ -216,11 +302,11 @@ def connect(
         return
 
     if disconnect_source:
-        _disconnect_source(ConnectorRegistry, disconnect_source)
+        _disconnect_source(ConnectorRegistry, disconnect_source, account=account_alias)
         return
 
     if source:
-        _connect_source(ConnectorRegistry, source, path=path)
+        _connect_source(ConnectorRegistry, source, path=path, account=account_alias)
         return
 
     # No arguments — show help

@@ -54,6 +54,8 @@ class SearchHit:
     vector_score: float
     thread_id: str = ""
     thread_context: List[Dict[str, Any]] = field(default_factory=list)
+    account: str = ""
+    source_profile: str = ""
     # ``url`` is the connector-provided deep-link, persisted on
     # ``knowledge_chunks.url``. Empty when the source didn't supply one — in
     # that case callers may fall back to a doc_id-based reconstruction (Slack,
@@ -72,6 +74,8 @@ class SearchHit:
             "chunk_idx": self.chunk_idx,
             "thread_id": self.thread_id,
             "thread_context": self.thread_context,
+            "account": self.account,
+            "source_profile": self.source_profile,
         }
 
 
@@ -111,6 +115,22 @@ def _parse_participants(raw: Any) -> List[str]:
         return [str(x) for x in parsed] if isinstance(parsed, list) else []
     except (json.JSONDecodeError, TypeError):
         return []
+
+
+def _split_source_accounts(
+    sources: Optional[Sequence[str]],
+) -> Tuple[List[str], List[Tuple[str, str]]]:
+    """Split source filters into plain sources and ``source:account`` pairs."""
+    plain: List[str] = []
+    scoped: List[Tuple[str, str]] = []
+    for source in sources or []:
+        if ":" in source:
+            base, account = source.split(":", 1)
+            if base and account:
+                scoped.append((base, account))
+                continue
+        plain.append(source)
+    return plain, scoped
 
 
 def _snippet(content: str, max_chars: int = 500) -> str:
@@ -175,6 +195,7 @@ class HybridSearch:
         person: Optional[str],
         time_range: Optional[Tuple[Optional[datetime], Optional[datetime]]],
         sources: Optional[Sequence[str]],
+        accounts: Optional[Sequence[str]],
         alias: str = "",
     ) -> Tuple[str, List[Any]]:
         """Return ``(where_fragment, params)`` for the structured filters.
@@ -209,9 +230,26 @@ class HybridSearch:
                 params.append(_iso(end))
 
         if sources:
-            placeholders = ",".join("?" for _ in sources)
-            clauses.append(f"{prefix}source IN ({placeholders})")
-            params.extend(sources)
+            plain_sources, scoped_sources = _split_source_accounts(sources)
+            source_clauses: List[str] = []
+            if plain_sources:
+                placeholders = ",".join("?" for _ in plain_sources)
+                source_clauses.append(f"{prefix}source IN ({placeholders})")
+                params.extend(plain_sources)
+            for source, account in scoped_sources:
+                source_clauses.append(
+                    f"({prefix}source = ? AND "
+                    f"json_extract({prefix}metadata, '$.account') = ?)"
+                )
+                params.extend([source, account])
+            clauses.append("(" + " OR ".join(source_clauses) + ")")
+
+        if accounts:
+            placeholders = ",".join("?" for _ in accounts)
+            clauses.append(
+                f"json_extract({prefix}metadata, '$.account') IN ({placeholders})"
+            )
+            params.extend(accounts)
 
         return " AND ".join(clauses), params
 
@@ -388,6 +426,7 @@ class HybridSearch:
         person: Optional[str] = None,
         time_range: Optional[Tuple[Optional[datetime], Optional[datetime]]] = None,
         sources: Optional[Sequence[str]] = None,
+        accounts: Optional[Sequence[str]] = None,
         limit: int = 20,
     ) -> List[SearchHit]:
         """Run the hybrid pipeline and return up to ``limit`` hits.
@@ -400,10 +439,17 @@ class HybridSearch:
         returned.
         """
         bm25_filter_sql, bm25_filter_params = self._build_filters(
-            person=person, time_range=time_range, sources=sources, alias="kc"
+            person=person,
+            time_range=time_range,
+            sources=sources,
+            accounts=accounts,
+            alias="kc",
         )
         unaliased_filter_sql, unaliased_filter_params = self._build_filters(
-            person=person, time_range=time_range, sources=sources
+            person=person,
+            time_range=time_range,
+            sources=sources,
+            accounts=accounts,
         )
 
         bm25 = (
@@ -418,10 +464,12 @@ class HybridSearch:
         )
         fused = self._fuse(bm25, vector)
 
-        # Metadata-only fallback: empty query, or both legs produced nothing
-        # despite a non-empty query. Return the most recent rows matching the
-        # filter so the agent still gets a useful corpus snapshot.
-        if not fused:
+        # Metadata-only fallback: only for empty-query/filter-only searches
+        # such as "all mail from Kelly in May". For a non-empty query,
+        # returning recent rows on zero lexical/vector hits creates false
+        # positives, especially for account-boundary tests where "no hit in
+        # gmail:work" must not synthesize an unrelated work email as a match.
+        if not fused and not query.strip():
             sql = f"""
                 SELECT id FROM knowledge_chunks
                 WHERE {unaliased_filter_sql}
@@ -442,7 +490,7 @@ class HybridSearch:
         meta_rows = self._store._conn.execute(
             f"""
             SELECT id, doc_id, content, source, title, author, participants,
-                   timestamp, thread_id, chunk_index, url
+                   timestamp, thread_id, chunk_index, url, metadata
             FROM knowledge_chunks
             WHERE id IN ({placeholders})
             """,
@@ -455,6 +503,7 @@ class HybridSearch:
             r = by_id.get(chunk_id)
             if r is None:
                 continue
+            metadata = json.loads(r["metadata"]) if r["metadata"] else {}
             hits.append(
                 SearchHit(
                     chunk_id=chunk_id,
@@ -470,6 +519,8 @@ class HybridSearch:
                     vector_score=vec_score,
                     thread_id=r["thread_id"] or "",
                     thread_context=self._thread_context(r["thread_id"] or "", chunk_id),
+                    account=str(metadata.get("account", "") or ""),
+                    source_profile=str(metadata.get("source_profile", "") or ""),
                     url=r["url"] or "",
                 )
             )

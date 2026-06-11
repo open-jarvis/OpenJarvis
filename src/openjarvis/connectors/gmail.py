@@ -28,7 +28,11 @@ from openjarvis.connectors.oauth import (
     GOOGLE_ALL_SCOPES,
     build_google_auth_url,
     delete_tokens,
+    google_account_doc_id,
+    google_account_metadata,
+    google_account_source_id,
     load_tokens,
+    normalize_account_alias,
     refresh_google_token,
     resolve_google_credentials,
     save_tokens,
@@ -347,9 +351,16 @@ class GmailConnector(BaseConnector):
     display_name = "Gmail"
     auth_type = "oauth"
 
-    def __init__(self, credentials_path: str = "") -> None:
+    def __init__(self, credentials_path: str = "", account: str = "") -> None:
+        self._account = normalize_account_alias(account)
+        self._explicit_credentials_path = bool(credentials_path)
         self._credentials_path = resolve_google_credentials(
-            credentials_path or _DEFAULT_CREDENTIALS_PATH
+            credentials_path or _DEFAULT_CREDENTIALS_PATH,
+            account=self._account,
+            allow_shared_fallback=not self._explicit_credentials_path,
+        )
+        self._mirror_shared_credentials = (
+            not self._explicit_credentials_path and not self._account
         )
         self._items_synced: int = 0
         self._items_total: int = 0
@@ -485,9 +496,9 @@ class GmailConnector(BaseConnector):
                 thread_id: Optional[str] = msg.get("threadId")
 
                 doc = Document(
-                    doc_id=f"gmail:{msg_id}",
+                    doc_id=google_account_doc_id("gmail", msg_id, self._account),
                     source="gmail",
-                    source_id=msg_id,
+                    source_id=google_account_source_id(msg_id, self._account),
                     doc_type="email",
                     content=body,
                     title=subject,
@@ -509,6 +520,7 @@ class GmailConnector(BaseConnector):
                         "snippet": msg.get("snippet", ""),
                         "history_id": msg.get("historyId", ""),
                         "size_estimate": msg.get("sizeEstimate", 0),
+                        **google_account_metadata("gmail", self._account),
                     },
                 )
                 synced += 1
@@ -607,6 +619,14 @@ class GmailConnector(BaseConnector):
                             "description": "Maximum number of emails to return",
                             "default": 20,
                         },
+                        "account": {
+                            "type": "string",
+                            "description": (
+                                "Optional Google account alias, e.g. 'personal' "
+                                "or 'work'."
+                            ),
+                            "default": self._account,
+                        },
                     },
                     "required": ["query"],
                 },
@@ -621,6 +641,14 @@ class GmailConnector(BaseConnector):
                         "thread_id": {
                             "type": "string",
                             "description": "Gmail thread ID",
+                        },
+                        "account": {
+                            "type": "string",
+                            "description": (
+                                "Optional Google account alias, e.g. 'personal' "
+                                "or 'work'."
+                            ),
+                            "default": self._account,
                         },
                     },
                     "required": ["thread_id"],
@@ -644,6 +672,14 @@ class GmailConnector(BaseConnector):
                             "type": "integer",
                             "description": "Maximum number of messages to return",
                             "default": 20,
+                        },
+                        "account": {
+                            "type": "string",
+                            "description": (
+                                "Optional Google account alias, e.g. 'personal' "
+                                "or 'work'."
+                            ),
+                            "default": self._account,
                         },
                     },
                     "required": [],

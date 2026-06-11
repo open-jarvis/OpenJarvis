@@ -108,3 +108,25 @@ def test_connect_disconnect() -> None:
 
     assert result.exit_code == 0
     mock_instance.disconnect.assert_called_once()
+
+
+def test_connect_google_with_account_runs_segmented_oauth() -> None:
+    """connect google --account work routes OAuth through the account alias."""
+    runner = CliRunner()
+
+    with (
+        mock.patch(
+            "openjarvis.connectors.oauth.get_client_credentials",
+            return_value=("client.apps.googleusercontent.com", "secret"),
+        ),
+        mock.patch("openjarvis.connectors.oauth.run_connector_oauth") as mock_run,
+    ):
+        result = runner.invoke(cli, ["connect", "--account", "work", "google"])
+
+    assert result.exit_code == 0
+    mock_run.assert_called_once_with(
+        "gmail",
+        "client.apps.googleusercontent.com",
+        "secret",
+        account="work",
+    )

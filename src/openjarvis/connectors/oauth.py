@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -24,6 +25,9 @@ from openjarvis.core.config import DEFAULT_CONFIG_DIR
 # ---------------------------------------------------------------------------
 
 _CONNECTORS_DIR = DEFAULT_CONFIG_DIR / "connectors"
+_GOOGLE_ACCOUNT_PROVIDER = "google"
+_GOOGLE_ACCOUNTS_DIR = _CONNECTORS_DIR / _GOOGLE_ACCOUNT_PROVIDER / "accounts"
+_ACCOUNT_ALIAS_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 # ---------------------------------------------------------------------------
 # OAuth provider registry
@@ -129,6 +133,82 @@ def get_provider_for_connector(connector_id: str) -> Optional[OAuthProvider]:
     return None
 
 
+def normalize_account_alias(account: str = "") -> str:
+    """Validate and normalise a connector account/profile alias.
+
+    Empty means "legacy/default credentials". Named aliases are intentionally
+    restricted to a small filesystem-safe slug format because they become JSON
+    filenames under ``~/.openjarvis/connectors/google/accounts``.
+    """
+    alias = account.strip()
+    if not alias:
+        return ""
+    if not _ACCOUNT_ALIAS_RE.fullmatch(alias):
+        raise ValueError(
+            "Account aliases must be 1-64 characters and contain only letters, "
+            "numbers, dots, underscores, or hyphens."
+        )
+    return alias
+
+
+def google_account_credentials_path(account: str) -> str:
+    """Return the credential file path for a named Google account alias."""
+    alias = normalize_account_alias(account)
+    if not alias:
+        raise ValueError("A non-empty Google account alias is required.")
+    return str(_GOOGLE_ACCOUNTS_DIR / f"{alias}.json")
+
+
+def google_account_metadata(connector_id: str, account: str = "") -> Dict[str, str]:
+    """Return provenance metadata for a named connector account."""
+    alias = normalize_account_alias(account)
+    if not alias:
+        return {"connector": connector_id}
+    return {
+        "account": alias,
+        "source_profile": alias,
+        "connector": connector_id,
+        "connector_instance": f"{connector_id}:{alias}",
+    }
+
+
+def google_account_doc_id(connector_id: str, native_id: str, account: str = "") -> str:
+    """Build a collision-safe document ID for optional Google account aliases."""
+    alias = normalize_account_alias(account)
+    if alias:
+        return f"{connector_id}:{alias}:{native_id}"
+    return f"{connector_id}:{native_id}"
+
+
+def google_account_source_id(native_id: str, account: str = "") -> str:
+    """Build a collision-safe source_id while preserving legacy default IDs."""
+    alias = normalize_account_alias(account)
+    if alias:
+        return f"{alias}:{native_id}"
+    return native_id
+
+
+def _credential_paths_for_provider(
+    provider: OAuthProvider,
+    *,
+    account: str = "",
+) -> Tuple[Path, ...]:
+    """Return credential paths for a provider/account combination."""
+    alias = normalize_account_alias(account)
+    if provider.name == _GOOGLE_ACCOUNT_PROVIDER and alias:
+        return (Path(google_account_credentials_path(alias)),)
+    return tuple(_CONNECTORS_DIR / filename for filename in provider.credential_files)
+
+
+def _is_google_account_credentials_path(path: str) -> bool:
+    """Return True when *path* points under the named Google accounts dir."""
+    try:
+        Path(path).resolve().relative_to(_GOOGLE_ACCOUNTS_DIR.resolve())
+        return True
+    except ValueError:
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Credential helpers
 # ---------------------------------------------------------------------------
@@ -136,6 +216,8 @@ def get_provider_for_connector(connector_id: str) -> Optional[OAuthProvider]:
 
 def get_client_credentials(
     provider: OAuthProvider,
+    *,
+    account: str = "",
 ) -> Optional[Tuple[str, str]]:
     """Load stored client_id and client_secret for *provider*.
 
@@ -143,12 +225,19 @@ def get_client_credentials(
     back to environment variables ``OPENJARVIS_{NAME}_CLIENT_ID`` and
     ``OPENJARVIS_{NAME}_CLIENT_SECRET``.
     """
-    # Check credential files
-    for filename in provider.credential_files:
-        path = _CONNECTORS_DIR / filename
+    # Check credential files. For named Google accounts, prefer the alias file
+    # but fall back to legacy provider files below so users do not need to
+    # re-enter OAuth client credentials for every account.
+    for path in _credential_paths_for_provider(provider, account=account):
         tokens = load_tokens(str(path))
         if tokens and tokens.get("client_id") and tokens.get("client_secret"):
             return tokens["client_id"], tokens["client_secret"]
+
+    if provider.name == _GOOGLE_ACCOUNT_PROVIDER and normalize_account_alias(account):
+        for path in _credential_paths_for_provider(provider):
+            tokens = load_tokens(str(path))
+            if tokens and tokens.get("client_id") and tokens.get("client_secret"):
+                return tokens["client_id"], tokens["client_secret"]
 
     # Check environment variables
     prefix = f"OPENJARVIS_{provider.name.upper()}"
@@ -164,10 +253,11 @@ def save_client_credentials(
     provider: OAuthProvider,
     client_id: str,
     client_secret: str,
+    *,
+    account: str = "",
 ) -> None:
     """Persist client credentials so the user never has to enter them again."""
-    for filename in provider.credential_files:
-        path = _CONNECTORS_DIR / filename
+    for path in _credential_paths_for_provider(provider, account=account):
         existing = load_tokens(str(path)) or {}
         existing["client_id"] = client_id
         existing["client_secret"] = client_secret
@@ -227,16 +317,30 @@ def build_google_auth_url(
     return f"{_GOOGLE_AUTH_ENDPOINT}?{urlencode(params)}"
 
 
-def resolve_google_credentials(connector_path: str) -> str:
+def resolve_google_credentials(
+    connector_path: str,
+    *,
+    account: str = "",
+    allow_shared_fallback: bool = True,
+) -> str:
     """Return the best available Google credentials file path.
 
-    Checks the connector-specific file first, then falls back to the
-    shared ``google.json``.  Returns *connector_path* if neither exists
-    (so ``is_connected()`` correctly returns ``False``).
+    When ``allow_shared_fallback`` is false, *connector_path* is treated as an
+    explicit caller-supplied path and always wins, even if an account alias is
+    also supplied. Otherwise, named accounts resolve to the segmented account
+    path under ``google/accounts/{alias}.json``. Default connectors check their
+    connector-specific file first, then optionally fall back to shared
+    ``google.json``.
     """
+    if not allow_shared_fallback:
+        return connector_path
+
+    alias = normalize_account_alias(account)
+    if alias:
+        return google_account_credentials_path(alias)
     if Path(connector_path).exists():
         return connector_path
-    if Path(_SHARED_GOOGLE_CREDENTIALS_PATH).exists():
+    if allow_shared_fallback and Path(_SHARED_GOOGLE_CREDENTIALS_PATH).exists():
         return _SHARED_GOOGLE_CREDENTIALS_PATH
     return connector_path
 
@@ -273,6 +377,22 @@ def delete_tokens(path: str) -> None:
     p = Path(path)
     if p.exists():
         p.unlink()
+
+
+def _persist_google_oauth_tokens(
+    credentials_path: str,
+    token_payload: Dict[str, Any],
+    *,
+    mirror_shared_credentials: bool = True,
+) -> None:
+    """Persist Google OAuth tokens and optionally mirror to legacy shared auth."""
+    save_tokens(credentials_path, token_payload)
+
+    if mirror_shared_credentials and (
+        credentials_path != _SHARED_GOOGLE_CREDENTIALS_PATH
+        and not _is_google_account_credentials_path(credentials_path)
+    ):
+        save_tokens(_SHARED_GOOGLE_CREDENTIALS_PATH, token_payload)
 
 
 def refresh_google_token(path: str) -> Optional[str]:
@@ -383,6 +503,8 @@ def run_oauth_flow(
     client_secret: str,
     scopes: List[str],
     credentials_path: str,
+    *,
+    mirror_shared_credentials: bool = True,
     redirect_uri: str = _DEFAULT_REDIRECT_URI,
 ) -> Dict[str, Any]:
     """Run the full OAuth flow: browser consent, callback, token exchange.
@@ -407,6 +529,10 @@ def run_oauth_flow(
         List of OAuth scopes to request.
     credentials_path:
         Where to persist the resulting tokens.
+    mirror_shared_credentials:
+        When true, also mirror the resulting tokens into the legacy shared
+        Google credentials file. Set this to false for explicit temp paths or
+        named account aliases so tests and segmented profiles remain isolated.
     redirect_uri:
         Local callback URI.  Defaults to ``http://localhost:8789/callback``.
 
@@ -522,12 +648,11 @@ def run_oauth_flow(
         "client_id": client_id,
         "client_secret": client_secret,
     }
-    save_tokens(credentials_path, token_payload)
-
-    # Also save to the shared Google credentials file so that all Google
-    # connectors can use this token without a separate OAuth flow.
-    if credentials_path != _SHARED_GOOGLE_CREDENTIALS_PATH:
-        save_tokens(_SHARED_GOOGLE_CREDENTIALS_PATH, token_payload)
+    _persist_google_oauth_tokens(
+        credentials_path,
+        token_payload,
+        mirror_shared_credentials=mirror_shared_credentials,
+    )
 
     return tokens
 
@@ -649,6 +774,8 @@ def run_connector_oauth(
     connector_id: str,
     client_id: str = "",
     client_secret: str = "",
+    *,
+    account: str = "",
 ) -> Dict[str, Any]:
     """Run a complete OAuth flow for *connector_id*.
 
@@ -668,7 +795,7 @@ def run_connector_oauth(
 
     # Resolve credentials
     if not (client_id and client_secret):
-        creds = get_client_credentials(provider)
+        creds = get_client_credentials(provider, account=account)
         if creds:
             client_id, client_secret = creds
     if not (client_id and client_secret):
@@ -713,8 +840,9 @@ def run_connector_oauth(
         "client_secret": client_secret,
     }
 
-    # Save to all credential files for this provider
-    for filename in provider.credential_files:
-        save_tokens(str(_CONNECTORS_DIR / filename), payload)
+    # Save to the legacy provider files, or to one segmented account file when
+    # a named Google alias is supplied.
+    for path in _credential_paths_for_provider(provider, account=account):
+        save_tokens(str(path), payload)
 
     return tokens

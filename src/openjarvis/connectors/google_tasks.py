@@ -13,7 +13,13 @@ import httpx
 
 from openjarvis.connectors._stubs import BaseConnector, Document, SyncStatus
 from openjarvis.connectors.google_auth import call_with_refresh
-from openjarvis.connectors.oauth import load_tokens, resolve_google_credentials
+from openjarvis.connectors.oauth import (
+    google_account_doc_id,
+    google_account_metadata,
+    load_tokens,
+    normalize_account_alias,
+    resolve_google_credentials,
+)
 from openjarvis.core.config import DEFAULT_CONFIG_DIR
 from openjarvis.core.registry import ConnectorRegistry
 
@@ -43,9 +49,18 @@ class GoogleTasksConnector(BaseConnector):
     display_name = "Google Tasks"
     auth_type = "oauth"
 
-    def __init__(self, *, credentials_path: str = "") -> None:
+    def __init__(self, *, credentials_path: str = "", account: str = "") -> None:
+        self._account = normalize_account_alias(account)
+        self._explicit_credentials_path = bool(credentials_path)
         self._credentials_path = Path(
-            resolve_google_credentials(credentials_path or _DEFAULT_CREDENTIALS_PATH)
+            resolve_google_credentials(
+                credentials_path or _DEFAULT_CREDENTIALS_PATH,
+                account=self._account,
+                allow_shared_fallback=not self._explicit_credentials_path,
+            )
+        )
+        self._mirror_shared_credentials = (
+            not self._explicit_credentials_path and not self._account
         )
         self._status = SyncStatus()
 
@@ -108,7 +123,9 @@ class GoogleTasksConnector(BaseConnector):
                 )
 
                 yield Document(
-                    doc_id=f"gtasks-{task['id']}",
+                    doc_id=google_account_doc_id(
+                        "google_tasks", task["id"], self._account
+                    ),
                     source="google_tasks",
                     doc_type="task",
                     content=task.get("notes", ""),
@@ -120,6 +137,7 @@ class GoogleTasksConnector(BaseConnector):
                         "status": status,
                         "due": due,
                         "completed": task.get("completed", ""),
+                        **google_account_metadata("google_tasks", self._account),
                     },
                 )
 
