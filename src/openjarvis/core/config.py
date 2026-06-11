@@ -1867,7 +1867,7 @@ def generate_minimal_toml(
     else:
         engine_host_section = (
             f"\n[engine.{engine}]\n"
-            f'# host = "http://localhost:11434"  '
+            f'# host = "http://127.0.0.1:11434"  '
             f"# set to remote URL if engine runs elsewhere\n"
         )
     return f"""\
@@ -1914,36 +1914,36 @@ def generate_default_toml(
 default = "{engine}"
 
 [engine.ollama]
-host = "http://localhost:11434"
+host = "http://127.0.0.1:11434"
 
 [engine.vllm]
-host = "http://localhost:8000"
+host = "http://127.0.0.1:8000"
 
 [engine.sglang]
-host = "http://localhost:30000"
+host = "http://127.0.0.1:30000"
 
 # [engine.llamacpp]
-# host = "http://localhost:8080"
+# host = "http://127.0.0.1:8080"
 # binary_path = ""
 
 [engine.mlx]
-host = "http://localhost:8080"
+host = "http://127.0.0.1:8080"
 
 # [engine.lmstudio]
-# host = "http://localhost:1234"
+# host = "http://127.0.0.1:1234"
 
 # [engine.exo]
-# host = "http://localhost:52415"
+# host = "http://127.0.0.1:52415"
 
 # [engine.nexa]
-# host = "http://localhost:18181"
+# host = "http://127.0.0.1:18181"
 # device = ""  # cpu, gpu, npu
 
 # [engine.uzu]
-# host = "http://localhost:8080"
+# host = "http://127.0.0.1:8080"
 
 # [engine.apple_fm]
-# host = "http://localhost:8079"
+# host = "http://127.0.0.1:8079"
 
 [intelligence]
 default_model = "{model}"{model_comment}
