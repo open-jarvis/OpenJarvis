@@ -163,7 +163,7 @@ export function SettingsPage() {
   });
 
   const [srcKind, setSrcKind] = useState<InferenceSource['kind']>('ollama');
-  const [customHost, setCustomHost] = useState('http://localhost:1234/v1');
+  const [customHost, setCustomHost] = useState('http://127.0.0.1:1234/v1');
   const [customModel, setCustomModel] = useState('');
   const [customEngine, setCustomEngine] = useState('lmstudio');
   const [customKey, setCustomKey] = useState('');
