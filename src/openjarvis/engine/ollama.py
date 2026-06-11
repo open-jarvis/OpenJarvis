@@ -395,7 +395,7 @@ class OllamaEngine(InferenceEngine):
 
     def health(self) -> bool:
         try:
-            resp = self._client.get("/api/tags", timeout=2.0)
+            resp = self._client.get("/api/tags", timeout=3.0)
             return resp.status_code == 200
         except Exception as exc:
             logger.debug("Ollama health check failed at %s: %s", self._host, exc)

@@ -247,7 +247,7 @@ class _OpenAICompatibleEngine(InferenceEngine):
 
     def health(self) -> bool:
         try:
-            resp = self._client.get(f"{self._api_prefix}/models", timeout=2.0)
+            resp = self._client.get(f"{self._api_prefix}/models", timeout=3.0)
             return resp.status_code == 200
         except Exception as exc:
             logger.debug(
