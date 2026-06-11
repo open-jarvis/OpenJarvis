@@ -45,14 +45,14 @@ def _detect_running_engines() -> list[str]:
     import httpx
 
     _PROBES: dict[str, str] = {
-        "ollama": "http://localhost:11434/api/tags",
-        "vllm": "http://localhost:8000/v1/models",
-        "sglang": "http://localhost:30000/v1/models",
-        "llamacpp": "http://localhost:8080/v1/models",
-        "mlx": "http://localhost:8080/v1/models",
-        "lmstudio": "http://localhost:1234/v1/models",
-        "exo": "http://localhost:52415/v1/models",
-        "nexa": "http://localhost:18181/v1/models",
+        "ollama": "http://127.0.0.1:11434/api/tags",
+        "vllm": "http://127.0.0.1:8000/v1/models",
+        "sglang": "http://127.0.0.1:30000/v1/models",
+        "llamacpp": "http://127.0.0.1:8080/v1/models",
+        "mlx": "http://127.0.0.1:8080/v1/models",
+        "lmstudio": "http://127.0.0.1:1234/v1/models",
+        "exo": "http://127.0.0.1:52415/v1/models",
+        "nexa": "http://127.0.0.1:18181/v1/models",
     }
     running: list[str] = []
     for key, url in _PROBES.items():
