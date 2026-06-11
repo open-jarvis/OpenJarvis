@@ -23,7 +23,7 @@ class TestLMStudioEngineBasics:
         assert LMStudioEngine.engine_id == "lmstudio"
 
     def test_default_host(self) -> None:
-        assert LMStudioEngine._default_host == "http://localhost:1234"
+        assert LMStudioEngine._default_host == "http://127.0.0.1:1234"
 
     def test_registry_registration(self) -> None:
         EngineRegistry.register_value("lmstudio", LMStudioEngine)

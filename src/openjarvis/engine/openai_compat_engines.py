@@ -4,16 +4,16 @@ from openjarvis.core.registry import EngineRegistry
 from openjarvis.engine._openai_compat import _OpenAICompatibleEngine
 
 _ENGINES = {
-    "vllm": ("VLLMEngine", "http://localhost:8000", "/v1"),
-    "sglang": ("SGLangEngine", "http://localhost:30000", "/v1"),
-    "llamacpp": ("LlamaCppEngine", "http://localhost:8080", "/v1"),
-    "mlx": ("MLXEngine", "http://localhost:8080", "/v1"),
-    "lmstudio": ("LMStudioEngine", "http://localhost:1234", "/v1"),
-    "exo": ("ExoEngine", "http://localhost:52415", "/v1"),
-    "nexa": ("NexaEngine", "http://localhost:18181", "/v1"),
-    "uzu": ("UzuEngine", "http://localhost:8000", ""),
-    "apple_fm": ("AppleFmEngine", "http://localhost:8079", "/v1"),
-    "lemonade": ("LemonadeEngine", "http://localhost:13305", "/v1"),
+    "vllm": ("VLLMEngine", "http://127.0.0.1:8000", "/v1"),
+    "sglang": ("SGLangEngine", "http://127.0.0.1:30000", "/v1"),
+    "llamacpp": ("LlamaCppEngine", "http://127.0.0.1:8080", "/v1"),
+    "mlx": ("MLXEngine", "http://127.0.0.1:8080", "/v1"),
+    "lmstudio": ("LMStudioEngine", "http://127.0.0.1:1234", "/v1"),
+    "exo": ("ExoEngine", "http://127.0.0.1:52415", "/v1"),
+    "nexa": ("NexaEngine", "http://127.0.0.1:18181", "/v1"),
+    "uzu": ("UzuEngine", "http://127.0.0.1:8000", ""),
+    "apple_fm": ("AppleFmEngine", "http://127.0.0.1:8079", "/v1"),
+    "lemonade": ("LemonadeEngine", "http://127.0.0.1:13305", "/v1"),
 }
 
 for _key, (_cls_name, _default_host, _api_prefix) in _ENGINES.items():

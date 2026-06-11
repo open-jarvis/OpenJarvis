@@ -201,7 +201,7 @@ class TestLlamaCppErrors:
     def test_default_host_is_8080(self) -> None:
         """LlamaCppEngine defaults to port 8080."""
         engine = LlamaCppEngine()
-        assert engine._host == "http://localhost:8080"
+        assert engine._host == "http://127.0.0.1:8080"
 
     def test_engine_id(self) -> None:
         engine = LlamaCppEngine()
