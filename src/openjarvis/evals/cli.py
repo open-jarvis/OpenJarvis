@@ -183,14 +183,28 @@ def _build_backend(
     max_turns: Optional[int] = None,
     base_url: Optional[str] = None,
     api_key: Optional[str] = None,
+    first_party_endpoint: bool = True,
 ):
     """Construct the appropriate backend.
 
-    For "hermes" and "openclaw" backends, ``base_url`` and ``api_key`` are
-    REQUIRED — these foreign frameworks need an OpenAI-compatible endpoint
-    to send model calls to. Pass them via the eval config's
-    ``[backend.external]`` section or env vars.
+    ``base_url``/``api_key`` point at the OpenAI-compatible endpoint serving
+    the model under eval:
+
+    - For "hermes" and "openclaw" they are REQUIRED — these foreign
+      frameworks always call out to an external endpoint.
+    - "jarvis-direct" and "jarvis-agent" honor them when
+      ``first_party_endpoint`` is True (the CLI ``--base-url`` path): the
+      eval targets exactly that endpoint — no engine-discovery fallback —
+      and fails fast if it is unreachable. Suite mode passes
+      ``first_party_endpoint=False`` so the suite TOML's
+      ``[backend.external]`` section stays scoped to hermes/openclaw
+      (extending it to first-party backends is explicitly deferred).
     """
+    if not first_party_endpoint:
+        fp_base_url = fp_api_key = None
+    else:
+        fp_base_url, fp_api_key = base_url, api_key
+
     if backend_name == "jarvis-agent":
         from openjarvis.evals.backends.jarvis_agent import JarvisAgentBackend
 
@@ -202,6 +216,8 @@ def _build_backend(
             gpu_metrics=gpu_metrics,
             model=model,
             max_turns=max_turns,
+            base_url=fp_base_url,
+            api_key=fp_api_key,
         )
     elif backend_name == "jarvis-direct":
         from openjarvis.evals.backends.jarvis_direct import JarvisDirectBackend
@@ -210,6 +226,8 @@ def _build_backend(
             engine_key=engine_key,
             telemetry=telemetry,
             gpu_metrics=gpu_metrics,
+            base_url=fp_base_url,
+            api_key=fp_api_key,
         )
     elif backend_name == "hermes":
         from openjarvis.evals.backends.external import HermesBackend
@@ -656,8 +674,20 @@ def _build_trackers(config) -> list:
     return trackers
 
 
-def _run_terminalbench_native(config, console: Console) -> object:
-    """Run TerminalBench V2.1 natively via terminal-bench Harness."""
+def _run_terminalbench_native(
+    config,
+    console: Console,
+    *,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
+) -> object:
+    """Run TerminalBench V2.1 natively via terminal-bench Harness.
+
+    ``base_url`` (from ``--base-url`` / JARVIS_BACKEND_BASE_URL) targets an
+    already-running OpenAI-compatible endpoint; when unset, the legacy local
+    vLLM default (http://localhost:8000/v1) is used.
+    """
+    from openjarvis.engine.openai_compat_engines import normalize_openai_base_url
     from openjarvis.evals.backends.terminalbench_native import (
         TerminalBenchNativeBackend,
     )
@@ -668,9 +698,16 @@ def _run_terminalbench_native(config, console: Console) -> object:
     litellm_model = f"openai/{model}"
     output_dir = getattr(config, "output_path", None) or "results/terminalbench-native/"
 
+    # Normalize to exactly one trailing "/v1" — LiteLLM's api_base wants the
+    # full OpenAI-compatible prefix, and users pass both forms of the URL.
+    if base_url:
+        api_base = normalize_openai_base_url(base_url) + "/v1"
+    else:
+        api_base = "http://localhost:8000/v1"
+
     backend = TerminalBenchNativeBackend(
         model=litellm_model,
-        api_base="http://localhost:8000/v1",
+        api_base=api_base,
         temperature=config.temperature,
         max_samples=config.max_samples,
         output_dir=output_dir,
@@ -683,9 +720,25 @@ def _run_terminalbench_native(config, console: Console) -> object:
     model_slug = re.sub(r"[^a-z0-9_-]", "-", model.lower().replace("/", "-"))
     run_id = f"tb21-{model_slug}"
     console.print(f"  Running TerminalBench V2.1 natively: {model}")
+    console.print(f"  API base: {api_base}")
     console.print(f"  Harness run_id: {run_id}")
 
-    results = backend.run_harness(run_id)
+    if api_key:
+        # terminus-2 routes model calls through LiteLLM with the "openai/"
+        # prefix, which reads OPENAI_API_KEY from the environment. The
+        # harness runs in-process, so set the var for the duration of the
+        # run and restore the previous value afterwards.
+        prev_key = os.environ.get("OPENAI_API_KEY")
+        os.environ["OPENAI_API_KEY"] = api_key
+        try:
+            results = backend.run_harness(run_id)
+        finally:
+            if prev_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = prev_key
+    else:
+        results = backend.run_harness(run_id)
 
     # Convert BenchmarkResults to RunSummary
     total = len(results.trial_results) if hasattr(results, "trial_results") else 0
@@ -711,18 +764,47 @@ def _run_terminalbench_native(config, console: Console) -> object:
     )
 
 
-def _run_single(config, console: Optional[Console] = None) -> object:
-    """Run a single eval from a RunConfig and return the summary."""
+def _run_single(
+    config,
+    console: Optional[Console] = None,
+    *,
+    suite_mode: bool = False,
+) -> object:
+    """Run a single eval from a RunConfig and return the summary.
+
+    ``suite_mode=True`` (TOML-suite drivers) scopes ``config.base_url`` /
+    ``config.api_key`` — stamped from the suite's ``[backend.external]``
+    section onto every RunConfig — to the hermes/openclaw backends only;
+    extending suite-level endpoint targeting to first-party backends is
+    explicitly deferred. The CLI single-run path (``suite_mode=False``)
+    honors ``--base-url``/``--api-key`` for every backend.
+    """
     from openjarvis.evals.core.runner import EvalRunner
 
     if console is None:
         console = Console()
 
+    _metadata = getattr(config, "metadata", None) or {}
+    base_url = (
+        getattr(config, "base_url", None)
+        or _metadata.get("base_url")
+        or os.environ.get("JARVIS_BACKEND_BASE_URL")
+    )
+    api_key = (
+        getattr(config, "api_key", None)
+        or _metadata.get("api_key")
+        or os.environ.get("JARVIS_BACKEND_API_KEY")
+    )
+
     # TerminalBench V2.1 native: use terminal-bench Harness directly
     if config.benchmark == "terminalbench-native":
-        return _run_terminalbench_native(config, console)
+        return _run_terminalbench_native(
+            config,
+            console,
+            base_url=None if suite_mode else base_url,
+            api_key=None if suite_mode else api_key,
+        )
 
-    _metadata = getattr(config, "metadata", None) or {}
     eval_backend = _build_backend(
         config.backend,
         config.engine_key,
@@ -732,16 +814,9 @@ def _run_single(config, console: Optional[Console] = None) -> object:
         gpu_metrics=getattr(config, "gpu_metrics", False),
         model=config.model,
         max_turns=getattr(config, "max_turns", None),
-        base_url=(
-            getattr(config, "base_url", None)
-            or _metadata.get("base_url")
-            or os.environ.get("JARVIS_BACKEND_BASE_URL")
-        ),
-        api_key=(
-            getattr(config, "api_key", None)
-            or _metadata.get("api_key")
-            or os.environ.get("JARVIS_BACKEND_API_KEY")
-        ),
+        base_url=base_url,
+        api_key=api_key,
+        first_party_endpoint=not suite_mode,
     )
     dataset = _build_dataset(config.benchmark)
     # Inject engine config for benchmarks that run their own simulation
@@ -1070,7 +1145,7 @@ def _run_from_config(
             f"Run {i}/{len(run_configs)}: {rc.benchmark} / {rc.model}",
         )
         try:
-            summary = _run_single(rc, console=console)
+            summary = _run_single(rc, console=console, suite_mode=True)
             summaries.append(summary)
             console.print(
                 f"  [green]{summary.accuracy:.4f}[/green] "
@@ -1115,12 +1190,21 @@ def main():
 @click.option(
     "--base-url",
     default=None,
-    help="OpenAI-compat endpoint for hermes/openclaw",
+    help=(
+        "OpenAI-compatible endpoint for the model under eval. Required for "
+        "hermes/openclaw; for jarvis-direct/jarvis-agent/terminalbench-native "
+        "it bypasses engine discovery and targets this URL directly "
+        "(env: JARVIS_BACKEND_BASE_URL)."
+    ),
 )
 @click.option(
     "--api-key",
     default=None,
-    help="API key for hermes/openclaw endpoint",
+    help=(
+        "API key for the --base-url endpoint, sent as a Bearer token. "
+        "Required for hermes/openclaw; optional for first-party backends "
+        "(env: JARVIS_BACKEND_API_KEY)."
+    ),
 )
 @click.option("-m", "--model", default=None, help="Model identifier")
 @click.option(
@@ -1526,8 +1610,7 @@ def summarize(jsonl_path):
     default=None,
     type=click.Path(),
     help=(
-        "Output JSONL path. Defaults to <jsonl>.reparsed when "
-        "--in-place is not set."
+        "Output JSONL path. Defaults to <jsonl>.reparsed when --in-place is not set."
     ),
 )
 @click.option(
@@ -1642,9 +1725,7 @@ def reparse_judge(jsonl_path, out_path, in_place, summary_out):
         _json.dump(summary, f, indent=2)
 
     old_cont = [float(s) for s in old_scores if s is not None]
-    old_acc = (
-        sum(1 for s in old_cont if s >= 0.5) / len(old_cont) if old_cont else 0.0
-    )
+    old_acc = sum(1 for s in old_cont if s >= 0.5) / len(old_cont) if old_cont else 0.0
     old_mean = sum(old_cont) / len(old_cont) if old_cont else 0.0
     new_mean = sum(cont) / len(cont) if cont else 0.0
     mean_shift = new_mean - old_mean

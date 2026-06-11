@@ -24,6 +24,8 @@ class JarvisDirectBackend(InferenceBackend):
         engine_key: Optional[str] = None,
         telemetry: bool = False,
         gpu_metrics: bool = False,
+        base_url: Optional[str] = None,
+        api_key: Optional[str] = None,
     ) -> None:
         from openjarvis.system import SystemBuilder
 
@@ -31,7 +33,17 @@ class JarvisDirectBackend(InferenceBackend):
         self._gpu_metrics = gpu_metrics
 
         builder = SystemBuilder()
-        if engine_key:
+        if base_url:
+            # Explicit endpoint targeting (--base-url): pin the eval to
+            # exactly this OpenAI-compatible endpoint. Fails fast if it is
+            # unreachable; never falls back to a discovered engine.
+            from openjarvis.evals.backends._endpoint_util import (
+                build_endpoint_engine,
+            )
+
+            engine = build_endpoint_engine(base_url, api_key, engine_key)
+            builder.engine_instance(engine, key=engine_key or "openai-compat")
+        elif engine_key:
             builder.engine(engine_key)
         # Propagate gpu_metrics to the runtime config so SystemBuilder
         # creates an EnergyMonitor / GpuMonitor for the InstrumentedEngine.
