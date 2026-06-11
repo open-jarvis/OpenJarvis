@@ -34,15 +34,15 @@ class TestDefaults:
         ec = EngineConfig()
         # Nested configs
         assert ec.ollama.host == ""
-        assert ec.vllm.host == "http://localhost:8000"
-        assert ec.sglang.host == "http://localhost:30000"
-        assert ec.llamacpp.host == "http://localhost:8080"
-        assert ec.lemonade.host == "http://localhost:13305"
+        assert ec.vllm.host == "http://127.0.0.1:8000"
+        assert ec.sglang.host == "http://127.0.0.1:30000"
+        assert ec.llamacpp.host == "http://127.0.0.1:8080"
+        assert ec.lemonade.host == "http://127.0.0.1:13305"
         assert ec.llamacpp.binary_path == ""
         # Backward-compat properties still work
         assert ec.ollama_host == ""
-        assert ec.vllm_host == "http://localhost:8000"
-        assert ec.lemonade_host == "http://localhost:13305"
+        assert ec.vllm_host == "http://127.0.0.1:8000"
+        assert ec.lemonade_host == "http://127.0.0.1:13305"
 
 
 class TestRecommendEngine:
@@ -242,10 +242,10 @@ class TestNestedEngineConfig:
     def test_nested_access(self) -> None:
         ec = EngineConfig()
         assert ec.ollama.host == ""
-        assert ec.vllm.host == "http://localhost:8000"
-        assert ec.sglang.host == "http://localhost:30000"
-        assert ec.llamacpp.host == "http://localhost:8080"
-        assert ec.lemonade.host == "http://localhost:13305"
+        assert ec.vllm.host == "http://127.0.0.1:8000"
+        assert ec.sglang.host == "http://127.0.0.1:30000"
+        assert ec.llamacpp.host == "http://127.0.0.1:8080"
+        assert ec.lemonade.host == "http://127.0.0.1:13305"
         assert ec.llamacpp.binary_path == ""
 
     def test_backward_compat_setter(self) -> None:
