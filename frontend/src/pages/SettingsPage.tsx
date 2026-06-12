@@ -25,7 +25,7 @@ import { isAutoUpdateDisabled, setAutoUpdateDisabled } from '../components/Deskt
 function OllamaModelList() {
   const [models, setModels] = useState<Array<{ name: string; size: number }>>([]);
   useEffect(() => {
-    fetch('http://localhost:11434/api/tags')
+    fetch('http://127.0.0.1:11434/api/tags')
       .then(r => r.json())
       .then(data => setModels((data.models || []).map((m: any) => ({ name: m.name, size: m.size }))))
       .catch(() => setModels([]));
