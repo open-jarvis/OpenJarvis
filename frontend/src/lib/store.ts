@@ -80,6 +80,8 @@ interface Settings {
   temperature: number;
   maxTokens: number;
   speechEnabled: boolean;
+  voiceReplyEnabled: boolean;
+  autoSendAfterDictation: boolean;
 }
 
 function loadSettings(): Settings {
@@ -92,7 +94,9 @@ function loadSettings(): Settings {
     defaultAgent: '',
     temperature: 0.7,
     maxTokens: 4096,
-    speechEnabled: false,
+    speechEnabled: true,
+    voiceReplyEnabled: true,
+    autoSendAfterDictation: true,
   };
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);

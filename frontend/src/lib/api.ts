@@ -323,11 +323,22 @@ export async function transcribeAudio(audioBlob: Blob, filename = 'recording.web
   }
   const formData = new FormData();
   formData.append('file', audioBlob, filename);
+  formData.append('language', 'en');
   const res = await apiFetch(`/v1/speech/transcribe`, {
     method: 'POST',
     body: formData,
   });
-  if (!res.ok) throw new Error(`Transcription failed: ${res.status}`);
+  if (!res.ok) {
+    let detail = `Transcription failed (${res.status})`;
+    try {
+      const err = await res.json();
+      if (typeof err.detail === 'string') detail = err.detail;
+      else if (err.detail) detail = JSON.stringify(err.detail);
+    } catch {
+      // ignore non-JSON body
+    }
+    throw new Error(detail);
+  }
   return res.json();
 }
 
@@ -342,6 +353,37 @@ export async function fetchSpeechHealth(): Promise<SpeechHealth> {
   const res = await apiFetch(`/v1/speech/health`);
   if (!res.ok) return { available: false };
   return res.json();
+}
+
+export interface TtsHealth {
+  available: boolean;
+  backend?: string;
+  reason?: string;
+}
+
+export async function fetchTtsHealth(): Promise<TtsHealth> {
+  const res = await apiFetch(`/v1/speech/tts/health`);
+  if (!res.ok) return { available: false };
+  return res.json();
+}
+
+export async function synthesizeSpeech(text: string): Promise<Blob> {
+  const res = await synthesizeSpeechResponse(text);
+  return res.blob();
+}
+
+/**
+ * Low-level TTS call returning the raw streaming Response so callers can play
+ * audio incrementally (via MediaSource) instead of waiting for the full clip.
+ */
+export async function synthesizeSpeechResponse(text: string): Promise<Response> {
+  const res = await apiFetch(`/v1/speech/synthesize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  if (!res.ok) throw new Error(`TTS failed: ${res.status}`);
+  return res;
 }
 
 // ---------------------------------------------------------------------------

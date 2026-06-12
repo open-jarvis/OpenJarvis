@@ -7,6 +7,7 @@ from typing import Any, List, Optional
 
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
+from openjarvis.tools._file_sandbox import resolve_allowed_dirs
 from openjarvis.tools._stubs import BaseTool, ToolSpec
 
 # Maximum file size to read (1 MB)
@@ -23,7 +24,10 @@ class FileReadTool(BaseTool):
         self,
         allowed_dirs: Optional[List[str]] = None,
     ) -> None:
-        self._allowed_dirs = [Path(d).resolve() for d in (allowed_dirs or [])]
+        # ``allowed_dirs`` may be None when the executor builds the tool with no
+        # args; in that case the sandbox is resolved from env/config so a
+        # configured allow-list actually takes effect.
+        self._allowed_dirs = resolve_allowed_dirs(allowed_dirs)
 
     @property
     def spec(self) -> ToolSpec:

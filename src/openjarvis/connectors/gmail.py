@@ -155,6 +155,59 @@ def _gmail_api_get_message(token: str, msg_id: str) -> Dict[str, Any]:
     return resp.json()
 
 
+def _gmail_api_send_message(token: str, raw: str) -> Dict[str, Any]:
+    """Send a pre-encoded RFC 2822 message via ``messages.send``.
+
+    Parameters
+    ----------
+    token:
+        OAuth access token (the ``gmail.modify`` scope authorizes send).
+    raw:
+        URL-safe base64-encoded RFC 2822 message string.
+
+    Returns
+    -------
+    dict
+        Raw API response (contains the new message ``id`` and ``threadId``).
+    """
+    resp = httpx.post(
+        f"{_GMAIL_API_BASE}/messages/send",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"raw": raw},
+        timeout=30.0,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _build_raw_message(
+    *,
+    to: List[str],
+    subject: str,
+    body: str,
+    cc: Optional[List[str]] = None,
+    bcc: Optional[List[str]] = None,
+    html: bool = False,
+) -> str:
+    """Build a URL-safe base64 RFC 2822 message for the Gmail send endpoint."""
+    from email.message import EmailMessage
+
+    msg = EmailMessage()
+    msg["To"] = ", ".join(to)
+    if cc:
+        msg["Cc"] = ", ".join(cc)
+    if bcc:
+        msg["Bcc"] = ", ".join(bcc)
+    msg["Subject"] = subject
+    if html:
+        # Provide a minimal plain-text fallback alongside the HTML part.
+        msg.set_content("This message requires an HTML-capable email client.")
+        msg.add_alternative(body, subtype="html")
+    else:
+        msg.set_content(body)
+    return base64.urlsafe_b64encode(msg.as_bytes()).decode("ascii")
+
+
 # ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
@@ -571,6 +624,33 @@ class GmailConnector(BaseConnector):
         self._call_with_refresh(
             _gmail_api_modify_message, msg_id, remove_labels=["INBOX"]
         )
+
+    def send_message(
+        self,
+        *,
+        to: List[str],
+        subject: str,
+        body: str,
+        cc: Optional[List[str]] = None,
+        bcc: Optional[List[str]] = None,
+        html: bool = False,
+    ) -> str:
+        """Send an email. Returns the new message ID.
+
+        Authentication uses the same OAuth credentials as sync; the
+        ``gmail.modify`` scope (part of ``GOOGLE_ALL_SCOPES``) authorizes
+        sending, so no extra consent is required for already-connected users.
+        """
+        raw = _build_raw_message(
+            to=to,
+            subject=subject,
+            body=body,
+            cc=cc,
+            bcc=bcc,
+            html=html,
+        )
+        resp = self._call_with_refresh(_gmail_api_send_message, raw)
+        return resp.get("id", "")
 
     def sync_status(self) -> SyncStatus:
         """Return sync progress from the most recent :meth:`sync` call."""

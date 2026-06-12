@@ -7,6 +7,7 @@ import { fetchSavings, getBase } from '../../lib/api';
 import { listConnectors, getSyncStatus } from '../../lib/connectors-api';
 import { MicButton } from './MicButton';
 import { useSpeech } from '../../hooks/useSpeech';
+import { useVoiceReply } from '../../hooks/useVoiceReply';
 import type {
   ChatMessage,
   MessageTelemetry,
@@ -85,6 +86,8 @@ export function InputArea() {
   const streamState = useAppStore((s) => s.streamState);
   const messages = useAppStore((s) => s.messages);
   const speechEnabled = useAppStore((s) => s.settings.speechEnabled);
+  const voiceReplyEnabled = useAppStore((s) => s.settings.voiceReplyEnabled);
+  const autoSendAfterDictation = useAppStore((s) => s.settings.autoSendAfterDictation);
   const maxTokens = useAppStore((s) => s.settings.maxTokens);
   const temperature = useAppStore((s) => s.settings.temperature);
   const createConversation = useAppStore((s) => s.createConversation);
@@ -97,7 +100,15 @@ export function InputArea() {
   const setDeepResearch = useAppStore((s) => s.setDeepResearch);
   const corpusSync = useResearchCorpusSync(deepResearch);
 
-  const { state: speechState, available: speechAvailable, startRecording, stopRecording } = useSpeech();
+  const {
+    state: speechState,
+    error: speechError,
+    available: speechAvailable,
+    startRecording,
+    stopRecording,
+  } = useSpeech();
+  const { speak } = useVoiceReply();
+  const sendMessageRef = useRef<((overrideContent?: string) => Promise<void>) | null>(null);
 
   // Abort in-flight stream when the user switches models mid-generation.
   // This prevents errors from trying to continue a stream with a stale model.
@@ -122,20 +133,24 @@ export function InputArea() {
     : streamState.isStreaming ? 'streaming'
     : undefined;
 
+  useEffect(() => {
+    if (speechError) toast.error(speechError);
+  }, [speechError]);
+
   const handleMicClick = useCallback(async () => {
     if (speechState === 'recording') {
-      try {
-        const text = await stopRecording();
-        if (text) {
+      const text = await stopRecording();
+      if (text) {
+        if (autoSendAfterDictation) {
+          void sendMessageRef.current?.(text);
+        } else {
           setInput((prev) => (prev ? prev + ' ' + text : text));
         }
-      } catch {
-        // Error is captured in useSpeech
       }
     } else {
       await startRecording();
     }
-  }, [speechState, startRecording, stopRecording]);
+  }, [speechState, startRecording, stopRecording, autoSendAfterDictation]);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -153,8 +168,8 @@ export function InputArea() {
     resetStream();
   }, [resetStream]);
 
-  const sendMessage = useCallback(async () => {
-    const content = input.trim();
+  const sendMessage = useCallback(async (overrideContent?: string) => {
+    const content = (overrideContent ?? input).trim();
     if (!content || streamState.isStreaming) return;
     if (!selectedModel) {
       toast.error('Pick a model first (⌘K)');
@@ -498,6 +513,10 @@ export function InputArea() {
       });
       abortRef.current = null;
 
+      if (voiceReplyEnabled && accumulatedContent.trim()) {
+        void speak(accumulatedContent);
+      }
+
       // Research path updates session counters optimistically from the
       // `done` event's usage payload — re-fetching here would overwrite
       // it with a potentially stale snapshot if the server's research
@@ -521,7 +540,13 @@ export function InputArea() {
     deepResearch,
     temperature,
     maxTokens,
+    voiceReplyEnabled,
+    speak,
   ]);
+
+  useEffect(() => {
+    sendMessageRef.current = sendMessage;
+  }, [sendMessage]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -601,7 +626,7 @@ export function InputArea() {
               reason={micReason}
             />
             <button
-              onClick={sendMessage}
+              onClick={() => void sendMessage()}
               disabled={!input.trim() || modelLoading || !selectedModel}
               title={selectedModel ? 'Send message' : 'Pick a model first (⌘K)'}
               className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer disabled:opacity-30 disabled:cursor-default"

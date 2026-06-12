@@ -93,3 +93,25 @@ class TestFileReadTool:
         tool = FileReadTool()
         result = tool.execute(path=str(f))
         assert result.success is True
+
+    def test_no_restriction_by_default(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("OPENJARVIS_WORKSPACE", raising=False)
+        f = tmp_path / "anywhere.txt"
+        f.write_text("data", encoding="utf-8")
+        tool = FileReadTool()
+        result = tool.execute(path=str(f))
+        assert result.success is True
+
+    def test_workspace_env_restricts_reads(self, tmp_path, monkeypatch):
+        inside = tmp_path / "ws"
+        inside.mkdir()
+        f_in = inside / "ok.txt"
+        f_in.write_text("ok", encoding="utf-8")
+        f_out = tmp_path / "outside.txt"
+        f_out.write_text("no", encoding="utf-8")
+        monkeypatch.setenv("OPENJARVIS_WORKSPACE", str(inside))
+        tool = FileReadTool()
+        assert tool.execute(path=str(f_in)).success is True
+        blocked = tool.execute(path=str(f_out))
+        assert blocked.success is False
+        assert "Access denied" in blocked.content

@@ -104,3 +104,52 @@ def test_openai_tts_synthesize():
 
     assert result.audio == b"fake-openai-audio"
     assert result.voice_id == "nova"
+
+
+# ---------------------------------------------------------------------------
+# Streaming infrastructure tests
+# ---------------------------------------------------------------------------
+
+
+class _StubTTS:
+    """Minimal TTS backend exercising the base ``synthesize_stream`` default."""
+
+    backend_id = "stub"
+
+    def synthesize(self, text, *, voice_id="", speed=1.0, output_format="mp3"):
+        return TTSResult(audio=b"full-clip", format="mp3", voice_id=voice_id)
+
+    def available_voices(self):
+        return []
+
+    def health(self):
+        return True
+
+
+def test_base_synthesize_stream_yields_full_audio():
+    from openjarvis.speech.tts import TTSBackend
+
+    # Borrow the unbound base method so a stub that only implements
+    # synthesize() still streams its full clip as a single chunk.
+    chunks = list(TTSBackend.synthesize_stream(_StubTTS(), "hello"))
+    assert b"".join(chunks) == b"full-clip"
+
+
+def test_base_synthesize_stream_skips_empty_audio():
+    from openjarvis.speech.tts import TTSBackend, TTSResult as _R
+
+    class _Empty(_StubTTS):
+        def synthesize(self, text, *, voice_id="", speed=1.0, output_format="mp3"):
+            return _R(audio=b"", format="mp3")
+
+    chunks = list(TTSBackend.synthesize_stream(_Empty(), "hello"))
+    assert chunks == []
+
+
+def test_edge_tts_overrides_synthesize_stream():
+    from openjarvis.speech.edge_tts import EdgeTTSBackend
+    from openjarvis.speech.tts import TTSBackend
+
+    # edge_tts produces audio incrementally, so it must not use the buffered
+    # base implementation.
+    assert EdgeTTSBackend.synthesize_stream is not TTSBackend.synthesize_stream

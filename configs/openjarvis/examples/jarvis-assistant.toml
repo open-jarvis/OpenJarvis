@@ -1,0 +1,67 @@
+# Jarvis Assistant — local Ollama with tools, memory, and voice
+# Copy to ~/.openjarvis/config.toml
+#
+# Usage:
+#   jarvis serve                 # start API + desktop UI
+#   jarvis ask "What's in my documents about project X?"
+#
+# Voice (in UI Settings):
+#   - Enable Speech-to-Text for microphone input
+#   - Enable Voice replies for spoken assistant responses
+#   - Enable Auto-send after dictation for hands-free turns
+#
+# Install speech support:
+#   uv sync --extra speech --extra speech-tts --extra server
+# Windows/macOS: ffmpeg must be on PATH for browser audio (winget install Gyan.FFmpeg)
+
+[engine]
+default = "ollama"
+
+[intelligence]
+default_model = "gemma4:latest"
+preferred_engine = "ollama"
+temperature = 0.7
+max_tokens = 4096
+
+[agent]
+default_agent = "orchestrator"
+max_turns = 10
+tools = "web_search,file_read,file_write,pdf_extract,memory_search,memory_store,memory_manage,think"
+context_from_memory = true
+
+[tools]
+# File sandbox + write safety (both OFF by default).
+#   - file_allowed_dirs: restrict file_read/file_write to these roots. Empty =
+#     unrestricted (sensitive system files are always blocked regardless).
+#     Also settable per-shell via OPENJARVIS_WORKSPACE (os.pathsep-separated).
+#   - file_write_confirm: gate every file_write behind interactive confirmation.
+#     Leave OFF if you rely on autonomous operators (morning_brief, daily_digest,
+#     news_briefing) that write files unattended — confirmation has no callback
+#     in non-interactive runs and would block them. Turn ON for interactive-only
+#     use, or per-shell via OPENJARVIS_CONFIRM_FILE_WRITE=1.
+# file_allowed_dirs = ["~/Documents", "~/.openjarvis/workspace"]
+# file_write_confirm = true
+
+[tools.storage]
+default_backend = "sqlite"
+db_path = "~/.openjarvis/memory.db"
+
+# Phase 4 connectors (optional):
+#   jarvis connect gdrive   # Gmail + Google Calendar OAuth
+# Add digest_collect or knowledge_search to agent tools when connectors are linked.
+#
+# Construction quotes/contracts render as print-ready HTML out of the box.
+# For native PDF output: uv sync --extra construction (adds reportlab).
+
+[speech]
+backend = "auto"
+model = "base"
+device = "auto"
+compute_type = "int8"
+tts_backend = "auto"
+tts_speed = 1.0
+
+[server]
+host = "0.0.0.0"
+port = 8000
+agent = "orchestrator"

@@ -774,3 +774,41 @@ def test_sync_recovers_when_list_returns_401(tmp_path: Path) -> None:
     # Creds file persisted the new token.
     on_disk = json.loads(Path(creds_path).read_text(encoding="utf-8"))
     assert on_disk["access_token"] == "fresh-token-after-401"
+
+
+# ---------------------------------------------------------------------------
+# send_message
+# ---------------------------------------------------------------------------
+
+
+def test_build_raw_message_round_trips():
+    from openjarvis.connectors.gmail import _build_raw_message
+
+    raw = _build_raw_message(
+        to=["alice@example.com", "bob@example.com"],
+        subject="Hi there",
+        body="Body line one.",
+        cc=["carol@example.com"],
+    )
+    decoded = base64.urlsafe_b64decode(raw.encode("ascii")).decode("utf-8")
+    assert "To: alice@example.com, bob@example.com" in decoded
+    assert "Cc: carol@example.com" in decoded
+    assert "Subject: Hi there" in decoded
+    assert "Body line one." in decoded
+
+
+@patch("openjarvis.connectors.gmail._gmail_api_send_message")
+def test_send_message_returns_id(mock_send, connector, tmp_path: Path) -> None:
+    creds_path = Path(connector._credentials_path)
+    creds_path.write_text(json.dumps({"token": "fake-token"}), encoding="utf-8")
+    mock_send.return_value = {"id": "sent123", "threadId": "t1"}
+
+    msg_id = connector.send_message(
+        to=["alice@example.com"], subject="Hi", body="Hello"
+    )
+
+    assert msg_id == "sent123"
+    # send goes through the refresh wrapper: (token, raw)
+    args = mock_send.call_args.args
+    assert args[0] == "fake-token"
+    assert isinstance(args[1], str) and args[1]
