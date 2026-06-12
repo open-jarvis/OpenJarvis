@@ -1903,6 +1903,17 @@ fn inference_config_path() -> std::path::PathBuf {
         .join("inference.json")
 }
 
+/// True if `path` does not exist — pure wrapper so the first-run check is
+/// testable without touching the real `~/.openjarvis` directory.
+fn config_missing_at(path: &std::path::Path) -> bool {
+    !path.exists()
+}
+
+/// True on first run: `inference.json` has never been written.
+fn config_missing() -> bool {
+    config_missing_at(&inference_config_path())
+}
+
 /// Parse config text. Any error (missing/garbage) yields the Ollama default —
 /// a broken file must never strand the user with no working inference source.
 fn parse_inference_config(text: &str) -> InferenceConfig {
@@ -2510,9 +2521,9 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        boot_plan, default_local_model, format_uv_sync_failure, format_uv_sync_spawn_error,
-        normalize_host, parse_inference_config, upsert_engine_host, uv_sync_stderr_tail,
-        InferenceConfig, SourceKind,
+        boot_plan, config_missing_at, default_local_model, format_uv_sync_failure,
+        format_uv_sync_spawn_error, normalize_host, parse_inference_config, upsert_engine_host,
+        uv_sync_stderr_tail, InferenceConfig, SourceKind,
     };
     use std::path::Path;
 
@@ -2609,6 +2620,20 @@ mod tests {
         assert_eq!(cfg.model.as_deref(), Some("qwen2.5-7b"));
         assert_eq!(cfg.host.as_deref(), Some("http://localhost:1234"));
         assert_eq!(cfg.engine.as_deref(), Some("lmstudio"));
+    }
+
+    #[test]
+    fn config_missing_at_reports_existence() {
+        let dir = std::env::temp_dir().join(format!("ojs-onboarding-test-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let missing = dir.join("does-not-exist.json");
+        let present = dir.join("present.json");
+        std::fs::write(&present, "{}").unwrap();
+
+        assert!(config_missing_at(&missing));
+        assert!(!config_missing_at(&present));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
