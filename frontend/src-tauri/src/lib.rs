@@ -2552,8 +2552,18 @@ pub fn run() {
                 }
             }
 
-            // Auto-start backend services on launch
-            tauri::async_runtime::spawn(boot_backend(boot_backend_ref, boot_status_ref));
+            // Auto-start backend services on launch — unless this is a
+            // first run with no inference.json yet. In that case
+            // OnboardingScreen probes for a running engine and calls
+            // `start_backend` once the user picks a source (see
+            // probe_local_engines / start_backend).
+            if config_missing() {
+                if let Ok(mut s) = boot_status_ref.try_lock() {
+                    s.phase = "onboarding".into();
+                }
+            } else {
+                tauri::async_runtime::spawn(boot_backend(boot_backend_ref, boot_status_ref));
+            }
 
             Ok(())
         })
