@@ -40,12 +40,14 @@ export function InferenceSourceForm({
   onSubmit,
   submitLabel,
   message,
+  disabled,
 }: {
   value: InferenceSourceFormValue;
   onChange: (next: InferenceSourceFormValue) => void;
   onSubmit: () => void;
   submitLabel: string;
   message?: string;
+  disabled?: boolean;
 }) {
   const set = <K extends keyof InferenceSourceFormValue>(
     key: K,
@@ -128,7 +130,8 @@ export function InferenceSourceForm({
         )}
         <button
           onClick={onSubmit}
-          className="text-sm px-3 py-1.5 rounded-lg outline-none cursor-pointer ml-auto"
+          disabled={disabled}
+          className="text-sm px-3 py-1.5 rounded-lg outline-none cursor-pointer ml-auto disabled:opacity-50 disabled:cursor-default"
           style={{
             background: 'var(--color-accent, var(--color-bg-tertiary))',
             color: 'var(--color-text)',

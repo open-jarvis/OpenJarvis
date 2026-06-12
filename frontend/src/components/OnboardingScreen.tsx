@@ -185,8 +185,9 @@ export function OnboardingScreen() {
             value={formValue}
             onChange={setFormValue}
             onSubmit={submitForm}
-            submitLabel="Get started"
+            submitLabel={busy ? 'Connecting...' : 'Get started'}
             message={error}
+            disabled={busy}
           />
         )}
 
