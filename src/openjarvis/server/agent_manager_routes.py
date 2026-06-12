@@ -116,8 +116,7 @@ def _make_lightweight_system(
     The server's ``app.state.engine`` is heavily wrapped
     (MultiEngine -> InstrumentedEngine -> GuardrailsEngine) and can
     return empty content from background threads. Create a fresh
-    engine directly (no health checks or model discovery that
-    could interfere with in-flight requests).
+    engine directly (resolving the configured or default engine).
     """
     try:
         from openjarvis.engine._discovery import get_engine
@@ -130,6 +129,7 @@ def _make_lightweight_system(
 
         pref = cfg.intelligence.preferred_engine
         key = pref or cfg.engine.default
+        key = key or None
         resolved = get_engine(cfg, key)
 
         if resolved is not None:

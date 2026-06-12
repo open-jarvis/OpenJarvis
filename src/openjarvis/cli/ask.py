@@ -715,6 +715,7 @@ def ask(
 
     pref = config.intelligence.preferred_engine
     effective_engine_key = engine_key or pref or config.engine.default
+    effective_engine_key = effective_engine_key or None
     # Pass the model we intend to run so engine selection can skip an engine
     # that can't actually serve it (e.g. the cloud fallback when the local
     # engine is down but only a non-OpenAI key is set — see #532). This is the
