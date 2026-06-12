@@ -170,13 +170,17 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
       }
       await startBackend();
       handedOffRef.current = false;
+      // Refresh status immediately so the reset SetupStatus (cleared
+      // server-side by start_backend) lands before the next 800ms poll
+      // tick — otherwise the stale error briefly reappears.
+      await poll();
       setReconfiguring(false);
     } catch (e: any) {
       setReconfigMsg(e?.message ?? 'Failed to save.');
     } finally {
       setReconfigBusy(false);
     }
-  }, [reconfigValue]);
+  }, [reconfigValue, poll]);
 
   if (status?.phase === 'onboarding') {
     return <OnboardingScreen />;
