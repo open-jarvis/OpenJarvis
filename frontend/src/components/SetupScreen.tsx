@@ -2,11 +2,20 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Loader2, CheckCircle2, XCircle, Cpu, Server, Database } from 'lucide-react';
 import {
   getSetupStatus,
+  getInferenceSource,
+  setInferenceSource,
+  startBackend,
   fetchModels,
   fetchRecommendedModel,
   type SetupStatus,
 } from '../lib/api';
 import { useAppStore } from '../lib/store';
+import { OnboardingScreen } from './OnboardingScreen';
+import {
+  InferenceSourceForm,
+  DEFAULT_CUSTOM_FORM_VALUE,
+  type InferenceSourceFormValue,
+} from './InferenceSourceForm';
 
 const STEPS = [
   { key: 'ollama_ready', label: 'Inference Engine', icon: Cpu, detail: 'Starting Ollama...' },
@@ -122,6 +131,57 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
           ? 'server_ready'
           : null;
 
+  const [reconfiguring, setReconfiguring] = useState(false);
+  const [reconfigValue, setReconfigValue] = useState<InferenceSourceFormValue>(DEFAULT_CUSTOM_FORM_VALUE);
+  const [reconfigMsg, setReconfigMsg] = useState('');
+  const [reconfigBusy, setReconfigBusy] = useState(false);
+
+  const openReconfigure = useCallback(async () => {
+    try {
+      const s = await getInferenceSource();
+      setReconfigValue((prev) => ({
+        kind: s.kind,
+        host: s.host ?? prev.host,
+        model: s.model ?? prev.model,
+        engine: s.engine ?? prev.engine,
+        apiKey: '',
+      }));
+    } catch {
+      // Keep the default form value if reading the current config fails.
+    }
+    setReconfigMsg('');
+    setReconfiguring(true);
+  }, []);
+
+  const submitReconfigure = useCallback(async () => {
+    setReconfigBusy(true);
+    setReconfigMsg('');
+    try {
+      if (reconfigValue.kind === 'custom') {
+        await setInferenceSource({
+          kind: 'custom',
+          host: reconfigValue.host,
+          model: reconfigValue.model,
+          engine: reconfigValue.engine,
+          apiKey: reconfigValue.apiKey || undefined,
+        });
+      } else {
+        await setInferenceSource({ kind: 'ollama' });
+      }
+      await startBackend();
+      handedOffRef.current = false;
+      setReconfiguring(false);
+    } catch (e: any) {
+      setReconfigMsg(e?.message ?? 'Failed to save.');
+    } finally {
+      setReconfigBusy(false);
+    }
+  }, [reconfigValue]);
+
+  if (status?.phase === 'onboarding') {
+    return <OnboardingScreen />;
+  }
+
   return (
     <div
       className="fixed inset-0 flex items-center justify-center"
@@ -170,7 +230,7 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
         </div>
 
         {/* Error */}
-        {status?.error && (
+        {status?.error && !reconfiguring && (
           <div
             className="flex items-start gap-3 px-4 py-3 rounded-xl text-sm"
             style={{
@@ -180,7 +240,32 @@ export function SetupScreen({ onReady }: { onReady: () => void }) {
             }}
           >
             <XCircle size={16} className="shrink-0 mt-0.5" />
-            <span style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{status.error}</span>
+            <div className="flex-1">
+              <span style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{status.error}</span>
+              <div className="mt-2">
+                <button
+                  onClick={openReconfigure}
+                  className="text-xs px-2 py-1 rounded-md outline-none cursor-pointer"
+                  style={{ background: 'transparent', color: 'var(--color-error)', border: '1px solid currentColor' }}
+                >
+                  Reconfigure
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Reconfigure form */}
+        {reconfiguring && (
+          <div className="px-4 py-3 rounded-xl" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+            <InferenceSourceForm
+              value={reconfigValue}
+              onChange={(next) => { setReconfigValue(next); setReconfigMsg(''); }}
+              onSubmit={submitReconfigure}
+              submitLabel={reconfigBusy ? 'Saving...' : 'Save & retry'}
+              message={reconfigMsg}
+              disabled={reconfigBusy}
+            />
           </div>
         )}
 
