@@ -479,6 +479,92 @@ async fn endpoint_reachable(host: &str, timeout: Duration) -> bool {
     false
 }
 
+/// Result of probing a local inference server for first-run onboarding.
+#[derive(serde::Serialize, Clone)]
+struct ProbeResult {
+    /// "ollama" | "lmstudio" — matches the frontend's `ProbeResult['engine']`.
+    engine: String,
+    label: String,
+    host: String,
+    found: bool,
+    model: Option<String>,
+}
+
+/// Given an LM Studio `/v1/models` response body, decide whether it counts
+/// as "found" (server up AND at least one model loaded) and which model id
+/// to suggest. Split out from `probe_lmstudio` so this decision is testable
+/// without real network I/O. A server that's up but has no model loaded is
+/// treated as not-found, since `jarvis serve --engine lmstudio --model ""`
+/// would fail.
+fn lmstudio_probe_result(body: &serde_json::Value) -> (bool, Option<String>) {
+    let model = body
+        .get("data")
+        .and_then(|d| d.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|m| m.get("id"))
+        .and_then(|id| id.as_str())
+        .map(|s| s.to_string());
+    (model.is_some(), model)
+}
+
+async fn probe_ollama() -> ProbeResult {
+    let host = "http://127.0.0.1:11434";
+    let found = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(1))
+        .build()
+    {
+        Ok(client) => client
+            .get(format!("{host}/api/tags"))
+            .send()
+            .await
+            .map(|r| r.status().is_success())
+            .unwrap_or(false),
+        Err(_) => false,
+    };
+    ProbeResult {
+        engine: "ollama".into(),
+        label: "Ollama".into(),
+        host: host.into(),
+        found,
+        model: None,
+    }
+}
+
+async fn probe_lmstudio() -> ProbeResult {
+    let host = "http://127.0.0.1:1234";
+    let (found, model) = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(1))
+        .build()
+    {
+        Ok(client) => match client.get(format!("{host}/v1/models")).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                match resp.json::<serde_json::Value>().await {
+                    Ok(body) => lmstudio_probe_result(&body),
+                    Err(_) => (false, None),
+                }
+            }
+            _ => (false, None),
+        },
+        Err(_) => (false, None),
+    };
+    ProbeResult {
+        engine: "lmstudio".into(),
+        label: "LM Studio".into(),
+        host: host.into(),
+        found,
+        model,
+    }
+}
+
+/// Probe Ollama and LM Studio on their default localhost ports for the
+/// first-run onboarding screen. Runs both concurrently — cheap now that
+/// everything is `127.0.0.1` (see docs/architecture/engine.md).
+#[tauri::command]
+async fn probe_local_engines() -> Vec<ProbeResult> {
+    let (ollama, lmstudio) = tokio::join!(probe_ollama(), probe_lmstudio());
+    vec![ollama, lmstudio]
+}
+
 /// Outcome of waiting for `jarvis serve` to become healthy.
 ///
 /// Unlike [`wait_for_url`] this differentiates "server is up but degraded"
@@ -2473,6 +2559,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_setup_status,
+            probe_local_engines,
             get_api_base,
             start_backend,
             stop_backend,
@@ -2522,8 +2609,8 @@ pub fn run() {
 mod tests {
     use super::{
         boot_plan, config_missing_at, default_local_model, format_uv_sync_failure,
-        format_uv_sync_spawn_error, normalize_host, parse_inference_config, upsert_engine_host,
-        uv_sync_stderr_tail, InferenceConfig, SourceKind,
+        format_uv_sync_spawn_error, lmstudio_probe_result, normalize_host, parse_inference_config,
+        upsert_engine_host, uv_sync_stderr_tail, InferenceConfig, SourceKind,
     };
     use std::path::Path;
 
@@ -2634,6 +2721,30 @@ mod tests {
         assert!(!config_missing_at(&present));
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn lmstudio_probe_result_detects_loaded_model() {
+        let body = serde_json::json!({"data": [{"id": "qwen2.5-7b-instruct"}, {"id": "other"}]});
+        let (found, model) = lmstudio_probe_result(&body);
+        assert!(found);
+        assert_eq!(model.as_deref(), Some("qwen2.5-7b-instruct"));
+    }
+
+    #[test]
+    fn lmstudio_probe_result_empty_data_is_not_found() {
+        let body = serde_json::json!({"data": []});
+        let (found, model) = lmstudio_probe_result(&body);
+        assert!(!found);
+        assert!(model.is_none());
+    }
+
+    #[test]
+    fn lmstudio_probe_result_missing_data_is_not_found() {
+        let body = serde_json::json!({});
+        let (found, model) = lmstudio_probe_result(&body);
+        assert!(!found);
+        assert!(model.is_none());
     }
 
     #[test]
