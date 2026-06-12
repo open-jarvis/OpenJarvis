@@ -126,6 +126,32 @@ export async function getSetupStatus(): Promise<SetupStatus | null> {
   }
 }
 
+export interface ProbeResult {
+  engine: 'ollama' | 'lmstudio';
+  label: string;
+  host: string;
+  found: boolean;
+  model: string | null;
+}
+
+/** Probe for a running Ollama/LM Studio instance (first-run onboarding). */
+export async function probeLocalEngines(): Promise<ProbeResult[]> {
+  if (!isTauri()) return [];
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return await invoke<ProbeResult[]>('probe_local_engines');
+  } catch {
+    return [];
+  }
+}
+
+/** Start (or restart) the boot sequence after the inference source is set. */
+export async function startBackend(): Promise<void> {
+  if (!isTauri()) return;
+  const { invoke } = await import('@tauri-apps/api/core');
+  await invoke<void>('start_backend');
+}
+
 // ---------------------------------------------------------------------------
 // API functions
 // ---------------------------------------------------------------------------
