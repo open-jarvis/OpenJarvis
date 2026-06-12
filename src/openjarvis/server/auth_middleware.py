@@ -33,7 +33,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     status_code=401,
                 )
             scheme, _, token = auth.partition(" ")
-            if scheme.lower() != "bearer" or token != self._api_key:
+            # Constant-time comparison to avoid leaking the key via timing.
+            if scheme.lower() != "bearer" or not secrets.compare_digest(
+                token, self._api_key
+            ):
                 return JSONResponse(
                     {"detail": "Invalid API key"},
                     status_code=401,
@@ -42,8 +45,18 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
     @staticmethod
     def _requires_auth(path: str) -> bool:
-        """Only protect API routes, not the frontend UI or static assets."""
-        return path.startswith("/v1/") or path.startswith("/api/")
+        """Protect API routes and operational metrics; leave the UI/health open.
+
+        ``/metrics`` exposes request/token counters that should not be readable
+        by unauthenticated clients, so it is gated alongside ``/v1`` and
+        ``/api``. ``/health`` stays open for liveness probes.
+        """
+        return (
+            path.startswith("/v1/")
+            or path.startswith("/api/")
+            or path == "/metrics"
+            or path.startswith("/metrics/")
+        )
 
 
 

@@ -29,11 +29,8 @@ class _FakeEngine(InferenceEngine):
 
 
 def test_ask_engine_resolution_prefers_explicit_cli_key(monkeypatch: Any) -> None:
-    from openjarvis.cli import ask
-    import sys
-
     # Import the module explicitly to bypass the __init__.py shadowing
-    import openjarvis.cli.ask as ask_module
+    from openjarvis.cli import ask
 
     ask_mod = sys.modules["openjarvis.cli.ask"]
 
@@ -43,7 +40,7 @@ def test_ask_engine_resolution_prefers_explicit_cli_key(monkeypatch: Any) -> Non
 
     # Mock get_engine to just return the requested key
     def _mock_get_engine(
-        config: JarvisConfig, key: str | None
+        config: JarvisConfig, key: str | None, model: str | None = None
     ) -> tuple[str, _FakeEngine] | None:
         return (key or "discovered", _FakeEngine())
 
@@ -52,23 +49,20 @@ def test_ask_engine_resolution_prefers_explicit_cli_key(monkeypatch: Any) -> Non
     monkeypatch.setattr("sys.exit", lambda code: None)
     monkeypatch.setattr(ask_mod, "print_banner", lambda **kwargs: None)
 
-    # We just want to spy on the resolved engine, but the easiest way is to wrap get_engine
+    # We just want to spy on the resolved engine, but the easiest way is to
+    # wrap get_engine
     resolved_key = None
     original_get_engine = _mock_get_engine
 
     def _spy_get_engine(
-        config: JarvisConfig, key: str | None
+        config: JarvisConfig, key: str | None, model: str | None = None
     ) -> tuple[str, _FakeEngine] | None:
         nonlocal resolved_key
         resolved_key = key
-        return original_get_engine(config, key)
+        return original_get_engine(config, key, model=model)
 
     monkeypatch.setattr(ask_mod, "get_engine", _spy_get_engine)
     monkeypatch.setattr(ask_mod, "_run_research", lambda **kwargs: None)
-    monkeypatch.setattr(
-        "openjarvis.security.setup_security",
-        lambda *args, **kwargs: type("Sec", (), {"engine": _FakeEngine()})(),
-    )
 
     # We stub enough to get past engine resolution and then raise to stop execution
     def _mock_score_complexity(*args: Any, **kwargs: Any) -> Any:
@@ -121,8 +115,6 @@ def test_ask_engine_resolution_prefers_configured_preferred_engine(
     monkeypatch: Any,
 ) -> None:
     from openjarvis.cli import ask
-    import sys
-    import openjarvis.cli.ask as ask_module
 
     ask_mod = sys.modules["openjarvis.cli.ask"]
 
@@ -133,7 +125,7 @@ def test_ask_engine_resolution_prefers_configured_preferred_engine(
     resolved_key = None
 
     def _spy_get_engine(
-        config: JarvisConfig, key: str | None
+        config: JarvisConfig, key: str | None, model: str | None = None
     ) -> tuple[str, _FakeEngine] | None:
         nonlocal resolved_key
         resolved_key = key
@@ -193,8 +185,6 @@ def test_ask_engine_resolution_prefers_configured_preferred_engine(
 
 def test_ask_engine_resolution_falls_back_to_default_engine(monkeypatch: Any) -> None:
     from openjarvis.cli import ask
-    import sys
-    import openjarvis.cli.ask as ask_module
 
     ask_mod = sys.modules["openjarvis.cli.ask"]
 
@@ -205,7 +195,7 @@ def test_ask_engine_resolution_falls_back_to_default_engine(monkeypatch: Any) ->
     resolved_key = None
 
     def _spy_get_engine(
-        config: JarvisConfig, key: str | None
+        config: JarvisConfig, key: str | None, model: str | None = None
     ) -> tuple[str, _FakeEngine] | None:
         nonlocal resolved_key
         resolved_key = key

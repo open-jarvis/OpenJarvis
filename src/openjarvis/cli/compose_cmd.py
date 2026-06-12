@@ -332,7 +332,7 @@ def compose_bench(
         for i, rc in enumerate(run_configs, 1):
             console.print(f"\n[bold]Run {i}/{len(run_configs)}:[/bold] {rc.benchmark}")
             try:
-                summary = _run_single(rc, console=console)
+                summary = _run_single(rc, console=console, suite_mode=True)
                 results_table.add_row(
                     rc.benchmark,
                     f"{summary.accuracy:.4f}",

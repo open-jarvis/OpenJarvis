@@ -24,6 +24,61 @@ from openjarvis.intelligence import (
 logger = logging.getLogger(__name__)
 
 
+def _unique_model_ids(model_ids: list[str]) -> list[str]:
+    """Return model ids in first-seen order without duplicates."""
+    unique: list[str] = []
+    seen: set[str] = set()
+    for model_id in model_ids:
+        if model_id and model_id not in seen:
+            seen.add(model_id)
+            unique.append(model_id)
+    return unique
+
+
+def _safe_list_models(engine: object) -> list[str]:
+    try:
+        list_models = getattr(engine, "list_models")
+        return list(list_models())
+    except Exception as exc:
+        logger.debug("Failed to list models for selected server engine: %s", exc)
+        return []
+
+
+def _resolve_server_model(
+    requested_model: str | None,
+    *,
+    config: object,
+    engine_name: str,
+    engine: object,
+    all_models: dict[str, list[str]],
+) -> str:
+    """Pick a startup model that is present on the active server engine.
+
+    CLI ``--model`` remains authoritative. For config-driven startup, prefer the
+    configured server/default model only when the active engine can actually
+    serve it; otherwise use ``intelligence.fallback_model`` or the first
+    reachable model. This prevents MLX-preferred configs from hiding a healthy
+    Ollama fallback behind an empty/incorrect model map.
+    """
+    if requested_model:
+        return requested_model
+
+    candidates = [
+        getattr(config.server, "model", ""),
+        getattr(config.intelligence, "default_model", ""),
+        getattr(config.intelligence, "fallback_model", ""),
+    ]
+    available = _unique_model_ids(
+        _safe_list_models(engine) + list(all_models.get(engine_name, []))
+    )
+
+    for candidate in candidates:
+        if candidate and (not available or candidate in available):
+            return candidate
+
+    return available[0] if available else ""
+
+
 @click.command()
 @click.option("--host", default=None, help="Bind address (default: config).")
 @click.option(
@@ -91,7 +146,13 @@ def serve(
         except Exception as exc:
             logger.debug("Telemetry store init failed: %s", exc)
 
-    resolved = get_engine(config, engine_key)
+    # Select with the model we'll actually serve so an engine that can't
+    # serve it (e.g. the cloud fallback without the matching provider key) is
+    # skipped rather than chosen and failing per-request later (see #532).
+    selection_model = (
+        model_name or config.server.model or config.intelligence.default_model or None
+    )
+    resolved = get_engine(config, engine_key, model=selection_model)
     if resolved is None:
         console.print(
             "[red bold]No inference engine available.[/red bold]\n\n"
@@ -107,10 +168,12 @@ def serve(
     sec = setup_security(config, engine, bus)
     engine = sec.engine
 
-    # If cloud API keys are set, wrap with MultiEngine so both local
-    # and cloud models appear in the model list and can be used.
+    # If cloud API keys are set, prepare a cloud engine. We build the
+    # MultiEngine after local discovery so healthy local fallbacks such as
+    # Ollama stay visible even when the configured preferred engine is MLX.
     import os
 
+    cloud_engine = None
     _has_cloud = (
         os.environ.get("OPENAI_API_KEY")
         or os.environ.get("ANTHROPIC_API_KEY")
@@ -121,12 +184,9 @@ def serve(
     if _has_cloud and engine_name != "cloud":
         try:
             from openjarvis.engine.cloud import CloudEngine
-            from openjarvis.engine.multi import MultiEngine
 
-            cloud = CloudEngine()
-            engine = MultiEngine([(engine_name, engine), ("cloud", cloud)])
-            engine_name = "multi"
-            if cloud.health():
+            cloud_engine = CloudEngine()
+            if cloud_engine.health():
                 console.print("  Cloud:  [cyan]enabled[/cyan] (API keys detected)")
             else:
                 console.print(
@@ -163,20 +223,55 @@ def serve(
     for ek, model_ids in all_models.items():
         merge_discovered_models(ek, model_ids)
 
+    multi_entries = [(engine_name, engine)]
+    for discovered_name, discovered_engine in all_engines:
+        if discovered_name != engine_name:
+            multi_entries.append((discovered_name, discovered_engine))
+    if cloud_engine is not None:
+        multi_entries.append(("cloud", cloud_engine))
+
+    if len(multi_entries) > 1:
+        from openjarvis.engine.multi import MultiEngine
+
+        engine = MultiEngine(multi_entries)
+        engine_name = "multi"
+        all_models[engine_name] = engine.list_models()
+        merge_discovered_models(engine_name, all_models[engine_name])
+
     # Resolve model
-    if model_name is None:
-        model_name = config.server.model or config.intelligence.default_model
+    configured_model = (
+        model_name or config.server.model or config.intelligence.default_model
+    )
+    model_name = _resolve_server_model(
+        model_name,
+        config=config,
+        engine_name=engine_name,
+        engine=engine,
+        all_models=all_models,
+    )
+    if configured_model and model_name and model_name != configured_model:
+        console.print(
+            "[yellow]Configured model "
+            f"{configured_model!r} is not reachable; using {model_name!r}.[/yellow]"
+        )
     if not model_name:
-        engine_models = all_models.get(engine_name, [])
-        if engine_models:
-            model_name = engine_models[0]
-        else:
-            console.print("[red]No model available on engine.[/red]")
-            sys.exit(1)
+        console.print(
+            "[red]No model available on any reachable engine.[/red]\n\n"
+            "Start an inference backend and make sure it lists at least one model.\n"
+            "For Ollama: [cyan]ollama serve[/cyan] and "
+            "[cyan]ollama pull qwen3.5:9b[/cyan].\n"
+            "For MLX: start the MLX OpenAI-compatible server on the configured host."
+        )
+        sys.exit(1)
 
     # Resolve agent
     agent = None
     agent_key = agent_name or config.server.agent
+    # Tool instances resolved for the primary agent are reused below to build
+    # the scheduler's ToolExecutor — avoiding a second full SystemBuilder.build()
+    # (which would re-discover the engine, re-resolve tools, re-open the channel,
+    # etc.). See the scheduler block near the bottom of this function (#263).
+    resolved_tools: list = []
     if agent_key:
         try:
             import openjarvis.agents  # noqa: F401
@@ -244,6 +339,8 @@ def serve(
 
                     if tools:
                         agent_kwargs["tools"] = tools
+                    # Reuse these for the scheduler's ToolExecutor (#263).
+                    resolved_tools = tools
 
                 if getattr(agent_cls, "accepts_tools", False):
                     agent_kwargs["max_turns"] = config.agent.max_turns
@@ -377,6 +474,24 @@ def serve(
     # Create app
     from openjarvis.server.app import create_app
 
+    # Set up memory backend for context injection. Built before the scheduler
+    # block so the executor's JarvisSystem can reference it (#263).
+    memory_backend = None
+    if config.agent.context_from_memory:
+        try:
+            import openjarvis.tools.storage  # noqa: F401
+            from openjarvis.core.registry import MemoryRegistry
+
+            mem_key = config.memory.default_backend
+            if MemoryRegistry.contains(mem_key):
+                memory_backend = MemoryRegistry.create(
+                    mem_key,
+                    db_path=config.memory.db_path,
+                )
+                console.print("  Memory:    [cyan]active[/cyan]")
+        except Exception as exc:
+            logger.debug("Memory backend init failed: %s", exc)
+
     # Set up agent manager
     agent_manager = None
     if config.agent_manager.enabled:
@@ -416,9 +531,55 @@ def serve(
                 event_bus=bus,
                 trace_store=_trace_store,
             )
-            from openjarvis.system import SystemBuilder
+            # Reuse the components already built inline above instead of a
+            # second full SystemBuilder.build() — the original double-build
+            # re-discovered the engine, re-instrumented it, re-resolved tools,
+            # re-opened the channel and re-created the agent manager, costing
+            # ~30-40s on top of an already-paid startup (#263). The executor
+            # only reads engine/model/config/memory_backend/tool_executor/
+            # session_store/channel_backend from the system (see
+            # AgentExecutor), all of which are wired here.
+            from openjarvis.sessions.session import SessionStore
+            from openjarvis.system import JarvisSystem
+            from openjarvis.tools._stubs import ToolExecutor
 
-            system = SystemBuilder(config).build()
+            _sched_session_store = None
+            if config.sessions.enabled:
+                try:
+                    from pathlib import Path as _SchedPath
+
+                    _sched_session_store = SessionStore(
+                        db_path=_SchedPath(config.sessions.db_path).expanduser(),
+                        max_age_hours=config.sessions.max_age_hours,
+                        consolidation_threshold=(
+                            config.sessions.consolidation_threshold
+                        ),
+                    )
+                except Exception as exc:
+                    logger.debug("Scheduler session store init failed: %s", exc)
+
+            _sched_tool_executor = (
+                ToolExecutor(resolved_tools, bus) if resolved_tools else None
+            )
+
+            system = JarvisSystem(
+                config=config,
+                bus=bus,
+                engine=engine,
+                engine_key=engine_name,
+                model=model_name,
+                agent=agent,
+                agent_name=agent_key or "",
+                tools=resolved_tools,
+                tool_executor=_sched_tool_executor,
+                memory_backend=memory_backend,
+                telemetry_store=telem_store,
+                trace_store=_trace_store,
+                session_store=_sched_session_store,
+                capability_policy=sec.capability_policy,
+                agent_manager=agent_manager,
+                agent_executor=executor,
+            )
             executor.set_system(system)
 
             agent_scheduler = AgentScheduler(
@@ -437,23 +598,6 @@ def serve(
             console.print("  Scheduler: [cyan]active[/cyan]")
         except Exception as exc:
             logger.debug("Agent scheduler init failed: %s", exc)
-
-    # Set up memory backend for context injection
-    memory_backend = None
-    if config.agent.context_from_memory:
-        try:
-            import openjarvis.tools.storage  # noqa: F401
-            from openjarvis.core.registry import MemoryRegistry
-
-            mem_key = config.memory.default_backend
-            if MemoryRegistry.contains(mem_key):
-                memory_backend = MemoryRegistry.create(
-                    mem_key,
-                    db_path=config.memory.db_path,
-                )
-                console.print("  Memory:    [cyan]active[/cyan]")
-        except Exception as exc:
-            logger.debug("Memory backend init failed: %s", exc)
 
     # --- Channel Gateway: API key, sessions, ChannelBridge ---
     import os as _os

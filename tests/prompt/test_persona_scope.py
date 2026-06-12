@@ -31,3 +31,23 @@ def test_named_persona_resolves_to_personas_dir():
 def test_path_traversal_rejected(bad):
     with pytest.raises(ValueError):
         SystemPromptBuilder._resolve_persona(MemoryFilesConfig(persona_name=bad))
+
+
+def test_none_persona_build_does_not_raise():
+    """Regression (#497): `--persona none` resolves to empty file paths; building
+    the prompt must not raise IsADirectoryError when those empty paths are read
+    (Path("") is "." — reading a directory raised before the empty-path guard).
+    """
+    import dataclasses
+
+    from openjarvis.core.config import load_config
+
+    cfg = load_config()
+    mf = dataclasses.replace(cfg.memory_files, persona_name="none")
+    builder = SystemPromptBuilder(
+        agent_template=cfg.agent.default_system_prompt or "",
+        memory_files_config=mf,
+        system_prompt_config=cfg.system_prompt,
+    )
+    out = builder.build()
+    assert isinstance(out, str)

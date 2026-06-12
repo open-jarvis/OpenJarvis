@@ -31,6 +31,8 @@ class JarvisAgentBackend(InferenceBackend):
         max_turns: Optional[int] = None,
         skills_enabled: bool = True,
         overlay_dir: Optional[Path] = None,
+        base_url: Optional[str] = None,
+        api_key: Optional[str] = None,
     ) -> None:
         from openjarvis.system import SystemBuilder
 
@@ -40,7 +42,17 @@ class JarvisAgentBackend(InferenceBackend):
         self._gpu_metrics = gpu_metrics
 
         builder = SystemBuilder()
-        if engine_key:
+        if base_url:
+            # Explicit endpoint targeting (--base-url): pin the eval to
+            # exactly this OpenAI-compatible endpoint. Fails fast if it is
+            # unreachable; never falls back to a discovered engine.
+            from openjarvis.evals.backends._endpoint_util import (
+                build_endpoint_engine,
+            )
+
+            engine = build_endpoint_engine(base_url, api_key, engine_key)
+            builder.engine_instance(engine, key=engine_key or "openai-compat")
+        elif engine_key:
             builder.engine(engine_key)
         if model:
             builder.model(model)

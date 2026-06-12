@@ -28,12 +28,31 @@ class _OpenAICompatibleEngine(InferenceEngine):
     _default_host: str = "http://localhost:8000"
     _api_prefix: str = "/v1"
 
-    def __init__(self, host: str | None = None, *, timeout: float = 600.0) -> None:
+    def __init__(
+        self,
+        host: str | None = None,
+        *,
+        api_key: str | None = None,
+        timeout: float = 600.0,
+    ) -> None:
         import os
 
-        env_key = f"{self.engine_id.upper()}_HOST"
-        self._host = (host or os.environ.get(env_key) or self._default_host).rstrip("/")
-        self._client = httpx.Client(base_url=self._host, timeout=timeout)
+        # Sanitize the engine id for env-var lookup ("openai-compat" ->
+        # "OPENAI_COMPAT_..."); shells cannot set hyphenated variable names.
+        env_prefix = self.engine_id.upper().replace("-", "_")
+        self._host = (
+            host or os.environ.get(f"{env_prefix}_HOST") or self._default_host
+        ).rstrip("/")
+        # Bearer auth for endpoints started with e.g. ``vllm serve --api-key``.
+        # Setting it on the client covers generate/stream/stream_full/
+        # list_models/health alike; ``None`` keeps requests header-free.
+        self._api_key = api_key or os.environ.get(f"{env_prefix}_API_KEY") or None
+        headers = (
+            {"Authorization": f"Bearer {self._api_key}"} if self._api_key else None
+        )
+        self._client = httpx.Client(
+            base_url=self._host, timeout=timeout, headers=headers
+        )
 
     # -- InferenceEngine interface ------------------------------------------
 
@@ -68,6 +87,23 @@ class _OpenAICompatibleEngine(InferenceEngine):
         except (httpx.ConnectError, httpx.TimeoutException) as exc:
             raise EngineConnectionError(
                 f"{self.engine_id} engine not reachable at {self._host}"
+            ) from exc
+        except httpx.HTTPStatusError as exc:
+            error_detail = exc.response.text.strip()
+            if exc.response.status_code == 404:
+                detail_suffix = (
+                    f" Response body: {error_detail}" if error_detail else ""
+                )
+                raise EngineConnectionError(
+                    f"{self.engine_id} engine at {self._host} returned 404 for "
+                    f"{self._api_prefix}/chat/completions. Make sure this port "
+                    "is running an OpenAI-compatible chat server, not another "
+                    f"local web service.{detail_suffix}"
+                ) from exc
+            detail_suffix = f": {error_detail}" if error_detail else ""
+            raise EngineConnectionError(
+                f"{self.engine_id} engine at {self._host} returned HTTP "
+                f"{exc.response.status_code}{detail_suffix}"
             ) from exc
         data = resp.json()
         choices = data.get("choices", [])

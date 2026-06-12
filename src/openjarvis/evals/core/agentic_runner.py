@@ -20,6 +20,7 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from openjarvis.evals.core.environment import TaskEnvironmentError
 from openjarvis.evals.core.event_recorder import AgentEvent, EventRecorder, EventType
 from openjarvis.evals.core.trace import QueryTrace, TurnTrace
 
@@ -176,9 +177,12 @@ class AgenticRunner:
                 )
             self._traces.append(trace)
 
-            status = (
-                "TIMEOUT" if trace.timed_out else ("OK" if trace.completed else "FAIL")
-            )
+            if trace.timed_out:
+                status = "TIMEOUT"
+            elif trace.error_kind == "harness_error":
+                status = "HARNESS_ERROR"
+            else:
+                status = "OK" if trace.completed else "FAIL"
             LOGGER.info(
                 "Task %s: %s in %.1fs",
                 query_id,
@@ -260,11 +264,12 @@ class AgenticRunner:
                         is_resolved=record.metadata.get("is_resolved"),
                     )
 
-                status = (
-                    "TIMEOUT"
-                    if trace.timed_out
-                    else ("OK" if trace.completed else "FAIL")
-                )
+                if trace.timed_out:
+                    status = "TIMEOUT"
+                elif trace.error_kind == "harness_error":
+                    status = "HARNESS_ERROR"
+                else:
+                    status = "OK" if trace.completed else "FAIL"
                 LOGGER.info(
                     "Task %s: %s in %.1fs",
                     query_id,
@@ -444,7 +449,23 @@ class AgenticRunner:
                 _run_body()
 
         except Exception as exc:
-            LOGGER.warning("Agent failed on query %s: %s", query_id, exc)
+            # Distinguish infrastructure breakage (task env failed to start,
+            # Docker/tmux death) from agent failures: harness errors must be
+            # recorded distinctly so scoring excludes them from resolve-rate
+            # instead of silently counting a model miss. Either way the run
+            # continues with the next record (fail THIS task, not the run).
+            is_harness_error = isinstance(exc, TaskEnvironmentError) or bool(
+                record.metadata.get("harness_error")
+            )
+            if is_harness_error:
+                LOGGER.error(
+                    "Harness/environment failure on query %s (record %s): %s",
+                    query_id,
+                    getattr(record, "record_id", "?"),
+                    exc,
+                )
+            else:
+                LOGGER.warning("Agent failed on query %s: %s", query_id, exc)
             end_time = time.time()
             # Unsubscribe EventBus relays
             if agent_bus is not None:
@@ -461,6 +482,8 @@ class AgenticRunner:
                 total_wall_clock_s=end_time - start_time,
                 completed=False,
                 is_resolved=record.metadata.get("is_resolved"),
+                error=str(exc),
+                error_kind="harness_error" if is_harness_error else "agent_error",
             )
 
         # Unsubscribe EventBus relays
@@ -534,6 +557,48 @@ class AgenticRunner:
                     model, turn.input_tokens, turn.output_tokens
                 )
 
+        # --- Zero-model-contact sanity check ----------------------------
+        # Failed in-container setups (e.g. an installed agent's SETUP phase
+        # hanging or dying) historically produced traces that looked like
+        # model results: completed=True, a synthetic 1-event turn,
+        # is_resolved=False from run_tests, and zero tokens — silently
+        # dragging resolve-rate down as a fake model miss. Signal choice:
+        # token usage plus LM inference events is the reliable discriminator
+        # here — a genuine model miss has token usage (and/or LM events),
+        # while "the agent never called the model" has neither. We do NOT
+        # key off completion status or is_resolved, which are identical in
+        # both cases. run_agent_loop envs drive the model directly
+        # (bypassing usage reporting), so their turn_wall_clocks count as
+        # model contact.
+        had_lm_events = any(
+            e.event_type in (EventType.LM_INFERENCE_START, EventType.LM_INFERENCE_END)
+            for e in events
+        )
+        had_loop_turns = bool(
+            task_env is not None and getattr(task_env, "turn_wall_clocks", None)
+        )
+        turn_tokens = sum(t.input_tokens + t.output_tokens for t in turns)
+        error: Optional[str] = None
+        error_kind: Optional[str] = None
+        if (
+            not had_lm_events
+            and not had_loop_turns
+            and in_tok + out_tok == 0
+            and turn_tokens == 0
+        ):
+            error = (
+                "zero_model_requests: the agent produced no LM inference "
+                "events and reported zero token usage — the model was never "
+                "contacted. This is a harness/infrastructure failure (e.g. "
+                "in-container agent setup hang/death), not a model miss, and "
+                "is excluded from resolve-rate. If your agent genuinely "
+                "contacted the model, make it report token usage or emit "
+                "LM_INFERENCE events. Response tail: "
+                f"{(response_text or '')[-500:]!r}"
+            )
+            error_kind = "harness_error"
+            LOGGER.error("Query %s: %s", query_id, error)
+
         # Query-level energy from telemetry window
         query_gpu_energy = _compute_energy_delta(readings, "gpu_energy_j")
         query_cpu_energy = _compute_energy_delta(readings, "cpu_energy_j")
@@ -563,6 +628,8 @@ class AgenticRunner:
             is_resolved=record.metadata.get("is_resolved"),
             query_mbu_avg_pct=query_mbu_avg,
             query_mbu_max_pct=query_mbu_max,
+            error=error,
+            error_kind=error_kind,
         )
 
         # Correlate energy with trace

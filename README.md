@@ -25,6 +25,8 @@
 >
 > **[Project Site](https://scalingintelligence.stanford.edu/blogs/openjarvis/)**
 >
+> **[Paper](https://arxiv.org/abs/2605.17172)**
+>
 > **[Leaderboard](https://open-jarvis.github.io/OpenJarvis/leaderboard/)**
 >
 > **[Roadmap](https://open-jarvis.github.io/OpenJarvis/development/roadmap/)**

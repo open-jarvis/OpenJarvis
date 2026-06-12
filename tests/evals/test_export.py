@@ -127,6 +127,84 @@ class TestExportSummaryJson:
         assert summary["totals"]["queries"] == 0
 
 
+class TestHarnessErrorExclusion:
+    """Harness errors must never count as model misses in resolve-rate."""
+
+    def _traces(self):
+        return [
+            QueryTrace(
+                query_id="q0000",
+                workload_type="agentic",
+                completed=True,
+                is_resolved=True,
+                turns=[TurnTrace(turn_index=0, input_tokens=10, output_tokens=5)],
+            ),
+            QueryTrace(
+                query_id="q0001",
+                workload_type="agentic",
+                completed=True,
+                is_resolved=False,  # genuine model miss: stays in denominator
+                turns=[TurnTrace(turn_index=0, input_tokens=10, output_tokens=5)],
+            ),
+            QueryTrace(
+                query_id="q0002",
+                workload_type="agentic",
+                completed=False,
+                is_resolved=False,  # stamped by run_tests despite zero contact
+                error="zero_model_requests: the agent never contacted the model",
+                error_kind="harness_error",
+            ),
+        ]
+
+    def test_summary_excludes_harness_errors_from_accuracy(self, tmp_path):
+        path = tmp_path / "summary.json"
+        export_summary_json(self._traces(), {"model": "m"}, path)
+        summary = json.loads(path.read_text())
+
+        totals = summary["totals"]
+        assert totals["harness_errors"] == 1
+        assert totals["resolved"] == 1
+        assert totals["unresolved"] == 1  # NOT 2: harness error excluded
+        assert totals["accuracy"] == 0.5  # NOT 1/3
+        # Flat table_gen metrics exclude the harness error too.
+        assert summary["metrics"]["accuracy"]["n"] == 2
+        assert summary["metrics"]["accuracy"]["mean"] == 0.5
+        # Details surfaced for diagnosis.
+        details = summary["harness_error_details"]
+        assert details[0]["query_id"] == "q0002"
+        assert "zero_model_requests" in details[0]["error"]
+
+    def test_efficiency_excludes_harness_errors(self):
+        result = _compute_efficiency(self._traces(), None, None)
+        assert result["accuracy"] == 0.5
+
+    def test_no_harness_errors_key_absent(self, tmp_path):
+        path = tmp_path / "summary.json"
+        export_summary_json(_make_traces(), {}, path)
+        summary = json.loads(path.read_text())
+        assert summary["totals"]["harness_errors"] == 0
+        assert "harness_error_details" not in summary
+
+
+class TestTraceErrorFieldRoundTrip:
+    def test_round_trip_preserves_error_fields(self):
+        trace = QueryTrace(
+            query_id="q0",
+            workload_type="agentic",
+            error="zero_model_requests: ...",
+            error_kind="harness_error",
+        )
+        restored = QueryTrace.from_dict(trace.to_dict())
+        assert restored.error == trace.error
+        assert restored.error_kind == "harness_error"
+
+    def test_old_trace_dicts_still_load(self):
+        """Backward compat: traces.jsonl written before the schema change."""
+        restored = QueryTrace.from_dict({"query_id": "q0", "workload_type": "agentic"})
+        assert restored.error is None
+        assert restored.error_kind is None
+
+
 class TestExportArtifactsManifest:
     def test_no_artifacts_dir(self, tmp_path):
         result = export_artifacts_manifest(tmp_path)

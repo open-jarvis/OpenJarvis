@@ -28,6 +28,10 @@ def _make_app(api_key: str) -> FastAPI:
     async def twilio_webhook():
         return {"status": "received"}
 
+    @app.get("/metrics")
+    async def metrics():
+        return {"requests": 0}
+
     return app
 
 
@@ -65,7 +69,18 @@ class TestAuthMiddleware:
         resp = client.post("/webhooks/twilio")
         assert resp.status_code == 200
 
+    def test_metrics_requires_auth(self, client):
+        resp = client.get("/metrics")
+        assert resp.status_code == 401
+
+    def test_metrics_accepts_valid_key(self, client):
+        resp = client.get(
+            "/metrics", headers={"Authorization": "Bearer oj_sk_test123"}
+        )
+        assert resp.status_code == 200
+
     def test_no_key_configured_allows_all(self):
         client = TestClient(_make_app(""))
         resp = client.get("/v1/models")
         assert resp.status_code == 200
+        assert client.get("/metrics").status_code == 200

@@ -715,7 +715,13 @@ def ask(
 
     pref = config.intelligence.preferred_engine
     effective_engine_key = engine_key or pref or config.engine.default
-    resolved = get_engine(config, effective_engine_key)
+    # Pass the model we intend to run so engine selection can skip an engine
+    # that can't actually serve it (e.g. the cloud fallback when the local
+    # engine is down but only a non-OpenAI key is set — see #532). This is the
+    # -m flag or the configured default; when neither is set we leave it None
+    # and a model is chosen per-engine below.
+    selection_model = model_name or config.intelligence.default_model or None
+    resolved = get_engine(config, effective_engine_key, model=selection_model)
     if resolved is None:
         console.print(
             "[red bold]No inference engine available.[/red bold]\n\n"
