@@ -1438,6 +1438,10 @@ async fn start_backend(
 ) -> Result<(), String> {
     let b = backend.inner().clone();
     let s = status.inner().clone();
+    // Reset before respawning: this command now runs after onboarding
+    // (status is already default) AND after a Reconfigure retry (status may
+    // hold a stale error/phase/readiness from the previous failed attempt).
+    *s.lock().await = SetupStatus::default();
     tauri::async_runtime::spawn(boot_backend(b, s));
     Ok(())
 }
