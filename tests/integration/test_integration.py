@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import MagicMock
 
 import pytest
@@ -16,6 +17,14 @@ from openjarvis.core.types import (
     TelemetryRecord,
     ToolCall,
 )
+
+
+def _run(agent, input: str, **kwargs):
+    """Helper that handles async agent.run() implementations."""
+    result = agent.run(input, **kwargs)
+    if asyncio.iscoroutine(result):
+        return asyncio.run(result)
+    return result
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -70,7 +79,7 @@ class TestSimpleAgentPipeline:
         bus = EventBus(record_history=True)
         agent_cls = AgentRegistry.get("simple")
         agent = agent_cls(engine, "test-model", bus=bus)
-        result = agent.run("What is the answer?")
+        result = _run(agent, "What is the answer?")
 
         assert isinstance(result, AgentResult)
         assert result.content == "The answer is 42."
@@ -90,7 +99,7 @@ class TestSimpleAgentPipeline:
         conv = Conversation()
         conv.add(Message(role=Role.SYSTEM, content="You are a helpful assistant."))
         ctx = AgentContext(conversation=conv)
-        result = agent.run("Hello", context=ctx)
+        result = _run(agent, "Hello", context=ctx)
         assert result.content == "Contextualized response."
 
 
@@ -143,7 +152,7 @@ class TestOrchestratorWithCalculator:
             tools=[CalculatorTool()],
             bus=bus,
         )
-        result = agent.run("What is 2+2?")
+        result = _run(agent, "What is 2+2?")
 
         assert result.content == "2+2 equals 4."
         assert result.turns == 2
@@ -211,7 +220,7 @@ class TestEventBusFullFlow:
         bus = EventBus(record_history=True)
         engine = _make_engine()
         agent = AgentRegistry.get("simple")(engine, "test-model", bus=bus)
-        agent.run("Hello")
+        _run(agent, "Hello")
 
         event_types = [e.event_type for e in bus.history]
         expected = [
@@ -229,7 +238,7 @@ class TestEventBusFullFlow:
 
         engine = _make_engine()
         agent = AgentRegistry.get("simple")(engine, "test-model", bus=bus)
-        agent.run("Hello")
+        _run(agent, "Hello")
 
         assert len(received) == 1
         assert received[0].data["agent"] == "simple"
@@ -248,7 +257,7 @@ class TestTelemetryThroughAgent:
         raw_engine = _make_engine()
         engine = InstrumentedEngine(raw_engine, bus)
         agent = AgentRegistry.get("simple")(engine, "test-model", bus=bus)
-        agent.run("Hello")
+        _run(agent, "Hello")
 
         telem_events = [
             e for e in bus.history if e.event_type == EventType.TELEMETRY_RECORD

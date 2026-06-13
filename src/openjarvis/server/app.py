@@ -16,6 +16,7 @@ from openjarvis.server.comparison import comparison_router
 from openjarvis.server.connectors_router import create_connectors_router
 from openjarvis.server.dashboard import dashboard_router
 from openjarvis.server.digest_routes import create_digest_router
+from openjarvis.server.osint_router import router as osint_router
 from openjarvis.server.research_router import router as research_router
 from openjarvis.server.routes import router
 from openjarvis.server.upload_router import router as upload_router
@@ -111,6 +112,80 @@ def _restore_sendblue_bindings(app: FastAPI) -> None:
                 return  # Only need one SendBlue binding
     except Exception as exc:
         logger.debug("SendBlue binding restore skipped: %s", exc)
+
+    # Fallback to environment variables if no DB binding exists
+    try:
+        sb_existing = getattr(app.state, "sendblue_channel", None)
+        if sb_existing is not None:
+            return
+
+        import os
+
+        api_key_id = os.environ.get("SENDBLUE_API_KEY_ID", "")
+        api_secret_key = os.environ.get("SENDBLUE_API_SECRET_KEY", "")
+        from_number = os.environ.get("SENDBLUE_FROM_NUMBER", "")
+        if not api_key_id or not api_secret_key:
+            return
+
+        from openjarvis.channels.sendblue import SendBlueChannel
+
+        sb = SendBlueChannel(
+            api_key_id=api_key_id,
+            api_secret_key=api_secret_key,
+            from_number=from_number,
+        )
+        sb.connect()
+        app.state.sendblue_channel = sb
+
+        bridge = getattr(app.state, "channel_bridge", None)
+        if bridge and hasattr(bridge, "_channels"):
+            bridge._channels["sendblue"] = sb
+        else:
+            from openjarvis.server.channel_bridge import ChannelBridge
+            from openjarvis.server.session_store import SessionStore
+
+            session_store = SessionStore()
+            engine = getattr(app.state, "engine", None)
+            dr_agent = None
+            if engine:
+                from openjarvis.server.agent_manager_routes import (
+                    _build_deep_research_tools,
+                )
+
+                tools = _build_deep_research_tools(engine=engine, model="")
+                if tools:
+                    from openjarvis.agents.deep_research import DeepResearchAgent
+
+                    model_name = getattr(app.state, "model", "") or getattr(
+                        engine, "_model", ""
+                    )
+                    dr_agent = DeepResearchAgent(
+                        engine=engine,
+                        model=model_name,
+                        tools=tools,
+                    )
+
+            bus = getattr(app.state, "bus", None)
+            if bus is None:
+                from openjarvis.core.events import EventBus
+
+                bus = EventBus()
+
+            mgr = getattr(app.state, "agent_manager", None)
+            app.state.channel_bridge = ChannelBridge(
+                channels={"sendblue": sb},
+                session_store=session_store,
+                bus=bus,
+                agent_manager=mgr,
+                deep_research_agent=dr_agent,
+            )
+
+        logger.info(
+            "SendBlue channel initialized from environment: %s",
+            from_number or "default",
+        )
+    except Exception as exc:
+        logger.debug("SendBlue env fallback skipped: %s", exc)
 
 
 # No-cache headers applied to static file responses
@@ -220,6 +295,13 @@ def create_app(
     app.state.config = config
     app.state.memory_backend = memory_backend
     app.state.speech_backend = speech_backend
+
+    # Set up audit trail persistence
+    from openjarvis.core.hooks import global_audit_trail
+
+    audit_path = pathlib.Path.home() / ".openjarvis" / "audit.jsonl"
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    global_audit_trail.set_persist_path(str(audit_path))
     app.state.agent_manager = agent_manager
     app.state.agent_scheduler = agent_scheduler
     app.state.session_start = time.time()
@@ -285,6 +367,7 @@ def create_app(
     app.include_router(router)
     app.include_router(dashboard_router)
     app.include_router(comparison_router)
+    app.include_router(osint_router)
     app.include_router(create_connectors_router())
     app.include_router(create_digest_router())
     app.include_router(upload_router)

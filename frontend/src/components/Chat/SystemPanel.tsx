@@ -11,9 +11,11 @@ import {
   X,
   Trophy,
   ExternalLink,
+  Shield,
+  Eye,
 } from 'lucide-react';
 import { useAppStore } from '../../lib/store';
-import { getBase } from '../../lib/api';
+import { getBase, fetchAuditLog, fetchHooks, type AuditEntry, type HookInfo } from '../../lib/api';
 
 interface EnergyData {
   total_energy_j?: number;
@@ -42,6 +44,9 @@ export function SystemPanel() {
   const liveEnergy = useAppStore((s) => s.liveEnergy);
   const [energy, setEnergy] = useState<EnergyData | null>(null);
   const [telemetry, setTelemetry] = useState<TelemetryStats | null>(null);
+  const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
+  const [hooks, setHooks] = useState<HookInfo[]>([]);
+  const [securityExpanded, setSecurityExpanded] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -55,6 +60,19 @@ export function SystemPanel() {
       }
       if (telRes.status === 'fulfilled' && telRes.value) {
         setTelemetry(telRes.value as TelemetryStats);
+      }
+      // Security / audit best-effort
+      try {
+        const audit = await fetchAuditLog(10);
+        setAuditLog(audit.entries);
+      } catch {
+        setAuditLog([]);
+      }
+      try {
+        const hookList = await fetchHooks();
+        setHooks(hookList);
+      } catch {
+        setHooks([]);
       }
     } catch {
       // best-effort
@@ -208,6 +226,85 @@ export function SystemPanel() {
           </div>
 
 
+        </section>
+
+        {/* Security & Audit */}
+        <section>
+          <button
+            onClick={() => setSecurityExpanded(!securityExpanded)}
+            className="w-full flex items-center gap-2 mb-2 cursor-pointer"
+          >
+            <Shield size={14} style={{ color: 'var(--color-accent)' }} />
+            <h4
+              className="text-[11px] font-medium uppercase tracking-wide"
+              style={{ color: 'var(--color-text-tertiary)' }}
+            >
+              Security & Audit
+            </h4>
+            <span className="ml-auto text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
+              {securityExpanded ? '▼' : '▶'}
+            </span>
+          </button>
+
+          {securityExpanded && (
+            <div className="flex flex-col gap-3">
+              {/* Hooks */}
+              <div className="flex flex-wrap gap-1">
+                {hooks.map((h) => (
+                  <span
+                    key={h.name}
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px]"
+                    style={{
+                      background: h.active
+                        ? 'var(--color-accent-subtle)'
+                        : 'var(--color-bg-secondary)',
+                      color: h.active ? 'var(--color-accent)' : 'var(--color-text-tertiary)',
+                      border: `1px solid ${h.active ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                    }}
+                    title={`Stage: ${h.stage} | Priority: ${h.priority}`}
+                  >
+                    {h.active ? '●' : '○'} {h.name}
+                  </span>
+                ))}
+                {hooks.length === 0 && (
+                  <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
+                    No hooks registered
+                  </span>
+                )}
+              </div>
+
+              {/* Audit Trail */}
+              <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
+                {auditLog.slice(0, 10).map((entry, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center gap-2 text-[10px] px-2 py-1 rounded"
+                    style={{
+                      background: entry.allowed
+                        ? 'rgba(34,197,94,0.08)'
+                        : 'rgba(239,68,68,0.08)',
+                    }}
+                  >
+                    <Eye size={10} style={{ color: entry.allowed ? 'var(--color-success)' : 'var(--color-error)', opacity: 0.7 }} />
+                    <span className="font-mono opacity-60">
+                      {new Date(entry.timestamp).toLocaleTimeString()}
+                    </span>
+                    <span className="truncate flex-1">{entry.agent_id} › {entry.stage}</span>
+                    {entry.error && (
+                      <span className="text-[9px] shrink-0" style={{ color: 'var(--color-error)' }}>
+                        {entry.error}
+                      </span>
+                    )}
+                  </div>
+                ))}
+                {auditLog.length === 0 && (
+                  <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
+                    No audit entries
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
         </section>
 
         {/* Leaderboard / Share */}

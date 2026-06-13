@@ -1,12 +1,13 @@
 """BavariaBookingAgent — domain-specialised orchestrator for Landhaus Bavaria.
 
-Embeds the BavariaBookingX skill content as a fixed system prompt so the
-agent behaves as a domain expert for the website, booking system, and
-deployment pipeline.
+Reads the BavariaBookingX domain instructions from the companion
+``bavaria_booking.md`` file so the agent behaves as a domain expert for
+the website, booking system, deployment pipeline, and approved data sources.
 """
 
 from __future__ import annotations
 
+import pathlib
 from typing import Any, List, Optional
 
 from openjarvis.agents.orchestrator import OrchestratorAgent
@@ -15,50 +16,18 @@ from openjarvis.core.registry import AgentRegistry
 from openjarvis.engine._stubs import InferenceEngine
 from openjarvis.tools._stubs import BaseTool
 
-_BAVARIA_BOOKING_SYSTEM_PROMPT = """\
-You are the BavariaBooking Domain Expert. You manage and develop the
-Landhaus Bavaria website (landhausbavaria.de).
+_BAVARIA_BOOKING_SYSTEM_PROMPT = (
+    "You are the BavariaBooking Domain Expert. "
+    "See bavaria_booking.md for full instructions."
+)
 
-## Project Overview
-- Frontend: React / Vite / TypeScript (strict mode)
-- Backend: Node.js services
-- Deployment: Vercel (landhausbavaria.de)
-- Booking: Deskline WebClient API (webclient4.deskline.net)
-- POS: Orderbird (my.orderbird.com)
 
-## Key Endpoints
-- Homepage: /
-- Restaurant reservation: /restaurant
-- Room booking: /pension
-- Booking status: /buchung-check
-
-## When Asked to Fix / Update / Add a Feature
-1. Read relevant source files first (file_read) to understand current state.
-2. Make minimal, targeted changes (file_write, apply_patch).
-3. Run tests if available: npm test, vitest, or Playwright e2e.
-4. Commit with descriptive messages (git_commit).
-5. Deploy via Vercel CLI if needed (shell_exec: vercel --prod).
-
-## Coding Standards
-- TypeScript strict mode
-- React 18+ with Hooks
-- TailwindCSS for styling
-- Zod for validation
-- Vitest for unit tests, Playwright for E2E
-
-## Security Rules
-- NEVER commit .env files or API keys.
-- Validate all user inputs (Zod).
-- Follow OWASP Top 10 (XSS, CSRF, SQL injection prevention).
-
-## Tool Guidance
-- Use file_read / file_write for code changes.
-- Use shell_exec for git, npm, vercel CLI, or running tests.
-- Use web_search for Deskline API docs or troubleshooting.
-- Use code_interpreter for data analysis or script generation.
-
-Respond concisely in German. When unsure, use web_search or ask for clarification.
-"""
+def _load_domain_prompt() -> str:
+    """Load the domain prompt from the adjacent ``bavaria_booking.md`` file."""
+    md_path = pathlib.Path(__file__).with_suffix(".md")
+    if md_path.exists():
+        return md_path.read_text(encoding="utf-8")
+    return _BAVARIA_BOOKING_SYSTEM_PROMPT
 
 
 @AgentRegistry.register("bavaria_booking")
@@ -96,8 +65,9 @@ class BavariaBookingAgent(OrchestratorAgent):
         interactive: bool = False,
         confirm_callback=None,
     ) -> None:
-        # If no explicit system_prompt is passed, use the domain prompt.
-        effective_prompt = system_prompt if system_prompt is not None else _BAVARIA_BOOKING_SYSTEM_PROMPT
+        # If no explicit system_prompt is passed, load the domain prompt from
+        # the companion Markdown file so it can be edited without touching code.
+        effective_prompt = system_prompt if system_prompt is not None else _load_domain_prompt()
         super().__init__(
             engine,
             model,

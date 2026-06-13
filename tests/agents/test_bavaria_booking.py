@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 
 import pytest
@@ -77,7 +78,7 @@ def test_run_with_mock_engine():
     agent = BavariaBookingAgent(engine, "fake-model")
 
     ctx = AgentContext()
-    result = agent.run("How does the booking button work?", context=ctx)
+    result = asyncio.run(agent.run("How does the booking button work?", context=ctx))
 
     assert result.content is not None
     assert "Deskline" in result.content or "booking" in result.content.lower()
@@ -125,7 +126,7 @@ def test_run_with_tool_call_and_observation():
     agent = BavariaBookingAgent(engine, "fake-model", tools=[echo_tool])
 
     ctx = AgentContext()
-    result = agent.run("Check booking flow", context=ctx)
+    result = asyncio.run(agent.run("Check booking flow", context=ctx))
 
     assert result.content is not None
     assert result.turns == 2

@@ -157,4 +157,14 @@ try:
 except ImportError:
     pass
 
+try:
+    import openjarvis.tools.osint_arsenal  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.fbi_watchdog  # noqa: F401
+except ImportError:
+    pass
+
 __all__ = ["BaseTool", "ToolExecutor", "ToolSpec"]

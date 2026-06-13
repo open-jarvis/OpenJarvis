@@ -76,6 +76,7 @@ interface Settings {
   temperature: number;
   maxTokens: number;
   speechEnabled: boolean;
+  planMode: boolean;
 }
 
 function loadSettings(): Settings {
@@ -88,6 +89,7 @@ function loadSettings(): Settings {
     temperature: 0.7,
     maxTokens: 4096,
     speechEnabled: false,
+    planMode: false,
   };
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
@@ -171,6 +173,10 @@ interface AppState {
   deepResearch: boolean;
   setDeepResearch: (on: boolean) => void;
 
+  // Plan Mode toggle
+  planMode: boolean;
+  setPlanMode: (on: boolean) => void;
+
   // Actions: models & server
   setModels: (models: ModelInfo[]) => void;
   setModelsLoading: (loading: boolean) => void;
@@ -203,6 +209,10 @@ interface AppState {
   managedAgents: ManagedAgent[];
   managedAgentsLoading: boolean;
   selectedAgentId: string | null;
+
+  // Domain agents (registry-based, e.g. bavaria_booking)
+  activeDomainAgent: string | null;
+  setActiveDomainAgent: (agentId: string | null) => void;
 
   // Actions: agents
   setManagedAgents: (agents: ManagedAgent[]) => void;
@@ -251,6 +261,8 @@ export const useAppStore = create<AppState>((set, get) => {
     savings: null,
 
     settings: loadSettings(),
+
+    activeDomainAgent: null,
 
     commandPaletteOpen: false,
     sidebarOpen: true,
@@ -436,6 +448,10 @@ export const useAppStore = create<AppState>((set, get) => {
     deepResearch: false,
     setDeepResearch: (on: boolean) => set({ deepResearch: on }),
 
+    // ── Plan Mode ──────────────────────────────────────────────────
+    planMode: false,
+    setPlanMode: (on: boolean) => set({ planMode: on }),
+
     // ── Models & server ────────────────────────────────────────────
 
     setModels: (models: ModelInfo[]) => set({ models }),
@@ -492,6 +508,8 @@ export const useAppStore = create<AppState>((set, get) => {
     setManagedAgents: (agents) => set({ managedAgents: agents }),
     setManagedAgentsLoading: (loading) => set({ managedAgentsLoading: loading }),
     setSelectedAgentId: (id) => set({ selectedAgentId: id }),
+
+    setActiveDomainAgent: (agentId: string | null) => set({ activeDomainAgent: agentId }),
 
     agentEvents: [],
     addAgentEvent: (event) => set((s) => ({

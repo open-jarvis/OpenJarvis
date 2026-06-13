@@ -60,6 +60,9 @@ import {
   Copy,
   Check,
   Pencil,
+  Calendar,
+  Mail,
+  Package,
 } from 'lucide-react';
 import { SOURCE_CATALOG } from '../types/connectors';
 import type { ConnectRequest } from '../types/connectors';
@@ -4032,6 +4035,94 @@ export function AgentsPage() {
 
       {/* Agent cards grid */}
       <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
+        {/* Chief of Staff static card */}
+        <div
+          className="p-4 rounded-lg cursor-default transition-all hover:shadow-md"
+          style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-accent-purple)40' }}
+        >
+          <div className="flex items-center gap-3 mb-3">
+            <div className="p-2 rounded-lg" style={{ background: 'var(--color-accent-purple)20' }}>
+              <span style={{ fontSize: 20 }}>{'🤖'}</span>
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>Chief of Staff</h3>
+              <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Auto Domain Router</span>
+            </div>
+          </div>
+          <p className="text-xs mb-3" style={{ color: 'var(--color-text-secondary)' }}>
+            Routes requests to the right domain agent using natural language classification. Select “Auto” in the Chat agent dropdown to use it.
+          </p>
+          <div className="flex items-center gap-2">
+            <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--color-accent-purple)20', color: 'var(--color-accent-purple)' }}>Always On</span>
+          </div>
+        </div>
+
+        {/* Domain Agent — Calendar */}
+        <div
+          className="p-4 rounded-lg cursor-default transition-all hover:shadow-md"
+          style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
+        >
+          <div className="flex items-center gap-3 mb-3">
+            <div className="p-2 rounded-lg" style={{ background: 'var(--color-accent)15' }}>
+              <Calendar size={20} style={{ color: 'var(--color-accent)' }} />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>Calendar Agent</h3>
+              <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Schedule & Meetings</span>
+            </div>
+          </div>
+          <p className="text-xs mb-3" style={{ color: 'var(--color-text-secondary)' }}>
+            Manages your schedule, books meetings, and sends calendar invites via the Chief of Staff router.
+          </p>
+          <div className="flex items-center gap-2">
+            <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--color-accent)15', color: 'var(--color-accent)' }}>Domain Agent</span>
+          </div>
+        </div>
+
+        {/* Domain Agent — Email */}
+        <div
+          className="p-4 rounded-lg cursor-default transition-all hover:shadow-md"
+          style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
+        >
+          <div className="flex items-center gap-3 mb-3">
+            <div className="p-2 rounded-lg" style={{ background: 'var(--color-accent)15' }}>
+              <Mail size={20} style={{ color: 'var(--color-accent)' }} />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>Email Agent</h3>
+              <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Triage & Compose</span>
+            </div>
+          </div>
+          <p className="text-xs mb-3" style={{ color: 'var(--color-text-secondary)' }}>
+            Triages inbox, drafts replies, and manages email workflows via the Chief of Staff router.
+          </p>
+          <div className="flex items-center gap-2">
+            <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--color-accent)15', color: 'var(--color-accent)' }}>Domain Agent</span>
+          </div>
+        </div>
+
+        {/* Domain Agent — Inventory */}
+        <div
+          className="p-4 rounded-lg cursor-default transition-all hover:shadow-md"
+          style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
+        >
+          <div className="flex items-center gap-3 mb-3">
+            <div className="p-2 rounded-lg" style={{ background: 'var(--color-accent)15' }}>
+              <Package size={20} style={{ color: 'var(--color-accent)' }} />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>Inventory Agent</h3>
+              <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Stock & Supplies</span>
+            </div>
+          </div>
+          <p className="text-xs mb-3" style={{ color: 'var(--color-text-secondary)' }}>
+            Tracks supplies, monitors stock levels, and alerts when inventory runs low via the Chief of Staff router.
+          </p>
+          <div className="flex items-center gap-2">
+            <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--color-accent)15', color: 'var(--color-accent)' }}>Domain Agent</span>
+          </div>
+        </div>
+
         {managedAgents.map((a) => (
           <AgentCard
             key={a.id}

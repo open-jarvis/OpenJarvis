@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import uuid
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -20,6 +22,12 @@ from openjarvis.server.models import (
     DeltaMessage,
     ModelListResponse,
     ModelObject,
+    ExecutePlanRequest,
+    ExecutePlanResponse,
+    ExecuteStepResult,
+    PlanRequest,
+    PlanResponse,
+    PlanStep,
     StreamChoice,
     UsageInfo,
 )
@@ -49,6 +57,67 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
     engine = request.app.state.engine
     agent = getattr(request.app.state, "agent", None)
     model = request_body.model
+
+    # If agent_id is provided, instantiate a domain agent from the registry
+    # and inject its system prompt into the message list so the engine
+    # sees the domain context even in plain streaming mode.
+    # Special value "auto" triggers ChiefOfStaff routing.
+    domain_system_prompt = None
+    effective_agent_id = request_body.agent_id
+    if effective_agent_id == "auto":
+        effective_agent_id = "chief_of_staff"
+    if effective_agent_id:
+        try:
+            import openjarvis.agents  # noqa: F401 — side-effect registration
+            from openjarvis.core.registry import AgentRegistry
+
+            agent_cls = AgentRegistry.get(effective_agent_id)
+            # Collect available tools for the agent
+            tools = None
+            try:
+                from openjarvis.tools.discovery import get_available_tools
+
+                tools = get_available_tools()
+            except Exception:
+                pass
+            bus = getattr(request.app.state, "bus", None)
+            agent = agent_cls(
+                engine=engine,
+                model=model,
+                tools=tools,
+                bus=bus,
+            )
+            # Extract system prompt so we can inject it into messages for
+            # both streaming (direct engine) and non-streaming paths.
+            domain_system_prompt = getattr(agent, "_system_prompt", None)
+        except Exception as exc:
+            logging.getLogger("openjarvis.server").warning(
+                "Failed to load domain agent %s: %s",
+                request_body.agent_id,
+                exc,
+                exc_info=True,
+            )
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown agent_id: {request_body.agent_id}",
+            ) from exc
+
+    # Inject domain system prompt as the first system message
+    if domain_system_prompt and request_body.messages:
+        # Check if a system message already exists
+        has_system = any(m.role == "system" for m in request_body.messages)
+        if has_system:
+            # Replace the first existing system message content
+            for m in request_body.messages:
+                if m.role == "system":
+                    m.content = domain_system_prompt
+                    break
+        else:
+            from openjarvis.server.models import ChatMessage
+
+            request_body.messages.insert(
+                0, ChatMessage(role="system", content=domain_system_prompt),
+            )
 
     # Inject memory context into messages before dispatching
     config = getattr(request.app.state, "config", None)
@@ -149,7 +218,7 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
 
     # Non-streaming: use agent if available, otherwise direct engine call
     if agent is not None:
-        return _handle_agent(agent, model, request_body, complexity_info)
+        return await _handle_agent(agent, model, request_body, complexity_info)
 
     bus = getattr(request.app.state, "bus", None)
     return _handle_direct(
@@ -229,7 +298,7 @@ def _handle_direct(
     )
 
 
-def _handle_agent(
+async def _handle_agent(
     agent,
     model: str,
     req: ChatCompletionRequest,
@@ -253,7 +322,11 @@ def _handle_agent(
     if model:
         agent._model = model
     try:
-        result = agent.run(input_text, context=ctx)
+        _raw = agent.run(input_text, context=ctx)
+        if asyncio.iscoroutine(_raw):
+            result = await _raw
+        else:
+            result = _raw
     finally:
         agent._model = original_model
 
@@ -438,6 +511,136 @@ async def _handle_stream(
         generate(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )
+
+
+@router.post("/v1/plan")
+async def create_plan(request_body: PlanRequest, request: Request):
+    """Generate a strategic plan without executing it.
+
+    Uses the PlanModeAgent to break a request into discrete steps,
+    estimate effort / risk, and return a structured plan for review.
+    """
+    engine = request.app.state.engine
+    model = request_body.model or getattr(engine, 'default_model', None) or 'qwen3:0.6b'
+
+    # Build prompt text from task or messages
+    if request_body.task:
+        prompt_text = request_body.task
+    elif request_body.messages:
+        prompt_parts = []
+        for m in request_body.messages:
+            prompt_parts.append(f"{m.role}: {m.content}")
+        prompt_text = "\n".join(prompt_parts)
+    else:
+        prompt_text = ""
+
+    # Instantiate plan-mode agent
+    from openjarvis.agents.plan_mode import PlanModeAgent
+
+    agent = PlanModeAgent(
+        engine,
+        model,
+        temperature=request_body.temperature,
+        max_tokens=request_body.max_tokens,
+    )
+
+    result = agent.run(prompt_text)
+    content = result.content
+    metadata = result.metadata or {}
+
+    # Try to parse the JSON plan output
+    plan_data = {}
+    try:
+        plan_data = json.loads(content)
+    except Exception:
+        # Fallback: wrap raw content as a single-step plan
+        plan_data = {
+            "thought": "",
+            "plan": "Raw plan output",
+            "steps": [{"number": 1, "description": content, "effort": "medium", "risk": "low"}],
+            "final_answer": "",
+        }
+
+    return PlanResponse(
+        thought=plan_data.get("thought", ""),
+        plan=plan_data.get("plan", ""),
+        steps=[
+            PlanStep(
+                number=s.get("number", i + 1),
+                description=s.get("description", ""),
+                effort=s.get("effort", "medium"),
+                risk=s.get("risk", "low"),
+            )
+            for i, s in enumerate(plan_data.get("steps", []))
+        ],
+        final_answer=plan_data.get("final_answer", ""),
+        metadata={"turns": result.turns, **metadata},
+    )
+
+
+@router.post("/v1/plan/execute")
+async def execute_plan(request_body: ExecutePlanRequest, request: Request):
+    """Execute a plan step-by-step.
+
+    Accepts a plan produced by /v1/plan and runs each step through
+    the appropriate domain agent. Returns results per step.
+    """
+
+    engine = request.app.state.engine
+    model = request_body.model or getattr(engine, "default_model", None) or "qwen3:0.6b"
+
+    results = []
+    for step in request_body.steps:
+        result = ExecuteStepResult(
+            step_number=step.step_number,
+            description=step.description,
+            status="running",
+        )
+
+        try:
+            # Route to specified agent or default to orchestrator
+            agent_id = step.agent_id or "orchestrator"
+            import openjarvis.agents  # noqa: F401
+            from openjarvis.core.registry import AgentRegistry
+
+            agent_cls = AgentRegistry.get(agent_id)
+            if agent_cls is None:
+                agent_cls = AgentRegistry.get("orchestrator")
+
+            agent = agent_cls(
+                engine,
+                model,
+                temperature=request_body.temperature,
+                max_tokens=request_body.max_tokens,
+            )
+            # Run sync agent.run() in a thread so the event loop isn't blocked
+            raw = await asyncio.to_thread(agent.run, step.description)
+            if asyncio.iscoroutine(raw):
+                agent_result = await raw
+            else:
+                agent_result = raw
+
+            result.status = "completed"
+            result.output = agent_result.content if hasattr(agent_result, "content") else str(agent_result)
+        except Exception as exc:
+            result.status = "failed"
+            result.error = str(exc)
+
+        results.append(result)
+
+    completed = all(r.status == "completed" for r in results)
+    summary = (
+        f"Executed {len(results)} steps. "
+        f"Completed: {sum(1 for r in results if r.status == 'completed')}. "
+        f"Failed: {sum(1 for r in results if r.status == 'failed')}."
+    )
+
+    return ExecutePlanResponse(
+        plan_title=request_body.plan_title,
+        results=results,
+        completed=completed,
+        summary=summary,
     )
 
 
@@ -764,6 +967,50 @@ async def security_scan():
                 "platform": r.platform,
             }
             for r in results
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Hook & Audit endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/v1/hooks")
+async def list_hooks():
+    """List all registered lifecycle hooks."""
+    from openjarvis.core.hooks import HookRegistry
+
+    return HookRegistry.list_hooks()
+
+
+@router.get("/v1/audit")
+async def get_audit_log(
+    agent_id: Optional[str] = None,
+    stage: Optional[str] = None,
+    limit: int = 100,
+):
+    """Query the global audit trail."""
+    from openjarvis.core.hooks import global_audit_trail
+
+    entries = global_audit_trail.entries(
+        agent_id=agent_id,
+        stage=stage,
+        limit=limit,
+    )
+    return {
+        "count": len(entries),
+        "entries": [
+            {
+                "timestamp": e.timestamp,
+                "stage": e.stage,
+                "agent_id": e.agent_id,
+                "conversation_id": e.conversation_id,
+                "details": e.details,
+                "allowed": e.allowed,
+                "error": e.error,
+            }
+            for e in entries
         ],
     }
 

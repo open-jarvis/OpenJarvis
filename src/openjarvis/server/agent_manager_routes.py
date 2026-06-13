@@ -2097,6 +2097,7 @@ def create_agent_manager_router(
         import httpx
 
         try:
+            # SendBlue expects webhooks as an array of URLs
             resp = httpx.post(
                 "https://api.sendblue.co/api/account/webhooks",
                 headers={
@@ -2105,7 +2106,7 @@ def create_agent_manager_router(
                     "Content-Type": "application/json",
                 },
                 json={
-                    "receive": webhook_url,
+                    "webhooks": [webhook_url],
                 },
                 timeout=15.0,
             )

@@ -353,12 +353,16 @@ def create_webhook_router(
         if sb and sb.webhook_secret:
             header_secret = request.headers.get("x-sendblue-secret", "")
             if header_secret != sb.webhook_secret:
+                logger.warning("SendBlue webhook rejected: invalid x-sendblue-secret")
                 return Response("Invalid secret", status_code=403)
         elif sb:
             logger.warning(
                 "SendBlue webhook received without secret verification. "
-                "Set webhook_secret for HMAC validation."
+                "Set webhook_secret on the channel for production."
             )
+        else:
+            logger.error("SendBlue webhook received but no channel configured")
+            return Response("Channel not configured", status_code=503)
 
         # Ignore outbound status callbacks
         if payload.get("is_outbound", False):
