@@ -72,7 +72,10 @@ def chat(
 
     register_builtin_models()
 
-    resolved = get_engine(config, engine_key)
+    pref = config.intelligence.preferred_engine
+    effective_engine_key = engine_key or pref or config.engine.default
+    effective_engine_key = effective_engine_key or None
+    resolved = get_engine(config, effective_engine_key)
     if resolved is None:
         console.print("[red]No inference engine available.[/red]")
         sys.exit(1)
