@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "OpenJarvis"
-version = "1.0.2"
+dynamic = ["version"]
 description = "OpenJarvis — modular AI assistant backend with composable intelligence primitives"
 readme = "README.md"
 # Upper bound: numpy 2.2.x (pinned transitively via datasets/pandas) ships no
@@ -153,6 +153,30 @@ Issues = "https://github.com/open-jarvis/OpenJarvis/issues"
 [project.scripts]
 jarvis = "openjarvis.cli:main"
 openjarvis-eval = "openjarvis.evals.cli:main"
+
+# Version is derived from git tags by hatch-vcs (see #526). For source/editable
+# checkouts this yields the true `git describe` version (e.g. 1.0.3.dev109+g<sha>)
+# rather than a stale static string. CI release builds override this with
+# SETUPTOOLS_SCM_PRETEND_VERSION so the published version equals the pushed tag.
+#
+# setuptools_scm cannot bump custom `.devN` tags (only `.dev0`), so the autotag
+# `vX.Y.Z.devN` tags are deliberately EXCLUDED from version derivation here; the
+# base is taken from the latest plain release tag (vX.Y.Z) and the dev distance
+# is computed from commit count since that release.
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.version.raw-options]
+tag_regex = '^v(?P<version>[0-9]+\.[0-9]+\.[0-9]+)$'
+git_describe_command = [
+    "git", "describe", "--dirty", "--tags", "--long",
+    "--match", "v[0-9]*", "--exclude", "*dev*", "--exclude", "*rc*", "--exclude", "desktop-*",
+]
+# Builds without a git checkout (e.g. the `COPY src/ src/` Docker stages, which
+# never include .git) can't run `git describe`. Without a fallback that would
+# hard-fail the build. Mirror the runtime sentinel in src/openjarvis/__init__.py.
+# Such builds can inject the real version via SETUPTOOLS_SCM_PRETEND_VERSION.
+fallback_version = "0.0.0+unknown"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/openjarvis"]

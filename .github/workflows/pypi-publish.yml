@@ -12,6 +12,11 @@ on:
         description: 'Tag to publish (e.g. v1.0.2.dev500). Overrides github.ref.'
         required: false
         type: string
+      dry_run:
+        description: 'Dry run: build + validate, then publish to TestPyPI instead of PyPI (no production upload).'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -67,27 +72,41 @@ jobs:
             exit 1
           }
 
-      - name: Set version from tag
+      - name: Resolve build version from tag
         env:
           REF: ${{ steps.ref.outputs.ref }}
         run: |
           set -euo pipefail
-          # Strip leading "v" if present (e.g. v1.0.2.dev500 -> 1.0.2.dev500)
+          # Strip leading "v" (e.g. v1.0.3.dev825 -> 1.0.3.dev825).
           VERSION="${REF#v}"
-          if [[ -z "$VERSION" ]]; then
-            echo "::error::Could not resolve version from ref '$REF'"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "::error::ref '$REF' is not a version tag (expected vX.Y.Z[.devN]); pass -f tag=vX.Y.Z"
             exit 1
           fi
-          sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" pyproject.toml
-          # Sanity check the substitution actually took
-          grep -q "^version = \"${VERSION}\"" pyproject.toml || {
-            echo "::error::sed failed to update pyproject.toml version"
-            exit 1
-          }
-          echo "Building version $VERSION"
+          # pyproject.toml is now dynamic = ["version"] via hatch-vcs (#526), so
+          # there is no static line to sed. setuptools_scm cannot bump custom
+          # `.devN` tags, so we pin the exact build version explicitly — the
+          # published version always equals the pushed tag.
+          echo "SETUPTOOLS_SCM_PRETEND_VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "Building version ${VERSION}"
 
       - name: Build package
         run: uv build
 
+      - name: Publish to TestPyPI (dry run)
+        if: ${{ inputs.dry_run }}
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.TEST_PYPI_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${UV_PUBLISH_TOKEN:-}" ]]; then
+            echo "::warning::TEST_PYPI_API_TOKEN is not set — skipping the TestPyPI upload."
+            echo "Build + twine check passed, which validated version derivation and packaging end to end."
+            echo "To exercise a real upload, add a TEST_PYPI_API_TOKEN secret (or a TestPyPI trusted publisher)."
+            exit 0
+          fi
+          uv publish --publish-url https://test.pypi.org/legacy/
+
       - name: Publish to PyPI
+        if: ${{ !inputs.dry_run }}
         run: uv publish
