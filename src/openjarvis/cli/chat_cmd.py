@@ -22,6 +22,75 @@ def _read_input(prompt: str = "You> ") -> Optional[str]:
         return None
 
 
+_VOICE_EXIT = object()  # sentinel: user wants to quit
+
+
+def _record_voice(console: "Console") -> "Optional[str] | object":
+    """Record from mic, transcribe, and return text.
+
+    Returns:
+        str  — transcribed text to use as input
+        None — nothing heard / transcription empty, try again
+        _VOICE_EXIT — Ctrl-C / fatal error, caller should exit
+    """
+    from openjarvis.core.config import load_config
+    from openjarvis.speech._discovery import get_speech_backend
+    from openjarvis.speech.voice_io import record_until_silence
+
+    config = load_config()
+    backend = get_speech_backend(config)
+    if backend is None:
+        console.print(
+            "[red]No speech-to-text backend available. "
+            "Install faster-whisper: pip install faster-whisper[/red]"
+        )
+        return _VOICE_EXIT
+
+    console.print("[dim cyan]Listening… (speak now, stops on silence)[/dim cyan]")
+    try:
+        audio_bytes = record_until_silence()
+    except RuntimeError as exc:
+        console.print(f"[red]Mic error: {exc}[/red]")
+        return _VOICE_EXIT
+    except KeyboardInterrupt:
+        return _VOICE_EXIT
+
+    console.print("[dim]Transcribing…[/dim]")
+    try:
+        result = backend.transcribe(audio_bytes, format="wav")
+        text = result.text.strip()
+        if text:
+            console.print(f"[bold]You (voice):[/bold] {text}")
+            return text
+        console.print("[dim]Nothing heard — try again.[/dim]")
+        return None
+    except Exception as exc:
+        console.print(f"[red]Transcription error: {exc}[/red]")
+        return None
+
+
+def _speak(text: str, console: "Console") -> None:
+    """Synthesize text and play it back; silently skip on missing deps."""
+    from openjarvis.core.registry import TTSRegistry
+    from openjarvis.speech.voice_io import play_wav
+
+    # Try kokoro first (local), then any registered TTS backend
+    for key in ("kokoro", "openai_tts", "cartesia"):
+        if TTSRegistry.contains(key):
+            try:
+                backend = TTSRegistry.get(key)()
+                if not backend.health():
+                    continue
+                result = backend.synthesize(text, output_format="wav")
+                if result.audio:
+                    play_wav(result.audio, sample_rate=result.sample_rate)
+                return
+            except Exception:
+                continue
+
+    console.print("[dim yellow]No TTS backend available — install kokoro: pip install kokoro[/dim yellow]")
+
+
 @click.command()
 @click.option("-e", "--engine", "engine_key", default=None, help="Engine backend.")
 @click.option("-m", "--model", "model_name", default=None, help="Model to use.")
@@ -37,6 +106,13 @@ def _read_input(prompt: str = "You> ") -> Optional[str]:
         "(overrides config). Pass 'none' to disable all persona files."
     ),
 )
+@click.option(
+    "--voice",
+    "voice_mode",
+    is_flag=True,
+    default=False,
+    help="Enable voice I/O: mic input with silence detection + TTS response playback.",
+)
 def chat(
     engine_key: str | None,
     model_name: str | None,
@@ -44,6 +120,7 @@ def chat(
     tools: str | None,
     system_prompt: str | None,
     persona_name: str | None,
+    voice_mode: bool,
 ) -> None:
     """Start an interactive multi-turn chat session.
 
@@ -53,6 +130,9 @@ def chat(
       /model        — show current model
       /help         — show available commands
       /history      — show conversation history
+
+    Pass --voice to use microphone input (silence-detection) and hear responses
+    read back via text-to-speech (kokoro local or OpenAI TTS).
     """
     console = Console(stderr=True)
 
@@ -158,11 +238,16 @@ def chat(
         except Exception as exc:
             console.print(f"[yellow]Agent '{agent_key}' failed: {exc}[/yellow]")
 
+    # Trigger TTS backend registration so _speak can find backends
+    import openjarvis.speech  # noqa: F401
+
     # Print banner
+    voice_hint = "  [magenta]Voice mode ON[/magenta] — speak after the prompt; silence stops recording.\n" if voice_mode else ""
     console.print(
         f"[green bold]OpenJarvis Chat[/green bold]\n"
         f"  Engine: [cyan]{engine_name}[/cyan]  Model: [cyan]{model}[/cyan]"
         f"  Agent: [cyan]{agent_key or 'direct'}[/cyan]\n"
+        f"{voice_hint}"
         f"  Type /help for commands, /quit to exit.\n"
     )
 
@@ -199,14 +284,22 @@ def chat(
         for note in _notifications.diff(get_status()):
             console.print(f"[dim cyan]{note}[/dim cyan]")
 
-        user_input = _read_input()
-        if user_input is None:
-            console.print("\n[dim]Goodbye![/dim]")
-            break
-
-        user_input = user_input.strip()
-        if not user_input:
-            continue
+        if voice_mode:
+            result = _record_voice(console)
+            if result is _VOICE_EXIT:
+                console.print("\n[dim]Goodbye![/dim]")
+                break
+            if result is None:
+                continue  # nothing heard, loop again
+            user_input = result
+        else:
+            user_input = _read_input()
+            if user_input is None:
+                console.print("\n[dim]Goodbye![/dim]")
+                break
+            user_input = user_input.strip()
+            if not user_input:
+                continue
 
         # Handle slash commands
         cmd = user_input.lower()
@@ -266,6 +359,8 @@ def chat(
             console.print()
             console.print(Markdown(content))
             console.print()
+            if voice_mode:
+                _speak(content, console)
         except KeyboardInterrupt:
             console.print("\n[dim]Generation interrupted.[/dim]")
         except Exception as exc:
