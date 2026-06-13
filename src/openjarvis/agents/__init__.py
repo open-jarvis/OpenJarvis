@@ -111,6 +111,21 @@ except ImportError:
     pass
 
 try:
+    import openjarvis.agents.calendar  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.agents.email  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.agents.inventory  # noqa: F401
+except ImportError:
+    pass
+
+try:
     import openjarvis.agents.memory  # noqa: F401
 except ImportError:
     pass

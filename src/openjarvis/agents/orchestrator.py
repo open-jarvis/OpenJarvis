@@ -18,6 +18,7 @@ from typing import Any, List, Optional
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
 from openjarvis.core.events import EventBus
+from openjarvis.core.hooks import HookRegistry, HookStage
 from openjarvis.core.registry import AgentRegistry
 from openjarvis.core.types import Message, Role, ToolCall, ToolResult
 from openjarvis.engine._stubs import InferenceEngine
@@ -76,21 +77,21 @@ class OrchestratorAgent(ToolUsingAgent):
         self._system_prompt = system_prompt
         self._parallel_tools = parallel_tools
 
-    def run(
+    async def run(
         self,
         input: str,
         context: Optional[AgentContext] = None,
         **kwargs: Any,
     ) -> AgentResult:
         if self._mode == "structured":
-            return self._run_structured(input, context, **kwargs)
-        return self._run_function_calling(input, context, **kwargs)
+            return await self._run_structured(input, context, **kwargs)
+        return await self._run_function_calling(input, context, **kwargs)
 
     # ------------------------------------------------------------------
     # Structured mode (THOUGHT/TOOL/INPUT/FINAL_ANSWER)
     # ------------------------------------------------------------------
 
-    def _run_structured(
+    async def _run_structured(
         self,
         input: str,
         context: Optional[AgentContext] = None,
@@ -112,6 +113,7 @@ class OrchestratorAgent(ToolUsingAgent):
 
         all_tool_results: list[ToolResult] = []
         turns = 0
+        hook_ctx = {"agent_id": self.agent_id, "conversation_id": kwargs.get("conversation_id")}
 
         for _turn in range(self._max_turns):
             turns += 1
@@ -119,8 +121,27 @@ class OrchestratorAgent(ToolUsingAgent):
             if self._loop_guard:
                 messages = self._loop_guard.compress_context(messages)
 
+            # Pre-generate hook
+            gen_payload = {"messages": messages, "model": self._model}
+            hr_gen = await HookRegistry.run(HookStage.PRE_GENERATE, payload=gen_payload, context=hook_ctx)
+            if not hr_gen.allowed:
+                return AgentResult(
+                    content=f"Generation denied by hook: {hr_gen.error}",
+                    tool_results=all_tool_results,
+                    turns=turns,
+                )
+            if hr_gen.modified_payload:
+                messages = hr_gen.modified_payload.get("messages", messages)
+
             result = self._generate(messages)
             content = result.get("content", "")
+
+            # Post-generate hook
+            await HookRegistry.run(
+                HookStage.POST_GENERATE,
+                payload={"result": result, "model": self._model},
+                context=hook_ctx,
+            )
 
             parsed = self._parse_structured_response(content)
 
@@ -142,8 +163,27 @@ class OrchestratorAgent(ToolUsingAgent):
                     name=parsed["tool"],
                     arguments=parsed["input"] or "{}",
                 )
-                tool_result = self._executor.execute(tool_call)
+
+                # Pre-tool-use hook
+                pre_payload = {"tool_name": tool_call.name, "tool_input": tool_call.arguments}
+                hr_tool = await HookRegistry.run(HookStage.PRE_TOOL_USE, payload=pre_payload, context=hook_ctx)
+                if not hr_tool.allowed:
+                    tool_result = ToolResult(
+                        tool_name=tool_call.name,
+                        content=f"Denied by hook: {hr_tool.error}",
+                        success=False,
+                    )
+                else:
+                    tool_result = self._executor.execute(tool_call)
+
                 all_tool_results.append(tool_result)
+
+                # Post-tool-use hook
+                await HookRegistry.run(
+                    HookStage.POST_TOOL_USE,
+                    payload={"tool_name": tool_call.name, "tool_input": tool_call.arguments, "tool_output": tool_result.content},
+                    context=hook_ctx,
+                )
 
                 observation = f"Observation: {tool_result.content}"
                 messages.append(Message(role=Role.USER, content=observation))
@@ -205,7 +245,7 @@ class OrchestratorAgent(ToolUsingAgent):
     # Function-calling mode (original behaviour)
     # ------------------------------------------------------------------
 
-    def _run_function_calling(
+    async def _run_function_calling(
         self,
         input: str,
         context: Optional[AgentContext] = None,
@@ -223,6 +263,7 @@ class OrchestratorAgent(ToolUsingAgent):
         turns = 0
         total_prompt_tokens = 0
         total_completion_tokens = 0
+        hook_ctx = {"agent_id": self.agent_id, "conversation_id": kwargs.get("conversation_id")}
 
         for _turn in range(self._max_turns):
             turns += 1
@@ -235,7 +276,26 @@ class OrchestratorAgent(ToolUsingAgent):
             if openai_tools:
                 gen_kwargs["tools"] = openai_tools
 
+            # Pre-generate hook
+            gen_payload = {"messages": messages, "model": self._model, "kwargs": gen_kwargs}
+            hr_gen = await HookRegistry.run(HookStage.PRE_GENERATE, payload=gen_payload, context=hook_ctx)
+            if not hr_gen.allowed:
+                return AgentResult(
+                    content=f"Generation denied by hook: {hr_gen.error}",
+                    tool_results=all_tool_results,
+                    turns=turns,
+                )
+            if hr_gen.modified_payload:
+                gen_kwargs = hr_gen.modified_payload.get("kwargs", gen_kwargs)
+
             result = self._generate(messages, **gen_kwargs)
+
+            # Post-generate hook
+            await HookRegistry.run(
+                HookStage.POST_GENERATE,
+                payload={"result": result, "model": self._model},
+                context=hook_ctx,
+            )
 
             # Accumulate token usage
             usage = result.get("usage", {})
@@ -280,82 +340,63 @@ class OrchestratorAgent(ToolUsingAgent):
                 )
             )
 
-            # Execute each tool (with loop guard check) and append results
-            if self._parallel_tools and len(tool_calls) > 1:
-                # Parallel execution
-                def _exec_tool(tc: ToolCall) -> tuple:
-                    if self._loop_guard:
-                        verdict = self._loop_guard.check_call(
-                            tc.name,
-                            tc.arguments,
-                        )
-                        if verdict.blocked:
-                            return tc, ToolResult(
-                                tool_name=tc.name,
-                                content=f"Loop guard: {verdict.reason}",
-                                success=False,
-                            )
-                    return tc, self._executor.execute(tc)
-
-                with concurrent.futures.ThreadPoolExecutor(
-                    max_workers=len(tool_calls),
-                ) as pool:
-                    futures = {pool.submit(_exec_tool, tc): tc for tc in tool_calls}
-                    results_map: dict[int, tuple] = {}
-                    for future in concurrent.futures.as_completed(futures):
-                        tc_orig = futures[future]
-                        results_map[id(tc_orig)] = future.result()
-
-                # Append results in original order
-                for tc in tool_calls:
-                    _, tool_result = results_map[id(tc)]
-                    all_tool_results.append(tool_result)
-                    messages.append(
-                        Message(
-                            role=Role.TOOL,
-                            content=tool_result.content,
-                            tool_call_id=tc.id,
-                            name=tc.name,
-                        )
+            # Execute each tool (with loop guard check + hooks) and append results
+            for tc in tool_calls:
+                # Loop guard check before execution
+                if self._loop_guard:
+                    verdict = self._loop_guard.check_call(
+                        tc.name,
+                        tc.arguments,
                     )
-            else:
-                # Sequential execution
-                for tc in tool_calls:
-                    # Loop guard check before execution
-                    if self._loop_guard:
-                        verdict = self._loop_guard.check_call(
-                            tc.name,
-                            tc.arguments,
+                    if verdict.blocked:
+                        tool_result = ToolResult(
+                            tool_name=tc.name,
+                            content=f"Loop guard: {verdict.reason}",
+                            success=False,
                         )
-                        if verdict.blocked:
-                            tool_result = ToolResult(
-                                tool_name=tc.name,
-                                content=f"Loop guard: {verdict.reason}",
-                                success=False,
+                        all_tool_results.append(tool_result)
+                        messages.append(
+                            Message(
+                                role=Role.TOOL,
+                                content=tool_result.content,
+                                tool_call_id=tc.id,
+                                name=tc.name,
                             )
-                            all_tool_results.append(tool_result)
-                            messages.append(
-                                Message(
-                                    role=Role.TOOL,
-                                    content=tool_result.content,
-                                    tool_call_id=tc.id,
-                                    name=tc.name,
-                                )
-                            )
-                            continue
+                        )
+                        continue
 
+                # Pre-tool-use hook
+                pre_payload = {"tool_name": tc.name, "tool_input": tc.arguments}
+                hr_tool = await HookRegistry.run(HookStage.PRE_TOOL_USE, payload=pre_payload, context=hook_ctx)
+                if not hr_tool.allowed:
+                    tool_result = ToolResult(
+                        tool_name=tc.name,
+                        content=f"Denied by hook: {hr_tool.error}",
+                        success=False,
+                    )
+                else:
+                    if hr_tool.modified_payload:
+                        tc.arguments = hr_tool.modified_payload.get("tool_input", tc.arguments)
                     tool_result = self._executor.execute(tc)
-                    all_tool_results.append(tool_result)
 
-                    # Append tool response message
-                    messages.append(
-                        Message(
-                            role=Role.TOOL,
-                            content=tool_result.content,
-                            tool_call_id=tc.id,
-                            name=tc.name,
-                        )
+                all_tool_results.append(tool_result)
+
+                # Post-tool-use hook
+                await HookRegistry.run(
+                    HookStage.POST_TOOL_USE,
+                    payload={"tool_name": tc.name, "tool_input": tc.arguments, "tool_output": tool_result.content},
+                    context=hook_ctx,
+                )
+
+                # Append tool response message
+                messages.append(
+                    Message(
+                        role=Role.TOOL,
+                        content=tool_result.content,
+                        tool_call_id=tc.id,
+                        name=tc.name,
                     )
+                )
 
         # Max turns exceeded
         final_content = self._strip_think_tags(content) if content else ""

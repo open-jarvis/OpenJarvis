@@ -964,3 +964,110 @@ export async function denyAction(actionId: string): Promise<void> {
   const res = await fetch(`${getBase()}/v1/approvals/${actionId}/deny`, { method: 'POST' });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
 }
+
+// ---------------------------------------------------------------------------
+// Hooks & Audit
+// ---------------------------------------------------------------------------
+
+export interface HookInfo {
+  name: string;
+  stage: string;
+  priority: number;
+  active: boolean;
+}
+
+export async function fetchHooks(): Promise<HookInfo[]> {
+  const res = await fetch(`${getBase()}/v1/hooks`);
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return res.json();
+}
+
+export interface AuditEntry {
+  timestamp: number;
+  agent_id: string;
+  stage: string;
+  allowed: boolean;
+  error?: string;
+}
+
+export interface AuditLog {
+  count: number;
+  entries: AuditEntry[];
+}
+
+export async function fetchAuditLog(limit = 50): Promise<AuditLog> {
+  const res = await fetch(`${getBase()}/v1/audit?limit=${limit}`);
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
+// Plan Mode
+// ---------------------------------------------------------------------------
+
+export interface PlanStep {
+  step_number: number;
+  description: string;
+  estimated_effort: string;
+  risk_level: string;
+}
+
+export interface PlanResponse {
+  thought: string;
+  plan: string;
+  steps: PlanStep[];
+  final_answer: string;
+  effort: string;
+  risk: string;
+}
+
+export async function createPlan(
+  request: { task: string; model?: string; temperature?: number; max_tokens?: number },
+): Promise<PlanResponse> {
+  const res = await fetch(`${getBase()}/v1/plan`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => res.statusText);
+    throw new Error(`Plan request failed: ${detail}`);
+  }
+  return res.json();
+}
+
+export interface ExecuteStepRequest {
+  step_number: number;
+  description: string;
+  agent_id?: string;
+}
+
+export interface ExecuteStepResult {
+  step_number: number;
+  description: string;
+  status: string;
+  output: string;
+  error: string;
+}
+
+export interface ExecutePlanResponse {
+  plan_title: string;
+  results: ExecuteStepResult[];
+  completed: boolean;
+  summary: string;
+}
+
+export async function executePlan(
+  request: { plan_title: string; steps: ExecuteStepRequest[]; model?: string; auto_execute?: boolean },
+): Promise<ExecutePlanResponse> {
+  const res = await fetch(`${getBase()}/v1/plan/execute`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => res.statusText);
+    throw new Error(`Execute plan failed: ${detail}`);
+  }
+  return res.json();
+}

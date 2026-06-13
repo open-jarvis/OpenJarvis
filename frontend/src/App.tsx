@@ -8,6 +8,7 @@ import { GetStartedPage } from './pages/GetStartedPage';
 import { AgentsPage } from './pages/AgentsPage';
 import { DataSourcesPage } from './pages/DataSourcesPage';
 import { LogsPage } from './pages/LogsPage';
+import { OsintPage } from './pages/OsintPage';
 import { CommandPalette } from './components/CommandPalette';
 import { SetupScreen } from './components/SetupScreen';
 import { Toaster } from './components/ui/sonner';
@@ -181,11 +182,13 @@ export default function App() {
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<ChatPage />} />
+          <Route path="chat" element={<ChatPage />} />
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="get-started" element={<GetStartedPage />} />
           <Route path="data-sources" element={<DataSourcesPage />} />
           <Route path="agents" element={<AgentsPage />} />
+          <Route path="osint" element={<OsintPage />} />
           <Route path="logs" element={<LogsPage />} />
         </Route>
       </Routes>

@@ -7,6 +7,7 @@ export interface ChatRequest {
   stream: true;
   temperature?: number;
   max_tokens?: number;
+  agent_id?: string;
 }
 
 export async function* streamChat(

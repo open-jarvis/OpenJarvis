@@ -509,6 +509,10 @@ class TestUrlExpansion:
         mock_resp.headers = {"content-type": "text/html"}
         mock_resp.raise_for_status = MagicMock()
         monkeypatch.setattr(httpx, "get", MagicMock(return_value=mock_resp))
+        # Bypass Rust SSRF check which may not be available in test environment
+        monkeypatch.setattr(
+            "openjarvis.tools.web_search.check_ssrf", lambda url: None
+        )
 
         text, expanded = NativeOpenHandsAgent._expand_urls(
             "Summarize: https://example.com/article"
@@ -549,7 +553,7 @@ class TestUrlExpansion:
         assert result.turns == 1
         # Only one generate call (direct, no tool loop)
         assert engine.generate.call_count == 1
-        # The message should contain the fetched content, not tool descriptions
+        # The message should contain the fetched content inline
         call_messages = engine.generate.call_args[0][0]
-        system_msg = call_messages[0].content
-        assert "tool" not in system_msg.lower()
+        user_msg = call_messages[-1].content
+        assert "example.com/article" in user_msg

@@ -4,7 +4,7 @@ import { MessageBubble } from './MessageBubble';
 import { InputArea } from './InputArea';
 import { StreamingDots } from './StreamingDots';
 import { useAppStore } from '../../lib/store';
-import { Sparkles, PanelRightOpen, PanelRightClose, Database, MessageSquare, X } from 'lucide-react';
+import { Sparkles, PanelRightOpen, PanelRightClose, Database, MessageSquare, X, Building2, Scale, Megaphone, Wrench, ShieldCheck } from 'lucide-react';
 import { listConnectors } from '../../lib/connectors-api';
 
 function getGreeting(): string {
@@ -14,11 +14,59 @@ function getGreeting(): string {
   return 'Good evening';
 }
 
+const DOMAIN_AGENTS = [
+  {
+    id: 'auto',
+    label: 'Auto',
+    description: 'Automatisch an besten Agent routen',
+    icon: Sparkles,
+    color: '#f59e0b',
+  },
+  {
+    id: 'bavaria_booking',
+    label: 'Bavaria Booking',
+    description: 'Website, Buchungen, Preise',
+    icon: Building2,
+    color: '#2563eb',
+  },
+  {
+    id: 'legal_assistant',
+    label: 'Legal',
+    description: 'Verträge, Compliance, Risiko',
+    icon: Scale,
+    color: '#7c3aed',
+  },
+  {
+    id: 'marketing_assistant',
+    label: 'Marketing',
+    description: 'Kampagnen, Email, Branding',
+    icon: Megaphone,
+    color: '#db2777',
+  },
+  {
+    id: 'operations_assistant',
+    label: 'Operations',
+    description: 'Personal, Housekeeping, Lager',
+    icon: Wrench,
+    color: '#059669',
+  },
+  {
+    id: 'security_assistant',
+    label: 'Security',
+    description: 'Audit, DSGVO, Bedrohungen',
+    icon: ShieldCheck,
+    color: '#dc2626',
+  },
+];
+
 export function ChatArea() {
   const messages = useAppStore((s) => s.messages);
   const streamState = useAppStore((s) => s.streamState);
   const systemPanelOpen = useAppStore((s) => s.systemPanelOpen);
   const toggleSystemPanel = useAppStore((s) => s.toggleSystemPanel);
+  const activeDomainAgent = useAppStore((s) => s.activeDomainAgent);
+  const setActiveDomainAgent = useAppStore((s) => s.setActiveDomainAgent);
+  const createConversation = useAppStore((s) => s.createConversation);
   const navigate = useNavigate();
   const listRef = useRef<HTMLDivElement>(null);
   const shouldAutoScroll = useRef(true);
@@ -111,6 +159,44 @@ export function ChatArea() {
             <p className="text-sm text-center max-w-sm mb-6" style={{ color: 'var(--color-text-secondary)' }}>
               Ask anything. Your AI runs locally — private, fast, and always available.
             </p>
+
+            {/* Domain agents */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 mb-6 w-full max-w-2xl">
+              {DOMAIN_AGENTS.map((da) => {
+                const Icon = da.icon;
+                const isActive = activeDomainAgent === da.id;
+                return (
+                  <button
+                    key={da.id}
+                    onClick={() => {
+                      if (isActive) {
+                        setActiveDomainAgent(null);
+                      } else {
+                        setActiveDomainAgent(da.id);
+                        createConversation();
+                      }
+                    }}
+                    className="flex flex-col items-center gap-2 px-3 py-3 rounded-xl text-xs cursor-pointer transition-all"
+                    style={{
+                      background: isActive ? `${da.color}15` : 'var(--color-bg-secondary)',
+                      border: `1px solid ${isActive ? da.color : 'var(--color-border)'}`,
+                      color: isActive ? da.color : 'var(--color-text-secondary)',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isActive) e.currentTarget.style.borderColor = da.color;
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isActive) e.currentTarget.style.borderColor = 'var(--color-border)';
+                    }}
+                    title={da.description}
+                  >
+                    <Icon size={20} style={{ color: da.color }} />
+                    <span className="font-medium">{da.label}</span>
+                    <span className="text-[10px] opacity-70 leading-tight text-center">{da.description}</span>
+                  </button>
+                );
+              })}
+            </div>
 
             {/* Quick action hints */}
             <div className="flex gap-3">

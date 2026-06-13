@@ -35,6 +35,8 @@ dependencies = [
     "rich>=13",
     "tomli>=2.0; python_version < '3.11'",
     "tomlkit>=0.12",
+    "dnspython>=2.8.0",
+    "python-whois>=0.9.6",
 ]
 
 [project.optional-dependencies]

@@ -111,8 +111,8 @@ class AgentStreamBridge:
         """Format an SSE event with an explicit ``event:`` field."""
         return f"event: {name}\ndata: {json.dumps(data)}\n\n"
 
-    def _run_agent(self) -> object:
-        """Execute the agent synchronously (called via asyncio.to_thread)."""
+    async def _run_agent(self) -> object:
+        """Execute the agent asynchronously."""
         ctx = AgentContext()
         # Build conversation context from prior messages
         if len(self._request.messages) > 1:
@@ -138,7 +138,10 @@ class AgentStreamBridge:
         if self._model:
             self._agent._model = self._model
         try:
-            return self._agent.run(input_text, context=ctx)
+            _raw = self._agent.run(input_text, context=ctx)
+            if asyncio.iscoroutine(_raw):
+                return await _raw
+            return _raw
         finally:
             self._agent._model = original_model
 
@@ -150,9 +153,9 @@ class AgentStreamBridge:
         """Async generator that yields SSE-formatted strings."""
         self._subscribe_all()
 
-        # Kick off agent.run() in a background thread
+        # Kick off agent.run() as an async task
         loop = asyncio.get_event_loop()
-        agent_task = asyncio.ensure_future(asyncio.to_thread(self._run_agent))
+        agent_task = asyncio.ensure_future(self._run_agent())
 
         def _on_done(fut):
             loop.call_soon_threadsafe(self._queue.put_nowait, _DONE)

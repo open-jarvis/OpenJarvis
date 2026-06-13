@@ -28,6 +28,65 @@ class ChatCompletionRequest(BaseModel):
     max_tokens: int = 1024
     stream: bool = False
     tools: Optional[List[Dict[str, Any]]] = None
+    agent_id: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Plan Mode models
+# ---------------------------------------------------------------------------
+
+
+class PlanStep(BaseModel):
+    number: int
+    description: str
+    effort: str = "medium"
+    risk: str = "low"
+
+
+class PlanResponse(BaseModel):
+    thought: str
+    plan: str
+    steps: List[PlanStep]
+    final_answer: str = ""
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class PlanRequest(BaseModel):
+    task: str
+    model: Optional[str] = None
+    messages: Optional[List[ChatMessage]] = None
+    temperature: float = 0.4
+    max_tokens: int = 2048
+
+
+class ExecuteStepRequest(BaseModel):
+    step_number: int
+    description: str
+    agent_id: Optional[str] = None
+
+
+class ExecutePlanRequest(BaseModel):
+    plan_title: str
+    steps: List[ExecuteStepRequest]
+    auto_execute: bool = False
+    model: Optional[str] = None
+    temperature: float = 0.4
+    max_tokens: int = 2048
+
+
+class ExecuteStepResult(BaseModel):
+    step_number: int
+    description: str
+    status: str  # "pending", "running", "completed", "failed"
+    output: str = ""
+    error: str = ""
+
+
+class ExecutePlanResponse(BaseModel):
+    plan_title: str
+    results: List[ExecuteStepResult]
+    completed: bool = False
+    summary: str = ""
 
 
 # ---------------------------------------------------------------------------

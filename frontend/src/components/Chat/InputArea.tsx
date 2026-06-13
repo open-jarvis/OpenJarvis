@@ -1,8 +1,9 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Send, Square, Paperclip, Search } from 'lucide-react';
+import { Send, Square, Paperclip } from 'lucide-react';
+import { ChatToolbar } from './ChatToolbar';
 import { useAppStore, generateId } from '../../lib/store';
 import { streamChat, streamResearch } from '../../lib/sse';
-import { fetchSavings, getBase } from '../../lib/api';
+import { fetchSavings, getBase, createPlan } from '../../lib/api';
 import { listConnectors, getSyncStatus } from '../../lib/connectors-api';
 import { MicButton } from './MicButton';
 import { useSpeech } from '../../hooks/useSpeech';
@@ -94,6 +95,9 @@ export function InputArea() {
   const modelLoading = useAppStore((s) => s.modelLoading);
   const deepResearch = useAppStore((s) => s.deepResearch);
   const setDeepResearch = useAppStore((s) => s.setDeepResearch);
+  const planMode = useAppStore((s) => s.planMode);
+  const setPlanMode = useAppStore((s) => s.setPlanMode);
+  const activeDomainAgent = useAppStore((s) => s.activeDomainAgent);
   const corpusSync = useResearchCorpusSync(deepResearch);
 
   const { state: speechState, available: speechAvailable, startRecording, stopRecording } = useSpeech();
@@ -225,7 +229,17 @@ export function InputArea() {
     });
 
     try {
-      if (deepResearch) {
+      if (planMode) {
+        setStreamState({ phase: 'Planning...', isStreaming: true });
+        const plan = await createPlan({
+          task: content,
+          model: selectedModel,
+          temperature,
+          max_tokens: maxTokens,
+        });
+        accumulatedContent = `**🧠 Thought:** ${plan.thought}\n\n**📋 Plan:** ${plan.plan}\n\n**🔧 Steps:**\n${plan.steps.map((s) => `- **${s.step_number}.** ${s.description} (Effort: ${s.estimated_effort}, Risk: ${s.risk_level})`).join('\n')}\n\n**🏁 Final Answer:** ${plan.final_answer}\n\n*(Effort: ${plan.effort}, Risk: ${plan.risk})*`;
+        updateLastAssistant(convId, accumulatedContent);
+      } else if (deepResearch) {
         for await (const ev of streamResearch(content, controller.signal)) {
           if (ev.type === 'search_call') {
             const trace: ResearchSearchTrace = {
@@ -330,7 +344,7 @@ export function InputArea() {
         }
       } else {
       for await (const sseEvent of streamChat(
-        { model: selectedModel, messages: apiMessages, stream: true, temperature, max_tokens: maxTokens },
+        { model: selectedModel, messages: apiMessages, stream: true, temperature, max_tokens: maxTokens, agent_id: activeDomainAgent || undefined },
         controller.signal,
       )) {
         const eventName = sseEvent.event;
@@ -499,6 +513,9 @@ export function InputArea() {
     deepResearch,
     temperature,
     maxTokens,
+    activeDomainAgent,
+    planMode,
+    setPlanMode,
   ]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -510,38 +527,19 @@ export function InputArea() {
 
   return (
     <div className="px-4 pb-4 pt-2" style={{ maxWidth: 'var(--chat-max-width)', margin: '0 auto', width: '100%' }}>
-      <div className="mb-2 flex flex-col gap-1">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setDeepResearch(!deepResearch)}
-            disabled={streamState.isStreaming}
-            aria-pressed={deepResearch}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs transition-colors cursor-pointer disabled:cursor-default disabled:opacity-50"
-            style={{
-              background: deepResearch ? 'var(--color-accent-subtle)' : 'transparent',
-              border: `1px solid ${deepResearch ? 'var(--color-accent)' : 'var(--color-border)'}`,
-              color: deepResearch ? 'var(--color-accent)' : 'var(--color-text-tertiary)',
-            }}
-            title={deepResearch ? 'Deep Research: on' : 'Deep Research: off'}
-          >
-            <Search size={12} />
-            Deep Research
-          </button>
+      <ChatToolbar />
+      {deepResearch && corpusSync.syncing && corpusSync.itemsSynced > 0 && (
+        <div
+          className="text-[11px] leading-snug mb-2"
+          style={{ color: 'var(--color-text-tertiary)' }}
+        >
+          Searching over{' '}
+          <span key={corpusSync.itemsSynced} className="sync-bump" style={{ color: 'var(--color-text-secondary)' }}>
+            {corpusSync.itemsSynced.toLocaleString()}
+          </span>{' '}
+          items — sync in progress, results will improve as more data is indexed.
         </div>
-        {deepResearch && corpusSync.syncing && corpusSync.itemsSynced > 0 && (
-          <div
-            className="text-[11px] leading-snug"
-            style={{ color: 'var(--color-text-tertiary)' }}
-          >
-            Searching over{' '}
-            <span key={corpusSync.itemsSynced} className="sync-bump" style={{ color: 'var(--color-text-secondary)' }}>
-              {corpusSync.itemsSynced.toLocaleString()}
-            </span>{' '}
-            items — sync in progress, results will improve as more data is indexed.
-          </div>
-        )}
-      </div>
+      )}
       <div
         className="flex items-center gap-2 rounded-2xl px-4 py-3 transition-shadow"
         style={{
@@ -593,11 +591,24 @@ export function InputArea() {
           </div>
         )}
       </div>
-      <div className="flex items-center justify-center mt-2 text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>
+      <div className="flex items-center justify-between mt-2 text-[11px] px-1" style={{ color: 'var(--color-text-tertiary)' }}>
         <span>
           <kbd className="font-mono">Enter</kbd> to send &middot;{' '}
           <kbd className="font-mono">Shift+Enter</kbd> for new line
         </span>
+        {activeDomainAgent && (
+          <span
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium cursor-pointer"
+            style={{
+              background: 'var(--color-accent-subtle)',
+              color: 'var(--color-accent)',
+            }}
+            onClick={() => useAppStore.getState().setActiveDomainAgent(null)}
+            title="Klicken zum Deaktivieren"
+          >
+            Agent: {activeDomainAgent} <span style={{ opacity: 0.6 }}>×</span>
+          </span>
+        )}
       </div>
     </div>
   );

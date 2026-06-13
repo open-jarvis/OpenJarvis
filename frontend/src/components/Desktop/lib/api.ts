@@ -180,3 +180,123 @@ export async function fetchAgentTraces(apiUrl: string, agentId: string, limit = 
 export async function fetchAgentTrace(apiUrl: string, agentId: string, traceId: string): Promise<AgentTraceDetail> {
   return request<AgentTraceDetail>(apiUrl, `/v1/managed-agents/${agentId}/traces/${traceId}`);
 }
+
+// ---------------------------------------------------------------------------
+// OSINT Arsenal + Watchdog
+// ---------------------------------------------------------------------------
+
+export interface OsintToolResult {
+  name: string;
+  category: string;
+  description: string;
+  url: string | null;
+  install_command: string | null;
+  tags: string[];
+}
+
+export interface OsintSearchResponse {
+  query: string;
+  results: OsintToolResult[];
+  count: number;
+}
+
+export async function searchOsintTools(
+  apiUrl: string,
+  query: string,
+  limit = 5,
+  category = "",
+): Promise<OsintSearchResponse> {
+  return request<OsintSearchResponse>(apiUrl, '/v1/osint/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, limit, category }),
+  });
+}
+
+export interface WatchdogScanResponse {
+  target: string;
+  timestamp: string;
+  modules: string[];
+  results: Record<string, unknown>;
+  summary: {
+    reachable: boolean;
+    privacy_protected: boolean;
+    seizure_detected: boolean;
+    errors: number;
+  };
+}
+
+export async function fetchOsintCategories(apiUrl: string): Promise<string[]> {
+  const data = await request<{ categories: string[] }>(apiUrl, '/v1/osint/categories');
+  return data.categories || [];
+}
+
+export async function runWatchdogScan(
+  apiUrl: string,
+  target: string,
+  modules: string[] = ['dns', 'http', 'whois', 'ip'],
+): Promise<WatchdogScanResponse> {
+  return request<WatchdogScanResponse>(apiUrl, '/v1/osint/watch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ target, modules }),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// OSINT Execution + Export
+// ---------------------------------------------------------------------------
+
+export interface OsintExecResponse {
+  tool: string;
+  target: string;
+  type: string;
+  output: string;
+  success: boolean;
+  metadata: Record<string, unknown>;
+}
+
+export async function execOsintTool(
+  apiUrl: string,
+  toolName: string,
+  target: string,
+  timeout = 60,
+): Promise<OsintExecResponse> {
+  return request<OsintExecResponse>(apiUrl, '/v1/osint/exec', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tool_name: toolName, target, timeout }),
+  });
+}
+
+export interface OsintToolDetail {
+  name: string;
+  category: string;
+  description: string;
+  url: string | null;
+  install_command: string | null;
+  tags: string[];
+}
+
+export async function fetchOsintToolDetail(apiUrl: string, name: string): Promise<OsintToolDetail> {
+  return request<OsintToolDetail>(apiUrl, `/v1/osint/tool/${encodeURIComponent(name)}`);
+}
+
+export interface WatchdogExportResponse {
+  format: string;
+  filename: string;
+  data: Record<string, unknown> | string;
+}
+
+export async function exportWatchdogScan(
+  apiUrl: string,
+  target: string,
+  modules: string[] = ['dns', 'http', 'whois', 'ip'],
+  format: 'json' | 'csv' = 'json',
+): Promise<WatchdogExportResponse> {
+  return request<WatchdogExportResponse>(apiUrl, '/v1/osint/watch/export', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ target, modules, format }),
+  });
+}

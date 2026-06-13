@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import MagicMock
 
 import pytest
@@ -59,6 +60,14 @@ _ALL_AGENTS = list(AGENT_RESPONSES)
 # ---------------------------------------------------------------------------
 
 
+def _run(agent, input: str):
+    """Helper that handles both sync and async agent.run() implementations."""
+    result = agent.run(input)
+    if asyncio.iscoroutine(result):
+        return asyncio.run(result)
+    return result
+
+
 @pytest.mark.parametrize("agent_key", _ALL_AGENTS)
 class TestAgentCommon:
     def test_runs_with_mock_engine(self, agent_key):
@@ -66,7 +75,7 @@ class TestAgentCommon:
         engine = _make_mock_engine(AGENT_RESPONSES[agent_key])
         bus = EventBus(record_history=True)
         agent = AGENT_FACTORIES[agent_key](engine, "test-model", bus)
-        result = agent.run("Hello")
+        result = _run(agent, "Hello")
         assert isinstance(result, AgentResult)
 
     def test_returns_valid_result(self, agent_key):
@@ -74,7 +83,7 @@ class TestAgentCommon:
         engine = _make_mock_engine(AGENT_RESPONSES[agent_key])
         bus = EventBus(record_history=True)
         agent = AGENT_FACTORIES[agent_key](engine, "test-model", bus)
-        result = agent.run("Hello")
+        result = _run(agent, "Hello")
         assert hasattr(result, "content")
         assert hasattr(result, "turns")
         assert hasattr(result, "tool_results")
@@ -85,7 +94,7 @@ class TestAgentCommon:
         engine = _make_mock_engine(AGENT_RESPONSES[agent_key])
         bus = EventBus(record_history=True)
         agent = AGENT_FACTORIES[agent_key](engine, "test-model", bus)
-        result = agent.run("Hello")
+        result = _run(agent, "Hello")
         assert result.content != ""
 
     def test_emits_events(self, agent_key):
@@ -93,7 +102,7 @@ class TestAgentCommon:
         engine = _make_mock_engine(AGENT_RESPONSES[agent_key])
         bus = EventBus(record_history=True)
         agent = AGENT_FACTORIES[agent_key](engine, "test-model", bus)
-        agent.run("Hello")
+        _run(agent, "Hello")
         event_types = [e.event_type for e in bus.history]
         assert EventType.AGENT_TURN_START in event_types
 
@@ -102,7 +111,7 @@ class TestAgentCommon:
         engine = _make_mock_engine(AGENT_RESPONSES[agent_key])
         bus = EventBus(record_history=True)
         agent = AGENT_FACTORIES[agent_key](engine, "test-model", bus)
-        result = agent.run("")
+        result = _run(agent, "")
         assert isinstance(result, AgentResult)
 
 
@@ -137,7 +146,7 @@ def test_model_passthrough(agent_key, model):
     """Each agent passes the model name through to the engine."""
     engine = _make_mock_engine(AGENT_RESPONSES[agent_key])
     agent = AGENT_FACTORIES[agent_key](engine, model, None)
-    agent.run("Hello")
+    _run(agent, "Hello")
     call_kwargs = engine.generate.call_args[1]
     assert call_kwargs["model"] == model
 
@@ -152,7 +161,7 @@ def test_no_bus(agent_key):
     """All agents work without an event bus."""
     engine = _make_mock_engine(AGENT_RESPONSES[agent_key])
     agent = AGENT_FACTORIES[agent_key](engine, "test-model", None)
-    result = agent.run("Hello")
+    result = _run(agent, "Hello")
     assert isinstance(result, AgentResult)
     assert result.content != ""
 
@@ -167,7 +176,7 @@ def test_single_turn_count(agent_key):
     """All agents report at least 1 turn for a simple query."""
     engine = _make_mock_engine(AGENT_RESPONSES[agent_key])
     agent = AGENT_FACTORIES[agent_key](engine, "test-model", None)
-    result = agent.run("Hello")
+    result = _run(agent, "Hello")
     assert result.turns >= 1
 
 
@@ -181,5 +190,5 @@ def test_no_tool_results_for_simple_query(agent_key):
     """When no tools are used, tool_results should be empty."""
     engine = _make_mock_engine(AGENT_RESPONSES[agent_key])
     agent = AGENT_FACTORIES[agent_key](engine, "test-model", None)
-    result = agent.run("Hello")
+    result = _run(agent, "Hello")
     assert result.tool_results == []
