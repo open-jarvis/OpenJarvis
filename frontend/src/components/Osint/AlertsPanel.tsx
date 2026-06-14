@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Shield, Loader2, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import { fetchAlerts, type AlertsResponse } from '../Desktop/lib/api';
 
@@ -47,7 +47,7 @@ export function AlertsPanel() {
 
   const formatDiff = (diff: AlertItem['metadata']['diff']) => {
     if (!diff) return null;
-    const sections: JSX.Element[] = [];
+    const sections: React.ReactNode[] = [];
 
     if (diff.changed && Object.keys(diff.changed).length > 0) {
       sections.push(
