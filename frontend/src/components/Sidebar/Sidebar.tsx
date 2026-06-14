@@ -18,6 +18,7 @@ import {
   ScrollText,
   Database,
   Shield,
+  Hotel,
 } from 'lucide-react';
 import { ConversationList } from './ConversationList';
 import { useAppStore } from '../../lib/store';
@@ -59,6 +60,7 @@ export function Sidebar() {
     { path: '/data-sources', icon: Database, label: 'Data Sources' },
     { path: '/agents', icon: Bot, label: 'Agents' },
     { path: '/osint', icon: Shield, label: 'OSINT' },
+    { path: '/landhaus', icon: Hotel, label: 'Landhaus' },
     { path: '/logs', icon: ScrollText, label: 'Logs' },
     { path: '/settings', icon: Settings, label: 'Settings' },
     { path: '/get-started', icon: Rocket, label: 'Get Started' },
