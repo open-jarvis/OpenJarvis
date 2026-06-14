@@ -10,6 +10,16 @@ interface SourceHealth {
   content_length?: number;
   latest_state?: string;
   latest_url?: string;
+  rooms_total?: number;
+  rooms_occupied?: number;
+  rooms_available?: number;
+  next_checkin?: string;
+  bookings_count?: number;
+  last_sync?: string;
+  channels?: string[];
+  deployment_state?: string;
+  production_url?: string;
+  last_deploy?: string;
 }
 
 interface HealthResponse {
@@ -170,10 +180,10 @@ function StatusCard({
   const status = source?.status || 'unknown';
   const isUp = status === 'up';
   const isDown = status === 'down';
-  const isNotConfigured = status === 'not_configured';
+  const isDemo = status === 'demo';
 
   const StatusIcon = isUp ? CheckCircle : isDown ? XCircle : AlertTriangle;
-  const statusColor = isUp ? '#4ade80' : isDown ? 'var(--color-error)' : '#facc15';
+  const statusColor = isUp ? '#4ade80' : isDown ? 'var(--color-error)' : isDemo ? '#38bdf8' : '#facc15';
 
   return (
     <div
@@ -225,6 +235,38 @@ function StatusCard({
           }}
         >
           {source.error}
+        </div>
+      )}
+
+      {/* Demo / extra fields */}
+      {(source?.rooms_available != null || source?.rooms_total != null) && (
+        <div className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
+          Rooms: {source.rooms_occupied ?? '-'}/{source.rooms_total ?? '-'} occupied, {source.rooms_available ?? '-'} free
+        </div>
+      )}
+      {source?.next_checkin && (
+        <div className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
+          Next check-in: {source.next_checkin}
+        </div>
+      )}
+      {source?.bookings_count != null && (
+        <div className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
+          Bookings: {source.bookings_count}
+        </div>
+      )}
+      {source?.last_sync && (
+        <div className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
+          Last sync: {new Date(source.last_sync).toLocaleDateString()}
+        </div>
+      )}
+      {source?.deployment_state && (
+        <div className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
+          Deploy: {source.deployment_state}
+        </div>
+      )}
+      {source?.production_url && (
+        <div className="text-[10px] truncate" style={{ color: 'var(--color-text-tertiary)' }}>
+          URL: {source.production_url}
         </div>
       )}
     </div>

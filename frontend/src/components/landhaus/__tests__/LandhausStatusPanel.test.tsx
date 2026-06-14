@@ -66,16 +66,16 @@ describe('LandhausStatusPanel', () => {
     });
   });
 
-  it('renders not_configured status correctly', async () => {
+  it('renders demo status correctly', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
         status: 'ok',
         sources: {
           website: { status: 'up', status_code: 200 },
-          deskline: { status: 'not_configured' },
-          ical: { status: 'not_configured' },
-          vercel: { status: 'not_configured' },
+          deskline: { status: 'demo', rooms_total: 12, rooms_occupied: 8, rooms_available: 4 },
+          ical: { status: 'demo', bookings_count: 23, last_sync: '2026-06-14T10:00:00Z' },
+          vercel: { status: 'demo', deployment_state: 'READY', production_url: 'https://www.landhausbavaria.de' },
         },
       }),
     });
@@ -86,8 +86,11 @@ describe('LandhausStatusPanel', () => {
       expect(screen.getByText('Website')).toBeInTheDocument();
     });
 
-    const notConfiguredItems = screen.getAllByText('not_configured');
-    expect(notConfiguredItems.length).toBe(3);
+    const demoItems = screen.getAllByText('demo');
+    expect(demoItems.length).toBe(3);
+    expect(screen.getByText(/Rooms:/)).toBeInTheDocument();
+    expect(screen.getByText(/Bookings:/)).toBeInTheDocument();
+    expect(screen.getByText(/Deploy:/)).toBeInTheDocument();
   });
 
   it('renders down status with error message', async () => {
@@ -97,9 +100,9 @@ describe('LandhausStatusPanel', () => {
         status: 'ok',
         sources: {
           website: { status: 'down', error: 'Connection timeout' },
-          deskline: { status: 'not_configured' },
-          ical: { status: 'not_configured' },
-          vercel: { status: 'not_configured' },
+          deskline: { status: 'demo', rooms_total: 12, rooms_occupied: 8, rooms_available: 4 },
+          ical: { status: 'demo', bookings_count: 23 },
+          vercel: { status: 'demo', deployment_state: 'READY' },
         },
       }),
     });

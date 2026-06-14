@@ -73,8 +73,8 @@ async def test_health_all_up():
 
 
 @pytest.mark.asyncio
-async def test_health_not_configured():
-    """Missing environment variables yield 'not_configured' for optional sources."""
+async def test_health_demo_when_not_configured():
+    """Missing environment variables yield 'demo' data for optional sources."""
     with (
         respx.mock,
         patch.object(lb_module, "_WEBSITE_URL", _WEBSITE_TEST_URL),
@@ -91,9 +91,12 @@ async def test_health_not_configured():
         await connector.close()
 
     assert result["website"] == {"status": "up", "status_code": 200}
-    assert result["deskline"] == {"status": "not_configured"}
-    assert result["ical"] == {"status": "not_configured"}
-    assert result["vercel"] == {"status": "not_configured"}
+    assert result["deskline"]["status"] == "demo"
+    assert result["deskline"]["rooms_total"] == 12
+    assert result["ical"]["status"] == "demo"
+    assert result["ical"]["bookings_count"] == 23
+    assert result["vercel"]["status"] == "demo"
+    assert result["vercel"]["deployment_state"] == "READY"
 
 
 @pytest.mark.asyncio

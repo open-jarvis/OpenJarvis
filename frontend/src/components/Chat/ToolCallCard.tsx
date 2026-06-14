@@ -32,7 +32,7 @@ function previewArgs(raw: string): string {
 }
 
 export function ToolCallCard({ toolCall }: Props) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(!!toolCall.result);
   const config = statusConfig[toolCall.status];
   const StatusIcon = config.icon;
   const preview = previewArgs(toolCall.arguments);
