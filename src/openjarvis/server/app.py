@@ -256,7 +256,7 @@ def create_app(
         try:
             from openjarvis.server.osint_scheduler import start_scheduler
 
-            start_scheduler()
+            start_scheduler(bus=getattr(app.state, "bus", None))
         except Exception:
             pass
 

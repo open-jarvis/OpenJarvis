@@ -1,5 +1,7 @@
 import pytest
+import asyncio
 from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock, patch
 from src.openjarvis.server.osint_store import OsintStore
 
 class TestOsintScheduler:
@@ -73,3 +75,29 @@ class TestOsintScheduler:
         assert len(history) == 1
         assert history[0]["type"] == "scan"
         assert history[0]["target"] == "example.com"
+
+    def test_scheduler_loop_publishes_bus_event(self):
+        from openjarvis.server.osint_scheduler import scheduler_loop
+
+        job = self.store.create_schedule("u1", "example.com", ["dns"], 30)
+        past = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+        job.next_run = past
+
+        mock_bus = MagicMock()
+        with patch("openjarvis.server.osint_scheduler._bus", mock_bus):
+            with patch("openjarvis.server.osint_store._store", self.store):
+                loop = asyncio.new_event_loop()
+                try:
+                    task = loop.create_task(scheduler_loop(interval=0.05))
+                    loop.run_until_complete(asyncio.sleep(0.15))
+                    task.cancel()
+                    try:
+                        loop.run_until_complete(task)
+                    except asyncio.CancelledError:
+                        pass
+                finally:
+                    loop.close()
+
+        assert mock_bus.publish.called
+        call_args = mock_bus.publish.call_args
+        assert call_args[0][0].value == "scheduler_task_end"
