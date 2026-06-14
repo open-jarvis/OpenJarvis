@@ -12,7 +12,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from openjarvis.core.config import load_config
+from openjarvis.core.config import DEFAULT_CONFIG_DIR, load_config
 from openjarvis.core.registry import ModelRegistry
 from openjarvis.engine import discover_engines, discover_models
 from openjarvis.intelligence import merge_discovered_models, register_builtin_models
@@ -263,3 +263,258 @@ def pull(model_name: str, engine: str | None) -> None:
             f"Manual download required for engine [cyan]{engine}[/cyan].\n"
             f"Check the engine documentation for instructions."
         )
+
+
+def _slug_from_repo(
+    hf_repo: str, engine: str, quantize: str | None, mlx_4bit: bool
+) -> str:
+    """Generate output directory slug from HF repo and conversion params."""
+    base = hf_repo.replace("/", "--")
+    if engine == "mlx":
+        return f"{base}-mlx-4bit" if mlx_4bit else f"{base}-mlx"
+    elif engine == "llamacpp":
+        if quantize:
+            return f"{base}-{quantize}"
+        return f"{base}-gguf"
+    return base
+
+
+def _convert_mlx(hf_repo: str, output: str, mlx_4bit: bool, console: Console) -> bool:
+    """Convert an HF model to MLX format. Returns True on success."""
+    try:
+        import mlx_lm
+    except ImportError:
+        console.print(
+            "[red]MLX conversion needs the inference-mlx extra.[/red]\n"
+            'Install it: [cyan]pip install "openjarvis[inference-mlx]"[/cyan]'
+        )
+        return False
+
+    try:
+        console.print(
+            f"Converting [cyan]{hf_repo}[/cyan] to MLX at [cyan]{output}[/cyan]..."
+        )
+        mlx_lm.convert(hf_path=hf_repo, mlx_path=output, quantize=mlx_4bit)
+        console.print(f"[green]Converted → {output}[/green]")
+        return True
+    except Exception as exc:
+        console.print(f"[red]MLX conversion failed:[/red] {exc}")
+        return False
+
+
+def _convert_gguf(
+    hf_repo: str, output: str, quantize: str | None, console: Console
+) -> bool:
+    """Convert an HF model to GGUF format via llama.cpp. Returns True on success."""
+    # Step 1: download HF weights
+    console.print(f"Downloading [cyan]{hf_repo}[/cyan]...")
+    if not hf_download(hf_repo, None, console):
+        return False
+
+    # Step 2: locate and run convert_hf_to_gguf.py
+    convert_script = _locate_convert_script(console)
+    if not convert_script:
+        return False
+
+    # Determine output file path
+    slug = _slug_from_repo(hf_repo, "llamacpp", quantize, False)
+    output_gguf = os.path.join(output, f"{slug}.gguf")
+
+    console.print(f"Converting to [cyan]{output_gguf}[/cyan]...")
+    try:
+        subprocess.run(
+            ["python", convert_script, hf_repo, output, "--outfile", output_gguf],
+            check=True,
+        )
+    except FileNotFoundError:
+        console.print(
+            "[red]convert_hf_to_gguf.py not found.[/red]\n"
+            "Install llama.cpp and set [cyan]$LLAMA_CPP_DIR[/cyan] to the repo root."
+        )
+        return False
+    except subprocess.CalledProcessError:
+        console.print("[red]Conversion to GGUF failed.[/red]")
+        return False
+
+    # Step 3: optional quantization
+    if quantize:
+        console.print(f"Quantizing to [cyan]{quantize}[/cyan]...")
+        quant_script = _locate_quantize_script(console)
+        if not quant_script:
+            return False
+
+        quantized_out = os.path.join(output, f"{slug}-{quantize}.gguf")
+        try:
+            subprocess.run(
+                [quant_script, output_gguf, quantized_out, quantize],
+                check=True,
+            )
+            console.print(f"[green]Quantized → {quantized_out}[/green]")
+        except FileNotFoundError:
+            console.print(
+                "[red]llama-quantize not found.[/red]\n"
+                "Install llama.cpp and set [cyan]$LLAMA_CPP_DIR[/cyan] "
+                "to the repo root."
+            )
+            return False
+        except subprocess.CalledProcessError:
+            console.print("[red]Quantization failed.[/red]")
+            return False
+    else:
+        console.print(f"[green]Converted → {output_gguf}[/green]")
+
+    return True
+
+
+def _locate_convert_script(console: Console) -> str | None:
+    """Locate convert_hf_to_gguf.py via LLAMA_CPP_DIR or PATH."""
+    llama_dir = os.environ.get("LLAMA_CPP_DIR")
+    if llama_dir:
+        script = os.path.join(llama_dir, "convert_hf_to_gguf.py")
+        if os.path.isfile(script):
+            return script
+    # Try PATH
+    import shutil
+
+    script = shutil.which("convert_hf_to_gguf.py")
+    if script:
+        return script
+    console.print(
+        "[red]convert_hf_to_gguf.py not found.[/red]\n"
+        "Install llama.cpp and set [cyan]$LLAMA_CPP_DIR[/cyan] to the repo root."
+    )
+    return None
+
+
+def _locate_quantize_script(console: Console) -> str | None:
+    """Locate llama-quantize via LLAMA_CPP_DIR or PATH."""
+    llama_dir = os.environ.get("LLAMA_CPP_DIR")
+    if llama_dir:
+        # llama-quantize is typically in the main llama.cpp build directory
+        for name in ["llama-quantize", "bin/llama-quantize"]:
+            script = os.path.join(llama_dir, name)
+            if os.path.isfile(script):
+                return script
+    # Try PATH
+    import shutil
+
+    script = shutil.which("llama-quantize")
+    if script:
+        return script
+    console.print(
+        "[red]llama-quantize not found.[/red]\n"
+        "Install llama.cpp and set [cyan]$LLAMA_CPP_DIR[/cyan] to the repo root."
+    )
+    return None
+
+
+@model.command()
+@click.argument("hf_repo")
+@click.option("--engine", default=None, help="Engine to convert for.")
+@click.option(
+    "--quantize",
+    default=None,
+    help="GGUF quantization type (e.g., q4_k_m, q8_0).",
+)
+@click.option(
+    "-q",
+    "--mlx-4bit",
+    is_flag=True,
+    default=False,
+    help="Enable 4-bit quantization for MLX.",
+)
+@click.option(
+    "--output",
+    default=None,
+    help="Output directory for converted artifact.",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Overwrite existing output directory.",
+)
+def convert(
+    hf_repo: str,
+    engine: str | None,
+    quantize: str | None,
+    mlx_4bit: bool,
+    output: str | None,
+    force: bool,
+) -> None:
+    """Convert an HuggingFace model to a local engine format."""
+    console = Console()
+    config = load_config()
+
+    # Resolve engine
+    engine = engine or config.engine.default or "mlx"
+
+    # Resolve output path
+    if output is None:
+        slug = _slug_from_repo(hf_repo, engine, quantize, mlx_4bit)
+        output = str(DEFAULT_CONFIG_DIR / "models" / slug)
+    else:
+        slug = _slug_from_repo(hf_repo, engine, quantize, mlx_4bit)
+
+    # Check existing output
+    if os.path.exists(output):
+        if os.path.isdir(output):
+            contents = os.listdir(output)
+            if contents and not force:
+                console.print(
+                    f"[red]Output directory exists and is non-empty:[/red] {output}\n"
+                    "Use [cyan]--force[/cyan] to overwrite."
+                )
+                sys.exit(1)
+        elif os.path.isfile(output) and not force:
+            console.print(
+                f"[red]Output path exists as a file:[/red] {output}\n"
+                "Use [cyan]--force[/cyan] to overwrite."
+            )
+            sys.exit(1)
+
+    # Engine dispatch
+    if engine == "mlx":
+        success = _convert_mlx(hf_repo, output, mlx_4bit, console)
+        if not success:
+            sys.exit(1)
+        # Print serve hint
+        console.print(
+            Panel(
+                f"[bold]Artifact:[/bold] {output}\n"
+                f"\n[cyan]Serve with:[/cyan]\n"
+                f"  jarvis serve --engine mlx --model-path {output}",
+                title="MLX conversion complete",
+                border_style="green",
+            )
+        )
+    elif engine == "llamacpp":
+        success = _convert_gguf(hf_repo, output, quantize, console)
+        if not success:
+            sys.exit(1)
+        # Print serve hint
+        slug = _slug_from_repo(hf_repo, "llamacpp", quantize, False)
+        gguf_path = os.path.join(output, f"{slug}.gguf")
+        if quantize:
+            gguf_path = os.path.join(output, f"{slug}-{quantize}.gguf")
+        console.print(
+            Panel(
+                f"[bold]Artifact:[/bold] {gguf_path}\n"
+                f"\n[cyan]Serve with:[/cyan]\n"
+                f"  llama.cpp --model {gguf_path}",
+                title="GGUF conversion complete",
+                border_style="green",
+            )
+        )
+    elif engine in ("ollama", "vllm", "sglang"):
+        console.print(
+            f"[yellow]Conversion not applicable for engine {engine} — "
+            "use `jarvis model pull`[/yellow]"
+        )
+        sys.exit(0)
+    else:
+        console.print(
+            f"[yellow]Unknown engine {engine} — conversion not applicable. "
+            "Use `jarvis model pull`[/yellow]"
+        )
+        sys.exit(0)
