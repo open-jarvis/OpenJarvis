@@ -45,8 +45,8 @@ class AgentDelegateTool(BaseTool):
 
     def __init__(
         self,
-        engine: InferenceEngine,
-        model: str,
+        engine: Optional[InferenceEngine] = None,
+        model: str = "",
         *,
         bus: Optional[EventBus] = None,
         temperature: Optional[float] = None,
@@ -106,6 +106,15 @@ class AgentDelegateTool(BaseTool):
         context: str = "",
     ) -> ToolResult:
         """Instantiate *agent_id*, run it with *query*, and return the result."""
+        if self._engine is None or not self._model:
+            return ToolResult(
+                tool_name="agent_delegate",
+                content=(
+                    "AgentDelegateTool is not configured with an engine or model. "
+                    "It can only be used inside an A2AChain."
+                ),
+                success=False,
+            )
         if not AgentRegistry.contains(agent_id):
             return ToolResult(
                 tool_name="agent_delegate",
