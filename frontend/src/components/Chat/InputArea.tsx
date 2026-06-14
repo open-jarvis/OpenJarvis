@@ -344,7 +344,7 @@ export function InputArea() {
         }
       } else {
       for await (const sseEvent of streamChat(
-        { model: selectedModel, messages: apiMessages, stream: true, temperature, max_tokens: maxTokens, agent_id: activeDomainAgent || undefined },
+        { model: activeDomainAgent === 'bavaria_booking' ? 'minimax-m3:cloud' : selectedModel, messages: apiMessages, stream: true, temperature, max_tokens: maxTokens, agent_id: activeDomainAgent || undefined },
         controller.signal,
       )) {
         const eventName = sseEvent.event;
@@ -402,7 +402,13 @@ export function InputArea() {
             if (data.complexity) complexity = data.complexity;
             if (delta?.content) {
               if (!ttftMs) ttftMs = Date.now() - startTime;
-              accumulatedContent += delta.content;
+              // Strip raw <minimax> / <tool_call> XML leakage from model output
+              const clean = (delta.content as string)
+                .replace(/<minimax>\s*<tool_call>\s*<\?xml[^>]*>\s*<invoke>.*?<\/invoke>\s*<\/tool_call>\s*<\/minimax>/gs, '')
+                .replace(/<minimax>\s*<tool_call>.*?<\/tool_call>\s*<\/minimax>/gs, '')
+                .replace(/<tool_call>.*?<\/tool_call>/gs, '')
+                .replace(/<minimax>.*?<\/minimax>/gs, '');
+              accumulatedContent += clean;
               setStreamState({ content: accumulatedContent, phase: '' });
 
               const now = Date.now();
