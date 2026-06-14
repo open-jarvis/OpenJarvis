@@ -1,10 +1,14 @@
 {
-  "id": "session-1781045904420",
-  "startedAt": "2026-06-09T22:58:24.420Z",
+  "id": "session-1781400579762",
+  "startedAt": "2026-06-14T01:29:39.762Z",
   "cwd": "/Users/kinggeorge/projects/open-jarvis",
   "context": {},
   "metrics": {
+<<<<<<<< HEAD:.claude-flow/sessions/session-1781045904420.json
     "edits": 16,
+========
+    "edits": 0,
+>>>>>>>> origin/main:.claude-flow/sessions/current.json
     "commands": 0,
     "tasks": 0,
     "errors": 0
