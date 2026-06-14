@@ -21,6 +21,7 @@ vi.mock('@/lib/api', () => ({
   fetchSavings: vi.fn(() => Promise.resolve({})),
   getBase: vi.fn(() => 'http://localhost:8000'),
   createPlan: vi.fn(),
+  fetchModels: vi.fn(() => Promise.resolve([])),
 }));
 
 vi.mock('@/lib/connectors-api', () => ({

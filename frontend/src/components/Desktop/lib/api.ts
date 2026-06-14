@@ -430,3 +430,23 @@ export async function toggleSchedule(
     method: 'POST',
   });
 }
+
+export interface AlertsResponse {
+  alerts: Array<
+    HistoryEntry & {
+      metadata: {
+        diff?: {
+          changed?: Record<string, unknown>;
+          added?: Record<string, unknown>;
+          removed?: Record<string, unknown>;
+        };
+      };
+    }
+  >;
+  count: number;
+  unread: number;
+}
+
+export async function fetchAlerts(apiUrl: string, limit = 20): Promise<AlertsResponse> {
+  return request<AlertsResponse>(apiUrl, `/v1/osint/alerts?limit=${limit}`);
+}

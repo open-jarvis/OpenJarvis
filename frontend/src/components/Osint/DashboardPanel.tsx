@@ -22,7 +22,7 @@ import {
   Loader2,
   AlertTriangle,
 } from 'lucide-react';
-import { fetchDashboardStats, type DashboardStats } from '../Desktop/lib/api';
+import { fetchDashboardStats, fetchAlerts, type DashboardStats, type AlertsResponse } from '../Desktop/lib/api';
 
 const API_URL = (import.meta.env.VITE_API_URL as string) || 'http://127.0.0.1:8000';
 
@@ -36,6 +36,7 @@ const ACCENTS = [
 
 function useDashboardStats() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [alerts, setAlerts] = useState<AlertsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -43,8 +44,12 @@ function useDashboardStats() {
     setLoading(true);
     setError('');
     try {
-      const data = await fetchDashboardStats(API_URL);
+      const [data, alertData] = await Promise.all([
+        fetchDashboardStats(API_URL),
+        fetchAlerts(API_URL, 10),
+      ]);
       setStats(data);
+      setAlerts(alertData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load stats');
     } finally {
@@ -56,11 +61,11 @@ function useDashboardStats() {
     load();
   }, [load]);
 
-  return { stats, loading, error, reload: load };
+  return { stats, alerts, loading, error, reload: load };
 }
 
 export function DashboardPanel() {
-  const { stats, loading, error, reload } = useDashboardStats();
+  const { stats, alerts, loading, error, reload } = useDashboardStats();
 
   if (loading && !stats) {
     return (
@@ -138,6 +143,47 @@ export function DashboardPanel() {
         </div>
       ) : (
         <>
+          {/* Alerts */}
+          {alerts && alerts.count > 0 && (
+            <div
+              className="rounded-lg p-4"
+              style={{ background: 'color-mix(in srgb, var(--color-accent) 4%, var(--color-bg-secondary))', border: '1px solid var(--color-accent-muted)' }}
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <AlertTriangle size={14} style={{ color: 'var(--color-accent)' }} />
+                <h3 className="text-xs font-medium" style={{ color: 'var(--color-accent)' }}>
+                  Recent Alerts ({alerts.count})
+                </h3>
+              </div>
+              <div className="flex flex-col gap-2 max-h-40 overflow-auto">
+                {alerts.alerts.map((alert) => {
+                  const diff = alert.metadata?.diff;
+                  const changedKeys = diff ? Object.keys({ ...diff.changed, ...diff.added, ...diff.removed }) : [];
+                  return (
+                    <div
+                      key={alert.id}
+                      className="rounded-md p-2 flex items-center justify-between gap-2"
+                      style={{ background: 'var(--color-bg-primary)', border: '1px solid var(--color-border)' }}
+                    >
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-xs font-medium" style={{ color: 'var(--color-text)' }}>
+                          {alert.target}
+                        </span>
+                        <span className="text-[10px] truncate" style={{ color: 'var(--color-text-tertiary)' }}>
+                          {changedKeys.slice(0, 3).join(', ')}
+                          {changedKeys.length > 3 && ` +${changedKeys.length - 3} more`}
+                        </span>
+                      </div>
+                      <span className="text-[10px] shrink-0" style={{ color: 'var(--color-text-tertiary)' }}>
+                        {new Date(alert.timestamp).toLocaleDateString()}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Activity Timeline */}
           <div
             className="rounded-lg p-4"

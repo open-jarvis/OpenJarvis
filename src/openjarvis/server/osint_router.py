@@ -435,3 +435,17 @@ async def toggle_schedule(schedule_id: str, request: Request) -> dict[str, Any]:
 
     status = get_store().toggle_schedule(_user_id(request), schedule_id)
     return {"schedule_id": schedule_id, "enabled": status}
+
+
+# ---------------------------------------------------------------------------
+# Alerts
+# ---------------------------------------------------------------------------
+
+
+@router.get("/alerts")
+async def list_alerts(request: Request, limit: int = 20) -> dict[str, Any]:
+    """Return scan entries with detected changes (diff)."""
+    from openjarvis.server.osint_store import get_store
+
+    alerts = get_store().list_alerts(_user_id(request), limit=limit)
+    return {"alerts": alerts, "count": len(alerts), "unread": len(alerts)}

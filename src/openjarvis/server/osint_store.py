@@ -310,21 +310,100 @@ class OsintStore:
                     try:
                         from openjarvis.tools.fbi_watchdog.core import run_scan
                         result = run_scan(job.target, job.modules)
-                        self.save_scan(
+                        entry_id = self.save_scan(
                             user_id=user_id,
                             target=result["target"],
                             modules=result["modules"],
                             results=result["results"],
                             summary=result["summary"],
                         )
+                        # Calculate diff against previous scan
+                        diff = self.diff_scan(user_id, result["target"])
+                        if diff:
+                            for entry in self._user_history(user_id):
+                                if entry.id == entry_id:
+                                    entry.metadata["diff"] = diff
+                                    break
                         job.last_run = now.isoformat()
-                        executed.append({"schedule_id": job.id, "target": job.target, "success": True})
+                        executed.append({"schedule_id": job.id, "target": job.target, "success": True, "changed": bool(diff)})
                     except Exception:
                         job.last_run = now.isoformat()
                         executed.append({"schedule_id": job.id, "target": job.target, "success": False})
                     finally:
                         job.next_run = (now + timedelta(minutes=job.interval_minutes)).isoformat()
         return executed
+
+    # ------------------------------------------------------------------
+    # Change detection / diff
+    # ------------------------------------------------------------------
+
+    def diff_scan(self, user_id: str, target: str) -> dict[str, Any] | None:
+        """Compare the two most recent scans for a target. Returns diff dict or None."""
+        scans = [
+            e for e in self._user_history(user_id)
+            if e.type == "scan" and e.target == target
+        ]
+        if len(scans) < 2:
+            return None
+        # Newest two
+        sorted_scans = sorted(scans, key=lambda e: e.timestamp, reverse=True)
+        current = sorted_scans[0].results or {}
+        previous = sorted_scans[1].results or {}
+        diff = self._deep_diff(previous, current)
+        return diff if diff else None
+
+    def _deep_diff(self, old: Any, new: Any, path: str = "") -> dict[str, Any]:
+        """Deep diff two nested dicts/lists. Returns {changed, added, removed}."""
+        changed: dict[str, Any] = {}
+        added: dict[str, Any] = {}
+        removed: dict[str, Any] = {}
+
+        if isinstance(old, dict) and isinstance(new, dict):
+            all_keys = set(old.keys()) | set(new.keys())
+            for key in all_keys:
+                child_path = f"{path}.{key}" if path else key
+                if key not in old:
+                    added[child_path] = new[key]
+                elif key not in new:
+                    removed[child_path] = old[key]
+                else:
+                    sub = self._deep_diff(old[key], new[key], child_path)
+                    if sub:
+                        changed.update(sub.get("changed", {}))
+                        added.update(sub.get("added", {}))
+                        removed.update(sub.get("removed", {}))
+        elif isinstance(old, list) and isinstance(new, list):
+            old_set = set(str(x) for x in old)
+            new_set = set(str(x) for x in new)
+            if old_set != new_set:
+                added_vals = [x for x in new if str(x) not in old_set]
+                removed_vals = [x for x in old if str(x) not in new_set]
+                if added_vals:
+                    added[path or "list"] = added_vals
+                if removed_vals:
+                    removed[path or "list"] = removed_vals
+        else:
+            if old != new:
+                changed[path or "value"] = {"from": old, "to": new}
+
+        result: dict[str, Any] = {}
+        if changed:
+            result["changed"] = changed
+        if added:
+            result["added"] = added
+        if removed:
+            result["removed"] = removed
+        return result
+
+    def list_alerts(self, user_id: str, limit: int = 20) -> list[dict[str, Any]]:
+        """Return scan entries that have a non-empty diff (newest first)."""
+        history = self._user_history(user_id)
+        alerts = [
+            asdict(e) for e in history
+            if e.type == "scan" and e.metadata.get("diff")
+        ]
+        alerts.sort(key=lambda e: e["timestamp"], reverse=True)
+        return alerts[:limit]
 
 
 # Global singleton (server lifetime)

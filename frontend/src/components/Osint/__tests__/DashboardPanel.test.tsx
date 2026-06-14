@@ -3,14 +3,17 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { DashboardPanel } from '../DashboardPanel';
 
 const mockFetchDashboardStats = vi.hoisted(() => vi.fn());
+const mockFetchAlerts = vi.hoisted(() => vi.fn());
 
 vi.mock('../../Desktop/lib/api', () => ({
   fetchDashboardStats: mockFetchDashboardStats,
+  fetchAlerts: mockFetchAlerts,
 }));
 
 describe('DashboardPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockFetchAlerts.mockResolvedValue({ alerts: [], count: 0, unread: 0 });
   });
 
   it('renders summary cards with data', async () => {
