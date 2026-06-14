@@ -373,6 +373,48 @@ class OsintStore:
                 return s
         return None
 
+    def run_schedule_now(self, user_id: str, schedule_id: str) -> dict[str, Any] | None:
+        """Execute a schedule immediately. Returns result or None if not found."""
+        for job in self._user_schedules(user_id):
+            if job.id == schedule_id:
+                now = datetime.now(timezone.utc)
+                try:
+                    from openjarvis.tools.fbi_watchdog.core import run_scan
+                    result = run_scan(job.target, job.modules)
+                    entry_id = self.save_scan(
+                        user_id=user_id,
+                        target=result["target"],
+                        modules=result["modules"],
+                        results=result["results"],
+                        summary=result["summary"],
+                    )
+                    diff = self.diff_scan(user_id, result["target"])
+                    if diff:
+                        for entry in self._user_history(user_id):
+                            if entry.id == entry_id:
+                                entry.metadata["diff"] = diff
+                                break
+                    job.last_run = now.isoformat()
+                    job.next_run = (now + timedelta(minutes=job.interval_minutes)).isoformat()
+                    self._save()
+                    return {
+                        "schedule_id": job.id,
+                        "target": job.target,
+                        "success": True,
+                        "changed": bool(diff),
+                    }
+                except Exception as exc:
+                    job.last_run = now.isoformat()
+                    job.next_run = (now + timedelta(minutes=job.interval_minutes)).isoformat()
+                    self._save()
+                    return {
+                        "schedule_id": job.id,
+                        "target": job.target,
+                        "success": False,
+                        "error": str(exc),
+                    }
+        return None
+
     def _tick(self) -> list[dict[str, Any]]:
         """Execute due schedules. Returns list of executed scan results."""
         now = datetime.now(timezone.utc)

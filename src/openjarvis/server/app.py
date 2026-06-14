@@ -320,6 +320,13 @@ def create_app(
     app.state.model = model
     app.state.agent = agent
     app.state.bus = bus
+    if bus is not None:
+        try:
+            from openjarvis.server.osint_bridge import register_osint_tool_tracker
+
+            register_osint_tool_tracker(bus)
+        except Exception:
+            pass
     app.state.engine_name = engine_name
     app.state.agent_name = agent_name or (
         getattr(agent, "agent_id", None) if agent else None

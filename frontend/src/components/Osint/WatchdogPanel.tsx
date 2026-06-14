@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Shield, Globe, Server, MapPin, Calendar, AlertTriangle, CheckCircle, Loader2, Download, FileJson, FileSpreadsheet } from 'lucide-react';
 import { runWatchdogScan, exportWatchdogScan } from '../Desktop/lib/api';
 
@@ -133,6 +133,15 @@ export function WatchdogPanel() {
   const [error, setError] = useState('');
   const [rawApiResult, setRawApiResult] = useState<Record<string, unknown> | null>(null);
   const [exporting, setExporting] = useState(false);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const t = (e as CustomEvent).detail;
+      if (typeof t === 'string') setTarget(t);
+    };
+    window.addEventListener('osint-watchdog-target', handler);
+    return () => window.removeEventListener('osint-watchdog-target', handler);
+  }, []);
 
   const modules = [
     { key: 'dns', label: 'DNS', icon: Server },

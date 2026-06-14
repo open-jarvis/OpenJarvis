@@ -12,6 +12,7 @@ import {
   Pencil,
   X,
   Check,
+  Zap,
 } from 'lucide-react';
 import {
   createSchedule,
@@ -19,6 +20,7 @@ import {
   deleteSchedule,
   toggleSchedule,
   updateSchedule,
+  runScheduleNow,
   type ScheduleJob,
 } from '../Desktop/lib/api';
 
@@ -36,6 +38,7 @@ export function SchedulePanel() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showForm, setShowForm] = useState(false);
+  const [runningNow, setRunningNow] = useState<Set<string>>(new Set());
 
   // Form state
   const [target, setTarget] = useState('');
@@ -105,6 +108,22 @@ export function SchedulePanel() {
       );
     } catch {
       // ignore
+    }
+  };
+
+  const handleRunNow = async (id: string) => {
+    setRunningNow((prev) => new Set(prev).add(id));
+    try {
+      await runScheduleNow(API_URL, id);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to run schedule');
+    } finally {
+      setRunningNow((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     }
   };
 
@@ -463,6 +482,15 @@ export function SchedulePanel() {
                     title="Edit"
                   >
                     <Pencil size={14} />
+                  </button>
+                  <button
+                    onClick={() => handleRunNow(job.id)}
+                    disabled={runningNow.has(job.id)}
+                    className="p-1.5 rounded-md transition-colors cursor-pointer disabled:opacity-50"
+                    style={{ color: 'var(--color-accent)' }}
+                    title="Run Now"
+                  >
+                    {runningNow.has(job.id) ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
                   </button>
                   <button
                     onClick={() => handleToggle(job.id)}

@@ -7,6 +7,7 @@ const mockCreateSchedule = vi.hoisted(() => vi.fn());
 const mockDeleteSchedule = vi.hoisted(() => vi.fn());
 const mockToggleSchedule = vi.hoisted(() => vi.fn());
 const mockUpdateSchedule = vi.hoisted(() => vi.fn());
+const mockRunScheduleNow = vi.hoisted(() => vi.fn());
 
 vi.mock('../../Desktop/lib/api', () => ({
   fetchSchedules: mockFetchSchedules,
@@ -14,6 +15,7 @@ vi.mock('../../Desktop/lib/api', () => ({
   deleteSchedule: mockDeleteSchedule,
   toggleSchedule: mockToggleSchedule,
   updateSchedule: mockUpdateSchedule,
+  runScheduleNow: mockRunScheduleNow,
 }));
 
 describe('SchedulePanel', () => {
@@ -225,5 +227,65 @@ describe('SchedulePanel', () => {
 
     expect(screen.queryByDisplayValue('example.com')).not.toBeInTheDocument();
     expect(mockUpdateSchedule).not.toHaveBeenCalled();
+  });
+
+  it('runs schedule now on button click', async () => {
+    mockFetchSchedules.mockResolvedValue({
+      schedules: [
+        {
+          id: '1',
+          target: 'example.com',
+          modules: ['dns'],
+          interval_minutes: 60,
+          last_run: null,
+          next_run: null,
+          enabled: true,
+          created_at: new Date().toISOString(),
+        },
+      ],
+      count: 1,
+    });
+    mockRunScheduleNow.mockResolvedValue({ schedule_id: '1', target: 'example.com', success: true, changed: false });
+
+    render(<SchedulePanel />);
+    await waitFor(() => {
+      expect(screen.getByText('example.com')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTitle('Run Now'));
+
+    await waitFor(() => {
+      expect(mockRunScheduleNow).toHaveBeenCalledWith(expect.any(String), '1');
+    });
+  });
+
+  it('shows error when run now fails', async () => {
+    mockFetchSchedules.mockResolvedValue({
+      schedules: [
+        {
+          id: '1',
+          target: 'example.com',
+          modules: ['dns'],
+          interval_minutes: 60,
+          last_run: null,
+          next_run: null,
+          enabled: true,
+          created_at: new Date().toISOString(),
+        },
+      ],
+      count: 1,
+    });
+    mockRunScheduleNow.mockRejectedValue(new Error('Scan failed'));
+
+    render(<SchedulePanel />);
+    await waitFor(() => {
+      expect(screen.getByText('example.com')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTitle('Run Now'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Scan failed/)).toBeInTheDocument();
+    });
   });
 });

@@ -10,6 +10,8 @@ import {
   ChevronUp,
   Loader2,
   AlertTriangle,
+  Zap,
+  ArrowRight,
 } from 'lucide-react';
 import {
   fetchOsintHistory,
@@ -95,6 +97,11 @@ export function HistoryPanel() {
     }
   };
 
+  const handleRerun = (target: string) => {
+    window.dispatchEvent(new CustomEvent('osint-watchdog-target', { detail: target }));
+    window.dispatchEvent(new CustomEvent('osint-tab-change', { detail: 'watchdog' }));
+  };
+
   const recentTargets = history
     .filter((e) => e.target)
     .map((e) => e.target!)
@@ -178,6 +185,7 @@ export function HistoryPanel() {
               expanded={expandedId === entry.id}
               onToggle={() => setExpandedId(expandedId === entry.id ? null : entry.id)}
               onDelete={() => handleDelete(entry.id)}
+              onRerun={entry.type === 'scan' && entry.target ? () => handleRerun(entry.target!) : undefined}
             />
           ))}
         </div>
@@ -230,9 +238,10 @@ export function HistoryPanel() {
             </div>
           )}
           {recentTargets.map((target) => (
-            <div
+            <button
               key={target}
-              className="rounded-lg p-3 flex items-center justify-between gap-3"
+              onClick={() => handleRerun(target)}
+              className="rounded-lg p-3 flex items-center justify-between gap-3 text-left transition-colors cursor-pointer hover:opacity-90 w-full"
               style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
             >
               <div className="flex items-center gap-2">
@@ -241,7 +250,8 @@ export function HistoryPanel() {
                   {target}
                 </span>
               </div>
-            </div>
+              <ArrowRight size={14} style={{ color: 'var(--color-text-tertiary)' }} />
+            </button>
           ))}
         </div>
       )}
@@ -254,11 +264,13 @@ function HistoryCard({
   expanded,
   onToggle,
   onDelete,
+  onRerun,
 }: {
   entry: HistoryEntry;
   expanded: boolean;
   onToggle: () => void;
   onDelete: () => void;
+  onRerun?: () => void;
 }) {
   const isScan = entry.type === 'scan';
   const Icon = isScan ? Shield : Terminal;
@@ -299,6 +311,16 @@ function HistoryCard({
           >
             {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
           </button>
+          {isScan && onRerun && (
+            <button
+              onClick={onRerun}
+              className="p-1 rounded transition-colors cursor-pointer"
+              style={{ color: 'var(--color-accent)' }}
+              title="Rerun scan"
+            >
+              <Zap size={14} />
+            </button>
+          )}
           <button
             onClick={onDelete}
             className="p-1 rounded transition-colors cursor-pointer"

@@ -22,6 +22,11 @@ import {
   Loader2,
   AlertTriangle,
   Download,
+  Shield,
+  Search,
+  Clock,
+  Bell,
+  ArrowRight,
 } from 'lucide-react';
 import { fetchDashboardStats, fetchAlerts, fetchOsintReport, type DashboardStats, type AlertsResponse } from '../Desktop/lib/api';
 
@@ -167,6 +172,38 @@ export function DashboardPanel() {
           icon={Target}
           label="Unique Targets"
           value={stats.unique_targets}
+          accent="#f472b6"
+        />
+      </div>
+
+      {/* Quick Actions */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <QuickActionCard
+          icon={Shield}
+          title="FBI Watchdog"
+          description="Run domain scan"
+          tab="watchdog"
+          accent="var(--color-accent)"
+        />
+        <QuickActionCard
+          icon={Clock}
+          title="Scheduler"
+          description="Manage schedules"
+          tab="scheduler"
+          accent="#38bdf8"
+        />
+        <QuickActionCard
+          icon={Search}
+          title="Tool Arsenal"
+          description="Browse OSINT tools"
+          tab="arsenal"
+          accent="#a78bfa"
+        />
+        <QuickActionCard
+          icon={Bell}
+          title="Alerts"
+          description="View alerts"
+          tab="alerts"
           accent="#f472b6"
         />
       </div>
@@ -422,5 +459,43 @@ function SummaryCard({
         </span>
       </div>
     </div>
+  );
+}
+
+function QuickActionCard({
+  icon: Icon,
+  title,
+  description,
+  tab,
+  accent,
+}: {
+  icon: React.ElementType;
+  title: string;
+  description: string;
+  tab: string;
+  accent: string;
+}) {
+  return (
+    <button
+      onClick={() => window.dispatchEvent(new CustomEvent('osint-tab-change', { detail: tab }))}
+      className="rounded-lg p-3 flex items-center gap-3 text-left transition-colors cursor-pointer hover:opacity-90"
+      style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
+    >
+      <div
+        className="w-8 h-8 rounded-md flex items-center justify-center shrink-0"
+        style={{ background: `color-mix(in srgb, ${accent} 12%, transparent)` }}
+      >
+        <Icon size={16} style={{ color: accent }} />
+      </div>
+      <div className="flex flex-col flex-1 min-w-0">
+        <span className="text-xs font-medium" style={{ color: 'var(--color-text)' }}>
+          {title}
+        </span>
+        <span className="text-[10px] truncate" style={{ color: 'var(--color-text-tertiary)' }}>
+          {description}
+        </span>
+      </div>
+      <ArrowRight size={14} style={{ color: 'var(--color-text-tertiary)' }} />
+    </button>
   );
 }

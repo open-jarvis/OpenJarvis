@@ -3,9 +3,11 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { AlertsPanel } from '../AlertsPanel';
 
 const mockFetchAlerts = vi.hoisted(() => vi.fn());
+const mockDeleteHistoryEntry = vi.hoisted(() => vi.fn());
 
 vi.mock('../../Desktop/lib/api', () => ({
   fetchAlerts: mockFetchAlerts,
+  deleteHistoryEntry: mockDeleteHistoryEntry,
 }));
 
 describe('AlertsPanel', () => {
@@ -88,6 +90,36 @@ describe('AlertsPanel', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Network error/)).toBeInTheDocument();
+    });
+  });
+
+  it('dismisses alert on delete click', async () => {
+    mockFetchAlerts.mockResolvedValue({
+      alerts: [
+        {
+          id: 'a1',
+          target: 'example.com',
+          type: 'scan',
+          timestamp: new Date().toISOString(),
+          metadata: {},
+        },
+      ],
+      count: 1,
+      unread: 1,
+    });
+    mockDeleteHistoryEntry.mockResolvedValue({ deleted: true });
+
+    render(<AlertsPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByText('example.com')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTitle('Dismiss alert'));
+
+    await waitFor(() => {
+      expect(mockDeleteHistoryEntry).toHaveBeenCalledWith(expect.any(String), 'a1');
+      expect(screen.queryByText('example.com')).not.toBeInTheDocument();
     });
   });
 });

@@ -114,6 +114,89 @@ describe('HistoryPanel', () => {
     });
   });
 
+  it('clicking recent target dispatches watchdog events', async () => {
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+    mockFetchOsintHistory.mockResolvedValue({
+      entries: [
+        {
+          id: '1',
+          type: 'scan',
+          user_id: 'u1',
+          timestamp: new Date().toISOString(),
+          target: 'example.com',
+          tool_name: null,
+          modules: [],
+          results: {},
+          output: null,
+          success: true,
+          metadata: {},
+        },
+      ],
+    });
+    render(<HistoryPanel />);
+
+    fireEvent.click(screen.getByText('Recent Targets'));
+
+    await waitFor(() => {
+      expect(screen.getByText('example.com')).toBeInTheDocument();
+    });
+
+    const targetBtn = screen.getByText('example.com').closest('button');
+    if (targetBtn) fireEvent.click(targetBtn);
+
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ detail: 'example.com' }),
+    );
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ detail: 'watchdog' }),
+    );
+
+    dispatchSpy.mockRestore();
+  });
+
+  it('shows rerun button for scan entries and dispatches events', async () => {
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+    mockFetchOsintHistory.mockResolvedValue({
+      entries: [
+        {
+          id: '1',
+          type: 'scan',
+          user_id: 'u1',
+          timestamp: new Date().toISOString(),
+          target: 'example.com',
+          tool_name: null,
+          modules: ['dns'],
+          results: { ip: '1.2.3.4' },
+          output: null,
+          success: true,
+          metadata: {},
+        },
+      ],
+    });
+    render(<HistoryPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Scan: example.com/)).toBeInTheDocument();
+    });
+
+    const expandBtn = screen.getByTitle('Toggle details');
+    fireEvent.click(expandBtn);
+
+    const rerunBtn = screen.getByTitle('Rerun scan');
+    expect(rerunBtn).toBeInTheDocument();
+
+    fireEvent.click(rerunBtn);
+
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ detail: 'example.com' }),
+    );
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ detail: 'watchdog' }),
+    );
+
+    dispatchSpy.mockRestore();
+  });
+
   it('clears all history on Clear All click', async () => {
     mockFetchOsintHistory.mockResolvedValue({
       entries: [

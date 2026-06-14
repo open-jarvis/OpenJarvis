@@ -289,6 +289,7 @@ class ToolExecutor:
                     "latency": latency,
                     "result": result_text,
                     "metadata": event_metadata,
+                    "agent_id": self._agent_id,
                 },
             )
 

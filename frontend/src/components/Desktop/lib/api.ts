@@ -453,6 +453,15 @@ export async function updateSchedule(
   });
 }
 
+export async function runScheduleNow(
+  apiUrl: string,
+  scheduleId: string,
+): Promise<{ schedule_id: string; target: string; success: boolean; changed: boolean; error?: string }> {
+  return request(apiUrl, `/v1/osint/schedule/${scheduleId}/run`, {
+    method: 'POST',
+  });
+}
+
 export interface AlertsResponse {
   alerts: Array<
     HistoryEntry & {

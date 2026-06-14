@@ -478,6 +478,17 @@ async def update_schedule(schedule_id: str, body: ScheduleUpdateRequest, request
     }
 
 
+@router.post("/schedule/{schedule_id}/run")
+async def run_schedule_now(schedule_id: str, request: Request) -> dict[str, Any]:
+    """Execute a schedule immediately."""
+    from openjarvis.server.osint_store import get_store
+
+    result = get_store().run_schedule_now(_user_id(request), schedule_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Alerts
 # ---------------------------------------------------------------------------

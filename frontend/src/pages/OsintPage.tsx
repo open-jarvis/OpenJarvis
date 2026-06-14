@@ -41,6 +41,19 @@ export function OsintPage() {
     ['scheduler_task_end'],
   );
 
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (typeof detail === 'string') {
+        setActiveTab(detail as typeof activeTab);
+      } else if (detail?.tab) {
+        setActiveTab(detail.tab as typeof activeTab);
+      }
+    };
+    window.addEventListener('osint-tab-change', handler);
+    return () => window.removeEventListener('osint-tab-change', handler);
+  }, []);
+
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
       <div className="shrink-0 px-4 py-3" style={{ borderBottom: '1px solid var(--color-border)' }}>

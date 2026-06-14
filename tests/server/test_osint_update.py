@@ -96,3 +96,26 @@ def test_update_schedule_partial(client):
     assert data["target"] == "updated.com"
     assert data["interval_minutes"] == 30
     assert data["modules"] == ["dns"]
+
+
+def test_run_schedule_now(client):
+    osint_store._store.create_schedule(
+        "anonymous",
+        target="127.0.0.1",
+        modules=["ip"],
+        interval_minutes=60,
+    )
+    s = osint_store._store.list_schedules("anonymous")[0]
+
+    resp = client.post(f"/v1/osint/schedule/{s['id']}/run")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["schedule_id"] == s["id"]
+    assert data["target"] == "127.0.0.1"
+    assert data["success"] is True
+
+
+def test_run_schedule_now_not_found(client):
+    resp = client.post("/v1/osint/schedule/nonexistent/run")
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Schedule not found"

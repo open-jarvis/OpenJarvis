@@ -167,4 +167,36 @@ describe('DashboardPanel', () => {
       expect(mockFetchOsintReport).toHaveBeenCalledWith(expect.any(String), 'json');
     });
   });
+
+  it('renders quick action cards and dispatches tab change event', async () => {
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+    mockFetchDashboardStats.mockResolvedValue({
+      total_scans: 1,
+      total_execs: 1,
+      total_actions: 2,
+      unique_targets: 1,
+      success_rate: 100,
+      top_targets: [],
+      tool_usage: [],
+      module_usage: [],
+      activity_timeline: [],
+    });
+
+    render(<DashboardPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByText('FBI Watchdog')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('Scheduler')).toBeInTheDocument();
+    expect(screen.getByText('Tool Arsenal')).toBeInTheDocument();
+    expect(screen.getByText('Alerts')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('FBI Watchdog'));
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ detail: 'watchdog' }),
+    );
+
+    dispatchSpy.mockRestore();
+  });
 });

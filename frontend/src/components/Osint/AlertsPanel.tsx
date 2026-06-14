@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Shield, Loader2, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
-import { fetchAlerts, type AlertsResponse } from '../Desktop/lib/api';
+import { Shield, Loader2, AlertTriangle, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { fetchAlerts, deleteHistoryEntry, type AlertsResponse } from '../Desktop/lib/api';
 
 const API_URL = (import.meta.env.VITE_API_URL as string) || 'http://127.0.0.1:8000';
 
@@ -43,6 +43,15 @@ export function AlertsPanel() {
 
   const toggleExpand = (id: string) => {
     setExpandedId((prev) => (prev === id ? null : id));
+  };
+
+  const handleDismiss = async (id: string) => {
+    try {
+      await deleteHistoryEntry(API_URL, id);
+      setAlerts((prev) => prev.filter((a) => a.id !== id));
+    } catch {
+      // ignore
+    }
   };
 
   const formatDiff = (diff: AlertItem['metadata']['diff']) => {
@@ -207,16 +216,26 @@ export function AlertsPanel() {
                   </div>
                 </div>
 
-                {hasDiff && (
+                <div className="flex items-center gap-1 shrink-0">
+                  {hasDiff && (
+                    <button
+                      onClick={() => toggleExpand(alert.id)}
+                      className="p-1.5 rounded-md transition-colors cursor-pointer"
+                      style={{ color: 'var(--color-text-tertiary)' }}
+                      title={isExpanded ? 'Collapse' : 'Expand'}
+                    >
+                      {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                    </button>
+                  )}
                   <button
-                    onClick={() => toggleExpand(alert.id)}
+                    onClick={() => handleDismiss(alert.id)}
                     className="p-1.5 rounded-md transition-colors cursor-pointer"
-                    style={{ color: 'var(--color-text-tertiary)' }}
-                    title={isExpanded ? 'Collapse' : 'Expand'}
+                    style={{ color: 'var(--color-error)' }}
+                    title="Dismiss alert"
                   >
-                    {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                    <Trash2 size={14} />
                   </button>
-                )}
+                </div>
               </div>
 
               {isExpanded && hasDiff && (
