@@ -1,0 +1,40 @@
+# OpenJarvis — Cloud config for Fly.io.
+# Baked into the image at /root/.openjarvis/config.toml (see deploy/docker/Dockerfile).
+# Uses OpenRouter for inference (no local GPU) + multilingual Whisper on CPU.
+
+# ── Intelligence: which model ────────────────────────────────────────────────
+[intelligence]
+# Any model id with a "/" routes to OpenRouter (engine/cloud.py). Change this in
+# the UI's "Cloud Models" tab or here. "openrouter/auto" lets OpenRouter pick.
+default_model = "openrouter/anthropic/claude-3.5-sonnet"
+provider = "openai"
+
+# ── Engine: cloud (OpenRouter), no local inference server on Fly ─────────────
+[engine]
+default = "cloud"
+
+# ── Agent: the orchestrator can use tools / skills / MCP ─────────────────────
+[agent]
+default_agent = "orchestrator"
+max_turns = 10
+
+# ── Tools: MCP + skills on ───────────────────────────────────────────────────
+[tools.mcp]
+enabled = true
+
+[tools.storage]
+default_backend = "sqlite"
+db_path = "~/.openjarvis/memory.db"
+
+# ── Speech: multilingual Whisper, CPU-friendly ───────────────────────────────
+[speech]
+backend = "faster-whisper"
+model = "small"          # multilingual; good accuracy at modest CPU cost
+device = "cpu"
+compute_type = "int8"    # CPU-friendly (float16 needs a GPU)
+language = ""            # empty = auto-detect every language
+
+# ── System prompt: ALWAYS reply in the user's input language ─────────────────
+# This prefix leads every agent's system prompt, so it is universal.
+[system_prompt]
+prefix = "Always respond in the same language as the user's most recent message — detect the language automatically and reply in that exact language (any language). If the language is unclear, use the one the user has used most. Never switch languages unless the user explicitly asks."
