@@ -6,7 +6,10 @@
 [intelligence]
 # Any model id with a "/" routes to OpenRouter (engine/cloud.py). Change this in
 # the UI's "Cloud Models" tab or here. "openrouter/auto" lets OpenRouter pick.
-default_model = "openrouter/anthropic/claude-3.5-sonnet"
+# "openrouter/auto" lets OpenRouter pick the best model per query (various
+# models, no local LLM). Switch to a specific id (e.g.
+# "openrouter/anthropic/claude-sonnet-4") in the UI's "Cloud Models" tab.
+default_model = "openrouter/auto"
 provider = "openai"
 
 # ── Engine: cloud (OpenRouter), no local inference server on Fly ─────────────
