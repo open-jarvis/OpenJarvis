@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from openjarvis.core.paths import get_config_dir
 from openjarvis.core.types import Message, Role
 from openjarvis.server.models import (
     ChatCompletionChunk,
@@ -821,10 +822,9 @@ async def reload_cloud_engine(request: Request):
     key so that cloud models become available without a full app restart.
     """
     import os
-    from pathlib import Path
 
     # Re-read ~/.openjarvis/cloud-keys.env and update the running process env.
-    keys_path = Path.home() / ".openjarvis" / "cloud-keys.env"
+    keys_path = get_config_dir() / "cloud-keys.env"
     if keys_path.exists():
         for raw_line in keys_path.read_text().splitlines():
             line = raw_line.strip()

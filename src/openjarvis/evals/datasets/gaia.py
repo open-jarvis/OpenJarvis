@@ -11,11 +11,12 @@ import shutil
 from pathlib import Path
 from typing import Iterable, List, MutableMapping, Optional, Sequence
 
+from openjarvis.core.paths import get_cache_dir
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.splits import apply_split
 from openjarvis.evals.core.types import EvalRecord
 
-_DEFAULT_CACHE_DIR = Path.home() / ".cache" / "gaia_benchmark"
+_DEFAULT_CACHE_DIR = get_cache_dir() / "gaia_benchmark"
 
 _DEFAULT_INPUT_PROMPT = """Please answer the question below. You should:
 

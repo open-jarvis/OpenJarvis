@@ -7,6 +7,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional, Union
 
+from openjarvis.core.paths import get_config_dir
 from openjarvis.security.credential_stripper import CredentialStripper
 
 _stripper = CredentialStripper()
@@ -68,7 +69,7 @@ def setup_logging(
         if log_file is None:
             from openjarvis.security.file_utils import secure_mkdir
 
-            log_dir = Path.home() / ".openjarvis"
+            log_dir = get_config_dir()
             secure_mkdir(log_dir)
             log_file = log_dir / "cli.log"
         file_handler = RotatingFileHandler(

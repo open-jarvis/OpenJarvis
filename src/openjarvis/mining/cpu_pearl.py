@@ -17,6 +17,7 @@ import urllib.request
 from pathlib import Path
 
 from openjarvis.core.config import HardwareInfo
+from openjarvis.core.paths import get_config_dir
 from openjarvis.core.registry import MinerRegistry
 
 from . import _install
@@ -47,7 +48,7 @@ def _sidecar_path() -> Path:
 
 def _log_dir() -> Path:
     """Return the logs directory. Override in tests."""
-    return Path.home() / ".openjarvis" / "logs" / "mining"
+    return get_config_dir() / "logs" / "mining"
 
 
 def _parse_gateway_metrics(text: str, *, provider_id: str) -> MiningStats:

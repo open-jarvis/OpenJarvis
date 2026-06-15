@@ -10,13 +10,20 @@ import os
 import threading
 from pathlib import Path
 
+from openjarvis.core.paths import get_config_dir
+
 try:
     import tomllib
 except ModuleNotFoundError:
     import tomli as tomllib  # type: ignore[no-redef]
 
 _LOCK = threading.Lock()
-_DEFAULT_PATH = Path.home() / ".openjarvis" / "credentials.toml"
+
+
+def _default_path() -> Path:
+    """Resolve the credentials file under the OpenJarvis root (env-aware)."""
+    return get_config_dir() / "credentials.toml"
+
 
 TOOL_CREDENTIALS: dict[str, list[str]] = {
     "web_search": ["TAVILY_API_KEY"],
@@ -53,7 +60,7 @@ TOOL_CREDENTIALS: dict[str, list[str]] = {
 
 def load_credentials(path: Path | None = None) -> dict[str, dict[str, str]]:
     """Load credentials from TOML file."""
-    p = Path(path) if path else _DEFAULT_PATH
+    p = Path(path) if path else _default_path()
     if not p.exists():
         return {}
     with open(p, "rb") as f:
@@ -75,7 +82,7 @@ def save_credential(
     if not stripped:
         raise ValueError("Credential value must not be empty")
 
-    p = Path(path) if path else _DEFAULT_PATH
+    p = Path(path) if path else _default_path()
     with _LOCK:
         creds = load_credentials(path=p)
         if tool_name not in creds:

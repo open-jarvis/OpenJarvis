@@ -11,6 +11,8 @@ from typing import Callable, List
 
 import click
 
+from openjarvis.core.paths import get_config_dir
+
 # Engine ports that should only be listening on localhost.
 _ENGINE_PORTS = {11434, 8080, 8000, 30000, 1234, 52415, 18181}
 
@@ -132,7 +134,7 @@ class PrivacyScanner:
     def check_icloud_sync(self) -> ScanResult:
         """Check whether ~/.openjarvis is inside iCloud Drive sync scope."""
         try:
-            config_path = Path("~/.openjarvis").expanduser().resolve()
+            config_path = get_config_dir().resolve()
             icloud_path = Path("~/Library/Mobile Documents/").expanduser().resolve()
             if str(config_path).startswith(str(icloud_path)):
                 return ScanResult(

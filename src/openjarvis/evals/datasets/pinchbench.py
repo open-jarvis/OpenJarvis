@@ -18,6 +18,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 import yaml
 
+from openjarvis.core.paths import get_cache_dir
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.splits import apply_split
 from openjarvis.evals.core.types import EvalRecord
@@ -25,7 +26,7 @@ from openjarvis.evals.core.types import EvalRecord
 LOGGER = logging.getLogger(__name__)
 
 PINCHBENCH_REPO = "https://github.com/pinchbench/skill.git"
-CACHE_DIR = Path.home() / ".cache" / "pinchbench"
+CACHE_DIR = get_cache_dir() / "pinchbench"
 
 
 def _parse_task_markdown(content: str, filename: str = "") -> Dict[str, Any]:

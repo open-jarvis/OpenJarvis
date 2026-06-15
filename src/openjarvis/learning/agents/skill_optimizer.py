@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from openjarvis.core.paths import get_config_dir
 from openjarvis.core.types import Trace, TraceStep
 from openjarvis.skills.manager import SkillManager
 from openjarvis.skills.overlay import SkillOverlay, write_overlay
@@ -99,7 +100,7 @@ class SkillOptimizer:
                 pass
             if overlay_dir is None:
                 overlay_dir = Path(
-                    "~/.openjarvis/learning/skills/"
+                    str(get_config_dir() / "learning" / "skills")
                 ).expanduser()
         overlay_dir = Path(overlay_dir).expanduser()
 

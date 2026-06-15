@@ -10,18 +10,18 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import AsyncIterator
-from pathlib import Path
 from typing import Any, Sequence
 
 import httpx
 
+from openjarvis.core.paths import get_config_dir
 from openjarvis.core.types import Message
 
 # ---------------------------------------------------------------------------
 # Key / provider detection
 # ---------------------------------------------------------------------------
 
-_CLOUD_ENV_FILE = Path.home() / ".openjarvis" / "cloud-keys.env"
+_CLOUD_ENV_FILE = get_config_dir() / "cloud-keys.env"
 
 _OPENAI_PREFIXES = ("gpt-", "o1-", "o3-", "o4-", "chatgpt-")
 _ANTHROPIC_PREFIXES = ("claude-",)

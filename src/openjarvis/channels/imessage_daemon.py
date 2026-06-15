@@ -18,11 +18,13 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List
 
+from openjarvis.core.paths import get_config_dir
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_DB_PATH = str(Path.home() / "Library" / "Messages" / "chat.db")
 _POLL_INTERVAL = 5
-_PID_FILE = str(Path.home() / ".openjarvis" / "imessage-agent.pid")
+_PID_FILE = str(get_config_dir() / "imessage-agent.pid")
 
 
 def poll_new_messages(

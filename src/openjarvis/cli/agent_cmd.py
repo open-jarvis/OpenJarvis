@@ -12,15 +12,12 @@ from rich.table import Table
 
 def _get_manager():
     """Get or create the AgentManager singleton."""
-    from pathlib import Path
-
     from openjarvis.agents.manager import AgentManager
     from openjarvis.core.config import load_config
+    from openjarvis.core.paths import get_config_dir
 
     config = load_config()
-    db_path = config.agent_manager.db_path or str(
-        Path("~/.openjarvis/agents.db").expanduser()
-    )
+    db_path = config.agent_manager.db_path or str(get_config_dir() / "agents.db")
     return AgentManager(db_path=db_path)
 
 
@@ -273,6 +270,7 @@ def search(agent_id: str, query: str, limit: int) -> None:
     console = Console(stderr=True)
     try:
         from openjarvis.core.config import load_config
+        from openjarvis.core.paths import get_config_dir
         from openjarvis.traces.store import TraceStore
 
         config = load_config()
@@ -281,7 +279,7 @@ def search(agent_id: str, query: str, limit: int) -> None:
         if not agent:
             console.print(f"[red]Agent not found: {agent_id}[/red]")
             return
-        store = TraceStore(config.traces.db_path or "~/.openjarvis/traces.db")
+        store = TraceStore(config.traces.db_path or str(get_config_dir() / "traces.db"))
         results = store.search(query, agent=agent["name"], limit=limit)
         if not results:
             console.print("[dim]No results.[/dim]")
@@ -545,8 +543,7 @@ def run_agent(agent_id):
     updated = manager.get_agent(agent_id)
     runs = updated.get("total_runs", 0)
     console.print(
-        f"[green]✓[/green] Tick complete. "
-        f"Status: {updated['status']}, runs: {runs}"
+        f"[green]✓[/green] Tick complete. Status: {updated['status']}, runs: {runs}"
     )
 
     # Print the agent's actual output. summary_memory holds the latest tick's
@@ -662,6 +659,7 @@ def trace(agent_id, run_number, limit):
     import datetime
 
     from openjarvis.core.config import load_config
+    from openjarvis.core.paths import get_config_dir
     from openjarvis.traces.store import TraceStore
 
     manager = _get_manager()
@@ -671,7 +669,7 @@ def trace(agent_id, run_number, limit):
         raise SystemExit(1)
 
     config = load_config()
-    store = TraceStore(config.traces.db_path or "~/.openjarvis/traces.db")
+    store = TraceStore(config.traces.db_path or str(get_config_dir() / "traces.db"))
     traces = store.list_traces(agent=agent_id, limit=limit)
 
     if not traces:
@@ -841,8 +839,8 @@ def ask(agent_id, message, auto_approve):
     if auto_approve:
         executor._confirm_callback = lambda _prompt: True
     else:
-        executor._confirm_callback = (
-            lambda prompt: click.confirm(f"\n{prompt}", default=False)
+        executor._confirm_callback = lambda prompt: click.confirm(
+            f"\n{prompt}", default=False
         )
     # Run the tick with a live trace rather than blocking in silence — the
     # message we just queued is consumed as this tick's input, so the user

@@ -17,6 +17,46 @@ The configuration file lives at:
 
 OpenJarvis creates the `~/.openjarvis/` directory and populates it with a default config when you run `jarvis init`.
 
+## Relocating the OpenJarvis directory
+
+OpenJarvis keeps **all** of its state — config, databases, caches, logs,
+credentials, skills, recipes, connectors — under a **single root** so it never
+clutters your home directory beyond one folder. By default that root is
+`~/.openjarvis`, but you can move it.
+
+The root is resolved in priority order:
+
+1. **`$OPENJARVIS_HOME`** — explicit override. Honored by both the installer
+   and the Python runtime.
+2. **`$XDG_DATA_HOME/openjarvis`** — used when `$XDG_DATA_HOME` is set (a single
+   `openjarvis` directory nested under it, per the XDG Base Directory spec).
+3. **`~/.openjarvis`** — the default. With no environment variables set, the
+   resolved path is exactly this, so existing installs are untouched.
+
+```bash
+# Relocate the whole install + runtime tree at install time:
+OPENJARVIS_HOME=~/apps/openjarvis curl -fsSL https://open-jarvis.github.io/OpenJarvis/install.sh | bash
+
+# Or for a single run / your shell profile:
+export OPENJARVIS_HOME=~/apps/openjarvis
+```
+
+Confirm where your data lives with:
+
+```bash
+jarvis config path
+```
+
+!!! note "Migration"
+    Because the default is unchanged, **no data migration is required** for
+    existing installs. If you set `OPENJARVIS_HOME` (or `XDG_DATA_HOME`) on a
+    machine that already has data in `~/.openjarvis`, OpenJarvis will look in
+    the new location and not see your old data — move it yourself if you want
+    to keep it: `mv ~/.openjarvis "$OPENJARVIS_HOME"`.
+
+`$OPENJARVIS_CONFIG` still points at an explicit `config.toml` file
+independently of the root, if you need to override just the config file path.
+
 ## Generating Configuration
 
 ### First-Time Setup

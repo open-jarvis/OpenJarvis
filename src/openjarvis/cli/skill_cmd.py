@@ -11,6 +11,7 @@ from rich.table import Table
 
 from openjarvis.core.config import load_config
 from openjarvis.core.events import EventBus
+from openjarvis.core.paths import get_config_dir
 from openjarvis.skills.manager import SkillManager
 
 
@@ -28,12 +29,12 @@ def _get_trace_store():
 
 def _get_discovered_dir() -> Path:
     """Return the directory where discovered skill manifests are written."""
-    return Path("~/.openjarvis/skills/discovered/").expanduser()
+    return get_config_dir() / "skills" / "discovered"
 
 
 def _get_overlay_dir() -> Path:
     """Return the directory where optimization overlays are stored."""
-    return Path("~/.openjarvis/learning/skills/").expanduser()
+    return get_config_dir() / "learning" / "skills"
 
 
 def _get_skill_paths() -> List[Path]:
@@ -41,7 +42,7 @@ def _get_skill_paths() -> List[Path]:
     workspace = Path("./skills")
     if workspace.exists():
         paths.append(workspace)
-    user_dir = Path("~/.openjarvis/skills/").expanduser()
+    user_dir = get_config_dir() / "skills"
     paths.append(user_dir)
     return paths
 
@@ -174,8 +175,10 @@ def _get_resolver(source: str, url: str = ""):
         from openjarvis.skills.sources.github import GitHubResolver
 
         cache = _Path(
-            "~/.openjarvis/skill-cache/github/" + url.rstrip("/").rsplit("/", 1)[-1]
-        ).expanduser()
+            str(get_config_dir() / "skill-cache" / "github")
+            + "/"
+            + url.rstrip("/").rsplit("/", 1)[-1]
+        )
         return GitHubResolver(cache_root=cache, repo_url=url)
     raise click.BadParameter(f"Unknown source: {source!r}")
 

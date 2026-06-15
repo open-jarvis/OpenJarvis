@@ -12,9 +12,9 @@ import logging
 import os
 import subprocess
 import sys
-from pathlib import Path
 from typing import Iterable, List, Optional
 
+from openjarvis.core.paths import get_cache_dir
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.splits import apply_split
 from openjarvis.evals.core.types import EvalRecord
@@ -22,7 +22,7 @@ from openjarvis.evals.core.types import EvalRecord
 LOGGER = logging.getLogger(__name__)
 
 TAU2_REPO = "https://github.com/sierra-research/tau2-bench.git"
-CACHE_DIR = Path.home() / ".cache" / "tau2-bench"
+CACHE_DIR = get_cache_dir() / "tau2-bench"
 
 DOMAINS = ("airline", "retail", "telecom")
 

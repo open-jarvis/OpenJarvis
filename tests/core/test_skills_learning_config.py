@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from openjarvis.core.config import LearningConfig, SkillsLearningConfig
+from openjarvis.core.paths import get_config_dir
 
 
 class TestSkillsLearningConfig:
@@ -12,7 +13,9 @@ class TestSkillsLearningConfig:
         assert cfg.optimizer == "dspy"
         assert cfg.min_traces_per_skill == 20
         assert cfg.optimization_interval_seconds == 86400
-        assert cfg.overlay_dir == "~/.openjarvis/learning/skills/"
+        # overlay_dir now resolves under the env-aware OpenJarvis root (#462),
+        # defaulting to <home>/learning/skills instead of the old literal.
+        assert cfg.overlay_dir == str(get_config_dir() / "learning" / "skills")
 
     def test_can_be_constructed_with_all_fields(self):
         cfg = SkillsLearningConfig(

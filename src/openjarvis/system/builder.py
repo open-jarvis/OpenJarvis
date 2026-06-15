@@ -7,6 +7,7 @@ from typing import Any, List, Optional
 
 from openjarvis.core.config import JarvisConfig, load_config
 from openjarvis.core.events import EventBus, get_event_bus
+from openjarvis.core.paths import get_config_dir
 from openjarvis.engine._stubs import InferenceEngine
 from openjarvis.system.core import JarvisSystem
 from openjarvis.tools._stubs import BaseTool, ToolExecutor
@@ -232,12 +233,10 @@ class SystemBuilder:
         agent_manager = None
         if config.agent_manager.enabled:
             try:
-                from pathlib import Path
-
                 from openjarvis.agents.manager import AgentManager
 
                 am_db = config.agent_manager.db_path or str(
-                    Path("~/.openjarvis/agents.db").expanduser()
+                    get_config_dir() / "agents.db"
                 )
                 agent_manager = AgentManager(db_path=am_db)
             except Exception as exc:

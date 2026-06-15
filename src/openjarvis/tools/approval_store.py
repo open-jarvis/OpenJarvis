@@ -19,6 +19,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from openjarvis.core.paths import get_config_dir
+
 # ---------------------------------------------------------------------------
 # Decision constants
 # ---------------------------------------------------------------------------
@@ -147,7 +149,7 @@ class ApprovalStore:
 
     def __init__(self, db_path: str = "") -> None:
         if not db_path:
-            db_path = str(Path.home() / ".openjarvis" / "approvals.db")
+            db_path = str(get_config_dir() / "approvals.db")
         self._db_path = db_path
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(db_path, check_same_thread=False)

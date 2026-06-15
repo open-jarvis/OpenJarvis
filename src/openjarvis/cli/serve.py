@@ -11,6 +11,7 @@ from rich.console import Console
 from openjarvis.cli._banner import print_banner
 from openjarvis.core.config import load_config
 from openjarvis.core.events import EventBus
+from openjarvis.core.paths import get_config_dir
 from openjarvis.engine import (
     discover_engines,
     discover_models,
@@ -496,13 +497,9 @@ def serve(
     agent_manager = None
     if config.agent_manager.enabled:
         try:
-            from pathlib import Path
-
             from openjarvis.agents.manager import AgentManager
 
-            am_db = config.agent_manager.db_path or str(
-                Path("~/.openjarvis/agents.db").expanduser()
-            )
+            am_db = config.agent_manager.db_path or str(get_config_dir() / "agents.db")
             # The server owns the scheduler and is the authoritative tick
             # runner — on boot it holds no locks, so it (and only it) sweeps
             # any zombie running→idle left by a previous crash.
@@ -607,9 +604,7 @@ def serve(
         try:
             import tomllib
 
-            _cfg_path = str(
-                __import__("pathlib").Path.home() / ".openjarvis" / "config.toml"
-            )
+            _cfg_path = str(get_config_dir() / "config.toml")
             with open(_cfg_path, "rb") as _f:
                 _raw = tomllib.load(_f)
             api_key = _raw.get("server", {}).get("auth", {}).get("api_key", "")

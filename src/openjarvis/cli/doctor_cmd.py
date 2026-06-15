@@ -354,7 +354,9 @@ def doctor(as_json: bool) -> None:
 
     # Background tasks section
     from openjarvis.cli._bg_state import get_status
+    from openjarvis.core.paths import get_config_dir
 
+    scripts_dir = get_config_dir() / ".scripts"
     console.print("[bold]Background tasks[/bold]")
     bg = get_status()
     bg_failed = False
@@ -364,8 +366,8 @@ def doctor(as_json: bool) -> None:
     elif bg.rust_extension == "failed":
         console.print(f"  [red]✗[/red] Rust extension: failed — {bg.rust_error[:80]}")
         console.print(
-            "    retry: ~/.openjarvis/.scripts/install-rust.sh && "
-            "~/.openjarvis/.scripts/build-extension.sh"
+            f"    retry: {scripts_dir}/install-rust.sh && "
+            f"{scripts_dir}/build-extension.sh"
         )
         bg_failed = True
     else:
@@ -380,7 +382,7 @@ def doctor(as_json: bool) -> None:
             console.print(f"  [green]✓[/green] {model_id}: ready")
         elif state == "failed":
             console.print(f"  [red]✗[/red] {model_id}: failed")
-            console.print(f"    retry: ~/.openjarvis/.scripts/pull-model.sh {model_id}")
+            console.print(f"    retry: {scripts_dir}/pull-model.sh {model_id}")
             bg_failed = True
         else:
             console.print(f"  [yellow]…[/yellow] {model_id}: downloading")

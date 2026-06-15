@@ -276,6 +276,36 @@ def hardware() -> None:
 config.add_command(show_group, "show")
 
 
+@config.command("path")
+def show_path() -> None:
+    """Print the resolved OpenJarvis directories (home, config, cache).
+
+    All OpenJarvis state lives under a single root, resolved in priority
+    order: ``$OPENJARVIS_HOME`` > ``$XDG_DATA_HOME/openjarvis`` >
+    ``~/.openjarvis``. Use this to confirm where your data is stored after
+    setting an override.
+    """
+    from openjarvis.core.paths import get_cache_dir, get_config_dir, get_config_path
+
+    console = Console(stderr=True)
+    home = get_config_dir()
+    override = (
+        "OPENJARVIS_HOME"
+        if os.environ.get("OPENJARVIS_HOME")
+        else "XDG_DATA_HOME"
+        if os.environ.get("XDG_DATA_HOME")
+        else "default (~/.openjarvis)"
+    )
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Directory")
+    table.add_column("Path", style="cyan")
+    table.add_row("Home (root)", str(home))
+    table.add_row("Config file", str(get_config_path()))
+    table.add_row("Cache", str(get_cache_dir()))
+    console.print(table)
+    console.print(f"[dim]Resolved via: {override}[/dim]")
+
+
 def _probe_engine_host(url: str, console: Console) -> None:
     """Probe an engine host URL and print reachability status."""
     try:
