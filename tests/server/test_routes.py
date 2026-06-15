@@ -488,6 +488,167 @@ class TestChatCompletions:
 
 
 # ---------------------------------------------------------------------------
+# Identity system-prompt injection (#540)
+# ---------------------------------------------------------------------------
+
+
+def _make_capturing_engine(captured: list):
+    """Like ``_make_engine`` but records the messages each path receives.
+
+    ``engine.generate`` is a MagicMock so ``call_args`` works on the
+    direct/non-stream path. ``engine.stream`` / ``engine.stream_full`` are
+    plain async-generator FUNCTIONS, so they capture their ``messages``
+    argument into the shared *captured* list from inside the generator body
+    (``call_args`` does not apply to plain functions).
+    """
+    engine = MagicMock()
+    engine.engine_id = "mock"
+    engine.health.return_value = True
+    engine.list_models.return_value = ["test-model"]
+    engine.generate.return_value = {
+        "content": "ok",
+        "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8},
+        "model": "test-model",
+        "finish_reason": "stop",
+    }
+
+    async def mock_stream(messages, *, model, temperature=0.7, max_tokens=1024, **kw):
+        captured.append(messages)
+        for token in ["Hello", " ", "world"]:
+            yield token
+
+    async def mock_stream_full(
+        messages, *, model, temperature=0.7, max_tokens=1024, **kw
+    ):
+        from openjarvis.engine._stubs import StreamChunk
+
+        captured.append(messages)
+        yield StreamChunk(content="ok", finish_reason="stop")
+
+    engine.stream = mock_stream
+    engine.stream_full = mock_stream_full
+    return engine
+
+
+class TestIdentityPromptInjection:
+    """Regression for #540.
+
+    The desktop UI posts only user/assistant turns to the
+    OpenAI-compatible ``/v1/chat/completions`` endpoint, so the engine never
+    saw OpenJarvis's identity system prompt and the model answered from its
+    training identity ("I'm Claude", "I am Qwen", ...). The engine-direct
+    server handlers must now inject ``agent.default_system_prompt`` whenever
+    the client omits a system message — and must NOT inject a second one when
+    the client already supplies their own.
+    """
+
+    def test_stream_injects_identity_when_absent(self):
+        captured: list = []
+        engine = _make_capturing_engine(captured)
+        client = TestClient(create_app(engine, "test-model"))
+
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "who are you?"}],
+                "stream": True,
+            },
+        )
+        assert resp.status_code == 200
+        # Drain the stream so the generator body runs and records messages.
+        _ = resp.text
+        assert captured, "engine.stream was never called"
+        msgs = captured[-1]
+        assert msgs[0].role.value == "system"
+        assert "OpenJarvis" in msgs[0].content
+
+    def test_stream_no_double_injection_when_client_supplies_system(self):
+        captured: list = []
+        engine = _make_capturing_engine(captured)
+        client = TestClient(create_app(engine, "test-model"))
+
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [
+                    {"role": "system", "content": "Be terse."},
+                    {"role": "user", "content": "who are you?"},
+                ],
+                "stream": True,
+            },
+        )
+        assert resp.status_code == 200
+        _ = resp.text
+        msgs = captured[-1]
+        system_msgs = [m for m in msgs if m.role.value == "system"]
+        assert len(system_msgs) == 1
+        assert system_msgs[0].content == "Be terse."
+
+    def test_direct_injects_identity_when_absent(self):
+        captured: list = []
+        engine = _make_capturing_engine(captured)
+        # No agent -> non-stream request goes through _handle_direct.
+        client = TestClient(create_app(engine, "test-model"))
+
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "who are you?"}],
+            },
+        )
+        assert resp.status_code == 200
+        assert engine.generate.called
+        msgs = engine.generate.call_args.args[0]
+        assert msgs[0].role.value == "system"
+        assert "OpenJarvis" in msgs[0].content
+
+    def test_direct_no_double_injection_when_client_supplies_system(self):
+        captured: list = []
+        engine = _make_capturing_engine(captured)
+        client = TestClient(create_app(engine, "test-model"))
+
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [
+                    {"role": "system", "content": "Be terse."},
+                    {"role": "user", "content": "who are you?"},
+                ],
+            },
+        )
+        assert resp.status_code == 200
+        msgs = engine.generate.call_args.args[0]
+        system_msgs = [m for m in msgs if m.role.value == "system"]
+        assert len(system_msgs) == 1
+        assert system_msgs[0].content == "Be terse."
+
+    def test_stream_tools_injects_identity_when_absent(self):
+        captured: list = []
+        engine = _make_capturing_engine(captured)
+        client = TestClient(create_app(engine, "test-model"))
+
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "who are you?"}],
+                "tools": [{"type": "function", "function": {"name": "calc"}}],
+                "stream": True,
+            },
+        )
+        assert resp.status_code == 200
+        _ = resp.text
+        assert captured, "engine.stream_full was never called"
+        msgs = captured[-1]
+        assert msgs[0].role.value == "system"
+        assert "OpenJarvis" in msgs[0].content
+
+
+# ---------------------------------------------------------------------------
 # Models endpoint tests
 # ---------------------------------------------------------------------------
 
