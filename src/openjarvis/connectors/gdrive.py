@@ -20,7 +20,6 @@ from openjarvis.connectors.oauth import (
     delete_tokens,
     load_tokens,
     resolve_google_credentials,
-    run_oauth_flow,
     save_tokens,
 )
 from openjarvis.core.config import DEFAULT_CONFIG_DIR
@@ -178,15 +177,25 @@ class GDriveConnector(BaseConnector):
         """Handle the OAuth callback.
 
         If *code* looks like a ``client_id:client_secret`` pair (containing
-        ``.apps.googleusercontent.com``), store the credentials and trigger
-        the full browser-based OAuth flow.  Otherwise treat it as a raw
-        token / auth code.
+        ``.apps.googleusercontent.com``), persist the client credentials only.
+        The actual browser consent + code→token exchange is owned by the
+        in-process server flow (``/v1/connectors/{id}/oauth/start`` →
+        ``/oauth/callback``), which writes the real ``access_token`` to every
+        Google credential file.
+
+        Previously this spawned a daemon thread that popped a browser and ran
+        its own ``localhost:8789`` callback server; that thread failed silently
+        in the bundled desktop context, so the connector never gained an access
+        token and never appeared in Data Sources (issue #512). The background
+        flow is intentionally removed here.
+
+        Any other *code* is treated as a raw token / auth code.
         """
         code = code.strip()
-        # If user pastes client_id:client_secret, store and run OAuth flow
+        # A pasted client_id:client_secret pair is the app registration, not a
+        # completed credential — persist it and let the server flow finish auth.
         if ":" in code and ".apps.googleusercontent.com" in code:
             client_id, client_secret = code.split(":", 1)
-            # Save credentials immediately
             save_tokens(
                 self._credentials_path,
                 {
@@ -194,21 +203,6 @@ class GDriveConnector(BaseConnector):
                     "client_secret": client_secret.strip(),
                 },
             )
-            # Run OAuth flow in background thread to avoid blocking
-            import threading
-
-            def _run() -> None:
-                try:
-                    run_oauth_flow(
-                        client_id=client_id.strip(),
-                        client_secret=client_secret.strip(),
-                        scopes=GOOGLE_ALL_SCOPES,
-                        credentials_path=self._credentials_path,
-                    )
-                except Exception:  # noqa: BLE001
-                    pass
-
-            threading.Thread(target=_run, daemon=True).start()
         else:
             # Raw token or auth code
             save_tokens(self._credentials_path, {"token": code})

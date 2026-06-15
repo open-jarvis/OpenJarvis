@@ -55,6 +55,19 @@ export interface ConnectRequest {
   password?: string;
 }
 
+/** Response from POST /v1/connectors/{id}/connect.
+ *  For OAuth connectors, pasting a Client ID / Secret pair only registers the
+ *  app credentials; the backend returns `status: "oauth_required"` plus an
+ *  `oauth_start` path the UI must open to run the browser consent flow that
+ *  actually mints an access token (see issue #512). */
+export interface ConnectResponse {
+  connector_id: string;
+  connected: boolean;
+  status: "connected" | "pending" | "oauth_required" | "disconnected";
+  oauth_start?: string;
+  sync_status?: string | null;
+}
+
 export type WizardStep = "pick" | "connect" | "ingest" | "ready";
 
 // Backward-compatible alias
@@ -257,12 +270,12 @@ export const SOURCE_CATALOG: ConnectorMeta[] = [
         urlLabel: 'Enable Drive API',
       },
       {
-        label: 'Create OAuth credentials: go to Credentials (link below) → click "+ Create Credentials" → choose "OAuth client ID" → Application type: "Desktop app" → click "Create"',
+        label: 'Create OAuth credentials: go to Credentials (link below) → click "+ Create Credentials" → choose "OAuth client ID" → Application type: "Web application". Under "Authorized redirect URIs" add this server\'s callback (e.g. http://localhost:1313/v1/connectors/gdrive/oauth/callback — match the host/port your OpenJarvis server is bound to) → click "Create".',
         url: 'https://console.cloud.google.com/apis/credentials',
         urlLabel: 'Open Credentials',
       },
       {
-        label: 'A dialog will show your Client ID and Client Secret. Copy both and paste them below. (If you miss it, click the download icon next to your OAuth client to see them again)',
+        label: 'A dialog will show your Client ID and Client Secret. Copy both and paste them below, then click Connect — a Google sign-in window opens to finish authorization. (If you miss the dialog, click the download icon next to your OAuth client to see them again.)',
       },
     ],
     inputFields: [
