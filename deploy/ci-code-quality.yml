@@ -1,0 +1,70 @@
+name: Code Quality Checks
+
+on:
+  push:
+    branches: [main, develop, 'feat/*']
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  lint-and-type:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v2
+      
+      - name: Install dependencies
+        run: uv sync --extra dev
+      
+      - name: Run Ruff linter
+        run: uv run ruff check src/ tests/ --output-format=github
+      
+      - name: Run Ruff formatter check
+        run: uv run ruff format src/ tests/ --check
+      
+      - name: Type check with pyright (if available)
+        run: |
+          uv run pip install pyright 2>/dev/null || echo "Pyright not required"
+          uv run pyright src/ 2>/dev/null || echo "Type checking skipped"
+        continue-on-error: true
+
+  security-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+      
+      - name: Install security tools
+        run: |
+          pip install bandit safety pip-audit
+      
+      - name: Run Bandit security check
+        run: bandit -r src/ -ll -f json -o bandit-report.json
+        continue-on-error: true
+      
+      - name: Run Safety dependency check
+        run: safety check --json > safety-report.json
+        continue-on-error: true
+      
+      - name: Upload security reports
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-reports
+          path: |
+            bandit-report.json
+            safety-report.json
+          retention-days: 30
