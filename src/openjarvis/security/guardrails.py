@@ -192,6 +192,7 @@ class GuardrailsEngine(InferenceEngine):
                             tool_calls=msg.tool_calls,
                             tool_call_id=msg.tool_call_id,
                             metadata=msg.metadata,
+                            images=msg.images,
                         )
             messages = processed
 

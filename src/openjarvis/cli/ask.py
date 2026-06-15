@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json as json_mod
 import logging
 import sys
@@ -620,6 +621,21 @@ def _print_profile(
     ),
 )
 @click.option(
+    "-i",
+    "--image",
+    "image_paths",
+    multiple=True,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Image file for a vision model (e.g. gemma3). Repeatable.",
+)
+@click.option(
+    "-S",
+    "--screen",
+    "capture_screen",
+    is_flag=True,
+    help="Capture the current screen and send it to the vision model.",
+)
+@click.option(
     "--persona",
     "persona_name",
     default=None,
@@ -645,12 +661,35 @@ def ask(
     research_mode: bool,
     knowledge_db: str | None,
     persona_name: str | None,
+    image_paths: tuple[str, ...] = (),
+    capture_screen: bool = False,
 ) -> None:
     """Ask Jarvis a question."""
     quiet = (ctx.obj or {}).get("quiet", False) or output_json
     print_banner(quiet=quiet)
     console = Console(stderr=True)
     query_text = " ".join(query)
+
+    # Vision: collect base64 images from --image files and/or --screen.
+    image_b64: list[str] = []
+    for _img_path in image_paths:
+        try:
+            with open(_img_path, "rb") as _fh:
+                image_b64.append(base64.b64encode(_fh.read()).decode("ascii"))
+        except OSError as exc:
+            console.print(f"[red]Could not read image {_img_path}: {exc}[/red]")
+            sys.exit(1)
+    if capture_screen:
+        try:
+            from openjarvis.cli._screen import capture_screen_to_temp
+
+            _shot = capture_screen_to_temp()
+            with open(_shot, "rb") as _fh:
+                image_b64.append(base64.b64encode(_fh.read()).decode("ascii"))
+            logger.debug("Captured screen to %s", _shot)
+        except Exception as exc:  # noqa: BLE001
+            console.print(f"[red]Screen capture failed:[/red] {exc}")
+            sys.exit(1)
 
     wall_start = time.monotonic() if enable_profile else None
 
@@ -671,10 +710,25 @@ def ask(
     # Without this fallback, `[agent].default_system_prompt` and the
     # SOUL.md / MEMORY.md / USER.md persona system are silently bypassed for
     # the most common command (`jarvis ask "..."`).
+    agent_explicitly_set = agent_name is not None
     if agent_name is None:
         configured_default = (config.agent.default_agent or "").strip()
         if configured_default:
             agent_name = configured_default
+
+    # Vision flows only through direct-to-engine mode. If an image/screenshot
+    # was supplied without an explicit --agent, route to direct mode so the
+    # picture reaches the model; if an agent was explicitly requested, say
+    # plainly that the image is being skipped rather than dropping it silently.
+    if image_b64:
+        if not agent_explicitly_set:
+            agent_name = ""
+        else:
+            console.print(
+                "[yellow]Note:[/yellow] --image/--screen only works in direct "
+                "mode; the image is ignored with --agent set. Re-run with "
+                '`--agent ""` to use vision.'
+            )
 
     # Track whether the user explicitly set --max-tokens
     user_set_max_tokens = max_tokens is not None
@@ -871,6 +925,27 @@ def ask(
         return
 
     # Direct-to-engine mode (no agent)
+    # Privacy guard: a screenshot/image is sensitive, and OpenJarvis is
+    # local-first. If the active engine isn't local, warn before the image
+    # leaves the machine rather than silently uploading it to a third party.
+    _LOCAL_ENGINES = {
+        "ollama",
+        "llamacpp",
+        "vllm",
+        "sglang",
+        "exo",
+        "nexa",
+        "uzu",
+        "apple_fm",
+        "gemma_cpp",
+    }
+    if image_b64 and engine_name not in _LOCAL_ENGINES:
+        console.print(
+            f"[yellow]Privacy warning:[/yellow] sending {len(image_b64)} "
+            f"image(s) to a non-local engine ('{engine_name}'). The image will "
+            "leave this machine. Use a local engine (e.g. ollama) to keep "
+            "vision on-device."
+        )
     messages = [Message(role=Role.USER, content=query_text)]
 
     # Memory-augmented context injection
@@ -896,6 +971,15 @@ def ask(
                 )
         except Exception as exc:
             logger.debug("Failed to inject memory context: %s", exc)
+
+    # Vision: attach images to the final user message *after* any context
+    # injection (which may rebuild the list). messages_to_dicts() forwards
+    # the "images" field to Ollama's /api/chat.
+    if image_b64:
+        for _m in reversed(messages):
+            if _m.role == Role.USER:
+                _m.images = image_b64
+                break
 
     # Generate (InstrumentedEngine handles telemetry + energy recording)
     try:
