@@ -1,4 +1,7 @@
-"""Cloud inference engine — OpenAI, Anthropic, Google, MiniMax, and DeepSeek API backends."""
+"""Cloud inference engine.
+
+OpenAI, Anthropic, Google, MiniMax, and DeepSeek API backends.
+"""
 
 from __future__ import annotations
 
@@ -135,6 +138,35 @@ def _is_anthropic_model(model: str) -> bool:
 
 def _is_google_model(model: str) -> bool:
     return "gemini" in model.lower() and not _is_openrouter_model(model)
+
+
+# Positive prefix predicate for genuine OpenAI models. Kept in sync with
+# ``server/cloud_router.py:_OPENAI_PREFIXES`` so local-vs-cloud classification
+# agrees across the codebase. Used by ``_client_for_model``/``can_serve`` so the
+# cloud engine never claims it can serve an unrecognized (e.g. local Ollama)
+# model name just because an OpenAI key happens to be present (see #335).
+_OPENAI_PREFIXES = ("gpt-", "chatgpt-", "o1", "o3", "o4")
+
+
+def _is_openai_model(model: str) -> bool:
+    """True only for genuine OpenAI models (gpt-*, chatgpt-*, o1/o3/o4 series).
+
+    Defined positively so that an unrecognized model name (a local Ollama model
+    like ``qwen3.5:0.8b``, or a typo) is NOT treated as an OpenAI model. This is
+    the routing surface ``can_serve`` relies on; ``generate``/``stream`` keep
+    their OpenAI fall-through so an explicitly-requested unknown cloud model
+    still errors loudly at call time.
+
+    Caveat: a user may repoint the OpenAI client at an OpenAI-compatible server
+    (vLLM/LM Studio) via ``OPENAI_BASE_URL`` and legitimately serve non-gpt
+    names. That path is undocumented/untested in this engine; if it is added,
+    this predicate (or ``_client_for_model``) should treat a configured custom
+    base_url as "serves anything".
+    """
+    m = model.lower()
+    if m in (name.lower() for name in _OPENAI_MODELS):
+        return True
+    return m.startswith(_OPENAI_PREFIXES)
 
 
 def _is_openai_reasoning_model(model: str) -> bool:
@@ -1594,18 +1626,32 @@ class CloudEngine(InferenceEngine):
 
     def _client_for_model(self, model: str) -> Any:
         """Return the provider client ``generate``/``stream`` will dispatch to
-        for *model* (mirrors the routing in those methods)."""
+        for *model*, or ``None`` for a model this engine cannot route.
+
+        Mirrors the routing in ``generate``/``stream``, but is intentionally
+        *stricter* on the OpenAI fall-through: only genuine OpenAI models map to
+        the OpenAI client. Unrecognized names (e.g. a local Ollama model like
+        ``qwen3.5:0.8b``) return ``None`` so ``can_serve`` declines them and the
+        cloud engine is not mis-selected as a fallback when the local engine is
+        transiently down and any (even dummy) ``OPENAI_API_KEY`` is set (#335).
+        ``generate``/``stream`` keep their OpenAI fall-through, so an
+        explicitly-requested unknown cloud model still fails loudly at call time.
+        """
         if _is_codex_model(model):
             return self._codex_client
         if _is_openrouter_model(model):
             return self._openrouter_client
         if _is_minimax_model(model):
             return self._minimax_client
+        if _is_deepseek_model(model):
+            return self._deepseek_client
         if _is_anthropic_model(model):
             return self._anthropic_client
         if _is_google_model(model):
             return self._google_client
-        return self._openai_client
+        if _is_openai_model(model):
+            return self._openai_client
+        return None
 
     def can_serve(self, model: str) -> bool:
         """Return ``True`` only if the provider client for *model* exists.

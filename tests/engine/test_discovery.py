@@ -204,6 +204,54 @@ class TestGetEngine:
         assert result is not None
         assert result[0] == "local"
 
+    def test_dummy_openai_key_does_not_misroute_local_model(
+        self, monkeypatch: object
+    ) -> None:
+        """#335: a present-but-dummy OPENAI_API_KEY + a down local engine must
+        NOT cause a local Ollama model to be routed to the cloud engine.
+
+        Before the fix, CloudEngine.can_serve('qwen3.5:0.8b') returned True
+        whenever any OpenAI client existed (even a junk key), so get_engine
+        picked 'cloud' and the request later died with "OpenAI client not
+        available". With the strict _client_for_model fall-through it returns
+        None for unrecognized names, so get_engine declines cloud and (with the
+        local engine down) returns None — surfacing a "start your local engine"
+        failure instead.
+        """
+        from openjarvis.engine.cloud import CloudEngine
+
+        _reg("ollama", "ollama")
+        EngineRegistry.register_value("cloud", CloudEngine)
+
+        cfg = JarvisConfig()
+        cfg.engine.default = "ollama"
+
+        def _make(k, c):  # noqa: ANN001
+            if k == "ollama":
+                # Local engine is down (post-restart Ollama not yet up).
+                return _FakeEngine(healthy=False, models=["qwen3.5:0.8b"])
+            # Real CloudEngine with only a (dummy) OpenAI client wired.
+            eng = CloudEngine.__new__(CloudEngine)
+            for name in (
+                "_openai_client",
+                "_anthropic_client",
+                "_google_client",
+                "_openrouter_client",
+                "_minimax_client",
+                "_deepseek_client",
+                "_codex_client",
+            ):
+                setattr(eng, name, object() if name == "_openai_client" else None)
+            return eng
+
+        with mock.patch(
+            "openjarvis.engine._discovery._make_engine",
+            side_effect=_make,
+        ):
+            result = get_engine(cfg, model="qwen3.5:0.8b")
+        # Cloud must NOT be selected for a local model name.
+        assert result is None
+
     def test_model_none_preserves_model_agnostic_selection(self) -> None:
         """model=None keeps the legacy behaviour: first healthy engine wins."""
         _reg("primary", "primary")
