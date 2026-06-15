@@ -689,6 +689,39 @@ fn format_uv_sync_failure(
     )
 }
 
+/// Strip AppImage-injected environment from a subprocess command (#455).
+///
+/// When the OpenJarvis desktop binary is shipped as an AppImage, the AppImage
+/// runtime sets `LD_LIBRARY_PATH` (and friends) to the extracted-to-/tmp
+/// bundled lib dir. Any child we spawn inherits that env by default — but the
+/// children we spawn (`uv`, `ollama`, `git`) live outside the AppImage and
+/// must NOT load their shared libraries from the AppImage's bundle. The
+/// classic symptom: `uv` finds `python3`, `python3` tries to `import numpy`,
+/// numpy's `.so` files try to dlopen libstdc++/libssl/libcrypto, the linker
+/// picks the AppImage's versions which were built against a different glibc
+/// or libcrypto API, and python dies silently — before any startup log
+/// reaches us. The user sees "API Server — starting server..." forever.
+///
+/// Fix: when we detect we're inside an AppImage (the AppImage runtime sets
+/// `$APPIMAGE` to the original image path), strip the leaked env vars before
+/// spawn. Conditional on `APPIMAGE` being set so regular Linux installs that
+/// legitimately use `LD_LIBRARY_PATH` are untouched. Linux-only — the
+/// `#[cfg]` makes this a no-op on macOS / Windows.
+#[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
+fn prepare_subprocess_for_appimage(cmd: &mut tokio::process::Command) {
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var_os("APPIMAGE").is_some() {
+            cmd.env_remove("LD_LIBRARY_PATH");
+            cmd.env_remove("LD_PRELOAD");
+            cmd.env_remove("APPIMAGE");
+            cmd.env_remove("APPIMAGE_UUID");
+            cmd.env_remove("APPDIR");
+            cmd.env_remove("ARGV0");
+        }
+    }
+}
+
 /// Error message shown when `uv sync` can't even be spawned (#331) —
 /// e.g. the resolved `uv` binary doesn't exist or isn't executable.
 fn format_uv_sync_spawn_error(root: &std::path::Path, uv_bin: &str, err: &str) -> String {
@@ -734,13 +767,15 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
         // Try the bundled sidecar first, fall back to system ollama
         let ollama_child = {
             let ollama_bin = resolve_bin("ollama");
-            let sidecar = tokio::process::Command::new(&ollama_bin)
+            let mut sidecar_cmd = tokio::process::Command::new(&ollama_bin);
+            sidecar_cmd
                 .arg("serve")
                 .env("OLLAMA_HOST", format!("127.0.0.1:{}", OLLAMA_PORT))
                 .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn();
-            match sidecar {
+                .stderr(std::process::Stdio::null());
+            // Avoid LD_LIBRARY_PATH leak when running inside an AppImage (#455).
+            prepare_subprocess_for_appimage(&mut sidecar_cmd);
+            match sidecar_cmd.spawn() {
                 Ok(child) => Some(child),
                 Err(_) => None,
             }
@@ -980,41 +1015,106 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
         }
     }
 
-    // Kill any leftover server on our port from a previous run
+    // If something is already serving on our port, decide what to do based
+    // on what it actually responds with — don't blindly kill it (#455).
+    //
+    // The OLD behaviour was: any HTTP response (even 404) → `fuser -k 8000/tcp`
+    // / `taskkill /PID /F`. That broke the legitimate case where a user had
+    // already started `jarvis serve` in a terminal and then launched the
+    // desktop app — the app killed their server, then raced to spawn its
+    // own, sometimes losing the race and hanging.
+    //
+    // New behaviour, by response shape:
+    //   * 2xx /health        — healthy jarvis serve. Attach to it; skip the
+    //                          uv-sync + spawn dance entirely. Done.
+    //   * 503                — server is up but engine isn't ready. Surface
+    //                          an actionable message; don't kill (matches
+    //                          our wait_for_jarvis_health 503 contract).
+    //   * any other status   — something else is listening on the port. Tell
+    //                          the user via the error banner instead of
+    //                          force-killing a foreign service.
+    //   * Err (conn refused) — nothing is listening. Proceed to spawn.
+    //
+    // TODO(#455 follow-up): validate /health response body before attaching
+    // so a multi-user host can't trivially spoof us. Also accept a port
+    // override from config instead of hard-coding JARVIS_PORT.
     {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(2))
             .build()
             .unwrap();
-        if client
+        match client
             .get(format!("http://127.0.0.1:{}/health", JARVIS_PORT))
             .send()
             .await
-            .is_ok()
         {
-            // Something is already listening — try to kill it
-            #[cfg(unix)]
-            {
-                let _ = tokio::process::Command::new("fuser")
-                    .args(["-k", &format!("{}/tcp", JARVIS_PORT)])
-                    .output()
-                    .await;
-                tokio::time::sleep(Duration::from_secs(2)).await;
-            }
-            #[cfg(target_os = "windows")]
-            {
-                // Find the PID holding the port via netstat, then kill it
-                if let Ok(output) = tokio::process::Command::new("cmd")
-                    .args(["/C", &format!(
-                        "for /f \"tokens=5\" %a in ('netstat -ano ^| findstr :{port} ^| findstr LISTENING') do taskkill /PID %a /F",
-                        port = JARVIS_PORT,
-                    )])
-                    .output()
+            Ok(resp) if resp.status().is_success() => {
+                // Confirm with a second probe — the first might have caught
+                // a flickering server (engine half-loaded, dying mid-stop,
+                // etc.) and we don't want to claim ready off a 2-second
+                // snapshot. Small sleep between to give the server room.
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                let confirm = client
+                    .get(format!("http://127.0.0.1:{}/health", JARVIS_PORT))
+                    .send()
                     .await
-                {
-                    let _ = output; // best-effort
+                    .map(|r| r.status().is_success())
+                    .unwrap_or(false);
+                if !confirm {
+                    // First probe was 2xx but the second wasn't — fall
+                    // through to the spawn path. The server probably went
+                    // away between probes.
+                    // (No early return — we want to spawn our own.)
+                } else {
+                    // Attach to the existing healthy server. Mark every
+                    // pre-spawn step done so the setup UI doesn't show a
+                    // half-progress bar (model_ready / ollama_ready stay
+                    // false otherwise because we skipped those steps).
+                    let mut s = status.lock().await;
+                    s.phase = "ready".into();
+                    s.detail = format!(
+                        "Connected to existing API server on port {}.",
+                        JARVIS_PORT,
+                    );
+                    s.server_ready = true;
+                    s.model_ready = true;
+                    s.ollama_ready = true;
+                    return;
                 }
-                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+            Ok(resp) if resp.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE => {
+                let mut s = status.lock().await;
+                s.error = Some(format!(
+                    "An API server is already running on port {} but its \
+                     inference engine isn't ready (HTTP 503). If this is your \
+                     `jarvis serve`, wait for it to finish loading and relaunch. \
+                     Otherwise, stop that service or change the port.",
+                    JARVIS_PORT,
+                ));
+                return;
+            }
+            Ok(resp) => {
+                // Something else (a different web server, a stale process,
+                // a 4xx-returning instance) is on our port. Don't kill it —
+                // give the user actionable info instead.
+                let lsof_hint = if cfg!(target_os = "windows") {
+                    format!("netstat -ano | findstr :{}", JARVIS_PORT)
+                } else {
+                    format!("lsof -i :{}", JARVIS_PORT)
+                };
+                let mut s = status.lock().await;
+                s.error = Some(format!(
+                    "Port {} is already in use by another service (it answered \
+                     /health with HTTP {}). Stop that service or change the \
+                     OpenJarvis port, then relaunch.\n\nTo identify it:\n  {}",
+                    JARVIS_PORT,
+                    resp.status(),
+                    lsof_hint,
+                ));
+                return;
+            }
+            Err(_) => {
+                // Nothing listening — proceed to the normal spawn path.
             }
         }
     }
@@ -1039,7 +1139,8 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
         let mut s = status.lock().await;
         s.detail = "Installing dependencies (uv sync — may take 1-2 min on first boot)...".into();
     }
-    let sync_output = tokio::process::Command::new(&uv_bin)
+    let mut sync_cmd = tokio::process::Command::new(&uv_bin);
+    sync_cmd
         .args([
             "sync",
             "--extra", "server",
@@ -1048,9 +1149,10 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
         ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
-        .current_dir(root)
-        .output()
-        .await;
+        .current_dir(root);
+    // Avoid LD_LIBRARY_PATH leak when running inside an AppImage (#455).
+    prepare_subprocess_for_appimage(&mut sync_cmd);
+    let sync_output = sync_cmd.output().await;
     match sync_output {
         Ok(out) if !out.status.success() => {
             let stderr = String::from_utf8_lossy(&out.stderr);
@@ -1097,6 +1199,10 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
         .current_dir(root);
+    // Avoid LD_LIBRARY_PATH leak when running inside an AppImage (#455) —
+    // do this BEFORE cmd.env() calls below so our explicit cloud-key env
+    // additions aren't accidentally stripped.
+    prepare_subprocess_for_appimage(&mut cmd);
 
     // Inject cloud API keys from ~/.openjarvis/cloud-keys.env
     for (key, value) in read_cloud_keys() {
@@ -1434,19 +1540,89 @@ async fn fetch_models(api_url: String) -> Result<serde_json::Value, String> {
 
 #[tauri::command]
 async fn run_jarvis_command(args: Vec<String>) -> Result<String, String> {
-    let mut cmd_args = vec!["run".to_string(), "jarvis".to_string()];
-    cmd_args.extend(args);
     let uv_bin = resolve_bin("uv");
-    let output = tokio::process::Command::new(&uv_bin)
-        .args(&cmd_args)
-        .output()
-        .await
-        .map_err(|e| format!("Failed to launch jarvis: {}", e))?;
 
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
-    } else {
-        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    let mut cmd_args = vec!["run".to_string(), "jarvis".to_string()];
+    cmd_args.extend(args.iter().cloned());
+
+    let mut cmd = tokio::process::Command::new(&uv_bin);
+    cmd.args(&cmd_args);
+    // Run from the project root so `uv run jarvis` resolves the OpenJarvis
+    // project regardless of the app's launch cwd. In a packaged install the
+    // cwd isn't the checkout, so without this `jarvis` isn't found and the
+    // backend never starts — the UI then shows "Failed to get response"
+    // (see #531).
+    if let Some(ref root) = find_project_root() {
+        cmd.current_dir(root);
+    }
+
+    let is_serve = args.first().map(|a| a.as_str() == "serve").unwrap_or(false);
+
+    if !is_serve {
+        // Short-lived command (e.g. `stop`, `status`): wait for it and return
+        // its captured output.
+        let output = cmd
+            .output()
+            .await
+            .map_err(|e| format!("Failed to launch jarvis: {}", e))?;
+        return if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        } else {
+            Err(String::from_utf8_lossy(&output.stderr).to_string())
+        };
+    }
+
+    // `jarvis serve` is a long-running server that never exits. The old code
+    // used `.output()`, which waits for the process to exit and so hung this
+    // command forever — the "Start" button never resolved (#531). Spawn it
+    // detached instead, drain stderr (a full 4 KB Windows pipe can otherwise
+    // stall the child mid-startup, #309), and poll /health for readiness.
+    cmd.stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped());
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Failed to launch jarvis serve: {}", e))?;
+
+    let tail: StderrTail = Arc::new(Mutex::new(Vec::new()));
+    if let Some(stderr) = child.stderr.take() {
+        spawn_jarvis_stderr_drainer(stderr, tail.clone());
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+    let url = format!("http://127.0.0.1:{}/health", JARVIS_PORT);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
+
+    loop {
+        // Surface an early crash (bad venv, missing Rust ext, etc.) right away
+        // instead of waiting out the full readiness timeout.
+        if let Ok(Some(status)) = child.try_wait() {
+            let stderr = String::from_utf8_lossy(tail.lock().await.as_slice()).into_owned();
+            return Err(format!(
+                "jarvis serve exited (code {:?}) before becoming healthy:\n{}",
+                status.code(),
+                stderr.trim()
+            ));
+        }
+        if let Ok(resp) = client.get(&url).send().await {
+            if resp.status().is_success() {
+                // Leave the server running (the Child is detached on drop —
+                // kill_on_drop defaults to false); `stop` tears it down.
+                return Ok(format!(
+                    "jarvis serve is ready on http://127.0.0.1:{}",
+                    JARVIS_PORT
+                ));
+            }
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(format!(
+                "jarvis serve did not become healthy on port {} within 120s.",
+                JARVIS_PORT
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
     }
 }
 
@@ -2543,5 +2719,79 @@ mod tests {
         let out = upsert_engine_host(existing, "lmstudio", "http://new:2").unwrap();
         let doc: toml_edit::DocumentMut = out.parse().unwrap();
         assert_eq!(doc["engine"]["lmstudio"]["host"].as_str(), Some("http://new:2"));
+    }
+
+    // -----------------------------------------------------------------
+    // #455 — AppImage subprocess env-strip helper
+    // -----------------------------------------------------------------
+    //
+    // `prepare_subprocess_for_appimage` strips LD_LIBRARY_PATH (and the
+    // related AppImage runtime variables) from a child `Command` ONLY
+    // when the parent process is itself running inside an AppImage —
+    // detected by the presence of the `APPIMAGE` env variable that the
+    // AppImage runtime sets to the original .AppImage path. We can't
+    // observe the env_remove calls directly through tokio's Command
+    // API (it doesn't expose its env map publicly), so these tests
+    // exercise the documented contract on each platform:
+    //
+    //   * on macOS / Windows: the function is a no-op regardless of env.
+    //   * on Linux without $APPIMAGE: also a no-op.
+    //   * on Linux with $APPIMAGE: it doesn't panic, doesn't return an
+    //     error, and the calling code that follows succeeds. The
+    //     observable behaviour test is the integration repro on a real
+    //     AppImage build (covered in PR test plan).
+    //
+    // The Mutex serialises any test that touches the process-wide
+    // `APPIMAGE` env var so cargo test's parallel runner can't race two
+    // tests setting and unsetting it concurrently. `static Mutex` works
+    // on a const path since Rust 1.63 (and Tauri's MSRV is well above).
+
+    static APPIMAGE_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    // Pick a binary that exists on every test target so the test body is
+    // doing something other than constructing an obviously-broken command
+    // path on Windows.
+    #[cfg(target_os = "windows")]
+    const HARMLESS_BIN: &str = "cmd";
+    #[cfg(not(target_os = "windows"))]
+    const HARMLESS_BIN: &str = "/bin/true";
+
+    #[test]
+    fn prepare_subprocess_for_appimage_no_appimage_is_safe() {
+        let _guard = APPIMAGE_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let prev = std::env::var_os("APPIMAGE");
+        // SAFETY: APPIMAGE_ENV_LOCK serialises every test that touches
+        // this env var, so the mutation is single-threaded for the
+        // duration of the lock. The 2024-edition env mutation rules
+        // require the `unsafe` block but the guard makes it sound.
+        unsafe {
+            std::env::remove_var("APPIMAGE");
+        }
+        let mut cmd = tokio::process::Command::new(HARMLESS_BIN);
+        super::prepare_subprocess_for_appimage(&mut cmd);
+        if let Some(v) = prev {
+            unsafe {
+                std::env::set_var("APPIMAGE", v);
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn prepare_subprocess_for_appimage_with_appimage_set_is_safe() {
+        let _guard = APPIMAGE_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let prev = std::env::var_os("APPIMAGE");
+        unsafe {
+            std::env::set_var("APPIMAGE", "/tmp/test.AppImage");
+        }
+        let mut cmd = tokio::process::Command::new(HARMLESS_BIN);
+        super::prepare_subprocess_for_appimage(&mut cmd);
+        unsafe {
+            if let Some(v) = prev {
+                std::env::set_var("APPIMAGE", v);
+            } else {
+                std::env::remove_var("APPIMAGE");
+            }
+        }
     }
 }

@@ -1,10 +1,21 @@
-"""Integration test: each provider's split kwarg produces disjoint train/test slices."""
+"""Integration test: each provider's split kwarg produces disjoint train/test slices.
+
+Marked ``hub``: every provider here downloads a real corpus from the
+HuggingFace Hub, so the module is excluded from the default CI lane (which
+runs ``-m "not live and not cloud and not hub"``). A transient Hub outage
+or rate-limit raises connectivity errors (``LocalEntryNotFoundError``,
+``HfHubHTTPError``) that the gated/not-found skip branch below does not
+catch — so running these unguarded made ``main`` flaky-red. Run on demand
+with ``pytest -m hub``.
+"""
 
 from __future__ import annotations
 
 import importlib
 
 import pytest
+
+pytestmark = pytest.mark.hub
 
 PROVIDERS = [
     ("openjarvis.evals.datasets.pinchbench", "PinchBenchDataset"),

@@ -1428,6 +1428,7 @@ class MemoryFilesConfig:
     memory_path: str = "~/.openjarvis/MEMORY.md"
     user_path: str = "~/.openjarvis/USER.md"
     nudge_interval: int = 10
+    persona_name: str = ""  # named persona dir under ~/.openjarvis/personas/<name>/
 
 
 @dataclass(slots=True)

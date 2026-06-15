@@ -112,7 +112,15 @@ class TelegramChannel(BaseChannel):
 
             _TELEGRAM_MAX_LEN = 4096
             url = f"https://api.telegram.org/bot{self._token}/sendMessage"
-            chat_id = conversation_id or channel
+            # Canonical channel send contract (see BaseChannel.send): the first
+            # positional ``channel`` arg is the DESTINATION (the Telegram chat
+            # id).  ``conversation_id`` is the inbound message id used as a
+            # reply/thread reference (``reply_to_message_id``).  We fall back to
+            # ``conversation_id`` as the chat id only when ``channel`` is empty,
+            # for backwards compatibility with legacy callers that passed the
+            # chat id via ``conversation_id``.
+            chat_id = channel or conversation_id
+            reply_to = conversation_id if (channel and conversation_id) else ""
             chunks = textwrap.wrap(
                 content,
                 width=_TELEGRAM_MAX_LEN,
@@ -126,6 +134,8 @@ class TelegramChannel(BaseChannel):
                 }
                 if self._parse_mode:
                     payload["parse_mode"] = self._parse_mode
+                if reply_to:
+                    payload["reply_to_message_id"] = reply_to
 
                 resp = httpx.post(url, json=payload, timeout=10.0)
                 if resp.status_code >= 300:

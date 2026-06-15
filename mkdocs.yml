@@ -150,6 +150,14 @@ nav:
       - Quick Start: getting-started/quickstart.md
       - Code Snippets: getting-started/snippets.md
       - Configuration: getting-started/configuration.md
+  - Showcase:
+      - Overview: showcase/index.md
+      - Morning Brief: showcase/morning-brief.md
+      - Memory That Doesn't Reset: showcase/persistent-memory.md
+      - Track Your Savings: showcase/cost-savings.md
+      - Discord Companion: showcase/discord-companion.md
+      - Offline Code Reviewer: showcase/coding-assistant.md
+      - Contributing: showcase/CONTRIBUTING.md
   - Tutorials:
       - Overview: tutorials/index.md
       - Deep Research Assistant: tutorials/deep-research.md
@@ -185,6 +193,8 @@ nav:
       - External MCP Servers: user-guide/mcp-external-servers.md
       - Scheduler: user-guide/scheduler.md
       - Telemetry: user-guide/telemetry.md
+      - Evaluations: user-guide/evaluations.md
+      - Benchmarks: user-guide/benchmarks.md
       - Security: user-guide/security.md
       - LLM-guided spec search: user-guide/llm-guided-spec-search.md
   - Leaderboard: leaderboard.md

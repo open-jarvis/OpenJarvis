@@ -156,12 +156,26 @@ def discover_models(
 
 
 def get_engine(
-    config: JarvisConfig, engine_key: str | None = None
+    config: JarvisConfig,
+    engine_key: str | None = None,
+    model: str | None = None,
 ) -> Tuple[str, InferenceEngine] | None:
     """Get a specific engine by key, or the default with fallback.
 
+    When *model* is given, an engine is selected only if it can actually
+    serve that model (``engine.can_serve(model)``). This stops the cloud
+    fallback from being chosen — when the local engine is down — for a model
+    whose provider client is missing, which otherwise surfaces as a confusing
+    "OpenAI client not available" instead of a helpful "start your local
+    engine" message (see #532). When *model* is ``None`` selection stays
+    model-agnostic (unchanged behaviour).
+
     Returns ``(key, engine_instance)`` or ``None`` if no engine is available.
     """
+
+    def _usable(engine: InferenceEngine) -> bool:
+        return engine.health() and (model is None or engine.can_serve(model))
+
     # Build an ordered list of keys to try, then fall back to full discovery.
     keys_to_try: list[str] = []
     if engine_key:
@@ -176,14 +190,16 @@ def get_engine(
             continue
         try:
             engine = _make_engine(key, config)
-            if engine.health():
+            if _usable(engine):
                 return (key, engine)
         except Exception as exc:
             logger.debug("Engine %r health check failed: %s", key, exc)
 
-    # Fallback to any healthy engine
-    healthy = discover_engines(config)
-    return healthy[0] if healthy else None
+    # Fallback to the first healthy engine that can serve the model.
+    for key, engine in discover_engines(config):
+        if model is None or engine.can_serve(model):
+            return (key, engine)
+    return None
 
 
 __all__ = ["discover_engines", "discover_models", "get_engine"]

@@ -248,3 +248,61 @@ class TestDataclassDefaults:
         assert a.total_calls == 0
         assert a.per_model == []
         assert a.per_engine == []
+
+
+# ---------------------------------------------------------------------------
+# Token-counting-version filter (leaderboard correctness)
+# ---------------------------------------------------------------------------
+
+
+class TestMethodologyFilter:
+    """When the aggregator is asked to honour the methodology version
+    (the leaderboard ingest path does), legacy rows that predate the
+    per-record version stamp must be excluded — they were the dominant
+    source of the bimodal Wh/token distribution on the public
+    leaderboard. Local dashboard callers leave the flag off so they
+    still see the full history."""
+
+    def test_default_includes_legacy_rows(self, tmp_path: Path) -> None:
+        from openjarvis.core.types import TOKEN_COUNTING_VERSION
+
+        legacy = _make_record(model_id="m1")
+        legacy.token_counting_version = None  # pre-fix row
+        current = _make_record(model_id="m1")
+        current.token_counting_version = TOKEN_COUNTING_VERSION
+
+        agg = _setup(tmp_path, [legacy, current])
+        stats = agg.per_model_stats()  # default: include everything
+        assert len(stats) == 1
+        assert stats[0].call_count == 2
+        agg.close()
+
+    def test_methodology_filter_drops_legacy_rows(self, tmp_path: Path) -> None:
+        from openjarvis.core.types import TOKEN_COUNTING_VERSION
+
+        legacy = _make_record(model_id="m1")
+        legacy.token_counting_version = None
+        current = _make_record(model_id="m1")
+        current.token_counting_version = TOKEN_COUNTING_VERSION
+
+        agg = _setup(tmp_path, [legacy, current])
+        stats = agg.per_model_stats(current_methodology_only=True)
+        assert len(stats) == 1
+        # Only the current-version row counts toward the leaderboard sum.
+        assert stats[0].call_count == 1
+        agg.close()
+
+    def test_methodology_filter_drops_legacy_in_summary(self, tmp_path: Path) -> None:
+        from openjarvis.core.types import TOKEN_COUNTING_VERSION
+
+        legacy = _make_record(model_id="m1", completion_tokens=99)
+        legacy.token_counting_version = None
+        current = _make_record(model_id="m1", completion_tokens=7)
+        current.token_counting_version = TOKEN_COUNTING_VERSION
+
+        agg = _setup(tmp_path, [legacy, current])
+        summary = agg.summary(current_methodology_only=True)
+        # 99-token legacy row excluded; only the 7-completion-token current
+        # row contributes to total_tokens.
+        assert sum(m.completion_tokens for m in summary.per_model) == 7
+        agg.close()

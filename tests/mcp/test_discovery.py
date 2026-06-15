@@ -53,7 +53,11 @@ class TestDiscoverHTTPServer:
         cfg = {"name": "ha-mcp", "url": "http://172.16.3.1:9583/mcp"}
         result = builder._discover_external_mcp(cfg)
 
-        mock_transport_cls.assert_called_once_with(url="http://172.16.3.1:9583/mcp")
+        # token=None is now forwarded explicitly (#461) so authenticated
+        # MCP servers can use it; missing config field → None → no header.
+        mock_transport_cls.assert_called_once_with(
+            url="http://172.16.3.1:9583/mcp", token=None
+        )
         mock_client_cls.return_value.initialize.assert_called_once()
         assert len(result) == 2
         assert result[0].spec.name == "get_entities"
@@ -192,4 +196,8 @@ class TestStringConfig:
         cfg_str = json.dumps({"name": "test", "url": "http://localhost:8080/mcp"})
         builder._discover_external_mcp(cfg_str)
 
-        mock_transport_cls.assert_called_once_with(url="http://localhost:8080/mcp")
+        # token=None is forwarded by the builder (#461) — see comment in
+        # TestDiscoverHTTPServer.test_url_config_uses_http_transport.
+        mock_transport_cls.assert_called_once_with(
+            url="http://localhost:8080/mcp", token=None
+        )

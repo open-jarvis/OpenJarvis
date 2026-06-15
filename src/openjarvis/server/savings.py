@@ -10,11 +10,12 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List
 
-# Bump when token-counting methodology changes so that the leaderboard
-# can distinguish entries computed under different rules.
-#   v1 = original (Ollama prompt_eval_count, may under-count due to KV cache)
-#   v2 = full prompt token count, no KV-cache assumption, system prompt always counted
-TOKEN_COUNTING_VERSION: int = 2
+# Source of truth for the methodology-version constant lives in
+# `openjarvis.core.types` so the telemetry layer can read it without
+# crossing the server → telemetry layering. Re-exported here for
+# backward compatibility with existing imports of `from
+# openjarvis.server.savings import TOKEN_COUNTING_VERSION`.
+from openjarvis.core.types import TOKEN_COUNTING_VERSION  # noqa: E402,F401
 
 # ---------------------------------------------------------------------------
 # Cloud provider pricing (USD per 1M tokens)
@@ -104,11 +105,22 @@ def compute_savings(
       served from KV cache.  Used for **FLOPs** and **energy**
       calculations since these reflect actual compute.
 
-    If ``prompt_tokens_evaluated`` is 0 (e.g. old telemetry without the
-    column), it falls back to ``prompt_tokens``.
+    When ``prompt_tokens_evaluated`` is 0 we used to fall back to
+    ``prompt_tokens``. That's wrong in multi-turn: routes.py aggregates
+    by summing each turn's full prompt — which counts the system prompt
+    N times for an N-turn conversation — so the fallback turned the FLOPs
+    and energy estimates into N×-too-high numbers. That was the dominant
+    contributor to the bimodal Wh/token distribution on the leaderboard.
+
+    Conservative behaviour now: when the KV-cache-aware count is
+    missing, treat `prompt_tokens_evaluated` as 0 — so the FLOPs/energy
+    denominator becomes just `completion_tokens`. That under-estimates
+    rather than over-estimates compute, and (intentionally) cascades
+    into the leaderboard's `isMissingTelemetry` UI render so those
+    rows show `—` instead of a misleading zero.
     """
     if prompt_tokens_evaluated <= 0:
-        prompt_tokens_evaluated = prompt_tokens
+        prompt_tokens_evaluated = 0
     total_tokens = prompt_tokens + completion_tokens
     total_tokens_evaluated = prompt_tokens_evaluated + completion_tokens
     providers: List[ProviderSavings] = []

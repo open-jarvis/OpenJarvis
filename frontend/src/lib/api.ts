@@ -948,10 +948,29 @@ export interface MemoryStats {
 
 export interface MemoryConfig {
   backend: string;
+  // Set by the server when the native `openjarvis_rust` extension is missing,
+  // so the UI can show the real cause instead of a healthy-looking config.
+  available?: boolean;
+  detail?: string | null;
   context_from_memory: boolean;
   context_top_k: number;
   context_min_score: number;
   context_max_tokens: number;
+}
+
+/**
+ * Extract the server's `detail` message from a failed JSON response so the UI
+ * surfaces the real cause (e.g. "openjarvis_rust extension is not installed")
+ * instead of a blanket fallback string (#502).
+ */
+async function memoryErrorDetail(res: Response, fallback: string): Promise<string> {
+  try {
+    const data = await res.json();
+    if (data && typeof data.detail === 'string' && data.detail) return data.detail;
+  } catch {
+    // Non-JSON body — fall through to the generic message below.
+  }
+  return fallback;
 }
 
 export async function getMemoryStats(): Promise<MemoryStats> {
@@ -977,16 +996,16 @@ export async function storeMemory(content: string, metadata?: Record<string, unk
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content, metadata }),
   });
-  if (!res.ok) throw new Error('Failed to store memory');
+  if (!res.ok) throw new Error(await memoryErrorDetail(res, 'Failed to store memory'));
 }
 
-export async function indexMemoryPath(path: string): Promise<{ chunks_indexed: number }> {
+export async function indexMemoryPath(path: string): Promise<{ chunks_indexed: number; note?: string }> {
   const res = await apiFetch(`/v1/memory/index`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path }),
   });
-  if (!res.ok) throw new Error('Failed to index path');
+  if (!res.ok) throw new Error(await memoryErrorDetail(res, 'Failed to index path'));
   return res.json();
 }
 

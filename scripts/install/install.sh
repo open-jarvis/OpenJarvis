@@ -262,15 +262,19 @@ detect_arch() {
 }
 
 get_anon_id() {
+    # POSIX shell UUID v4 — no Python required so this works on hosts
+    # where python3/python aren't on PATH yet (#484). The script must
+    # not crash on those hosts; analytics are best-effort.
     if [[ -f "$ANON_ID_FILE" ]]; then
         cat "$ANON_ID_FILE"
         return
     fi
-    local new_id
-    new_id="$("$PY_CMD" -c 'import uuid; print(uuid.uuid4())' 2>/dev/null || echo "")"
-    if [[ -z "$new_id" ]]; then
-        return
+    local raw new_id
+    raw="$(od -An -tx1 -N16 /dev/urandom 2>/dev/null | tr -d ' \n')" || true
+    if [[ ${#raw} -ne 32 ]]; then
+        return 0  # /dev/urandom unreadable — skip analytics silently
     fi
+    new_id="${raw:0:8}-${raw:8:4}-${raw:12:4}-${raw:16:4}-${raw:20:12}"
     echo "$new_id" > "$ANON_ID_FILE"
     echo "$new_id"
 }
@@ -291,6 +295,13 @@ stage_label() {
 
 beacon() {
     # Args: event_name stage_label elapsed_ms exit_code
+    #
+    # No Python required (#484) — uses curl + shell-built JSON. All
+    # inputs are from controlled sources: $event is a fixed-vocabulary
+    # string (install_started / install_stage_completed / install_failed
+    # / install_completed), $stage comes from stage_label(), the numeric
+    # args are validated by the arithmetic that produced them, and
+    # $anon_id is a fresh UUID. No general-purpose JSON escaping needed.
     local event="$1"
     local stage="${2:-}"
     local elapsed_ms="${3:-0}"
@@ -308,50 +319,35 @@ beacon() {
     os="$(detect_os)"
     arch="$(detect_arch)"
 
-    "$PY_CMD" - "$ANALYTICS_HOST" "$ANALYTICS_KEY" "$event" "$anon_id" \
-        "$os" "$arch" "$stage" "$elapsed_ms" "$exit_code" \
-        >/dev/null 2>&1 <<'PYEOF' || true
-import json
-import sys
-import urllib.request
+    local props
+    props='"os":"'"$os"'","arch":"'"$arch"'","installer_version":"0.1.1"'
+    if [[ -n "$stage" ]]; then
+        props="${props},\"stage\":\"$stage\""
+    fi
+    # Map elapsed_ms → total_elapsed_ms for install_completed events
+    # (matches the old Python beacon's behavior).
+    if [[ "$event" = "install_completed" ]]; then
+        props="${props},\"total_elapsed_ms\":${elapsed_ms}"
+    elif [[ "$elapsed_ms" != "0" ]]; then
+        props="${props},\"elapsed_ms\":${elapsed_ms}"
+    fi
+    if [[ "$exit_code" != "0" ]]; then
+        props="${props},\"exit_code\":${exit_code}"
+    fi
 
-host, key, event, distinct_id, os_val, arch, stage, elapsed_ms, exit_code = sys.argv[1:10]
-props = {
-    "os": os_val,
-    "arch": arch,
-    "installer_version": "0.1.1",
-}
-if stage:
-    props["stage"] = stage
-if elapsed_ms and elapsed_ms != "0":
-    try:
-        props["elapsed_ms"] = int(elapsed_ms)
-    except ValueError:
-        pass
-if exit_code and exit_code != "0":
-    try:
-        props["exit_code"] = int(exit_code)
-    except ValueError:
-        pass
-if event == "install_completed":
-    props["total_elapsed_ms"] = props.pop("elapsed_ms", 0)
-payload = {
-    "api_key": key,
-    "event": event,
-    "distinct_id": distinct_id,
-    "properties": props,
-}
-req = urllib.request.Request(
-    f"{host}/i/v0/e/",
-    data=json.dumps(payload).encode("utf-8"),
-    headers={"Content-Type": "application/json"},
-    method="POST",
-)
-try:
-    urllib.request.urlopen(req, timeout=5)
-except Exception:
-    pass
-PYEOF
+    local payload
+    payload="{\"api_key\":\"$ANALYTICS_KEY\",\"event\":\"$event\",\"distinct_id\":\"$anon_id\",\"properties\":{$props}}"
+
+    # Fire and forget. `|| true` is load-bearing: the script runs under
+    # `set -e` via the ERR trap, and we never want a flaky PostHog post
+    # to abort an install. The trap is already installed; without the
+    # explicit `|| true` a 5xx or DNS failure would tickle it.
+    curl -s -X POST \
+        -H 'Content-Type: application/json' \
+        -d "$payload" \
+        --max-time 5 \
+        "${ANALYTICS_HOST}/i/v0/e/" \
+        >/dev/null 2>&1 || true
 }
 
 _on_install_error() {
@@ -367,19 +363,47 @@ state_done() {
 }
 
 mark_done() {
-    if [[ ! -f "$STATE_FILE" ]]; then
+    # Shell-only state-file update so the install never crashes when no
+    # python3/python is on PATH (#484). awk regenerates the file from
+    # scratch each call, which is robust against any prior format drift.
+    #
+    # Format: a flat JSON object of `"<step_name>": true` lines plus a
+    # `"wsl": true|false` trailer. state_done() matches against this
+    # with a grep — the content only has to be greppable, but we keep
+    # it valid JSON for any tooling that wants to parse it.
+    local key="$1"
+    if [[ ! -f "$STATE_FILE" ]] || [[ ! -s "$STATE_FILE" ]]; then
         echo '{}' > "$STATE_FILE"
     fi
-    "$PY_CMD" - "$STATE_FILE" "$1" "$WSL" <<'PYEOF'
-import json, sys
-path, key, wsl = sys.argv[1], sys.argv[2], sys.argv[3]
-with open(path) as f:
-    data = json.load(f)
-data[key] = True
-data["wsl"] = bool(int(wsl))
-with open(path, "w") as f:
-    json.dump(data, f, indent=2)
-PYEOF
+
+    # Already marked? Nothing to do.
+    if grep -q "\"$key\":[[:space:]]*true" "$STATE_FILE"; then
+        return 0
+    fi
+
+    local wsl_bool
+    wsl_bool="$([[ $WSL -eq 1 ]] && echo true || echo false)"
+
+    local tmp="${STATE_FILE}.tmp.$$"
+    awk -v new_key="$key" -v wsl="$wsl_bool" '
+    /"[^"]+":[[:space:]]*true/ {
+        match($0, /"[^"]+"/)
+        k = substr($0, RSTART + 1, RLENGTH - 2)
+        # wsl is rewritten on every call — skip the existing entry so
+        # we do not emit it twice with potentially different values.
+        if (k != "wsl") keys[++n] = k
+    }
+    END {
+        keys[++n] = new_key
+        print "{"
+        for (i = 1; i <= n; i++) {
+            printf "  \"%s\": true,\n", keys[i]
+        }
+        printf "  \"wsl\": %s\n", wsl
+        print "}"
+    }
+    ' "$STATE_FILE" > "$tmp"
+    mv "$tmp" "$STATE_FILE"
 }
 
 step() {
@@ -424,21 +448,71 @@ copy_scripts() {
     chmod +x "$SCRIPTS_DIR"/*.sh
 }
 
+# Parse pyproject.toml's requires-python and return the newest minor
+# version usable. E.g. ">=3.10,<3.14" → "3.13". Falls back to the
+# previous hardcoded "3.11" if pyproject can't be read or the spec
+# can't be parsed (#476 — installer should track the project's allowed
+# range instead of hardcoding 3.11).
+parse_requires_python() {
+    local pyproject="$1"
+    local fallback="3.11"
+    if [[ ! -f "$pyproject" ]]; then
+        echo "$fallback"
+        return 0
+    fi
+    local spec
+    spec="$(grep '^requires-python' "$pyproject" | head -1)"
+    if [[ -z "$spec" ]]; then
+        echo "$fallback"
+        return 0
+    fi
+    # Inclusive upper bound first ("<=3.13" allows 3.13 itself). Must
+    # match before the exclusive-bound branch, since "<=" contains "<"
+    # and the exclusive regex would otherwise extract "3.13" and
+    # subtract 1 (returning 3.12) — masking the inclusive intent.
+    local max_incl
+    max_incl="$(echo "$spec" | sed -n 's/.*<=\([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -1)"
+    if [[ -n "$max_incl" ]]; then
+        echo "$max_incl"
+        return 0
+    fi
+    # Exclusive upper bound ("<3.14" means 3.13 is the highest allowed).
+    local max
+    max="$(echo "$spec" | sed -n 's/.*<\([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -1)"
+    if [[ -z "$max" ]]; then
+        echo "$fallback"
+        return 0
+    fi
+    local major minor
+    major="${max%.*}"
+    minor="${max#*.}"
+    minor=$((minor - 1))
+    if (( minor < 10 )); then
+        echo "$fallback"
+    else
+        echo "${major}.${minor}"
+    fi
+}
+
 create_venv() {
-    # `uv venv --python 3.11` fails on hosts that don't have Python 3.11
-    # installed at all (fresh macOS without xcode-select, fresh Ubuntu
-    # 24.04 which only ships 3.12, etc). uv can bootstrap its own
-    # interpreter — use that path so the user never has to pre-install
-    # Python.
+    # Read pyproject.toml's requires-python upper bound and target the
+    # highest version in range (#476). Falls back to 3.11 if pyproject
+    # can't be parsed. uv bootstraps a managed Python if the host
+    # doesn't have the requested version (fresh macOS without
+    # xcode-select, fresh Ubuntu 24.04 which only ships 3.12, etc).
     #
-    # We capture stderr to a log file instead of /dev/null so a genuine
+    # stderr from the first attempt is captured to a log so a genuine
     # failure (disk full, broken venv dir, permission denied) is still
-    # surfaceable when the bootstrap fallback ultimately fails.
+    # surfaceable when the bootstrap fallback also fails.
+    local py_version
+    py_version="$(parse_requires_python "$SRC_DIR/pyproject.toml")"
+    echo "    Target Python: $py_version (from pyproject.toml requires-python)"
+
     local err_log="$STATE_DIR/venv-create.err"
-    if ! uv venv --python 3.11 "$VENV_DIR" 2>"$err_log"; then
-        echo "    No system Python 3.11 — uv will download a managed one..."
-        uv python install 3.11
-        if ! uv venv --python 3.11 "$VENV_DIR"; then
+    if ! uv venv --python "$py_version" "$VENV_DIR" 2>"$err_log"; then
+        echo "    No system Python $py_version — uv will download a managed one..."
+        uv python install "$py_version"
+        if ! uv venv --python "$py_version" "$VENV_DIR"; then
             echo "    venv creation failed. First attempt's stderr:"
             sed 's/^/      /' "$err_log" >&2
             return 1

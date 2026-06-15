@@ -381,3 +381,95 @@ class TestCodexGenerate:
         engine._codex_client = {"token": "t", "url": "http://test"}
         engine.close()
         assert engine._codex_client is None
+
+
+class TestOpenRouterToolForwarding:
+    """Regression for #511: the OpenRouter engine must forward tools/tool_choice
+    to the (OpenAI-compatible) API and parse tool_calls back out of the response.
+    Pre-fix, both were dropped, silently breaking function-calling via OpenRouter.
+    """
+
+    def test_generate_forwards_tools_and_parses_tool_calls(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+        fake_tc = SimpleNamespace(
+            id="call_1",
+            type="function",
+            function=SimpleNamespace(name="get_weather", arguments='{"city": "NYC"}'),
+        )
+        fake_choice = SimpleNamespace(
+            message=SimpleNamespace(content=None, tool_calls=[fake_tc]),
+            finish_reason="tool_calls",
+        )
+        fake_resp = SimpleNamespace(
+            choices=[fake_choice],
+            usage=SimpleNamespace(prompt_tokens=3, completion_tokens=2, total_tokens=5),
+            model="openai/gpt-4o",
+        )
+        fake_client = mock.MagicMock()
+        fake_client.chat.completions.create.return_value = fake_resp
+
+        EngineRegistry.register_value("cloud", CloudEngine)
+        engine = CloudEngine()
+        engine._openrouter_client = fake_client
+
+        tools = [
+            {
+                "type": "function",
+                "function": {"name": "get_weather", "parameters": {}},
+            }
+        ]
+        result = engine.generate(
+            [Message(role=Role.USER, content="weather in NYC?")],
+            model="openrouter/openai/gpt-4o",
+            tools=tools,
+            tool_choice="auto",
+        )
+
+        # tools / tool_choice are forwarded to the API call
+        sent = fake_client.chat.completions.create.call_args.kwargs
+        assert sent["tools"] == tools
+        assert sent["tool_choice"] == "auto"
+
+        # tool_calls from the response are parsed back into the result
+        assert result["tool_calls"][0]["id"] == "call_1"
+        assert result["tool_calls"][0]["function"]["name"] == "get_weather"
+        assert result["tool_calls"][0]["function"]["arguments"] == '{"city": "NYC"}'
+
+
+class TestCloudEngineCanServe:
+    """#532: can_serve gates on the per-provider client, not just health().
+
+    health() is True whenever *any* provider client is configured, but a
+    request for a gpt-* model still needs the OpenAI client specifically — so
+    engine selection must not pick the cloud engine for a model whose provider
+    client is missing.
+    """
+
+    @staticmethod
+    def _engine(**clients: object) -> CloudEngine:
+        eng = CloudEngine.__new__(CloudEngine)  # bypass real client init
+        for name in (
+            "_openai_client",
+            "_anthropic_client",
+            "_google_client",
+            "_openrouter_client",
+            "_minimax_client",
+            "_codex_client",
+        ):
+            setattr(eng, name, clients.get(name))
+        return eng
+
+    def test_openai_only_serves_openai_models(self) -> None:
+        eng = self._engine(_openai_client=object())
+        assert eng.can_serve("gpt-4o") is True
+        assert eng.can_serve("claude-sonnet-4") is False
+        assert eng.can_serve("gemini-2.5-pro") is False
+        assert eng.can_serve("openrouter/openai/gpt-4o") is False
+
+    def test_anthropic_only_serves_anthropic_models(self) -> None:
+        eng = self._engine(_anthropic_client=object())
+        assert eng.can_serve("claude-sonnet-4") is True
+        assert eng.can_serve("gpt-4o") is False

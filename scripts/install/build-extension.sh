@@ -28,6 +28,22 @@ fi
 
 cd "$SRC_DIR"
 if uv run maturin develop -m "$MANIFEST" >>"$LOG" 2>&1; then
+    # Verify the extension actually imports from THIS venv before declaring
+    # success. `maturin develop` can report success while installing the .so
+    # into a different venv than the one that runs the server, which leaves
+    # memory silently broken at runtime (#502). Only the import check below
+    # proves the serving venv can load it.
+    if ! uv run python -c "import openjarvis_rust" >>"$LOG" 2>&1; then
+        rc=$?
+        {
+            echo "build-extension.sh: maturin succeeded but 'import openjarvis_rust'"
+            echo "failed in the serving venv ($SRC_DIR/.venv) — the extension was"
+            echo "not installed where the server runs. (exit=$rc)"
+            tail -n 50 "$LOG" 2>/dev/null || true
+        } > "$FAILED"
+        rm -f "$BUILT"
+        exit "$rc"
+    fi
     tmp="$BUILT.tmp"
     date -u +"%Y-%m-%dT%H:%M:%SZ" > "$tmp"
     mv "$tmp" "$BUILT"

@@ -440,6 +440,13 @@
   font-family: var(--md-code-font-family, monospace);
   font-size: 13px;
 }
+/* Placeholder for rows where energy / FLOPs telemetry didn't land.
+   Distinguishes "telemetry missing" from "user genuinely had 0 work
+   done" without making the row visually pop more than data rows. */
+.lb-missing {
+  color: var(--md-default-fg-color--light, #999);
+  font-style: italic;
+}
 
 /* ── DocSearch ───────────────────────────────────────────────────────── */
 #docsearch {
@@ -561,4 +568,19 @@
   .DocSearch-Button-Placeholder {
     display: none !important;
   }
+}
+
+/* ---------------------------------------------------------------------------
+ * Showcase screenshots
+ *
+ * Hero images on docs/showcase/* pages. Constrains width on wide screens and
+ * adds a subtle border so placeholder/broken-image states still look intentional
+ * before community-contributed screenshots populate docs/assets/showcase/.
+ * ------------------------------------------------------------------------- */
+.showcase-screenshot {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid var(--md-default-fg-color--lightest, rgba(0, 0, 0, 0.08));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }

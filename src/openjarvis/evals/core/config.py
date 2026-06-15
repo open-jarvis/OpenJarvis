@@ -143,6 +143,16 @@ def load_eval_config(path: str | Path) -> EvalSuiteConfig:
         sheets_worksheet=run_raw.get("sheets_worksheet", "Results"),
         sheets_credentials_path=run_raw.get("sheets_credentials_path", ""),
         max_turns=(int(run_raw["max_turns"]) if "max_turns" in run_raw else None),
+        global_agent_timeout_sec=(
+            float(run_raw["global_agent_timeout_sec"])
+            if "global_agent_timeout_sec" in run_raw
+            else None
+        ),
+        global_timeout_multiplier=(
+            float(run_raw["global_timeout_multiplier"])
+            if "global_timeout_multiplier" in run_raw
+            else None
+        ),
     )
 
     # Parse [[models]]
@@ -212,6 +222,16 @@ def load_eval_config(path: str | Path) -> EvalSuiteConfig:
                 max_tokens=int(b["max_tokens"]) if "max_tokens" in b else None,
                 subset=b.get("subset"),
                 record_ids=record_ids,
+                global_agent_timeout_sec=(
+                    float(b["global_agent_timeout_sec"])
+                    if "global_agent_timeout_sec" in b
+                    else None
+                ),
+                global_timeout_multiplier=(
+                    float(b["global_timeout_multiplier"])
+                    if "global_timeout_multiplier" in b
+                    else None
+                ),
             )
         )
 
@@ -275,6 +295,14 @@ def expand_suite(suite: EvalSuiteConfig) -> List[RunConfig]:
             if bench.judge_model is not None:
                 judge_model = bench.judge_model
 
+            # terminal-bench harness budgets: benchmark > [run]
+            global_agent_timeout_sec = suite.run.global_agent_timeout_sec
+            if bench.global_agent_timeout_sec is not None:
+                global_agent_timeout_sec = bench.global_agent_timeout_sec
+            global_timeout_multiplier = suite.run.global_timeout_multiplier
+            if bench.global_timeout_multiplier is not None:
+                global_timeout_multiplier = bench.global_timeout_multiplier
+
             # Auto-generate output path
             model_slug = model.name.replace("/", "-").replace(":", "-")
             output_path = f"{output_dir}/{bench.name}_{model_slug}.jsonl"
@@ -328,6 +356,8 @@ def expand_suite(suite: EvalSuiteConfig) -> List[RunConfig]:
                     base_url=suite.backend_external_base_url,
                     api_key=suite.backend_external_api_key,
                     record_ids=bench.record_ids,
+                    global_agent_timeout_sec=global_agent_timeout_sec,
+                    global_timeout_multiplier=global_timeout_multiplier,
                 )
             )
 

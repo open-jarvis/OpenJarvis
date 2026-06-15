@@ -174,6 +174,51 @@ class TestGetEngine:
         assert result is not None
         assert result[0] == "running"
 
+    def test_skips_engine_that_cannot_serve_model(self) -> None:
+        """#532: a healthy engine that can't serve the requested model is
+        skipped for one that can — this is what stops the cloud fallback being
+        chosen (when the local engine is down) for a model whose provider
+        client is missing.
+        """
+        _reg("picky", "picky")
+        _reg("local", "local")
+
+        class _Picky(_FakeEngine):
+            def can_serve(self, model: str) -> bool:
+                return model == "servable"
+
+        cfg = JarvisConfig()
+        cfg.engine.default = "picky"
+
+        def _make(k, c):  # noqa: ANN001
+            if k == "picky":
+                return _Picky(healthy=True)
+            return _FakeEngine(healthy=(k == "local"))
+
+        with mock.patch(
+            "openjarvis.engine._discovery._make_engine",
+            side_effect=_make,
+        ):
+            # "picky" is healthy but cannot serve "other" -> fall back to "local"
+            result = get_engine(cfg, model="other")
+        assert result is not None
+        assert result[0] == "local"
+
+    def test_model_none_preserves_model_agnostic_selection(self) -> None:
+        """model=None keeps the legacy behaviour: first healthy engine wins."""
+        _reg("primary", "primary")
+
+        cfg = JarvisConfig()
+        cfg.engine.default = "primary"
+
+        with mock.patch(
+            "openjarvis.engine._discovery._make_engine",
+            side_effect=lambda k, c: _FakeEngine(healthy=True),  # noqa: ANN001
+        ):
+            result = get_engine(cfg, model=None)
+        assert result is not None
+        assert result[0] == "primary"
+
 
 class TestMiningSidecarEngineHandoff:
     """Engine discovery picks up (or ignores) a mining sidecar at runtime."""

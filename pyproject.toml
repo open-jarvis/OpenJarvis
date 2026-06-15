@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "OpenJarvis"
-version = "0.1.1"
+version = "1.0.2"
 description = "OpenJarvis — modular AI assistant backend with composable intelligence primitives"
 readme = "README.md"
 # Upper bound: numpy 2.2.x (pinned transitively via datasets/pandas) ships no
@@ -152,6 +152,7 @@ Issues = "https://github.com/open-jarvis/OpenJarvis/issues"
 
 [project.scripts]
 jarvis = "openjarvis.cli:main"
+openjarvis-eval = "openjarvis.evals.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/openjarvis"]
@@ -174,6 +175,7 @@ markers = [
     "live_channel: requires real channel credentials (env vars)",
     "nvidia: requires NVIDIA GPU",
     "slow: long-running test",
+    "hub: downloads real datasets from the HuggingFace Hub at runtime; excluded from the default CI lane (run with -m hub)",
     "live_external: requires HERMES_AGENT_PATH and OPENCLAW_PATH; spawns real foreign-framework subprocesses",
     "modal: requires Modal token + network; runs real swebench harness on Modal",
 ]
