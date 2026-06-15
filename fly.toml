@@ -1,0 +1,19 @@
+# OpenJarvis on Fly.io — cloud-hosted (OpenRouter + Whisper), all features.
+# Deploy from repo root: fly deploy . --remote-only
+app = "openjarvis-cloud"
+primary_region = "fra"
+
+[build]
+  dockerfile = "deploy/docker/Dockerfile"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+# Whisper (small, int8) + the agent stack need real RAM; 4 GB is comfortable.
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "4gb"
