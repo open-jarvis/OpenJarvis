@@ -2563,9 +2563,9 @@ pub fn run() {
             // `start_backend` once the user picks a source (see
             // probe_local_engines / start_backend).
             if config_missing() {
-                if let Ok(mut s) = boot_status_ref.try_lock() {
-                    s.phase = "onboarding".into();
-                }
+                tauri::async_runtime::spawn(async move {
+                    boot_status_ref.lock().await.phase = "onboarding".into();
+                });
             } else {
                 tauri::async_runtime::spawn(boot_backend(boot_backend_ref, boot_status_ref));
             }
