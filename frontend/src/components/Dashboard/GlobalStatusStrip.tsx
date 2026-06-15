@@ -48,7 +48,7 @@ export function GlobalStatusStrip() {
       if (landhaus.status === 'fulfilled') {
         const data = landhaus.value as { sources?: Record<string, { status: string }> };
         if (data.sources) {
-          const down = Object.values(data.sources).filter((s) => s.status !== 'ok').length;
+          const down = Object.values(data.sources).filter((s) => s.status === 'down' || s.status === 'error').length;
           next.push({
             icon: Hotel,
             label: 'Landhaus',
