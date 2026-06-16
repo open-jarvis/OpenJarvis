@@ -39,12 +39,30 @@ _SITDECK_ENDPOINTS = {
 }
 
 
+_shared_client: httpx.AsyncClient | None = None
+
+
+def _shared_sitdeck_client() -> httpx.AsyncClient:
+    global _shared_client
+    if _shared_client is None or _shared_client.is_closed:
+        _shared_client = httpx.AsyncClient(
+            timeout=_SITDECK_TIMEOUT_SECONDS,
+            follow_redirects=True,
+            headers={"User-Agent": "OpenJarvis-SitDeckTool/1.0"},
+        )
+    return _shared_client
+
 class SitDeckConnector:
     """Lightweight connector for SitDeck public APIs."""
 
-    def __init__(self, base_url: str = _SITDECK_BASE_URL) -> None:
+    def __init__(
+        self,
+        base_url: str = _SITDECK_BASE_URL,
+        client: httpx.AsyncClient | None = None,
+    ) -> None:
         self._base_url = base_url.rstrip("/")
-        self._client = httpx.AsyncClient(timeout=_SITDECK_TIMEOUT_SECONDS)
+        self._client = client or _shared_sitdeck_client()
+        self._owns_client = client is not None
 
     async def health(self) -> Dict[str, Any]:
         """Probe all known public endpoints and return aggregate status."""
@@ -68,8 +86,18 @@ class SitDeckConnector:
                 logger.error("SitDeck health probe failed for %s: %s", url, exc)
                 results[name] = {"status": "down", "error": str(exc)}
 
-        overall = "up" if total_up == len(_SITDECK_ENDPOINTS) else "degraded" if total_up > 0 else "down"
-        return {"status": overall, "sources": results, "total_up": total_up, "total_endpoints": len(_SITDECK_ENDPOINTS)}
+        if total_up == len(_SITDECK_ENDPOINTS):
+            overall = "up"
+        elif total_up > 0:
+            overall = "degraded"
+        else:
+            overall = "down"
+        return {
+            "status": overall,
+            "sources": results,
+            "total_up": total_up,
+            "total_endpoints": len(_SITDECK_ENDPOINTS),
+        }
 
     async def fetch_endpoint(self, name: str) -> Dict[str, Any]:
         """Fetch and parse a single SitDeck endpoint by key."""
@@ -94,7 +122,8 @@ class SitDeckConnector:
             return {"endpoint": name, "error": str(exc)}
 
     async def close(self) -> None:
-        await self._client.aclose()
+        if self._owns_client:
+            await self._client.aclose()
 
 
 @ToolRegistry.register("sitdeck")
@@ -119,8 +148,20 @@ class SitDeckTool(BaseTool):
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["health", "widgets", "data_sources", "map_capabilities", "map_types", "plans", "customer_count", "content"],
-                        "description": "Which SitDeck endpoint or aggregate operation to perform.",
+                        "enum": [
+                            "health",
+                            "widgets",
+                            "data_sources",
+                            "map_capabilities",
+                            "map_types",
+                            "plans",
+                            "customer_count",
+                            "content",
+                        ],
+                        "description": (
+                            "Which SitDeck endpoint or aggregate operation "
+                            "to perform."
+                        ),
                     },
                 },
                 "required": ["action"],
@@ -131,7 +172,7 @@ class SitDeckTool(BaseTool):
 
     def execute(self, action: str = "", **kwargs: Any) -> ToolResult:
         import asyncio
-        import concurrent.futures
+        import json
 
         async def _async_work() -> ToolResult:
             connector = SitDeckConnector()
@@ -140,7 +181,7 @@ class SitDeckTool(BaseTool):
                     result = await connector.health()
                     return ToolResult(
                         tool_name="sitdeck",
-                        content=str(result),
+                        content=json.dumps(result, default=str),
                         success=True,
                     )
                 if action in _SITDECK_ENDPOINTS:
@@ -148,24 +189,26 @@ class SitDeckTool(BaseTool):
                     success = "error" not in result
                     return ToolResult(
                         tool_name="sitdeck",
-                        content=str(result),
+                        content=json.dumps(result, default=str),
                         success=success,
                     )
                 return ToolResult(
                     tool_name="sitdeck",
-                    content=f"Unknown action: {action}",
+                    content=json.dumps({"error": f"Unknown action: {action}"}),
                     success=False,
                 )
             finally:
                 await connector.close()
 
         try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
             return asyncio.run(_async_work())
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            return executor.submit(asyncio.run, _async_work()).result(timeout=60)
+        except Exception as exc:
+            logger.error("SitDeck tool execute failed: %s", exc)
+            return ToolResult(
+                tool_name="sitdeck",
+                content=json.dumps({"error": str(exc)}),
+                success=False,
+            )
 
 
 __all__ = ["SitDeckConnector", "SitDeckTool"]
