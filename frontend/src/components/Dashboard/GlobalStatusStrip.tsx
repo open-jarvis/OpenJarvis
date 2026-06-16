@@ -87,7 +87,7 @@ export function GlobalStatusStrip() {
 
   if (error) {
     return (
-      <div className="glass p-3 mb-4 text-xs" style={{ color: 'var(--color-error)' }}>
+      <div role="alert" className="glass p-3 mb-4 text-xs" style={{ color: 'var(--color-error)' }}>
         {error}
       </div>
     );

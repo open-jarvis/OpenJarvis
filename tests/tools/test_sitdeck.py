@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import ast
+import json
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -22,6 +22,7 @@ def _mock_response(status_code: int = 200, json_data: dict | None = None):
     response.json = Mock(return_value=json_data or {})
     response.headers = {"content-type": "application/json"}
     response.text = str(json_data or {})
+    response.is_closed = False
     if status_code >= 400:
         response.raise_for_status = Mock(side_effect=Exception(f"HTTP {status_code}"))
     else:
@@ -84,7 +85,9 @@ async def test_fetch_endpoint_reports_http_error(connector: SitDeckConnector):
 
 
 @pytest.mark.anyio
-async def test_fetch_endpoint_reports_error_for_unknown_key(connector: SitDeckConnector):
+async def test_fetch_endpoint_reports_error_for_unknown_key(
+    connector: SitDeckConnector,
+):
     result = await connector.fetch_endpoint("not_a_key")
     await connector.close()
     assert "error" in result
@@ -106,6 +109,8 @@ def test_tool_execute_health_returns_success():
 
     assert result.success is True
     assert result.tool_name == "sitdeck"
+    data = json.loads(result.content)
+    assert data["status"] == "up"
 
 
 def test_tool_execute_widgets_returns_success():
@@ -115,7 +120,7 @@ def test_tool_execute_widgets_returns_success():
         result = tool.execute(action="widgets")
 
     assert result.success is True
-    data = ast.literal_eval(result.content)
+    data = json.loads(result.content)
     assert data["endpoint"] == "widgets"
 
 
@@ -123,3 +128,6 @@ def test_tool_execute_unknown_action_returns_failure():
     tool = SitDeckTool()
     result = tool.execute(action="invalid_action")
     assert result.success is False
+    data = json.loads(result.content)
+    assert "Unknown action" in data["error"]
+

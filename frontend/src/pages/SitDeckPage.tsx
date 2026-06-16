@@ -114,10 +114,11 @@ export function SitDeckPage() {
 
         {error && (
           <div
+            role="alert"
             className="glass p-3 mb-4 flex items-center gap-2 text-xs"
             style={{ color: 'var(--color-error)', borderColor: 'var(--color-error)' }}
           >
-            <AlertCircle size={14} />
+            <AlertCircle size={14} aria-hidden="true" />
             {error}
           </div>
         )}

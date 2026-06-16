@@ -74,7 +74,8 @@ export function Sidebar() {
       {!sidebarOpen && (
         <button
           onClick={toggleSidebar}
-          className="fixed top-3 left-3 z-30 p-2 rounded-lg transition-colors cursor-pointer"
+          aria-label="Open sidebar"
+          className="fixed top-3 left-3 z-30 p-2 rounded-lg transition-colors cursor-pointer min-w-[44px] min-h-[44px] flex items-center justify-center"
           style={{ color: 'var(--color-text-secondary)', background: 'var(--color-bg-secondary)' }}
           onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--color-bg-tertiary)')}
           onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--color-bg-secondary)')}
@@ -87,19 +88,20 @@ export function Sidebar() {
         className={`
           glass-strong flex flex-col h-full shrink-0 transition-all duration-200 ease-in-out overflow-hidden
           fixed md:relative z-30
-          ${sidebarOpen ? 'w-[260px]' : 'w-0'}
+          ${sidebarOpen ? 'w-[var(--sidebar-width)]' : 'w-0'}
         `}
         style={{
           borderRight: sidebarOpen ? '1px solid var(--color-border)' : 'none',
           borderRadius: 0,
         }}
       >
-        <div className="flex flex-col h-full w-[260px]">
+        <div className="flex flex-col h-full w-[var(--sidebar-width)]">
           {/* Header */}
           <div className="flex items-center justify-between px-3 pt-3 pb-2">
             <button
               onClick={toggleSidebar}
-              className="p-2 rounded-lg transition-colors cursor-pointer"
+              aria-label="Close sidebar"
+              className="p-2 rounded-lg transition-colors cursor-pointer min-w-[44px] min-h-[44px] flex items-center justify-center"
               style={{ color: 'var(--color-text-secondary)' }}
               onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--color-bg-tertiary)')}
               onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
@@ -109,7 +111,8 @@ export function Sidebar() {
             <div className="flex items-center gap-1">
               <button
                 onClick={() => updateSettings({ theme: nextTheme })}
-                className="p-2 rounded-lg transition-colors cursor-pointer"
+                aria-label={`Switch to ${nextTheme} theme`}
+                className="p-2 rounded-lg transition-colors cursor-pointer min-w-[44px] min-h-[44px] flex items-center justify-center"
                 style={{ color: 'var(--color-text-secondary)' }}
                 onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--color-bg-tertiary)')}
                 onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
@@ -119,7 +122,8 @@ export function Sidebar() {
               </button>
               <button
                 onClick={handleNewChat}
-                className="p-2 rounded-lg transition-colors cursor-pointer"
+                aria-label="New chat"
+                className="p-2 rounded-lg transition-colors cursor-pointer min-w-[44px] min-h-[44px] flex items-center justify-center"
                 style={{ color: 'var(--color-text-secondary)' }}
                 onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--color-bg-tertiary)')}
                 onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
@@ -133,6 +137,8 @@ export function Sidebar() {
           {/* Model badge */}
           <button
             onClick={() => setCommandPaletteOpen(true)}
+            aria-label="Select model"
+            aria-keyshortcuts="Meta+k"
             className="mx-3 mb-2 flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-colors cursor-pointer"
             style={{
               background: 'var(--color-bg-secondary)',
@@ -182,6 +188,7 @@ export function Sidebar() {
               <input
                 type="text"
                 placeholder="Search chats..."
+                aria-label="Search chats"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="flex-1 bg-transparent outline-none text-sm"
@@ -196,13 +203,14 @@ export function Sidebar() {
           </div>
 
           {/* Bottom nav */}
-          <nav className="px-2 pb-3 pt-2 flex flex-col gap-0.5" style={{ borderTop: '1px solid var(--color-border)' }}>
+          <nav aria-label="Main navigation" className="px-2 pb-3 pt-2 flex flex-col gap-0.5" style={{ borderTop: '1px solid var(--color-border)' }}>
             {navItems.map((item) => {
               const isActive = location.pathname === item.path;
               return (
                 <button
                   key={item.path}
                   onClick={() => navigate(item.path)}
+                  aria-current={isActive ? 'page' : undefined}
                   className="relative flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors w-full text-left cursor-pointer"
                   style={{
                     background: isActive ? 'var(--color-accent-subtle)' : 'transparent',
