@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -13,10 +14,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+_DEMO_ENABLED = os.environ.get("SITDECK_DEMO", "false").lower() in {"1", "true", "yes"}
+
+
 @router.get("/v1/sitdeck/health", tags=["sitdeck"])
 async def sitdeck_health() -> dict[str, Any]:
     """Aggregate health check across all known SitDeck public endpoints."""
-    connector = SitDeckConnector()
+    connector = SitDeckConnector(demo=_DEMO_ENABLED)
     try:
         results = await connector.health()
         return {"status": "ok", "sitdeck": results}
@@ -30,7 +34,7 @@ async def sitdeck_health() -> dict[str, Any]:
 @router.get("/v1/sitdeck/{endpoint}", tags=["sitdeck"])
 async def sitdeck_endpoint(endpoint: str) -> dict[str, Any]:
     """Proxy a single SitDeck public endpoint by key."""
-    connector = SitDeckConnector()
+    connector = SitDeckConnector(demo=_DEMO_ENABLED)
     try:
         result = await connector.fetch_endpoint(endpoint)
         if "error" in result:

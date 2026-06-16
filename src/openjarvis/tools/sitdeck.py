@@ -10,6 +10,7 @@ Queries SitDeck's public read-only APIs:
 - /api/content
 
 No credentials are required; all endpoints are public and unauthenticated.
+A demo mode returns synthetic data when the real API is unreachable.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import asyncio
 import atexit
 import json
 import logging
+import os
 from typing import Any, Dict
 
 import httpx
@@ -28,7 +30,8 @@ from openjarvis.tools._stubs import BaseTool, ToolSpec
 
 logger = logging.getLogger(__name__)
 
-_SITDECK_BASE_URL = "https://sitdeck.com"
+_SITDECK_BASE_URL = os.environ.get("SITDECK_API_URL", "https://sitdeck.com")
+_SITDECK_DEMO_MODE = os.environ.get("SITDECK_DEMO", "false").lower() in {"1", "true", "yes"}
 _SITDECK_TIMEOUT_SECONDS = 15.0
 _SITDECK_USER_AGENT = "OpenJarvis-SitDeckTool/1.0"
 
@@ -40,6 +43,41 @@ _SITDECK_ENDPOINTS = {
     "plans": "/api/sitdeck/plans",
     "customer_count": "/api/sitdeck/customer-count",
     "content": "/api/content",
+}
+
+_DEMO_DATA: Dict[str, Any] = {
+    "widgets": {
+        "totalWidgets": 12,
+        "totalMapOverlays": 4,
+        "widgetCategories": ["analytics", "map", "status", "alerts"],
+    },
+    "data_sources": {
+        "totalDataSources": 8,
+        "summary": {"online": 6, "errored": 1, "onDemand": 1},
+    },
+    "map_capabilities": {
+        "summary": {"totalLayers": 24, "totalMapTypes": 6, "layerGroups": 5, "globe3D": 1},
+    },
+    "map_types": {
+        "totalMapTypes": 6,
+        "summary": {"vectorMaps": 4, "nonMercatorProjections": 2, "globe3D": 1},
+    },
+    "plans": {
+        "totalPlans": 3,
+        "plans": [
+            {"id": "plan-1", "name": "Standard Geospatial"},
+            {"id": "plan-2", "name": "Enterprise Operations"},
+            {"id": "plan-3", "name": "Public Dashboard"},
+        ],
+    },
+    "customer_count": {"count": 1428},
+    "content": [
+        {"id": 1, "section": "hero", "key": "headline", "content": "Geospatial intelligence made simple."},
+        {"id": 2, "section": "features", "key": "maps", "content": "Interactive map layers with real-time updates."},
+        {"id": 3, "section": "features", "key": "widgets", "content": "Embed live widgets on any page."},
+        {"id": 4, "section": "pricing", "key": "starter", "content": "Free for public dashboards."},
+        {"id": 5, "section": "contact", "key": "email", "content": "hello@sitdeck.example"},
+    ],
 }
 
 
@@ -79,14 +117,19 @@ class SitDeckConnector:
         self,
         base_url: str = _SITDECK_BASE_URL,
         client: httpx.AsyncClient | None = None,
+        demo: bool = _SITDECK_DEMO_MODE,
     ) -> None:
         validated_url = _validate_base_url(base_url)
         self._base_url = validated_url.rstrip("/")
         self._client = client or _shared_sitdeck_client()
         self._close_client = client is not None
+        self._demo = demo
 
     async def health(self) -> Dict[str, Any]:
         """Probe all known public endpoints and return aggregate status."""
+        if self._demo:
+            return self._demo_health()
+
         results: Dict[str, Any] = {}
         total_up = 0
 
@@ -107,6 +150,9 @@ class SitDeckConnector:
                 logger.error("SitDeck health probe failed for %s: %s", url, exc)
                 results[name] = {"status": "down", "error": str(exc)}
 
+        if self._should_demo_fallback(results):
+            return self._demo_health()
+
         if total_up == len(_SITDECK_ENDPOINTS):
             overall = "up"
         elif total_up > 0:
@@ -120,11 +166,45 @@ class SitDeckConnector:
             "total_endpoints": len(_SITDECK_ENDPOINTS),
         }
 
+    def _should_demo_fallback(self, results: Dict[str, Any]) -> bool:
+        """Return True if every endpoint is down due to DNS/connection issues."""
+        if not results:
+            return False
+        for meta in results.values():
+            if meta.get("status") == "up":
+                return False
+            error = meta.get("error", "")
+            if "nodename nor servname" not in error and "NXDOMAIN" not in error and "getaddrinfo" not in error:
+                return False
+        return True
+
+    def _demo_health(self) -> Dict[str, Any]:
+        """Return synthetic health status for demo/offline mode."""
+        sources = {
+            name: {
+                "status": "demo",
+                "status_code": 200,
+                "content_type": "application/json",
+                "size": len(json.dumps(_DEMO_DATA.get(name, {}))),
+            }
+            for name in _SITDECK_ENDPOINTS
+        }
+        return {
+            "status": "demo",
+            "sources": sources,
+            "total_up": len(_SITDECK_ENDPOINTS),
+            "total_endpoints": len(_SITDECK_ENDPOINTS),
+            "demo": True,
+        }
+
     async def fetch_endpoint(self, name: str) -> Dict[str, Any]:
         """Fetch and parse a single SitDeck endpoint by key."""
         path = _SITDECK_ENDPOINTS.get(name)
         if path is None:
             return {"error": f"Unknown endpoint: {name}"}
+
+        if self._demo:
+            return self._demo_endpoint(name)
 
         url = f"{self._base_url}{path}"
         try:
@@ -140,7 +220,18 @@ class SitDeckConnector:
             return {"endpoint": name, "error": f"HTTP {exc.response.status_code}"}
         except Exception as exc:
             logger.error("SitDeck endpoint %s fetch failed: %s", name, exc)
+            if self._should_demo_for_error(str(exc)):
+                return self._demo_endpoint(name)
             return {"endpoint": name, "error": str(exc)}
+
+    def _should_demo_for_error(self, error: str) -> bool:
+        """Return True if the error is a DNS/connection issue worth demo-fallback."""
+        return "nodename nor servname" in error or "NXDOMAIN" in error or "getaddrinfo" in error
+
+    def _demo_endpoint(self, name: str) -> Dict[str, Any]:
+        """Return synthetic data for a single endpoint in demo mode."""
+        data = _DEMO_DATA.get(name, {})
+        return {"endpoint": name, "status_code": 200, "data": data, "demo": True}
 
     async def close(self) -> None:
         if self._close_client:
@@ -157,7 +248,7 @@ def _validate_base_url(url: str) -> str:
     if parsed.scheme != "https":
         raise ValueError(f"SitDeck base URL must use HTTPS: {url}")
     host = parsed.host.lower()
-    if host not in allowed_hosts and not host.endswith(".test"):
+    if host not in allowed_hosts and not host.endswith(".test") and not _SITDECK_DEMO_MODE:
         raise ValueError(f"SitDeck base URL host not allowed: {host}")
     return url
 

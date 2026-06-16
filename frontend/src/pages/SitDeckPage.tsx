@@ -26,6 +26,7 @@ interface HealthData {
     total_up: number;
     total_endpoints: number;
     sources: Record<string, EndpointHealth>;
+    demo?: boolean;
   };
 }
 
@@ -35,6 +36,7 @@ interface EndpointResult {
     endpoint: string;
     status_code: number;
     data?: unknown;
+    demo?: boolean;
   };
 }
 
@@ -81,6 +83,7 @@ export function SitDeckPage() {
   const sitdeck = health?.sitdeck;
   const totalUp = sitdeck?.total_up ?? 0;
   const totalEndpoints = sitdeck?.total_endpoints ?? 0;
+  const isDemo = sitdeck?.status === 'demo' || sitdeck?.demo === true;
 
   return (
     <div className="flex-1 overflow-y-auto px-6 py-10">
@@ -128,13 +131,21 @@ export function SitDeckPage() {
             <StatusBadge
               label="Endpoints"
               value={`${totalUp}/${totalEndpoints} up`}
-              color={totalUp === totalEndpoints ? 'var(--color-success)' : 'var(--color-warning)'}
+              color={isDemo ? 'var(--color-accent-purple)' : totalUp === totalEndpoints ? 'var(--color-success)' : 'var(--color-warning)'}
             />
             <StatusBadge
               label="Overall"
-              value={sitdeck.status}
-              color={sitdeck.status === 'up' ? 'var(--color-success)' : 'var(--color-error)'}
+              value={isDemo ? 'demo mode' : sitdeck.status}
+              color={isDemo ? 'var(--color-accent-purple)' : sitdeck.status === 'up' ? 'var(--color-success)' : 'var(--color-error)'}
             />
+            {isDemo && (
+              <span
+                className="text-[11px] px-2 py-1 rounded-full"
+                style={{ background: 'var(--color-accent-purple)', color: 'var(--color-bg)' }}
+              >
+                Demo data — SitDeck API unreachable
+              </span>
+            )}
           </div>
         )}
 
@@ -274,8 +285,10 @@ function EndpointCard({
   fullWidth?: boolean;
 }) {
   const Icon = endpoint.icon;
-  const statusColor =
-    health?.status === 'up'
+  const isDemo = health?.status === 'demo' || result?.result?.demo === true;
+  const statusColor = isDemo
+    ? 'var(--color-accent-purple)'
+    : health?.status === 'up'
       ? 'var(--color-success)'
       : health?.status === 'degraded'
         ? 'var(--color-warning)'
@@ -287,7 +300,7 @@ function EndpointCard({
   return (
     <div
       className={`hud-panel p-4 ${fullWidth ? 'md:col-span-2' : ''}`}
-      style={{ border: `1px solid ${failed ? 'var(--color-error)' : 'var(--color-border)'}` }}
+      style={{ border: `1px solid ${failed && !isDemo ? 'var(--color-error)' : 'var(--color-border)'}` }}
     >
       <div className="flex items-center justify-between mb-3">
         <h3 className="hud-label flex items-center gap-2">
@@ -298,11 +311,11 @@ function EndpointCard({
           className="text-[10px] px-1.5 py-0.5 rounded font-medium"
           style={{ background: statusColor + '20', color: statusColor }}
         >
-          {health?.status || 'unknown'}
+          {isDemo ? 'demo' : health?.status || 'unknown'}
         </span>
       </div>
 
-      {failed ? (
+      {failed && !isDemo ? (
         <div className="text-xs" style={{ color: 'var(--color-error)' }}>
           {result?.result?.data ? String(result.result.data) : 'Loading…'}
         </div>
