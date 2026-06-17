@@ -61,7 +61,7 @@ inference-cloud = [
 inference-google = [
     "google-genai>=1.0",
 ]
-inference-litellm = ["litellm==1.88.1"]  # CVE-2026-42271 patch: exact pin to 1.88.1 (command injection fix); avoid 1.82.7/1.82.8 (Mar 24 supply-chain compromise). Bump here must update uv.lock.
+inference-litellm = ["litellm==1.89.1"]  # CVE-2026-42271 patch: exact pin to 1.89.1 (command injection fix); avoid 1.82.7/1.82.8 (Mar 24 supply-chain compromise). 1.89.1 picks up 1.84.8 backports + deps fixes (covers CVE-2026-42271, -47101, -48710, -49468). Bump here must update uv.lock.
 inference-gemma = ["pygemma>=0.1.3"]
 tools-search = [
     "tavily-python>=0.3",
