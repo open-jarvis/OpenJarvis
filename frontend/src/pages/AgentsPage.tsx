@@ -68,6 +68,7 @@ import type { ConnectRequest } from '../types/connectors';
 import { listConnectors, connectSource } from '../lib/connectors-api';
 import type { ToolCallInfo } from '../types';
 import { ToolCallCard } from '../components/Chat/ToolCallCard';
+import { useI18n } from '../lib/i18n';
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -3418,6 +3419,7 @@ function LogsTab({ agentId }: { agentId: string }) {
 // ---------------------------------------------------------------------------
 
 export function AgentsPage() {
+  const { t } = useI18n();
   const managedAgents = useAppStore((s) => s.managedAgents);
   const setManagedAgents = useAppStore((s) => s.setManagedAgents);
   const selectedAgentId = useAppStore((s) => s.selectedAgentId);
@@ -3548,7 +3550,7 @@ export function AgentsPage() {
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center" style={{ color: 'var(--color-text-tertiary)' }}>
-        Loading agents...
+        {t('agents.loading')}
       </div>
     );
   }
@@ -3562,14 +3564,14 @@ export function AgentsPage() {
         : null;
 
     const DETAIL_TABS = [
-      { id: 'interact', label: 'Interact', icon: MessageSquare },
-      { id: 'overview', label: 'Overview', icon: Activity },
-      { id: 'channels', label: 'Data Sources', icon: Database },
-      { id: 'messaging', label: 'Messaging Channels', icon: Wifi },
-      { id: 'tasks', label: 'Tasks', icon: ListTodo },
-      { id: 'memory', label: 'Memory', icon: Brain },
-      { id: 'learning', label: 'Learning', icon: Settings },
-      { id: 'logs', label: 'Logs', icon: FileText },
+      { id: 'interact', label: t('agents.interact'), icon: MessageSquare },
+      { id: 'overview', label: t('agents.overview'), icon: Activity },
+      { id: 'channels', label: t('dataSources.sources'), icon: Database },
+      { id: 'messaging', label: t('dataSources.messaging'), icon: Wifi },
+      { id: 'tasks', label: t('agents.tasks'), icon: ListTodo },
+      { id: 'memory', label: t('dataSources.memory'), icon: Brain },
+      { id: 'learning', label: t('agents.learning'), icon: Settings },
+      { id: 'logs', label: t('logs.title'), icon: FileText },
     ] as const;
 
     return (
@@ -3581,7 +3583,7 @@ export function AgentsPage() {
           className="flex items-center gap-1 mb-4 text-sm cursor-pointer"
           style={{ color: 'var(--color-text-secondary)' }}
         >
-          <ChevronLeft size={16} /> Back to agents
+          <ChevronLeft size={16} /> {t('agents.backToAgents')}
         </button>
 
         {/* Header */}
@@ -3921,7 +3923,7 @@ export function AgentsPage() {
       <header className="mb-6">
         <div className="flex justify-between items-center">
           <h1 className="text-lg font-semibold" style={{ color: 'var(--color-text)' }}>
-            Agents
+            {t('agents.title')}
           </h1>
           <button
             onClick={() => agentManagerAvailable && setShowWizard(true)}
@@ -3932,11 +3934,11 @@ export function AgentsPage() {
               color: agentManagerAvailable === false ? 'var(--color-text-tertiary)' : 'var(--color-on-accent)',
             }}
           >
-            <Plus size={15} /> New Agent
+            <Plus size={15} /> {t('agents.newAgent')}
           </button>
         </div>
         <p className="text-sm mt-2 max-w-2xl" style={{ color: 'var(--color-text-secondary)' }}>
-          Long-running autonomous agents that can monitor sources, run tasks on a schedule, and message you through connected channels.
+          {t('agents.description')}
         </p>
       </header>
 
@@ -3950,7 +3952,7 @@ export function AgentsPage() {
           }}
         >
           <AlertTriangle size={16} />
-          <span>Agent manager is not enabled. Set <code className="font-mono text-xs">agent_manager.enabled = true</code> in your config.</span>
+          <span>{t('agents.managerDisabled')} <code className="font-mono text-xs">agent_manager.enabled = true</code></span>
         </div>
       )}
 
@@ -3985,9 +3987,9 @@ export function AgentsPage() {
         <div className="text-center py-16" style={{ color: 'var(--color-text-tertiary)' }}>
           <Bot size={48} className="mx-auto mb-4 opacity-30" />
           <p className="mb-2 font-medium" style={{ color: 'var(--color-text-secondary)' }}>
-            No agents yet
+            {t('agents.emptyTitle')}
           </p>
-          <p className="text-sm mb-6">Create your first agent to get started with autonomous task management.</p>
+          <p className="text-sm mb-6">{t('agents.emptyDescription')}</p>
           <button
             onClick={() => agentManagerAvailable && setShowWizard(true)}
             disabled={agentManagerAvailable === false}
@@ -3997,7 +3999,7 @@ export function AgentsPage() {
               color: agentManagerAvailable === false ? 'var(--color-text-tertiary)' : 'var(--color-on-accent)',
             }}
           >
-            <Plus size={15} /> Launch your first agent
+            <Plus size={15} /> {t('agents.firstAgent')}
           </button>
         </div>
       )}

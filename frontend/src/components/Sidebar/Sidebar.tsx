@@ -20,11 +20,13 @@ import {
 } from 'lucide-react';
 import { ConversationList } from './ConversationList';
 import { useAppStore } from '../../lib/store';
+import { useI18n, type TranslationKey } from '../../lib/i18n';
 
 export function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
+  const { t } = useI18n();
 
   const sidebarOpen = useAppStore((s) => s.sidebarOpen);
   const toggleSidebar = useAppStore((s) => s.toggleSidebar);
@@ -52,14 +54,14 @@ export function Sidebar() {
     navigate('/');
   };
 
-  const navItems = [
-    { path: '/', icon: MessageSquare, label: 'Chat' },
-    { path: '/dashboard', icon: BarChart3, label: 'Dashboard' },
-    { path: '/data-sources', icon: Database, label: 'Data Sources' },
-    { path: '/agents', icon: Bot, label: 'Agents' },
-    { path: '/logs', icon: ScrollText, label: 'Logs' },
-    { path: '/settings', icon: Settings, label: 'Settings' },
-    { path: '/get-started', icon: Rocket, label: 'Get Started' },
+  const navItems: Array<{ path: string; icon: typeof MessageSquare; labelKey: TranslationKey }> = [
+    { path: '/', icon: MessageSquare, labelKey: 'nav.chat' },
+    { path: '/dashboard', icon: BarChart3, labelKey: 'nav.dashboard' },
+    { path: '/data-sources', icon: Database, labelKey: 'nav.dataSources' },
+    { path: '/agents', icon: Bot, labelKey: 'nav.agents' },
+    { path: '/logs', icon: ScrollText, labelKey: 'nav.logs' },
+    { path: '/settings', icon: Settings, labelKey: 'nav.settings' },
+    { path: '/get-started', icon: Rocket, labelKey: 'nav.getStarted' },
   ];
 
   return (
@@ -109,7 +111,7 @@ export function Sidebar() {
                 style={{ color: 'var(--color-text-secondary)' }}
                 onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--color-bg-tertiary)')}
                 onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                title={`Theme: ${settings.theme} (click for ${nextTheme})`}
+                title={t('sidebar.themeTitle', { theme: settings.theme, nextTheme })}
               >
                 <ThemeIcon size={16} />
               </button>
@@ -119,7 +121,7 @@ export function Sidebar() {
                 style={{ color: 'var(--color-text-secondary)' }}
                 onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--color-bg-tertiary)')}
                 onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                title="New chat"
+                title={t('sidebar.newChat')}
               >
                 <Plus size={18} />
               </button>
@@ -149,12 +151,12 @@ export function Sidebar() {
                 style={{ color: deepResearch ? 'var(--color-accent)' : 'var(--color-text)' }}
               >
                 {deepResearch
-                  ? 'Deep Research'
-                  : selectedModel || serverInfo?.model || 'Select model'}
+                  ? t('sidebar.deepResearch')
+                  : selectedModel || serverInfo?.model || t('sidebar.selectModel')}
               </span>
               {modelLoading && (
                 <span className="text-[10px] block text-left" style={{ color: 'var(--color-accent)' }}>
-                  Loading model...
+                  {t('sidebar.loadingModel')}
                 </span>
               )}
             </div>
@@ -177,7 +179,7 @@ export function Sidebar() {
               <Search size={14} style={{ color: 'var(--color-text-tertiary)' }} />
               <input
                 type="text"
-                placeholder="Search chats..."
+                placeholder={t('sidebar.searchChats')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="flex-1 bg-transparent outline-none text-sm"
@@ -223,7 +225,7 @@ export function Sidebar() {
                     />
                   )}
                   <item.icon size={16} style={isActive ? { color: 'var(--color-accent)' } : undefined} />
-                  {item.label}
+                  {t(item.labelKey)}
                 </button>
               );
             })}
