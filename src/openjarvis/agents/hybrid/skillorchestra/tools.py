@@ -27,6 +27,7 @@ from .._base import (
     OPENAI_WEB_SEARCH_COST_PER_CALL,
     WEB_SEARCH_COST_PER_CALL,
     build_web_search_tool,
+    tavily_search_context,
 )
 from .pool import ModelSpec, call_alias
 
@@ -105,6 +106,26 @@ def openai_tools() -> List[Dict[str, Any]]:
                     "properties": {"model": _model_prop(name)},
                     "required": ["model"],
                 },
+            },
+        })
+    return out
+
+
+def gemini_tools() -> List[Dict[str, Any]]:
+    """The 3 orchestrator tools in Gemini function-declaration shape."""
+    out = []
+    for name, desc in (
+        ("search", _SEARCH_DESC),
+        ("enhance_reasoning", _CODE_DESC),
+        ("answer", _ANSWER_DESC),
+    ):
+        out.append({
+            "name": name,
+            "description": desc,
+            "parameters": {
+                "type": "object",
+                "properties": {"model": _model_prop(name)},
+                "required": ["model"],
             },
         })
     return out
@@ -256,6 +277,8 @@ def run_search(
     retriever_url: Optional[str] = None,
     topk: int = 150,
     web_search_max_uses: int = 5,
+    search_backend: str = "provider",
+    tavily_max_results: int = 5,
 ) -> Dict[str, Any]:
     """Write a search query with ``spec``, then retrieve documents.
 
@@ -283,7 +306,12 @@ def run_search(
     contents: List[str] = []
     search_uses = 0
 
-    if retriever_url:
+    if search_backend == "tavily":
+        res = tavily_search_context(query, max_results=tavily_max_results)
+        contents.append(res["text"])
+        search_uses = int(res["n_searches"])
+        cost += float(res["cost_usd"])
+    elif retriever_url:
         # Faithful path — the original FAISS retriever service.
         import requests
 

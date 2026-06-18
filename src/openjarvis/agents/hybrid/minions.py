@@ -48,12 +48,13 @@ from openjarvis.agents.hybrid._base import (
     WEB_SEARCH_COST_PER_CALL,
     LocalCloudAgent,
     build_web_search_tool,
+    tavily_search_context,
     web_search_cfg,
 )
 from openjarvis.agents.hybrid._openai_retry import (
     patch_openai_globally as _patch_openai_globally,
 )
-from openjarvis.agents.hybrid._prices import NO_TEMP_PREFIXES
+from openjarvis.agents.hybrid._prices import NO_TEMP_PREFIXES, default_max_output_tokens
 from openjarvis.agents.hybrid.mini_swe_agent import run_swe_agent_loop
 from openjarvis.core.registry import AgentRegistry
 
@@ -362,6 +363,8 @@ def _prefetch_context(
     cloud_endpoint: str,
     cloud_model: str,
     max_uses: int = 8,
+    search_backend: str = "provider",
+    tavily_max_results: int = 5,
 ) -> Dict[str, Any]:
     """Use Anthropic web_search to fetch real source material the worker can read.
 
@@ -375,6 +378,22 @@ def _prefetch_context(
     out: Dict[str, Any] = {
         "text": "", "tokens": 0, "cost_usd": 0.0, "n_searches": 0,
     }
+    if search_backend == "tavily":
+        try:
+            res = tavily_search_context(question, max_results=tavily_max_results)
+            out.update(
+                text=res["text"],
+                cost_usd=float(res["cost_usd"]),
+                n_searches=int(res["n_searches"]),
+                tokens=0,
+                engine=res.get("engine"),
+                credits=res.get("credits"),
+            )
+            if res.get("error"):
+                out["error"] = res["error"]
+        except Exception as e:
+            out["error"] = f"{type(e).__name__}: {e}"
+        return out
     if cloud_endpoint != "anthropic" or not (question or "").strip():
         return out
     try:
@@ -498,18 +517,22 @@ class MinionsAgent(LocalCloudAgent):
             max_tokens=cfg.get("worker_max_tokens", 4096),
             local=True,
         )
+        cloud_max_tokens = int(
+            cfg.get("cloud_max_tokens")
+            or default_max_output_tokens(self._cloud_model)
+        )
         if self._cloud_endpoint == "openai":
             cloud_client = OpenAIClient(
                 model_name=self._cloud_model,
                 temperature=0.0,
-                max_tokens=4096,
+                max_tokens=cloud_max_tokens,
             )
         elif self._cloud_endpoint == "anthropic":
             # Temperature stripping is handled by the global patch above for Opus 4.7+.
             cloud_client = AnthropicClient(
                 model_name=self._cloud_model,
                 temperature=0.0,
-                max_tokens=4096,
+                max_tokens=cloud_max_tokens,
             )
         elif self._cloud_endpoint == "gemini":
             # The vendored Minion library already special-cases GeminiClient
@@ -520,7 +543,7 @@ class MinionsAgent(LocalCloudAgent):
             cloud_client = GeminiClient(
                 model_name=self._cloud_model,
                 temperature=0.0,
-                max_tokens=4096,
+                max_tokens=cloud_max_tokens,
             )
         else:
             raise ValueError(f"unsupported cloud endpoint: {self._cloud_endpoint!r}")
@@ -560,6 +583,8 @@ class MinionsAgent(LocalCloudAgent):
                 self._cloud_endpoint,
                 self._cloud_model,
                 max_uses=ws_max_uses,
+                search_backend=str(cfg.get("search_backend", "provider")).lower(),
+                tavily_max_results=int(cfg.get("tavily_max_results", 5)),
             )
 
         if prefetch.get("text"):

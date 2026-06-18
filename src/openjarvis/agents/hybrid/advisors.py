@@ -34,6 +34,7 @@ from openjarvis.agents.hybrid._base import (
     WEB_SEARCH_COST_PER_CALL,
     LocalCloudAgent,
     build_web_search_tool,
+    tavily_search_context,
     web_search_cfg,
 )
 from openjarvis.agents.hybrid.mini_swe_agent import (
@@ -135,7 +136,12 @@ class AdvisorsAgent(LocalCloudAgent):
         advisor_temperature = float(cfg.get("advisor_temperature", 0.2))
 
         ws_enabled, ws_max_uses = web_search_cfg(cfg)
-        if ws_enabled and self._cloud_endpoint not in _SEARCH_CAPABLE_ENDPOINTS:
+        search_backend = str(cfg.get("search_backend", "provider")).lower()
+        if (
+            ws_enabled
+            and search_backend != "tavily"
+            and self._cloud_endpoint not in _SEARCH_CAPABLE_ENDPOINTS
+        ):
             raise ValueError(
                 f"web_search.enabled=true but cloud_endpoint={self._cloud_endpoint!r}; "
                 "server-side web_search is wired for anthropic / openai / gemini "
@@ -146,19 +152,23 @@ class AdvisorsAgent(LocalCloudAgent):
         use_ws = ws_enabled
         gaia_max_turns = int(cfg.get("gaia_max_turns", 8))
         n_searches_total = 0
+        search_cost_total = 0.0
 
         # 1. Initial executor pass — advisor (Qwen) doesn't get tools;
         # only the cloud executor passes do. With web_search on, dispatch
         # to the search-capable agent loop for the configured provider.
         if use_ws:
-            initial_resp, e1_in, e1_out, n_s1, e1_turns = self._executor_search(
+            (initial_resp, e1_in, e1_out, n_s1, e1_turns,
+             e1_search_cost) = self._executor_search(
                 user=f"Question:\n{question}",
                 system=EXECUTOR_INITIAL_SYS,
                 max_tokens=executor_max_tokens,
                 ws_max_uses=ws_max_uses,
                 max_turns=gaia_max_turns,
+                query=question,
             )
             n_searches_total += n_s1
+            search_cost_total += e1_search_cost
         else:
             initial_resp, e1_in, e1_out = self._call_cloud(
                 user=f"Question:\n{question}",
@@ -196,14 +206,17 @@ class AdvisorsAgent(LocalCloudAgent):
             f"answer-format rules."
         )
         if use_ws:
-            final_answer, e2_in, e2_out, n_s2, e2_turns = self._executor_search(
+            (final_answer, e2_in, e2_out, n_s2, e2_turns,
+             e2_search_cost) = self._executor_search(
                 user=final_user,
                 system=EXECUTOR_FINAL_SYS,
                 max_tokens=executor_max_tokens,
                 ws_max_uses=ws_max_uses,
                 max_turns=gaia_max_turns,
+                query=question,
             )
             n_searches_total += n_s2
+            search_cost_total += e2_search_cost
         else:
             final_answer, e2_in, e2_out = self._call_cloud(
                 user=final_user,
@@ -216,7 +229,10 @@ class AdvisorsAgent(LocalCloudAgent):
         tokens_local = adv_in + adv_out
         tokens_cloud = e1_in + e1_out + e2_in + e2_out
         cost = self.cost_usd(self._cloud_model, e1_in + e2_in, e1_out + e2_out)
-        cost += n_searches_total * _search_cost_per_call(self._cloud_endpoint)
+        if search_backend == "tavily":
+            cost += search_cost_total
+        else:
+            cost += n_searches_total * _search_cost_per_call(self._cloud_endpoint)
 
         meta: Dict[str, Any] = {
             "tokens_local": tokens_local,
@@ -233,7 +249,9 @@ class AdvisorsAgent(LocalCloudAgent):
                 "initial_response": initial_resp,
                 "advisor_feedback": advisor_text,
                 "web_search_enabled": use_ws,
+                "search_backend": search_backend,
                 "n_web_searches": n_searches_total,
+                "search_cost_usd": search_cost_total,
                 "note": "inference-only advisor (untrained); lower bound on the technique.",
             },
         }
@@ -251,16 +269,40 @@ class AdvisorsAgent(LocalCloudAgent):
         max_tokens: int,
         ws_max_uses: int,
         max_turns: int,
-    ) -> Tuple[str, int, int, int, int]:
+        query: Optional[str] = None,
+    ) -> Tuple[str, int, int, int, int, float]:
         """Run a search-capable executor pass for the configured cloud.
 
         Dispatches by ``self._cloud_endpoint`` to the matching ``_base``
-        agent loop. Returns the shared 5-tuple ``(text, p_tok, c_tok,
-        n_searches, turns)``. The endpoint is assumed already validated
-        against ``_SEARCH_CAPABLE_ENDPOINTS`` by the caller.
+        agent loop, or through Tavily when ``method_cfg.search_backend`` is
+        ``"tavily"``. Returns ``(text, p_tok, c_tok, n_searches, turns,
+        search_cost_usd)``.
         """
+        if str(self._cfg.get("search_backend", "provider")).lower() == "tavily":
+            res = tavily_search_context(
+                query or user,
+                max_results=int(self._cfg.get("tavily_max_results", 5)),
+            )
+            grounded_user = (
+                f"Web search results:\n{res['text']}\n\n"
+                f"Using the search results above, answer this request:\n{user}"
+            )
+            text, p, c = self._call_cloud(
+                user=grounded_user,
+                system=system,
+                max_tokens=max_tokens,
+                temperature=0.0,
+            )
+            return (
+                text,
+                p,
+                c,
+                int(res["n_searches"]),
+                1,
+                float(res["cost_usd"]),
+            )
         if self._cloud_endpoint == "anthropic":
-            return self._call_anthropic_agent(
+            text, p, c, n_searches, turns = self._call_anthropic_agent(
                 self._cloud_model,
                 user=user,
                 system=system,
@@ -269,8 +311,9 @@ class AdvisorsAgent(LocalCloudAgent):
                 tools=[build_web_search_tool(ws_max_uses)],
                 max_turns=max_turns,
             )
+            return text, p, c, n_searches, turns, 0.0
         if self._cloud_endpoint == "openai":
-            return self._call_openai_agent(
+            text, p, c, n_searches, turns = self._call_openai_agent(
                 self._cloud_model,
                 user=user,
                 system=system,
@@ -278,8 +321,9 @@ class AdvisorsAgent(LocalCloudAgent):
                 temperature=0.0,
                 max_turns=max_turns,
             )
+            return text, p, c, n_searches, turns, 0.0
         if self._cloud_endpoint == "gemini":
-            return self._call_gemini_agent(
+            text, p, c, n_searches, turns = self._call_gemini_agent(
                 self._cloud_model,
                 user=user,
                 system=system,
@@ -287,6 +331,7 @@ class AdvisorsAgent(LocalCloudAgent):
                 temperature=0.0,
                 max_turns=max_turns,
             )
+            return text, p, c, n_searches, turns, 0.0
         # Genuinely unsupported (openrouter / vllm / unknown). The caller
         # guard should have caught this; raise defensively.
         raise ValueError(

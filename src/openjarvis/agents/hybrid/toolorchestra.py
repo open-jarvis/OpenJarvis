@@ -16,7 +16,8 @@ Two modes, gated by ``method_cfg.orchestrator_mode``:
   (``answer-1``, ``reasoner-2``, ``search-3``, …) is mapped to a real
   backend through ``EXPERT_MODEL_MAPPING`` — by default the frontier
   Anthropic worker for `*-1` slots, gpt-5-mini for `*-2`, local Qwen
-  for `*-3`. Search routes to the Anthropic server-side web_search.
+  for `*-3`. Search routes to the configured provider's server-side
+  web-search helper when available.
 
   We do NOT reproduce the upstream Tavily / FAISS-wiki retriever, the
   code-interpreter sandbox, or the multi-vLLM mix (Llama-3.3-70B,
@@ -43,8 +44,8 @@ Prompted-mode pipeline:
    prompt; fallback to strongest worker on parse failure.
 
 Workers come from ``cfg["workers"]`` or a sensible default pool (local
-Qwen if vLLM up, plus a web-search tool via Anthropic, Opus 4.7,
-gpt-5-mini).
+Qwen if vLLM up, plus provider-native web search, the configured frontier
+cloud model, and gpt-5-mini).
 """
 
 from __future__ import annotations
@@ -59,8 +60,11 @@ from typing import Any, Dict, List, Optional, Tuple
 from openjarvis.agents._stubs import AgentContext
 from openjarvis.agents.hybrid._base import (
     ANTHROPIC_WEB_SEARCH_TOOL,
+    GEMINI_SEARCH_COST_PER_CALL,
+    OPENAI_WEB_SEARCH_COST_PER_CALL,
     WEB_SEARCH_COST_PER_CALL,
     LocalCloudAgent,
+    tavily_search_context,
 )
 from openjarvis.agents.hybrid._prices import (
     PRICES,
@@ -197,10 +201,23 @@ def _expert_for(slot: str, local_model: Optional[str],
                                   cost tier for mid OpenAI calls)
       - `*-3` (local tier)     -> local vLLM (`local_model`)
       - `answer-math-*`        -> same tiers as the numeric suffix
-      - `search-*`             -> always the Anthropic web_search tool (the
-                                  upstream uses Tavily; we have web_search)
+      - `search-*`             -> provider-native web search when the cloud
+                                  endpoint supports it; otherwise Anthropic
     """
     if slot.startswith("search"):
+        ep = (cloud_endpoint or "anthropic").lower()
+        if ep == "openai":
+            return {
+                "name": f"search:{slot}",
+                "type": "openai-web-search",
+                "model": cloud_model,
+            }
+        if ep == "gemini":
+            return {
+                "name": f"search:{slot}",
+                "type": "gemini-web-search",
+                "model": cloud_model,
+            }
         return {
             "name": f"search:{slot}",
             "type": "anthropic-web-search",
@@ -340,21 +357,18 @@ def _paper_expert_for(
 
 # ---- Tavily + Modal helpers -------------------------------------------------
 
-def _call_tavily_search(query: str, max_results: int = 5) -> Tuple[str, int, int]:
-    """One-shot Tavily search. Returns (text, p_tok=0, c_tok=0).
+def _call_tavily_search(
+    query: str,
+    max_results: int = 5,
+) -> Tuple[str, int, int, float, int]:
+    """One-shot Tavily search. Returns (text, p_tok=0, c_tok=0, cost, uses).
 
     Token counts are reported as zero (no LLM was billed); the OpenJarvis
     accounting layer separately tallies tool-call counts. Falls back to
     DuckDuckGo if Tavily is unreachable (see ``WebSearchTool``).
     """
-    from openjarvis.tools.web_search import WebSearchTool
-
-    tool = WebSearchTool(max_results=max_results)
-    res = tool.execute(query=query, max_results=max_results)
-    text = res.content or ""
-    if not res.success and not text:
-        text = "(no results)"
-    return text, 0, 0
+    res = tavily_search_context(query, max_results=max_results)
+    return res["text"], 0, 0, float(res["cost_usd"]), int(res["n_searches"])
 
 
 _MODAL_APP_NAME = "openjarvis-toolorchestra-sandbox"
@@ -674,13 +688,25 @@ def _default_pool(
                 "concise extraction, formatting, arithmetic on given data."
             ),
         })
+    if ep == "openai":
+        search_type = "openai-web-search"
+        search_model = cloud_model
+        search_desc = "OpenAI hosted web search on the configured frontier model."
+    elif ep == "gemini":
+        search_type = "gemini-web-search"
+        search_model = cloud_model
+        search_desc = "Gemini Google Search grounding on the configured frontier model."
+    else:
+        search_type = "anthropic-web-search"
+        search_model = _DEFAULT_WEB_SEARCH_MODEL
+        search_desc = "Anthropic server-side web_search."
     pool.append({
         "id": len(pool),
         "name": "web-search",
-        "type": "anthropic-web-search",
-        "model": "claude-haiku-4-5",
+        "type": search_type,
+        "model": search_model,
         "description": (
-            "Anthropic server-side web_search. Use for facts that need a lookup "
+            f"{search_desc} Use for facts that need a lookup "
             "(recent events, rare names/dates, niche sources). Returns a digest."
         ),
     })
@@ -717,8 +743,13 @@ def _default_pool(
 #   `modal-python`   — One-shot Python exec in a fresh Modal Sandbox (the
 #                      paper's "Python sandbox" inside `enhance_reasoning`).
 _TOOLORCH_VALID_TYPES = (
-    "vllm", "openai", "anthropic", "anthropic-web-search", "gemini",
-    "tavily-search", "openrouter", "modal-python",
+    "vllm", "openai", "anthropic", "anthropic-web-search",
+    "openai-web-search", "gemini", "gemini-web-search", "tavily-search",
+    "openrouter", "modal-python",
+)
+_TOOLORCH_SEARCH_TYPES = (
+    "anthropic-web-search", "openai-web-search", "gemini-web-search",
+    "tavily-search",
 )
 
 # Default model used when an `anthropic-web-search` entry omits `model`.
@@ -739,10 +770,12 @@ def _resolve_worker_pool(
     the override is absent.
 
     Each user-supplied entry must be a dict with keys ``id``, ``name``,
-    ``type``, and (for non-search types) ``model``. ``type`` must be one
-    of ``vllm`` / ``openai`` / ``anthropic`` / ``anthropic-web-search``.
-    ``anthropic-web-search`` entries may omit ``model`` — it defaults to
-    ``claude-haiku-4-5``.
+    ``type``, and (for non-search types) ``model``. Search worker types are
+    ``anthropic-web-search``, ``openai-web-search``, ``gemini-web-search``,
+    and ``tavily-search``. ``anthropic-web-search`` entries may omit
+    ``model`` — it defaults to ``claude-haiku-4-5``. OpenAI and Gemini
+    search workers default to the configured cloud model. Tavily does not
+    require a model.
 
     Substitution: ``model = "$local"`` (or ``"<local>"``) resolves to
     ``local_model``; ``model = "$cloud"`` / ``"<cloud>"`` to ``cloud_model``.
@@ -804,13 +837,23 @@ def _resolve_worker_pool(
         elif isinstance(model, str) and model in ("$cloud", "<cloud>"):
             model = cloud_model
             entry["model"] = model
-        if wtype == "anthropic-web-search":
+        if wtype in _TOOLORCH_SEARCH_TYPES:
             if model in (None, ""):
-                model = _DEFAULT_WEB_SEARCH_MODEL
+                if wtype == "anthropic-web-search":
+                    model = _DEFAULT_WEB_SEARCH_MODEL
+                elif wtype in ("openai-web-search", "gemini-web-search"):
+                    model = cloud_model
+                else:
+                    model = wtype
                 entry["model"] = model
             elif not isinstance(model, str):
                 raise ValueError(
                     f"Invalid worker_pool entry [{wid}]: 'model' must be a string when set"
+                )
+            if wtype in ("openai-web-search", "gemini-web-search") and model not in PRICES:
+                raise ValueError(
+                    f"Invalid worker_pool entry [{wid}]: model {model!r} "
+                    f"is not in PRICES (known: {sorted(PRICES)})"
                 )
             # Search workers don't satisfy the "needs a solver" requirement.
         else:
@@ -843,7 +886,7 @@ def _resolve_worker_pool(
     if not has_non_search:
         raise ValueError(
             "Invalid worker_pool entry [-]: worker_pool must contain at least "
-            "one non-search worker (vllm / openai / anthropic)"
+            "one non-search worker (vllm / openai / anthropic / gemini)"
         )
     return resolved
 
@@ -910,13 +953,31 @@ def _call_worker(
         )
         extra = n_searches * WEB_SEARCH_COST_PER_CALL
         return text, p, c, False, extra, n_searches
+    if wtype == "openai-web-search":
+        eff_temp = 1.0 if is_gpt5_family(worker["model"]) else temp
+        text, p, c, n_searches, _ = LocalCloudAgent._call_openai_agent(
+            worker["model"],
+            user=prompt,
+            max_tokens=max(max_tok, 16384) if is_gpt5_family(worker["model"]) else max_tok,
+            temperature=eff_temp,
+        )
+        extra = n_searches * OPENAI_WEB_SEARCH_COST_PER_CALL
+        return text, p, c, False, extra, n_searches
+    if wtype == "gemini-web-search":
+        text, p, c, n_searches, _ = LocalCloudAgent._call_gemini_agent(
+            worker["model"],
+            user=prompt,
+            max_tokens=max_tok,
+            temperature=temp,
+        )
+        extra = n_searches * GEMINI_SEARCH_COST_PER_CALL
+        return text, p, c, False, extra, n_searches
     if wtype == "tavily-search":
-        # Tavily costs are flat per call; charge `WEB_SEARCH_COST_PER_CALL`
-        # for parity with the Anthropic web-search worker. One call = one
-        # "n_search" for accounting.
         max_results = int(cfg.get("tavily_max_results", 5))
-        text, p, c = _call_tavily_search(str(prompt), max_results=max_results)
-        return text, p, c, False, WEB_SEARCH_COST_PER_CALL, 1
+        text, p, c, extra, n_searches = _call_tavily_search(
+            str(prompt), max_results=max_results,
+        )
+        return text, p, c, False, extra, n_searches
     if wtype == "openrouter":
         text, p, c = LocalCloudAgent._call_openrouter(
             worker["model"],
@@ -951,7 +1012,7 @@ def _swe_call_worker(
     caller can surface ``tool_calls`` per row. Fallbacks to one-shot
     workers return 0 bash turns (no agent loop ran)."""
     wtype = worker.get("type", "openai")
-    if wtype == "anthropic-web-search":
+    if wtype in _TOOLORCH_SEARCH_TYPES:
         # Search workers stay one-shot.
         text, p, c, is_local, extra, n_searches = _call_worker(worker, prompt, cfg)
         return text, p, c, is_local, extra, n_searches, 0
@@ -1197,7 +1258,8 @@ class ToolOrchestraAgent(LocalCloudAgent):
                 # Search workers are excluded — they answer fact-lookup
                 # questions, not synthesis.
                 non_search = [
-                    w for w in workers if w.get("type") != "anthropic-web-search"
+                    w for w in workers
+                    if w.get("type") not in _TOOLORCH_SEARCH_TYPES
                 ] or workers
                 worker = max(
                     non_search,

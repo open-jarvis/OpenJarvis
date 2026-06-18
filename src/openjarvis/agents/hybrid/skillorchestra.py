@@ -149,6 +149,17 @@ def _build_router_schema(agent_ids: List[str]) -> Dict[str, Any]:
     }
 
 
+def _openai_response_format(schema: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "skillorchestra_route",
+            "schema": schema["format"]["schema"],
+            "strict": True,
+        },
+    }
+
+
 def _parse_router_json(text: str) -> Dict[str, Any]:
     s = (text or "").strip()
     try:
@@ -196,6 +207,70 @@ class SkillOrchestraAgent(LocalCloudAgent):
 
     agent_id = "skillorchestra"
 
+    def _route_call(
+        self,
+        *,
+        question: str,
+        router_sys: str,
+        router_schema: Dict[str, Any],
+        router_max: int,
+    ) -> Tuple[str, int, int]:
+        user = f"Question:\n{question}"
+        if self._cloud_endpoint == "anthropic":
+            kwargs: Dict[str, Any] = {
+                "user": user,
+                "system": router_sys,
+                "max_tokens": router_max,
+                "output_config": router_schema,
+            }
+            if supports_temperature(self._cloud_model):
+                kwargs["temperature"] = 0.0
+            text, r_in, r_out, _ = self._call_anthropic(
+                self._cloud_model,
+                **kwargs,
+            )
+            return text, r_in, r_out
+        if self._cloud_endpoint == "openai":
+            return self._call_openai(
+                self._cloud_model,
+                user=user,
+                system=router_sys,
+                max_tokens=router_max,
+                temperature=0.0,
+                response_format=_openai_response_format(router_schema),
+            )
+        if self._cloud_endpoint == "gemini":
+            return self._call_gemini(
+                self._cloud_model,
+                user=user,
+                system=router_sys,
+                max_tokens=router_max,
+                temperature=0.0,
+            )
+        raise ValueError(
+            f"SkillOrchestra router unsupported cloud_endpoint={self._cloud_endpoint!r}"
+        )
+
+    def _executor_call(
+        self,
+        *,
+        question: str,
+        max_tokens: int,
+    ) -> Tuple[str, int, int]:
+        if self._cloud_endpoint == "anthropic":
+            text, w_in, w_out, _ = self._call_anthropic(
+                self._cloud_model,
+                user=question,
+                max_tokens=max_tokens,
+                temperature=0.0,
+            )
+            return text, w_in, w_out
+        return self._call_cloud(
+            user=question,
+            max_tokens=max_tokens,
+            temperature=0.0,
+        )
+
     def _is_soft_failure(self, exc: BaseException) -> Optional[str]:
         # Empty/unbalanced router JSON — treat as soft failure to match the
         # hybrid adapter's behavior (matches `err=1` rows in the n=30 cell).
@@ -220,33 +295,13 @@ class SkillOrchestraAgent(LocalCloudAgent):
         router_sys = _build_router_sys(competence, cost)
         router_schema = _build_router_schema(agent_ids)
 
-        # 1. Route — Anthropic only (output_config schema is Anthropic-specific
-        # in the hybrid adapter). If you need OpenAI routing, swap the prompt
-        # to JSON-mode and bypass output_config.
-        if self._cloud_endpoint != "anthropic":
-            raise ValueError(
-                "SkillOrchestra router requires cloud_endpoint='anthropic'; "
-                f"got {self._cloud_endpoint!r}"
-            )
         router_max = int(cfg.get("router_max_tokens", 1024))
-        # Strip temperature for Opus 4.7+; Anthropic's output_config does the schema.
-        if supports_temperature(self._cloud_model):
-            router_text, r_in, r_out, _ = self._call_anthropic(
-                self._cloud_model,
-                user=f"Question:\n{question}",
-                system=router_sys,
-                max_tokens=router_max,
-                temperature=0.0,
-                output_config=router_schema,
-            )
-        else:
-            router_text, r_in, r_out, _ = self._call_anthropic(
-                self._cloud_model,
-                user=f"Question:\n{question}",
-                system=router_sys,
-                max_tokens=router_max,
-                output_config=router_schema,
-            )
+        router_text, r_in, r_out = self._route_call(
+            question=question,
+            router_sys=router_sys,
+            router_schema=router_schema,
+            router_max=router_max,
+        )
 
         decision = _parse_router_json(router_text)
         skill_weights: Dict[str, float] = decision.get("skill_weights") or {}
@@ -329,11 +384,9 @@ class SkillOrchestraAgent(LocalCloudAgent):
                 tokens_cloud += out["tokens_in"] + out["tokens_out"]
                 run_cost += out["cost_usd"]
             else:
-                ans, w_in, w_out, _ = self._call_anthropic(
-                    self._cloud_model,
-                    user=question,
+                ans, w_in, w_out = self._executor_call(
+                    question=question,
                     max_tokens=int(cfg.get("cloud_max_tokens", 4096)),
-                    temperature=0.0,
                 )
                 tokens_cloud += w_in + w_out
                 run_cost += self.cost_usd(self._cloud_model, w_in, w_out)

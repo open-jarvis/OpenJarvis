@@ -46,6 +46,7 @@ from openjarvis.agents.hybrid._base import (
     WEB_SEARCH_COST_PER_CALL,
     LocalCloudAgent,
     build_web_search_tool,
+    tavily_search_context,
     web_search_cfg,
 )
 from openjarvis.agents.hybrid._prices import (
@@ -456,8 +457,14 @@ def _format_worker_pool(workers: List[Dict[str, Any]]) -> str:
     )
 
 
-def _search_capable_indices(workers: List[Dict[str, Any]]) -> List[int]:
+def _search_capable_indices(
+    workers: List[Dict[str, Any]],
+    *,
+    search_backend: str = "provider",
+) -> List[int]:
     """Indices of workers whose endpoint can run server-side web search."""
+    if search_backend == "tavily":
+        return [w["id"] for w in workers]
     return [
         w["id"] for w in workers
         if (w.get("endpoint") or "openai").lower()
@@ -470,6 +477,7 @@ def _build_conductor_prompt(
     workers: List[Dict[str, Any]],
     *,
     web_search_enabled: bool = False,
+    search_backend: str = "provider",
 ) -> str:
     """Build the planner prompt.
 
@@ -485,12 +493,16 @@ def _build_conductor_prompt(
     )
     if not web_search_enabled:
         return base
-    capable = _search_capable_indices(workers)
+    capable = _search_capable_indices(workers, search_backend=search_backend)
     if capable:
         cap_str = ", ".join(str(i) for i in capable)
+        if search_backend == "tavily":
+            capability = "External Tavily search results will be prepended to worker prompts"
+        else:
+            capability = "Only these model indices can perform live web search"
         constraint = (
             "\n\nWEB SEARCH CONSTRAINT:\n"
-            f"Only these model indices can perform live web search: [{cap_str}]. "
+            f"{capability}: [{cap_str}]. "
             "Any step that needs to look up facts, current events, or other "
             "information not reliably known from memory MUST be routed to one "
             "of those indices. Steps routed to any other model can only use "
@@ -550,8 +562,8 @@ def _call_worker(
     *,
     web_search_tool: Optional[Dict[str, Any]] = None,
     web_search_max_uses: int = 8,
-) -> Tuple[str, int, int, bool, int]:
-    """Returns (text, p_tok, c_tok, is_local, n_web_searches).
+) -> Tuple[str, int, int, bool, int, float]:
+    """Returns (text, p_tok, c_tok, is_local, n_web_searches, extra_cost).
 
     ``web_search_tool``: a truthy marker that web_search is enabled for
     this run. When set AND the worker endpoint is search-capable
@@ -565,6 +577,22 @@ def _call_worker(
     max_tok = int(cfg.get("worker_max_tokens", 4096))
     temp = float(cfg.get("worker_temperature", 0.2))
     use_ws = web_search_tool is not None
+    search_backend = str(cfg.get("search_backend", "provider")).lower()
+    extra_cost = 0.0
+    if use_ws and search_backend == "tavily":
+        res = tavily_search_context(
+            prompt,
+            max_results=int(cfg.get("tavily_max_results", 5)),
+        )
+        prompt = (
+            f"Web search results:\n{res['text']}\n\n"
+            f"Using the search results above, answer this request:\n{prompt}"
+        )
+        extra_cost = float(res["cost_usd"])
+        use_ws = False
+        tavily_searches = int(res["n_searches"])
+    else:
+        tavily_searches = 0
 
     if ep == "vllm":
         text, p, c = LocalCloudAgent._call_vllm(
@@ -575,7 +603,7 @@ def _call_worker(
             temperature=temp,
             enable_thinking=False,
         )
-        return text, p, c, True, 0
+        return text, p, c, True, tavily_searches, extra_cost
     if ep == "openai":
         if use_ws:
             text, p, c, n_searches, _ = LocalCloudAgent._call_openai_agent(
@@ -584,14 +612,14 @@ def _call_worker(
                 max_tokens=max_tok,
                 temperature=(1.0 if is_gpt5_family(worker["model"]) else temp),
             )
-            return text, p, c, False, n_searches
+            return text, p, c, False, n_searches, 0.0
         text, p, c = LocalCloudAgent._call_openai(
             worker["model"],
             user=prompt,
             max_tokens=max_tok,
             temperature=(1.0 if is_gpt5_family(worker["model"]) else temp),
         )
-        return text, p, c, False, 0
+        return text, p, c, False, tavily_searches, extra_cost
     if ep == "openrouter":
         # OpenRouter is OpenAI-compatible; the helper handles the
         # base_url + OPENROUTER_API_KEY plumbing. No server-side web
@@ -607,7 +635,7 @@ def _call_worker(
             temperature=temp,
             extra_body=extra_body if isinstance(extra_body, dict) else None,
         )
-        return text, p, c, False, 0
+        return text, p, c, False, tavily_searches, extra_cost
     if ep == "anthropic":
         eff_temp = temp if supports_temperature(worker["model"]) else 0.0
         anthropic_kwargs: Dict[str, Any] = dict(
@@ -620,7 +648,7 @@ def _call_worker(
         text, p, c, n_searches = LocalCloudAgent._call_anthropic(
             worker["model"], **anthropic_kwargs
         )
-        return text, p, c, False, n_searches
+        return text, p, c, False, n_searches or tavily_searches, extra_cost
     if ep == "gemini":
         # Gemini Developer API via google-genai. With web_search on, route
         # through the Google-Search-grounded agent loop; otherwise plain
@@ -632,14 +660,14 @@ def _call_worker(
                 max_tokens=max_tok,
                 temperature=temp,
             )
-            return text, p, c, False, n_searches
+            return text, p, c, False, n_searches, 0.0
         text, p, c = LocalCloudAgent._call_gemini(
             worker["model"],
             user=prompt,
             max_tokens=max_tok,
             temperature=temp,
         )
-        return text, p, c, False, 0
+        return text, p, c, False, tavily_searches, extra_cost
     raise ValueError(f"unsupported worker endpoint: {ep!r}")
 
 
@@ -672,7 +700,7 @@ def _swe_worker_step(
         # backbones today (the loop's tool-call format is Anthropic- or
         # OpenAI-via-vllm-shaped only). Fall back to one-shot for those —
         # SWE-bench-wise they were already weak; this preserves behavior.
-        text, p, c, is_local, n_searches = _call_worker(worker, prompt, cfg)
+        text, p, c, is_local, n_searches, _extra = _call_worker(worker, prompt, cfg)
         return text, p, c, is_local, n_searches, 0
     out = run_swe_agent_loop(
         task,
@@ -753,13 +781,17 @@ class ConductorAgent(LocalCloudAgent):
             and bool(task_meta_early.get("base_commit"))
         )
         ws_enabled, ws_max_uses = web_search_cfg(cfg)
+        search_backend = str(cfg.get("search_backend", "provider")).lower()
         planner_ws = ws_enabled and not swe_mode_early
 
         # 1. Plan — when web_search is on (GAIA), the prompt names which
         # worker indices can actually search, so the planner routes
         # research steps to a search-capable worker.
         user = _build_conductor_prompt(
-            question, workers, web_search_enabled=planner_ws,
+            question,
+            workers,
+            web_search_enabled=planner_ws,
+            search_backend=search_backend,
         )
         plan_text, p_in, p_out = self._call_cloud(
             user=user,
@@ -833,7 +865,7 @@ class ConductorAgent(LocalCloudAgent):
         # memory. Fail loud instead of degrading silently.
         # ``ws_enabled`` / ``ws_max_uses`` computed up front for the planner
         # constraint — reuse them here.
-        if ws_enabled and not swe_mode:
+        if ws_enabled and search_backend != "tavily" and not swe_mode:
             search_workers = [
                 w for w in workers
                 if (w.get("endpoint") or "openai").lower()
@@ -894,7 +926,7 @@ class ConductorAgent(LocalCloudAgent):
                 # may legitimately not need search; see Task-3 planner
                 # constraint that tries to prevent this upfront).
                 if (
-                    ws_enabled and not swe_mode
+                    ws_enabled and search_backend != "tavily" and not swe_mode
                     and worker_ep not in _SEARCH_CAPABLE_WORKER_ENDPOINTS
                 ):
                     self.record_trace_event({
@@ -911,6 +943,7 @@ class ConductorAgent(LocalCloudAgent):
                         ),
                     })
 
+                extra_cost = 0.0
                 if swe_mode:
                     text, w_in, w_out, is_local, n_searches, bash_turns = (
                         _swe_worker_step(
@@ -919,7 +952,9 @@ class ConductorAgent(LocalCloudAgent):
                     )
                     tool_calls += bash_turns
                 else:
-                    text, w_in, w_out, is_local, n_searches = _call_worker(
+                    (
+                        text, w_in, w_out, is_local, n_searches, extra_cost
+                    ) = _call_worker(
                         worker, prompt, cfg,
                         web_search_tool=ws_tool,
                         web_search_max_uses=ws_max_uses,
@@ -930,7 +965,10 @@ class ConductorAgent(LocalCloudAgent):
                 else:
                     tokens_cloud += w_in + w_out
                     cost += self.cost_usd(worker["model"], w_in, w_out)
-                    cost += n_searches * _worker_search_cost_per_call(worker_ep)
+                    if search_backend != "tavily":
+                        cost += n_searches * _worker_search_cost_per_call(worker_ep)
+                if search_backend == "tavily":
+                    cost += extra_cost
                 n_web_searches_total += n_searches
                 tool_calls += n_searches
                 steps.append({
@@ -981,6 +1019,7 @@ class ConductorAgent(LocalCloudAgent):
                 "plan": plan,
                 "fallback_used": fallback_used,
                 "web_search_enabled": ws_enabled,
+                "search_backend": search_backend,
                 "n_web_searches": n_web_searches_total,
                 "parse_attempts": parse_attempts,
                 "workers": [

@@ -31,7 +31,14 @@ from .stage_router import (
     get_routing_strategy,
     parse_skill_analysis,
 )
-from .tools import anthropic_tools, openai_tools, run_answer, run_code, run_search
+from .tools import (
+    anthropic_tools,
+    gemini_tools,
+    openai_tools,
+    run_answer,
+    run_code,
+    run_search,
+)
 
 # tool name -> routing stage (stage_router uses "reasoning" for code).
 _TOOL_STAGE = {
@@ -115,10 +122,49 @@ def _orchestrate_step(
         u = resp.usage
         p = getattr(u, "prompt_tokens", 0) if u else 0
         c = getattr(u, "completion_tokens", 0) if u else 0
+    elif endpoint == "gemini":
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(
+            http_options=types.HttpOptions(timeout=600_000)
+        )
+        cfg = types.GenerateContentConfig(
+            temperature=1.0,
+            max_output_tokens=max_tokens,
+            tools=[types.Tool(function_declarations=gemini_tools())],
+        )
+        resp = client.models.generate_content(
+            model=model,
+            contents=user,
+            config=cfg,
+        )
+        text = (resp.text or "") if hasattr(resp, "text") else ""
+        tool_calls = []
+        try:
+            parts = resp.candidates[0].content.parts or []
+        except Exception:  # noqa: BLE001
+            parts = []
+        for part in parts:
+            fc = getattr(part, "function_call", None)
+            if fc is None:
+                continue
+            name = getattr(fc, "name", None)
+            if not isinstance(name, str) or not name:
+                continue
+            args = getattr(fc, "args", None) or {}
+            try:
+                args = dict(args)
+            except Exception:  # noqa: BLE001
+                args = {}
+            tool_calls.append({"name": name, "input": args})
+        um = getattr(resp, "usage_metadata", None)
+        p = int(getattr(um, "prompt_token_count", 0) or 0) if um else 0
+        c = int(getattr(um, "candidates_token_count", 0) or 0) if um else 0
     else:
         raise ValueError(
             f"orchestrator endpoint {endpoint!r} unsupported — route the "
-            "orchestrator through anthropic/openai (set method_cfg."
+            "orchestrator through anthropic/openai/gemini (set method_cfg."
             "orchestrator_endpoint)."
         )
 
@@ -192,6 +238,8 @@ def run_orchestrator(
     code_timeout = int(cfg.get("code_timeout_s", 60))
     answer_max_tokens = int(cfg.get("answer_max_tokens", 40000))
     ws_max_uses = int(cfg.get("web_search_max_uses", 5))
+    search_backend = str(cfg.get("search_backend", "provider")).lower()
+    tavily_max_results = int(cfg.get("tavily_max_results", 5))
 
     # The orchestrator model: a fixed model per run (the original's
     # MODEL_NAME). Defaults to the cell's cloud model when that endpoint
@@ -203,7 +251,7 @@ def run_orchestrator(
     orch_model = (cfg.get("orchestrator_model")
                   or cfg.get("router_model")
                   or agent._cloud_model)
-    if orch_endpoint not in ("anthropic", "openai"):
+    if orch_endpoint not in ("anthropic", "openai", "gemini"):
         orch_endpoint, orch_model = "anthropic", "claude-opus-4-7"
     orch_max_tokens = int(cfg.get("orchestrator_max_tokens", 4096))
 
@@ -306,6 +354,8 @@ def run_orchestrator(
                 res = run_search(
                     agent, spec, context_str=context_str, problem=problem,
                     retriever_url=retriever_url, web_search_max_uses=ws_max_uses,
+                    search_backend=search_backend,
+                    tavily_max_results=tavily_max_results,
                 )
                 docs = res["search_results_data"]
                 joined = "\n---\n".join(d for d in docs if d)[:char_cap]
