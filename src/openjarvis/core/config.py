@@ -951,6 +951,13 @@ class ToolsConfig:
     mcp: MCPConfig = field(default_factory=MCPConfig)
     browser: BrowserConfig = field(default_factory=BrowserConfig)
     enabled: str = ""  # comma-separated default tools
+    # Sandbox roots for file_read/file_write. Empty = unrestricted (sensitive
+    # files are always blocked separately). Overridable via the
+    # OPENJARVIS_WORKSPACE env var (os.pathsep-separated list).
+    file_allowed_dirs: list = field(default_factory=list)
+    # When true, file_write requests are gated behind the interactive
+    # confirmation callback. Overridable via OPENJARVIS_CONFIRM_FILE_WRITE.
+    file_write_confirm: bool = False
 
 
 @dataclass
@@ -1416,13 +1423,20 @@ class OperatorsConfig:
 
 @dataclass(slots=True)
 class SpeechConfig:
-    """Speech-to-text settings."""
+    """Speech-to-text and text-to-speech settings."""
 
     backend: str = "auto"  # "auto", "faster-whisper", "openai", "deepgram"
     model: str = "base"  # Whisper model size: tiny, base, small, medium, large-v3
-    language: str = ""  # Empty = auto-detect
+    language: str = "en"  # ISO code; "en" avoids silence hallucinations like "you"
+    task: str = "transcribe"  # "transcribe" or "translate" (translate → English)
     device: str = "auto"  # "auto", "cpu", "cuda"
     compute_type: str = "float16"  # "float16", "int8", "float32"
+    tts_backend: str = "auto"  # "auto", "edge_tts", "kokoro", "cartesia", "openai_tts"
+    tts_voice_id: str = "onyx"
+    tts_speed: float = 1.0
+    # Stream audio chunks as they are generated for lower time-to-first-sound.
+    # Disable if a proxy mishandles chunked audio responses.
+    tts_stream: bool = True
 
 
 @dataclass(slots=True)

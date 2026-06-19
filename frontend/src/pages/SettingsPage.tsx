@@ -19,7 +19,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { useAppStore, type ThemeMode } from '../lib/store';
-import { checkHealth, fetchSpeechHealth, getMemoryStats, getInferenceSource, setInferenceSource, type InferenceSource } from '../lib/api';
+import { checkHealth, fetchSpeechHealth, fetchTtsHealth, getMemoryStats, getInferenceSource, setInferenceSource, type InferenceSource } from '../lib/api';
 import { isAutoUpdateDisabled, setAutoUpdateDisabled } from '../components/Desktop/UpdateChecker';
 
 function OllamaModelList() {
@@ -122,6 +122,7 @@ export function SettingsPage() {
   const serverInfo = useAppStore((s) => s.serverInfo);
   const [healthy, setHealthy] = useState<boolean | null>(null);
   const [speechBackendAvailable, setSpeechBackendAvailable] = useState<boolean | null>(null);
+  const [ttsBackendAvailable, setTtsBackendAvailable] = useState<boolean | null>(null);
   const [saved, setSaved] = useState(false);
 
   const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(() => !isAutoUpdateDisabled());
@@ -196,6 +197,9 @@ export function SettingsPage() {
     fetchSpeechHealth()
       .then((h) => setSpeechBackendAvailable(h.available))
       .catch(() => setSpeechBackendAvailable(false));
+    fetchTtsHealth()
+      .then((h) => setTtsBackendAvailable(h.available))
+      .catch(() => setTtsBackendAvailable(false));
     getMemoryStats()
       .then(setMemoryStats)
       .catch(() => setMemoryStats(null));
@@ -604,7 +608,7 @@ export function SettingsPage() {
                 />
               </button>
             </SettingRow>
-            <SettingRow label="Backend status" description="Requires Whisper, Deepgram, or another speech backend">
+            <SettingRow label="STT backend" description="Requires faster-whisper or a cloud STT provider">
               <div className="flex items-center gap-2">
                 <span
                   className="w-2 h-2 rounded-full"
@@ -621,10 +625,65 @@ export function SettingsPage() {
                 </span>
               </div>
             </SettingRow>
+            <SettingRow label="Voice replies" description="Speak assistant responses aloud after each reply">
+              <button
+                onClick={() => { updateSettings({ voiceReplyEnabled: !settings.voiceReplyEnabled }); showSaved(); }}
+                className="relative w-11 h-6 rounded-full transition-colors cursor-pointer"
+                style={{
+                  background: settings.voiceReplyEnabled ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
+                }}
+              >
+                <span
+                  className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full transition-transform bg-white"
+                  style={{
+                    transform: settings.voiceReplyEnabled ? 'translateX(20px)' : 'translateX(0)',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  }}
+                />
+              </button>
+            </SettingRow>
+            <SettingRow label="TTS backend" description="edge-tts (free) or another TTS provider on the server">
+              <div className="flex items-center gap-2">
+                <span
+                  className="w-2 h-2 rounded-full"
+                  style={{
+                    background: ttsBackendAvailable === true ? 'var(--color-success)'
+                      : ttsBackendAvailable === false ? 'var(--color-text-tertiary)'
+                      : 'var(--color-text-tertiary)',
+                  }}
+                />
+                <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                  {ttsBackendAvailable === null ? 'Checking...'
+                    : ttsBackendAvailable ? 'Available'
+                    : 'Not configured'}
+                </span>
+              </div>
+            </SettingRow>
+            <SettingRow label="Auto-send after dictation" description="Send your message automatically when you stop recording">
+              <button
+                onClick={() => { updateSettings({ autoSendAfterDictation: !settings.autoSendAfterDictation }); showSaved(); }}
+                className="relative w-11 h-6 rounded-full transition-colors cursor-pointer"
+                style={{
+                  background: settings.autoSendAfterDictation ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
+                }}
+              >
+                <span
+                  className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full transition-transform bg-white"
+                  style={{
+                    transform: settings.autoSendAfterDictation ? 'translateX(20px)' : 'translateX(0)',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  }}
+                />
+              </button>
+            </SettingRow>
             {!speechBackendAvailable && speechBackendAvailable !== null && (
               <div className="text-xs mt-2 px-1" style={{ color: 'var(--color-text-tertiary)' }}>
-                Set up a speech backend to use voice input.
-                See the <a href="https://open-jarvis.github.io/OpenJarvis/user-guide/tools/" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-accent)' }}>documentation</a> for details.
+                Install speech support: <code>uv sync --extra speech</code>. ffmpeg must be on PATH for browser audio.
+              </div>
+            )}
+            {!ttsBackendAvailable && ttsBackendAvailable !== null && (
+              <div className="text-xs mt-2 px-1" style={{ color: 'var(--color-text-tertiary)' }}>
+                Install TTS support: <code>uv sync --extra speech-tts</code> and restart the server.
               </div>
             )}
           </Section>

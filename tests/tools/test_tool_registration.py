@@ -68,6 +68,37 @@ EXPECTED_TOOLS = {
     "kg_add_relation",
     "kg_query",
     "kg_neighbors",
+    # weather.py
+    "weather",
+    # news.py
+    "news",
+    # email_calendar_tools.py
+    "email_send",
+    "email_list",
+    "calendar_create_event",
+    "calendar_list_events",
+    # finance_tools.py
+    "crypto_price",
+    "stock_quote",
+    "technical_analysis",
+    "portfolio_add",
+    "portfolio_view",
+    "portfolio_remove",
+    "paper_trade",
+    "paper_account",
+    # construction_tools.py
+    "cost_add",
+    "cost_lookup",
+    "project_create",
+    "project_list",
+    "project_update_status",
+    "quote_create",
+    "contract_create",
+    # notification_tools.py
+    "notify_email",
+    "notify_sms",
+    "notify_push",
+    "notify",
 }
 
 

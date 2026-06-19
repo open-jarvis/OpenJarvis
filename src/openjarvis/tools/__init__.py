@@ -142,4 +142,34 @@ try:
 except ImportError:
     pass
 
+try:
+    import openjarvis.tools.weather  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.news  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.email_calendar_tools  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.finance_tools  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.construction_tools  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    import openjarvis.tools.notification_tools  # noqa: F401
+except ImportError:
+    pass
+
 __all__ = ["BaseTool", "ToolExecutor", "ToolSpec"]

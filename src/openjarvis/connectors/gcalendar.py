@@ -81,6 +81,22 @@ def _gcal_api_event_patch(
     return resp.json()
 
 
+def _gcal_api_event_insert(
+    token: str,
+    calendar_id: str,
+    body: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Create a calendar event via the ``events.insert`` endpoint."""
+    resp = httpx.post(
+        f"{_GCAL_API_BASE}/calendars/{calendar_id}/events",
+        headers={"Authorization": f"Bearer {token}"},
+        json=body,
+        timeout=30.0,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
 def _gcal_api_calendars_list(token: str) -> Dict[str, Any]:
     """Call the Calendar ``calendarList.list`` endpoint.
 
@@ -469,6 +485,53 @@ class GCalendarConnector(BaseConnector):
         if not found and user_email:
             updated.append({"email": user_email, "responseStatus": "declined"})
         _gcal_api_event_patch(token, calendar_id, event_id, {"attendees": updated})
+
+    @staticmethod
+    def _event_time(value: str, timezone: Optional[str]) -> Dict[str, str]:
+        """Build a Calendar event time block from an ISO string.
+
+        A bare ``YYYY-MM-DD`` becomes an all-day ``date`` entry; anything with a
+        time component becomes a ``dateTime`` entry (with optional time zone).
+        """
+        value = value.strip()
+        if len(value) == 10 and value.count("-") == 2:
+            return {"date": value}
+        block = {"dateTime": value}
+        if timezone:
+            block["timeZone"] = timezone
+        return block
+
+    def create_event(
+        self,
+        *,
+        summary: str,
+        start: str,
+        end: str,
+        description: str = "",
+        location: str = "",
+        attendees: Optional[List[str]] = None,
+        calendar_id: str = "primary",
+        timezone: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Create a calendar event and return the created event resource.
+
+        Times accept RFC3339 datetimes (``2026-06-10T15:00:00``) or bare dates
+        (``2026-06-10``) for all-day events.
+        """
+        body: Dict[str, Any] = {
+            "summary": summary,
+            "start": self._event_time(start, timezone),
+            "end": self._event_time(end, timezone),
+        }
+        if description:
+            body["description"] = description
+        if location:
+            body["location"] = location
+        if attendees:
+            body["attendees"] = [{"email": e} for e in attendees if e]
+        return call_with_refresh(
+            _gcal_api_event_insert, self._credentials_path, calendar_id, body
+        )
 
     def sync_status(self) -> SyncStatus:
         """Return sync progress from the most recent :meth:`sync` call."""

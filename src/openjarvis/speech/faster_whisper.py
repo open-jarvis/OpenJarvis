@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
 from typing import List, Optional
 
@@ -25,10 +26,15 @@ class FasterWhisperBackend(SpeechBackend):
         model_size: str = "base",
         device: str = "auto",
         compute_type: str = "float16",
+        *,
+        default_language: str = "en",
+        task: str = "transcribe",
     ) -> None:
         self._model_size = model_size
         self._device = device
         self._compute_type = compute_type
+        self._default_language = default_language or "en"
+        self._task = task if task in ("transcribe", "translate") else "transcribe"
         self._model: Optional[WhisperModel] = None
 
     def _ensure_model(self) -> WhisperModel:
@@ -56,18 +62,34 @@ class FasterWhisperBackend(SpeechBackend):
         """Transcribe audio bytes using Faster-Whisper."""
         model = self._ensure_model()
 
-        # Write audio to a temp file (faster-whisper needs a file path)
+        # Write audio to a temp file (faster-whisper needs a file path).
+        # delete=False: on Windows the open handle blocks transcribe reads.
         suffix = f".{format}" if not format.startswith(".") else format
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:
-            tmp.write(audio)
-            tmp.flush()
+        fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+        os.close(fd)
+        try:
+            with open(tmp_path, "wb") as fh:
+                fh.write(audio)
 
-            kwargs = {}
-            if language:
-                kwargs["language"] = language
+            lang = language or self._default_language
+            kwargs: dict = {
+                "language": lang,
+                "task": self._task,
+                # Browser mic clips are short/quiet — VAD often drops real speech.
+                "vad_filter": False,
+                "condition_on_previous_text": False,
+                "no_speech_threshold": 0.5,
+                "log_prob_threshold": -1.0,
+                "compression_ratio_threshold": 2.4,
+            }
 
-            segments_iter, info = model.transcribe(tmp.name, **kwargs)
+            segments_iter, info = model.transcribe(tmp_path, **kwargs)
             segments_list = list(segments_iter)
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
         # Build result
         text = "".join(seg.text for seg in segments_list).strip()
