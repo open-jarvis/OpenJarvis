@@ -143,6 +143,61 @@ class MultiObjectiveReward:
         return [self.compute(ep) for ep in episodes]
 
 
+@dataclass
+class CostAwareReward:
+    """Cost-aware GRPO reward: ``r = +1/-1`` for correctness, minus a
+    cost penalty.
+
+    This is the headline objective from the plan::
+
+        base   = +1.0 if episode.correct else -1.0
+        reward = base - lambda * (total_cost_usd / cost_max)
+
+    ``lambda`` (``lam``) is the cost-penalty weight and is *swept* across a
+    set of values (see :func:`lambda_sweep`) to trace the accuracy/cost
+    Pareto frontier.  ``cost_max`` normalises USD cost so the penalty is
+    O(1) when an episode hits the per-task cost budget.
+    """
+
+    lam: float = 0.0
+    """Cost-penalty weight (swept, e.g. [0.0, 0.05, 0.1, 0.2, 0.4])."""
+
+    cost_max: float = 0.10
+    """USD cost normalizer (per-task cost budget)."""
+
+    def compute(self, episode: Episode) -> float:
+        """Scalar reward: ``+1/-1`` for correctness minus a cost term."""
+        base = 1.0 if episode.correct else -1.0
+        return base - self.lam * (episode.total_cost_usd / self.cost_max)
+
+    def compute_with_breakdown(self, episode: Episode) -> Dict[str, float]:
+        """Reward with per-component breakdown."""
+        correct = 1.0 if episode.correct else 0.0
+        base = 1.0 if episode.correct else -1.0
+        cost_term = -self.lam * (episode.total_cost_usd / self.cost_max)
+        return {
+            "correct": correct,
+            "base": base,
+            "cost_term": cost_term,
+            "reward": base + cost_term,
+        }
+
+    def compute_batch(self, episodes: List[Episode]) -> List[float]:
+        """Compute rewards for a batch of episodes."""
+        return [self.compute(ep) for ep in episodes]
+
+
+def lambda_sweep(
+    values: List[float], cost_max: float = 0.10
+) -> List["CostAwareReward"]:
+    """Build one :class:`CostAwareReward` per lambda value.
+
+    Used to sweep the cost-penalty weight and trace the accuracy/cost
+    Pareto frontier (the ``R -= lambda * cost / cost_max`` objective).
+    """
+    return [CostAwareReward(lam=lam, cost_max=cost_max) for lam in values]
+
+
 class AdaptiveRewardWeights:
     """Adaptive reward weights that shift during training.
 
@@ -211,7 +266,9 @@ class AdaptiveRewardWeights:
 
 __all__ = [
     "AdaptiveRewardWeights",
+    "CostAwareReward",
     "MultiObjectiveReward",
     "Normalizers",
     "RewardWeights",
+    "lambda_sweep",
 ]

@@ -1,14 +1,14 @@
-# Orchestrator SFT cold-start — Qwen3-8B (~9B, "easier to train").
+# Orchestrator: Qwen3.5-9B. v1 = base self-sampling (the served orchestrator_model is this same base).
 #
-# v1 data = base Qwen3-8B self-sampling: roll the base model out over
+# v1 data = base Qwen3.5-9B self-sampling: roll the base model out over
 # load_sft_tasks() (~8K reasoning tasks), keep correct trajectories. Build the
 # dataset first (no GPU, needs the vLLM orchestrator endpoint up):
 #   .venv/bin/python scripts/orchestrator/build_orchestrator_sft.py \
-#       --out data/orchestrator_sft_v1.jsonl --samples-per-task 8
+#       --out data/orchestrator_qwen3.5-9b_sft_v1.jsonl --samples-per-task 8
 # then train on a rented GPU with regenerate_traces = false.
 
 [model]
-model_name = "Qwen/Qwen3-8B"
+model_name = "Qwen/Qwen3.5-9B"
 max_seq_length = 4096
 
 [training]
@@ -20,15 +20,15 @@ warmup_ratio = 0.1
 gradient_checkpointing = true
 
 [data]
-trace_cache_path = "data/orchestrator_sft_v1.jsonl"
+trace_cache_path = "data/orchestrator_qwen3.5-9b_sft_v1.jsonl"
 regenerate_traces = false
-# Base Qwen3-8B self-sampling over load_sft_tasks() (see sft_data/reject_sample.py).
+# Base Qwen3.5-9B self-sampling over load_sft_tasks() (see sft_data/reject_sample.py).
 orchestrator_endpoint = "http://localhost:8001/v1"
-orchestrator_model = "qwen3-8b"
+orchestrator_model = "qwen3.5-9b"
 samples_per_task = 8
 max_keep_per_task = 1
 distill_max_tasks = 0  # 0 -> all of load_sft_tasks()
 
 [checkpoint]
-checkpoint_dir = "checkpoints/orchestrator_sft"
+checkpoint_dir = "checkpoints/orchestrator_qwen3.5-9b_sft"
 save_every_n_epochs = 1

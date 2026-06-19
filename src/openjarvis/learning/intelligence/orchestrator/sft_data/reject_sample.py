@@ -23,22 +23,27 @@ from collections import Counter
 from pathlib import Path
 from typing import Callable, Iterable, List, Optional
 
+from typing import Any
+
 from openjarvis.agents.hybrid.expert_registry import ExpertTool
 from openjarvis.agents.hybrid.toolorchestra.rollout import UnifiedRollout
-from openjarvis.learning.intelligence.orchestrator.sft_data.toolscale import (
-    ToolScaleTask,
-)
 from openjarvis.learning.intelligence.orchestrator.sft_data.unified_serialize import (
     trajectory_to_record,
 )
 
 logger = logging.getLogger(__name__)
 
-RolloutFn = Callable[[ToolScaleTask], Optional[UnifiedRollout]]
-VerifyFn = Callable[[ToolScaleTask, UnifiedRollout], bool]
+# The sampler only touches ``task.task_id`` / ``task.instruction`` / ``task.domain``
+# (via ``trajectory_to_record``), so any task dataclass works — ToolScaleTask or the
+# reasoning ``datasets.Task``. ``gold_coverage_verify`` additionally needs
+# ``gold_action_names()`` (ToolScale-only), but callers using ``datasets.Task`` pass
+# their own ``verify_fn`` (e.g. ``verify.make_verifier()``) instead.
+TaskLike = Any
+RolloutFn = Callable[[TaskLike], Optional[UnifiedRollout]]
+VerifyFn = Callable[[TaskLike, UnifiedRollout], bool]
 
 
-def gold_coverage_verify(task: ToolScaleTask, rollout: UnifiedRollout) -> bool:
+def gold_coverage_verify(task: TaskLike, rollout: UnifiedRollout) -> bool:
     """Dependency-free proxy verifier: trajectory must (a) produce a non-empty
     answer and (b) call tools covering every golden action name.
 
@@ -57,7 +62,7 @@ def gold_coverage_verify(task: ToolScaleTask, rollout: UnifiedRollout) -> bool:
 def generate_sft_dataset(
     out_path: str,
     *,
-    tasks: Iterable[ToolScaleTask],
+    tasks: Iterable[TaskLike],
     tools: List[ExpertTool],
     rollout_fn: RolloutFn,
     verify_fn: VerifyFn = gold_coverage_verify,

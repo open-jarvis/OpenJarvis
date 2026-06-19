@@ -1,0 +1,54 @@
+# Orchestrator GRPO — Qwen3.5-9B (cost-aware, lambda-swept).
+#
+# Trajectory-level GRPO over the UNIFIED tool-use rollout (the same faithful
+# <tool_call> multi-turn path the SFT data is built from). For each prompt we
+# sample group_size rollouts with the *policy* as orchestrator
+# (run_unified_rollout), verify each rollout's final_answer against the gold
+# answer, score with the cost-aware reward (r = +1/-1, R -= lam * cost /
+# cost_max), normalise advantages within the group, and PPO-clip the
+# trajectory log-prob update (summed over assistant-masked tokens only).
+#
+# Batch math: prompts_per_step * group_size = 256 * 8 = 2048 rollouts per
+# step. grpo_max_prompts / prompts_per_step = 20000 / 256 ~= 78 batches
+# per epoch.
+
+[model]
+model_name = "Qwen/Qwen3.5-9B"
+max_prompt_length = 24000
+max_response_length = 8768
+
+[training]
+num_epochs = 5
+learning_rate = 1e-6
+max_grad_norm = 1.0
+gradient_checkpointing = true
+
+[grpo]
+# group_size = number of trajectories sampled per prompt.
+num_samples_per_prompt = 8
+temperature = 1.0
+kl_coef = 0.0001
+clip_ratio = 0.2
+# Per-rollout tool-use turn cap (one assistant turn per loop iteration).
+max_turns = 10
+
+[data]
+grpo_max_prompts = 20000   # pooled GRPO prompts (cached on the trainer)
+prompts_per_step = 256     # prompts per _grpo_step (256 * 8 = 2048 traj/step)
+
+[reward]
+# Cost-aware reward: R = base(+1/-1) - lam * (cost_usd / cost_max).
+# `lam` is SWEPT across runs to trace the accuracy/cost Pareto frontier,
+# e.g. [0.0, 0.05, 0.1, 0.2, 0.4]. The value below is the default run.
+lam = 0.0
+cost_max = 0.10
+
+# Optional: map local OSS model ids -> served vLLM base_url so the local-model
+# tools in the orchestrator catalog dispatch to a real endpoint. Omit to leave
+# them unbacked (tool still listed).
+[local_endpoints]
+# "Qwen/Qwen3.5-9B" = "http://localhost:8001/v1"
+
+[checkpoint]
+checkpoint_dir = "checkpoints/orchestrator_grpo_qwen3.5_9b"
+save_every_n_epochs = 1

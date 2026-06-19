@@ -40,9 +40,9 @@ from openjarvis.learning.intelligence.orchestrator.sft_data.toolscale import (
 def main(argv: Optional[list[str]] = None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--out", default="data/orchestrator_unified_sft.jsonl")
-    p.add_argument("--teacher-model", default="gpt-5")
-    p.add_argument("--teacher-base-url", default=None,
-                   help="OpenAI-compatible base URL; omit for OpenAI cloud.")
+    p.add_argument("--teacher-model", default="claude-sonnet-4-6")
+    p.add_argument("--teacher-base-url", default="https://api.anthropic.com/v1/",
+                   help="OpenAI-compatible base URL; pass '' for OpenAI cloud.")
     p.add_argument("--max-tasks", type=int, default=200)
     p.add_argument("--samples-per-task", type=int, default=4)
     p.add_argument("--max-keep-per-task", type=int, default=1)
@@ -59,10 +59,16 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     logging.info("Tool catalog (%d): %s", len(tools), [t.name for t in tools])
 
+    base_url = args.teacher_base_url or None
+    api_key = (
+        os.environ.get("ANTHROPIC_API_KEY")
+        if base_url and "anthropic" in base_url
+        else os.environ.get("OPENAI_API_KEY")
+    )
     call_orch = make_call_orchestrator(
         args.teacher_model,
-        base_url=args.teacher_base_url,
-        api_key=os.environ.get("OPENAI_API_KEY"),
+        base_url=base_url,
+        api_key=api_key,
         temperature=args.temperature,
     )
     dispatch = make_dispatch({})

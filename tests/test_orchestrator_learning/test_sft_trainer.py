@@ -15,7 +15,7 @@ from openjarvis.learning.intelligence.orchestrator.sft_trainer import (
 class TestOrchestratorSFTConfig:
     def test_defaults(self):
         cfg = OrchestratorSFTConfig()
-        assert cfg.model_name == "Qwen/Qwen3-1.7B"
+        assert cfg.model_name == "Qwen/Qwen3.5-9B"
         assert cfg.num_epochs == 3
         assert cfg.batch_size == 8
         assert cfg.learning_rate == 2e-5

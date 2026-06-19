@@ -10,6 +10,7 @@ network or keys.
 
 from __future__ import annotations
 
+import json
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from openjarvis.agents.hybrid._prices import cost as _model_cost
@@ -63,13 +64,74 @@ def make_call_orchestrator(
     return call_orchestrator
 
 
+def _dispatch_openjarvis_tool(
+    tool: ExpertTool,
+    arguments: Dict[str, Any],
+    executor_holder: Dict[str, Any],
+) -> Tuple[str, float, int, bool]:
+    """Execute a bridged real OpenJarvis tool via its ``ToolExecutor``.
+
+    Builds the executor lazily (cached in ``executor_holder``) and degrades to a
+    clear error string — never a crash — if the tool registry / executor can't be
+    instantiated. Returns ``(content, cost_usd, total_tokens, is_local=True)``.
+    """
+    try:
+        executor = executor_holder.get("executor")
+        if executor is None:
+            from openjarvis.core.registry import ToolRegistry
+            from openjarvis.tools._stubs import ToolExecutor
+
+            instances = []
+            for name in ToolRegistry.keys():
+                entry = ToolRegistry.get(name)
+                try:
+                    instances.append(entry() if isinstance(entry, type) else entry)
+                except Exception:
+                    continue
+            # Auto-approve confirmation-gated tools (shell_exec, git_commit, ...):
+            # rollouts/eval run headless in a sandbox, so there is no human to
+            # confirm. Without this, those tools return a "requires confirmation"
+            # error instead of executing — which would silently break TerminalBench.
+            executor = ToolExecutor(
+                instances,
+                interactive=True,
+                confirm_callback=lambda _prompt: True,
+            )
+            executor_holder["executor"] = executor
+
+        from openjarvis.core.types import ToolCall
+
+        call = ToolCall(
+            id=f"orch-{tool.name}",
+            name=str(tool.model),
+            arguments=json.dumps(arguments or {}),
+        )
+        result = executor.execute(call)
+        usage = getattr(result, "usage", None) or {}
+        total_tokens = int(usage.get("total_tokens", 0) or 0)
+        return (
+            str(getattr(result, "content", "")),
+            float(getattr(result, "cost_usd", 0.0) or 0.0),
+            total_tokens,
+            True,
+        )
+    except Exception as exc:  # never crash the rollout on a tool-bridge failure
+        return (f"[openjarvis-tool error: {tool.model}: {exc}]", 0.0, 0, True)
+
+
 def make_dispatch(
     cfg: Optional[Dict[str, Any]] = None,
 ) -> Callable[[ExpertTool, Dict[str, Any]], Tuple[str, float, int, bool]]:
     """Tool-execution caller: run the chosen tool and return (obs, cost, tokens, is_local)."""
     cfg = cfg or {}
+    executor_holder: Dict[str, Any] = {}
 
     def dispatch(tool: ExpertTool, arguments: Dict[str, Any]):
+        # Bridged real OpenJarvis tools run through the ToolExecutor, not
+        # the model/worker path.
+        if tool.backend_type == "openjarvis-tool":
+            return _dispatch_openjarvis_tool(tool, arguments or {}, executor_holder)
+
         worker = to_worker_dict(tool)
         prompt = ""
         for key in ("input", "query", "code"):

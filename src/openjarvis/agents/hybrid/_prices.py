@@ -11,6 +11,7 @@ from __future__ import annotations
 
 # USD per million tokens, (input, output). Local models = 0.
 PRICES: dict[str, tuple[float, float]] = {
+    "claude-opus-4-8": (5.00, 25.0),
     "claude-opus-4-7": (5.00, 25.0),
     "claude-sonnet-4-6": (3.00, 15.0),
     "claude-haiku-4-5": (1.00, 5.00),

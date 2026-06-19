@@ -17,19 +17,15 @@ from typing import Any, Dict, List
 
 from openjarvis.agents.hybrid.expert_registry import ExpertTool, build_tool_specs
 from openjarvis.agents.hybrid.toolorchestra.rollout import (
-    RL_ORCHESTRATOR_SYS,
     UnifiedRollout,
+    build_system_prompt,
     tool_call_tag,
 )
 
 
 def _system_prompt(tools: List[ExpertTool]) -> str:
-    specs = build_tool_specs(tools)
-    return (
-        RL_ORCHESTRATOR_SYS
-        + "\n\nAvailable tools (call one per turn, or answer directly):\n"
-        + json.dumps(specs, indent=2)
-    )
+    # Faithful ToolOrchestra system prompt (paper's prepare_sft_data.py format).
+    return build_system_prompt(build_tool_specs(tools))
 
 
 def trajectory_to_record(
@@ -44,7 +40,7 @@ def trajectory_to_record(
     """Convert a passing :class:`UnifiedRollout` into one SFT JSONL record."""
     conversations: List[Dict[str, str]] = [
         {"role": "system", "content": _system_prompt(tools)},
-        {"role": "user", "content": f"Problem: {question}\n\nChoose an appropriate tool."},
+        {"role": "user", "content": f"Problem: {question}"},
     ]
 
     for turn in rollout.turns:

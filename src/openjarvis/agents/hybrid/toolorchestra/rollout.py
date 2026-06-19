@@ -28,6 +28,27 @@ from openjarvis.agents.hybrid.expert_registry import (
 
 RL_ORCHESTRATOR_SYS = "You are good at using tools."
 
+
+def build_system_prompt(specs: List[Dict[str, object]]) -> str:
+    """Faithful ToolOrchestra system prompt (arXiv:2511.21689, verbatim from
+    their ``prepare_sft_data.py``): the ``RL_ORCHESTRATOR_SYS`` preamble + the
+    Qwen-style ``<tools>``/``<tool_call>`` block. Deliberately contains NO
+    routing/delegation instructions — cost-aware routing is learned from the RL
+    reward, not prompted.
+    """
+    tools_block = "\n".join(json.dumps(s) for s in specs)
+    return (
+        f"{RL_ORCHESTRATOR_SYS}\n\n# Tools\n\n"
+        "You may call one or more functions to assist with the user query.\n\n"
+        "You are provided with function signatures within <tools></tools> "
+        "XML tags:\n"
+        f"<tools>\n{tools_block}\n</tools>\n\n"
+        "For each function call, return a json object with function name and "
+        "arguments within <tool_call></tool_call> XML tags:\n"
+        '<tool_call>\n{"name": <function-name>, "arguments": <args-json-object>}'
+        "\n</tool_call>"
+    )
+
 # Char-level cap on the accumulated context (mirrors the paper's ~24k-token cap).
 _CONTEXT_CAP = 24000
 
@@ -137,6 +158,7 @@ __all__ = [
     "RL_ORCHESTRATOR_SYS",
     "UnifiedRollout",
     "UnifiedTurn",
+    "build_system_prompt",
     "run_unified_rollout",
     "tool_call_tag",
 ]
