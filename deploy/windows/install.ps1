@@ -16,8 +16,8 @@
       4. Install uv (https://astral.sh/uv) if absent.
       5. Clone the OpenJarvis repository to $env:LOCALAPPDATA\OpenJarvis
          (override with $env:OPENJARVIS_HOME).
-      6. Run `uv sync --extra server` so the FastAPI server entry point
-         is importable.
+      6. Run `uv sync --extra desktop` so the FastAPI server and speech
+         backend are importable.
       7. Optionally register the scheduled-task service (see
          deploy/windows/jarvis-service.ps1).
 
@@ -279,13 +279,13 @@ if (Test-Path (Join-Path $srcDir '.git')) {
 }
 
 # ---------------------------------------------------------------------------
-# 6. uv sync --extra server
+# 6. uv sync --extra desktop
 # ---------------------------------------------------------------------------
 
-Write-Info "Running 'uv sync --extra server' in $srcDir (this can take a few minutes)..."
+Write-Info "Running 'uv sync --extra desktop' in $srcDir (this can take a few minutes)..."
 Push-Location $srcDir
 try {
-    & $uvExe sync --extra server
+    & $uvExe sync --extra desktop
     if ($LASTEXITCODE -ne 0) {
         Write-Fail "uv sync failed with exit code $LASTEXITCODE. Check the output above."
     }

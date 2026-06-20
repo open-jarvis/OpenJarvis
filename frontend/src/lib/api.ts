@@ -317,8 +317,9 @@ export async function transcribeAudio(audioBlob: Blob, filename = 'recording.web
         audioData: Array.from(new Uint8Array(buffer)),
         filename,
       });
-    } catch {
-      // Fall through to fetch
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(msg || 'Transcription failed');
     }
   }
   const formData = new FormData();
@@ -327,7 +328,16 @@ export async function transcribeAudio(audioBlob: Blob, filename = 'recording.web
     method: 'POST',
     body: formData,
   });
-  if (!res.ok) throw new Error(`Transcription failed: ${res.status}`);
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const body = await res.json();
+      detail = typeof body.detail === 'string' ? body.detail : "";
+    } catch {
+      // Keep the status-only message below when the body is not JSON.
+    }
+    throw new Error(detail || `Transcription failed: ${res.status}`);
+  }
   return res.json();
 }
 

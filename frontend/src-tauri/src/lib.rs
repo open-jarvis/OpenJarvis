@@ -682,7 +682,7 @@ fn format_uv_sync_failure(
     format!(
         "`uv sync` failed in {} (exit {}). Last output:\n\n{}\n\n\
          Try opening a terminal in that directory and running \
-         `uv sync --extra server` manually for the full output.",
+         `uv sync --extra desktop` manually for the full output.",
         root.display(),
         code,
         uv_sync_stderr_tail(stderr, 800),
@@ -1143,7 +1143,7 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
     sync_cmd
         .args([
             "sync",
-            "--extra", "server",
+            "--extra", "desktop",
             "--extra", "inference-cloud",
             "--extra", "inference-google",
         ])
@@ -1594,11 +1594,29 @@ async fn transcribe_audio(
         .send()
         .await
         .map_err(|e| format!("Connection failed: {}", e))?;
-    let body: serde_json::Value = resp
-        .json()
+    let status = resp.status();
+    let body = resp
+        .text()
         .await
         .map_err(|e| format!("Invalid response: {}", e))?;
-    Ok(body)
+    if !status.is_success() {
+        let detail = serde_json::from_str::<serde_json::Value>(&body)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("detail")
+                    .and_then(|detail| detail.as_str())
+                    .map(str::to_string)
+            })
+            .filter(|detail| !detail.is_empty())
+            .unwrap_or(body);
+        return Err(format!(
+            "Transcription failed ({}): {}",
+            status.as_u16(),
+            detail
+        ));
+    }
+    serde_json::from_str(&body).map_err(|e| format!("Invalid response: {}", e))
 }
 
 /// Submit savings to Supabase leaderboard.
@@ -2486,7 +2504,7 @@ mod tests {
         assert!(msg.contains("exit 2"));
         assert!(msg.contains("/home/u/.openjarvis/src"));
         assert!(msg.contains("failed to resolve numpy==2.1.3"));
-        assert!(msg.contains("uv sync --extra server")); // actionable next step
+        assert!(msg.contains("uv sync --extra desktop")); // actionable next step
     }
 
     #[test]

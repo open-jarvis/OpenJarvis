@@ -56,6 +56,18 @@ def test_transcribe_endpoint(client, mock_speech_backend):
     assert data["duration_seconds"] == 1.5
 
 
+def test_transcribe_endpoint_surfaces_backend_error(client, mock_speech_backend):
+    mock_speech_backend.transcribe.side_effect = RuntimeError("missing cublas64_12.dll")
+
+    response = client.post(
+        "/v1/speech/transcribe",
+        files={"file": ("test.wav", b"fake audio data", "audio/wav")},
+    )
+
+    assert response.status_code == 500
+    assert "missing cublas64_12.dll" in response.json()["detail"]
+
+
 def test_transcribe_no_file(client):
     response = client.post("/v1/speech/transcribe")
     assert response.status_code == 400 or response.status_code == 422
@@ -67,6 +79,20 @@ def test_health_endpoint(client):
     data = response.json()
     assert data["available"] is True
     assert data["backend"] == "mock"
+
+
+def test_health_endpoint_includes_unavailable_reason(client, mock_speech_backend):
+    mock_speech_backend.health.return_value = False
+    mock_speech_backend.last_error.return_value = (
+        "Install with: uv sync --extra desktop"
+    )
+
+    response = client.get("/v1/speech/health")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["available"] is False
+    assert data["reason"] == "Install with: uv sync --extra desktop"
 
 
 def test_health_no_backend():
