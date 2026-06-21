@@ -1553,6 +1553,20 @@ class DigestConfig:
     )
 
 
+@dataclass(slots=True)
+class DeepResearchConfig:
+    """Engine/model for the Deep Research planner.
+
+    Empty values fall back to the configured chat engine/model
+    (``engine.default`` / ``intelligence.default_model``), then to the legacy
+    ``ollama`` / ``gemma4:31b``. The planner uses native function-calling, so a
+    custom model must support OpenAI-style tool calls.
+    """
+
+    engine: str = ""
+    model: str = ""
+
+
 @dataclass
 class JarvisConfig:
     """Top-level configuration for OpenJarvis."""
@@ -1565,6 +1579,7 @@ class JarvisConfig:
     learning: LearningConfig = field(default_factory=LearningConfig)
     tools: ToolsConfig = field(default_factory=ToolsConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)
+    deep_research: DeepResearchConfig = field(default_factory=DeepResearchConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
     telemetry: TelemetryConfig = field(default_factory=TelemetryConfig)
     analytics: AnalyticsConfig = field(default_factory=AnalyticsConfig)
