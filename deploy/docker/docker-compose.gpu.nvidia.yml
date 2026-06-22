@@ -18,7 +18,9 @@ services:
               capabilities: [gpu]
 
   ollama:
-    image: ollama/ollama:latest
+    # Pinned to a fixed version + digest for reproducible deployments (#563);
+    # must match the tag in docker-compose.yml.
+    image: ollama/ollama:0.30.10@sha256:bfc9c6d53cc6989aa5131a6fde6b162b2802d4d337657f3253b5f69579bddeee
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility

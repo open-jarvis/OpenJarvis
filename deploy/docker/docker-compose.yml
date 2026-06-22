@@ -18,7 +18,9 @@ services:
     restart: unless-stopped
 
   ollama:
-    image: ollama/ollama:latest
+    # Pinned to a fixed version + digest for reproducible deployments and
+    # predictable rollbacks (#563). Bump deliberately, not implicitly via :latest.
+    image: ollama/ollama:0.30.10@sha256:bfc9c6d53cc6989aa5131a6fde6b162b2802d4d337657f3253b5f69579bddeee
     ports:
       - "11434:11434"
     volumes:
