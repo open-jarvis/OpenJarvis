@@ -23,6 +23,8 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v8.0.0
+        with:
+          enable-cache: true
 
       - name: Install dependencies
         run: uv sync --extra dev --extra framework-comparison --extra server
@@ -55,6 +57,8 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v8.0.0
+        with:
+          enable-cache: true
 
       - name: Install dependencies
         run: uv sync --extra dev --extra framework-comparison --extra server
@@ -63,8 +67,13 @@ jobs:
         run: uv run maturin develop --manifest-path rust/crates/openjarvis-python/Cargo.toml
 
       - name: Run tests
+        # COVERAGE_CORE=sysmon uses CPython 3.12's sys.monitoring backend,
+        # which is dramatically cheaper than the default C trace function.
+        # -n auto fans the suite out across all runner cores via pytest-xdist.
+        env:
+          COVERAGE_CORE: sysmon
         run: |
-          uv run pytest tests/ -v --tb=short -m "not live and not cloud and not hub" \
+          uv run pytest tests/ -n auto -q --tb=short -m "not live and not cloud and not hub" \
             --cov=openjarvis \
             --cov-report=term-missing \
             --cov-report=xml \
@@ -107,6 +116,8 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v8.0.0
+        with:
+          enable-cache: true
 
       - name: Install dependencies
         run: uv sync --extra dev --extra server

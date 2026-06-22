@@ -48,6 +48,7 @@ dev = [
     "pytest>=8",
     "pytest-asyncio>=0.24",
     "pytest-cov>=5",
+    "pytest-xdist>=3",
     "respx>=0.22",
     "ruff>=0.4",
     "pre-commit>=3.0",
