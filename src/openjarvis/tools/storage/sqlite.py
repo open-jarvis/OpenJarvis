@@ -9,7 +9,11 @@ from typing import Any, Dict, List, Optional
 
 from openjarvis.core.events import EventType, get_event_bus
 from openjarvis.core.registry import MemoryRegistry
-from openjarvis.tools.storage._stubs import MemoryBackend, RetrievalResult
+from openjarvis.tools.storage._stubs import (
+    MemoryBackend,
+    MemoryBackendUnavailable,
+    RetrievalResult,
+)
 
 
 def _check_fts5(conn: sqlite3.Connection) -> bool:
@@ -40,7 +44,15 @@ class SQLiteMemory(MemoryBackend):
 
         from openjarvis._rust_bridge import get_rust_module
 
-        _rust = get_rust_module()
+        # The Rust backend is mandatory and there is no Python fallback. When
+        # the extension is missing from *this* venv, ``get_rust_module`` raises
+        # ImportError; translate it into a clear, actionable error so callers
+        # never degrade to a misleading "Failed to index path" or a silent
+        # no-op (see #502).
+        try:
+            _rust = get_rust_module()
+        except ImportError as exc:
+            raise MemoryBackendUnavailable() from exc
         self._rust_impl = _rust.SQLiteMemory(self._db_path)
         self._conn = None  # type: ignore[assignment]
 

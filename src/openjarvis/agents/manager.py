@@ -11,9 +11,10 @@ import logging
 import sqlite3
 import time
 import uuid
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
+
+from openjarvis.core.paths import get_config_dir
 
 logger = logging.getLogger(__name__)
 
@@ -537,7 +538,7 @@ class AgentManager:
             pass
 
         # User templates
-        user_dir = Path("~/.openjarvis/templates").expanduser()
+        user_dir = get_config_dir() / "templates"
         if user_dir.is_dir():
             for f in user_dir.glob("*.toml"):
                 try:

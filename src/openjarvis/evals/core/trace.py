@@ -91,6 +91,13 @@ class QueryTrace:
     is_resolved: Optional[bool] = None
     query_mbu_avg_pct: Optional[float] = None
     query_mbu_max_pct: Optional[float] = None
+    # Error taxonomy. ``error_kind`` distinguishes infrastructure failures
+    # ("harness_error": task env / Docker / tmux broke, or the agent never
+    # contacted the model) from agent failures ("agent_error"). Harness
+    # errors are excluded from resolve-rate by export/summary code so they
+    # are never silently counted as model misses.
+    error: Optional[str] = None
+    error_kind: Optional[str] = None
 
     @property
     def num_turns(self) -> int:
@@ -196,6 +203,8 @@ class QueryTrace:
             "is_resolved": self.is_resolved,
             "query_mbu_avg_pct": self.query_mbu_avg_pct,
             "query_mbu_max_pct": self.query_mbu_max_pct,
+            "error": self.error,
+            "error_kind": self.error_kind,
         }
 
     @classmethod
@@ -216,6 +225,8 @@ class QueryTrace:
             is_resolved=d.get("is_resolved"),
             query_mbu_avg_pct=d.get("query_mbu_avg_pct"),
             query_mbu_max_pct=d.get("query_mbu_max_pct"),
+            error=d.get("error"),
+            error_kind=d.get("error_kind"),
         )
 
     def save_jsonl(self, path: Path) -> None:

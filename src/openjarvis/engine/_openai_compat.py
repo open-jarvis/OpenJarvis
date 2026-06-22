@@ -28,12 +28,31 @@ class _OpenAICompatibleEngine(InferenceEngine):
     _default_host: str = "http://localhost:8000"
     _api_prefix: str = "/v1"
 
-    def __init__(self, host: str | None = None, *, timeout: float = 600.0) -> None:
+    def __init__(
+        self,
+        host: str | None = None,
+        *,
+        api_key: str | None = None,
+        timeout: float = 600.0,
+    ) -> None:
         import os
 
-        env_key = f"{self.engine_id.upper()}_HOST"
-        self._host = (host or os.environ.get(env_key) or self._default_host).rstrip("/")
-        self._client = httpx.Client(base_url=self._host, timeout=timeout)
+        # Sanitize the engine id for env-var lookup ("openai-compat" ->
+        # "OPENAI_COMPAT_..."); shells cannot set hyphenated variable names.
+        env_prefix = self.engine_id.upper().replace("-", "_")
+        self._host = (
+            host or os.environ.get(f"{env_prefix}_HOST") or self._default_host
+        ).rstrip("/")
+        # Bearer auth for endpoints started with e.g. ``vllm serve --api-key``.
+        # Setting it on the client covers generate/stream/stream_full/
+        # list_models/health alike; ``None`` keeps requests header-free.
+        self._api_key = api_key or os.environ.get(f"{env_prefix}_API_KEY") or None
+        headers = (
+            {"Authorization": f"Bearer {self._api_key}"} if self._api_key else None
+        )
+        self._client = httpx.Client(
+            base_url=self._host, timeout=timeout, headers=headers
+        )
 
     # -- InferenceEngine interface ------------------------------------------
 

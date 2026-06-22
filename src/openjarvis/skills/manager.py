@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from openjarvis.core.events import EventBus
+from openjarvis.core.paths import get_config_dir
 from openjarvis.skills.dependency import validate_dependencies
 from openjarvis.skills.executor import SkillExecutor, SkillResult
 from openjarvis.skills.loader import discover_skills
@@ -54,7 +55,7 @@ class SkillManager:
             except Exception:
                 pass
             if overlay_dir is None:
-                overlay_dir = Path("~/.openjarvis/learning/skills/").expanduser()
+                overlay_dir = get_config_dir() / "learning" / "skills"
         self._overlay_dir = Path(overlay_dir).expanduser()
 
     # ------------------------------------------------------------------
@@ -262,7 +263,7 @@ class SkillManager:
         discovered = discovery.analyze_traces(traces)
 
         if output_dir is None:
-            output_dir = Path("~/.openjarvis/skills/discovered/").expanduser()
+            output_dir = get_config_dir() / "skills" / "discovered"
         output_dir = Path(output_dir).expanduser()
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -375,7 +376,7 @@ class SkillManager:
         manifest's ``name`` field equals ``name``.
         """
         if roots is None:
-            roots = [Path("~/.openjarvis/skills/").expanduser(), Path("./skills")]
+            roots = [get_config_dir() / "skills", Path("./skills")]
 
         matches: List[Path] = []
         for root in roots:

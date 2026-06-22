@@ -15,13 +15,16 @@ PRICES: dict[str, tuple[float, float]] = {
     "claude-sonnet-4-6":           (3.00, 15.0),
     "claude-haiku-4-5":            (1.00, 5.00),
     "claude-haiku-4-5-20251001":   (1.00, 5.00),
+    "gpt-5.5":                     (5.00, 30.0),
     "gpt-5":                       (1.25, 10.0),
     "gpt-5-mini":                  (0.25, 2.00),
     "gpt-5-mini-2025-08-07":       (0.25, 2.00),
     "gpt-4o":                      (0.15, 0.60),
-    # Gemini Developer API prices (USD per 1M tokens), 2025-12 list price.
-    # 2.5 Pro uses tiered pricing (>200K context = $2.50/$15); we charge the
-    # low-context tier since GAIA / SWE-bench prompts stay well under 200K.
+    # Gemini Developer API prices (USD per 1M tokens). Pro models use tiered
+    # pricing above 200K prompt tokens; GAIA prompts stay under that tier, so
+    # charge the low-context standard rate.
+    "gemini-3.1-pro-preview":       (2.00, 12.0),
+    "gemini-3.1-pro-preview-customtools": (2.00, 12.0),
     "gemini-2.5-pro":              (1.25, 10.0),
     "gemini-2.5-flash":            (0.30, 2.50),
     "gemini-2.5-flash-lite":       (0.10, 0.40),
@@ -61,7 +64,11 @@ def is_reasoning_model(model: str) -> bool:
     before emitting visible answer text. At max_tokens=4096 these silently
     truncate with empty answers on GAIA (26/100 GPT-5, 18/100 Gemini Pro)."""
     m = (model or "").lower()
-    return is_gpt5_family(model) or "gemini-2.5-pro" in m
+    return (
+        is_gpt5_family(model)
+        or "gemini-2.5-pro" in m
+        or "gemini-3.1-pro" in m
+    )
 
 
 def default_max_output_tokens(model: str) -> int:

@@ -5065,6 +5065,13 @@ docs = [
     { name = "mkdocs-material" },
     { name = "mkdocstrings", extra = ["python"] },
 ]
+desktop = [
+    { name = "fastapi" },
+    { name = "faster-whisper" },
+    { name = "pydantic" },
+    { name = "python-multipart" },
+    { name = "uvicorn" },
+]
 energy-all = [
     { name = "amdsmi" },
     { name = "nvidia-ml-py" },
@@ -5200,7 +5207,9 @@ requires-dist = [
     { name = "docker", marker = "extra == 'sandbox-docker'", specifier = ">=7.0" },
     { name = "dspy", marker = "extra == 'learning-dspy'", specifier = ">=2.6" },
     { name = "faiss-cpu", marker = "extra == 'memory-faiss'", specifier = ">=1.7" },
+    { name = "fastapi", marker = "extra == 'desktop'", specifier = ">=0.110" },
     { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.110" },
+    { name = "faster-whisper", marker = "extra == 'desktop'", specifier = ">=1.0" },
     { name = "faster-whisper", marker = "extra == 'speech'", specifier = ">=1.0" },
     { name = "gepa", marker = "extra == 'learning-gepa'", specifier = ">=0.1" },
     { name = "google-api-python-client", marker = "extra == 'channel-gmail'", specifier = ">=2.0" },
@@ -5237,6 +5246,7 @@ requires-dist = [
     { name = "posthog", specifier = ">=3.0" },
     { name = "praw", marker = "extra == 'channel-reddit'", specifier = ">=7.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.0" },
+    { name = "pydantic", marker = "extra == 'desktop'", specifier = ">=2.0" },
     { name = "pydantic", marker = "extra == 'server'", specifier = ">=2.0" },
     { name = "pygemma", marker = "extra == 'inference-gemma'", specifier = ">=0.1.3" },
     { name = "pymessenger", marker = "extra == 'channel-messenger'", specifier = ">=0.0.7" },
@@ -5244,6 +5254,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5" },
+    { name = "python-multipart", marker = "extra == 'desktop'", specifier = ">=0.0.9" },
     { name = "python-multipart", marker = "extra == 'server'", specifier = ">=0.0.9" },
     { name = "python-telegram-bot", specifier = ">=22.6" },
     { name = "python-telegram-bot", marker = "extra == 'channel-telegram'", specifier = ">=21.0" },
@@ -5264,6 +5275,7 @@ requires-dist = [
     { name = "transformers", marker = "extra == 'orchestrator-training'", specifier = ">=4.40" },
     { name = "twilio", marker = "extra == 'channel-twilio'", specifier = ">=9.0" },
     { name = "twitchio", marker = "extra == 'channel-twitch'", specifier = ">=2.6" },
+    { name = "uvicorn", marker = "extra == 'desktop'", specifier = ">=0.30" },
     { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.30" },
     { name = "viberbot", marker = "extra == 'channel-viber'", specifier = ">=1.0" },
     { name = "vllm", marker = "extra == 'inference-vllm'", specifier = ">=0.16.0" },
@@ -5274,7 +5286,7 @@ requires-dist = [
     { name = "zeus-ml", extras = ["apple"], marker = "extra == 'energy-apple'" },
     { name = "zulip", marker = "extra == 'channel-zulip'", specifier = ">=0.9" },
 ]
-provides-extras = ["dev", "inference-mlx", "inference-vllm", "inference-cloud", "inference-google", "inference-litellm", "inference-gemma", "tools-search", "memory-faiss", "memory-colbert", "memory-pdf", "memory-bm25", "server", "openhands", "gpu-metrics", "energy-amd", "energy-apple", "energy-all", "orchestrator-training", "learning-dspy", "learning-gepa", "channel-telegram", "channel-discord", "channel-slack", "channel-line", "channel-viber", "channel-messenger", "channel-reddit", "channel-mastodon", "channel-xmpp", "channel-rocketchat", "channel-zulip", "channel-twitter", "channel-twitch", "channel-nostr", "channel-twilio", "channel-gmail", "browser", "media", "mining-pearl-vllm", "pdf", "scheduler", "security-signing", "sandbox-wasm", "sandbox-docker", "dashboard", "speech", "speech-deepgram", "eval-wandb", "eval-sheets", "mining-pearl-cpu", "framework-comparison", "docs"]
+provides-extras = ["dev", "inference-mlx", "inference-vllm", "inference-cloud", "inference-google", "inference-litellm", "inference-gemma", "tools-search", "memory-faiss", "memory-colbert", "memory-pdf", "memory-bm25", "server", "desktop", "openhands", "gpu-metrics", "energy-amd", "energy-apple", "energy-all", "orchestrator-training", "learning-dspy", "learning-gepa", "channel-telegram", "channel-discord", "channel-slack", "channel-line", "channel-viber", "channel-messenger", "channel-reddit", "channel-mastodon", "channel-xmpp", "channel-rocketchat", "channel-zulip", "channel-twitter", "channel-twitch", "channel-nostr", "channel-twilio", "channel-gmail", "browser", "media", "mining-pearl-vllm", "pdf", "scheduler", "security-signing", "sandbox-wasm", "sandbox-docker", "dashboard", "speech", "speech-deepgram", "eval-wandb", "eval-sheets", "mining-pearl-cpu", "framework-comparison", "docs"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "maturin", specifier = ">=1.12.6" }]

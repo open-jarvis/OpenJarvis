@@ -105,6 +105,41 @@ class TestSend:
         event_types = [e.event_type for e in bus.history]
         assert EventType.CHANNEL_MESSAGE_SENT in event_types
 
+    def test_send_uses_channel_as_chat_id_under_unified_contract(self):
+        """Canonical contract (#515/#516): the first positional ``channel``
+        arg is the chat destination, and ``conversation_id`` is the inbound
+        message id used as ``reply_to_message_id`` — not the chat id."""
+        ch = TelegramChannel(bot_token="123:ABC")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+
+        with patch("httpx.post", return_value=mock_response) as mock_post:
+            result = ch.send("12345678", "Reply!", conversation_id="55")
+            assert result is True
+            payload = mock_post.call_args[1]["json"]
+            # Destination is the chat id from the positional channel arg.
+            assert payload["chat_id"] == "12345678"
+            # conversation_id becomes the reply reference, not the chat id.
+            assert payload["reply_to_message_id"] == "55"
+
+    def test_send_legacy_conversation_id_only_still_targets_chat(self):
+        """Backwards compatibility: a legacy caller passing the chat id via
+        ``conversation_id`` (with an empty ``channel``) still delivers."""
+        ch = TelegramChannel(bot_token="123:ABC")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+
+        with patch("httpx.post", return_value=mock_response) as mock_post:
+            result = ch.send("", "Hello!", conversation_id="12345678")
+            assert result is True
+            payload = mock_post.call_args[1]["json"]
+            assert payload["chat_id"] == "12345678"
+            # When channel is empty, conversation_id is the chat id, so it must
+            # not also be used as a self-referential reply id.
+            assert "reply_to_message_id" not in payload
+
 
 class TestStatus:
     def test_no_token_connect_error(self):

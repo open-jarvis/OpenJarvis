@@ -43,6 +43,7 @@ from typing import Any, Dict, List, Optional, Set
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
 from openjarvis.core.config import load_config
+from openjarvis.core.paths import get_config_dir
 from openjarvis.core.registry import AgentRegistry
 from openjarvis.core.types import Message, Role, ToolCall
 from openjarvis.tools.approval_store import (
@@ -342,8 +343,8 @@ class ProactiveAgent(ToolUsingAgent):
         return self._approval_store
 
     def _build_system_prompt(self) -> str:
-        user_md = _load_md_file(Path.home() / ".openjarvis" / "USER.md")
-        memory_md = _load_md_file(Path.home() / ".openjarvis" / "MEMORY.md")
+        user_md = _load_md_file(get_config_dir() / "USER.md")
+        memory_md = _load_md_file(get_config_dir() / "MEMORY.md")
         now = datetime.now()
         context_block = ""
         if user_md or memory_md:

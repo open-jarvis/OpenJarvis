@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+**Vision input for `jarvis ask`** — attach images to a query with
+`-i`/`--image` (repeatable) or capture the current screen with
+`-S`/`--screen`, for vision-capable models such as `gemma3:4b`. Images flow
+through `Message.images` into Ollama's `/api/chat` `images` field; text-only
+requests are unaffected. A privacy guard warns before any image is sent to a
+non-local engine, and the security guardrail now preserves images when it
+sanitizes a flagged prompt. Screen capture uses the built-in Windows .NET
+stack with `mss`/`Pillow` fallbacks on other platforms. Adds the
+`JARVIS_NUM_CTX` environment variable to tune the Ollama context window
+(default `16384`).
+
 ## [1.0.2] - 2026-05-24
 
 A patch release that fixes a packaging bug which broke the v1.0.1

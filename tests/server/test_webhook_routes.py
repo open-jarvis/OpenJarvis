@@ -213,3 +213,48 @@ class TestWhatsAppWebhook:
             },
         )
         assert resp.status_code == 200
+
+
+class TestWebhooksFailClosed:
+    """When a channel's secret/token is unset, webhooks must reject (403)."""
+
+    def _client(self, mock_bridge, **kwargs):
+        app = FastAPI()
+        app.include_router(create_webhook_router(bridge=mock_bridge, **kwargs))
+        return TestClient(app)
+
+    def test_twilio_without_token_rejected(self, mock_bridge):
+        c = self._client(mock_bridge)  # no twilio_auth_token
+        resp = c.post(
+            "/webhooks/twilio",
+            data={"From": "+15551234567", "Body": "hi", "MessageSid": "SM1"},
+        )
+        assert resp.status_code == 403
+        mock_bridge.handle_incoming.assert_not_called()
+
+    def test_bluebubbles_without_password_rejected(self, mock_bridge):
+        c = self._client(mock_bridge)  # no bluebubbles_password
+        resp = c.post(
+            "/webhooks/bluebubbles",
+            json={"type": "new-message", "data": {}},
+            headers={"Authorization": "anything"},
+        )
+        assert resp.status_code == 403
+
+    def test_whatsapp_without_secret_rejected(self, mock_bridge):
+        c = self._client(mock_bridge)  # no whatsapp_app_secret
+        resp = c.post(
+            "/webhooks/whatsapp",
+            content=b"{}",
+            headers={"Content-Type": "application/json"},
+        )
+        assert resp.status_code == 403
+
+    def test_whatsapp_verify_without_token_rejected(self, mock_bridge):
+        c = self._client(mock_bridge)  # no whatsapp_verify_token
+        resp = c.get(
+            "/webhooks/whatsapp",
+            params={"hub.mode": "subscribe", "hub.verify_token": "",
+                    "hub.challenge": "x"},
+        )
+        assert resp.status_code == 403

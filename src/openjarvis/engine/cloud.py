@@ -1,4 +1,7 @@
-"""Cloud inference engine — OpenAI, Anthropic, Google, and MiniMax API backends."""
+"""Cloud inference engine.
+
+OpenAI, Anthropic, Google, MiniMax, and DeepSeek API backends.
+"""
 
 from __future__ import annotations
 
@@ -48,6 +51,8 @@ PRICING: Dict[str, tuple[float, float]] = {
     "MiniMax-M2.7-highspeed": (0.60, 2.40),
     "MiniMax-M2.5": (0.30, 1.20),
     "MiniMax-M2.5-highspeed": (0.60, 2.40),
+    "deepseek-v4-flash": (0.27, 1.10),
+    "deepseek-v4-pro": (0.55, 2.19),
 }
 
 # Well-known model IDs per provider
@@ -83,6 +88,10 @@ _MINIMAX_MODELS = [
     "MiniMax-M2.5",
     "MiniMax-M2.5-highspeed",
 ]
+_DEEPSEEK_MODELS = [
+    "deepseek-v4-flash",
+    "deepseek-v4-pro",
+]
 
 # OpenRouter models — prefixed with "openrouter/" so they can be identified
 _OPENROUTER_POPULAR = [
@@ -111,6 +120,10 @@ def _is_minimax_model(model: str) -> bool:
     return model.lower().startswith("minimax")
 
 
+def _is_deepseek_model(model: str) -> bool:
+    return model.lower().startswith("deepseek")
+
+
 def _is_openrouter_model(model: str) -> bool:
     return model.startswith("openrouter/")
 
@@ -125,6 +138,35 @@ def _is_anthropic_model(model: str) -> bool:
 
 def _is_google_model(model: str) -> bool:
     return "gemini" in model.lower() and not _is_openrouter_model(model)
+
+
+# Positive prefix predicate for genuine OpenAI models. Kept in sync with
+# ``server/cloud_router.py:_OPENAI_PREFIXES`` so local-vs-cloud classification
+# agrees across the codebase. Used by ``_client_for_model``/``can_serve`` so the
+# cloud engine never claims it can serve an unrecognized (e.g. local Ollama)
+# model name just because an OpenAI key happens to be present (see #335).
+_OPENAI_PREFIXES = ("gpt-", "chatgpt-", "o1", "o3", "o4")
+
+
+def _is_openai_model(model: str) -> bool:
+    """True only for genuine OpenAI models (gpt-*, chatgpt-*, o1/o3/o4 series).
+
+    Defined positively so that an unrecognized model name (a local Ollama model
+    like ``qwen3.5:0.8b``, or a typo) is NOT treated as an OpenAI model. This is
+    the routing surface ``can_serve`` relies on; ``generate``/``stream`` keep
+    their OpenAI fall-through so an explicitly-requested unknown cloud model
+    still errors loudly at call time.
+
+    Caveat: a user may repoint the OpenAI client at an OpenAI-compatible server
+    (vLLM/LM Studio) via ``OPENAI_BASE_URL`` and legitimately serve non-gpt
+    names. That path is undocumented/untested in this engine; if it is added,
+    this predicate (or ``_client_for_model``) should treat a configured custom
+    base_url as "serves anything".
+    """
+    m = model.lower()
+    if m in (name.lower() for name in _OPENAI_MODELS):
+        return True
+    return m.startswith(_OPENAI_PREFIXES)
 
 
 def _is_openai_reasoning_model(model: str) -> bool:
@@ -269,7 +311,7 @@ def _convert_tools_to_google(
 
 @EngineRegistry.register("cloud")
 class CloudEngine(InferenceEngine):
-    """Cloud inference via OpenAI, Anthropic, Google, and MiniMax SDKs."""
+    """Cloud inference via OpenAI, Anthropic, Google, MiniMax, and DeepSeek SDKs."""
 
     engine_id = "cloud"
     is_cloud = True
@@ -280,6 +322,7 @@ class CloudEngine(InferenceEngine):
         self._google_client: Any = None
         self._openrouter_client: Any = None
         self._minimax_client: Any = None
+        self._deepseek_client: Any = None
         self._codex_client: Any = None
         # Gemini thought_signatures: tool_call_id -> signature bytes
         self._thought_sigs: Dict[str, bytes] = {}
@@ -329,6 +372,17 @@ class CloudEngine(InferenceEngine):
                 self._minimax_client = openai.OpenAI(
                     base_url="https://api.minimax.io/v1",
                     api_key=minimax_key,
+                )
+            except ImportError:
+                pass
+        deepseek_key = os.environ.get("DEEPSEEK_API_KEY")
+        if deepseek_key:
+            try:
+                import openai
+
+                self._deepseek_client = openai.OpenAI(
+                    base_url="https://api.deepseek.com/v1",
+                    api_key=deepseek_key,
                 )
             except ImportError:
                 pass
@@ -985,6 +1039,56 @@ class CloudEngine(InferenceEngine):
             ]
         return result
 
+    def _generate_deepseek(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        if self._deepseek_client is None:
+            raise EngineConnectionError(
+                "DeepSeek client not available — set DEEPSEEK_API_KEY"
+            )
+        kwargs.pop("response_format", None)
+        create_kwargs: Dict[str, Any] = {
+            "model": model,
+            "messages": messages_to_dicts(messages),
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        t0 = time.monotonic()
+        resp = self._deepseek_client.chat.completions.create(**create_kwargs)
+        elapsed = time.monotonic() - t0
+        choice = resp.choices[0]
+        usage = resp.usage
+        prompt_tokens = usage.prompt_tokens if usage else 0
+        completion_tokens = usage.completion_tokens if usage else 0
+        result: Dict[str, Any] = {
+            "content": choice.message.content or "",
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": (usage.total_tokens if usage else 0),
+            },
+            "model": resp.model,
+            "finish_reason": choice.finish_reason or "stop",
+            "cost_usd": estimate_cost(model, prompt_tokens, completion_tokens),
+            "ttft": elapsed,
+        }
+        if hasattr(choice.message, "tool_calls") and choice.message.tool_calls:
+            result["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "name": tc.function.name,
+                    "arguments": tc.function.arguments,
+                }
+                for tc in choice.message.tool_calls
+            ]
+        return result
+
     def generate(
         self,
         messages: Sequence[Message],
@@ -1006,6 +1110,8 @@ class CloudEngine(InferenceEngine):
             return self._generate_openrouter(messages, **kw)
         if _is_minimax_model(model):
             return self._generate_minimax(messages, **kw)
+        if _is_deepseek_model(model):
+            return self._generate_deepseek(messages, **kw)
         if _is_anthropic_model(model):
             return self._generate_anthropic(messages, **kw)
         if _is_google_model(model):
@@ -1035,6 +1141,9 @@ class CloudEngine(InferenceEngine):
                 yield token
         elif _is_minimax_model(model):
             async for token in self._stream_minimax(messages, **kw):
+                yield token
+        elif _is_deepseek_model(model):
+            async for token in self._stream_deepseek(messages, **kw):
                 yield token
         elif _is_anthropic_model(model):
             async for token in self._stream_anthropic(messages, **kw):
@@ -1254,6 +1363,30 @@ class CloudEngine(InferenceEngine):
             if delta and delta.content:
                 yield delta.content
 
+    async def _stream_deepseek(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        **kwargs: Any,
+    ) -> AsyncIterator[str]:
+        if self._deepseek_client is None:
+            raise EngineConnectionError("DeepSeek client not available")
+        create_kwargs: Dict[str, Any] = {
+            "model": model,
+            "messages": messages_to_dicts(messages),
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": True,
+        }
+        resp = self._deepseek_client.chat.completions.create(**create_kwargs)
+        for chunk in resp:
+            delta = chunk.choices[0].delta if chunk.choices else None
+            if delta and delta.content:
+                yield delta.content
+
     # -- stream_full: rich streaming with tool_calls support ----------------
 
     async def _stream_full_openai(
@@ -1299,6 +1432,18 @@ class CloudEngine(InferenceEngine):
                 raise EngineConnectionError("MiniMax client not available")
             temperature = max(temperature, 0.01)
             temperature = min(temperature, 1.0)
+            create_kwargs = {
+                "model": model,
+                "messages": messages_to_dicts(messages),
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "stream": True,
+                **kwargs,
+            }
+        elif _is_deepseek_model(model):
+            client = self._deepseek_client
+            if client is None:
+                raise EngineConnectionError("DeepSeek client not available")
             create_kwargs = {
                 "model": model,
                 "messages": messages_to_dicts(messages),
@@ -1473,9 +1618,53 @@ class CloudEngine(InferenceEngine):
             models.extend(_OPENROUTER_POPULAR)
         if self._minimax_client is not None:
             models.extend(_MINIMAX_MODELS)
+        if self._deepseek_client is not None:
+            models.extend(_DEEPSEEK_MODELS)
         if self._codex_client is not None:
             models.extend(_CODEX_MODELS)
         return models
+
+    def _client_for_model(self, model: str) -> Any:
+        """Return the provider client ``generate``/``stream`` will dispatch to
+        for *model*, or ``None`` for a model this engine cannot route.
+
+        Mirrors the routing in ``generate``/``stream``, but is intentionally
+        *stricter* on the OpenAI fall-through: only genuine OpenAI models map to
+        the OpenAI client. Unrecognized names (e.g. a local Ollama model like
+        ``qwen3.5:0.8b``) return ``None`` so ``can_serve`` declines them and the
+        cloud engine is not mis-selected as a fallback when the local engine is
+        transiently down and any (even dummy) ``OPENAI_API_KEY`` is set (#335).
+        ``generate``/``stream`` keep their OpenAI fall-through, so an
+        explicitly-requested unknown cloud model still fails loudly at call time.
+        """
+        if _is_codex_model(model):
+            return self._codex_client
+        if _is_openrouter_model(model):
+            return self._openrouter_client
+        if _is_minimax_model(model):
+            return self._minimax_client
+        if _is_deepseek_model(model):
+            return self._deepseek_client
+        if _is_anthropic_model(model):
+            return self._anthropic_client
+        if _is_google_model(model):
+            return self._google_client
+        if _is_openai_model(model):
+            return self._openai_client
+        return None
+
+    def can_serve(self, model: str) -> bool:
+        """Return ``True`` only if the provider client for *model* exists.
+
+        ``health()`` is ``True`` whenever *any* provider client is configured,
+        but a request for, say, a ``gpt-*`` model still needs the OpenAI
+        client specifically. Without this check the cloud engine gets picked
+        as a fallback (when the local engine is down) for a model it can't
+        serve, then dies at call time with "<provider> client not available"
+        instead of the user getting a helpful "start your local engine"
+        message (see #532).
+        """
+        return self._client_for_model(model) is not None
 
     def health(self) -> bool:
         return (
@@ -1484,6 +1673,7 @@ class CloudEngine(InferenceEngine):
             or self._google_client is not None
             or self._openrouter_client is not None
             or self._minimax_client is not None
+            or self._deepseek_client is not None
             or self._codex_client is not None
         )
 

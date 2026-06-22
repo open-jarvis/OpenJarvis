@@ -237,6 +237,14 @@ class TestAgentConfigNew:
             or isinstance(getattr(ac.__class__, "temperature", None), property) is False
         )
 
+    def test_default_system_prompt_anchors_identity(self) -> None:
+        """#540: the hardened wording must name OpenJarvis and explicitly
+        deny the model's training identity so distilled models stop
+        claiming to be Claude/ChatGPT/etc."""
+        prompt = AgentConfig().default_system_prompt
+        assert "OpenJarvis" in prompt
+        assert "not Claude" in prompt
+
 
 class TestNestedEngineConfig:
     def test_nested_access(self) -> None:
@@ -561,6 +569,7 @@ class TestWhatsAppBaileysChannelConfig:
 
 def test_mining_config_absent_means_none(tmp_path):
     from openjarvis.core.config import load_config
+
     cfg_path = tmp_path / "config.toml"
     cfg_path.write_text("")  # empty config
     cfg = load_config(cfg_path)

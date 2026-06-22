@@ -11,14 +11,21 @@ writing artifacts into the working tree.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
+from openjarvis.core.paths import ConfigurationError, get_config_dir
 from openjarvis.security.file_utils import secure_mkdir
 
-
-class ConfigurationError(RuntimeError):
-    """Raised when path configuration would violate isolation guarantees."""
+# ``ConfigurationError`` is re-exported from ``openjarvis.core.paths`` (it used
+# to be defined here). Spec search now resolves the home dir through the unified
+# core resolver, which raises the same exception type on a source-tree path, so
+# we alias rather than redefine to keep ``except ConfigurationError`` callers and
+# existing tests working.
+__all__ = [
+    "ConfigurationError",
+    "ensure_spec_search_dirs",
+    "resolve_spec_search_root",
+]
 
 
 def _find_source_root() -> Path | None:
@@ -42,11 +49,12 @@ def _find_source_root() -> Path | None:
 
 
 def _resolve_openjarvis_home() -> Path:
-    """Resolve the OPENJARVIS_HOME directory (env var or default)."""
-    env = os.environ.get("OPENJARVIS_HOME")
-    if env:
-        return Path(env).expanduser().resolve()
-    return (Path.home() / ".openjarvis").resolve()
+    """Resolve the OpenJarvis home directory via the unified core resolver.
+
+    Delegates to ``get_config_dir`` so spec-search honors the same env-aware
+    resolution (OPENJARVIS_HOME and XDG) as the rest of the framework.
+    """
+    return get_config_dir()
 
 
 def resolve_spec_search_root() -> Path:

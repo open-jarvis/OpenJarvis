@@ -23,6 +23,7 @@ from typing import List
 
 import yaml
 
+from openjarvis.core.paths import get_config_dir
 from openjarvis.skills.parser import SkillParser
 from openjarvis.skills.sources.base import ResolvedSkill
 from openjarvis.skills.tool_translator import ToolTranslator
@@ -56,7 +57,7 @@ class SkillImporter:
         self._parser = parser
         self._translator = tool_translator
         if target_root is None:
-            target_root = Path("~/.openjarvis/skills/").expanduser()
+            target_root = get_config_dir() / "skills"
         self._target_root = Path(target_root)
 
     def import_skill(

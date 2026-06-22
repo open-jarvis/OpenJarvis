@@ -13,6 +13,7 @@ from typing import Any, List, Optional
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
 from openjarvis.agents.digest_store import DigestArtifact, DigestStore
+from openjarvis.core.paths import get_config_dir
 from openjarvis.core.registry import AgentRegistry
 from openjarvis.core.types import Message, Role, ToolCall
 
@@ -21,7 +22,7 @@ def _load_persona(persona_name: str) -> str:
     """Load a persona prompt file by name."""
     search_paths = [
         Path("configs/openjarvis/prompts/personas") / f"{persona_name}.md",
-        Path.home() / ".openjarvis" / "prompts" / "personas" / f"{persona_name}.md",
+        get_config_dir() / "prompts" / "personas" / f"{persona_name}.md",
     ]
     for p in search_paths:
         if p.exists():
@@ -202,7 +203,7 @@ class MorningDigestAgent(ToolUsingAgent):
         tts_text = re.sub(r"\*{1,2}([^*]+)\*{1,2}", r"\1", tts_text)
         tts_text = tts_text.strip()
 
-        output_dir = str(Path.home() / ".openjarvis" / "digests")
+        output_dir = str(get_config_dir() / "digests")
         tts_call = ToolCall(
             id="digest-tts-1",
             name="text_to_speech",

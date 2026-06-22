@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from openjarvis.core.paths import get_config_dir
 from openjarvis.core.types import Message, Role
 from openjarvis.server.models import (
     ChatCompletionChunk,
@@ -41,6 +42,51 @@ def _to_messages(chat_messages) -> list[Message]:
             )
         )
     return messages
+
+
+def _ensure_identity_prompt(messages: list[Message], app_config) -> list[Message]:
+    """Prepend OpenJarvis's identity system prompt when the client omits one.
+
+    The desktop UI's chat backend posts only user/assistant turns to
+    ``/v1/chat/completions`` (see ``frontend/.../Chat/InputArea.tsx``), so
+    nothing grounds the model's identity. Without a system prompt the model
+    answers from its training identity (e.g. "I'm Claude", "I am Qwen"),
+    which is what #540 reported. The CLI paths inject this via
+    ``SystemPromptBuilder`` / ``BaseAgent``; the engine-direct server paths
+    did not. This mirrors the agent fallback in ``agents/_stubs.py``.
+
+    If any message already carries a system role, the caller has supplied
+    their own grounding and we leave the list untouched (no double-prompting).
+
+    Resolution of the identity text: ``app_config.agent.default_system_prompt``
+    when a config is wired onto ``app.state``; otherwise fall back to
+    ``load_config()``. Config resolution is wrapped so a broken/missing
+    config degrades to "no injection" rather than crashing the endpoint, but
+    the failure is logged (per REVIEW.md — never silently swallow).
+    """
+    if any(m.role == Role.SYSTEM for m in messages):
+        return messages
+
+    prompt = ""
+    try:
+        if app_config is not None:
+            prompt = app_config.agent.default_system_prompt or ""
+        else:
+            from openjarvis.core.config import load_config
+
+            prompt = load_config().agent.default_system_prompt or ""
+    except Exception:
+        logging.getLogger("openjarvis.server").debug(
+            "Identity system prompt resolution failed; "
+            "serving request without identity grounding",
+            exc_info=True,
+        )
+        return messages
+
+    if not prompt:
+        return messages
+
+    return [Message(role=Role.SYSTEM, content=prompt), *messages]
 
 
 @router.post("/v1/chat/completions")
@@ -149,7 +195,7 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
         # from the engine for true real-time output.
         if request_body.tools:
             return await _handle_stream_tools(
-                engine, model, request_body, complexity_info
+                engine, model, request_body, complexity_info, app_config=config
             )
         return await _handle_stream(
             engine,
@@ -157,6 +203,7 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
             request_body,
             complexity_info,
             trace_store=getattr(request.app.state, "trace_store", None),
+            app_config=config,
         )
 
     # Non-streaming: use agent if available, otherwise direct engine call.
@@ -192,6 +239,7 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
             request_body,
             bus=bus,
             complexity_info=complexity_info,
+            app_config=config,
         )
 
     # Hand the completed exchange to the background memory service.
@@ -226,9 +274,11 @@ def _handle_direct(
     req: ChatCompletionRequest,
     bus=None,
     complexity_info=None,
+    app_config=None,
 ) -> ChatCompletionResponse:
     """Direct engine call without agent."""
     messages = _to_messages(req.messages)
+    messages = _ensure_identity_prompt(messages, app_config)
     kwargs: dict[str, Any] = {}
     if req.tools:
         kwargs["tools"] = req.tools
@@ -405,6 +455,8 @@ async def _handle_stream_tools(
     model: str,
     req: ChatCompletionRequest,
     complexity_info=None,
+    *,
+    app_config=None,
 ):
     """Stream a raw OpenAI-compat function-calling response via SSE.
 
@@ -422,6 +474,7 @@ async def _handle_stream_tools(
     from openjarvis.server.cloud_router import is_cloud_model
 
     messages = _to_messages(req.messages)
+    messages = _ensure_identity_prompt(messages, app_config)
     chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
     use_cloud = is_cloud_model(model)
 
@@ -516,6 +569,7 @@ async def _handle_stream(
     complexity_info=None,
     *,
     trace_store=None,
+    app_config=None,
 ):
     """Stream response using SSE format.
 
@@ -534,6 +588,7 @@ async def _handle_stream(
     )
 
     messages = _to_messages(req.messages)
+    messages = _ensure_identity_prompt(messages, app_config)
     chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
 
     # Last user message — recorded as the trace query.
@@ -792,10 +847,9 @@ async def reload_cloud_engine(request: Request):
     key so that cloud models become available without a full app restart.
     """
     import os
-    from pathlib import Path
 
     # Re-read ~/.openjarvis/cloud-keys.env and update the running process env.
-    keys_path = Path.home() / ".openjarvis" / "cloud-keys.env"
+    keys_path = get_config_dir() / "cloud-keys.env"
     if keys_path.exists():
         for raw_line in keys_path.read_text().splitlines():
             line = raw_line.strip()

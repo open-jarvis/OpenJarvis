@@ -11,6 +11,7 @@ from rich.console import Console
 from openjarvis.cli._banner import print_banner
 from openjarvis.core.config import load_config
 from openjarvis.core.events import EventBus
+from openjarvis.core.paths import get_config_dir
 from openjarvis.engine import (
     discover_engines,
     discover_models,
@@ -146,7 +147,13 @@ def serve(
         except Exception as exc:
             logger.debug("Telemetry store init failed: %s", exc)
 
-    resolved = get_engine(config, engine_key)
+    # Select with the model we'll actually serve so an engine that can't
+    # serve it (e.g. the cloud fallback without the matching provider key) is
+    # skipped rather than chosen and failing per-request later (see #532).
+    selection_model = (
+        model_name or config.server.model or config.intelligence.default_model or None
+    )
+    resolved = get_engine(config, engine_key, model=selection_model)
     if resolved is None:
         console.print(
             "[red bold]No inference engine available.[/red bold]\n\n"
@@ -261,6 +268,11 @@ def serve(
     # Resolve agent
     agent = None
     agent_key = agent_name or config.server.agent
+    # Tool instances resolved for the primary agent are reused below to build
+    # the scheduler's ToolExecutor — avoiding a second full SystemBuilder.build()
+    # (which would re-discover the engine, re-resolve tools, re-open the channel,
+    # etc.). See the scheduler block near the bottom of this function (#263).
+    resolved_tools: list = []
     if agent_key:
         try:
             import openjarvis.agents  # noqa: F401
@@ -328,6 +340,8 @@ def serve(
 
                     if tools:
                         agent_kwargs["tools"] = tools
+                    # Reuse these for the scheduler's ToolExecutor (#263).
+                    resolved_tools = tools
 
                 if getattr(agent_cls, "accepts_tools", False):
                     agent_kwargs["max_turns"] = config.agent.max_turns
@@ -461,68 +475,8 @@ def serve(
     # Create app
     from openjarvis.server.app import create_app
 
-    # Set up agent manager
-    agent_manager = None
-    if config.agent_manager.enabled:
-        try:
-            from pathlib import Path
-
-            from openjarvis.agents.manager import AgentManager
-
-            am_db = config.agent_manager.db_path or str(
-                Path("~/.openjarvis/agents.db").expanduser()
-            )
-            # The server owns the scheduler and is the authoritative tick
-            # runner — on boot it holds no locks, so it (and only it) sweeps
-            # any zombie running→idle left by a previous crash.
-            agent_manager = AgentManager(db_path=am_db, clear_stale_running=True)
-        except Exception as exc:
-            logger.debug("Agent manager init failed: %s", exc)
-
-    # Set up agent scheduler for cron/interval agents
-    agent_scheduler = None
-    if agent_manager is not None:
-        try:
-            from openjarvis.agents.executor import AgentExecutor
-            from openjarvis.agents.scheduler import AgentScheduler
-
-            _trace_store = None
-            try:
-                if config.traces.enabled:
-                    from openjarvis.traces.store import TraceStore
-
-                    _trace_store = TraceStore(db_path=config.traces.db_path)
-            except Exception:
-                pass
-
-            executor = AgentExecutor(
-                manager=agent_manager,
-                event_bus=bus,
-                trace_store=_trace_store,
-            )
-            from openjarvis.system import SystemBuilder
-
-            system = SystemBuilder(config).build()
-            executor.set_system(system)
-
-            agent_scheduler = AgentScheduler(
-                manager=agent_manager,
-                executor=executor,
-                event_bus=bus,
-            )
-            for ag in agent_manager.list_agents():
-                sched_type = ag.get("config", {}).get("schedule_type", "manual")
-                if sched_type in ("cron", "interval") and ag["status"] not in (
-                    "archived",
-                    "error",
-                ):
-                    agent_scheduler.register_agent(ag["id"])
-            agent_scheduler.start()
-            console.print("  Scheduler: [cyan]active[/cyan]")
-        except Exception as exc:
-            logger.debug("Agent scheduler init failed: %s", exc)
-
-    # Set up memory backend for context injection
+    # Set up memory backend for context injection. Built before the scheduler
+    # block so the executor's JarvisSystem can reference it (#263).
     memory_backend = None
     if config.agent.context_from_memory:
         try:
@@ -552,6 +506,109 @@ def serve(
         logger.debug("Memory service init failed: %s", exc)
         memory_service = None
 
+    # Set up agent manager
+    agent_manager = None
+    if config.agent_manager.enabled:
+        try:
+            from openjarvis.agents.manager import AgentManager
+
+            am_db = config.agent_manager.db_path or str(get_config_dir() / "agents.db")
+            # The server owns the scheduler and is the authoritative tick
+            # runner — on boot it holds no locks, so it (and only it) sweeps
+            # any zombie running→idle left by a previous crash.
+            agent_manager = AgentManager(db_path=am_db, clear_stale_running=True)
+        except Exception as exc:
+            logger.debug("Agent manager init failed: %s", exc)
+
+    # Set up agent scheduler for cron/interval agents
+    agent_scheduler = None
+    if agent_manager is not None:
+        try:
+            from openjarvis.agents.executor import AgentExecutor
+            from openjarvis.agents.scheduler import AgentScheduler
+
+            _trace_store = None
+            try:
+                if config.traces.enabled:
+                    from openjarvis.traces.store import TraceStore
+
+                    _trace_store = TraceStore(db_path=config.traces.db_path)
+            except Exception:
+                pass
+
+            executor = AgentExecutor(
+                manager=agent_manager,
+                event_bus=bus,
+                trace_store=_trace_store,
+            )
+            # Reuse the components already built inline above instead of a
+            # second full SystemBuilder.build() — the original double-build
+            # re-discovered the engine, re-instrumented it, re-resolved tools,
+            # re-opened the channel and re-created the agent manager, costing
+            # ~30-40s on top of an already-paid startup (#263). The executor
+            # only reads engine/model/config/memory_backend/tool_executor/
+            # session_store/channel_backend from the system (see
+            # AgentExecutor), all of which are wired here.
+            from openjarvis.sessions.session import SessionStore
+            from openjarvis.system import JarvisSystem
+            from openjarvis.tools._stubs import ToolExecutor
+
+            _sched_session_store = None
+            if config.sessions.enabled:
+                try:
+                    from pathlib import Path as _SchedPath
+
+                    _sched_session_store = SessionStore(
+                        db_path=_SchedPath(config.sessions.db_path).expanduser(),
+                        max_age_hours=config.sessions.max_age_hours,
+                        consolidation_threshold=(
+                            config.sessions.consolidation_threshold
+                        ),
+                    )
+                except Exception as exc:
+                    logger.debug("Scheduler session store init failed: %s", exc)
+
+            _sched_tool_executor = (
+                ToolExecutor(resolved_tools, bus) if resolved_tools else None
+            )
+
+            system = JarvisSystem(
+                config=config,
+                bus=bus,
+                engine=engine,
+                engine_key=engine_name,
+                model=model_name,
+                agent=agent,
+                agent_name=agent_key or "",
+                tools=resolved_tools,
+                tool_executor=_sched_tool_executor,
+                memory_backend=memory_backend,
+                telemetry_store=telem_store,
+                trace_store=_trace_store,
+                session_store=_sched_session_store,
+                capability_policy=sec.capability_policy,
+                agent_manager=agent_manager,
+                agent_executor=executor,
+            )
+            executor.set_system(system)
+
+            agent_scheduler = AgentScheduler(
+                manager=agent_manager,
+                executor=executor,
+                event_bus=bus,
+            )
+            for ag in agent_manager.list_agents():
+                sched_type = ag.get("config", {}).get("schedule_type", "manual")
+                if sched_type in ("cron", "interval") and ag["status"] not in (
+                    "archived",
+                    "error",
+                ):
+                    agent_scheduler.register_agent(ag["id"])
+            agent_scheduler.start()
+            console.print("  Scheduler: [cyan]active[/cyan]")
+        except Exception as exc:
+            logger.debug("Agent scheduler init failed: %s", exc)
+
     # --- Channel Gateway: API key, sessions, ChannelBridge ---
     import os as _os
 
@@ -560,9 +617,7 @@ def serve(
         try:
             import tomllib
 
-            _cfg_path = str(
-                __import__("pathlib").Path.home() / ".openjarvis" / "config.toml"
-            )
+            _cfg_path = str(get_config_dir() / "config.toml")
             with open(_cfg_path, "rb") as _f:
                 _raw = tomllib.load(_f)
             api_key = _raw.get("server", {}).get("auth", {}).get("api_key", "")

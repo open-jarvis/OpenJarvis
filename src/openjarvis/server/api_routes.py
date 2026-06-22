@@ -153,14 +153,30 @@ memory_router = APIRouter(prefix="/v1/memory", tags=["memory"])
 
 
 def _get_memory_backend(request: Request):
-    """Return the app-level memory backend, falling back to a fresh SQLiteMemory."""
+    """Return the app-level memory backend, falling back to a fresh SQLiteMemory.
+
+    Raises ``HTTPException(503)`` with an actionable message when the backend
+    cannot be built because the mandatory ``openjarvis_rust`` extension is not
+    installed in the serving venv. This is deliberately distinct from a benign
+    "memory not configured" case (which returns ``None``): a missing native
+    extension must fail loudly, never silently degrade (#502).
+    """
     backend = getattr(request.app.state, "memory_backend", None)
     if backend is None:
+        from openjarvis.tools.storage._stubs import MemoryBackendUnavailable
+
         try:
             from openjarvis.tools.storage.sqlite import SQLiteMemory
 
             backend = SQLiteMemory()
+        except MemoryBackendUnavailable as exc:
+            # The native extension is missing — surface a loud, actionable error
+            # rather than a misleading "no backend" / silent no-op.
+            logger.error("%s", exc)
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         except Exception:
+            # Memory is genuinely unconfigured for a benign reason — preserve
+            # the existing graceful "no backend" behaviour.
             return None
     return backend
 
@@ -170,7 +186,9 @@ async def memory_store(req: MemoryStoreRequest, request: Request):
     """Store content in memory."""
     backend = _get_memory_backend(request)
     if backend is None:
-        return {"status": "stored", "note": "no backend available"}
+        # Memory is intentionally disabled; report it honestly instead of a
+        # 200 that silently discards the write (#502).
+        raise HTTPException(status_code=503, detail="Memory is not configured")
     try:
         backend.store(req.content, metadata=req.metadata or {})
         return {"status": "stored"}
@@ -216,7 +234,13 @@ async def memory_stats(request: Request):
 
 @memory_router.get("/config")
 async def memory_config(request: Request):
-    """Return current memory configuration."""
+    """Return current memory configuration.
+
+    Reports memory as *unavailable* (rather than falsely claiming
+    ``backend_type: sqlite``) when the native ``openjarvis_rust`` extension is
+    missing, so the UI can show the real cause instead of a healthy-looking
+    config that backs a silent no-op (#502).
+    """
     try:
         config = getattr(request.app.state, "config", None)
         if config is None:
@@ -224,12 +248,30 @@ async def memory_config(request: Request):
 
             config = load_config()
         backend = getattr(request.app.state, "memory_backend", None)
+        available = True
+        detail: Optional[str] = None
+        if backend is None:
+            from openjarvis.tools.storage._stubs import MemoryBackendUnavailable
+
+            try:
+                from openjarvis.tools.storage.sqlite import SQLiteMemory
+
+                backend = SQLiteMemory()
+            except MemoryBackendUnavailable as exc:
+                available = False
+                detail = str(exc)
+            except Exception:
+                # Benign: cannot construct a probe backend here, but the
+                # configured default is still what would be used.
+                pass
         return {
             "backend_type": (
                 backend.backend_id
                 if backend is not None
                 else config.memory.default_backend
             ),
+            "available": available,
+            "detail": detail,
             "context_top_k": config.memory.context_top_k,
             "context_min_score": config.memory.context_min_score,
             "context_max_tokens": config.memory.context_max_tokens,
@@ -243,17 +285,42 @@ async def memory_config(request: Request):
 async def memory_index(req: MemoryIndexRequest, request: Request):
     """Index files from a path into memory."""
     try:
+        import os
         from pathlib import Path
 
+        from openjarvis.security.file_policy import is_sensitive_file
         from openjarvis.tools.storage.ingest import ingest_path
 
         target = Path(req.path).expanduser().resolve()
         if not target.exists():
             raise HTTPException(status_code=404, detail=f"Path not found: {req.path}")
 
+        # Sandbox: when workspace roots are configured via OPENJARVIS_WORKSPACE
+        # (os.pathsep-separated), only allow indexing inside them. This endpoint
+        # must not become an arbitrary-filesystem read primitive over the API.
+        workspace = os.environ.get("OPENJARVIS_WORKSPACE", "").strip()
+        if workspace:
+            roots = [
+                Path(d).expanduser().resolve()
+                for d in workspace.split(os.pathsep)
+                if d.strip()
+            ]
+            if not any(
+                target == root or root in target.parents for root in roots
+            ):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Path is outside the allowed workspace directories.",
+                )
+        # Never ingest sensitive files (.env, private keys, credentials, ...).
+        if target.is_file() and is_sensitive_file(target):
+            raise HTTPException(
+                status_code=403, detail="Refusing to index a sensitive file."
+            )
+
         backend = _get_memory_backend(request)
         if backend is None:
-            raise HTTPException(status_code=503, detail="No memory backend available")
+            raise HTTPException(status_code=503, detail="Memory is not configured")
 
         chunks = ingest_path(target)
         stored = 0
@@ -264,7 +331,16 @@ async def memory_index(req: MemoryIndexRequest, request: Request):
             backend.store(chunk.content, metadata=metadata)
             stored += 1
 
-        return {"status": "indexed", "chunks_indexed": stored}
+        result = {"status": "indexed", "chunks_indexed": stored}
+        if stored == 0:
+            # "indexed" must never silently mean "stored nothing". Surface why
+            # so a folder of short notes doesn't look like a successful no-op
+            # (#502 follow-up).
+            result["note"] = (
+                "no content was indexed — the path contained no readable "
+                "documents with indexable text"
+            )
+        return result
     except HTTPException:
         raise
     except Exception as exc:
@@ -817,7 +893,15 @@ async def transcribe_speech(request: Request):
     filename = getattr(audio_file, "filename", "audio.wav")
     ext = filename.rsplit(".", 1)[-1] if "." in filename else "wav"
 
-    result = backend.transcribe(audio_bytes, format=ext, language=language or None)
+    try:
+        result = backend.transcribe(audio_bytes, format=ext, language=language or None)
+    except Exception as exc:
+        logger.exception("Speech transcription failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Speech transcription failed: {exc}",
+        ) from exc
+
     return {
         "text": result.text,
         "language": result.language,
@@ -832,9 +916,23 @@ async def speech_health(request: Request):
     backend = getattr(request.app.state, "speech_backend", None)
     if backend is None:
         return {"available": False, "reason": "No speech backend configured"}
+    try:
+        available = backend.health()
+        reason = None
+    except Exception as exc:
+        logger.exception("Speech health check failed")
+        available = False
+        reason = str(exc)
+
+    if not available and reason is None:
+        last_error = getattr(backend, "last_error", None)
+        if callable(last_error):
+            reason = last_error()
+
     return {
-        "available": backend.health(),
+        "available": available,
         "backend": backend.backend_id,
+        **({"reason": reason} if reason else {}),
     }
 
 

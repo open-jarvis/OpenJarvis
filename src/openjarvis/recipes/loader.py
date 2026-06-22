@@ -19,13 +19,14 @@ try:
 except ModuleNotFoundError:
     import tomli as tomllib  # type: ignore[no-redef]
 
+from openjarvis.core.paths import get_config_dir
 
 # Built-in recipes directory (package data)
 _PROJECT_RECIPES_DIR = Path(__file__).resolve().parent / "data"
 _PROJECT_OPERATORS_DIR = _PROJECT_RECIPES_DIR / "operators"
 # User-level directories
-_USER_RECIPES_DIR = Path.home() / ".openjarvis" / "recipes"
-_USER_OPERATORS_DIR = Path.home() / ".openjarvis" / "operators"
+_USER_RECIPES_DIR = get_config_dir() / "recipes"
+_USER_OPERATORS_DIR = get_config_dir() / "operators"
 
 
 @dataclass(slots=True)

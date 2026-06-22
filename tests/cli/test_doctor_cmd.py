@@ -10,10 +10,12 @@ from click.testing import CliRunner
 
 from openjarvis.cli import cli
 from openjarvis.cli.doctor_cmd import (
+    CheckResult,
     _check_config_exists,
     _check_default_model,
     _check_nodejs,
     _check_python_version,
+    _check_speech_backend,
 )
 
 
@@ -39,6 +41,10 @@ class TestDoctorRuns:
             ),
             patch("openjarvis.cli.doctor_cmd._check_engines", return_value=[]),
             patch("openjarvis.cli.doctor_cmd._check_models", return_value=[]),
+            patch(
+                "openjarvis.cli.doctor_cmd._check_speech_backend",
+                return_value=CheckResult("Speech backend", "ok", "mock ready"),
+            ),
         ):
             result = CliRunner().invoke(cli, ["doctor"])
         assert result.exit_code == 0
@@ -59,6 +65,10 @@ class TestDoctorJsonOutput:
             ),
             patch("openjarvis.cli.doctor_cmd._check_engines", return_value=[]),
             patch("openjarvis.cli.doctor_cmd._check_models", return_value=[]),
+            patch(
+                "openjarvis.cli.doctor_cmd._check_speech_backend",
+                return_value=CheckResult("Speech backend", "ok", "mock ready"),
+            ),
         ):
             result = CliRunner().invoke(cli, ["doctor", "--json"])
         assert result.exit_code == 0
@@ -140,6 +150,49 @@ class TestCheckDefaultModel:
             result = _check_default_model()
         assert result.status == "ok"
         assert "auto" in result.message.lower()
+
+
+class TestCheckSpeechBackend:
+    def test_check_speech_backend_ready(self) -> None:
+        backend = MagicMock()
+        backend.backend_id = "faster-whisper"
+        backend.health.return_value = True
+
+        with patch(
+            "openjarvis.speech._discovery.get_speech_backend",
+            return_value=backend,
+        ):
+            result = _check_speech_backend()
+
+        assert result.status == "ok"
+        assert "faster-whisper" in result.message
+
+    def test_check_speech_backend_reports_load_error(self) -> None:
+        backend = MagicMock()
+        backend.backend_id = "faster-whisper"
+        backend.health.return_value = False
+        backend.last_error.return_value = "missing cublas64_12.dll"
+
+        with patch(
+            "openjarvis.speech._discovery.get_speech_backend",
+            return_value=backend,
+        ):
+            result = _check_speech_backend()
+
+        assert result.status == "warn"
+        assert "faster-whisper unavailable" in result.message
+        assert result.details == "missing cublas64_12.dll"
+
+    def test_check_speech_backend_missing_uses_desktop_hint(self) -> None:
+        with patch(
+            "openjarvis.speech._discovery.get_speech_backend",
+            return_value=None,
+        ):
+            result = _check_speech_backend()
+
+        assert result.status == "warn"
+        assert result.details is not None
+        assert "uv sync --extra desktop" in result.details
 
 
 class TestCheckNodejs:

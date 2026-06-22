@@ -41,7 +41,7 @@ If you prefer to run each step yourself:
     ```bash
     git clone https://github.com/open-jarvis/OpenJarvis.git
     cd OpenJarvis
-    uv sync --extra server
+    uv sync --extra desktop
     uv run maturin develop -m rust/crates/openjarvis-python/Cargo.toml
     cd frontend && npm install && cd ..
     ```
@@ -278,6 +278,7 @@ OpenJarvis uses optional extras to keep the base installation lightweight.
 
 | Extra | Install Command | Description |
 |-------|----------------|-------------|
+| `desktop` | `uv sync --extra desktop` | Desktop/API server plus local speech input |
 | `server` | `uv sync --extra server` | OpenAI-compatible API server (`jarvis serve`) |
 | `dev` | `uv sync --extra dev` | Development and testing tools |
 | `docs` | `uv sync --extra docs` | Documentation build tools |
@@ -285,7 +286,7 @@ OpenJarvis uses optional extras to keep the base installation lightweight.
 Combine extras:
 
 ```bash
-uv sync --extra server --extra memory-faiss --extra inference-cloud
+uv sync --extra desktop --extra memory-faiss --extra inference-cloud
 ```
 
 ## Setting Up an Inference Backend

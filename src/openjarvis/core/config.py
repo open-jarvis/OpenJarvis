@@ -16,6 +16,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+from openjarvis.core.paths import (
+    ConfigurationError,
+    get_cache_dir,
+    get_config_dir,
+    get_config_path,
+    get_data_dir,
+)
+
 if TYPE_CHECKING:
     # Only used by type-checkers (mypy/pyright) for the ``JarvisConfig.mining``
     # field annotation. The runtime import is deferred inside
@@ -33,15 +41,24 @@ except ModuleNotFoundError:
 # Hardware dataclasses
 # ---------------------------------------------------------------------------
 
-DEFAULT_CONFIG_DIR = Path.home() / ".openjarvis"
-DEFAULT_CONFIG_PATH = DEFAULT_CONFIG_DIR / "config.toml"
+# Legacy names, kept for the ~45 modules that import them. They are resolved
+# once at import via the env-aware resolver in ``openjarvis.core.paths`` (the
+# install-script model: ``OPENJARVIS_HOME`` / ``XDG_DATA_HOME`` are set before
+# the process starts). They are real module attributes — not computed lazily —
+# so existing tests can ``monkeypatch.setattr`` them and so dataclass-instance
+# defaults stay consistent. Code that must react to a mid-process env change
+# (or wants the override regardless of import order) should call
+# ``get_config_dir()`` / ``get_config_path()`` directly; the dataclass field
+# defaults below already do this via ``default_factory``.
+DEFAULT_CONFIG_DIR = get_config_dir()
+DEFAULT_CONFIG_PATH = get_config_path()
 
 
 def _ensure_config_dir() -> Path:
     """Ensure the config directory exists with restrictive permissions."""
     from openjarvis.security.file_utils import secure_mkdir
 
-    return secure_mkdir(DEFAULT_CONFIG_DIR)
+    return secure_mkdir(get_config_dir())
 
 
 @dataclass(slots=True)
@@ -742,7 +759,9 @@ class SkillsLearningConfig:
     optimizer: str = "dspy"  # "dspy" or "gepa"
     min_traces_per_skill: int = 20
     optimization_interval_seconds: int = 86400
-    overlay_dir: str = "~/.openjarvis/learning/skills/"
+    overlay_dir: str = field(
+        default_factory=lambda: str(get_config_dir() / "learning" / "skills")
+    )
 
 
 @dataclass(slots=True)
@@ -900,7 +919,7 @@ class StorageConfig:
     """
 
     default_backend: str = "sqlite"
-    db_path: str = str(DEFAULT_CONFIG_DIR / "memory.db")
+    db_path: str = field(default_factory=lambda: str(get_config_dir() / "memory.db"))
     context_top_k: int = 5
     context_min_score: float = 0.0
     context_max_tokens: int = 2048
@@ -960,8 +979,10 @@ class AgentConfig:
     system_prompt_path: str = ""  # path to system prompt file (.txt, .md)
     context_from_memory: bool = True  # inject relevant memory context into prompts
     default_system_prompt: str = (
-        "You are a helpful AI assistant running locally on the user's own "
-        "hardware through OpenJarvis. You are not a cloud service. Respond "
+        "You are OpenJarvis, a helpful AI assistant running locally on the "
+        "user's own hardware. You are not a cloud service, and you are not "
+        "Claude, ChatGPT, Gemini, or any other branded assistant. If asked "
+        "who or what you are, identify yourself as OpenJarvis. Respond "
         "helpfully, concisely, and accurately."
     )
 
@@ -1010,7 +1031,7 @@ class TelemetryConfig:
     """Telemetry persistence settings."""
 
     enabled: bool = True
-    db_path: str = str(DEFAULT_CONFIG_DIR / "telemetry.db")
+    db_path: str = field(default_factory=lambda: str(get_config_dir() / "telemetry.db"))
     gpu_metrics: bool = False
     gpu_poll_interval_ms: int = 50
     energy_vendor: str = ""  # auto-detect or force "nvidia"/"amd"/"apple"/"cpu_rapl"
@@ -1035,7 +1056,7 @@ class AnalyticsConfig:
     enabled: bool = True
     host: str = "https://34.231.106.201.sslip.io"
     key: str = "phc_ysKu72QaxzYNmDpHFcesD2ZZAe68zkdWJEKoYYkc5e3n"
-    anon_id_path: str = str(DEFAULT_CONFIG_DIR / "anon_id")
+    anon_id_path: str = field(default_factory=lambda: str(get_config_dir() / "anon_id"))
     flush_interval_seconds: int = 30
     flush_at_size: int = 100
 
@@ -1045,7 +1066,7 @@ class TracesConfig:
     """Trace system settings."""
 
     enabled: bool = True
-    db_path: str = str(DEFAULT_CONFIG_DIR / "traces.db")
+    db_path: str = field(default_factory=lambda: str(get_config_dir() / "traces.db"))
 
 
 @dataclass(slots=True)
@@ -1247,7 +1268,9 @@ class SecurityConfig:
     mode: str = "redact"  # "redact" | "warn" | "block"
     secret_scanner: bool = True
     pii_scanner: bool = True
-    audit_log_path: str = str(DEFAULT_CONFIG_DIR / "audit.db")
+    audit_log_path: str = field(
+        default_factory=lambda: str(get_config_dir() / "audit.db")
+    )
     enforce_tool_confirmation: bool = True
     merkle_audit: bool = True
     signing_key_path: str = ""
@@ -1258,7 +1281,9 @@ class SecurityConfig:
     local_engine_bypass: bool = False
     local_tool_bypass: bool = False
     profile: str = ""
-    vault_key_path: str = str(DEFAULT_CONFIG_DIR / ".vault_key")
+    vault_key_path: str = field(
+        default_factory=lambda: str(get_config_dir() / ".vault_key")
+    )
     capabilities: CapabilitiesConfig = field(default_factory=CapabilitiesConfig)
 
 
@@ -1379,7 +1404,7 @@ class SessionConfig:
     enabled: bool = False
     max_age_hours: float = 24.0
     consolidation_threshold: int = 100
-    db_path: str = str(DEFAULT_CONFIG_DIR / "sessions.db")
+    db_path: str = field(default_factory=lambda: str(get_config_dir() / "sessions.db"))
 
 
 @dataclass(slots=True)
@@ -1397,7 +1422,9 @@ class OperatorsConfig:
     """Operator lifecycle settings."""
 
     enabled: bool = False
-    manifests_dir: str = "~/.openjarvis/operators"
+    manifests_dir: str = field(
+        default_factory=lambda: str(get_config_dir() / "operators")
+    )
     auto_activate: str = ""  # Comma-separated operator IDs
 
 
@@ -1423,7 +1450,7 @@ class OptimizeConfig:
     benchmark: str = ""
     max_samples: int = 50
     judge_model: str = "gpt-5-mini-2025-08-07"
-    db_path: str = str(DEFAULT_CONFIG_DIR / "optimize.db")
+    db_path: str = field(default_factory=lambda: str(get_config_dir() / "optimize.db"))
 
 
 @dataclass(slots=True)
@@ -1431,18 +1458,20 @@ class AgentManagerConfig:
     """Persistent agent manager settings."""
 
     enabled: bool = True
-    db_path: str = str(DEFAULT_CONFIG_DIR / "agents.db")
+    db_path: str = field(default_factory=lambda: str(get_config_dir() / "agents.db"))
 
 
 @dataclass(slots=True)
 class MemoryFilesConfig:
     """Persistent memory-file paths and nudge settings."""
 
-    soul_path: str = "~/.openjarvis/SOUL.md"
-    memory_path: str = "~/.openjarvis/MEMORY.md"
-    user_path: str = "~/.openjarvis/USER.md"
+    soul_path: str = field(default_factory=lambda: str(get_config_dir() / "SOUL.md"))
+    memory_path: str = field(
+        default_factory=lambda: str(get_config_dir() / "MEMORY.md")
+    )
+    user_path: str = field(default_factory=lambda: str(get_config_dir() / "USER.md"))
     nudge_interval: int = 10
-    persona_name: str = ""  # named persona dir under ~/.openjarvis/personas/<name>/
+    persona_name: str = ""  # named persona dir under <config-dir>/personas/<name>/
 
 
 @dataclass(slots=True)
@@ -1481,13 +1510,15 @@ class SkillsConfig:
     """Configuration for agent-authored procedural skills."""
 
     enabled: bool = True
-    skills_dir: str = "~/.openjarvis/skills/"
+    skills_dir: str = field(default_factory=lambda: str(get_config_dir() / "skills"))
     active: str = "*"
     auto_discover: bool = True
     auto_sync: bool = False
     nudge_interval: int = 15
     index_repo: str = "https://github.com/openjarvis/skill-index.git"
-    index_dir: str = "~/.openjarvis/skill-index/"
+    index_dir: str = field(
+        default_factory=lambda: str(get_config_dir() / "skill-index")
+    )
     max_depth: int = 5
     sandbox_dangerous: bool = True
     sources: List[SkillSourceConfig] = field(default_factory=list)
@@ -1793,7 +1824,7 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
     elif os.environ.get("OPENJARVIS_CONFIG"):
         config_path = Path(os.environ["OPENJARVIS_CONFIG"]).expanduser().resolve()
     else:
-        config_path = DEFAULT_CONFIG_PATH
+        config_path = get_config_path()
     if config_path.exists():
         with open(config_path, "rb") as fh:
             data = tomllib.load(fh)
@@ -2140,9 +2171,14 @@ __all__ = [
     "BrowserConfig",
     "CapabilitiesConfig",
     "ChannelConfig",
+    "ConfigurationError",
     "DEFAULT_CONFIG_DIR",
     "DEFAULT_CONFIG_PATH",
     "DiscordChannelConfig",
+    "get_cache_dir",
+    "get_config_dir",
+    "get_config_path",
+    "get_data_dir",
     "EmailChannelConfig",
     "EngineConfig",
     "FeishuChannelConfig",

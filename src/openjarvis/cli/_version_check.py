@@ -9,9 +9,11 @@ import sys
 import time
 from pathlib import Path
 
+from openjarvis.core.paths import get_config_dir
+
 logger = logging.getLogger(__name__)
 
-_CACHE_PATH = Path("~/.openjarvis/version-check.json").expanduser()
+_CACHE_PATH = get_config_dir() / "version-check.json"
 _CACHE_TTL = 86400  # 24 hours
 _PYPI_API = "https://pypi.org/pypi/openjarvis/json"
 
@@ -21,7 +23,7 @@ def _config_path() -> Path:
     override = os.environ.get("OPENJARVIS_CONFIG")
     if override:
         return Path(override).expanduser()
-    return Path("~/.openjarvis/config.toml").expanduser()
+    return get_config_dir() / "config.toml"
 
 
 # Commands that surface the "new version available" nudge. We deliberately

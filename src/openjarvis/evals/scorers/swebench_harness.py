@@ -49,6 +49,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
+from openjarvis.core.paths import get_cache_dir
 from openjarvis.evals.core.scorer import Scorer
 from openjarvis.evals.core.types import EvalRecord
 
@@ -93,9 +94,7 @@ def _run_subprocess_hard_timeout(
     )
     try:
         stdout, stderr = proc.communicate(timeout=timeout_s)
-        return subprocess.CompletedProcess(
-            cmd, proc.returncode, stdout, stderr
-        )
+        return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
     except subprocess.TimeoutExpired:
         # Kill the whole group, not just the direct child — Modal harness
         # subprocesses fork workers that would otherwise keep pipes open.
@@ -115,9 +114,7 @@ def _run_subprocess_hard_timeout(
             stdout, stderr = proc.communicate(timeout=10)
         except subprocess.TimeoutExpired:
             stdout, stderr = "", ""
-        raise subprocess.TimeoutExpired(
-            cmd, timeout_s, output=stdout, stderr=stderr
-        )
+        raise subprocess.TimeoutExpired(cmd, timeout_s, output=stdout, stderr=stderr)
 
 
 # ---------- Patch tracking ----------
@@ -208,11 +205,11 @@ def _patch_modal_sandbox_source() -> None:
         # Upstream changed the line — bail rather than apply blindly.
         return
     replacement = (
-        '        # ' + _CGROUP_SOURCE_SENTINEL + '\n'
-        '        try:\n'
+        "        # " + _CGROUP_SOURCE_SENTINEL + "\n"
+        "        try:\n"
         '            self.write_file("/sys/fs/cgroup/cpu/cpu.shares", "2048")\n'
-        '        except FileNotFoundError:\n'
-        '            pass  # cgroup v2 Modal sandbox — path missing is fine\n'
+        "        except FileNotFoundError:\n"
+        "            pass  # cgroup v2 Modal sandbox — path missing is fine\n"
     )
     new_src = src.replace(needle + "\n", replacement, 1)
     try:
@@ -324,22 +321,23 @@ def extract_patch(text: str) -> Optional[str]:
 
 # ---------- Harness invocation ----------
 
+
 def _harness_cache_dir() -> Path:
     """Where the swebench subprocess writes its report JSON + logs/ tree.
 
-    Defaults to ``$OPENJARVIS_HOME/.swebench-cache`` if set, otherwise to a
-    process-shared tempdir. Pin both so we don't pollute the project root.
+    Consolidated under the env-aware OpenJarvis cache root
+    (``<openjarvis-home>/cache/swebench``) so it never pollutes the project
+    root or scatters across ``$HOME``. Honors ``OPENJARVIS_HOME`` /
+    ``XDG_DATA_HOME`` via :func:`openjarvis.core.paths.get_cache_dir`.
     """
-    home = os.environ.get("OPENJARVIS_HOME")
-    if home:
-        cache = Path(home) / ".swebench-cache"
-    else:
-        cache = Path(tempfile.gettempdir()) / "openjarvis-swebench-cache"
+    cache = get_cache_dir() / "swebench"
     cache.mkdir(parents=True, exist_ok=True)
     return cache
 
 
-def _find_report(cache: Path, instance_id: str, run_id: str) -> Optional[Dict[str, Any]]:
+def _find_report(
+    cache: Path, instance_id: str, run_id: str
+) -> Optional[Dict[str, Any]]:
     """Find the harness's report JSON for one instance.
 
     swebench writes ``<model_name_or_path>.<run_id>.json`` inside the
@@ -427,26 +425,40 @@ def _run_harness(
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         preds_path = tmp_path / "predictions.jsonl"
-        preds_path.write_text(json.dumps({
-            "instance_id": instance_id,
-            "model_name_or_path": "openjarvis-harness",
-            "model_patch": patch,
-        }) + "\n")
+        preds_path.write_text(
+            json.dumps(
+                {
+                    "instance_id": instance_id,
+                    "model_name_or_path": "openjarvis-harness",
+                    "model_patch": patch,
+                }
+            )
+            + "\n"
+        )
 
         cmd = [
-            sys.executable, "-m", "swebench.harness.run_evaluation",
-            "--predictions_path", str(preds_path),
-            "--max_workers", "1",
-            "--run_id", run_id,
-            "--dataset_name", "SWE-bench/SWE-bench_Verified",
-            "--instance_ids", instance_id,
+            sys.executable,
+            "-m",
+            "swebench.harness.run_evaluation",
+            "--predictions_path",
+            str(preds_path),
+            "--max_workers",
+            "1",
+            "--run_id",
+            run_id,
+            "--dataset_name",
+            "SWE-bench/SWE-bench_Verified",
+            "--instance_ids",
+            instance_id,
         ]
         if backend == "modal":
             cmd += ["--modal", "true"]
 
         try:
             proc = _run_subprocess_hard_timeout(
-                cmd, timeout_s=timeout_s, cwd=str(cache),
+                cmd,
+                timeout_s=timeout_s,
+                cwd=str(cache),
             )
         except subprocess.TimeoutExpired as exc:
             # The harness subprocess (and its Modal grandchildren) exceeded
@@ -497,6 +509,7 @@ def _run_harness(
 
 # ---------- Scorer ----------
 
+
 class SWEBenchHarnessScorer(Scorer):
     """SWE-bench Verified scorer that runs the official harness.
 
@@ -516,7 +529,7 @@ class SWEBenchHarnessScorer(Scorer):
         timeout_s: int = 1800,
         cell_name: Optional[str] = None,
         judge_backend: object = None,  # noqa: ARG002 — CLI factory compat
-        judge_model: str = "",         # noqa: ARG002 — CLI factory compat
+        judge_model: str = "",  # noqa: ARG002 — CLI factory compat
     ) -> None:
         self._timeout_s = int(timeout_s)
         # ``cell_name`` namespaces the ``run_id`` so concurrent cells scoring
@@ -538,16 +551,15 @@ class SWEBenchHarnessScorer(Scorer):
         if patch is None:
             return False, {"reason": "no_patch_extracted"}
 
-        instance_id = (
-            record.metadata.get("instance_id")
-            or record.record_id
-            or ""
-        )
+        instance_id = record.metadata.get("instance_id") or record.record_id or ""
         if not instance_id:
             return False, {"reason": "missing_instance_id"}
 
         result = _run_harness(
-            instance_id, patch, self._timeout_s, cell_name=self._cell_name,
+            instance_id,
+            patch,
+            self._timeout_s,
+            cell_name=self._cell_name,
         )
         details = dict(result.get("details", {}))
         details["patch"] = patch

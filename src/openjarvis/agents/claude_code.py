@@ -19,6 +19,7 @@ from typing import Any, List, Optional
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, BaseAgent
 from openjarvis.core.events import EventBus
+from openjarvis.core.paths import get_config_dir
 from openjarvis.core.registry import AgentRegistry
 from openjarvis.core.types import ToolResult
 from openjarvis.engine._stubs import InferenceEngine
@@ -103,7 +104,7 @@ class ClaudeCodeAgent(BaseAgent):
                 "Install it from https://nodejs.org/ or via your package manager."
             )
 
-        dest = Path.home() / ".openjarvis" / "claude_code_runner"
+        dest = get_config_dir() / "claude_code_runner"
         dest.mkdir(parents=True, exist_ok=True)
 
         # Copy runner files if missing or outdated

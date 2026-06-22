@@ -9,9 +9,13 @@ import pytest
 
 from openjarvis.core.registry import EngineRegistry
 from openjarvis.core.types import Message, Role
+from openjarvis.engine._base import EngineConnectionError
 from openjarvis.engine.cloud import (
     CloudEngine,
     _is_codex_model,
+    _is_deepseek_model,
+    _is_openai_model,
+    _is_openrouter_model,
     estimate_cost,
 )
 
@@ -437,3 +441,187 @@ class TestOpenRouterToolForwarding:
         assert result["tool_calls"][0]["id"] == "call_1"
         assert result["tool_calls"][0]["function"]["name"] == "get_weather"
         assert result["tool_calls"][0]["function"]["arguments"] == '{"city": "NYC"}'
+
+
+class TestCloudEngineCanServe:
+    """#532: can_serve gates on the per-provider client, not just health().
+
+    health() is True whenever *any* provider client is configured, but a
+    request for a gpt-* model still needs the OpenAI client specifically — so
+    engine selection must not pick the cloud engine for a model whose provider
+    client is missing.
+    """
+
+    @staticmethod
+    def _engine(**clients: object) -> CloudEngine:
+        eng = CloudEngine.__new__(CloudEngine)  # bypass real client init
+        for name in (
+            "_openai_client",
+            "_anthropic_client",
+            "_google_client",
+            "_openrouter_client",
+            "_minimax_client",
+            "_deepseek_client",
+            "_codex_client",
+        ):
+            setattr(eng, name, clients.get(name))
+        return eng
+
+    def test_openai_only_serves_openai_models(self) -> None:
+        eng = self._engine(_openai_client=object())
+        assert eng.can_serve("gpt-4o") is True
+        assert eng.can_serve("claude-sonnet-4") is False
+        assert eng.can_serve("gemini-2.5-pro") is False
+        assert eng.can_serve("openrouter/openai/gpt-4o") is False
+
+    def test_openai_key_does_not_claim_local_models(self) -> None:
+        """#335: with only the OpenAI client set (e.g. a present-but-dummy
+        OPENAI_API_KEY), the cloud engine must NOT claim it can serve a local
+        Ollama model name — otherwise it gets mis-selected as a fallback when
+        the local engine is transiently down and dies with "OpenAI client not
+        available". Only genuine OpenAI models route to the OpenAI client.
+        """
+        eng = self._engine(_openai_client=object())
+        # Local Ollama / unrecognized names are NOT served by the cloud engine.
+        assert eng.can_serve("qwen3.5:0.8b") is False
+        assert eng.can_serve("llama3.2") is False
+        assert eng.can_serve("mistral") is False
+        assert eng.can_serve("phi3:mini") is False
+        assert eng.can_serve("some-unknown-model") is False
+        # Genuine OpenAI families still served.
+        assert eng.can_serve("gpt-4o") is True
+        assert eng.can_serve("gpt-5.4") is True
+        assert eng.can_serve("o3-mini") is True
+
+    def test_unknown_model_not_served_even_with_all_clients(self) -> None:
+        """#335: an unrecognized model is declined regardless of how many
+        provider clients are configured — it never falls through to OpenAI."""
+        eng = self._engine(
+            _openai_client=object(),
+            _anthropic_client=object(),
+            _google_client=object(),
+            _minimax_client=object(),
+            _deepseek_client=object(),
+        )
+        assert eng.can_serve("qwen3.5:0.8b") is False
+        assert eng.can_serve("totally-made-up") is False
+
+    def test_anthropic_only_serves_anthropic_models(self) -> None:
+        eng = self._engine(_anthropic_client=object())
+        assert eng.can_serve("claude-sonnet-4") is True
+        assert eng.can_serve("gpt-4o") is False
+
+    def test_deepseek_only_serves_deepseek_models(self) -> None:
+        """The DeepSeek client serves deepseek-* models (and only those)."""
+        eng = self._engine(_deepseek_client=object())
+        assert eng.can_serve("deepseek-v4-flash") is True
+        assert eng.can_serve("deepseek-v4-pro") is True
+        assert eng.can_serve("DeepSeek-V4-Pro") is True  # case-insensitive
+        assert eng.can_serve("gpt-4o") is False
+        # OpenRouter-prefixed deepseek is NOT the direct DeepSeek provider.
+        assert eng.can_serve("openrouter/deepseek/deepseek-r1") is False
+
+
+class TestCloudEngineDeepSeek:
+    """PR #504: DeepSeek as a first-class cloud provider (OpenAI-compatible)."""
+
+    def test_is_deepseek_model_predicate(self) -> None:
+        assert _is_deepseek_model("deepseek-v4-flash") is True
+        assert _is_deepseek_model("deepseek-v4-pro") is True
+        assert _is_deepseek_model("DeepSeek-V4-Pro") is True  # case-insensitive
+        assert _is_deepseek_model("gpt-4o") is False
+        # No predicate collision: openrouter/deepseek/* belongs to OpenRouter.
+        assert _is_deepseek_model("openrouter/deepseek/deepseek-r1") is False
+        assert _is_openrouter_model("openrouter/deepseek/deepseek-r1") is True
+        # And a deepseek name is not mistaken for an OpenAI model.
+        assert _is_openai_model("deepseek-v4-pro") is False
+
+    def test_pricing_entries_present(self) -> None:
+        assert estimate_cost("deepseek-v4-flash", 1_000_000, 1_000_000) == (
+            pytest.approx(1.37)  # 0.27 + 1.10
+        )
+        assert estimate_cost("deepseek-v4-pro", 1_000_000, 1_000_000) == (
+            pytest.approx(2.74)  # 0.55 + 2.19
+        )
+
+    def test_init_wires_deepseek_client(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """DEEPSEEK_API_KEY builds an openai client pointed at api.deepseek.com."""
+        for var in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-deepseek-test")
+
+        fake_openai = mock.MagicMock()
+        with mock.patch.dict("sys.modules", {"openai": fake_openai}):
+            EngineRegistry.register_value("cloud", CloudEngine)
+            engine = CloudEngine()
+
+        fake_openai.OpenAI.assert_any_call(
+            base_url="https://api.deepseek.com/v1",
+            api_key="sk-deepseek-test",
+        )
+        assert engine._deepseek_client is not None
+
+    def test_health_and_list_models_gated_on_deepseek_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        for var in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-deepseek-test")
+
+        fake_openai = mock.MagicMock()
+        with mock.patch.dict("sys.modules", {"openai": fake_openai}):
+            EngineRegistry.register_value("cloud", CloudEngine)
+            engine = CloudEngine()
+
+        assert engine.health() is True
+        models = engine.list_models()
+        assert "deepseek-v4-flash" in models
+        assert "deepseek-v4-pro" in models
+        # can_serve must agree with list_models (regression for the missing
+        # _client_for_model deepseek branch flagged by the #504 verifier).
+        assert engine.can_serve("deepseek-v4-pro") is True
+        assert engine.can_serve("deepseek-v4-flash") is True
+
+    def test_generate_routes_to_deepseek_client(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        for var in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY"):
+            monkeypatch.delenv(var, raising=False)
+
+        fake_usage = SimpleNamespace(
+            prompt_tokens=7, completion_tokens=3, total_tokens=10
+        )
+        fake_choice = SimpleNamespace(
+            message=SimpleNamespace(content="ds-hello"),
+            finish_reason="stop",
+        )
+        fake_resp = SimpleNamespace(
+            choices=[fake_choice], usage=fake_usage, model="deepseek-v4-pro"
+        )
+        fake_client = mock.MagicMock()
+        fake_client.chat.completions.create.return_value = fake_resp
+
+        EngineRegistry.register_value("cloud", CloudEngine)
+        engine = CloudEngine()
+        engine._deepseek_client = fake_client
+
+        result = engine.generate(
+            [Message(role=Role.USER, content="Hi")], model="deepseek-v4-pro"
+        )
+        assert result["content"] == "ds-hello"
+        assert result["usage"]["prompt_tokens"] == 7
+        # Routed to the DeepSeek client, not OpenAI.
+        fake_client.chat.completions.create.assert_called_once()
+
+    def test_generate_without_client_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        for var in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY"):
+            monkeypatch.delenv(var, raising=False)
+        EngineRegistry.register_value("cloud", CloudEngine)
+        engine = CloudEngine()
+        assert engine._deepseek_client is None
+        with pytest.raises(EngineConnectionError):
+            engine.generate(
+                [Message(role=Role.USER, content="Hi")], model="deepseek-v4-pro"
+            )

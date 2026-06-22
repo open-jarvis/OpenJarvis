@@ -79,10 +79,14 @@ class TestWireChannelWithAgent:
 
         system.ask.assert_called_once()
         assert system.ask.call_args[0][0] == "ping"
+        # Canonical send contract (#515/#516): the destination is the real
+        # per-adapter id (carried in ChannelMessage.conversation_id), not the
+        # channel TYPE label, and the conversation_id kwarg is the inbound
+        # message id used as a reply reference, not the channel id.
         mock_channel.send.assert_called_once_with(
-            "telegram",
+            "42",
             "pong",
-            conversation_id="42",
+            conversation_id="1",
         )
 
     def test_session_store_created_lazily(self, tmp_path):
@@ -126,11 +130,99 @@ class TestWireChannelWithEngine:
         handler = mock_channel.on_message.call_args[0][0]
         handler(_make_channel_message(content="hi"))
 
+        # Canonical send contract (#515/#516): destination = real channel id
+        # (from ChannelMessage.conversation_id), reply ref = inbound message id.
         mock_channel.send.assert_called_once_with(
-            "telegram",
+            "42",
             "raw reply",
-            conversation_id="42",
+            conversation_id="1",
         )
+
+
+class TestWireChannelCanonicalContract:
+    """Regression for #515/#516 — wire_channel must dispatch the canonical
+    send contract so each adapter receives the right destination/reply ids,
+    regardless of the channel TYPE label.
+    """
+
+    def test_discord_uses_real_channel_id_not_type_label(self, tmp_path):
+        """A Discord ChannelMessage (channel="discord" TYPE label,
+        conversation_id=<numeric channel id>, message_id=<numeric msg id>)
+        must reply to the numeric channel id, with the message id as the
+        reply reference — never "discord" as destination (#515) and never the
+        channel id as the message reference (#516).
+        """
+        system = _make_system(tmp_path=tmp_path)
+        system.ask = MagicMock(return_value={"content": "pong"})
+
+        mock_channel = MagicMock()
+        system.wire_channel(mock_channel)
+        handler = mock_channel.on_message.call_args[0][0]
+
+        cm = ChannelMessage(
+            channel="discord",
+            sender="user-1",
+            content="hello",
+            message_id="111122223333444455",
+            conversation_id="987654321098765432",
+        )
+        handler(cm)
+
+        args, kwargs = mock_channel.send.call_args
+        # Destination is the real Discord channel id, NOT the type label.
+        assert args[0] == "987654321098765432"
+        assert args[0] != "discord"
+        # Reply reference is the inbound message id, NOT the channel id.
+        assert kwargs["conversation_id"] == "111122223333444455"
+        assert kwargs["conversation_id"] != "987654321098765432"
+
+    def test_telegram_uses_chat_id_and_message_id(self, tmp_path):
+        """Telegram must keep working under the unified contract: destination
+        is the chat id (conversation_id), reply ref is the message id."""
+        system = _make_system(tmp_path=tmp_path)
+        system.ask = MagicMock(return_value={"content": "pong"})
+
+        mock_channel = MagicMock()
+        system.wire_channel(mock_channel)
+        handler = mock_channel.on_message.call_args[0][0]
+
+        cm = ChannelMessage(
+            channel="telegram",
+            sender="42",
+            content="ping",
+            message_id="55",
+            conversation_id="12345678",
+        )
+        handler(cm)
+
+        mock_channel.send.assert_called_once_with(
+            "12345678",
+            "pong",
+            conversation_id="55",
+        )
+
+    def test_session_key_still_uses_conversation_id(self, tmp_path):
+        """The fix must not change session isolation keying, which still uses
+        ``<channel>:<conversation_id>``."""
+        system = _make_system(tmp_path=tmp_path)
+        system.ask = MagicMock(return_value={"content": "ok"})
+
+        mock_channel = MagicMock()
+        system.wire_channel(mock_channel)
+        handler = mock_channel.on_message.call_args[0][0]
+
+        cm = ChannelMessage(
+            channel="discord",
+            sender="u1",
+            content="hi",
+            message_id="msg-9",
+            conversation_id="chan-7",
+        )
+        handler(cm)
+
+        # Session was created under the channel:conversation_id key.
+        session = system.session_store.get_or_create("discord:chan-7")
+        assert any(m.content == "hi" for m in session.messages)
 
 
 class TestWireChannelSessionIsolation:

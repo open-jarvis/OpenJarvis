@@ -73,12 +73,19 @@ WEB_SEARCH_COST_PER_CALL = 0.01
 # $0.01/call number — kept as a separate constant so it can drift.
 OPENAI_WEB_SEARCH_COST_PER_CALL = 0.01
 
-# Gemini Google-Search grounding: billed at $35 per 1000 grounded
-# *requests* (2025-12 public list price for the Grounding-with-Google-Search
-# tool, charged once per request that uses the tool regardless of how many
-# internal queries it issues). We charge per grounded request, not per
-# `web_search_queries` entry.
-GEMINI_SEARCH_COST_PER_CALL = 0.035
+# Gemini 3 Google-Search grounding: billed at $14 per 1000 search queries.
+# `_call_gemini_agent` reports the model's `web_search_queries`, so this is
+# charged per query, not per outer generate_content request.
+GEMINI_SEARCH_COST_PER_CALL = 0.014
+
+# Tavily Search, advanced depth: 2 API credits per search request at $0.008
+# per credit on the public pay-as-you-go plan. WebSearchTool captures actual
+# credits when Tavily returns usage metadata; this is the fallback estimate.
+TAVILY_SEARCH_COST_PER_CREDIT = 0.008
+TAVILY_ADVANCED_SEARCH_CREDITS = 2
+TAVILY_SEARCH_COST_PER_CALL = (
+    TAVILY_SEARCH_COST_PER_CREDIT * TAVILY_ADVANCED_SEARCH_CREDITS
+)
 
 ANTHROPIC_WEB_SEARCH_TOOL = {
     "type": "web_search_20250305",
@@ -98,6 +105,40 @@ def build_web_search_tool(max_uses: int = 8) -> Dict[str, Any]:
         "type": "web_search_20250305",
         "name": "web_search",
         "max_uses": int(max_uses),
+    }
+
+
+def tavily_search_context(
+    query: str,
+    *,
+    max_results: int = 5,
+) -> Dict[str, Any]:
+    """Run OpenJarvis WebSearchTool and return accounting-friendly metadata."""
+    from openjarvis.tools.web_search import WebSearchTool
+
+    tool = WebSearchTool(max_results=max_results)
+    res = tool.execute(query=query, max_results=max_results)
+    meta = dict(res.metadata or {})
+    engine = str(meta.get("engine") or "unknown")
+    credits = 0
+    cost_usd = 0.0
+    if engine == "tavily":
+        try:
+            credits = int(meta.get("credits") or TAVILY_ADVANCED_SEARCH_CREDITS)
+        except (TypeError, ValueError):
+            credits = TAVILY_ADVANCED_SEARCH_CREDITS
+        cost_usd = credits * TAVILY_SEARCH_COST_PER_CREDIT
+    text = res.content or ""
+    if not res.success and not text:
+        text = "(no search results)"
+    return {
+        "text": text,
+        "success": bool(res.success),
+        "engine": engine,
+        "credits": credits,
+        "cost_usd": cost_usd,
+        "n_searches": 1 if (query or "").strip() else 0,
+        "error": None if res.success else text,
     }
 
 
@@ -1322,6 +1363,9 @@ __all__ = [
     "LocalCloudAgent",
     "NO_TEMP_PREFIXES",
     "OPENAI_WEB_SEARCH_COST_PER_CALL",
+    "TAVILY_ADVANCED_SEARCH_CREDITS",
+    "TAVILY_SEARCH_COST_PER_CALL",
+    "TAVILY_SEARCH_COST_PER_CREDIT",
     "WEB_SEARCH_COST_PER_CALL",
     "_bump_cloud_calls",
     "_bump_local_calls",
@@ -1329,5 +1373,6 @@ __all__ = [
     "estimate_cost",
     "is_gpt5_family",
     "supports_temperature",
+    "tavily_search_context",
     "web_search_cfg",
 ]
