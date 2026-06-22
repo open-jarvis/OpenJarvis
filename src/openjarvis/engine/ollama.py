@@ -22,6 +22,49 @@ from openjarvis.engine._stubs import StreamChunk
 
 logger = logging.getLogger(__name__)
 
+# Qwen3 treats ``/think`` and ``/no_think`` as soft-switch control tokens that
+# toggle reasoning mode. Small models (e.g. qwen3:14b) fed a multi-line prompt
+# sometimes emit one of these as the sole tool argument, e.g.
+# ``{"command": "/no_think"}`` instead of the real command. Ollama parses that
+# into a fully-formed tool_call via the model's chat template, so we have to
+# drop it on our side before the agent executes garbage.
+_QWEN_CONTROL_TOKENS = frozenset({"/think", "/no_think"})
+
+
+def _is_control_token_only_args(raw_args: Any) -> bool:
+    """Return True if tool-call arguments contain nothing but a Qwen3 token.
+
+    ``raw_args`` may be a dict (Ollama's native shape) or a JSON / bare string.
+    A call is considered degenerate only when it carries at least one control
+    token and no other usable content, so legitimate calls such as
+    ``{"command": "date"}`` or ``{"command": "echo /no_think"}`` are kept.
+    """
+    parsed: Any = raw_args
+    if isinstance(raw_args, str):
+        try:
+            parsed = json.loads(raw_args)
+        except (json.JSONDecodeError, TypeError):
+            parsed = raw_args
+
+    if isinstance(parsed, str):
+        return parsed.strip().lower() in _QWEN_CONTROL_TOKENS
+
+    if not isinstance(parsed, dict) or not parsed:
+        return False
+
+    saw_token = False
+    for value in parsed.values():
+        if not isinstance(value, str):
+            return False  # a non-string value is real content
+        stripped = value.strip()
+        if not stripped:
+            continue
+        if stripped.lower() in _QWEN_CONTROL_TOKENS:
+            saw_token = True
+        else:
+            return False  # real string content
+    return saw_token
+
 
 def _default_num_ctx() -> int:
     """Default context window (tokens). Override with ``JARVIS_NUM_CTX``.
@@ -168,14 +211,19 @@ class OllamaEngine(InferenceEngine):
         if raw_tool_calls:
             tool_calls = []
             for i, tc in enumerate(raw_tool_calls):
-                raw_args = tc.get("function", {}).get(
-                    "arguments",
-                    "{}",
-                )
+                fn = tc.get("function", {})
+                raw_args = fn.get("arguments", "{}")
+                if _is_control_token_only_args(raw_args):
+                    logger.warning(
+                        "Dropping Qwen3 control-token tool call %s(%r)",
+                        fn.get("name", ""),
+                        raw_args,
+                    )
+                    continue
                 tool_calls.append(
                     {
                         "id": tc.get("id", f"call_{i}"),
-                        "name": tc.get("function", {}).get("name", ""),
+                        "name": fn.get("name", ""),
                         "arguments": (
                             json.dumps(raw_args)
                             if isinstance(raw_args, dict)
@@ -183,7 +231,8 @@ class OllamaEngine(InferenceEngine):
                         ),
                     }
                 )
-            result["tool_calls"] = tool_calls
+            if tool_calls:
+                result["tool_calls"] = tool_calls
         return result
 
     async def stream(
@@ -340,14 +389,22 @@ class OllamaEngine(InferenceEngine):
                         # OpenAI-delta fragment shape that agent_manager_routes
                         # expects in _merge_tool_call_fragments.
                         fragments: List[Dict[str, Any]] = []
-                        for i, tc in enumerate(raw_tool_calls):
+                        for tc in raw_tool_calls:
                             fn = tc.get("function", {}) or {}
                             raw_args = fn.get("arguments", "{}")
+                            if _is_control_token_only_args(raw_args):
+                                logger.warning(
+                                    "Dropping Qwen3 control-token tool call %s(%r)",
+                                    fn.get("name", ""),
+                                    raw_args,
+                                )
+                                continue
                             args_str = (
                                 json.dumps(raw_args)
                                 if isinstance(raw_args, dict)
                                 else str(raw_args)
                             )
+                            i = len(fragments)
                             fragments.append(
                                 {
                                     "index": i,
@@ -359,8 +416,9 @@ class OllamaEngine(InferenceEngine):
                                     },
                                 }
                             )
-                        yield StreamChunk(tool_calls=fragments)
-                        finish_reason = "tool_calls"
+                        if fragments:
+                            yield StreamChunk(tool_calls=fragments)
+                            finish_reason = "tool_calls"
 
                     if chunk.get("done", False):
                         reported_prompt = chunk.get("prompt_eval_count", 0)
