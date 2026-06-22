@@ -74,6 +74,68 @@ def client_with_agent():
 # ---------------------------------------------------------------------------
 
 
+class _SpyMemoryService:
+    """Minimal stand-in capturing memory submissions."""
+
+    def __init__(self) -> None:
+        self.submissions: list[tuple[str, str]] = []
+
+    def submit(self, user_text: str, assistant_text: str = "") -> bool:
+        self.submissions.append((user_text, assistant_text))
+        return True
+
+    def stop(self, timeout: float = 2.0) -> None:
+        pass
+
+
+class TestMemoryServiceWiring:
+    def test_non_streaming_completion_feeds_memory(self):
+        engine = _make_engine(content="remembered reply")
+        spy = _SpyMemoryService()
+        app = create_app(engine, "test-model", memory_service=spy)
+        client = TestClient(app)
+
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "I like jazz"}],
+            },
+        )
+        assert resp.status_code == 200
+        assert spy.submissions == [("I like jazz", "remembered reply")]
+
+    def test_agent_completion_feeds_memory(self):
+        engine = _make_engine()
+        agent = _make_agent(content="agent reply")
+        spy = _SpyMemoryService()
+        app = create_app(engine, "test-model", agent=agent, memory_service=spy)
+        client = TestClient(app)
+
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "remember this"}],
+            },
+        )
+        assert resp.status_code == 200
+        assert spy.submissions == [("remember this", "agent reply")]
+
+    def test_no_memory_service_is_noop(self):
+        engine = _make_engine()
+        app = create_app(engine, "test-model")  # memory_service defaults to None
+        client = TestClient(app)
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+        )
+        assert resp.status_code == 200
+
+
 class TestChatCompletions:
     def test_basic_completion(self, client):
         resp = client.post(

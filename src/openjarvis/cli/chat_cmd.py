@@ -146,6 +146,19 @@ def chat(
 
     _notifications = NotificationDispatcher(get_status())
 
+    # Automatic long-term memory — extracts durable facts in the background.
+    memory_service = None
+    try:
+        from openjarvis.memory import build_memory_service
+
+        memory_service = build_memory_service(config, engine, model)
+        if memory_service is not None:
+            memory_service.start()
+            console.print("[dim]  Memory: active[/dim]")
+    except Exception as exc:
+        console.print(f"[yellow]Memory service unavailable: {exc}[/yellow]")
+        memory_service = None
+
     # Conversation state
     history: List[Message] = []
     if system_prompt:
@@ -223,10 +236,17 @@ def chat(
             console.print()
             console.print(Markdown(content))
             console.print()
+
+            # Hand the exchange to the memory service (non-blocking).
+            if memory_service is not None:
+                memory_service.submit(user_input, content)
         except KeyboardInterrupt:
             console.print("\n[dim]Generation interrupted.[/dim]")
         except Exception as exc:
             console.print(f"\n[red]Error: {exc}[/red]\n")
+
+    if memory_service is not None:
+        memory_service.stop()
 
 
 __all__ = ["chat"]

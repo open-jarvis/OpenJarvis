@@ -891,7 +891,13 @@ class LearningConfig:
 
 @dataclass(slots=True)
 class StorageConfig:
-    """Storage (memory) backend settings."""
+    """Storage (memory) backend settings.
+
+    Covers both the retrieval/document store (``default_backend``, ``db_path``,
+    chunking, context injection) and the automatic long-term memory service
+    (``enabled``, ``backend``, ``extraction_model``, ``max_facts``,
+    ``facts_path``) configured under ``[memory]`` in ``config.toml``.
+    """
 
     default_backend: str = "sqlite"
     db_path: str = str(DEFAULT_CONFIG_DIR / "memory.db")
@@ -900,6 +906,14 @@ class StorageConfig:
     context_max_tokens: int = 2048
     chunk_size: int = 512
     chunk_overlap: int = 64
+
+    # Automatic memory service — extracts durable facts from conversations in
+    # the background and persists them across sessions (see openjarvis.memory).
+    enabled: bool = False  # start the memory service with serve/chat
+    backend: str = "local"  # fact-store backend ("local" = on-disk JSONL)
+    extraction_model: str = ""  # model for fact extraction ("" = active model)
+    max_facts: int = 1000  # cap on stored facts (oldest evicted past the cap)
+    facts_path: str = str(DEFAULT_CONFIG_DIR / "memory_facts.jsonl")
 
 
 # Backward-compatibility alias
@@ -1971,6 +1985,15 @@ context_from_memory = true
 
 [tools.storage]
 default_backend = "sqlite"
+
+# Automatic long-term memory: extracts durable facts from conversations in the
+# background and persists them. Starts/stops with `jarvis serve` and
+# `jarvis chat`; manage stored facts with `jarvis memory list` / `clear`.
+[memory]
+enabled = false               # set true to enable the memory service
+backend = "local"             # fact-store backend (local = on-disk JSONL)
+extraction_model = ""         # model for fact extraction ("" = active model)
+max_facts = 1000              # cap on stored facts
 
 [tools.mcp]
 enabled = true

@@ -120,6 +120,54 @@ class TestChatAgents:
         assert "simple ok" in result.output
         assert "failed" not in result.output.lower()
 
+    def test_memory_service_started_fed_and_stopped(self) -> None:
+        """The REPL starts the memory service, submits each turn, and stops it."""
+
+        class _SpyMemoryService:
+            def __init__(self) -> None:
+                self.started = False
+                self.stopped = False
+                self.submissions: list[tuple[str, str]] = []
+
+            def start(self) -> None:
+                self.started = True
+
+            def submit(self, user_text: str, assistant_text: str = "") -> bool:
+                self.submissions.append((user_text, assistant_text))
+                return True
+
+            def stop(self, timeout: float = 2.0) -> None:
+                self.stopped = True
+
+        spy = _SpyMemoryService()
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.generate.return_value = {"content": "engine fallback"}
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        AgentRegistry.register_value("simple_chat_agent", _SimpleChatAgent)
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.memory.build_memory_service",
+                return_value=spy,
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--agent", "simple_chat_agent", "--model", "test-model"],
+                input="hello\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert spy.started is True
+        assert spy.stopped is True
+        assert spy.submissions == [("hello", "simple ok")]
+
     def test_tool_agent_uses_legacy_agent_tools_and_prompts_confirmation(self) -> None:
         engine = MagicMock()
         engine.engine_id = "mock"

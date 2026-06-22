@@ -176,7 +176,7 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
     # the agent to execute them), add an explicit opt-in header rather
     # than removing this guard — silent re-routing is what produced #414.
     if agent is not None and not request_body.tools:
-        return _handle_agent(
+        response = _handle_agent(
             agent,
             model,
             request_body,
@@ -184,15 +184,40 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
             trace_store=getattr(request.app.state, "trace_store", None),
             bus=getattr(request.app.state, "bus", None),
         )
+    else:
+        bus = getattr(request.app.state, "bus", None)
+        response = _handle_direct(
+            engine,
+            model,
+            request_body,
+            bus=bus,
+            complexity_info=complexity_info,
+        )
 
-    bus = getattr(request.app.state, "bus", None)
-    return _handle_direct(
-        engine,
-        model,
-        request_body,
-        bus=bus,
-        complexity_info=complexity_info,
+    # Hand the completed exchange to the background memory service.
+    _remember_exchange(
+        getattr(request.app.state, "memory_service", None),
+        query_text_for_complexity,
+        response,
     )
+    return response
+
+
+def _remember_exchange(memory_service, user_text: str, response) -> None:
+    """Submit a completed exchange to the memory service (non-blocking)."""
+    if memory_service is None or not user_text:
+        return
+    try:
+        content = ""
+        choices = getattr(response, "choices", None)
+        if choices:
+            content = getattr(choices[0].message, "content", "") or ""
+        memory_service.submit(user_text, content)
+    except Exception:  # noqa: BLE001 — memory is best-effort, never fail a reply
+        logging.getLogger("openjarvis.server").debug(
+            "Memory submit failed",
+            exc_info=True,
+        )
 
 
 def _handle_direct(

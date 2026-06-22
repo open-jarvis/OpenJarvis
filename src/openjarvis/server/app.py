@@ -151,6 +151,7 @@ def create_app(
     channel_bridge=None,
     config=None,
     memory_backend=None,
+    memory_service=None,
     speech_backend=None,
     agent_manager=None,
     agent_scheduler=None,
@@ -221,6 +222,7 @@ def create_app(
     app.state.channel_bridge = channel_bridge
     app.state.config = config
     app.state.memory_backend = memory_backend
+    app.state.memory_service = memory_service
     app.state.speech_backend = speech_backend
     app.state.agent_manager = agent_manager
     app.state.agent_scheduler = agent_scheduler
@@ -291,6 +293,18 @@ def create_app(
                         pass
     except Exception as _exc:
         logger.debug("Analytics init skipped: %s", _exc)
+
+    # Stop the background memory service cleanly when the server shuts down.
+    if memory_service is not None:
+
+        @app.on_event("shutdown")
+        async def _shutdown_memory_service() -> None:
+            svc = getattr(app.state, "memory_service", None)
+            if svc is not None:
+                try:
+                    svc.stop()
+                except Exception:
+                    pass
 
     app.include_router(router)
     app.include_router(dashboard_router)

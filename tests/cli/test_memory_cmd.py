@@ -9,6 +9,7 @@ from click.testing import CliRunner
 
 from openjarvis.cli import cli
 from openjarvis.core.registry import MemoryRegistry
+from openjarvis.memory.store import LocalFactStore
 from openjarvis.tools.storage.sqlite import SQLiteMemory
 
 
@@ -108,3 +109,67 @@ def test_memory_stats_shows_count(tmp_path: Path, monkeypatch):
     assert result.exit_code == 0
     assert "2" in result.output
     backend.close()
+
+
+def _patch_fact_store(monkeypatch, tmp_path: Path) -> LocalFactStore:
+    """Point ``jarvis memory list/clear`` at a temp fact store."""
+    mod = importlib.import_module("openjarvis.cli.memory_cmd")
+    store = LocalFactStore(tmp_path / "facts.jsonl")
+    monkeypatch.setattr(mod, "_get_fact_store", lambda: store)
+    return store
+
+
+def test_memory_list_empty(tmp_path: Path, monkeypatch):
+    _patch_fact_store(monkeypatch, tmp_path)
+    result = CliRunner().invoke(cli, ["memory", "list"])
+    assert result.exit_code == 0
+    assert "No memory facts" in result.output
+
+
+def test_memory_list_shows_facts(tmp_path: Path, monkeypatch):
+    store = _patch_fact_store(monkeypatch, tmp_path)
+    store.add("User prefers dark mode")
+    store.add("User lives in Berlin")
+
+    result = CliRunner().invoke(cli, ["memory", "list"])
+    assert result.exit_code == 0
+    assert "dark mode" in result.output
+    assert "Berlin" in result.output
+
+
+def test_memory_clear_with_confirmation(tmp_path: Path, monkeypatch):
+    store = _patch_fact_store(monkeypatch, tmp_path)
+    store.add("fact one")
+    store.add("fact two")
+
+    result = CliRunner().invoke(cli, ["memory", "clear"], input="y\n")
+    assert result.exit_code == 0
+    assert "Cleared 2" in result.output
+    assert store.count() == 0
+
+
+def test_memory_clear_aborted(tmp_path: Path, monkeypatch):
+    store = _patch_fact_store(monkeypatch, tmp_path)
+    store.add("keep me")
+
+    result = CliRunner().invoke(cli, ["memory", "clear"], input="n\n")
+    assert result.exit_code == 0
+    assert "Aborted" in result.output
+    assert store.count() == 1
+
+
+def test_memory_clear_yes_flag(tmp_path: Path, monkeypatch):
+    store = _patch_fact_store(monkeypatch, tmp_path)
+    store.add("fact")
+
+    result = CliRunner().invoke(cli, ["memory", "clear", "--yes"])
+    assert result.exit_code == 0
+    assert "Cleared 1" in result.output
+    assert store.count() == 0
+
+
+def test_memory_clear_empty(tmp_path: Path, monkeypatch):
+    _patch_fact_store(monkeypatch, tmp_path)
+    result = CliRunner().invoke(cli, ["memory", "clear"])
+    assert result.exit_code == 0
+    assert "No memory facts to clear" in result.output
