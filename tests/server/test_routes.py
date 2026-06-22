@@ -790,8 +790,25 @@ class TestCreateApp:
 # ---------------------------------------------------------------------------
 
 
+def _traces_enabled_config(tmp_path):
+    """A config with traces explicitly enabled, isolated to *tmp_path*.
+
+    ``create_app`` only builds a trace store when ``config.traces.enabled`` is
+    true (server/app.py). Relying on the ambient ``load_config()`` made these
+    tests fail on any machine whose ``~/.openjarvis/config.toml`` disables
+    traces; pinning an explicit config + tmp db keeps them hermetic and
+    parallel-safe under ``pytest -n auto``.
+    """
+    from openjarvis.core.config import JarvisConfig
+
+    cfg = JarvisConfig()
+    cfg.traces.enabled = True
+    cfg.traces.db_path = str(tmp_path / "traces.db")
+    return cfg
+
+
 class TestTraceRecording:
-    def test_agent_completion_creates_trace(self):
+    def test_agent_completion_creates_trace(self, tmp_path):
         """A non-streaming agent completion records exactly one trace.
 
         The collector is the single writer: it saves directly and also
@@ -810,9 +827,10 @@ class TestTraceRecording:
             "test-model",
             agent=agent,
             bus=EventBus(record_history=False),
+            config=_traces_enabled_config(tmp_path),
         )
         store = app.state.trace_store
-        assert store is not None, "traces enabled by default → store should exist"
+        assert store is not None, "traces explicitly enabled → store should exist"
         assert store.count() == 0
 
         client = TestClient(app)
@@ -831,10 +849,10 @@ class TestTraceRecording:
         assert trace.query == "What is 2+2?"
         assert trace.result == "traced reply"
 
-    def test_streaming_completion_creates_trace(self):
+    def test_streaming_completion_creates_trace(self, tmp_path):
         """A streamed completion (no agent) records the assembled response."""
         engine = _make_engine()
-        app = create_app(engine, "test-model")
+        app = create_app(engine, "test-model", config=_traces_enabled_config(tmp_path))
         store = app.state.trace_store
         assert store is not None
         assert store.count() == 0
