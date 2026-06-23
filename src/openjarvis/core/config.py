@@ -367,21 +367,21 @@ class OllamaEngineConfig:
 class VLLMEngineConfig:
     """Per-engine config for vLLM."""
 
-    host: str = "http://localhost:8000"
+    host: str = "http://127.0.0.1:8000"
 
 
 @dataclass(slots=True)
 class SGLangEngineConfig:
     """Per-engine config for SGLang."""
 
-    host: str = "http://localhost:30000"
+    host: str = "http://127.0.0.1:30000"
 
 
 @dataclass(slots=True)
 class LlamaCppEngineConfig:
     """Per-engine config for llama.cpp."""
 
-    host: str = "http://localhost:8080"
+    host: str = "http://127.0.0.1:8080"
     binary_path: str = ""
 
 
@@ -389,28 +389,28 @@ class LlamaCppEngineConfig:
 class MLXEngineConfig:
     """Per-engine config for MLX."""
 
-    host: str = "http://localhost:8080"
+    host: str = "http://127.0.0.1:8080"
 
 
 @dataclass(slots=True)
 class LMStudioEngineConfig:
     """Per-engine config for LM Studio."""
 
-    host: str = "http://localhost:1234"
+    host: str = "http://127.0.0.1:1234"
 
 
 @dataclass(slots=True)
 class ExoEngineConfig:
     """Per-engine config for Exo."""
 
-    host: str = "http://localhost:52415"
+    host: str = "http://127.0.0.1:52415"
 
 
 @dataclass(slots=True)
 class NexaEngineConfig:
     """Per-engine config for Nexa."""
 
-    host: str = "http://localhost:18181"
+    host: str = "http://127.0.0.1:18181"
     device: str = ""
 
 
@@ -418,14 +418,14 @@ class NexaEngineConfig:
 class UzuEngineConfig:
     """Per-engine config for Uzu."""
 
-    host: str = "http://localhost:8000"
+    host: str = "http://127.0.0.1:8000"
 
 
 @dataclass(slots=True)
 class AppleFmEngineConfig:
     """Per-engine config for Apple Foundation Models."""
 
-    host: str = "http://localhost:8079"
+    host: str = "http://127.0.0.1:8079"
 
 
 @dataclass(slots=True)
@@ -442,7 +442,7 @@ class GemmaCppEngineConfig:
 class LemonadeEngineConfig:
     """Per-engine config for Lemonade."""
 
-    host: str = "http://localhost:13305"
+    host: str = "http://127.0.0.1:13305"
 
 
 @dataclass
@@ -1912,7 +1912,7 @@ def generate_minimal_toml(
     else:
         engine_host_section = (
             f"\n[engine.{engine}]\n"
-            f'# host = "http://localhost:11434"  '
+            f'# host = "http://127.0.0.1:11434"  '
             f"# set to remote URL if engine runs elsewhere\n"
         )
     return f"""\
@@ -1959,36 +1959,36 @@ def generate_default_toml(
 default = "{engine}"
 
 [engine.ollama]
-host = "http://localhost:11434"
+host = "http://127.0.0.1:11434"
 
 [engine.vllm]
-host = "http://localhost:8000"
+host = "http://127.0.0.1:8000"
 
 [engine.sglang]
-host = "http://localhost:30000"
+host = "http://127.0.0.1:30000"
 
 # [engine.llamacpp]
-# host = "http://localhost:8080"
+# host = "http://127.0.0.1:8080"
 # binary_path = ""
 
 [engine.mlx]
-host = "http://localhost:8080"
+host = "http://127.0.0.1:8080"
 
 # [engine.lmstudio]
-# host = "http://localhost:1234"
+# host = "http://127.0.0.1:1234"
 
 # [engine.exo]
-# host = "http://localhost:52415"
+# host = "http://127.0.0.1:52415"
 
 # [engine.nexa]
-# host = "http://localhost:18181"
+# host = "http://127.0.0.1:18181"
 # device = ""  # cpu, gpu, npu
 
 # [engine.uzu]
-# host = "http://localhost:8080"
+# host = "http://127.0.0.1:8080"
 
 # [engine.apple_fm]
-# host = "http://localhost:8079"
+# host = "http://127.0.0.1:8079"
 
 [intelligence]
 default_model = "{model}"{model_comment}

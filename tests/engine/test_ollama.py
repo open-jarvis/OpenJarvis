@@ -20,6 +20,11 @@ def engine() -> OllamaEngine:
     return OllamaEngine(host="http://testhost:11434")
 
 
+class TestOllamaDefaults:
+    def test_default_host(self) -> None:
+        assert OllamaEngine._DEFAULT_HOST == "http://127.0.0.1:11434"
+
+
 class TestOllamaGenerate:
     def test_generate_returns_content(self, engine: OllamaEngine) -> None:
         with respx.mock:

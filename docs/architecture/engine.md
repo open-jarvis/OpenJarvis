@@ -126,7 +126,7 @@ All providers produce the same output format consumed by agents:
 
 The Ollama backend communicates via Ollama's native HTTP API at `/api/chat` and `/api/tags`. It is the default engine on Apple Silicon and consumer NVIDIA GPUs.
 
-- **Default host:** `http://localhost:11434`
+- **Default host:** `http://127.0.0.1:11434`
 - **Health check:** `GET /api/tags`
 - **Model listing:** `GET /api/tags` (extracts model names)
 - **Tool support:** Passes `tools` in the request payload and extracts `tool_calls` from responses
@@ -135,7 +135,7 @@ The Ollama backend communicates via Ollama's native HTTP API at `/api/chat` and 
 
 The vLLM backend uses the OpenAI-compatible `/v1/chat/completions` API. It is recommended for datacenter GPUs (NVIDIA A100, H100, L40, A10, A30 and AMD MI300, MI325, MI350, MI355).
 
-- **Default host:** `http://localhost:13305`
+- **Default host:** `http://127.0.0.1:13305`
 - **Health check:** `GET /v1/models`
 - **Tool fallback:** If the server returns HTTP 400 when tools are included, the engine automatically retries without tools
 
@@ -143,14 +143,14 @@ The vLLM backend uses the OpenAI-compatible `/v1/chat/completions` API. It is re
 
 The SGLang backend also uses the OpenAI-compatible API. It shares the same `_OpenAICompatibleEngine` base class as vLLM and llama.cpp.
 
-- **Default host:** `http://localhost:30000`
+- **Default host:** `http://127.0.0.1:30000`
 - **Health check:** `GET /v1/models`
 
 ### llama.cpp
 
 The llama.cpp backend connects to a `llama-server` instance via the OpenAI-compatible API. It is recommended for CPU-only systems and GGUF-quantized models.
 
-- **Default host:** `http://localhost:8080`
+- **Default host:** `http://127.0.0.1:8080`
 - **Health check:** `GET /v1/models`
 
 ### Cloud
@@ -170,7 +170,7 @@ The Cloud backend provides access to OpenAI, Anthropic, and Google models via th
 
 The MLX backend serves models via the MLX framework on Apple Silicon. It uses the OpenAI-compatible `/v1/chat/completions` API.
 
-- **Default host:** `http://localhost:8080`
+- **Default host:** `http://127.0.0.1:8080`
 - **Health check:** `GET /v1/models`
 - **Best for:** Apple Silicon Macs (M1/M2/M3/M4) running MLX-format or GGUF models natively
 
@@ -178,7 +178,7 @@ The MLX backend serves models via the MLX framework on Apple Silicon. It uses th
 
 The LM Studio backend connects to the LM Studio desktop application's built-in server, which exposes an OpenAI-compatible API.
 
-- **Default host:** `http://localhost:1234`
+- **Default host:** `http://127.0.0.1:1234`
 - **Health check:** `GET /v1/models`
 - **Best for:** Users who prefer a GUI for model management and want a zero-configuration local server
 
@@ -186,7 +186,7 @@ The LM Studio backend connects to the LM Studio desktop application's built-in s
 
 The Exo backend connects to the Exo distributed inference runtime, which partitions model layers across multiple heterogeneous devices (e.g., a Mac and a Linux box). Exo supports Apple Silicon, NVIDIA, and AMD GPUs.
 
-- **Default host:** `http://localhost:52415`
+- **Default host:** `http://127.0.0.1:52415`
 - **Health check:** `GET /v1/models`
 - **Install:** `pip install exo` or from source at [github.com/exo-explore/exo](https://github.com/exo-explore/exo)
 - **Best for:** Running models too large for a single device by distributing across multiple Apple Silicon or heterogeneous machines
@@ -195,7 +195,7 @@ The Exo backend connects to the Exo distributed inference runtime, which partiti
 
 The Nexa backend connects to the Nexa SDK on-device inference server via a FastAPI shim (`nexa_shim.py`). It wraps `nexaai.LLM` as an OpenAI-compatible API on port 18181.
 
-- **Default host:** `http://localhost:18181`
+- **Default host:** `http://127.0.0.1:18181`
 - **Health check:** `GET /v1/models`
 - **Install:** `pip install nexaai`
 - **Best for:** On-device inference with GGUF models on Apple Silicon or CPU
@@ -204,7 +204,7 @@ The Nexa backend connects to the Nexa SDK on-device inference server via a FastA
 
 The Lemonade backend connects to the [Lemonade](https://lemonade-server.ai/) inference server, which is optimized for AMD consumer GPUs (RDNA architecture) and Ryzen AI Neural Processing Units (NPUs). It uses the OpenAI-compatible `/v1/chat/completions` API.
 
-- **Default host:** `http://localhost:13305`
+- **Default host:** `http://127.0.0.1:13305`
 - **Health check:** `GET /v1/models`
 - **Install:** Visit [lemonade-server.ai](https://lemonade-server.ai/) for platform-specific installation instructions
 - **Best for:** Ryzen AI GPUs and NPUs, and AMD-based desktop and laptop systems
@@ -213,7 +213,7 @@ The Lemonade backend connects to the [Lemonade](https://lemonade-server.ai/) inf
 
 The Uzu backend connects to the Uzu inference runtime. Unlike other OpenAI-compatible engines, Uzu serves its API at the root path (no `/v1` prefix).
 
-- **Default host:** `http://localhost:8000`
+- **Default host:** `http://127.0.0.1:8000`
 - **API prefix:** (none — endpoints are `/chat/completions`, `/models`)
 - **Health check:** `GET /models`
 - **Best for:** Uzu-optimized inference workloads
@@ -225,7 +225,7 @@ The Apple FM backend connects to Apple's Foundation Model SDK via a FastAPI shim
 !!! note "Token counts"
     The Apple FM SDK does not expose token counts. The shim returns 0 for all token counts. Benchmark throughput and energy-per-token metrics will reflect this limitation.
 
-- **Default host:** `http://localhost:8079`
+- **Default host:** `http://127.0.0.1:8079`
 - **Health check:** `GET /v1/models`
 - **Install:** `pip install python-apple-fm-sdk`
 - **Best for:** Running Apple Foundation Models natively on Apple Silicon hardware
@@ -318,7 +318,7 @@ The `_OpenAICompatibleEngine` base class provides a shared implementation for en
 ```python
 class _OpenAICompatibleEngine(InferenceEngine):
     engine_id: str = ""
-    _default_host: str = "http://localhost:8000"
+    _default_host: str = "http://127.0.0.1:8000"
 
     def __init__(self, host: str | None = None, *, timeout: float = 120.0):
         self._host = (host or self._default_host).rstrip("/")
@@ -330,7 +330,7 @@ Key behaviors:
 - **Synchronous generation:** `POST /v1/chat/completions` with `stream=False`
 - **Streaming:** `POST /v1/chat/completions` with `stream=True`, parsing SSE `data:` lines
 - **Model listing:** `GET /v1/models`, extracting `data[].id`
-- **Health check:** `GET /v1/models` with a 2-second timeout
+- **Health check:** `GET /v1/models` with a 3-second timeout
 - **Tool call fallback:** On HTTP 400 with tools in the payload, retries without tools (handles engines that do not support function calling)
 
 ---
@@ -344,20 +344,20 @@ Engine hosts and defaults are configured in `~/.openjarvis/config.toml` using **
 default = "ollama"
 
 [engine.ollama]
-host = "http://localhost:11434"
+host = "http://127.0.0.1:11434"
 
 [engine.vllm]
-host = "http://localhost:8000"
+host = "http://127.0.0.1:8000"
 
 [engine.sglang]
-host = "http://localhost:30000"
+host = "http://127.0.0.1:30000"
 
 # [engine.llamacpp]
-# host = "http://localhost:8080"
+# host = "http://127.0.0.1:8080"
 # binary_path = ""
 
 # [engine.lemonade]
-# host = "http://localhost:13305"
+# host = "http://127.0.0.1:13305"
 ```
 
 The `EngineConfig` dataclass and its per-engine sub-dataclasses map these settings:
@@ -365,12 +365,12 @@ The `EngineConfig` dataclass and its per-engine sub-dataclasses map these settin
 | Config Class | Field | Default | Description |
 |---|---|---|---|
 | `EngineConfig` | `default` | `"ollama"` (hardware-dependent) | Preferred engine backend |
-| `OllamaEngineConfig` | `host` | `http://localhost:11434` | Ollama server URL |
-| `VLLMEngineConfig` | `host` | `http://localhost:8000` | vLLM server URL |
-| `SGLangEngineConfig` | `host` | `http://localhost:30000` | SGLang server URL |
-| `LlamaCppEngineConfig` | `host` | `http://localhost:8080` | llama.cpp server URL |
+| `OllamaEngineConfig` | `host` | `http://127.0.0.1:11434` | Ollama server URL |
+| `VLLMEngineConfig` | `host` | `http://127.0.0.1:8000` | vLLM server URL |
+| `SGLangEngineConfig` | `host` | `http://127.0.0.1:30000` | SGLang server URL |
+| `LlamaCppEngineConfig` | `host` | `http://127.0.0.1:8080` | llama.cpp server URL |
 | `LlamaCppEngineConfig` | `binary_path` | `""` | Path to llama.cpp binary (for managed mode) |
-| `LemonadeEngineConfig` | `host` | `http://localhost:13305` | Lemonade server URL |
+| `LemonadeEngineConfig` | `host` | `http://127.0.0.1:13305` | Lemonade server URL |
 
 !!! note "Backward compatibility"
     The old flat field names `ollama_host`, `vllm_host`, `llamacpp_host`, `llamacpp_path`, `sglang_host`, and `lemonade_host` under `[engine]` are still accepted as backward-compatible properties on `EngineConfig`. New configurations should use the nested sub-section format.

@@ -27,7 +27,7 @@ class TestLemonadeEngineBasics:
         assert LemonadeEngine.engine_id == "lemonade"
 
     def test_default_host(self) -> None:
-        assert LemonadeEngine._default_host == "http://localhost:13305"
+        assert LemonadeEngine._default_host == "http://127.0.0.1:13305"
 
     def test_api_prefix(self) -> None:
         assert LemonadeEngine._api_prefix == "/v1"

@@ -25,7 +25,7 @@ class _OpenAICompatibleEngine(InferenceEngine):
     """Base for engines that serve the OpenAI ``/v1/chat/completions`` API."""
 
     engine_id: str = ""
-    _default_host: str = "http://localhost:8000"
+    _default_host: str = "http://127.0.0.1:8000"
     _api_prefix: str = "/v1"
 
     def __init__(
@@ -266,7 +266,7 @@ class _OpenAICompatibleEngine(InferenceEngine):
 
     def health(self) -> bool:
         try:
-            resp = self._client.get(f"{self._api_prefix}/models", timeout=2.0)
+            resp = self._client.get(f"{self._api_prefix}/models", timeout=3.0)
             return resp.status_code == 200
         except Exception as exc:
             logger.debug(

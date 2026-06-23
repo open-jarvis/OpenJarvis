@@ -166,7 +166,7 @@ class TestOpenAICompatToolCalls:
 
 class TestOllamaToolCalls:
     def test_no_tool_calls(self, respx_mock):
-        respx_mock.post("http://localhost:11434/api/chat").mock(
+        respx_mock.post("http://127.0.0.1:11434/api/chat").mock(
             return_value=httpx.Response(
                 200,
                 json={
@@ -185,7 +185,7 @@ class TestOllamaToolCalls:
         assert "tool_calls" not in result
 
     def test_with_tool_calls(self, respx_mock):
-        respx_mock.post("http://localhost:11434/api/chat").mock(
+        respx_mock.post("http://127.0.0.1:11434/api/chat").mock(
             return_value=httpx.Response(
                 200,
                 json={
@@ -227,7 +227,7 @@ class TestOllamaToolCalls:
                 },
             )
 
-        respx_mock.post("http://localhost:11434/api/chat").mock(side_effect=capture)
+        respx_mock.post("http://127.0.0.1:11434/api/chat").mock(side_effect=capture)
         engine = OllamaEngine()
         engine.generate(
             [Message(role=Role.USER, content="Hello")],
@@ -238,7 +238,7 @@ class TestOllamaToolCalls:
 
     def test_dict_arguments_serialized_to_json(self, respx_mock):
         """Ollama returns arguments as dict — engine must serialize."""
-        respx_mock.post("http://localhost:11434/api/chat").mock(
+        respx_mock.post("http://127.0.0.1:11434/api/chat").mock(
             return_value=httpx.Response(
                 200,
                 json={
@@ -284,7 +284,7 @@ class TestOllamaToolCalls:
                 },
             )
 
-        respx_mock.post("http://localhost:11434/api/chat").mock(side_effect=capture)
+        respx_mock.post("http://127.0.0.1:11434/api/chat").mock(side_effect=capture)
         engine = OllamaEngine()
         engine.generate(
             [Message(role=Role.USER, content="Hello")],
