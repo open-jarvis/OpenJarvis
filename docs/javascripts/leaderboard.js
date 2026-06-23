@@ -1,9 +1,9 @@
 (function () {
   "use strict";
 
-  var SUPABASE_URL = "https://mtbtgpwzrbostweaanpr.supabase.co";
-  var SUPABASE_ANON_KEY =
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im10YnRncHd6cmJvc3R3ZWFhbnByIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxODk0OTQsImV4cCI6MjA4ODc2NTQ5NH0._xMlqCfljtXpwPj54H-ghxfLFO-jiq4W2WhpU8vVL1c";
+  var config = window.OPENJARVIS_LEADERBOARD_CONFIG || {};
+  var SUPABASE_URL = config.supabaseUrl || "";
+  var SUPABASE_ANON_KEY = config.supabaseAnonKey || "";
 
   var PAGE_SIZE = 50;
   var allRows = [];
