@@ -35,3 +35,9 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npm run build
+        env:
+          # vite.config/supabase.ts require this at build time. The real value
+          # comes from the repo secret; CI falls back to a placeholder so the
+          # build check passes (the leaderboard is not exercised in CI builds).
+          # Release/docs builds MUST set the secret to the real anon key.
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || 'ci-placeholder-anon-key' }}

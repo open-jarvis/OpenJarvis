@@ -854,7 +854,9 @@ async def reload_cloud_engine(request: Request):
         raw_keys = body.get("keys") if isinstance(body, dict) else None
         if isinstance(raw_keys, dict):
             submitted_keys = {
-                str(k): str(v) for k, v in raw_keys.items() if str(k).endswith("_API_KEY")
+                str(k): str(v)
+                for k, v in raw_keys.items()
+                if str(k).endswith("_API_KEY")
             }
     except Exception:
         submitted_keys = None
