@@ -1,8 +1,8 @@
 """Direct cloud API router — bypasses the engine system entirely.
 
-Reads API keys from ~/.openjarvis/cloud-keys.env at request time so
-it works even when the server was started without cloud keys in its
-environment.  Uses httpx directly so no cloud SDK packages are required.
+Reads API keys from the process environment, with a legacy
+~/.openjarvis/cloud-keys.env fallback for non-desktop/manual setups. Uses
+httpx directly so no cloud SDK packages are required.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ _LOCAL_HF_ORGS = (
 
 
 def _load_keys() -> dict[str, str]:
-    """Read cloud-keys.env from disk every call so live updates are picked up."""
+    """Read available cloud keys every call so live updates are picked up."""
     keys: dict[str, str] = {}
     # File first, then fall back to process environment
     if _CLOUD_ENV_FILE.exists():

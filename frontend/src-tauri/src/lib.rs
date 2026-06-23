@@ -1204,7 +1204,7 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
     // additions aren't accidentally stripped.
     prepare_subprocess_for_appimage(&mut cmd);
 
-    // Inject cloud API keys from ~/.openjarvis/cloud-keys.env
+    // Inject cloud API keys from secure desktop storage.
     for (key, value) in read_cloud_keys() {
         cmd.env(&key, &value);
     }
@@ -1720,17 +1720,111 @@ async fn submit_savings(
 // Cloud API key management
 // ---------------------------------------------------------------------------
 
-/// Path to the cloud keys file (~/.openjarvis/cloud-keys.env).
-fn cloud_keys_path() -> std::path::PathBuf {
+const SECURE_KEY_SERVICE: &str = "OpenJarvis Cloud Keys";
+const MANAGED_CLOUD_KEY_NAMES: &[&str] = &[
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+    "OPENROUTER_API_KEY",
+    "MINIMAX_API_KEY",
+    "TAVILY_API_KEY",
+];
+
+/// Legacy path used by older desktop builds. New saves never write here.
+fn legacy_cloud_keys_path() -> std::path::PathBuf {
     let home = home_dir();
     std::path::PathBuf::from(home)
         .join(".openjarvis")
         .join("cloud-keys.env")
 }
 
-/// Read cloud keys from disk and return as key=value pairs.
-fn read_cloud_keys() -> Vec<(String, String)> {
-    let path = cloud_keys_path();
+fn validate_cloud_key_name(key_name: &str) -> Result<(), String> {
+    let valid = !key_name.is_empty()
+        && key_name.len() <= 128
+        && key_name.ends_with("_API_KEY")
+        && key_name
+            .chars()
+            .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit() || ch == '_');
+    if valid {
+        Ok(())
+    } else {
+        Err(format!("Invalid API key name: {}", key_name))
+    }
+}
+
+fn engine_api_key_name(engine: &str) -> String {
+    let normalized: String = engine
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let trimmed = normalized.trim_matches('_');
+    let engine_name = if trimmed.is_empty() {
+        CUSTOM_FALLBACK_ENGINE.to_ascii_uppercase()
+    } else {
+        trimmed.to_string()
+    };
+    format!("{}_API_KEY", engine_name)
+}
+
+fn managed_cloud_key_names() -> Vec<String> {
+    let mut names: Vec<String> = MANAGED_CLOUD_KEY_NAMES
+        .iter()
+        .map(|name| (*name).to_string())
+        .collect();
+
+    let cfg = read_inference_config();
+    if matches!(&cfg.kind, SourceKind::Custom) {
+        let engine = cfg.engine.unwrap_or_else(|| CUSTOM_FALLBACK_ENGINE.to_string());
+        let key_name = engine_api_key_name(&engine);
+        if validate_cloud_key_name(&key_name).is_ok() {
+            names.push(key_name);
+        }
+    }
+
+    names.sort();
+    names.dedup();
+    names
+}
+
+fn secure_store_get(key_name: &str) -> Result<Option<String>, String> {
+    validate_cloud_key_name(key_name)?;
+    let entry = keyring::Entry::new(SECURE_KEY_SERVICE, key_name)
+        .map_err(|err| format!("Failed to open secure key storage for {}: {}", key_name, err))?;
+    match entry.get_password() {
+        Ok(value) => Ok(Some(value)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(err) => Err(format!("Failed to read {} from secure key storage: {}", key_name, err)),
+    }
+}
+
+fn secure_store_set(key_name: &str, key_value: &str) -> Result<(), String> {
+    validate_cloud_key_name(key_name)?;
+    let entry = keyring::Entry::new(SECURE_KEY_SERVICE, key_name)
+        .map_err(|err| format!("Failed to open secure key storage for {}: {}", key_name, err))?;
+    if key_value.is_empty() {
+        return match entry.delete_credential() {
+            Ok(()) => Ok(()),
+            Err(keyring::Error::NoEntry) => Ok(()),
+            Err(err) => Err(format!(
+                "Failed to remove {} from secure key storage: {}",
+                key_name, err
+            )),
+        };
+    }
+    entry
+        .set_password(key_value)
+        .map_err(|err| format!("Failed to save {} in secure key storage: {}", key_name, err))
+}
+
+fn read_legacy_cloud_keys() -> Vec<(String, String)> {
+    let path = legacy_cloud_keys_path();
     let mut keys = Vec::new();
     if let Ok(contents) = std::fs::read_to_string(&path) {
         for line in contents.lines() {
@@ -1746,47 +1840,68 @@ fn read_cloud_keys() -> Vec<(String, String)> {
     keys
 }
 
-/// Save a single cloud API key to the keys file.
-#[tauri::command]
-async fn save_cloud_key(key_name: String, key_value: String) -> Result<(), String> {
-    let path = cloud_keys_path();
-    // Ensure directory exists
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+fn migrate_legacy_cloud_keys() {
+    let path = legacy_cloud_keys_path();
+    if !path.exists() {
+        return;
     }
 
-    // Read existing keys, update/add the one being saved
-    let mut keys: Vec<(String, String)> = read_cloud_keys()
+    let legacy_keys = read_legacy_cloud_keys();
+    if legacy_keys.is_empty() {
+        let _ = std::fs::remove_file(&path);
+        return;
+    }
+
+    let mut migrated_all = true;
+    for (key, value) in legacy_keys {
+        if value.is_empty() {
+            continue;
+        }
+        if secure_store_set(&key, &value).is_err() {
+            migrated_all = false;
+        }
+    }
+
+    if migrated_all {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+/// Read cloud keys from secure desktop storage and return key=value pairs.
+fn read_cloud_keys() -> Vec<(String, String)> {
+    migrate_legacy_cloud_keys();
+    managed_cloud_key_names()
         .into_iter()
-        .filter(|(k, _)| k != &key_name)
-        .collect();
-    if !key_value.is_empty() {
-        keys.push((key_name, key_value));
-    }
+        .filter_map(|key| match secure_store_get(&key) {
+            Ok(Some(value)) if !value.is_empty() => Some((key, value)),
+            _ => None,
+        })
+        .collect()
+}
 
-    // Write back
-    let content: String = keys
-        .iter()
-        .map(|(k, v)| format!("{}={}", k, v))
-        .collect::<Vec<_>>()
-        .join("\n");
-    std::fs::write(&path, content + "\n").map_err(|e| format!("Failed to save key: {}", e))?;
-
-    // Set permissions to owner-only (chmod 600)
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
-    }
-
-    // Tell the running server to hot-reload its cloud engine so the user
-    // doesn't need to restart the app after entering an API key.
+async fn reload_cloud_keys(keys: Vec<(String, String)>) {
     let reload_url = format!("http://127.0.0.1:{}/v1/cloud/reload", JARVIS_PORT);
+    let key_map: serde_json::Map<String, serde_json::Value> = keys
+        .into_iter()
+        .map(|(key, value)| (key, serde_json::Value::String(value)))
+        .collect();
     let _ = reqwest::Client::new()
         .post(&reload_url)
+        .json(&serde_json::json!({ "keys": key_map }))
         .timeout(std::time::Duration::from_secs(10))
         .send()
         .await;
+}
+
+/// Save a single cloud API key to secure desktop storage.
+#[tauri::command]
+async fn save_cloud_key(key_name: String, key_value: String) -> Result<(), String> {
+    let key_value = key_value.trim().to_string();
+    secure_store_set(&key_name, &key_value)?;
+
+    // Tell the running server to hot-reload its cloud engine so the user
+    // doesn't need to restart the app after entering an API key.
+    reload_cloud_keys(vec![(key_name, key_value)]).await;
 
     Ok(())
 }
@@ -1794,10 +1909,13 @@ async fn save_cloud_key(key_name: String, key_value: String) -> Result<(), Strin
 /// Get which cloud providers have keys configured (without exposing values).
 #[tauri::command]
 async fn get_cloud_key_status() -> Result<serde_json::Value, String> {
-    let keys = read_cloud_keys();
-    let status: Vec<serde_json::Value> = keys
-        .iter()
-        .map(|(k, v)| serde_json::json!({ "key": k, "set": !v.is_empty() }))
+    migrate_legacy_cloud_keys();
+    let status: Vec<serde_json::Value> = managed_cloud_key_names()
+        .into_iter()
+        .map(|key| {
+            let set = matches!(secure_store_get(&key), Ok(Some(value)) if !value.is_empty());
+            serde_json::json!({ "key": key, "set": set })
+        })
         .collect();
     Ok(serde_json::json!(status))
 }
@@ -1809,8 +1927,8 @@ async fn get_inference_source() -> Result<InferenceConfig, String> {
 }
 
 /// Persist the chosen inference source. `host` is normalized to a bare base
-/// URL. For custom endpoints, an optional API key is stored in cloud-keys.env
-/// under `<ENGINE>_API_KEY`. Applies on next app launch.
+/// URL. For custom endpoints, an optional API key is stored in secure desktop
+/// storage under `<ENGINE>_API_KEY`. Applies on next app launch.
 #[tauri::command]
 async fn set_inference_source(
     kind: String,
@@ -1842,7 +1960,7 @@ async fn set_inference_source(
                 .engine
                 .clone()
                 .unwrap_or_else(|| CUSTOM_FALLBACK_ENGINE.to_string());
-            let key_name = format!("{}_API_KEY", engine.to_ascii_uppercase());
+            let key_name = engine_api_key_name(&engine);
             // Save the key before persisting the config: if the key can't be
             // written, surface it and DON'T record a custom source whose
             // credential is missing (which would fail confusingly at runtime).

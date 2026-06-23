@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Regression for #266: the frontend must send the local API key as a Bearer
 // token on /v1 + /api requests, or `jarvis serve` with a key configured 401s
@@ -26,11 +26,14 @@ class MemoryStorage {
 }
 
 beforeEach(() => {
+  vi.resetModules();
+  vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'test-anon-key');
   (globalThis as unknown as { localStorage: MemoryStorage }).localStorage =
     new MemoryStorage();
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   (globalThis as unknown as { localStorage?: MemoryStorage }).localStorage =
     undefined;
 });

@@ -848,14 +848,32 @@ async def reload_cloud_engine(request: Request):
     """
     import os
 
-    # Re-read ~/.openjarvis/cloud-keys.env and update the running process env.
-    keys_path = get_config_dir() / "cloud-keys.env"
-    if keys_path.exists():
-        for raw_line in keys_path.read_text().splitlines():
-            line = raw_line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, v = line.split("=", 1)
-                os.environ[k.strip()] = v.strip()
+    submitted_keys: dict[str, str] | None = None
+    try:
+        body = await request.json()
+        raw_keys = body.get("keys") if isinstance(body, dict) else None
+        if isinstance(raw_keys, dict):
+            submitted_keys = {
+                str(k): str(v) for k, v in raw_keys.items() if str(k).endswith("_API_KEY")
+            }
+    except Exception:
+        submitted_keys = None
+
+    if submitted_keys is not None:
+        for key, value in submitted_keys.items():
+            if value:
+                os.environ[key] = value
+            else:
+                os.environ.pop(key, None)
+    else:
+        # Compatibility fallback for non-desktop/manual configurations.
+        keys_path = get_config_dir() / "cloud-keys.env"
+        if keys_path.exists():
+            for raw_line in keys_path.read_text().splitlines():
+                line = raw_line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    os.environ[k.strip()] = v.strip()
 
     # Try to build a fresh CloudEngine.
     try:
