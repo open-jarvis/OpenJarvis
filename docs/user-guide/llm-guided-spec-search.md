@@ -14,6 +14,27 @@ This page is a copy-paste tutorial. By the end you will have:
 - a multi-session loop with the paper's stagnation rule (Algorithm 1),
 - an understanding of which knobs to turn for production deployment.
 
+## VS Copilot execution contract (reuse FIRST)
+
+When running this tutorial through VS Copilot step-by-step, treat the
+first successful run as the source of truth and **always reuse it**.
+
+- Capture the FIRST successful artifacts (loaded config path, initialized
+  orchestrator/loop objects, session identifiers, checkpoint paths, and
+  benchmark/gate inputs).
+- On every later step, instruct Copilot to continue from those exact
+  artifacts and to **never rebuild, reinitialize, or regenerate** them.
+- If Copilot loses context, paste the saved FIRST artifact block back
+  into the prompt and explicitly say: "reuse FIRST state; do not rebuild".
+- Only rebuild when you intentionally change configuration inputs and
+  explicitly request a fresh run.
+
+Recommended per-step prefix:
+
+> "Continue from FIRST state only. Reuse previously created config,
+> orchestrator, loop, session, checkpoints, and gate inputs. Do not
+> re-run setup or rebuild anything unless I explicitly ask for it."
+
 ## TL;DR — run it
 
 ```bash
