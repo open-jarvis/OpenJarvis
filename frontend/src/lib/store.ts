@@ -15,6 +15,7 @@ import type {
   TokenUsage,
 } from '../types';
 import type { ManagedAgent } from './api';
+import type { Locale } from './i18n';
 
 export interface CachedConnector {
   connector_id: string;
@@ -69,6 +70,7 @@ export type ThemeMode = 'light' | 'dark' | 'system';
 
 interface Settings {
   theme: ThemeMode;
+  language: Locale;
   apiUrl: string;
   // Local server API key (OPENJARVIS_API_KEY). Sent as a Bearer token on
   // /v1 + /api requests so a key-protected `jarvis serve` doesn't 401 the
@@ -85,6 +87,7 @@ interface Settings {
 function loadSettings(): Settings {
   const defaults: Settings = {
     theme: 'system',
+    language: 'en-US',
     apiUrl: '',
     apiKey: '',
     fontSize: 'default',

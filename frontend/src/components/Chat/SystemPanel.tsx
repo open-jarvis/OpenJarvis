@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '../../lib/store';
 import { getBase } from '../../lib/api';
+import { useI18n } from '../../lib/i18n';
 
 interface EnergyData {
   total_energy_j?: number;
@@ -35,6 +36,7 @@ const CLOUD_PRICING = [
 ];
 
 export function SystemPanel() {
+  const { t } = useI18n();
   const savings = useAppStore((s) => s.savings);
   const toggleSystemPanel = useAppStore((s) => s.toggleSystemPanel);
   const optInEnabled = useAppStore((s) => s.optInEnabled);
@@ -91,13 +93,13 @@ export function SystemPanel() {
         style={{ borderBottom: '1px solid var(--color-border)' }}
       >
         <span className="text-xs font-semibold tracking-wide uppercase" style={{ color: 'var(--color-text-secondary)' }}>
-          System
+          {t('system.system')}
         </span>
         <button
           onClick={toggleSystemPanel}
           className="p-1 rounded-md transition-colors cursor-pointer"
           style={{ color: 'var(--color-text-tertiary)' }}
-          title="Close panel"
+          title={t('system.closePanel')}
         >
           <X size={14} />
         </button>
@@ -107,35 +109,35 @@ export function SystemPanel() {
         {/* Session Stats */}
         <section>
           <h4 className="text-[11px] font-medium uppercase tracking-wide mb-2" style={{ color: 'var(--color-text-tertiary)' }}>
-            Session
+            {t('system.session')}
           </h4>
           <div className="grid grid-cols-2 gap-2">
-            <MiniStat icon={Hash} label="Requests" value={String(savings?.total_calls ?? telemetry?.total_requests ?? 0)} />
-            <MiniStat icon={Hash} label="Output Tokens" value={formatNumber(savings?.total_completion_tokens ?? telemetry?.total_tokens ?? 0)} />
+            <MiniStat icon={Hash} label={t('system.requests')} value={String(savings?.total_calls ?? telemetry?.total_requests ?? 0)} />
+            <MiniStat icon={Hash} label={t('system.outputTokens')} value={formatNumber(savings?.total_completion_tokens ?? telemetry?.total_tokens ?? 0)} />
           </div>
         </section>
 
         {/* Device */}
         <section>
           <h4 className="text-[11px] font-medium uppercase tracking-wide mb-2" style={{ color: 'var(--color-text-tertiary)' }}>
-            Device
+            {t('system.device')}
           </h4>
           <div className="grid grid-cols-2 gap-2">
             {energy?.cpu_temp_c != null && (
-              <MiniStat icon={Thermometer} label="CPU Temp" value={String(Math.round(energy.cpu_temp_c))} unit="°C" />
+              <MiniStat icon={Thermometer} label={t('system.cpuTemp')} value={String(Math.round(energy.cpu_temp_c))} unit="°C" />
             )}
             {energy?.gpu_temp_c != null && (
-              <MiniStat icon={Thermometer} label="GPU Temp" value={String(Math.round(energy.gpu_temp_c))} unit="°C" />
+              <MiniStat icon={Thermometer} label={t('system.gpuTemp')} value={String(Math.round(energy.gpu_temp_c))} unit="°C" />
             )}
             <MiniStat
               icon={Zap}
-              label="Power"
+              label={t('system.power')}
               value={(liveEnergy?.power_w ?? energy?.avg_power_w ?? 0).toFixed(1)}
               unit="W"
             />
             <MiniStat
               icon={Activity}
-              label="Energy"
+              label={t('system.energy')}
               value={(
                 ((liveEnergy?.energy_j ?? energy?.total_energy_j ?? 0) / 1000)
               ).toFixed(1)}
@@ -148,7 +150,7 @@ export function SystemPanel() {
         {/* Cost Comparison */}
         <section>
           <h4 className="text-[11px] font-medium uppercase tracking-wide mb-2" style={{ color: 'var(--color-text-tertiary)' }}>
-            Cost Comparison
+            {t('system.costComparison')}
           </h4>
 
           {/* Local */}
@@ -158,7 +160,7 @@ export function SystemPanel() {
           >
             <HardDrive size={14} style={{ color: 'var(--color-accent)' }} />
             <div className="flex-1 min-w-0">
-              <div className="text-xs font-medium truncate" style={{ color: 'var(--color-text)' }}>Local</div>
+              <div className="text-xs font-medium truncate" style={{ color: 'var(--color-text)' }}>{t('system.local')}</div>
             </div>
             <div className="text-sm font-semibold" style={{ color: 'var(--color-success)' }}>
               ${(savings?.local_cost ?? 0).toFixed(4)}
@@ -216,7 +218,7 @@ export function SystemPanel() {
             className="text-[11px] font-medium uppercase tracking-wide mb-2"
             style={{ color: 'var(--color-text-tertiary)' }}
           >
-            Leaderboard
+            {t('system.leaderboard')}
           </h4>
 
           <button
@@ -243,7 +245,7 @@ export function SystemPanel() {
                 color: optInEnabled ? 'var(--color-accent)' : 'var(--color-text-secondary)',
               }}
             >
-              {optInEnabled ? 'Sharing Savings' : 'Share Your Savings'}
+              {optInEnabled ? t('system.sharingSavings') : t('system.shareSavings')}
             </span>
             <span
               className="text-[9px] px-1.5 py-0.5 rounded-full"
@@ -252,7 +254,7 @@ export function SystemPanel() {
                 color: optInEnabled ? 'white' : 'var(--color-text-tertiary)',
               }}
             >
-              {optInEnabled ? 'ON' : 'OFF'}
+              {optInEnabled ? t('common.on') : t('common.off')}
             </span>
           </button>
 
@@ -266,7 +268,7 @@ export function SystemPanel() {
             onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--color-text-tertiary)')}
           >
             <ExternalLink size={10} />
-            View Leaderboard
+            {t('system.viewLeaderboard')}
           </a>
         </section>
       </div>

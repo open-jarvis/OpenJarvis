@@ -1,6 +1,7 @@
 import { useRef, useEffect } from 'react';
 import { Copy, Trash2 } from 'lucide-react';
 import { useAppStore } from '../lib/store';
+import { useI18n } from '../lib/i18n';
 
 const LEVEL_COLORS: Record<string, string> = {
   info: 'var(--color-text)',
@@ -14,6 +15,7 @@ function formatTime(ts: number): string {
 }
 
 export function LogsPage() {
+  const { t } = useI18n();
   const logEntries = useAppStore((s) => s.logEntries);
   const clearLogs = useAppStore((s) => s.clearLogs);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -35,30 +37,30 @@ export function LogsPage() {
         <header className="mb-6 shrink-0">
           <div className="flex items-center justify-between gap-3">
             <h1 className="text-lg font-semibold" style={{ color: 'var(--color-text)' }}>
-              Logs
+              {t('logs.title')}
             </h1>
             <div className="flex items-center gap-2">
               <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
-                {logEntries.length} entries
+                {t('logs.entries', { count: logEntries.length })}
               </span>
               <button
                 onClick={handleCopy}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer"
                 style={{ background: 'var(--color-bg-secondary)', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)' }}
               >
-                <Copy size={12} /> Copy All
+                <Copy size={12} /> {t('logs.copyAll')}
               </button>
               <button
                 onClick={clearLogs}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer"
                 style={{ background: 'var(--color-bg-secondary)', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)' }}
               >
-                <Trash2 size={12} /> Clear
+                <Trash2 size={12} /> {t('common.clear')}
               </button>
             </div>
           </div>
           <p className="text-sm mt-2 max-w-2xl" style={{ color: 'var(--color-text-secondary)' }}>
-            Recent activity — chat events, model switches, tool calls, and system messages from this session.
+            {t('logs.description')}
           </p>
         </header>
 
@@ -69,7 +71,7 @@ export function LogsPage() {
         >
           {logEntries.length === 0 ? (
             <div className="text-center py-12" style={{ color: 'var(--color-text-tertiary)' }}>
-              No log entries yet. Logs appear as you chat, switch models, and interact with the app.
+              {t('logs.empty')}
             </div>
           ) : (
             logEntries.map((entry, i) => (
