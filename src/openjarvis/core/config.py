@@ -932,7 +932,9 @@ class StorageConfig:
     backend: str = "local"  # fact-store backend ("local" = on-disk JSONL)
     extraction_model: str = ""  # model for fact extraction ("" = active model)
     max_facts: int = 1000  # cap on stored facts (oldest evicted past the cap)
-    facts_path: str = str(DEFAULT_CONFIG_DIR / "memory_facts.jsonl")
+    facts_path: str = field(
+        default_factory=lambda: str(get_config_dir() / "memory_facts.jsonl")
+    )
 
 
 # Backward-compatibility alias

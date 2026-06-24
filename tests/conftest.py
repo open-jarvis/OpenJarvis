@@ -18,6 +18,7 @@ from openjarvis.core.registry import (
     CompressionRegistry,
     ConnectorRegistry,
     EngineRegistry,
+    FactStoreRegistry,
     MemoryRegistry,
     MinerRegistry,
     ModelRegistry,
@@ -35,6 +36,7 @@ def _clean_registries() -> None:
     ModelRegistry.clear()
     EngineRegistry.clear()
     MemoryRegistry.clear()
+    FactStoreRegistry.clear()
     MinerRegistry.clear()
     AgentRegistry.clear()
     ToolRegistry.clear()

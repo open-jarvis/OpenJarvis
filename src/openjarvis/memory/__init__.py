@@ -9,7 +9,11 @@ and configured via the ``[memory]`` section of ``config.toml``.
 from __future__ import annotations
 
 from openjarvis.memory.extractor import FactExtractor
-from openjarvis.memory.service import MemoryService, build_memory_service
+from openjarvis.memory.service import (
+    MemoryService,
+    build_memory_service,
+    publish_completed_exchange,
+)
 from openjarvis.memory.store import (
     Fact,
     FactStore,
@@ -25,4 +29,5 @@ __all__ = [
     "MemoryService",
     "build_memory_service",
     "create_fact_store",
+    "publish_completed_exchange",
 ]

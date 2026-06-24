@@ -195,7 +195,13 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
         # from the engine for true real-time output.
         if request_body.tools:
             return await _handle_stream_tools(
-                engine, model, request_body, complexity_info, app_config=config
+                engine,
+                model,
+                request_body,
+                complexity_info,
+                app_config=config,
+                bus=getattr(request.app.state, "bus", None),
+                memory_service=getattr(request.app.state, "memory_service", None),
             )
         return await _handle_stream(
             engine,
@@ -204,6 +210,8 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
             complexity_info,
             trace_store=getattr(request.app.state, "trace_store", None),
             app_config=config,
+            bus=getattr(request.app.state, "bus", None),
+            memory_service=getattr(request.app.state, "memory_service", None),
         )
 
     # Non-streaming: use agent if available, otherwise direct engine call.
@@ -247,25 +255,67 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
         getattr(request.app.state, "memory_service", None),
         query_text_for_complexity,
         response,
+        bus=getattr(request.app.state, "bus", None),
+        source="server.chat",
     )
     return response
 
 
-def _remember_exchange(memory_service, user_text: str, response) -> None:
-    """Submit a completed exchange to the memory service (non-blocking)."""
-    if memory_service is None or not user_text:
+def _response_content(response) -> str:
+    """Extract assistant text from an OpenAI-compatible response object."""
+    content = ""
+    choices = getattr(response, "choices", None)
+    if choices:
+        content = getattr(choices[0].message, "content", "") or ""
+    return content
+
+
+def _record_completed_exchange(
+    memory_service,
+    user_text: str,
+    assistant_text: str,
+    *,
+    bus=None,
+    source: str = "server.chat",
+) -> None:
+    """Publish or submit a completed exchange without blocking a reply."""
+    if not user_text:
         return
     try:
-        content = ""
-        choices = getattr(response, "choices", None)
-        if choices:
-            content = getattr(choices[0].message, "content", "") or ""
-        memory_service.submit(user_text, content)
+        if bus is not None:
+            from openjarvis.memory import publish_completed_exchange
+
+            publish_completed_exchange(
+                bus,
+                user_text,
+                assistant_text,
+                source=source,
+            )
+        elif memory_service is not None:
+            memory_service.submit(user_text, assistant_text)
     except Exception:  # noqa: BLE001 — memory is best-effort, never fail a reply
         logging.getLogger("openjarvis.server").debug(
             "Memory submit failed",
             exc_info=True,
         )
+
+
+def _remember_exchange(
+    memory_service,
+    user_text: str,
+    response,
+    *,
+    bus=None,
+    source: str = "server.chat",
+) -> None:
+    """Record a completed non-streaming exchange."""
+    _record_completed_exchange(
+        memory_service,
+        user_text,
+        _response_content(response),
+        bus=bus,
+        source=source,
+    )
 
 
 def _handle_direct(
@@ -457,6 +507,8 @@ async def _handle_stream_tools(
     complexity_info=None,
     *,
     app_config=None,
+    bus=None,
+    memory_service=None,
 ):
     """Stream a raw OpenAI-compat function-calling response via SSE.
 
@@ -477,8 +529,14 @@ async def _handle_stream_tools(
     messages = _ensure_identity_prompt(messages, app_config)
     chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
     use_cloud = is_cloud_model(model)
+    query_text = ""
+    for _m in reversed(req.messages):
+        if _m.role == "user" and _m.content:
+            query_text = _m.content
+            break
 
     async def generate():
+        full_content = ""
         # Send the role chunk first (OpenAI convention).
         first_chunk = ChatCompletionChunk(
             id=chunk_id,
@@ -497,6 +555,7 @@ async def _handle_stream_tools(
                 tools=req.tools,
             ):
                 if sc.content:
+                    full_content += sc.content
                     content_chunk = ChatCompletionChunk(
                         id=chunk_id,
                         model=model,
@@ -553,6 +612,14 @@ async def _handle_stream_tools(
         if complexity_info is not None:
             finish_dict["complexity"] = complexity_info.model_dump()
         yield f"data: {_json.dumps(finish_dict)}\n\n"
+        if full_content:
+            _record_completed_exchange(
+                memory_service,
+                query_text,
+                full_content,
+                bus=bus,
+                source="server.chat.stream",
+            )
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(
@@ -570,6 +637,8 @@ async def _handle_stream(
     *,
     trace_store=None,
     app_config=None,
+    bus=None,
+    memory_service=None,
 ):
     """Stream response using SSE format.
 
@@ -708,6 +777,15 @@ async def _handle_stream(
                 engine="cloud" if use_cloud else "ollama",
                 started_at=started_at,
                 ended_at=time.time(),
+            )
+
+        if full_content:
+            _record_completed_exchange(
+                memory_service,
+                query_text,
+                full_content,
+                bus=bus,
+                source="server.chat.stream",
             )
 
         # Send finish chunk with usage data if available

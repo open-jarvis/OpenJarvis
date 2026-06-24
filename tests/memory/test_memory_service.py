@@ -7,7 +7,12 @@ import time
 from types import SimpleNamespace
 
 from openjarvis.core.config import StorageConfig
-from openjarvis.memory.service import MemoryService, build_memory_service
+from openjarvis.core.events import EventBus
+from openjarvis.memory.service import (
+    MemoryService,
+    build_memory_service,
+    publish_completed_exchange,
+)
 from openjarvis.memory.store import LocalFactStore
 
 
@@ -65,6 +70,38 @@ def test_submit_extracts_and_stores(tmp_path):
         assert [f.text for f in svc.list_facts()] == ["User likes hiking"]
     finally:
         svc.stop()
+
+
+def test_completed_exchange_event_extracts_and_stores(tmp_path):
+    bus = EventBus(record_history=True)
+    extractor = FakeExtractor(["User likes jazz"])
+    store = LocalFactStore(tmp_path / "facts.jsonl")
+    svc = MemoryService(store, extractor, event_bus=bus)
+    svc.start()
+    try:
+        assert publish_completed_exchange(
+            bus,
+            "I like jazz",
+            "Noted.",
+            source="test",
+        )
+        assert _wait_until(lambda: svc.fact_count() == 1)
+        assert extractor.calls == [("I like jazz", "Noted.")]
+    finally:
+        svc.stop()
+
+
+def test_completed_exchange_event_unsubscribes_on_stop(tmp_path):
+    bus = EventBus(record_history=True)
+    extractor = FakeExtractor(["User likes jazz"])
+    store = LocalFactStore(tmp_path / "facts.jsonl")
+    svc = MemoryService(store, extractor, event_bus=bus)
+    svc.start()
+    svc.stop()
+
+    publish_completed_exchange(bus, "I like jazz", "Noted.", source="test")
+
+    assert extractor.calls == []
 
 
 def test_submit_when_not_running_is_dropped(tmp_path):

@@ -6,6 +6,7 @@ import json
 
 import pytest
 
+from openjarvis.core.registry import FactStoreRegistry
 from openjarvis.memory.store import LocalFactStore, create_fact_store
 
 
@@ -74,6 +75,20 @@ def test_clear(tmp_path):
     assert LocalFactStore(path).count() == 0
 
 
+def test_external_clear_does_not_resurrect_stale_facts(tmp_path):
+    """A running store instance must not re-flush facts cleared elsewhere."""
+    path = tmp_path / "facts.jsonl"
+    running = LocalFactStore(path)
+    cli = LocalFactStore(path)
+
+    running.add("old fact")
+    assert cli.clear() == 1
+
+    running.add("new fact")
+
+    assert [f.text for f in LocalFactStore(path).list()] == ["new fact"]
+
+
 def test_load_skips_malformed_lines(tmp_path):
     path = tmp_path / "facts.jsonl"
     path.write_text(
@@ -105,6 +120,26 @@ def test_jsonl_round_trip_is_valid_json(tmp_path):
 def test_create_fact_store_local(tmp_path):
     store = create_fact_store("local", path=tmp_path / "f.jsonl", max_facts=5)
     assert isinstance(store, LocalFactStore)
+
+
+def test_create_fact_store_uses_fact_store_registry(tmp_path):
+    class CustomFactStore(LocalFactStore):
+        pass
+
+    FactStoreRegistry.register_value("custom", CustomFactStore)
+
+    store = create_fact_store("custom", path=tmp_path / "f.jsonl", max_facts=5)
+
+    assert isinstance(store, CustomFactStore)
+
+
+def test_create_fact_store_default_path_uses_openjarvis_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENJARVIS_HOME", str(tmp_path))
+
+    store = create_fact_store("local")
+
+    assert isinstance(store, LocalFactStore)
+    assert store.path == tmp_path / "memory_facts.jsonl"
 
 
 def test_create_fact_store_unknown_backend(tmp_path):

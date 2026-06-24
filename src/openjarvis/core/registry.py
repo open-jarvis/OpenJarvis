@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Generic, Tuple, Type, Typ
 if TYPE_CHECKING:
     from openjarvis.agents._stubs import BaseAgent
     from openjarvis.engine._stubs import InferenceEngine
+    from openjarvis.memory.store import FactStore
     from openjarvis.tools.storage._stubs import MemoryBackend
 
 T = TypeVar("T")
@@ -109,6 +110,10 @@ class MemoryRegistry(RegistryBase[Type["MemoryBackend"]]):
     """Registry for memory / retrieval backends."""
 
 
+class FactStoreRegistry(RegistryBase[Type["FactStore"]]):
+    """Registry for automatic-memory fact store backends."""
+
+
 class AgentRegistry(RegistryBase[Type["BaseAgent"]]):
     """Registry for agent implementations."""
 
@@ -170,6 +175,7 @@ __all__ = [
     "CompressionRegistry",
     "ConnectorRegistry",
     "EngineRegistry",
+    "FactStoreRegistry",
     "LearningRegistry",
     "MemoryRegistry",
     "MinerRegistry",

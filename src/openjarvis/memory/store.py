@@ -18,6 +18,14 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable, List
 
+from openjarvis.core.paths import get_config_dir
+from openjarvis.core.registry import FactStoreRegistry
+
+
+def _default_fact_path() -> Path:
+    """Return the env-aware default JSONL path for automatic memory facts."""
+    return get_config_dir() / "memory_facts.jsonl"
+
 
 @dataclass(slots=True)
 class Fact:
@@ -56,6 +64,7 @@ class FactStore(ABC):
         """Return the number of stored facts."""
 
 
+@FactStoreRegistry.register("local")
 class LocalFactStore(FactStore):
     """Append-only JSONL fact store on the local filesystem.
 
@@ -67,11 +76,13 @@ class LocalFactStore(FactStore):
 
     def __init__(
         self,
-        path: str | Path = "~/.openjarvis/memory_facts.jsonl",
+        path: str | Path | None = None,
         *,
         max_facts: int = 1000,
     ) -> None:
-        self._path = Path(path).expanduser()
+        self._path = (
+            Path(path).expanduser() if path is not None else _default_fact_path()
+        )
         self._max_facts = max(0, int(max_facts))
         self._lock = threading.Lock()
         self._facts: List[Fact] = self._load()
@@ -116,6 +127,10 @@ class LocalFactStore(FactStore):
         tmp.write_text(payload, encoding="utf-8")
         os.replace(tmp, self._path)
 
+    def _sync_from_disk_locked(self) -> None:
+        """Refresh in-memory facts from disk while holding ``self._lock``."""
+        self._facts = self._load()
+
     # -- FactStore API ------------------------------------------------------
 
     def add(self, text: str, source: str = "") -> bool:
@@ -123,6 +138,7 @@ class LocalFactStore(FactStore):
         if not text:
             return False
         with self._lock:
+            self._sync_from_disk_locked()
             lowered = text.lower()
             if any(f.text.lower() == lowered for f in self._facts):
                 return False  # dedupe
@@ -135,10 +151,12 @@ class LocalFactStore(FactStore):
 
     def list(self) -> List[Fact]:
         with self._lock:
+            self._sync_from_disk_locked()
             return list(self._facts)
 
     def clear(self) -> int:
         with self._lock:
+            self._sync_from_disk_locked()
             removed = len(self._facts)
             self._facts = []
             if self._path.exists():
@@ -150,6 +168,7 @@ class LocalFactStore(FactStore):
 
     def count(self) -> int:
         with self._lock:
+            self._sync_from_disk_locked()
             return len(self._facts)
 
     @property
@@ -158,22 +177,32 @@ class LocalFactStore(FactStore):
         return self._path
 
 
+def _ensure_fact_store_backends_registered() -> None:
+    """Restore built-in fact-store registrations if a test cleared registries."""
+    if not FactStoreRegistry.contains("local"):
+        FactStoreRegistry.register_value("local", LocalFactStore)
+
+
 def create_fact_store(
     backend: str = "local",
     *,
-    path: str | Path = "~/.openjarvis/memory_facts.jsonl",
+    path: str | Path | None = None,
     max_facts: int = 1000,
 ) -> FactStore:
     """Construct a fact store for the configured *backend*.
 
     Only the ``"local"`` (on-disk JSONL) backend is supported today; the
-    factory exists so additional backends can be added without changing the
-    service or CLI wiring.
+    registry-backed constructor exists so additional backends can be added
+    without changing the service or CLI wiring.
     """
+    _ensure_fact_store_backends_registered()
     key = (backend or "local").strip().lower()
-    if key == "local":
-        return LocalFactStore(path, max_facts=max_facts)
-    raise ValueError(f"Unknown memory backend '{backend}'. Supported backends: local")
+    if not FactStoreRegistry.contains(key):
+        supported = ", ".join(FactStoreRegistry.keys())
+        raise ValueError(
+            f"Unknown memory backend '{backend}'. Supported backends: {supported}"
+        )
+    return FactStoreRegistry.create(key, path, max_facts=max_facts)
 
 
 __all__ = ["Fact", "FactStore", "LocalFactStore", "create_fact_store"]

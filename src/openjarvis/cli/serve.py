@@ -498,7 +498,12 @@ def serve(
     try:
         from openjarvis.memory import build_memory_service
 
-        memory_service = build_memory_service(config, engine, model_name)
+        memory_service = build_memory_service(
+            config,
+            engine,
+            model_name,
+            event_bus=bus,
+        )
         if memory_service is not None:
             memory_service.start()
             console.print("  Memory svc: [cyan]active[/cyan]")

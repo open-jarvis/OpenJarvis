@@ -20,6 +20,7 @@ import queue
 import threading
 from typing import Any, List, Optional
 
+from openjarvis.core.events import Event, EventBus, EventType
 from openjarvis.memory.extractor import FactExtractor
 from openjarvis.memory.store import Fact, FactStore, create_fact_store
 
@@ -37,10 +38,13 @@ class MemoryService:
         store: FactStore,
         extractor: FactExtractor,
         *,
+        event_bus: EventBus | None = None,
         max_queue: int = 256,
     ) -> None:
         self._store = store
         self._extractor = extractor
+        self._event_bus = event_bus
+        self._subscribed = False
         self._queue: "queue.Queue[Any]" = queue.Queue(maxsize=max(1, max_queue))
         self._thread: Optional[threading.Thread] = None
         self._running = threading.Event()
@@ -52,6 +56,7 @@ class MemoryService:
         if self._running.is_set():
             return
         self._running.set()
+        self._subscribe_events()
         self._thread = threading.Thread(
             target=self._loop,
             name="memory-service",
@@ -73,6 +78,7 @@ class MemoryService:
         if thread is not None:
             thread.join(timeout=timeout)
         self._thread = None
+        self._unsubscribe_events()
         logger.debug("Memory service stopped")
 
     @property
@@ -98,6 +104,34 @@ class MemoryService:
         except queue.Full:
             logger.debug("Memory service queue full; dropping exchange")
             return False
+
+    def _subscribe_events(self) -> None:
+        """Subscribe to lifecycle events that feed automatic memory."""
+        if self._event_bus is None or self._subscribed:
+            return
+        self._event_bus.subscribe(
+            EventType.CHAT_EXCHANGE_COMPLETED,
+            self._on_completed_exchange,
+        )
+        self._subscribed = True
+
+    def _unsubscribe_events(self) -> None:
+        """Unsubscribe from lifecycle events (idempotent)."""
+        if self._event_bus is None or not self._subscribed:
+            return
+        self._event_bus.unsubscribe(
+            EventType.CHAT_EXCHANGE_COMPLETED,
+            self._on_completed_exchange,
+        )
+        self._subscribed = False
+
+    def _on_completed_exchange(self, event: Event) -> None:
+        """Queue a completed chat exchange published on the event bus."""
+        data = event.data or {}
+        self.submit(
+            str(data.get("user_text", "") or ""),
+            str(data.get("assistant_text", "") or ""),
+        )
 
     # -- worker -------------------------------------------------------------
 
@@ -145,6 +179,8 @@ def build_memory_service(
     config: Any,
     engine: Any,
     default_model: str = "",
+    *,
+    event_bus: EventBus | None = None,
 ) -> Optional[MemoryService]:
     """Build a :class:`MemoryService` from config, or ``None`` if disabled.
 
@@ -170,11 +206,32 @@ def build_memory_service(
 
     store = create_fact_store(
         getattr(mem, "backend", "local"),
-        path=getattr(mem, "facts_path", "~/.openjarvis/memory_facts.jsonl"),
+        path=getattr(mem, "facts_path", None),
         max_facts=getattr(mem, "max_facts", 1000),
     )
     extractor = FactExtractor(engine, model)
-    return MemoryService(store, extractor)
+    return MemoryService(store, extractor, event_bus=event_bus)
 
 
-__all__ = ["MemoryService", "build_memory_service"]
+def publish_completed_exchange(
+    bus: EventBus | None,
+    user_text: str,
+    assistant_text: str = "",
+    *,
+    source: str = "",
+) -> bool:
+    """Publish a completed chat exchange for lifecycle subscribers."""
+    if bus is None or not user_text or not user_text.strip():
+        return False
+    bus.publish(
+        EventType.CHAT_EXCHANGE_COMPLETED,
+        {
+            "user_text": user_text,
+            "assistant_text": assistant_text or "",
+            "source": source,
+        },
+    )
+    return True
+
+
+__all__ = ["MemoryService", "build_memory_service", "publish_completed_exchange"]
