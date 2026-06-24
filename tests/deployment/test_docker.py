@@ -123,6 +123,33 @@ class TestDockerFiles:
         assert "jarvis:" in content
         assert "ollama:" in content
 
+    def test_dockerfiles_build_native_rust_extension(self):
+        build_dockerfiles = [
+            "Dockerfile",
+            "Dockerfile.gpu",
+            "Dockerfile.gpu.rocm",
+            "Dockerfile.sandbox",
+        ]
+        required_markers = [
+            "rustup toolchain install 1.88",
+            "maturin build --release",
+            "rust/crates/openjarvis-python/Cargo.toml",
+            "/tmp/openjarvis-rust-wheel/*.whl",
+            "import openjarvis_rust",
+        ]
+
+        for name in build_dockerfiles:
+            content = (DOCKER_DIR / name).read_text()
+            for marker in required_markers:
+                assert marker in content, f"{name}: missing native build marker {marker!r}"
+
+        for name in ["Dockerfile", "Dockerfile.gpu", "Dockerfile.gpu.rocm"]:
+            content = (DOCKER_DIR / name).read_text()
+            assert "COPY rust/ rust/" in content, f"{name}: rust workspace not copied"
+            assert content.index("COPY rust/ rust/") < content.index(
+                "maturin build --release"
+            ), f"{name}: rust workspace copied after native build"
+
     def test_systemd_service_exists(self):
         assert (SYSTEMD_DIR / "openjarvis.service").is_file()
 

@@ -4,19 +4,34 @@
 
 # Stage 1: Build frontend SPA
 FROM node:22.23.0-slim@sha256:d9f850096136edbc402debdd8729579a288aac64574ada0ff4db26b6ae58b0b2 AS frontend
+ARG OPENJARVIS_LEADERBOARD_PUBLIC_ANON=test-anon-key
 
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci --ignore-scripts 2>/dev/null || npm install
 COPY frontend/ .
-RUN npm run build
+RUN VITE_SUPABASE_ANON_KEY="${OPENJARVIS_LEADERBOARD_PUBLIC_ANON}" npm run build
 
 # Stage 2: Build Python package (NVIDIA CUDA 12.4)
 FROM nvidia/cuda:12.4.0-runtime-ubuntu22.04@sha256:af8bd179ed3bf69d4b63b19a763662a6141f0f62ef099283f68d0b14b4bab0e3 AS builder
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends python3 python3-pip python3-venv && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        curl \
+        python3 \
+        python3-dev \
+        python3-pip \
+        python3-venv && \
     rm -rf /var/lib/apt/lists/*
+
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+        sh -s -- -y --profile minimal --default-toolchain none && \
+    rustup toolchain install 1.88 --profile minimal && \
+    rustup default 1.88
 
 WORKDIR /app
 
@@ -25,15 +40,25 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
 RUN pip install --no-cache-dir uv && \
     uv export --frozen --no-dev --extra server --no-emit-project > requirements.txt && \
-    uv pip install --system --no-deps -r requirements.txt
+    uv pip install --system --no-deps -r requirements.txt && \
+    uv pip install --system --no-deps "maturin>=1.12.6,<2"
 
 COPY src/ src/
+COPY rust/ rust/
 COPY scripts/install scripts/install
 COPY deploy/windows deploy/windows
 
 COPY --from=frontend /src/openjarvis/server/static src/openjarvis/server/static/
 
-RUN uv pip install --system --no-deps .
+RUN uv pip install --system --no-deps . && \
+    maturin build --release \
+        --manifest-path rust/crates/openjarvis-python/Cargo.toml \
+        --interpreter python3 \
+        --out /tmp/openjarvis-rust-wheel && \
+    uv pip install --system --no-deps /tmp/openjarvis-rust-wheel/*.whl && \
+    python3 -c "import openjarvis_rust; print('openjarvis_rust ok')" && \
+    python3 -m pip uninstall -y maturin && \
+    rm -rf /tmp/openjarvis-rust-wheel rust
 
 # Stage 3: Runtime
 FROM nvidia/cuda:12.4.0-runtime-ubuntu22.04@sha256:af8bd179ed3bf69d4b63b19a763662a6141f0f62ef099283f68d0b14b4bab0e3
