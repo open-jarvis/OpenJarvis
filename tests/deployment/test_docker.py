@@ -141,7 +141,9 @@ class TestDockerFiles:
         for name in build_dockerfiles:
             content = (DOCKER_DIR / name).read_text()
             for marker in required_markers:
-                assert marker in content, f"{name}: missing native build marker {marker!r}"
+                assert marker in content, (
+                    f"{name}: missing native build marker {marker!r}"
+                )
 
         for name in ["Dockerfile", "Dockerfile.gpu", "Dockerfile.gpu.rocm"]:
             content = (DOCKER_DIR / name).read_text()
