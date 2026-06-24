@@ -1,16 +1,13 @@
 import path from 'path';
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
-export default defineConfig(({ command, mode }) => {
-  const env = loadEnv(mode, __dirname, '');
-  if (command === 'build' && !env.VITE_SUPABASE_ANON_KEY) {
-    throw new Error('VITE_SUPABASE_ANON_KEY is required');
-  }
-
-  return {
+// VITE_SUPABASE_ANON_KEY is intentionally NOT required here: a missing key
+// disables the savings leaderboard at runtime (see src/lib/supabase.ts) rather
+// than failing the build, so the package/app stays publishable without it.
+export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -62,5 +59,4 @@ export default defineConfig(({ command, mode }) => {
       '/api': process.env.VITE_API_URL || 'http://localhost:8000',
     },
   },
-  };
 });
