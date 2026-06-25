@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Tuple
 
 import httpx
 
+from openjarvis.core.paths import get_config_dir
 from openjarvis.core.registry import EngineRegistry
 from openjarvis.core.types import Message
 from openjarvis.engine._base import (
@@ -114,6 +115,82 @@ _CODEX_MODELS = [
     "codex/gpt-5-mini",
     "codex/gpt-5-mini-2025-08-07",
 ]
+
+_CLOUD_ENV_FILE = get_config_dir() / "cloud-keys.env"
+
+
+_CLOUD_KEY_NAMES = (
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+    "OPENROUTER_API_KEY",
+    "MINIMAX_API_KEY",
+    "DEEPSEEK_API_KEY",
+    "OPENAI_CODEX_API_KEY",
+)
+
+
+def _load_vault_keys() -> dict[str, str]:
+    """Return cloud credentials stored in the encrypted ``vault.enc``.
+
+    ``jarvis vault set`` is the supported way to persist secrets on a machine
+    without exporting them into every shell or writing a plaintext
+    ``cloud-keys.env``. The CLI ``jarvis ask`` path builds ``CloudEngine``
+    directly, so it must consult the same vault to make cloud providers (e.g.
+    OpenRouter) reachable end-to-end. Returns an empty mapping if the vault is
+    absent or cannot be decrypted.
+    """
+    config_dir = get_config_dir()
+    vault_file = config_dir / "vault.enc"
+    vault_key_file = config_dir / ".vault_key"
+    if not vault_file.exists() or not vault_key_file.exists():
+        return {}
+    try:
+        from cryptography.fernet import Fernet
+
+        key = vault_key_file.read_bytes().strip()
+        decrypted = Fernet(key).decrypt(vault_file.read_bytes())
+        data = json.loads(decrypted.decode())
+    except Exception:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {
+        name: str(value)
+        for name in _CLOUD_KEY_NAMES
+        if (value := data.get(name))
+    }
+
+
+def _load_cloud_keys() -> dict[str, str]:
+    """Return cloud API keys from the vault, disk, and the process environment.
+
+    Resolution order (later sources override earlier ones):
+
+    1. Encrypted ``vault.enc`` written by ``jarvis vault set``.
+    2. ``cloud-keys.env`` written by the OpenJarvis desktop app.
+    3. Process environment variables.
+
+    The CLI ``jarvis ask`` path uses ``CloudEngine`` directly, so it needs the
+    same fallback sources the server relies on to make OpenRouter available
+    end-to-end.
+    """
+    keys: dict[str, str] = _load_vault_keys()
+    if _CLOUD_ENV_FILE.exists():
+        try:
+            for raw_line in _CLOUD_ENV_FILE.read_text().splitlines():
+                line = raw_line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    name, value = line.split("=", 1)
+                    keys[name.strip()] = value.strip()
+        except OSError:
+            pass
+    for name in _CLOUD_KEY_NAMES:
+        value = os.environ.get(name)
+        if value:
+            keys[name] = value
+    return keys
 
 
 def _is_minimax_model(model: str) -> bool:
@@ -326,26 +403,31 @@ class CloudEngine(InferenceEngine):
         self._codex_client: Any = None
         # Gemini thought_signatures: tool_call_id -> signature bytes
         self._thought_sigs: Dict[str, bytes] = {}
+        # Resolved slug for the ``openrouter/free`` convenience alias. Cached so
+        # we hit the models endpoint at most once per engine instance.
+        self._openrouter_free_slug: str | None = None
         self._init_clients()
 
     def _init_clients(self) -> None:
-        if os.environ.get("OPENAI_API_KEY"):
+        keys = _load_cloud_keys()
+
+        if keys.get("OPENAI_API_KEY"):
             try:
                 import openai
 
-                self._openai_client = openai.OpenAI()
+                self._openai_client = openai.OpenAI(api_key=keys["OPENAI_API_KEY"])
             except ImportError:
                 pass
-        if os.environ.get("ANTHROPIC_API_KEY"):
+        if keys.get("ANTHROPIC_API_KEY"):
             try:
                 import anthropic
 
-                self._anthropic_client = anthropic.Anthropic()
+                self._anthropic_client = anthropic.Anthropic(
+                    api_key=keys["ANTHROPIC_API_KEY"]
+                )
             except ImportError:
                 pass
-        gemini_key = os.environ.get("GEMINI_API_KEY") or os.environ.get(
-            "GOOGLE_API_KEY"
-        )
+        gemini_key = keys.get("GEMINI_API_KEY") or keys.get("GOOGLE_API_KEY")
         if gemini_key:
             try:
                 from google import genai
@@ -353,7 +435,7 @@ class CloudEngine(InferenceEngine):
                 self._google_client = genai.Client(api_key=gemini_key)
             except ImportError:
                 pass
-        openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+        openrouter_key = keys.get("OPENROUTER_API_KEY")
         if openrouter_key:
             try:
                 import openai
@@ -364,7 +446,7 @@ class CloudEngine(InferenceEngine):
                 )
             except ImportError:
                 pass
-        minimax_key = os.environ.get("MINIMAX_API_KEY")
+        minimax_key = keys.get("MINIMAX_API_KEY")
         if minimax_key:
             try:
                 import openai
@@ -375,7 +457,7 @@ class CloudEngine(InferenceEngine):
                 )
             except ImportError:
                 pass
-        deepseek_key = os.environ.get("DEEPSEEK_API_KEY")
+        deepseek_key = keys.get("DEEPSEEK_API_KEY")
         if deepseek_key:
             try:
                 import openai
@@ -389,7 +471,7 @@ class CloudEngine(InferenceEngine):
         # Codex — uses the OpenAI Responses API.
         # Supports both standard API keys (api.openai.com) and ChatGPT
         # OAuth tokens (chatgpt.com) via OPENAI_CODEX_BASE_URL override.
-        codex_token = os.environ.get("OPENAI_CODEX_API_KEY")
+        codex_token = keys.get("OPENAI_CODEX_API_KEY")
         if codex_token:
             codex_url = os.environ.get(
                 "OPENAI_CODEX_BASE_URL",
@@ -925,6 +1007,77 @@ class CloudEngine(InferenceEngine):
 
         return result
 
+    # Curated preference order for the ``openrouter/free`` alias. The first slug
+    # whose ``:free`` variant is currently listed by OpenRouter is used. For a
+    # fallback lane, availability matters more than raw capability: the large,
+    # popular free models are heavily rate-limited (HTTP 429), so smaller, less
+    # contended instruct models are preferred first. The list is a preference
+    # hint, not a hard requirement.
+    _OPENROUTER_FREE_PREFERENCES = (
+        "liquid/lfm-2.5-1.2b-instruct",
+        "google/gemma-4-31b-it",
+        "qwen/qwen3-next-80b-a3b-instruct",
+        "meta-llama/llama-3.3-70b-instruct",
+        "deepseek/deepseek-chat-v3-0324",
+    )
+
+    def _resolve_openrouter_free(self) -> str:
+        """Resolve ``openrouter/free`` to a concrete, currently-available
+        ``:free`` model slug.
+
+        The bare ``free`` token is not a routable OpenRouter model (it produced
+        an "Invalid URL" 502). To keep the configured fallback strictly
+        zero-cost, we never fall back to a paid model: we query the live models
+        list and pick a ``:free`` slug, preferring the curated list above. The
+        result is cached on the instance.
+        """
+        if self._openrouter_free_slug is not None:
+            return self._openrouter_free_slug
+
+        free_slugs: list[str] = []
+        try:
+            models = self._openrouter_client.models.list()
+            free_slugs = [
+                m.id for m in getattr(models, "data", []) if str(m.id).endswith(":free")
+            ]
+        except Exception:
+            free_slugs = []
+
+        chosen: str | None = None
+        for pref in self._OPENROUTER_FREE_PREFERENCES:
+            candidate = f"{pref}:free"
+            if candidate in free_slugs:
+                chosen = candidate
+                break
+        if chosen is None and free_slugs:
+            chosen = free_slugs[0]
+        if chosen is None:
+            # Last resort: a small free model that is almost always listed. If it
+            # is unavailable the API surfaces a clear error rather than a paid
+            # charge.
+            chosen = "meta-llama/llama-3.3-70b-instruct:free"
+
+        self._openrouter_free_slug = chosen
+        return chosen
+
+    def _openrouter_model_id(self, model: str) -> str:
+        """Return the OpenRouter API slug for a configured model name.
+
+        Strips the ``openrouter/`` prefix and resolves the ``openrouter/free``
+        convenience alias to a concrete zero-cost model so the configured cloud
+        fallback works end-to-end.
+        """
+        actual = model.removeprefix("openrouter/")
+        if actual == "free":
+            # ``openrouter/free`` is a convenience alias, not a routable slug;
+            # resolve it to a currently-available zero-cost model.
+            return self._resolve_openrouter_free()
+        if actual == "auto":
+            # The OpenRouter auto-router's real slug is ``openrouter/auto``; the
+            # prefix strip above would otherwise leave the non-routable ``auto``.
+            return "openrouter/auto"
+        return actual
+
     def _generate_openrouter(
         self,
         messages: Sequence[Message],
@@ -938,8 +1091,8 @@ class CloudEngine(InferenceEngine):
             raise EngineConnectionError(
                 "OpenRouter client not available — set OPENROUTER_API_KEY"
             )
-        # Strip the "openrouter/" prefix to get the actual model ID
-        actual_model = model.removeprefix("openrouter/")
+        # Strip the "openrouter/" prefix and resolve convenience aliases.
+        actual_model = self._openrouter_model_id(model)
         kwargs.pop("response_format", None)
         create_kwargs: Dict[str, Any] = {
             "model": actual_model,
@@ -1316,7 +1469,7 @@ class CloudEngine(InferenceEngine):
     ) -> AsyncIterator[str]:
         if self._openrouter_client is None:
             raise EngineConnectionError("OpenRouter client not available")
-        actual_model = model.removeprefix("openrouter/")
+        actual_model = self._openrouter_model_id(model)
         create_kwargs: Dict[str, Any] = {
             "model": actual_model,
             "messages": messages_to_dicts(messages),
@@ -1417,7 +1570,7 @@ class CloudEngine(InferenceEngine):
             client = self._openrouter_client
             if client is None:
                 raise EngineConnectionError("OpenRouter client not available")
-            actual_model = model.removeprefix("openrouter/")
+            actual_model = self._openrouter_model_id(model)
             create_kwargs: Dict[str, Any] = {
                 "model": actual_model,
                 "messages": messages_to_dicts(messages),

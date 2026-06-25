@@ -115,6 +115,34 @@ class TestAskModelResolution:
             result = CliRunner().invoke(cli, ["ask", "Hello"])
         assert result.exit_code == 0
 
+    def test_missing_default_prefers_configured_fallback(self) -> None:
+        """If default_model is unavailable, prefer fallback_model over local models."""
+        engine = _mock_engine()
+        patches = _patch_engine(engine)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            mock.patch.object(
+                _ask_mod,
+                "load_config",
+            ) as mock_config,
+        ):
+            cfg = mock_config.return_value
+            cfg.telemetry.enabled = False
+            cfg.intelligence.default_model = "missing-local-model"
+            cfg.intelligence.fallback_model = "openrouter/free"
+            cfg.intelligence.temperature = 0.7
+            cfg.intelligence.max_tokens = 1024
+            cfg.agent.context_from_memory = False
+            cfg.agent.default_agent = ""
+            result = CliRunner().invoke(cli, ["ask", "Hello"])
+        assert result.exit_code == 0
+        assert engine.generate.call_args.kwargs["model"] == "openrouter/free"
+
     def test_fallback_to_fallback_model(self) -> None:
         """When default_model is empty and no engine models, uses fallback_model."""
         engine = _mock_engine()

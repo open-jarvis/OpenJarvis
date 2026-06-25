@@ -830,13 +830,20 @@ def ask(
     all_models = discover_models(all_engines)
     for ek, model_ids in all_models.items():
         merge_discovered_models(ek, model_ids)
+    engine_models = all_models.get(engine_name, [])
 
     # Resolve model via config fallback chain
     if model_name is None:
         model_name = config.intelligence.default_model
+        if model_name and engine_models and model_name not in engine_models:
+            # If the configured default model is missing on the selected engine,
+            # prefer the configured fallback model before picking an arbitrary
+            # local model. This keeps the cloud fallback reachable when the
+            # local default disappears.
+            model_name = config.intelligence.fallback_model or model_name
     if not model_name:
-        # Try first available from engine
-        engine_models = all_models.get(engine_name, [])
+        # Try first available from the active engine only after explicit
+        # defaults and configured fallback have been exhausted.
         if engine_models:
             model_name = engine_models[0]
     if not model_name:
