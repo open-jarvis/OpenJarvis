@@ -117,6 +117,21 @@ def test_jsonl_round_trip_is_valid_json(tmp_path):
     assert "created_at" in obj
 
 
+def test_add_persists_trust(tmp_path):
+    path = tmp_path / "facts.jsonl"
+    store = LocalFactStore(path)
+    store.add("auto fact", source="auto", trust="untrusted")
+    obj = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+    assert obj["trust"] == "untrusted"
+    assert LocalFactStore(path).list()[0].trust == "untrusted"
+
+
+def test_legacy_fact_without_trust_defaults_blank(tmp_path):
+    path = tmp_path / "facts.jsonl"
+    path.write_text('{"text": "old fact", "source": "auto"}\n', encoding="utf-8")
+    assert LocalFactStore(path).list()[0].trust == ""
+
+
 def test_create_fact_store_local(tmp_path):
     store = create_fact_store("local", path=tmp_path / "f.jsonl", max_facts=5)
     assert isinstance(store, LocalFactStore)

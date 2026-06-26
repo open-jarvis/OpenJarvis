@@ -39,11 +39,13 @@ class MemoryService:
         extractor: FactExtractor,
         *,
         event_bus: EventBus | None = None,
+        scanner: Any = None,
         max_queue: int = 256,
     ) -> None:
         self._store = store
         self._extractor = extractor
         self._event_bus = event_bus
+        self._scanner = scanner
         self._subscribed = False
         self._queue: "queue.Queue[Any]" = queue.Queue(maxsize=max(1, max_queue))
         self._thread: Optional[threading.Thread] = None
@@ -155,11 +157,31 @@ class MemoryService:
             if not self._running.is_set() and self._queue.empty():
                 break
 
+    def _exchange_is_malicious(self, user_text: str, assistant_text: str) -> bool:
+        """True if the injection scanner flags the exchange. Fails *open* (returns
+        False on any scanner error) — provenance + recall quarantine still apply,
+        so a scanner outage must not block legitimate memory."""
+        if self._scanner is None:
+            return False
+        try:
+            result = self._scanner.scan(f"{user_text}\n{assistant_text}")
+            return not result.is_clean
+        except Exception:  # noqa: BLE001 — scanning is best-effort
+            logger.debug("Injection scan failed; proceeding (fail-open)", exc_info=True)
+            return False
+
     def _process(self, job: Any) -> None:
         user_text, assistant_text = job
+        # Scan BEFORE extraction so an overt injection attempt never reaches the
+        # extraction model or the store at all.
+        if self._exchange_is_malicious(user_text, assistant_text):
+            logger.debug("Memory extraction skipped: injection detected in exchange")
+            return
         facts = self._extractor.extract(user_text, assistant_text)
         if facts:
-            stored = self._store.add_many(facts, source="auto")
+            # Auto-extracted from a raw exchange that may carry untrusted input →
+            # tag untrusted so recall/surfacing quarantines these facts.
+            stored = self._store.add_many(facts, source="auto", trust="untrusted")
             if stored:
                 logger.debug("Memory service stored %d new fact(s)", stored)
 
@@ -210,7 +232,19 @@ def build_memory_service(
         max_facts=getattr(mem, "max_facts", 1000),
     )
     extractor = FactExtractor(engine, model)
-    return MemoryService(store, extractor, event_bus=event_bus)
+    return MemoryService(store, extractor, event_bus=event_bus, scanner=_build_scanner())
+
+
+def _build_scanner() -> Any:
+    """Construct an injection scanner, or ``None`` if unavailable. Never raises —
+    memory must work even if the security module can't load."""
+    try:
+        from openjarvis.security.injection_scanner import InjectionScanner
+
+        return InjectionScanner()
+    except Exception:  # noqa: BLE001 — scanner is an optional defence layer
+        logger.debug("Injection scanner unavailable; memory capture unguarded", exc_info=True)
+        return None
 
 
 def publish_completed_exchange(

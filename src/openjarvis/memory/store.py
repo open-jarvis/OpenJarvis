@@ -34,20 +34,23 @@ class Fact:
     text: str
     source: str = ""
     created_at: float = 0.0
+    # Provenance tier. "" = trusted/legacy; "untrusted" = auto-derived from a
+    # raw exchange that may contain hostile input → quarantined when surfaced.
+    trust: str = ""
 
 
 class FactStore(ABC):
     """Abstract persistent store for extracted memory facts."""
 
     @abstractmethod
-    def add(self, text: str, source: str = "") -> bool:
+    def add(self, text: str, source: str = "", trust: str = "") -> bool:
         """Store *text* as a fact. Returns True if a new fact was stored."""
 
-    def add_many(self, texts: Iterable[str], source: str = "") -> int:
+    def add_many(self, texts: Iterable[str], source: str = "", trust: str = "") -> int:
         """Store several facts, returning the count of newly stored ones."""
         added = 0
         for text in texts:
-            if self.add(text, source=source):
+            if self.add(text, source=source, trust=trust):
                 added += 1
         return added
 
@@ -113,6 +116,7 @@ class LocalFactStore(FactStore):
                     text=fact_text,
                     source=str(obj.get("source", "")),
                     created_at=float(obj.get("created_at", 0.0) or 0.0),
+                    trust=str(obj.get("trust", "")),
                 )
             )
         return facts
@@ -133,7 +137,7 @@ class LocalFactStore(FactStore):
 
     # -- FactStore API ------------------------------------------------------
 
-    def add(self, text: str, source: str = "") -> bool:
+    def add(self, text: str, source: str = "", trust: str = "") -> bool:
         text = (text or "").strip()
         if not text:
             return False
@@ -142,7 +146,9 @@ class LocalFactStore(FactStore):
             lowered = text.lower()
             if any(f.text.lower() == lowered for f in self._facts):
                 return False  # dedupe
-            self._facts.append(Fact(text=text, source=source, created_at=time.time()))
+            self._facts.append(
+                Fact(text=text, source=source, created_at=time.time(), trust=trust)
+            )
             # Enforce the cap by evicting the oldest entries.
             if self._max_facts and len(self._facts) > self._max_facts:
                 self._facts = self._facts[-self._max_facts :]
