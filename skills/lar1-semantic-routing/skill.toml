@@ -1,0 +1,29 @@
+[skill]
+name = "lar1-semantic-routing"
+version = "0.1.0"
+description = "Route agent queries using LAR-1 semantic metadata (time, cognition, evidence, confidence)"
+author = "cloudiaspecula"
+license = "Apache-2.0"
+tags = ["routing", "semantic", "cost-saving", "LAR-1"]
+
+[routing]
+priority = 100
+type = "pre-processing"
+
+[routing.inputs]
+metadata_lar1 = "LAR-1 semantic dimensions (T, C, E, L, S)"
+query_text = "Raw user query text"
+
+[routing.outputs]
+route = "local | cloud | hybrid"
+model = "selected model name"
+
+[config]
+threshold_low = 0.3
+threshold_medium = 0.5
+threshold_high = 0.7
+model_local_fast = "qwen2.5-7b"
+model_local_medium = "llama3.1-8b"
+model_cloud_fast = "gpt-4o-mini"
+model_cloud_medium = "gpt-4o"
+model_cloud_premium = "gpt-4o"
