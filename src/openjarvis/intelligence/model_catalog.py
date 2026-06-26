@@ -2,15 +2,177 @@
 
 from __future__ import annotations
 
-from typing import List
+from typing import Dict, List
 
 from openjarvis.core.registry import ModelRegistry
 from openjarvis.core.types import ModelSpec, Quantization
+
+
+def _routing_metadata(
+    lane: str,
+    *,
+    local: bool | None = None,
+    stable_json: bool | None = None,
+    capabilities: list[str] | None = None,
+    latency_band: str | None = None,
+    cost_band: str | None = None,
+) -> Dict[str, object]:
+    metadata: Dict[str, object] = {"routing_lane": lane}
+    if local is not None:
+        metadata["local"] = local
+    if stable_json is not None:
+        metadata["stable_json"] = stable_json
+    if capabilities:
+        metadata["capabilities"] = capabilities
+    if latency_band:
+        metadata["latency_band"] = latency_band
+    if cost_band:
+        metadata["cost_band"] = cost_band
+    return metadata
+
+
+def infer_routing_metadata(model_id: str) -> Dict[str, object]:
+    lower = model_id.lower()
+    if lower in {"qwen2.5:1.5b", "llama3.2:1b"}:
+        return _routing_metadata(
+            "router_control",
+            local=True,
+            stable_json=True,
+            capabilities=["classification", "routing", "structured_output"],
+            latency_band="low",
+            cost_band="local",
+        )
+    if lower == "openrouter/free" or ":free" in lower:
+        return _routing_metadata(
+            "free_fallback",
+            local=False,
+            capabilities=["general"],
+            latency_band="medium",
+            cost_band="free",
+        )
+    if any(tag in lower for tag in ("coder", "deepseek-coder", "code")):
+        return _routing_metadata(
+            "code_specialist",
+            local=not lower.startswith(("openrouter/", "codex/")),
+            capabilities=["code", "patching", "tests"],
+        )
+    if any(tag in lower for tag in ("vision", "vl", "maverick")):
+        return _routing_metadata(
+            "multimodal_vision",
+            local=not lower.startswith("openrouter/"),
+            capabilities=["vision", "ocr", "pdf"],
+        )
+    if any(tag in lower for tag in ("scout", "long", "200k", "1m")):
+        return _routing_metadata(
+            "long_context_research",
+            local=not lower.startswith("openrouter/"),
+            capabilities=["long_context", "research", "synthesis"],
+        )
+    if any(tag in lower for tag in ("opus", "fable", "gpt-5.5")):
+        return _routing_metadata(
+            "frontier_premium",
+            local=False,
+            capabilities=["hard_reasoning", "recovery"],
+        )
+    if any(
+        tag in lower
+        for tag in ("reasoning", "32b", "70b", "deepseek-v3", "mistral-small")
+    ):
+        return _routing_metadata(
+            "premium_workhorse",
+            local=not lower.startswith("openrouter/"),
+            capabilities=["reasoning", "architecture", "debugging"],
+        )
+    if lower.startswith("openrouter/"):
+        return _routing_metadata(
+            "cheap_paid_workhorse",
+            local=False,
+            capabilities=["general"],
+        )
+    return {}
 
 BUILTIN_MODELS: List[ModelSpec] = [
     # -----------------------------------------------------------------------
     # Local models — Dense
     # -----------------------------------------------------------------------
+    ModelSpec(
+        model_id="qwen2.5:1.5b",
+        name="Qwen2.5 1.5B",
+        parameter_count_b=1.5,
+        context_length=131072,
+        supported_engines=("ollama", "vllm", "llamacpp", "mlx", "sglang"),
+        provider="alibaba",
+        metadata={
+            "architecture": "dense",
+            "hf_repo": "Qwen/Qwen2.5-1.5B-Instruct",
+            **infer_routing_metadata("qwen2.5:1.5b"),
+        },
+    ),
+    ModelSpec(
+        model_id="llama3.2:1b",
+        name="Llama 3.2 1B",
+        parameter_count_b=1.0,
+        context_length=131072,
+        supported_engines=("ollama", "vllm", "llamacpp"),
+        provider="meta",
+        metadata={
+            "architecture": "dense",
+            "hf_repo": "meta-llama/Llama-3.2-1B-Instruct",
+            **infer_routing_metadata("llama3.2:1b"),
+        },
+    ),
+    ModelSpec(
+        model_id="qwen2.5-coder:7b",
+        name="Qwen2.5 Coder 7B",
+        parameter_count_b=7.0,
+        context_length=131072,
+        supported_engines=("ollama", "vllm", "llamacpp", "sglang"),
+        provider="alibaba",
+        metadata={
+            "architecture": "dense",
+            "hf_repo": "Qwen/Qwen2.5-Coder-7B-Instruct",
+            **infer_routing_metadata("qwen2.5-coder:7b"),
+        },
+    ),
+    ModelSpec(
+        model_id="openrouter/free",
+        name="OpenRouter Free",
+        parameter_count_b=0.0,
+        context_length=131072,
+        supported_engines=("cloud",),
+        provider="openrouter",
+        requires_api_key=True,
+        metadata={
+            "architecture": "proprietary-router",
+            **infer_routing_metadata("openrouter/free"),
+        },
+    ),
+    ModelSpec(
+        model_id="openrouter/deepseek/deepseek-v3.2",
+        name="DeepSeek V3.2 (OpenRouter)",
+        parameter_count_b=0.0,
+        context_length=131072,
+        supported_engines=("cloud",),
+        provider="openrouter",
+        requires_api_key=True,
+        metadata={
+            "architecture": "proprietary-router",
+            **infer_routing_metadata("openrouter/deepseek/deepseek-v3.2"),
+        },
+    ),
+    ModelSpec(
+        model_id="openrouter/qwen/qwen3-vl-32b-instruct",
+        name="Qwen3 VL 32B (OpenRouter)",
+        parameter_count_b=0.0,
+        context_length=131072,
+        supported_engines=("cloud",),
+        provider="openrouter",
+        requires_api_key=True,
+        metadata={
+            "architecture": "proprietary-router",
+            **infer_routing_metadata("openrouter/qwen/qwen3-vl-32b-instruct"),
+        },
+    ),
     ModelSpec(
         model_id="qwen3:0.6b",
         name="Qwen3 0.6B",
@@ -1011,12 +1173,14 @@ def merge_discovered_models(engine_key: str, model_ids: List[str]) -> None:
     """Create minimal ``ModelSpec`` entries for models not already in the registry."""
     for model_id in model_ids:
         if not ModelRegistry.contains(model_id):
+            metadata = infer_routing_metadata(model_id)
             spec = ModelSpec(
                 model_id=model_id,
                 name=model_id,
                 parameter_count_b=0.0,
                 context_length=0,
                 supported_engines=(engine_key,),
+                metadata=metadata,
             )
             ModelRegistry.register_value(model_id, spec)
 
