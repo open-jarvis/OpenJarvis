@@ -8,6 +8,7 @@ from unittest import mock
 from click.testing import CliRunner
 
 from openjarvis.cli import cli
+from openjarvis.core.events import EventBus, EventType
 
 _ask_mod = importlib.import_module("openjarvis.cli.ask")
 
@@ -67,6 +68,33 @@ def _patch_engine(engine):
 
 
 class TestAskModelResolution:
+    def test_route_trace_event_published(self) -> None:
+        engine = _mock_engine()
+        patches = _patch_engine(engine)
+        bus = EventBus(record_history=True)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            mock.patch.object(_ask_mod, "EventBus", return_value=bus),
+        ):
+            result = CliRunner().invoke(cli, ["ask", "Please classify this ticket"])
+        assert result.exit_code == 0
+        route_events = [
+            e
+            for e in bus.history
+            if e.event_type == EventType.TRACE_STEP
+            and e.data.get("step_type") == "route"
+        ]
+        assert route_events, "expected a route TRACE_STEP event"
+        ev = route_events[-1]
+        assert ev.data["output"]["model"]
+        assert "selected_engine" in ev.data["output"]
+        assert "escalation_chain" in ev.data["output"]
+
     def test_default_model_from_config(self) -> None:
         """When no -m flag, uses config.intelligence.default_model."""
         engine = _mock_engine()

@@ -17,7 +17,7 @@ from openjarvis.cli._tool_names import resolve_tool_names
 from openjarvis.cli.hints import hint_no_engine
 from openjarvis.core.config import load_config
 from openjarvis.core.events import EventBus, EventType
-from openjarvis.core.types import Message, Role
+from openjarvis.core.types import Message, Role, StepType
 from openjarvis.engine import (
     EngineConnectionError,
     discover_engines,
@@ -28,6 +28,7 @@ from openjarvis.intelligence import (
     merge_discovered_models,
     register_builtin_models,
 )
+from openjarvis.learning.routing.router import build_routing_context, explain_route
 from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
 from openjarvis.telemetry.store import TelemetryStore
 
@@ -836,6 +837,19 @@ def ask(
         console.print("[red]No model available on engine.[/red]")
         sys.exit(1)
 
+    routing_context = build_routing_context(
+        query_text,
+        urgency=0.5,
+        model=model_name,
+    )
+    routing_context.vision_required = bool(image_b64)
+    route_decision = explain_route(
+        routing_context,
+        available_models=engine_models,
+        default_model=config.intelligence.default_model or "",
+        fallback_model=config.intelligence.fallback_model or "",
+    )
+
     # The engine above was selected against the *default* model (or the -m
     # flag). If model resolution then fell back to a different model — e.g. the
     # configured ``default_model`` disappeared and we fell back to
@@ -856,6 +870,27 @@ def ask(
                 engine_name,
                 model_name,
             )
+
+    bus.publish(
+        EventType.TRACE_STEP,
+        {
+            "step_type": StepType.ROUTE.value,
+            "input": {
+                "query": query_text,
+                "task_class": routing_context.task_class,
+            },
+            "output": {
+                "lane": route_decision.lane,
+                "model": model_name,
+                "candidate_models": route_decision.candidate_models,
+                "escalation_chain": route_decision.escalation_chain,
+                "selected_engine": engine_name,
+            },
+            "metadata": {
+                "reason": route_decision.reason,
+            },
+        },
+    )
 
     # Apply security guardrails
     from openjarvis.security import setup_security

@@ -8,6 +8,8 @@ from openjarvis.learning._stubs import RoutingContext
 from openjarvis.learning.routing.router import (
     HeuristicRouter,
     build_routing_context,
+    escalation_chain_for_lane,
+    explain_route,
 )
 
 
@@ -247,3 +249,26 @@ class TestHeuristicRouter:
             vision_required=True,
         )
         assert router.select_model(ctx) == "qwen/qwen3-vl-32b-instruct"
+
+    def test_escalation_chain_for_code_lane(self) -> None:
+        chain = escalation_chain_for_lane("code_specialist")
+        assert chain == [
+            "code_specialist",
+            "premium_workhorse",
+            "frontier_premium",
+        ]
+
+    def test_explain_route_exposes_candidates_and_escalation(self) -> None:
+        _register_models()
+        decision = explain_route(
+            RoutingContext(
+                query="write a patch",
+                query_length=20,
+                task_class="code-simple",
+            ),
+            available_models=["small", "coder", "large"],
+        )
+        assert decision.lane == "code_specialist"
+        assert decision.model == "coder"
+        assert "coder" in decision.candidate_models
+        assert decision.escalation_chain[0] == "code_specialist"

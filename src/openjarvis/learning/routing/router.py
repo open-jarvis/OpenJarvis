@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import Iterable, List, Optional
 
 from openjarvis.core.registry import ModelRegistry
@@ -20,6 +21,52 @@ LANE_FRONTIER_PREMIUM = "frontier_premium"
 LANE_CODE_SPECIALIST = "code_specialist"
 LANE_LONG_CONTEXT_RESEARCH = "long_context_research"
 LANE_MULTIMODAL_VISION = "multimodal_vision"
+
+_LANE_ESCALATION_ORDER = {
+    LANE_ROUTER_CONTROL: [
+        LANE_ROUTER_CONTROL,
+        LANE_CHEAP_PAID_WORKHORSE,
+        LANE_PREMIUM_WORKHORSE,
+        LANE_FRONTIER_PREMIUM,
+    ],
+    LANE_FREE_FALLBACK: [
+        LANE_FREE_FALLBACK,
+        LANE_CHEAP_PAID_WORKHORSE,
+        LANE_PREMIUM_WORKHORSE,
+        LANE_FRONTIER_PREMIUM,
+    ],
+    LANE_CHEAP_PAID_WORKHORSE: [
+        LANE_CHEAP_PAID_WORKHORSE,
+        LANE_PREMIUM_WORKHORSE,
+        LANE_FRONTIER_PREMIUM,
+    ],
+    LANE_PREMIUM_WORKHORSE: [LANE_PREMIUM_WORKHORSE, LANE_FRONTIER_PREMIUM],
+    LANE_FRONTIER_PREMIUM: [LANE_FRONTIER_PREMIUM],
+    LANE_CODE_SPECIALIST: [
+        LANE_CODE_SPECIALIST,
+        LANE_PREMIUM_WORKHORSE,
+        LANE_FRONTIER_PREMIUM,
+    ],
+    LANE_LONG_CONTEXT_RESEARCH: [
+        LANE_LONG_CONTEXT_RESEARCH,
+        LANE_PREMIUM_WORKHORSE,
+        LANE_FRONTIER_PREMIUM,
+    ],
+    LANE_MULTIMODAL_VISION: [
+        LANE_MULTIMODAL_VISION,
+        LANE_PREMIUM_WORKHORSE,
+        LANE_FRONTIER_PREMIUM,
+    ],
+}
+
+
+@dataclass(frozen=True)
+class RouteDecision:
+    lane: str
+    model: str
+    candidate_models: List[str]
+    escalation_chain: List[str]
+    reason: str
 
 
 def build_routing_context(
@@ -187,6 +234,10 @@ def _filter_by_lane(available: Iterable[str], lane: str) -> List[str]:
     return [model for model in available if _spec_lane(model) == lane]
 
 
+def escalation_chain_for_lane(lane: str) -> List[str]:
+    return list(_LANE_ESCALATION_ORDER.get(lane, [lane]))
+
+
 def _prefer_local(models: List[str]) -> List[str]:
     def rank(model: str) -> tuple[int, float, str]:
         spec = _model_spec(model)
@@ -203,6 +254,37 @@ def _prefer_local(models: List[str]) -> List[str]:
         return (local, size, model)
 
     return sorted(models, key=rank)
+
+
+def explain_route(
+    context: RoutingContext,
+    *,
+    available_models: List[str] | None = None,
+    default_model: str = "",
+    fallback_model: str = "",
+) -> RouteDecision:
+    router = HeuristicRouter(
+        available_models=available_models,
+        default_model=default_model,
+        fallback_model=fallback_model,
+    )
+    available = router.available_models or list(ModelRegistry.keys())
+    selected_lane = context.lane or _lane_for_context(context)
+    candidates = _prefer_local(_filter_by_lane(available, selected_lane))
+    selected_model = router.select_model(context)
+    if not candidates and selected_model:
+        candidates = [selected_model]
+    reason = (
+        f"task_class={context.task_class or 'unknown'} "
+        f"complexity={context.complexity_score:.3f} lane={selected_lane}"
+    )
+    return RouteDecision(
+        lane=selected_lane,
+        model=selected_model,
+        candidate_models=candidates,
+        escalation_chain=escalation_chain_for_lane(selected_lane),
+        reason=reason,
+    )
 
 
 class HeuristicRouter(RouterPolicy):
@@ -328,5 +410,8 @@ __all__ = [
     "LANE_MULTIMODAL_VISION",
     "LANE_PREMIUM_WORKHORSE",
     "LANE_ROUTER_CONTROL",
+    "RouteDecision",
     "build_routing_context",
+    "escalation_chain_for_lane",
+    "explain_route",
 ]
