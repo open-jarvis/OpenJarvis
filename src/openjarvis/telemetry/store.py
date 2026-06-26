@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -145,13 +146,20 @@ _MIGRATE_COLUMNS = [
 class TelemetryStore:
     """Append-only SQLite store for inference telemetry records."""
 
-    def __init__(self, db_path: str | Path) -> None:
+    def __init__(self, db_path: str | Path, batch_size: int = 50) -> None:
         self._db_path = str(db_path)
         self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA synchronous=NORMAL")
         self._conn.execute(_CREATE_TABLE)
         self._conn.execute(_CREATE_MINING_STATS_TABLE)
         self._conn.commit()
         self._migrate_schema()
+
+        self._lock = threading.Lock()
+        self._batch_size = batch_size
+        self._telemetry_batch: list[tuple[Any, ...]] = []
+        self._mining_batch: list[tuple[Any, ...]] = []
 
     def _migrate_schema(self) -> None:
         """Add new columns to existing databases (idempotent)."""
@@ -166,53 +174,53 @@ class TelemetryStore:
 
     def record(self, rec: TelemetryRecord) -> None:
         """Persist a single telemetry record."""
-        self._conn.execute(
-            _INSERT,
-            (
-                rec.timestamp,
-                rec.model_id,
-                rec.engine,
-                rec.agent,
-                rec.prompt_tokens,
-                rec.prompt_tokens_evaluated,
-                rec.completion_tokens,
-                rec.total_tokens,
-                rec.latency_seconds,
-                rec.ttft,
-                rec.cost_usd,
-                rec.energy_joules,
-                rec.power_watts,
-                rec.gpu_utilization_pct,
-                rec.gpu_memory_used_gb,
-                rec.gpu_temperature_c,
-                rec.throughput_tok_per_sec,
-                rec.prefill_latency_seconds,
-                rec.decode_latency_seconds,
-                rec.energy_method,
-                rec.energy_vendor,
-                rec.batch_id,
-                1 if rec.is_warmup else 0,
-                rec.cpu_energy_joules,
-                rec.gpu_energy_joules,
-                rec.dram_energy_joules,
-                rec.tokens_per_joule,
-                rec.energy_per_output_token_joules,
-                rec.throughput_per_watt,
-                rec.prefill_energy_joules,
-                rec.decode_energy_joules,
-                rec.mean_itl_ms,
-                rec.median_itl_ms,
-                rec.p90_itl_ms,
-                rec.p95_itl_ms,
-                rec.p99_itl_ms,
-                rec.std_itl_ms,
-                1 if rec.is_streaming else 0,
-                rec.token_counting_version,
-                rec.mining_session_id,
-                json.dumps(rec.metadata),
-            ),
+        row = (
+            rec.timestamp,
+            rec.model_id,
+            rec.engine,
+            rec.agent,
+            rec.prompt_tokens,
+            rec.prompt_tokens_evaluated,
+            rec.completion_tokens,
+            rec.total_tokens,
+            rec.latency_seconds,
+            rec.ttft,
+            rec.cost_usd,
+            rec.energy_joules,
+            rec.power_watts,
+            rec.gpu_utilization_pct,
+            rec.gpu_memory_used_gb,
+            rec.gpu_temperature_c,
+            rec.throughput_tok_per_sec,
+            rec.prefill_latency_seconds,
+            rec.decode_latency_seconds,
+            rec.energy_method,
+            rec.energy_vendor,
+            rec.batch_id,
+            1 if rec.is_warmup else 0,
+            rec.cpu_energy_joules,
+            rec.gpu_energy_joules,
+            rec.dram_energy_joules,
+            rec.tokens_per_joule,
+            rec.energy_per_output_token_joules,
+            rec.throughput_per_watt,
+            rec.prefill_energy_joules,
+            rec.decode_energy_joules,
+            rec.mean_itl_ms,
+            rec.median_itl_ms,
+            rec.p90_itl_ms,
+            rec.p95_itl_ms,
+            rec.p99_itl_ms,
+            rec.std_itl_ms,
+            1 if rec.is_streaming else 0,
+            rec.token_counting_version,
+            rec.mining_session_id,
+            json.dumps(rec.metadata),
         )
-        self._conn.commit()
+        with self._lock:
+            self._telemetry_batch.append(row)
+            if len(self._telemetry_batch) >= self._batch_size:
+                self._flush_unlocked()
 
     def record_mining_stats(self, stats: Any) -> None:
         """Persist one mining stats snapshot.
@@ -220,31 +228,50 @@ class TelemetryStore:
         ``stats`` is duck-typed to keep telemetry usable without importing the
         optional mining package at module import time.
         """
-        self._conn.execute(
-            """\
+        row = (
+            time.time(),
+            stats.provider_id,
+            stats.shares_submitted,
+            stats.shares_accepted,
+            stats.blocks_found,
+            stats.hashrate,
+            stats.uptime_seconds,
+            stats.last_share_at,
+            stats.last_error,
+            stats.payout_target,
+            stats.fees_owed,
+        )
+        with self._lock:
+            self._mining_batch.append(row)
+            if len(self._mining_batch) >= self._batch_size:
+                self._flush_unlocked()
+
+    def flush(self) -> None:
+        """Write all pending records to the database."""
+        with self._lock:
+            self._flush_unlocked()
+
+    def _flush_unlocked(self) -> None:
+        if self._telemetry_batch:
+            self._conn.executemany(_INSERT, self._telemetry_batch)
+            self._telemetry_batch.clear()
+        if self._mining_batch:
+            self._conn.executemany(
+                """\
 INSERT INTO mining_stats (
     recorded_at, provider_id, shares_submitted, shares_accepted, blocks_found,
     hashrate, uptime_seconds, last_share_at, last_error, payout_target, fees_owed
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """,
-            (
-                time.time(),
-                stats.provider_id,
-                stats.shares_submitted,
-                stats.shares_accepted,
-                stats.blocks_found,
-                stats.hashrate,
-                stats.uptime_seconds,
-                stats.last_share_at,
-                stats.last_error,
-                stats.payout_target,
-                stats.fees_owed,
-            ),
-        )
+                self._mining_batch,
+            )
+            self._mining_batch.clear()
         self._conn.commit()
 
     def list_recent(self, limit: int = 50) -> list[dict[str, Any]]:
         """Return recent telemetry rows as dictionaries."""
+        with self._lock:
+            self._flush_unlocked()
         return self._select_dicts(
             "SELECT * FROM telemetry ORDER BY timestamp DESC LIMIT ?",
             (limit,),
@@ -252,6 +279,8 @@ INSERT INTO mining_stats (
 
     def list_recent_mining_stats(self, limit: int = 50) -> list[dict[str, Any]]:
         """Return recent mining stats snapshots as dictionaries."""
+        with self._lock:
+            self._flush_unlocked()
         return self._select_dicts(
             "SELECT * FROM mining_stats ORDER BY recorded_at DESC LIMIT ?",
             (limit,),
@@ -271,11 +300,13 @@ INSERT INTO mining_stats (
 
     def close(self) -> None:
         """Close the underlying SQLite connection."""
+        self.flush()
         self._conn.close()
 
     # -- helpers for querying (used by tests) --------------------------------
 
     def _fetchall(self, sql: str = "SELECT * FROM telemetry") -> list:
+        self.flush()
         return self._conn.execute(sql).fetchall()
 
     def _select_dicts(self, sql: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:

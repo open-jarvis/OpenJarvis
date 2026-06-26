@@ -148,3 +148,24 @@ class TestTelemetryRecordFields:
     def test_tokens_per_joule_set(self):
         rec = TelemetryRecord(timestamp=1.0, model_id="test", tokens_per_joule=80.0)
         assert rec.tokens_per_joule == 80.0
+
+    def test_batching_delays_commit(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        store = TelemetryStore(db_path, batch_size=2)
+        rec = TelemetryRecord(timestamp=time.time(), model_id="m1", engine="e1")
+
+        store.record(rec)
+        # Should not be in DB yet because batch_size is 2 and we haven't flushed
+        # Need a separate connection to check because store._fetchall() calls flush()!
+        import sqlite3
+
+        conn = sqlite3.connect(db_path)
+        assert len(conn.execute("SELECT * FROM telemetry").fetchall()) == 0
+        conn.close()
+
+        # Hit batch size
+        store.record(rec)
+        conn = sqlite3.connect(db_path)
+        assert len(conn.execute("SELECT * FROM telemetry").fetchall()) == 2
+        conn.close()
+        store.close()
