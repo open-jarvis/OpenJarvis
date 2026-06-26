@@ -1,0 +1,14 @@
+# LAR-1 Semantic Routing — Thresholds & Model Config
+# Customize per deployment. Unset fields fall back to defaults.
+
+[thresholds]
+low = 0.3
+medium = 0.5
+high = 0.7
+
+[models]
+local_fast = "qwen2.5-7b"
+local_medium = "llama3.1-8b"
+cloud_fast = "gpt-4o-mini"
+cloud_medium = "gpt-4o"
+cloud_premium = "gpt-4o"
