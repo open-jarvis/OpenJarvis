@@ -48,6 +48,15 @@ def test_line_fallback_for_bullets():
     ]
 
 
+def test_line_fallback_ignores_unmarked_prose():
+    # Free-form prose (no JSON array, no list markers) must NOT be coerced into
+    # facts — only genuine list items are accepted, so a model can't be steered
+    # into minting arbitrary "facts" from narrative/injected text.
+    engine = FakeEngine("Sure, I will remember that.\nThe user seems nice.")
+    extractor = FactExtractor(engine, "m")
+    assert extractor.extract("x", "y") == []
+
+
 def test_dedupe_within_turn():
     engine = FakeEngine('["likes tea", "Likes Tea", "likes tea"]')
     extractor = FactExtractor(engine, "m")
