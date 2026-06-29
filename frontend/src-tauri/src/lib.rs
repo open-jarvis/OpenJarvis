@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 const OLLAMA_PORT: u16 = 11434;
 const JARVIS_PORT: u16 = 8000;
 
-/// Small, fast model pulled at startup so the app opens quickly.
+/// Small, fast model used when startup needs a default Ollama tag.
 const STARTUP_MODEL: &str = "qwen3.5:4b";
 
 /// Tiny fallback model if even the startup model can't be pulled.
@@ -104,7 +104,7 @@ fn default_local_model(ram_gb: f64) -> &'static str {
 struct BootPlan {
     /// Whether to start and wait for the bundled Ollama.
     launch_ollama: bool,
-    /// The single Ollama model to pull (None for custom endpoints).
+    /// The preferred Ollama model (None for custom endpoints).
     model_to_pull: Option<String>,
     /// Optional `(engine_key, bare_host)` override for a custom endpoint,
     /// e.g. `("lmstudio", "http://localhost:1234")`. Written into
@@ -608,6 +608,69 @@ async fn wait_for_jarvis_health(
 }
 
 async fn ollama_has_model(model: &str) -> bool {
+    let models = ollama_model_names().await;
+    matching_installed_model(&models, model).is_some()
+}
+
+fn parse_ollama_model_names(body: &serde_json::Value) -> Vec<String> {
+    body.get("models")
+        .and_then(|m| m.as_array())
+        .map(|models| {
+            models
+                .iter()
+                .filter_map(|m| {
+                    m.get("name")
+                        .or_else(|| m.get("model"))
+                        .and_then(|n| n.as_str())
+                })
+                .filter(|name| !name.trim().is_empty())
+                .map(|name| name.to_string())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn model_names_match(installed: &str, requested: &str) -> bool {
+    installed == requested
+        || installed.strip_suffix(":latest") == Some(requested)
+        || requested.strip_suffix(":latest") == Some(installed)
+}
+
+fn matching_installed_model(models: &[String], requested: &str) -> Option<String> {
+    models
+        .iter()
+        .find(|model| model_names_match(model, requested))
+        .cloned()
+}
+
+fn model_name_looks_embedding_only(model: &str) -> bool {
+    let name = model.to_ascii_lowercase();
+    ["embed", "embedding", "rerank", "minilm", "bge-", "bge_", "e5-", "e5_"]
+        .iter()
+        .any(|marker| name.contains(marker))
+}
+
+fn preferred_installed_model(models: &[String]) -> Option<String> {
+    models
+        .iter()
+        .find(|model| !model.trim().is_empty() && !model_name_looks_embedding_only(model))
+        .or_else(|| models.iter().find(|model| !model.trim().is_empty()))
+        .cloned()
+}
+
+fn startup_installed_model(requested_model: &str, installed_models: &[String]) -> Option<String> {
+    matching_installed_model(installed_models, requested_model)
+        .or_else(|| preferred_installed_model(installed_models))
+}
+
+fn should_persist_resolved_model(cfg: &InferenceConfig) -> bool {
+    cfg.model
+        .as_deref()
+        .map(|model| model.trim().is_empty())
+        .unwrap_or(true)
+}
+
+async fn ollama_model_names() -> Vec<String> {
     let url = format!("http://127.0.0.1:{}/api/tags", OLLAMA_PORT);
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
@@ -615,21 +678,10 @@ async fn ollama_has_model(model: &str) -> bool {
         .unwrap();
     if let Ok(resp) = client.get(&url).send().await {
         if let Ok(body) = resp.json::<serde_json::Value>().await {
-            if let Some(models) = body.get("models").and_then(|m| m.as_array()) {
-                return models.iter().any(|m| {
-                    m.get("name")
-                        .and_then(|n| n.as_str())
-                        .map(|n| {
-                            n == model
-                                || n.strip_suffix(":latest") == Some(model)
-                                || model.strip_suffix(":latest") == Some(n)
-                        })
-                        .unwrap_or(false)
-                });
-            }
+            return parse_ollama_model_names(&body);
         }
     }
-    false
+    Vec::new()
 }
 
 async fn pull_model(model: &str) -> Result<(), String> {
@@ -751,7 +803,7 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
         .into();
     }
 
-    // For the Ollama path, the model pull may fall back to FALLBACK_MODEL; we
+    // For the Ollama path, model resolution may fall back to FALLBACK_MODEL; we
     // record what is actually available here so the serve command below uses
     // it instead of the originally-planned tag. None on the custom path.
     let mut serve_model_override: Option<String> = None;
@@ -798,8 +850,8 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
             s.detail = "Inference engine ready.".into();
         }
 
-        // Phase 2: Pull the single default model (see default_local_model /
-        // boot_plan). We deliberately do NOT pull any others.
+        // Phase 2: Resolve one model to serve. Prefer an installed model on
+        // first run so startup does not depend on a download succeeding.
         let model = plan
             .model_to_pull
             .clone()
@@ -810,41 +862,63 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
             s.detail = format!("Checking for {}...", model);
         }
 
-        if !ollama_has_model(&model).await {
+        let installed_models = ollama_model_names().await;
+        let resolved_model = if let Some(installed) = startup_installed_model(&model, &installed_models) {
+            installed
+        } else {
             {
                 let mut s = status.lock().await;
                 s.detail = format!("Downloading {}... (this may take a minute)", model);
             }
-            if let Err(e) = pull_model(&model).await {
-                // If the chosen model fails, try the tiny fallback
-                eprintln!("Warning: failed to pull {}: {}", model, e);
-                if !ollama_has_model(FALLBACK_MODEL).await {
-                    {
-                        let mut s = status.lock().await;
-                        s.detail = format!("Downloading {}...", FALLBACK_MODEL);
-                    }
-                    if let Err(e2) = pull_model(FALLBACK_MODEL).await {
-                        let mut s = status.lock().await;
-                        s.error = Some(format!("Failed to download model: {}", e2));
-                        return;
+            match pull_model(&model).await {
+                Ok(()) => model.clone(),
+                Err(e) => {
+                    eprintln!("Warning: failed to pull {}: {}", model, e);
+
+                    // If a local model appeared while pulling, use it instead of
+                    // making startup depend on another network pull.
+                    if let Some(installed) = preferred_installed_model(&ollama_model_names().await) {
+                        installed
+                    } else if ollama_has_model(FALLBACK_MODEL).await {
+                        FALLBACK_MODEL.to_string()
+                    } else {
+                        {
+                            let mut s = status.lock().await;
+                            s.detail = format!("Downloading {}...", FALLBACK_MODEL);
+                        }
+                        if let Err(e2) = pull_model(FALLBACK_MODEL).await {
+                            if let Some(installed) =
+                                preferred_installed_model(&ollama_model_names().await)
+                            {
+                                installed
+                            } else {
+                                let mut s = status.lock().await;
+                                s.error = Some(format!("Failed to download model: {}", e2));
+                                return;
+                            }
+                        } else {
+                            FALLBACK_MODEL.to_string()
+                        }
                     }
                 }
             }
+        };
+
+        if resolved_model != model {
+            let mut s = status.lock().await;
+            s.detail = format!("Using installed model {}.", resolved_model);
         }
 
-        // The pull may have fallen back to FALLBACK_MODEL; serve and persist
-        // whatever is actually available now, not the originally-planned tag.
-        let resolved_model = if ollama_has_model(&model).await {
-            model
-        } else {
-            FALLBACK_MODEL.to_string()
-        };
         serve_model_override = Some(resolved_model.clone());
 
-        // Persist the resolved model so Settings shows it and future boots reuse it.
-        let mut persisted = cfg.clone();
-        persisted.model = Some(resolved_model);
-        let _ = write_inference_config(&persisted);
+        // Persist only first-run/default resolution. If the user explicitly
+        // configured a model, do not overwrite that choice with a temporary
+        // fallback selected just to keep startup nonfatal.
+        if should_persist_resolved_model(&cfg) {
+            let mut persisted = cfg.clone();
+            persisted.model = Some(resolved_model);
+            let _ = write_inference_config(&persisted);
+        }
 
         {
             let mut s = status.lock().await;
@@ -2647,8 +2721,10 @@ pub fn run() {
 mod tests {
     use super::{
         boot_plan, default_local_model, format_uv_sync_failure, format_uv_sync_spawn_error,
-        normalize_host, parse_inference_config, upsert_engine_host, uv_sync_stderr_tail,
-        InferenceConfig, SourceKind,
+        matching_installed_model, model_names_match, normalize_host, parse_inference_config,
+        parse_ollama_model_names, preferred_installed_model, should_persist_resolved_model,
+        startup_installed_model,
+        upsert_engine_host, uv_sync_stderr_tail, InferenceConfig, SourceKind,
     };
     use std::path::Path;
 
@@ -2728,6 +2804,97 @@ mod tests {
     #[test]
     fn default_local_model_falls_back_when_nothing_fits() {
         assert_eq!(default_local_model(1.0), super::FALLBACK_MODEL);
+    }
+
+    #[test]
+    fn parse_ollama_model_names_reads_nonempty_names() {
+        let body = serde_json::json!({
+            "models": [
+                {"name": "llama3.2:latest"},
+                {"name": ""},
+                {"name": "qwen3.5:4b"},
+                {"model": "mistral:latest"}
+            ]
+        });
+        assert_eq!(
+            parse_ollama_model_names(&body),
+            vec![
+                "llama3.2:latest".to_string(),
+                "qwen3.5:4b".to_string(),
+                "mistral:latest".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn model_names_match_treats_latest_as_optional() {
+        assert!(model_names_match("llama3.2:latest", "llama3.2"));
+        assert!(model_names_match("llama3.2", "llama3.2:latest"));
+        assert!(model_names_match("qwen3.5:4b", "qwen3.5:4b"));
+        assert!(!model_names_match("llama3.2:latest", "qwen3.5:4b"));
+    }
+
+    #[test]
+    fn installed_model_helpers_pick_matching_or_first_model() {
+        let models = vec!["llama3.2:latest".to_string(), "qwen3.5:4b".to_string()];
+        assert_eq!(
+            matching_installed_model(&models, "llama3.2"),
+            Some("llama3.2:latest".to_string())
+        );
+        assert_eq!(
+            preferred_installed_model(&models),
+            Some("llama3.2:latest".to_string())
+        );
+    }
+
+    #[test]
+    fn preferred_installed_model_skips_embedding_names_when_chat_model_exists() {
+        let models = vec![
+            "nomic-embed-text:latest".to_string(),
+            "llama3.2:latest".to_string(),
+        ];
+        assert_eq!(
+            preferred_installed_model(&models),
+            Some("llama3.2:latest".to_string())
+        );
+    }
+
+    #[test]
+    fn startup_installed_model_uses_existing_model_for_defaults() {
+        let models = vec!["llama3.2:latest".to_string()];
+        assert_eq!(
+            startup_installed_model("qwen3.5:4b", &models),
+            Some("llama3.2:latest".to_string())
+        );
+    }
+
+    #[test]
+    fn startup_installed_model_uses_existing_model_when_configured_model_missing() {
+        let models = vec!["llama3.2:latest".to_string()];
+        assert_eq!(
+            startup_installed_model("qwen3.5:4b", &models),
+            Some("llama3.2:latest".to_string())
+        );
+    }
+
+    #[test]
+    fn resolved_model_is_only_persisted_when_no_model_was_configured() {
+        let default_cfg = InferenceConfig { kind: SourceKind::Ollama, ..Default::default() };
+        assert!(should_persist_resolved_model(&default_cfg));
+
+        let empty_cfg = InferenceConfig {
+            kind: SourceKind::Ollama,
+            model: Some(" ".into()),
+            ..Default::default()
+        };
+        assert!(should_persist_resolved_model(&empty_cfg));
+
+        let user_cfg = InferenceConfig {
+            kind: SourceKind::Ollama,
+            model: Some("qwen3.5:9b".into()),
+            ..Default::default()
+        };
+        assert!(!should_persist_resolved_model(&user_cfg));
     }
 
     #[test]
