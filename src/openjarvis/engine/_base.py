@@ -55,7 +55,7 @@ def estimate_prompt_tokens(messages: Sequence[Message]) -> int:
     Uses ~4 characters per token (standard BPE average for English) plus
     a small per-message overhead for role markers and separators.
     """
-    total_chars = sum(len(m.content) for m in messages)
+    total_chars = sum(len(m.content or "") for m in messages)
     # ~4 tokens overhead per message for role markers / separators
     overhead = len(messages) * 4
     return max(1, total_chars // 4 + overhead)
