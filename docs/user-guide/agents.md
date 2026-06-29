@@ -80,7 +80,7 @@ Set `persona_name` under `[memory_files]` to make a named persona the default. `
 
 ### Editing them
 
-`SOUL.md`, `MEMORY.md`, and `USER.md` are plain Markdown -- open them in any editor. `MEMORY.md` and `USER.md` can also be updated by the agent itself through the `memory_manage` and `user_profile_manage` tools when those are enabled, so the agent can record a new fact mid-conversation.
+`SOUL.md`, `MEMORY.md`, and `USER.md` are plain Markdown -- open them in any editor. `MEMORY.md` and `USER.md` can also be updated by the agent itself through the `memory_manage` and `user_profile_manage` tools when those are enabled, so the agent can record a new fact mid-conversation. These tools always target the default `MEMORY.md` and `USER.md` (under `~/.openjarvis/`), never a named persona's copies -- edit those by hand.
 
 ---
 
