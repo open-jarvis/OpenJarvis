@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from typing import Any
@@ -835,7 +836,7 @@ async def list_models(request: Request) -> ModelListResponse:
     # Filter out any cloud model IDs that may appear via MultiEngine.
     # Fall back to direct Ollama query only when the engine returns nothing.
     engine = request.app.state.engine
-    all_ids = engine.list_models()
+    all_ids = await asyncio.to_thread(engine.list_models)
     model_ids = [m for m in all_ids if not is_cloud_model(m)]
     if not model_ids:
         model_ids = await list_local_models()

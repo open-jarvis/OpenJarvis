@@ -51,7 +51,11 @@ class TestAgentManagerRoutes:
     def test_sendblue_verify_uses_async_http_client(self, client):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
-        mock_resp.json.return_value = [{"number": "+15551234567"}]
+        mock_resp.json.return_value = [
+            "+15551234567",
+            {"phone_number": "+15557654321"},
+            None,
+        ]
 
         with patch("httpx.AsyncClient") as mock_client_cls:
             instance = mock_client_cls.return_value.__aenter__.return_value
@@ -63,7 +67,7 @@ class TestAgentManagerRoutes:
 
         assert resp.status_code == 200
         assert resp.json()["valid"] is True
-        assert resp.json()["numbers"] == ["+15551234567"]
+        assert resp.json()["numbers"] == ["+15551234567", "+15557654321"]
         instance.get.assert_awaited_once()
 
     def test_sendblue_register_webhook_uses_async_http_client(self, client):

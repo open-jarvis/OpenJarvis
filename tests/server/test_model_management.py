@@ -274,3 +274,19 @@ class TestModelsEndpointExtended:
         assert resp.status_code == 200
         # The endpoint returns whatever list_models() gives
         assert resp.json()["object"] == "list"
+
+    def test_models_list_offloads_engine_list_models(self):
+        engine = _make_engine(models=["qwen3.5:4b"])
+        app = create_app(engine, "qwen3.5:4b")
+        client = TestClient(app)
+
+        with patch(
+            "openjarvis.server.routes.asyncio.to_thread",
+            new_callable=AsyncMock,
+        ) as mock_to_thread:
+            mock_to_thread.return_value = ["qwen3.5:4b"]
+            resp = client.get("/v1/models")
+
+        assert resp.status_code == 200
+        assert [m["id"] for m in resp.json()["data"]] == ["qwen3.5:4b"]
+        mock_to_thread.assert_awaited_once_with(engine.list_models)

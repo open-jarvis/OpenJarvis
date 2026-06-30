@@ -2290,12 +2290,16 @@ def create_agent_manager_router(
             )
             numbers = []
             for line in lines:
-                num = (
-                    line.get("number")
-                    or line.get("phone_number")
-                    or line.get("from_number")
-                    or (line if isinstance(line, str) else "")
-                )
+                if isinstance(line, str):
+                    num = line
+                elif isinstance(line, dict):
+                    num = (
+                        line.get("number")
+                        or line.get("phone_number")
+                        or line.get("from_number")
+                    )
+                else:
+                    num = None
                 if num:
                     numbers.append(num)
             return {
