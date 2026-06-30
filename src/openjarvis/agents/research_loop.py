@@ -2,7 +2,8 @@
 
 A small, self-contained planner-executor loop:
 
-* the planner is a local Ollama chat model (default ``gemma4:31b``),
+* the planner is supplied by the caller (the web endpoint resolves it from
+  config, falling back to ``gemma4:31b`` on Ollama for legacy installs),
 * the only tool it can call is :meth:`HybridSearch.search`,
 * it gets up to ``max_iterations`` tool calls,
 * tool results are trimmed before re-entering the context window, and

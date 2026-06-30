@@ -27,7 +27,7 @@ import threading
 import time
 from typing import Any, AsyncGenerator, Callable, Dict, List, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -38,9 +38,10 @@ from openjarvis.agents.research_loop import (
 from openjarvis.connectors.embeddings import OllamaEmbedder
 from openjarvis.connectors.hybrid_search import HybridSearch
 from openjarvis.connectors.store import KnowledgeStore
-from openjarvis.core.config import DEFAULT_CONFIG_DIR
+from openjarvis.core.config import DEFAULT_CONFIG_DIR, JarvisConfig, load_config
 from openjarvis.core.types import TelemetryRecord
-from openjarvis.engine.ollama import OllamaEngine
+from openjarvis.engine._base import InferenceEngine
+from openjarvis.engine._discovery import get_engine
 from openjarvis.telemetry.store import TelemetryStore
 
 logger = logging.getLogger(__name__)
@@ -48,13 +49,99 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["research"])
 
 _WEB_CLARIFY_RESPONSE = "no clarification available in web session"
+_LEGACY_PLANNER_ENGINE = "ollama"
 
 # Sentinel placed on the queue when the agent thread terminates.
 _DONE = object()
 
 
+def _first_nonempty(*values: str) -> str:
+    for value in values:
+        stripped = value.strip()
+        if stripped:
+            return stripped
+    return ""
+
+
+def _resolve_planner_config(
+    config: JarvisConfig,
+    *,
+    active_engine_key: str = "",
+    active_model: str = "",
+    request_model: str = "",
+) -> tuple[str, str]:
+    """Resolve the planner engine/model for web Deep Research.
+
+    Resolution order:
+
+    1. explicit ``[deep_research]`` overrides,
+    2. the active chat engine/request model,
+    3. server/config defaults,
+    4. legacy Ollama/gemma4 fallback for unconfigured installs.
+    """
+    engine_key = _first_nonempty(
+        config.deep_research.engine,
+        active_engine_key,
+        config.engine.default,
+        _LEGACY_PLANNER_ENGINE,
+    )
+    model = _first_nonempty(
+        config.deep_research.model,
+        request_model,
+        active_model,
+        config.server.model,
+        config.intelligence.default_model,
+        DEFAULT_PLANNER_MODEL,
+    )
+    return engine_key, model
+
+
+def _build_planner_engine(
+    config: JarvisConfig,
+    *,
+    active_engine: InferenceEngine | None = None,
+    active_engine_key: str = "",
+    active_model: str = "",
+    request_model: str = "",
+) -> tuple[str, InferenceEngine, str]:
+    """Instantiate the exact configured planner engine.
+
+    ``get_engine`` intentionally falls back to any healthy engine for general
+    chat routing. Deep Research must not do that here: if the configured chat
+    engine is LM Studio but unavailable, silently falling back to Ollama would
+    recreate the issue this endpoint is fixing.
+    """
+    engine_key, model = _resolve_planner_config(
+        config,
+        active_engine_key=active_engine_key,
+        active_model=active_model,
+        request_model=request_model,
+    )
+    if active_engine is not None and not config.deep_research.engine.strip():
+        if model and not active_engine.can_serve(model):
+            raise RuntimeError(
+                "Deep Research planner engine "
+                f"{engine_key!r} cannot serve model {model!r}. "
+                "Choose a compatible model or set [deep_research] engine/model "
+                "in config.toml."
+            )
+        return engine_key, active_engine, model
+
+    resolved = get_engine(config, engine_key=engine_key, model=model)
+    if resolved is None or resolved[0] != engine_key:
+        raise RuntimeError(
+            "Deep Research planner engine "
+            f"{engine_key!r} is unavailable or cannot serve model {model!r}. "
+            "Start the configured engine, load the configured model, or set "
+            "[deep_research] engine/model in config.toml."
+        )
+    resolved_key, engine = resolved
+    return resolved_key, engine, model
+
+
 def _record_research_telemetry(
     *,
+    engine_key: str,
     model: str,
     usage: Dict[str, int],
     latency_seconds: float,
@@ -86,7 +173,7 @@ def _record_research_telemetry(
         rec = TelemetryRecord(
             timestamp=time.time(),
             model_id=model,
-            engine="ollama",
+            engine=engine_key,
             agent="research",
             prompt_tokens=int(usage.get("prompt_tokens", 0)),
             prompt_tokens_evaluated=int(usage.get("prompt_tokens", 0)),
@@ -244,12 +331,11 @@ class _LiveGPUSampler:
 
 class ResearchRequest(BaseModel):
     query: str = Field(..., description="Natural-language question to research.")
-    # Deep Research has its own model requirements (function-calling support,
-    # sufficient reasoning capability) that the chat-model selector should not
-    # override. We accept the field for forward-compat with older clients but
-    # ignore it — the planner always runs on DEFAULT_PLANNER_MODEL.
+    # Preferred planner model from the active chat selector. Server-side
+    # [deep_research] config can still override it when a dedicated planner is
+    # desired.
     model: Optional[str] = Field(
-        default=None, description="Ignored; retained for client compatibility."
+        default=None, description="Preferred planner model for this request."
     )
 
 
@@ -290,7 +376,14 @@ def _chunk_synthesis(text: str, window_chars: int = 40) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-async def _stream_research(query: str, model: str) -> AsyncGenerator[str, None]:
+async def _stream_research(
+    query: str,
+    *,
+    active_engine: InferenceEngine | None = None,
+    active_engine_key: str = "",
+    active_model: str = "",
+    request_model: str = "",
+) -> AsyncGenerator[str, None]:
     """Drive ResearchAgent on a worker thread; yield SSE frames as they land.
 
     Three error envelopes — setup, worker, consumer — all funnel into the
@@ -298,7 +391,7 @@ async def _stream_research(query: str, model: str) -> AsyncGenerator[str, None]:
     ``{"type": "done", "usage": {...}}``. The client can rely on always
     seeing a ``done`` frame, even when the agent never started.
     """
-    # Phase 1: setup. Failures here (Ollama daemon down, DB locked, etc.)
+    # Phase 1: setup. Failures here (planner engine down, DB locked, etc.)
     # yield error + done and return — nothing has been emitted yet so the
     # client gets a clean two-frame stream instead of a dangling connection.
     try:
@@ -308,6 +401,15 @@ async def _stream_research(query: str, model: str) -> AsyncGenerator[str, None]:
         def on_event(event: Dict[str, Any]) -> None:
             # Called from the agent's worker thread; bounce onto the event loop.
             loop.call_soon_threadsafe(queue.put_nowait, event)
+
+        config = load_config()
+        engine_key, engine, model = _build_planner_engine(
+            config,
+            active_engine=active_engine,
+            active_engine_key=active_engine_key,
+            active_model=active_model,
+            request_model=request_model,
+        )
 
         # Each request gets its own thin set of connectors. Constructing them
         # is cheap (SQLite open + HTTP keepalive) and avoids state leaks
@@ -320,7 +422,6 @@ async def _stream_research(query: str, model: str) -> AsyncGenerator[str, None]:
             )
             embedder = None
 
-        engine = OllamaEngine()
         agent = ResearchAgent(
             engine=engine,
             search=HybridSearch(store, embedder),
@@ -367,6 +468,7 @@ async def _stream_research(query: str, model: str) -> AsyncGenerator[str, None]:
             # rolls research into the same Power/Energy numbers as chat —
             # this is what the launch-video System panel reads.
             _record_research_telemetry(
+                engine_key=engine_key,
                 model=model,
                 usage=usage_dict,
                 latency_seconds=time.time() - t0,
@@ -472,7 +574,7 @@ async def _stream_research(query: str, model: str) -> AsyncGenerator[str, None]:
 
 
 @router.post("/research")
-async def research(req: ResearchRequest) -> StreamingResponse:
+async def research(req: ResearchRequest, request: Request) -> StreamingResponse:
     """Run a research query and stream the agent's trace + synthesis via SSE.
 
     Response is ``text/event-stream`` with one JSON event per frame. See the
@@ -480,14 +582,19 @@ async def research(req: ResearchRequest) -> StreamingResponse:
     terminates the stream so clients can detect end-of-response without
     parsing the underlying ``[DONE]`` sentinel used by OpenAI-style routes.
     """
-    if req.model and req.model != DEFAULT_PLANNER_MODEL:
-        logger.info(
-            "research: ignoring client model=%r; using DEFAULT_PLANNER_MODEL=%r",
-            req.model,
-            DEFAULT_PLANNER_MODEL,
-        )
+    active_engine = getattr(request.app.state, "engine", None)
+    active_model = str(getattr(request.app.state, "model", "") or "")
+    active_engine_key = str(getattr(request.app.state, "engine_name", "") or "")
+    if active_engine is not None and not active_engine_key:
+        active_engine_key = str(getattr(active_engine, "engine_id", "") or "")
     return StreamingResponse(
-        _stream_research(req.query, DEFAULT_PLANNER_MODEL),
+        _stream_research(
+            req.query,
+            active_engine=active_engine,
+            active_engine_key=active_engine_key,
+            active_model=active_model,
+            request_model=req.model or "",
+        ),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
