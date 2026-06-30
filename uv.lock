@@ -4206,6 +4206,7 @@ dashboard = [
 desktop = [
     { name = "fastapi" },
     { name = "faster-whisper" },
+    { name = "openjarvis-rust" },
     { name = "pydantic" },
     { name = "python-multipart" },
     { name = "uvicorn" },
@@ -4390,6 +4391,7 @@ requires-dist = [
     { name = "openai", marker = "extra == 'inference-cloud'", specifier = ">=1.30" },
     { name = "openai", marker = "extra == 'media'", specifier = ">=1.30" },
     { name = "openhands-sdk", marker = "python_full_version >= '3.12' and extra == 'openhands'", specifier = ">=1.0" },
+    { name = "openjarvis-rust", marker = "extra == 'desktop'", directory = "rust/crates/openjarvis-python" },
     { name = "pdfplumber", marker = "extra == 'memory-pdf'", specifier = ">=0.10" },
     { name = "pdfplumber", marker = "extra == 'pdf'", specifier = ">=0.10" },
     { name = "playwright", marker = "extra == 'browser'", specifier = ">=1.40" },
@@ -4444,6 +4446,11 @@ provides-extras = ["browser", "channel-discord", "channel-gmail", "channel-line"
 
 [package.metadata.requires-dev]
 dev = [{ name = "maturin", specifier = ">=1.12.6" }]
+
+[[package]]
+name = "openjarvis-rust"
+version = "0.1.0"
+source = { directory = "rust/crates/openjarvis-python" }
 
 [[package]]
 name = "opentelemetry-api"
