@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import logging
@@ -894,7 +895,12 @@ async def transcribe_speech(request: Request):
     ext = filename.rsplit(".", 1)[-1] if "." in filename else "wav"
 
     try:
-        result = backend.transcribe(audio_bytes, format=ext, language=language or None)
+        result = await asyncio.to_thread(
+            backend.transcribe,
+            audio_bytes,
+            format=ext,
+            language=language or None,
+        )
     except Exception as exc:
         logger.exception("Speech transcription failed")
         raise HTTPException(
