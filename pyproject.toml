@@ -231,6 +231,9 @@ select = ["E", "F", "I", "W"]
 # the ignore was missing here.
 "src/openjarvis/agents/research_loop.py" = ["E501"]
 
+[tool.vercel]
+entrypoint = "src/openjarvis/server/app.py"
+
 [dependency-groups]
 dev = [
     "maturin>=1.12.6",

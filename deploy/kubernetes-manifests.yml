@@ -1,0 +1,257 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openjarvis
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openjarvis-config
+  namespace: openjarvis
+data:
+  environment: production
+  log_level: INFO
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: openjarvis-secrets
+  namespace: openjarvis
+type: Opaque
+stringData:
+  database_url: postgresql://openjarvis:password@postgres:5432/openjarvis
+  redis_url: redis://redis:6379/0
+  mongodb_url: mongodb://mongodb:27017
+  secret_key: your-secret-key-here
+  jwt_secret: your-jwt-secret-here
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openjarvis
+  namespace: openjarvis
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: openjarvis
+  template:
+    metadata:
+      labels:
+        app: openjarvis
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: openjarvis
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - name: openjarvis
+        image: registry.example.com/openjarvis:latest
+        imagePullPolicy: Always
+        ports:
+        - name: http
+          containerPort: 8000
+          protocol: TCP
+        - name: metrics
+          containerPort: 8001
+          protocol: TCP
+        env:
+        - name: ENVIRONMENT
+          valueFrom:
+            configMapKeyRef:
+              name: openjarvis-config
+              key: environment
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: openjarvis-config
+              key: log_level
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: openjarvis-secrets
+              key: database_url
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: openjarvis-secrets
+              key: redis_url
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: openjarvis-secrets
+              key: secret_key
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: 2000m
+            memory: 2Gi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 2
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: cache
+          mountPath: /home/openjarvis/.openjarvis
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: cache
+        emptyDir: {}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - openjarvis
+              topologyKey: kubernetes.io/hostname
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openjarvis
+  namespace: openjarvis
+  labels:
+    app: openjarvis
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  - port: 8001
+    targetPort: 8001
+    protocol: TCP
+    name: metrics
+  selector:
+    app: openjarvis
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: openjarvis-hpa
+  namespace: openjarvis
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: openjarvis
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: openjarvis-pdb
+  namespace: openjarvis
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: openjarvis
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: openjarvis
+  namespace: openjarvis
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: openjarvis
+  namespace: openjarvis
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: openjarvis
+  namespace: openjarvis
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: openjarvis
+subjects:
+- kind: ServiceAccount
+  name: openjarvis
+  namespace: openjarvis

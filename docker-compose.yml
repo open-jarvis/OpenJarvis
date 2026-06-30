@@ -1,0 +1,238 @@
+version: '3.9'
+
+services:
+  # Main OpenJarvis application
+  openjarvis:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: openjarvis-app
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+    environment:
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+      - REDIS_URL=redis://redis:6379/0
+      - MONGODB_URL=mongodb://mongodb:27017
+      - DATABASE_URL=postgresql://openjarvis:openjarvis@postgres:5432/openjarvis
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    volumes:
+      - openjarvis-data:/home/openjarvis/.openjarvis
+      - openjarvis-cache:/tmp/openjarvis-cache
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - openjarvis-network
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+
+  # Redis for caching and message queuing
+  redis:
+    image: redis:7-alpine
+    container_name: openjarvis-redis
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-openjarvis-secure-password}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - openjarvis-network
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  # PostgreSQL database
+  postgres:
+    image: postgres:16-alpine
+    container_name: openjarvis-postgres
+    environment:
+      - POSTGRES_USER=openjarvis
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-openjarvis-secure-password}
+      - POSTGRES_DB=openjarvis
+      - POSTGRES_INITDB_ARGS=--encoding=UTF8 --locale=en_US.UTF-8
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openjarvis"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - openjarvis-network
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  # MongoDB for document storage
+  mongodb:
+    image: mongo:7-alpine
+    container_name: openjarvis-mongodb
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=openjarvis
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_PASSWORD:-openjarvis-secure-password}
+      - MONGO_INITDB_DATABASE=openjarvis
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - openjarvis-network
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: openjarvis-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    networks:
+      - openjarvis-network
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: openjarvis-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-openjarvis-secure-password}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3000
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./deploy/grafana-dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./deploy/grafana-datasources:/etc/grafana/provisioning/datasources:ro
+    depends_on:
+      - prometheus
+    networks:
+      - openjarvis-network
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  # ELK Stack - Elasticsearch
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: openjarvis-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=true
+      - ELASTIC_PASSWORD=${ELASTICSEARCH_PASSWORD:-openjarvis-secure-password}
+      - xpack.security.enrollment.enabled=true
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200 | grep -q 'tagline'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - openjarvis-network
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  # ELK Stack - Logstash
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.11.0
+    container_name: openjarvis-logstash
+    volumes:
+      - ./deploy/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=elastic
+      - ELASTICSEARCH_PASSWORD=${ELASTICSEARCH_PASSWORD:-openjarvis-secure-password}
+    ports:
+      - "5000:5000"
+    depends_on:
+      - elasticsearch
+    networks:
+      - openjarvis-network
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  # ELK Stack - Kibana
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: openjarvis-kibana
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=elastic
+      - ELASTICSEARCH_PASSWORD=${ELASTICSEARCH_PASSWORD:-openjarvis-secure-password}
+      - xpack.security.enabled=true
+    depends_on:
+      - elasticsearch
+    networks:
+      - openjarvis-network
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  openjarvis-network:
+    driver: bridge
+
+volumes:
+  openjarvis-data:
+    driver: local
+  openjarvis-cache:
+    driver: local
+  redis-data:
+    driver: local
+  postgres-data:
+    driver: local
+  mongodb-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  elasticsearch-data:
+    driver: local
