@@ -1,4 +1,5 @@
-{
+{code jarvis 
+  
   "name": "openjarvis-claude-code-runner",
   "version": "0.1.0",
   "main": "dist/index.js",
