@@ -225,6 +225,7 @@ def test_top_level_cli_registers_data_boundary_scan(monkeypatch, tmp_path):
     assert payload["schema_version"] == 1
     assert "summary" in payload
 
+
 def test_top_level_scan_data_boundaries_does_not_check_for_updates(
     monkeypatch,
     tmp_path,
@@ -257,6 +258,7 @@ def test_top_level_scan_data_boundaries_does_not_check_for_updates(
 
     assert result.exit_code == 0
     assert called["value"] is False
+
 
 def test_update_check_skip_helper_is_precise():
     from click import Command, Context
