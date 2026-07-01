@@ -1350,6 +1350,9 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
             "--extra", "desktop",
             "--extra", "inference-cloud",
             "--extra", "inference-google",
+            // openjarvis_rust lives in a uv dependency group (not the published
+            // `desktop` extra) so pip installs from PyPI don't require it (#584).
+            "--group", "desktop-native",
         ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())

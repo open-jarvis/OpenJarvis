@@ -4206,7 +4206,6 @@ dashboard = [
 desktop = [
     { name = "fastapi" },
     { name = "faster-whisper" },
-    { name = "openjarvis-rust" },
     { name = "pydantic" },
     { name = "python-multipart" },
     { name = "uvicorn" },
@@ -4339,6 +4338,9 @@ tools-search = [
 ]
 
 [package.dev-dependencies]
+desktop-native = [
+    { name = "openjarvis-rust" },
+]
 dev = [
     { name = "maturin" },
 ]
@@ -4391,7 +4393,6 @@ requires-dist = [
     { name = "openai", marker = "extra == 'inference-cloud'", specifier = ">=1.30" },
     { name = "openai", marker = "extra == 'media'", specifier = ">=1.30" },
     { name = "openhands-sdk", marker = "python_full_version >= '3.12' and extra == 'openhands'", specifier = ">=1.0" },
-    { name = "openjarvis-rust", marker = "extra == 'desktop'", directory = "rust/crates/openjarvis-python" },
     { name = "pdfplumber", marker = "extra == 'memory-pdf'", specifier = ">=0.10" },
     { name = "pdfplumber", marker = "extra == 'pdf'", specifier = ">=0.10" },
     { name = "playwright", marker = "extra == 'browser'", specifier = ">=1.40" },
@@ -4445,6 +4446,7 @@ requires-dist = [
 provides-extras = ["browser", "channel-discord", "channel-gmail", "channel-line", "channel-mastodon", "channel-messenger", "channel-nostr", "channel-reddit", "channel-rocketchat", "channel-slack", "channel-telegram", "channel-twilio", "channel-twitch", "channel-twitter", "channel-viber", "channel-xmpp", "channel-zulip", "dashboard", "desktop", "dev", "docs", "energy-all", "energy-amd", "energy-apple", "eval-sheets", "eval-wandb", "framework-comparison", "gpu-metrics", "inference-cloud", "inference-gemma", "inference-google", "inference-litellm", "inference-mlx", "inference-vllm", "learning-dspy", "learning-gepa", "media", "memory-bm25", "memory-colbert", "memory-faiss", "memory-pdf", "mining-pearl-cpu", "mining-pearl-vllm", "openhands", "orchestrator-training", "pdf", "sandbox-docker", "sandbox-wasm", "scheduler", "security-signing", "server", "speech", "speech-deepgram", "tools-search"]
 
 [package.metadata.requires-dev]
+desktop-native = [{ name = "openjarvis-rust", directory = "rust/crates/openjarvis-python" }]
 dev = [{ name = "maturin", specifier = ">=1.12.6" }]
 
 [[package]]
