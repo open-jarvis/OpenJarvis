@@ -9,15 +9,46 @@ from openjarvis.core.config import JarvisConfig
 
 
 def _low_noise_config():
+    """Baseline config with no warn/fail findings under an empty scan root.
+
+    JarvisConfig defaults include absolute store paths under the real
+    OPENJARVIS_HOME; clear those so tests only see artifacts under tmp_path.
+    """
     config = JarvisConfig()
     config.analytics.enabled = False
     config.traces.enabled = False
     config.telemetry.enabled = False
     config.agent.context_from_memory = False
+    config.agent.tools = ""
     config.skills.enabled = False
+    config.digest.enabled = False
+    config.channel.enabled = False
+    config.learning.enabled = False
+    config.learning.training_enabled = False
+    config.learning.auto_update = False
+    config.learning.spec_search.enabled = False
+    config.tools.enabled = ""
+    config.tools.mcp.enabled = False
+    config.tools.storage.enabled = False
     config.optimize.optimizer_provider = ""
     config.optimize.judge_model = ""
+    config.server.host = "127.0.0.1"
     config.security.profile = "personal"
+    # Avoid scanning the developer's real ~/.openjarvis store files.
+    config.traces.db_path = ""
+    config.telemetry.db_path = ""
+    config.security.audit_log_path = ""
+    config.security.vault_key_path = ""
+    config.tools.storage.db_path = ""
+    config.tools.storage.facts_path = ""
+    config.sessions.db_path = ""
+    config.agent_manager.db_path = ""
+    config.optimize.db_path = ""
+    config.scheduler.db_path = ""
+    config.skills.index_dir = ""
+    config.memory_files.soul_path = ""
+    config.memory_files.memory_path = ""
+    config.memory_files.user_path = ""
     return config
 
 
