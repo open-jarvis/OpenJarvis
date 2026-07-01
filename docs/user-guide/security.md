@@ -2,6 +2,20 @@
 
 OpenJarvis includes a security layer that scans prompts and model outputs for secrets, personally identifiable information (PII), and sensitive file paths. The system is designed to be composable: scanners run as a pipeline, and the `GuardrailsEngine` wrapper drops in front of any inference backend without changing how the rest of your code works.
 
+## Three layers of security review
+
+OpenJarvis separates host posture, application data boundaries, and runtime prompt guardrails:
+
+| Layer | Command / component | What it checks |
+| --- | --- | --- |
+| Host scan | `jarvis scan` | Disk encryption, cloud-sync agents, exposed engine ports, remote-access tools |
+| Data-boundary scan | `jarvis scan --data-boundaries` | Configured inference, memory, traces, channels, tools, and local stores |
+| Runtime guardrails | `GuardrailsEngine` / BoundaryGuard | Secrets, PII, and file-policy violations in live prompts and outputs |
+
+Use the host scan before storing sensitive data on the machine. Use the data-boundary scan to verify whether your `config.toml` is local-only, cloud-capable, or mixed. Use BoundaryGuard during inference when you need live redaction or blocking.
+
+See [Data Boundary Scan](data-boundary-scan.md) for the application config diagnostic and [BoundaryGuard](#guardrailsengine) below for runtime scanning.
+
 ---
 
 ## Overview
@@ -446,8 +460,27 @@ guarded = GuardrailsEngine(
 
 ---
 
+## Privacy and data-boundary diagnostics
+
+OpenJarvis provides three complementary security layers:
+
+1. **Host scan** — `jarvis scan` (without flags) checks OS posture: disk encryption,
+   cloud-sync agents, remote-access tools, and exposed engine ports.
+2. **Config scan** — `jarvis scan --data-boundaries` audits application configuration,
+   environment-variable presence, and known local runtime stores without reading
+   private file contents. Use `--strict` in CI to fail on warn/fail findings.
+3. **BoundaryGuard** — runtime guardrails (`GuardrailsEngine`, scanners, file policy)
+   that redact or block secrets, PII, and sensitive paths during inference.
+
+The host and config scans are offline diagnostics. BoundaryGuard enforces policy
+during live agent runs. See [Data Boundary Scan](data-boundary-scan.md) for the
+full config-scan reference.
+
+---
+
 ## See Also
 
+- [Data Boundary Scan](data-boundary-scan.md) — application config and local-store diagnostic (`jarvis scan --data-boundaries`)
 - [Architecture: Security](../architecture/security.md) — pipeline design, event flow, and file policy integration
 - [API Reference: Security](../api-reference/openjarvis/security/index.md) — full class and function signatures
 - [Tools](tools.md) — how `FileReadTool` uses file policy

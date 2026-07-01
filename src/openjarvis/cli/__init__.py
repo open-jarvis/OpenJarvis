@@ -43,6 +43,13 @@ from openjarvis.cli.vault_cmd import vault
 from openjarvis.cli.workflow_cmd import workflow
 
 
+def _should_skip_update_check(ctx: click.Context, argv: list[str]) -> bool:
+    """Return true for commands whose diagnostics should remain local-only."""
+    if "--research" in argv:
+        return True
+    return ctx.invoked_subcommand == "scan" and "--data-boundaries" in argv
+
+
 @click.group(
     help="OpenJarvis — modular AI assistant backend",
     invoke_without_command=True,
@@ -63,11 +70,13 @@ def cli(ctx: click.Context, verbose: bool, quiet: bool) -> None:
     # Check for updates on interactive commands. The banner is noise in
     # demo recordings of ``jarvis ask --research``, so skip it whenever
     # the research flag is in argv (cheap argv sniff — Click hasn't
-    # parsed the subcommand's args yet at this point).
+    # parsed the subcommand's args yet at this point). Also skip
+    # ``jarvis scan --data-boundaries`` because it is intended to be a
+    # local application-data diagnostic with no outbound calls.
     import sys
 
-    research_mode_active = "--research" in sys.argv
-    if not quiet and ctx.invoked_subcommand and not research_mode_active:
+    skip_update_check = _should_skip_update_check(ctx, sys.argv[1:])
+    if not quiet and ctx.invoked_subcommand and not skip_update_check:
         import threading
 
         from openjarvis.cli._version_check import check_for_updates
