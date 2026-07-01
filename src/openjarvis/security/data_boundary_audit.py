@@ -822,10 +822,10 @@ def _iter_local_store_targets(
                 if not path.is_absolute():
                     path = root / path
                 try:
-                    path = path.resolve()
+                    resolved_path = path.resolve()
                 except OSError:
-                    pass
-                location = _location_label(path, root)
+                    resolved_path = path
+                location = _location_label(resolved_path, root)
 
             existing = targets.get(finding_id)
             if existing is not None and existing[1].exists() and not path.exists():
