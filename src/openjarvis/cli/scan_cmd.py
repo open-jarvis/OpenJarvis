@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -11,7 +12,11 @@ from typing import Callable, List
 
 import click
 
-from openjarvis.core.paths import get_config_dir
+from openjarvis.core.paths import get_config_dir, get_config_path
+from openjarvis.security.data_boundary_audit import (
+    DataBoundaryReport,
+    build_data_boundary_report,
+)
 
 # Engine ports that should only be listening on localhost.
 _ENGINE_PORTS = {11434, 8080, 8000, 30000, 1234, 52415, 18181}
@@ -441,8 +446,37 @@ _RICH_ICONS = {
     "ok": "[green]\u2713[/green]",
     "warn": "[yellow]![/yellow]",
     "fail": "[red]\u2717[/red]",
+    "info": "[blue]i[/blue]",
     "skip": "[dim]-[/dim]",
 }
+
+
+def _resolve_data_boundary_config_path() -> Path:
+    env_config = os.environ.get("OPENJARVIS_CONFIG")
+    if env_config:
+        return Path(env_config).expanduser().resolve()
+    return get_config_path()
+
+
+def _load_data_boundary_config():
+    """Load config without treating missing config as active."""
+    from openjarvis.core.config import JarvisConfig, load_config
+
+    root = None
+    root_error = ""
+    try:
+        root = get_config_dir()
+        config_path = _resolve_data_boundary_config_path()
+    except Exception as exc:
+        config_path = None
+        root_error = f"{type(exc).__name__}: {exc}"
+
+    if config_path is None or not config_path.exists():
+        return JarvisConfig(), root, False, "", root_error
+    try:
+        return load_config(config_path), root, True, "", root_error
+    except Exception as exc:
+        return JarvisConfig(), root, False, f"{type(exc).__name__}: {exc}", root_error
 
 
 def _render_results(results: List[ScanResult]) -> None:
@@ -494,17 +528,125 @@ def _render_results(results: List[ScanResult]) -> None:
         console.print()
 
 
+def _render_data_boundary_report(
+    report: DataBoundaryReport,
+    *,
+    show_paths: bool,
+) -> None:
+    """Render application data-boundary findings as a Rich table."""
+    from rich.console import Console
+    from rich.table import Table
+
+    console = Console()
+    console.print()
+    console.print("[bold]OpenJarvis Data-Boundary Scan[/bold]")
+    console.print(f"Verdict: [bold]{report.verdict}[/bold]")
+    console.print()
+
+    table = Table(show_header=True, header_style="bold", show_lines=True)
+    table.add_column("", width=3, justify="center")
+    table.add_column("Finding")
+    table.add_column("Recommendation")
+
+    for finding in report.findings:
+        icon = _RICH_ICONS.get(finding.status, "?")
+        style = {"fail": "red", "warn": "yellow", "info": "blue"}.get(
+            finding.status,
+            "white",
+        )
+        details = [f"[{style}]{finding.title}[/{style}]"]
+        details.append(f"[dim]{finding.potential_data_path}[/dim]")
+        if finding.location:
+            location = (
+                finding.absolute_location if show_paths else finding.location
+            )
+            details.append(f"[dim]Location: {location}[/dim]")
+        table.add_row(icon, "\n".join(details), finding.recommendation)
+
+    console.print(table)
+    summary = report.summary()
+    console.print()
+    console.print(
+        f"  [red]{summary['fail']} fail[/red], "
+        f"[yellow]{summary['warn']} warning(s)[/yellow], "
+        f"[blue]{summary['info']} info[/blue]"
+    )
+    if not show_paths:
+        console.print(
+            "  [dim]Absolute paths and connector basenames are redacted by default. "
+            "Use --show-paths for local debugging.[/dim]"
+        )
+    console.print()
+
+
+def _emit_data_boundary_json(
+    report: DataBoundaryReport,
+    *,
+    show_paths: bool,
+) -> None:
+    click.echo(json.dumps(report.to_dict(show_paths=show_paths), indent=2))
+
+
 @click.command()
 @click.option("--quick", is_flag=True, default=False, help="Run only critical checks.")
 @click.option("--json", "as_json", is_flag=True, default=False, help="Output as JSON.")
-def scan(quick: bool, as_json: bool) -> None:
+@click.option(
+    "--data-boundaries",
+    is_flag=True,
+    default=False,
+    help="Run application data-boundary checks instead of host checks.",
+)
+@click.option(
+    "--strict",
+    is_flag=True,
+    default=False,
+    help="Exit non-zero if data-boundary fail or warn findings are present.",
+)
+@click.option(
+    "--show-paths",
+    is_flag=True,
+    default=False,
+    help="Show absolute paths in data-boundary output.",
+)
+def scan(
+    quick: bool,
+    as_json: bool,
+    data_boundaries: bool,
+    strict: bool,
+    show_paths: bool,
+) -> None:
     """Audit your environment for privacy and security risks."""
+    if data_boundaries:
+        if quick:
+            raise click.UsageError("--quick cannot be combined with --data-boundaries.")
+        config, root, config_loaded, config_error, root_error = (
+            _load_data_boundary_config()
+        )
+        report = build_data_boundary_report(
+            config,
+            root,
+            config_loaded=config_loaded,
+            config_error=config_error,
+            root_error=root_error,
+        )
+        if as_json:
+            _emit_data_boundary_json(report, show_paths=show_paths)
+        else:
+            _render_data_boundary_report(report, show_paths=show_paths)
+        summary = report.summary()
+        if strict and (summary["fail"] or summary["warn"]):
+            raise click.exceptions.Exit(1)
+        return
+
+    if strict or show_paths:
+        raise click.UsageError(
+            "--strict and --show-paths are only supported with --data-boundaries."
+        )
+
     scanner = PrivacyScanner()
     results: List[ScanResult] = scanner.run_quick() if quick else scanner.run_all()
 
     if as_json:
-        import json as json_mod
-
         output = [
             {
                 "name": r.name,
@@ -514,7 +656,7 @@ def scan(quick: bool, as_json: bool) -> None:
             }
             for r in results
         ]
-        click.echo(json_mod.dumps(output, indent=2))
+        click.echo(json.dumps(output, indent=2))
         return
 
     if not results:
