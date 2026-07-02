@@ -48,8 +48,8 @@ _HEADER_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 class MdChunk:
     """A markdown chunk annotated with its header breadcrumb."""
 
-    content: str           # chunk body text (with breadcrumb prefix)
-    source: str            # originating file
+    content: str  # chunk body text (with breadcrumb prefix)
+    source: str  # originating file
     # e.g. "macOS Installation Guide > Step-by-Step > Step 6 — Install llama.cpp"
     breadcrumb: str
     start_line: int = 0
@@ -205,8 +205,11 @@ def chunk_markdown(
                 )
             )
             # Carry overlap tail into the next window
-            tail = " ".join(chunk_body.split()[-paragraph_overlap_tokens:]) \
-                if paragraph_overlap_tokens > 0 else ""
+            tail = (
+                " ".join(chunk_body.split()[-paragraph_overlap_tokens:])
+                if paragraph_overlap_tokens > 0
+                else ""
+            )
             window_paragraphs = [tail] if tail else []
             window_tokens = len(tail.split())
             window_chars = len(tail)
@@ -226,7 +229,8 @@ def chunk_markdown(
                 )
                 if char_bound:
                     step_chars = max(
-                        1, max_section_chars - (paragraph_overlap_tokens * 8),
+                        1,
+                        max_section_chars - (paragraph_overlap_tokens * 8),
                     )
                     for i in range(0, len(para), step_chars):
                         piece = para[i : i + max_section_chars]
@@ -243,9 +247,7 @@ def chunk_markdown(
                 else:
                     step = max(1, max_section_tokens - paragraph_overlap_tokens)
                     for i in range(0, len(p_tokens), step):
-                        window_content = " ".join(
-                            p_tokens[i : i + max_section_tokens]
-                        )
+                        window_content = " ".join(p_tokens[i : i + max_section_tokens])
                         # Safety: truncate if still over char cap
                         if len(window_content) > max_section_chars:
                             window_content = window_content[:max_section_chars]
@@ -296,12 +298,12 @@ _NORM_NONALPHA_RE = re.compile(r"[^a-z0-9\s]+")
 class DuplicateGroup:
     """A cluster of chunks judged to be near-duplicates of each other."""
 
-    kept_index: int                   # surviving chunk's index in the input list
+    kept_index: int  # surviving chunk's index in the input list
     kept_source: str
     dropped_indices: List[int] = field(default_factory=list)
     dropped_sources: List[str] = field(default_factory=list)
-    distinct_files: int = 0           # # of unique source files in the group
-    sample_text: str = ""             # ~120-char preview of the duplicated content
+    distinct_files: int = 0  # # of unique source files in the group
+    sample_text: str = ""  # ~120-char preview of the duplicated content
 
 
 @dataclass(slots=True)
@@ -581,7 +583,9 @@ class DenseMemory(MemoryBackend):
     ) -> str:
         """Embed and store one document. Returns its id."""
         return self.store_many(
-            [content], sources=[source], metadatas=[metadata or {}],
+            [content],
+            sources=[source],
+            metadatas=[metadata or {}],
         )[0]
 
     def store_many(

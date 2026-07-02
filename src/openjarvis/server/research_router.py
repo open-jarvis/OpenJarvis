@@ -238,6 +238,7 @@ class _LiveGPUSampler:
         try:
             # Suppress legacy pynvml deprecation FutureWarning (#389).
             import warnings as _warnings
+
             with _warnings.catch_warnings():
                 _warnings.filterwarnings(
                     "ignore",
@@ -248,9 +249,7 @@ class _LiveGPUSampler:
 
             pynvml.nvmlInit()
             count = pynvml.nvmlDeviceGetCount()
-            self._handles = [
-                pynvml.nvmlDeviceGetHandleByIndex(i) for i in range(count)
-            ]
+            self._handles = [pynvml.nvmlDeviceGetHandleByIndex(i) for i in range(count)]
             self._pynvml = pynvml
             self._available = bool(self._handles)
             if not self._available:
@@ -528,9 +527,7 @@ async def _stream_research(
                 for piece in _chunk_synthesis(final_answer or ""):
                     yield _sse({"type": "synthesis", "text": piece})
                 if final_sources:
-                    yield _sse(
-                        {"type": "final_sources", "sources": final_sources}
-                    )
+                    yield _sse({"type": "final_sources", "sources": final_sources})
                 continue
 
             yield _sse(event)
@@ -539,9 +536,7 @@ async def _stream_research(
         # client still gets the error frame (emitted above) followed by done.
         # The done frame also carries the deduped sources so a client that
         # only listens for ``done`` still gets the canonical citation list.
-        yield _sse(
-            {"type": "done", "usage": final_usage, "sources": final_sources}
-        )
+        yield _sse({"type": "done", "usage": final_usage, "sources": final_sources})
     except Exception as exc:  # noqa: BLE001
         # Consumer loop crashed unexpectedly (e.g. JSON serialization fault,
         # logic bug). Surface a clean error frame rather than letting the
@@ -553,9 +548,7 @@ async def _stream_research(
                 "message": f"Research failed: {type(exc).__name__}: {exc}",
             }
         )
-        yield _sse(
-            {"type": "done", "usage": final_usage, "sources": final_sources}
-        )
+        yield _sse({"type": "done", "usage": final_usage, "sources": final_sources})
     finally:
         # The worker may still be cleaning up (rarely) — make sure we don't
         # leak a dangling task. Swallow any straggler exception so a worker

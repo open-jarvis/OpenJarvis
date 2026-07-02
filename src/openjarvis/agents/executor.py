@@ -102,9 +102,7 @@ class AgentExecutor:
         )
         return agent.run(input_text)
 
-    def execute_tick(
-        self, agent_id: str, *, lock_already_held: bool = False
-    ) -> None:
+    def execute_tick(self, agent_id: str, *, lock_already_held: bool = False) -> None:
         """Run one tick for the given agent.
 
         1. Acquire concurrency guard (start_tick)
@@ -126,9 +124,7 @@ class AgentExecutor:
                 self._manager.start_tick(agent_id)
                 self._set_activity(agent_id, "Preparing tick...")
             except ValueError:
-                logger.warning(
-                    "Agent %s already running, skipping tick", agent_id
-                )
+                logger.warning("Agent %s already running, skipping tick", agent_id)
                 return
 
         agent = self._manager.get_agent(agent_id)
@@ -412,18 +408,14 @@ class AgentExecutor:
                 from openjarvis.prompt.builder import SystemPromptBuilder
 
                 state_kwargs["prompt_builder"] = SystemPromptBuilder(
-                    agent_template=getattr(
-                        cfg.agent, "default_system_prompt", ""
-                    )
+                    agent_template=getattr(cfg.agent, "default_system_prompt", "")
                     or "",
                     memory_files_config=cfg.memory_files,
                     system_prompt_config=cfg.system_prompt,
                 )
 
         try:
-            agent_instance = agent_cls(
-                engine, model, **agent_kwargs, **state_kwargs
-            )
+            agent_instance = agent_cls(engine, model, **agent_kwargs, **state_kwargs)
         except TypeError:
             try:
                 agent_instance = agent_cls(engine, model, **agent_kwargs)
@@ -474,9 +466,7 @@ class AgentExecutor:
                 tick_note = f"Previous tick: {first_sentence}"
 
         if instruction:
-            input_text = (
-                f"Current date: {today}\n\nStanding instruction: {instruction}"
-            )
+            input_text = f"Current date: {today}\n\nStanding instruction: {instruction}"
             if tick_note:
                 input_text += f"\n\n{tick_note}"
         else:

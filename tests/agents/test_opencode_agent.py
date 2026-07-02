@@ -44,8 +44,13 @@ class TestPartParsing:
         assert _extract_text([{"type": "step-start"}, {"type": "tool"}]) == ""
 
     def test_extract_tool_results_success(self):
-        parts = [{"type": "tool", "tool": "bash",
-                  "state": {"status": "completed", "output": "ok"}}]
+        parts = [
+            {
+                "type": "tool",
+                "tool": "bash",
+                "state": {"status": "completed", "output": "ok"},
+            }
+        ]
         tr = _extract_tool_results(parts)
         assert len(tr) == 1
         assert tr[0].tool_name == "bash"
@@ -53,8 +58,13 @@ class TestPartParsing:
         assert tr[0].success is True
 
     def test_extract_tool_results_error(self):
-        parts = [{"type": "tool", "tool": "edit",
-                  "state": {"status": "error", "output": "boom"}}]
+        parts = [
+            {
+                "type": "tool",
+                "tool": "edit",
+                "state": {"status": "error", "output": "boom"},
+            }
+        ]
         assert _extract_tool_results(parts)[0].success is False
 
 
@@ -73,7 +83,9 @@ class TestDeriveBaseUrl:
 
     def test_unwraps_wrapper_engine(self):
         # InstrumentedEngine wraps the real engine at `_inner`; must unwrap.
-        wrapped = SimpleNamespace(_inner=SimpleNamespace(_host="http://localhost:11434"))
+        wrapped = SimpleNamespace(
+            _inner=SimpleNamespace(_host="http://localhost:11434")
+        )
         assert _derive_openai_base_url(wrapped) == "http://localhost:11434/v1"
 
     def test_none_when_unknown(self):
@@ -82,8 +94,9 @@ class TestDeriveBaseUrl:
 
 class TestAvailability:
     def test_true(self, monkeypatch):
-        monkeypatch.setattr("openjarvis.agents.opencode.shutil.which",
-                            lambda n: "/usr/bin/opencode")
+        monkeypatch.setattr(
+            "openjarvis.agents.opencode.shutil.which", lambda n: "/usr/bin/opencode"
+        )
         assert is_opencode_available() is True
 
     def test_false(self, monkeypatch):
@@ -93,8 +106,11 @@ class TestAvailability:
 
 class TestConfigBuilding:
     def test_includes_provider_when_base_url(self, tmp_path):
-        cfg = OpenCodeAgent(SimpleNamespace(_host="http://localhost:11434"),
-                            "qwen3:8b", workspace=str(tmp_path))._build_config()
+        cfg = OpenCodeAgent(
+            SimpleNamespace(_host="http://localhost:11434"),
+            "qwen3:8b",
+            workspace=str(tmp_path),
+        )._build_config()
         prov = cfg["provider"]["openjarvis"]
         assert prov["npm"] == "@ai-sdk/openai-compatible"
         assert prov["options"]["baseURL"] == "http://localhost:11434/v1"
@@ -102,41 +118,57 @@ class TestConfigBuilding:
 
     def test_no_provider_when_no_base_url(self, tmp_path):
         # Pass-through model -> rely on opencode's own provider; no provider block.
-        cfg = OpenCodeAgent(SimpleNamespace(), "ollama/llama3",
-                            workspace=str(tmp_path))._build_config()
+        cfg = OpenCodeAgent(
+            SimpleNamespace(), "ollama/llama3", workspace=str(tmp_path)
+        )._build_config()
         assert "provider" not in cfg
 
     def test_build_mode_permission_allows_edit_and_bash(self, tmp_path):
-        cfg = OpenCodeAgent(SimpleNamespace(_host="http://h:1"), "m",
-                            workspace=str(tmp_path), agent="build")._build_config()
+        cfg = OpenCodeAgent(
+            SimpleNamespace(_host="http://h:1"),
+            "m",
+            workspace=str(tmp_path),
+            agent="build",
+        )._build_config()
         assert cfg["permission"]["edit"] == "allow"
         assert cfg["permission"]["bash"] == "allow"
 
     def test_plan_mode_permission_denies_edit_and_bash(self, tmp_path):
-        cfg = OpenCodeAgent(SimpleNamespace(_host="http://h:1"), "m",
-                            workspace=str(tmp_path), agent="plan")._build_config()
+        cfg = OpenCodeAgent(
+            SimpleNamespace(_host="http://h:1"),
+            "m",
+            workspace=str(tmp_path),
+            agent="plan",
+        )._build_config()
         assert cfg["permission"]["edit"] == "deny"
         assert cfg["permission"]["bash"] == "deny"
 
     def test_custom_permission_override(self, tmp_path):
-        cfg = OpenCodeAgent(SimpleNamespace(_host="http://h:1"), "m",
-                            workspace=str(tmp_path),
-                            permission={"bash": "deny"})._build_config()
+        cfg = OpenCodeAgent(
+            SimpleNamespace(_host="http://h:1"),
+            "m",
+            workspace=str(tmp_path),
+            permission={"bash": "deny"},
+        )._build_config()
         assert cfg["permission"] == {"bash": "deny"}
 
     def test_does_not_pollute_workspace(self, tmp_path):
         # The config goes to a private OPENCODE_CONFIG file, never the workspace.
-        OpenCodeAgent(SimpleNamespace(_host="http://h:1"), "m",
-                      workspace=str(tmp_path))._build_config()
+        OpenCodeAgent(
+            SimpleNamespace(_host="http://h:1"), "m", workspace=str(tmp_path)
+        )._build_config()
         assert not (tmp_path / "opencode.json").exists()
 
 
 class TestRunGracefulDegradation:
     def test_missing_binary_returns_error_result(self, monkeypatch, tmp_path):
         monkeypatch.setattr("openjarvis.agents.opencode.shutil.which", lambda n: None)
-        agent = OpenCodeAgent(SimpleNamespace(_host="http://h:1"), "m",
-                              workspace=str(tmp_path),
-                              opencode_bin="/nonexistent/opencode")
+        agent = OpenCodeAgent(
+            SimpleNamespace(_host="http://h:1"),
+            "m",
+            workspace=str(tmp_path),
+            opencode_bin="/nonexistent/opencode",
+        )
         res = agent.run("do something")
         assert res.metadata.get("error") is True
         assert "opencode" in res.content.lower()
@@ -166,13 +198,23 @@ class _FakeResp:
 # was captured from a live opencode session).
 TURN_MESSAGES = [
     {"info": {"role": "user"}, "parts": [{"type": "text", "text": "..."}]},
-    {"info": {"role": "assistant"}, "parts": [
-        {"type": "step-start"},
-        {"type": "tool", "tool": "write", "callID": "c1",
-         "state": {"status": "completed", "output": "Wrote file successfully.",
-                   "input": {"filePath": "greet.py", "content": "x"}}},
-        {"type": "step-finish", "reason": "tool"},
-    ]},
+    {
+        "info": {"role": "assistant"},
+        "parts": [
+            {"type": "step-start"},
+            {
+                "type": "tool",
+                "tool": "write",
+                "callID": "c1",
+                "state": {
+                    "status": "completed",
+                    "output": "Wrote file successfully.",
+                    "input": {"filePath": "greet.py", "content": "x"},
+                },
+            },
+            {"type": "step-finish", "reason": "tool"},
+        ],
+    },
     SPIKE_RESPONSE,  # final assistant message (text only)
 ]
 
@@ -198,8 +240,12 @@ class _FakeClient:
 
 class TestRunParsing:
     def test_run_parses_message_and_tools(self, monkeypatch, tmp_path):
-        agent = OpenCodeAgent(SimpleNamespace(_host="http://h:1"), "local-model",
-                              workspace=str(tmp_path), agent="build")
+        agent = OpenCodeAgent(
+            SimpleNamespace(_host="http://h:1"),
+            "local-model",
+            workspace=str(tmp_path),
+            agent="build",
+        )
         monkeypatch.setattr(agent, "_ensure_server", lambda: "http://127.0.0.1:7654")
         agent._base = "http://127.0.0.1:7654"
         monkeypatch.setattr(agent, "_client", lambda: _FakeClient())
@@ -211,7 +257,8 @@ class TestRunParsing:
         assert res.metadata["agent"] == "build"
         # the model was addressed as openjarvis/local-model
         assert _FakeClient.last_body["model"] == {
-            "providerID": "openjarvis", "modelID": "local-model"
+            "providerID": "openjarvis",
+            "modelID": "local-model",
         }
         # tool-results recovered from the intermediate message (not the final one)
         assert len(res.tool_results) == 1

@@ -183,7 +183,10 @@ def test_clarify_before_any_search_is_rejected(stub_search: MagicMock) -> None:
     )
 
     agent = ResearchAgent(
-        engine, stub_search, model="mock", max_iterations=5,
+        engine,
+        stub_search,
+        model="mock",
+        max_iterations=5,
         clarify_handler=fake_clarify,
     )
     result = agent.run("vague query")
@@ -271,10 +274,7 @@ def test_build_sources_falls_back_to_reconstruction_when_url_missing() -> None:
             )
         ]
     )
-    assert (
-        sources[0]["url"]
-        == "https://acme.slack.com/archives/C123/p1710500000000100"
-    )
+    assert sources[0]["url"] == "https://acme.slack.com/archives/C123/p1710500000000100"
 
 
 def test_hit_url_granola_not_reconstructible() -> None:

@@ -79,9 +79,7 @@ class DockerShellExecTool(BaseTool):
                     },
                     "timeout": {
                         "type": "integer",
-                        "description": (
-                            "Timeout in seconds (default 60, max 600)."
-                        ),
+                        "description": ("Timeout in seconds (default 60, max 600)."),
                     },
                     "working_dir": {
                         "type": "string",
@@ -146,9 +144,7 @@ class DockerShellExecTool(BaseTool):
         except subprocess.TimeoutExpired:
             return ToolResult(
                 tool_name="docker_shell_exec",
-                content=(
-                    f"Command timed out after {timeout}s: {command!r}"
-                ),
+                content=(f"Command timed out after {timeout}s: {command!r}"),
                 success=False,
             )
 

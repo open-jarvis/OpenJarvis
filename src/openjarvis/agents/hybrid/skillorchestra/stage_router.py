@@ -94,7 +94,12 @@ class StageSkillHandbook:
             "answer": {},
         }
         self.model_profiles: Dict[str, ModelProfile] = {}
-        self.usage_patterns: Dict[str, Any] = {"stages": {}, "guidelines": {}, "models": {}, "raw": {}}
+        self.usage_patterns: Dict[str, Any] = {
+            "stages": {},
+            "guidelines": {},
+            "models": {},
+            "raw": {},
+        }
         self.routing_insights: List[str] = []
         self.learning_history: List[Dict[str, Any]] = []
         self.version = "1.0.0"
@@ -102,7 +107,10 @@ class StageSkillHandbook:
         self.updated_at = ""
 
     def get_model_skill_scores(self) -> Dict[str, Dict[str, float]]:
-        return {alias: profile.skill_scores for alias, profile in self.model_profiles.items()}
+        return {
+            alias: profile.skill_scores
+            for alias, profile in self.model_profiles.items()
+        }
 
     def get_models_for_stage(self, stage: str) -> List[ModelProfile]:
         return [p for p in self.model_profiles.values() if p.stage == stage]
@@ -135,19 +143,29 @@ class StageSkillHandbook:
 
     def format_model_performance(self, stage: str) -> str:
         profiles = self.get_models_for_stage(stage)
-        valid_prefixes = {"search": ["search-"], "code": ["reasoner-", "code-"], "answer": ["answer-"]}
+        valid_prefixes = {
+            "search": ["search-"],
+            "code": ["reasoner-", "code-"],
+            "answer": ["answer-"],
+        }
         prefixes = valid_prefixes.get(stage, [])
 
         lines = []
         for p in profiles:
             if not any(p.model_alias.startswith(prefix) for prefix in prefixes):
                 continue
-            has_data = (p.skill_scores and len(p.skill_scores) > 0) or p.strengths or p.weaknesses
+            has_data = (
+                (p.skill_scores and len(p.skill_scores) > 0)
+                or p.strengths
+                or p.weaknesses
+            )
             if p.total_attempts > 0 or has_data:
                 lines.append(f"\n### {p.model_alias} ({p.actual_model})")
                 if p.total_attempts > 0:
                     rate = p.total_successes / p.total_attempts
-                    lines.append(f"Overall: {rate:.0%} success ({p.total_successes}/{p.total_attempts})")
+                    lines.append(
+                        f"Overall: {rate:.0%} success ({p.total_successes}/{p.total_attempts})"
+                    )
                 else:
                     lines.append("Overall: 0% overall")
                 if p.skill_scores:
@@ -157,7 +175,9 @@ class StageSkillHandbook:
                         for sid, s in p.skill_scores.items()
                         if (sid.split(".")[0] if "." in sid else sid) in ("code", stage)
                     }
-                    for skill_id, score in sorted(stage_skill_scores.items(), key=lambda x: x[1], reverse=True):
+                    for skill_id, score in sorted(
+                        stage_skill_scores.items(), key=lambda x: x[1], reverse=True
+                    ):
                         lines.append(f"  - {skill_id}: {score:.0%}")
                 if p.strengths:
                     lines.append(f"Strengths: {', '.join(p.strengths[:3])}")
@@ -220,7 +240,9 @@ def parse_skill_analysis(output: str) -> Optional[SkillAnalysis]:
     try:
         data = json.loads(match.group(1).strip())
         required_skills = [
-            SkillWeight(skill_id=s.get("skill_id", ""), percentage=float(s.get("percentage", 0)))
+            SkillWeight(
+                skill_id=s.get("skill_id", ""), percentage=float(s.get("percentage", 0))
+            )
             for s in data.get("required_skills", [])
         ]
         return SkillAnalysis(
@@ -272,7 +294,14 @@ class RoutingStrategy:
         if stage == "reasoning":
             return ["reasoner-1", "reasoner-2", "reasoner-3"]
         if stage == "answer":
-            return ["answer-1", "answer-2", "answer-3", "answer-4", "answer-math-1", "answer-math-2"]
+            return [
+                "answer-1",
+                "answer-2",
+                "answer-3",
+                "answer-4",
+                "answer-math-1",
+                "answer-math-2",
+            ]
         return []
 
     def select_model(
@@ -292,9 +321,17 @@ class RouterDecidesStrategy(RoutingStrategy):
         tool_call_model: Optional[str] = None,
     ) -> ModelRoutingResult:
         if tool_call_model:
-            return ModelRoutingResult(tool_call_model, "router_decides_from_tool_call", 1.0)
-        defaults = {"search": "search-1", "reasoning": "reasoner-1", "answer": "answer-1"}
-        return ModelRoutingResult(defaults.get(stage, "answer-1"), "router_decides_fallback", 0.5)
+            return ModelRoutingResult(
+                tool_call_model, "router_decides_from_tool_call", 1.0
+            )
+        defaults = {
+            "search": "search-1",
+            "reasoning": "reasoner-1",
+            "answer": "answer-1",
+        }
+        return ModelRoutingResult(
+            defaults.get(stage, "answer-1"), "router_decides_fallback", 0.5
+        )
 
 
 class AnalyzeModelDecideStrategy(RoutingStrategy):
@@ -305,17 +342,33 @@ class AnalyzeModelDecideStrategy(RoutingStrategy):
         tool_call_model: Optional[str] = None,
     ) -> ModelRoutingResult:
         if tool_call_model:
-            return ModelRoutingResult(tool_call_model, "analyze_model_decide_with_skill_analysis", 1.0)
-        defaults = {"search": "search-1", "reasoning": "reasoner-1", "answer": "answer-1"}
-        return ModelRoutingResult(defaults.get(stage, "answer-1"), "analyze_model_decide_fallback", 0.5)
+            return ModelRoutingResult(
+                tool_call_model, "analyze_model_decide_with_skill_analysis", 1.0
+            )
+        defaults = {
+            "search": "search-1",
+            "reasoning": "reasoner-1",
+            "answer": "answer-1",
+        }
+        return ModelRoutingResult(
+            defaults.get(stage, "answer-1"), "analyze_model_decide_fallback", 0.5
+        )
 
 
 class WeightedAverageStrategy(RoutingStrategy):
     COST_TIERS = {
-        "search-3": 1, "search-2": 2, "search-1": 3,
-        "reasoner-3": 1, "reasoner-2": 2, "reasoner-1": 3,
-        "answer-math-2": 1, "answer-4": 1, "answer-3": 2,
-        "answer-math-1": 2, "answer-2": 3, "answer-1": 4,
+        "search-3": 1,
+        "search-2": 2,
+        "search-1": 3,
+        "reasoner-3": 1,
+        "reasoner-2": 2,
+        "reasoner-1": 3,
+        "answer-math-2": 1,
+        "answer-4": 1,
+        "answer-3": 2,
+        "answer-math-1": 2,
+        "answer-2": 3,
+        "answer-1": 4,
     }
 
     def select_model(
@@ -326,9 +379,17 @@ class WeightedAverageStrategy(RoutingStrategy):
     ) -> ModelRoutingResult:
         if not skill_analysis or not skill_analysis.required_skills:
             if tool_call_model:
-                return ModelRoutingResult(tool_call_model, "weighted_avg_no_skills_use_tool_call", 0.7)
-            defaults = {"search": "search-1", "reasoning": "reasoner-1", "answer": "answer-1"}
-            return ModelRoutingResult(defaults.get(stage, "answer-1"), "weighted_avg_no_skills_fallback", 0.5)
+                return ModelRoutingResult(
+                    tool_call_model, "weighted_avg_no_skills_use_tool_call", 0.7
+                )
+            defaults = {
+                "search": "search-1",
+                "reasoning": "reasoner-1",
+                "answer": "answer-1",
+            }
+            return ModelRoutingResult(
+                defaults.get(stage, "answer-1"), "weighted_avg_no_skills_fallback", 0.5
+            )
 
         models = self._get_models_for_stage(stage)
         model_scores = {}
@@ -341,15 +402,25 @@ class WeightedAverageStrategy(RoutingStrategy):
                 score = scores.get(sid, 0.0)
                 weighted_sum += weight * score
                 total_weight += weight
-            model_scores[model] = weighted_sum / total_weight if total_weight > 0 else 0.5
+            model_scores[model] = (
+                weighted_sum / total_weight if total_weight > 0 else 0.5
+            )
 
         if not model_scores:
-            defaults = {"search": "search-1", "reasoning": "reasoner-1", "answer": "answer-1"}
-            return ModelRoutingResult(defaults.get(stage, "answer-1"), "weighted_avg_no_model_scores", 0.5)
+            defaults = {
+                "search": "search-1",
+                "reasoning": "reasoner-1",
+                "answer": "answer-1",
+            }
+            return ModelRoutingResult(
+                defaults.get(stage, "answer-1"), "weighted_avg_no_model_scores", 0.5
+            )
         max_score = max(model_scores.values())
         best = [m for m, s in model_scores.items() if abs(s - max_score) < 0.001]
         best.sort(key=lambda m: self.COST_TIERS.get(m, 999))
-        return ModelRoutingResult(best[0], "weighted_avg_from_skill_analysis", max_score, model_scores)
+        return ModelRoutingResult(
+            best[0], "weighted_avg_from_skill_analysis", max_score, model_scores
+        )
 
 
 class WeakestSkillStrategy(RoutingStrategy):
@@ -361,18 +432,36 @@ class WeakestSkillStrategy(RoutingStrategy):
     ) -> ModelRoutingResult:
         if not skill_analysis or not skill_analysis.required_skills:
             if tool_call_model:
-                return ModelRoutingResult(tool_call_model, "weakest_skill_no_skills_use_tool_call", 0.7)
-            defaults = {"search": "search-1", "reasoning": "reasoner-1", "answer": "answer-1"}
-            return ModelRoutingResult(defaults.get(stage, "answer-1"), "weakest_skill_no_skills_fallback", 0.5)
+                return ModelRoutingResult(
+                    tool_call_model, "weakest_skill_no_skills_use_tool_call", 0.7
+                )
+            defaults = {
+                "search": "search-1",
+                "reasoning": "reasoner-1",
+                "answer": "answer-1",
+            }
+            return ModelRoutingResult(
+                defaults.get(stage, "answer-1"), "weakest_skill_no_skills_fallback", 0.5
+            )
         weakest = min(skill_analysis.required_skills, key=lambda s: s.percentage)
         sid = self._find_skill_id(stage, weakest.skill_id) or weakest.skill_id
         models = self._get_models_for_stage(stage)
-        model_scores = {m: self._model_skill_scores.get(m, {}).get(sid, 0.5) for m in models}
+        model_scores = {
+            m: self._model_skill_scores.get(m, {}).get(sid, 0.5) for m in models
+        }
         if not model_scores:
-            defaults = {"search": "search-1", "reasoning": "reasoner-1", "answer": "answer-1"}
-            return ModelRoutingResult(defaults.get(stage, "answer-1"), "weakest_skill_no_model_scores", 0.5)
+            defaults = {
+                "search": "search-1",
+                "reasoning": "reasoner-1",
+                "answer": "answer-1",
+            }
+            return ModelRoutingResult(
+                defaults.get(stage, "answer-1"), "weakest_skill_no_model_scores", 0.5
+            )
         best = max(model_scores, key=model_scores.get)
-        return ModelRoutingResult(best, f"weakest_skill_{weakest.skill_id}", model_scores[best], model_scores)
+        return ModelRoutingResult(
+            best, f"weakest_skill_{weakest.skill_id}", model_scores[best], model_scores
+        )
 
 
 class StrongestSkillStrategy(RoutingStrategy):
@@ -384,18 +473,41 @@ class StrongestSkillStrategy(RoutingStrategy):
     ) -> ModelRoutingResult:
         if not skill_analysis or not skill_analysis.required_skills:
             if tool_call_model:
-                return ModelRoutingResult(tool_call_model, "strongest_skill_no_skills_use_tool_call", 0.7)
-            defaults = {"search": "search-1", "reasoning": "reasoner-1", "answer": "answer-1"}
-            return ModelRoutingResult(defaults.get(stage, "answer-1"), "strongest_skill_no_skills_fallback", 0.5)
+                return ModelRoutingResult(
+                    tool_call_model, "strongest_skill_no_skills_use_tool_call", 0.7
+                )
+            defaults = {
+                "search": "search-1",
+                "reasoning": "reasoner-1",
+                "answer": "answer-1",
+            }
+            return ModelRoutingResult(
+                defaults.get(stage, "answer-1"),
+                "strongest_skill_no_skills_fallback",
+                0.5,
+            )
         strongest = max(skill_analysis.required_skills, key=lambda s: s.percentage)
         sid = self._find_skill_id(stage, strongest.skill_id) or strongest.skill_id
         models = self._get_models_for_stage(stage)
-        model_scores = {m: self._model_skill_scores.get(m, {}).get(sid, 0.5) for m in models}
+        model_scores = {
+            m: self._model_skill_scores.get(m, {}).get(sid, 0.5) for m in models
+        }
         if not model_scores:
-            defaults = {"search": "search-1", "reasoning": "reasoner-1", "answer": "answer-1"}
-            return ModelRoutingResult(defaults.get(stage, "answer-1"), "strongest_skill_no_model_scores", 0.5)
+            defaults = {
+                "search": "search-1",
+                "reasoning": "reasoner-1",
+                "answer": "answer-1",
+            }
+            return ModelRoutingResult(
+                defaults.get(stage, "answer-1"), "strongest_skill_no_model_scores", 0.5
+            )
         best = max(model_scores, key=model_scores.get)
-        return ModelRoutingResult(best, f"strongest_skill_{strongest.skill_id}", model_scores[best], model_scores)
+        return ModelRoutingResult(
+            best,
+            f"strongest_skill_{strongest.skill_id}",
+            model_scores[best],
+            model_scores,
+        )
 
 
 ROUTING_STRATEGIES = {

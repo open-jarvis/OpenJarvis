@@ -172,11 +172,16 @@ def _clone_repo(repo: str, base_commit: str, dest: Path) -> None:
     url = f"https://github.com/{repo}.git"
     subprocess.run(
         ["git", "clone", "--quiet", url, str(dest)],
-        check=True, timeout=300, capture_output=True,
+        check=True,
+        timeout=300,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "checkout", "--quiet", base_commit],
-        cwd=str(dest), check=True, timeout=120, capture_output=True,
+        cwd=str(dest),
+        check=True,
+        timeout=120,
+        capture_output=True,
     )
 
 
@@ -265,10 +270,14 @@ def _run_bash(
     stderr = _decode_bash_output(stderr_b, exit_code)
     truncated = False
     if len(stdout) > output_cap:
-        stdout = stdout[:output_cap] + f"\n…[+{len(stdout) - output_cap} chars truncated]"
+        stdout = (
+            stdout[:output_cap] + f"\n…[+{len(stdout) - output_cap} chars truncated]"
+        )
         truncated = True
     if len(stderr) > output_cap:
-        stderr = stderr[:output_cap] + f"\n…[+{len(stderr) - output_cap} chars truncated]"
+        stderr = (
+            stderr[:output_cap] + f"\n…[+{len(stderr) - output_cap} chars truncated]"
+        )
         truncated = True
     return {
         "stdout": stdout,
@@ -297,7 +306,10 @@ def _extract_diff(workdir: Path) -> str:
     """``git diff`` against the base commit — the final SWE-bench patch."""
     proc = subprocess.run(
         ["git", "diff", "--no-color"],
-        cwd=str(workdir), capture_output=True, text=True, timeout=60,
+        cwd=str(workdir),
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
     return proc.stdout
 
@@ -320,10 +332,11 @@ def _anthropic_assistant_block(block: Any) -> Dict[str, Any]:
 
 # ---------- Reusable agent-loop entry point ----------
 
+
 def run_swe_agent_loop(
     task: Dict[str, Any],
     *,
-    backbone: str,                          # "cloud" or "local"
+    backbone: str,  # "cloud" or "local"
     backbone_model: str,
     cloud_endpoint: str = "anthropic",
     local_endpoint: Optional[str] = None,
@@ -387,32 +400,33 @@ def run_swe_agent_loop(
 
     own_workdir = workdir is None
     if own_workdir:
-        workdir = Path(tempfile.mkdtemp(
-            prefix=f"mini-swe-{task.get('task_id','x')}-"
-        ))
+        workdir = Path(tempfile.mkdtemp(prefix=f"mini-swe-{task.get('task_id', 'x')}-"))
         try:
             _clone_repo(repo, base_commit, workdir)
         except Exception:
             shutil.rmtree(workdir, ignore_errors=True)
             raise
 
-    _record_event({
-        "kind": f"{trace_prefix}_setup",
-        "repo": repo,
-        "base_commit": base_commit,
-        "workdir": str(workdir),
-        "owns_workdir": own_workdir,
-        "backbone": backbone,
-        "backbone_model": backbone_model,
-        "ts": time.time(),
-    })
+    _record_event(
+        {
+            "kind": f"{trace_prefix}_setup",
+            "repo": repo,
+            "base_commit": base_commit,
+            "workdir": str(workdir),
+            "owns_workdir": own_workdir,
+            "backbone": backbone,
+            "backbone_model": backbone_model,
+            "ts": time.time(),
+        }
+    )
 
     user_prompt = initial_prompt or task.get("problem_statement") or ""
 
     try:
         if backbone == "cloud":
             result = _loop_cloud(
-                user_prompt, workdir,
+                user_prompt,
+                workdir,
                 model=backbone_model,
                 cloud_endpoint=cloud_endpoint,
                 max_turns=max_turns,
@@ -423,9 +437,12 @@ def run_swe_agent_loop(
             )
         elif backbone == "local":
             if not local_endpoint:
-                raise ValueError("run_swe_agent_loop(backbone='local') needs local_endpoint")
+                raise ValueError(
+                    "run_swe_agent_loop(backbone='local') needs local_endpoint"
+                )
             result = _loop_local(
-                user_prompt, workdir,
+                user_prompt,
+                workdir,
                 model=backbone_model,
                 endpoint=local_endpoint,
                 max_turns=max_turns,
@@ -440,7 +457,7 @@ def run_swe_agent_loop(
             raise ValueError(f"unsupported backbone: {backbone!r}")
 
         patch = _extract_diff(workdir)
-        framed = (result["final_summary"] or "[mini-swe-agent produced no summary text]")
+        framed = result["final_summary"] or "[mini-swe-agent produced no summary text]"
         if patch.strip():
             framed = f"{framed}\n\n```diff\n{patch}```"
 
@@ -450,11 +467,16 @@ def run_swe_agent_loop(
             "final_summary": result["final_summary"],
             "tokens_in": result["tokens_in"],
             "tokens_out": result["tokens_out"],
-            "tokens_local": result["tokens_in"] + result["tokens_out"] if backbone == "local" else 0,
-            "tokens_cloud": result["tokens_in"] + result["tokens_out"] if backbone == "cloud" else 0,
+            "tokens_local": result["tokens_in"] + result["tokens_out"]
+            if backbone == "local"
+            else 0,
+            "tokens_cloud": result["tokens_in"] + result["tokens_out"]
+            if backbone == "cloud"
+            else 0,
             "cost_usd": (
                 estimate_cost(backbone_model, result["tokens_in"], result["tokens_out"])
-                if backbone == "cloud" else 0.0
+                if backbone == "cloud"
+                else 0.0
             ),
             "turns": result["turns"],
             "max_turns_hit": result["max_turns_hit"],
@@ -466,6 +488,7 @@ def run_swe_agent_loop(
 
 
 # ---------- Cloud loop (dispatcher → per-endpoint multi-turn tool loops) ----------
+
 
 def _loop_cloud(
     problem: str,
@@ -485,24 +508,36 @@ def _loop_cloud(
     to unblock the 8 SWE cells that were stuck on Anthropic-only support."""
     if cloud_endpoint == "anthropic":
         return _loop_cloud_anthropic(
-            problem, workdir,
-            model=model, max_turns=max_turns,
-            bash_timeout=bash_timeout, output_cap=output_cap,
-            turn_max_tokens=turn_max_tokens, trace_prefix=trace_prefix,
+            problem,
+            workdir,
+            model=model,
+            max_turns=max_turns,
+            bash_timeout=bash_timeout,
+            output_cap=output_cap,
+            turn_max_tokens=turn_max_tokens,
+            trace_prefix=trace_prefix,
         )
     if cloud_endpoint == "openai":
         return _loop_cloud_openai(
-            problem, workdir,
-            model=model, max_turns=max_turns,
-            bash_timeout=bash_timeout, output_cap=output_cap,
-            turn_max_tokens=turn_max_tokens, trace_prefix=trace_prefix,
+            problem,
+            workdir,
+            model=model,
+            max_turns=max_turns,
+            bash_timeout=bash_timeout,
+            output_cap=output_cap,
+            turn_max_tokens=turn_max_tokens,
+            trace_prefix=trace_prefix,
         )
     if cloud_endpoint == "gemini":
         return _loop_cloud_gemini(
-            problem, workdir,
-            model=model, max_turns=max_turns,
-            bash_timeout=bash_timeout, output_cap=output_cap,
-            turn_max_tokens=turn_max_tokens, trace_prefix=trace_prefix,
+            problem,
+            workdir,
+            model=model,
+            max_turns=max_turns,
+            bash_timeout=bash_timeout,
+            output_cap=output_cap,
+            turn_max_tokens=turn_max_tokens,
+            trace_prefix=trace_prefix,
         )
     raise ValueError(
         f"mini-SWE-agent cloud backbone unsupported endpoint: {cloud_endpoint!r}"
@@ -521,6 +556,7 @@ def _loop_cloud_anthropic(
     trace_prefix: str,
 ) -> Dict[str, Any]:
     import anthropic
+
     client = anthropic.Anthropic(timeout=600.0, max_retries=5)
     messages: List[Dict[str, Any]] = [{"role": "user", "content": problem}]
 
@@ -553,30 +589,39 @@ def _loop_cloud_anthropic(
             btype = getattr(block, "type", None)
             if btype == "tool_use":
                 tool_uses.append((block.id, block.name, dict(block.input or {})))
-                content_blocks.append({
-                    "type": "tool_use", "id": block.id, "name": block.name,
-                    "input": dict(block.input or {}),
-                })
+                content_blocks.append(
+                    {
+                        "type": "tool_use",
+                        "id": block.id,
+                        "name": block.name,
+                        "input": dict(block.input or {}),
+                    }
+                )
             elif hasattr(block, "text"):
                 text_parts.append(block.text)
                 content_blocks.append({"type": "text", "text": block.text})
             else:
                 content_blocks.append({"type": btype or "unknown"})
 
-        _record_event({
-            "kind": f"{trace_prefix}_turn",
-            "turn": turn,
-            "stop_reason": msg.stop_reason,
-            "tokens_in": msg.usage.input_tokens,
-            "tokens_out": msg.usage.output_tokens,
-            "latency_s": latency,
-            "content_blocks": content_blocks,
-            "ts": time.time(),
-        })
+        _record_event(
+            {
+                "kind": f"{trace_prefix}_turn",
+                "turn": turn,
+                "stop_reason": msg.stop_reason,
+                "tokens_in": msg.usage.input_tokens,
+                "tokens_out": msg.usage.output_tokens,
+                "latency_s": latency,
+                "content_blocks": content_blocks,
+                "ts": time.time(),
+            }
+        )
 
-        messages.append({"role": "assistant", "content": [
-            _anthropic_assistant_block(b) for b in msg.content
-        ]})
+        messages.append(
+            {
+                "role": "assistant",
+                "content": [_anthropic_assistant_block(b) for b in msg.content],
+            }
+        )
 
         if not tool_uses:
             final_text = "\n".join(text_parts).strip()
@@ -586,28 +631,40 @@ def _loop_cloud_anthropic(
         for tu_id, tu_name, tu_input in tool_uses:
             if tu_name != "bash":
                 obs = f"unknown tool: {tu_name!r}"
-                _record_event({
-                    "kind": f"{trace_prefix}_unknown_tool",
-                    "turn": turn, "name": tu_name, "input": tu_input,
-                    "ts": time.time(),
-                })
+                _record_event(
+                    {
+                        "kind": f"{trace_prefix}_unknown_tool",
+                        "turn": turn,
+                        "name": tu_name,
+                        "input": tu_input,
+                        "ts": time.time(),
+                    }
+                )
             else:
                 command = str(tu_input.get("command", ""))
                 result = _run_bash(
-                    command, workdir,
-                    timeout=bash_timeout, output_cap=output_cap,
+                    command,
+                    workdir,
+                    timeout=bash_timeout,
+                    output_cap=output_cap,
                 )
-                _record_event({
-                    "kind": f"{trace_prefix}_bash",
-                    "turn": turn, "command": command,
-                    **result, "ts": time.time(),
-                })
+                _record_event(
+                    {
+                        "kind": f"{trace_prefix}_bash",
+                        "turn": turn,
+                        "command": command,
+                        **result,
+                        "ts": time.time(),
+                    }
+                )
                 obs = _format_observation(result)
-            tool_result_blocks.append({
-                "type": "tool_result",
-                "tool_use_id": tu_id,
-                "content": obs,
-            })
+            tool_result_blocks.append(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": tu_id,
+                    "content": obs,
+                }
+            )
         messages.append({"role": "user", "content": tool_result_blocks})
 
     return {
@@ -620,6 +677,7 @@ def _loop_cloud_anthropic(
 
 
 # ---------- Cloud loop (OpenAI multi-turn with function tools) ----------
+
 
 def _loop_cloud_openai(
     problem: str,
@@ -646,6 +704,7 @@ def _loop_cloud_openai(
       ``_loop_local`` behavior).
     """
     from openai import OpenAI
+
     client = OpenAI(timeout=600.0)
 
     messages: List[Dict[str, Any]] = [
@@ -681,21 +740,27 @@ def _loop_cloud_openai(
         tool_calls = list(getattr(message, "tool_calls", None) or [])
         text = message.content or ""
 
-        _record_event({
-            "kind": f"{trace_prefix}_turn",
-            "turn": turn,
-            "endpoint": "openai",
-            "finish_reason": choice.finish_reason,
-            "tokens_in": getattr(u, "prompt_tokens", 0) if u else 0,
-            "tokens_out": getattr(u, "completion_tokens", 0) if u else 0,
-            "latency_s": latency,
-            "text": text,
-            "tool_calls": [
-                {"id": tc.id, "name": tc.function.name, "arguments": tc.function.arguments}
-                for tc in tool_calls
-            ],
-            "ts": time.time(),
-        })
+        _record_event(
+            {
+                "kind": f"{trace_prefix}_turn",
+                "turn": turn,
+                "endpoint": "openai",
+                "finish_reason": choice.finish_reason,
+                "tokens_in": getattr(u, "prompt_tokens", 0) if u else 0,
+                "tokens_out": getattr(u, "completion_tokens", 0) if u else 0,
+                "latency_s": latency,
+                "text": text,
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    }
+                    for tc in tool_calls
+                ],
+                "ts": time.time(),
+            }
+        )
 
         # Append the assistant turn (including any tool_calls) so the
         # follow-up tool messages have the right call ids to reference.
@@ -711,7 +776,8 @@ def _loop_cloud_openai(
         if tool_calls:
             assistant_msg["tool_calls"] = [
                 {
-                    "id": tc.id, "type": "function",
+                    "id": tc.id,
+                    "type": "function",
                     "function": {
                         "name": tc.function.name,
                         "arguments": tc.function.arguments,
@@ -734,21 +800,26 @@ def _loop_cloud_openai(
                 and not text.strip()
                 and turn < max_turns
             ):
-                messages.append({
-                    "role": "user",
-                    "content": (
-                        "Your previous response was truncated by the token limit "
-                        "before producing a tool call or final summary. Retry: "
-                        "either issue ONE bash tool call (short command, no large "
-                        "output) or send a brief one-line final summary with no "
-                        "tool calls to end the loop."
-                    ),
-                })
-                _record_event({
-                    "kind": f"{trace_prefix}_recover",
-                    "turn": turn, "reason": "length_truncation_no_tool_call",
-                    "ts": time.time(),
-                })
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "Your previous response was truncated by the token limit "
+                            "before producing a tool call or final summary. Retry: "
+                            "either issue ONE bash tool call (short command, no large "
+                            "output) or send a brief one-line final summary with no "
+                            "tool calls to end the loop."
+                        ),
+                    }
+                )
+                _record_event(
+                    {
+                        "kind": f"{trace_prefix}_recover",
+                        "turn": turn,
+                        "reason": "length_truncation_no_tool_call",
+                        "ts": time.time(),
+                    }
+                )
                 continue
             # No tool call → the model is done. Same termination rule as
             # the Anthropic branch.
@@ -762,28 +833,40 @@ def _loop_cloud_openai(
                 args = {}
             if tc.function.name != "bash":
                 obs = f"unknown tool: {tc.function.name!r}"
-                _record_event({
-                    "kind": f"{trace_prefix}_unknown_tool",
-                    "turn": turn, "name": tc.function.name, "input": args,
-                    "ts": time.time(),
-                })
+                _record_event(
+                    {
+                        "kind": f"{trace_prefix}_unknown_tool",
+                        "turn": turn,
+                        "name": tc.function.name,
+                        "input": args,
+                        "ts": time.time(),
+                    }
+                )
             else:
                 command = str(args.get("command", ""))
                 result = _run_bash(
-                    command, workdir,
-                    timeout=bash_timeout, output_cap=output_cap,
+                    command,
+                    workdir,
+                    timeout=bash_timeout,
+                    output_cap=output_cap,
                 )
-                _record_event({
-                    "kind": f"{trace_prefix}_bash",
-                    "turn": turn, "command": command,
-                    **result, "ts": time.time(),
-                })
+                _record_event(
+                    {
+                        "kind": f"{trace_prefix}_bash",
+                        "turn": turn,
+                        "command": command,
+                        **result,
+                        "ts": time.time(),
+                    }
+                )
                 obs = _format_observation(result)
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": obs,
-            })
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": obs,
+                }
+            )
 
     return {
         "tokens_in": tokens_in,
@@ -795,6 +878,7 @@ def _loop_cloud_openai(
 
 
 # ---------- Cloud loop (Gemini multi-turn with function tools) ----------
+
 
 def _loop_cloud_gemini(
     problem: str,
@@ -831,13 +915,15 @@ def _loop_cloud_gemini(
     from google.genai import types
 
     client = genai.Client(http_options=types.HttpOptions(timeout=600_000))
-    bash_tool = types.Tool(function_declarations=[
-        types.FunctionDeclaration(
-            name="bash",
-            description=BASH_TOOL_ANTHROPIC["description"],
-            parameters=BASH_TOOL_GEMINI_PARAMETERS,
-        ),
-    ])
+    bash_tool = types.Tool(
+        function_declarations=[
+            types.FunctionDeclaration(
+                name="bash",
+                description=BASH_TOOL_ANTHROPIC["description"],
+                parameters=BASH_TOOL_GEMINI_PARAMETERS,
+            ),
+        ]
+    )
 
     contents: List[types.Content] = [
         types.Content(role="user", parts=[types.Part(text=problem)]),
@@ -859,7 +945,9 @@ def _loop_cloud_gemini(
         )
         t0 = time.time()
         resp = client.models.generate_content(
-            model=model, contents=contents, config=cfg,
+            model=model,
+            contents=contents,
+            config=cfg,
         )
         _bump_cloud_calls()
         latency = time.time() - t0
@@ -896,21 +984,22 @@ def _loop_cloud_gemini(
         except Exception:
             pass
 
-        _record_event({
-            "kind": f"{trace_prefix}_turn",
-            "turn": turn,
-            "endpoint": "gemini",
-            "finish_reason": finish_reason,
-            "tokens_in": p,
-            "tokens_out": c,
-            "latency_s": latency,
-            "text": "\n".join(text_parts),
-            "tool_calls": [
-                {"name": name, "arguments": args}
-                for name, args in function_calls
-            ],
-            "ts": time.time(),
-        })
+        _record_event(
+            {
+                "kind": f"{trace_prefix}_turn",
+                "turn": turn,
+                "endpoint": "gemini",
+                "finish_reason": finish_reason,
+                "tokens_in": p,
+                "tokens_out": c,
+                "latency_s": latency,
+                "text": "\n".join(text_parts),
+                "tool_calls": [
+                    {"name": name, "arguments": args} for name, args in function_calls
+                ],
+                "ts": time.time(),
+            }
+        )
 
         # Append the model's content as-is so the next turn sees its own
         # prior function_call parts (Gemini requires this for the
@@ -934,28 +1023,37 @@ def _loop_cloud_gemini(
             # treat genuine ``STOP`` with text as a final answer.
             fr_str = str(finish_reason or "")
             empty_text = not any(t.strip() for t in text_parts)
-            recoverable = empty_text and turn < max_turns and (
-                "MALFORMED_FUNCTION_CALL" in fr_str
-                or "MAX_TOKENS" in fr_str
+            recoverable = (
+                empty_text
+                and turn < max_turns
+                and ("MALFORMED_FUNCTION_CALL" in fr_str or "MAX_TOKENS" in fr_str)
             )
             if recoverable:
-                contents.append(types.Content(
-                    role="user",
-                    parts=[types.Part(text=(
-                        "Your previous response had no parsable function call "
-                        "and no final text (finish_reason="
-                        f"{fr_str}). Retry: either issue ONE well-formed "
-                        "`bash` function call (short command, valid JSON-ish "
-                        "args) or send a brief final text message with no "
-                        "function call to end the loop."
-                    ))],
-                ))
-                _record_event({
-                    "kind": f"{trace_prefix}_recover",
-                    "turn": turn,
-                    "reason": f"empty_response_{fr_str}",
-                    "ts": time.time(),
-                })
+                contents.append(
+                    types.Content(
+                        role="user",
+                        parts=[
+                            types.Part(
+                                text=(
+                                    "Your previous response had no parsable function call "
+                                    "and no final text (finish_reason="
+                                    f"{fr_str}). Retry: either issue ONE well-formed "
+                                    "`bash` function call (short command, valid JSON-ish "
+                                    "args) or send a brief final text message with no "
+                                    "function call to end the loop."
+                                )
+                            )
+                        ],
+                    )
+                )
+                _record_event(
+                    {
+                        "kind": f"{trace_prefix}_recover",
+                        "turn": turn,
+                        "reason": f"empty_response_{fr_str}",
+                        "ts": time.time(),
+                    }
+                )
                 continue
             final_text = "\n".join(text_parts).strip()
             break
@@ -964,26 +1062,39 @@ def _loop_cloud_gemini(
         for name, args in function_calls:
             if name != "bash":
                 obs = f"unknown tool: {name!r}"
-                _record_event({
-                    "kind": f"{trace_prefix}_unknown_tool",
-                    "turn": turn, "name": name, "input": args,
-                    "ts": time.time(),
-                })
+                _record_event(
+                    {
+                        "kind": f"{trace_prefix}_unknown_tool",
+                        "turn": turn,
+                        "name": name,
+                        "input": args,
+                        "ts": time.time(),
+                    }
+                )
             else:
                 command = str(args.get("command", ""))
                 result = _run_bash(
-                    command, workdir,
-                    timeout=bash_timeout, output_cap=output_cap,
+                    command,
+                    workdir,
+                    timeout=bash_timeout,
+                    output_cap=output_cap,
                 )
-                _record_event({
-                    "kind": f"{trace_prefix}_bash",
-                    "turn": turn, "command": command,
-                    **result, "ts": time.time(),
-                })
+                _record_event(
+                    {
+                        "kind": f"{trace_prefix}_bash",
+                        "turn": turn,
+                        "command": command,
+                        **result,
+                        "ts": time.time(),
+                    }
+                )
                 obs = _format_observation(result)
-            response_parts.append(types.Part.from_function_response(
-                name=name, response={"output": obs},
-            ))
+            response_parts.append(
+                types.Part.from_function_response(
+                    name=name,
+                    response={"output": obs},
+                )
+            )
         contents.append(types.Content(role="user", parts=response_parts))
 
     return {
@@ -1013,10 +1124,14 @@ def _get_tiktoken_enc() -> Any:
         return _TIKTOKEN_ENC
     try:
         import tiktoken
+
         _TIKTOKEN_ENC = tiktoken.get_encoding("cl100k_base")
     except Exception as exc:
         if not _TIKTOKEN_WARNED:
-            print(f"[mini_swe_agent] tiktoken unavailable ({exc!r}); falling back to len(s)//4", flush=True)
+            print(
+                f"[mini_swe_agent] tiktoken unavailable ({exc!r}); falling back to len(s)//4",
+                flush=True,
+            )
             _TIKTOKEN_WARNED = True
         _TIKTOKEN_ENC = False
     return _TIKTOKEN_ENC
@@ -1038,7 +1153,7 @@ def _estimate_prompt_tokens(messages: List[Dict[str, Any]]) -> int:
             s = "\n".join(parts)
         else:
             s = ""
-        for tc in (m.get("tool_calls") or []):
+        for tc in m.get("tool_calls") or []:
             try:
                 s += "\n" + (tc["function"]["arguments"] or "")
                 s += "\n" + (tc["function"].get("name") or "")
@@ -1119,7 +1234,7 @@ def _compact_local_messages(
     before_tokens = _estimate_prompt_tokens(messages)
     new_messages: List[Dict[str, Any]] = list(messages)
     n_tool_elided = 0
-    for (s, e) in old_turns:
+    for s, e in old_turns:
         for k in range(s, e):
             m = new_messages[k]
             if m.get("role") != "tool":
@@ -1140,17 +1255,19 @@ def _compact_local_messages(
             n_tool_elided += 1
 
     after_stage1_tokens = _estimate_prompt_tokens(new_messages)
-    _record_event({
-        "kind": f"{trace_prefix}_compact",
-        "stage": "1",
-        "msgs_before": len(messages),
-        "msgs_after": len(new_messages),
-        "before_tokens": before_tokens,
-        "after_tokens": after_stage1_tokens,
-        "n_tool_elided": n_tool_elided,
-        "n_turns_folded": 0,
-        "ts": time.time(),
-    })
+    _record_event(
+        {
+            "kind": f"{trace_prefix}_compact",
+            "stage": "1",
+            "msgs_before": len(messages),
+            "msgs_after": len(new_messages),
+            "before_tokens": before_tokens,
+            "after_tokens": after_stage1_tokens,
+            "n_tool_elided": n_tool_elided,
+            "n_turns_folded": 0,
+            "ts": time.time(),
+        }
+    )
 
     if after_stage1_tokens <= compact_at_tokens:
         return new_messages
@@ -1163,12 +1280,21 @@ def _compact_local_messages(
 
     summary_input = [
         {"role": "system", "content": _COMPACT_PROMPT},
-        {"role": "user", "content": json.dumps(
-            [{"role": m.get("role"),
-              "content": m.get("content") if isinstance(m.get("content"), str) else str(m.get("content"))[:4000]}
-             for m in middle],
-            default=str,
-        )[:60_000]},
+        {
+            "role": "user",
+            "content": json.dumps(
+                [
+                    {
+                        "role": m.get("role"),
+                        "content": m.get("content")
+                        if isinstance(m.get("content"), str)
+                        else str(m.get("content"))[:4000],
+                    }
+                    for m in middle
+                ],
+                default=str,
+            )[:60_000],
+        },
     ]
     summary = ""
     try:
@@ -1194,18 +1320,20 @@ def _compact_local_messages(
     }
     folded = [system_msg, initial_user, synthetic, *tail]
     after_stage2_tokens = _estimate_prompt_tokens(folded)
-    _record_event({
-        "kind": f"{trace_prefix}_compact",
-        "stage": "2",
-        "msgs_before": len(new_messages),
-        "msgs_after": len(folded),
-        "before_tokens": after_stage1_tokens,
-        "after_tokens": after_stage2_tokens,
-        "n_tool_elided": n_tool_elided,
-        "n_turns_folded": n_turns_folded,
-        "summary_chars": len(summary),
-        "ts": time.time(),
-    })
+    _record_event(
+        {
+            "kind": f"{trace_prefix}_compact",
+            "stage": "2",
+            "msgs_before": len(new_messages),
+            "msgs_after": len(folded),
+            "before_tokens": after_stage1_tokens,
+            "after_tokens": after_stage2_tokens,
+            "n_tool_elided": n_tool_elided,
+            "n_turns_folded": n_turns_folded,
+            "summary_chars": len(summary),
+            "ts": time.time(),
+        }
+    )
     return folded
 
 
@@ -1231,6 +1359,7 @@ def _loop_local(
     # but still saw 28k-input 400s on the n=100 SWE sweep (the keep window
     # alone routinely exceeded the budget once bash outputs piled up).
     from openai import OpenAI
+
     client = OpenAI(base_url=endpoint, api_key="EMPTY", timeout=600.0)
 
     messages: List[Dict[str, Any]] = [
@@ -1243,10 +1372,16 @@ def _loop_local(
     turns = 0
     for turn in range(1, max_turns + 1):
         turns = turn
-        if compact_at_tokens > 0 and _estimate_prompt_tokens(messages) > compact_at_tokens:
+        if (
+            compact_at_tokens > 0
+            and _estimate_prompt_tokens(messages) > compact_at_tokens
+        ):
             messages = _compact_local_messages(
-                messages, client=client, model=model,
-                keep_last=compact_keep_last, trace_prefix=trace_prefix,
+                messages,
+                client=client,
+                model=model,
+                keep_last=compact_keep_last,
+                trace_prefix=trace_prefix,
                 compact_at_tokens=compact_at_tokens,
             )
         t0 = time.time()
@@ -1271,20 +1406,26 @@ def _loop_local(
             msg = str(exc)
             is_ctx = (
                 "maximum context length" in msg
-                or "context length" in msg.lower() and "exceed" in msg.lower()
+                or "context length" in msg.lower()
+                and "exceed" in msg.lower()
             )
             if not is_ctx:
                 raise
-            _record_event({
-                "kind": f"{trace_prefix}_emergency_compact",
-                "turn": turn,
-                "error": msg[:300],
-                "tokens_before": _estimate_prompt_tokens(messages),
-                "ts": time.time(),
-            })
+            _record_event(
+                {
+                    "kind": f"{trace_prefix}_emergency_compact",
+                    "turn": turn,
+                    "error": msg[:300],
+                    "tokens_before": _estimate_prompt_tokens(messages),
+                    "ts": time.time(),
+                }
+            )
             messages = _compact_local_messages(
-                messages, client=client, model=model,
-                keep_last=1, trace_prefix=trace_prefix,
+                messages,
+                client=client,
+                model=model,
+                keep_last=1,
+                trace_prefix=trace_prefix,
                 compact_at_tokens=max(8_000, compact_at_tokens // 2),
             )
             resp = client.chat.completions.create(
@@ -1306,20 +1447,26 @@ def _loop_local(
         tool_calls = list(getattr(message, "tool_calls", None) or [])
         text = message.content or ""
 
-        _record_event({
-            "kind": f"{trace_prefix}_turn",
-            "turn": turn,
-            "finish_reason": choice.finish_reason,
-            "tokens_in": getattr(u, "prompt_tokens", 0) if u else 0,
-            "tokens_out": getattr(u, "completion_tokens", 0) if u else 0,
-            "latency_s": latency,
-            "text": text,
-            "tool_calls": [
-                {"id": tc.id, "name": tc.function.name, "arguments": tc.function.arguments}
-                for tc in tool_calls
-            ],
-            "ts": time.time(),
-        })
+        _record_event(
+            {
+                "kind": f"{trace_prefix}_turn",
+                "turn": turn,
+                "finish_reason": choice.finish_reason,
+                "tokens_in": getattr(u, "prompt_tokens", 0) if u else 0,
+                "tokens_out": getattr(u, "completion_tokens", 0) if u else 0,
+                "latency_s": latency,
+                "text": text,
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    }
+                    for tc in tool_calls
+                ],
+                "ts": time.time(),
+            }
+        )
 
         # Match the OpenAI cloud branch: content="" (not None) when only
         # tool_calls are present; omit ``tool_calls`` entirely when there
@@ -1333,7 +1480,8 @@ def _loop_local(
         if tool_calls:
             assistant_local_msg["tool_calls"] = [
                 {
-                    "id": tc.id, "type": "function",
+                    "id": tc.id,
+                    "type": "function",
                     "function": {
                         "name": tc.function.name,
                         "arguments": tc.function.arguments,
@@ -1357,20 +1505,28 @@ def _loop_local(
             else:
                 command = str(args.get("command", ""))
                 result = _run_bash(
-                    command, workdir,
-                    timeout=bash_timeout, output_cap=output_cap,
+                    command,
+                    workdir,
+                    timeout=bash_timeout,
+                    output_cap=output_cap,
                 )
-                _record_event({
-                    "kind": f"{trace_prefix}_bash",
-                    "turn": turn, "command": command,
-                    **result, "ts": time.time(),
-                })
+                _record_event(
+                    {
+                        "kind": f"{trace_prefix}_bash",
+                        "turn": turn,
+                        "command": command,
+                        **result,
+                        "ts": time.time(),
+                    }
+                )
                 obs = _format_observation(result)
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": obs,
-            })
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": obs,
+                }
+            )
 
     return {
         "tokens_in": tokens_in,
@@ -1382,6 +1538,7 @@ def _loop_local(
 
 
 # ---------- Standalone agent ----------
+
 
 @AgentRegistry.register("mini_swe_agent")
 class MiniSWEAgent(LocalCloudAgent):
@@ -1410,10 +1567,7 @@ class MiniSWEAgent(LocalCloudAgent):
             task = context.metadata.get("task") or {}
 
         backbone = cfg.get("backbone", "cloud")
-        model = (
-            self._cloud_model if backbone == "cloud"
-            else (self._local_model or "")
-        )
+        model = self._cloud_model if backbone == "cloud" else (self._local_model or "")
 
         out = run_swe_agent_loop(
             task,
