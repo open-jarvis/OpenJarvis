@@ -285,6 +285,16 @@ class RoutingContext:
     urgency: float = 0.5
     complexity_score: float = 0.0  # 0.0 (trivial) to 1.0 (very complex)
     suggested_max_tokens: int = 1024
+    task_class: str = ""
+    task_class_confidence: float = 0.0
+    lane: str = ""
+    risk_level: str = "low"
+    latency_sensitivity: str = "medium"
+    budget_sensitivity: str = "medium"
+    required_confidence: Optional[float] = None
+    vision_required: bool = False
+    interactive: bool = True
+    estimated_context_tokens: int = 0
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 

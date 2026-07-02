@@ -286,17 +286,52 @@ class AgentExecutor:
                 from openjarvis.core.registry import RouterPolicyRegistry
                 from openjarvis.learning.routing.router import (
                     build_routing_context,
+                    emit_route_trace,
+                    explain_route,
                 )
+
+                available_models = []
+                try:
+                    available_models = list(self._system.engine.list_models())
+                except Exception:
+                    available_models = [model]
+                if not available_models:
+                    available_models = [model]
 
                 policy = RouterPolicyRegistry.create(
                     router_policy_key,
-                    available_models=[model],
+                    available_models=available_models,
+                    default_model=self._system.model or model,
+                    fallback_model=(
+                        getattr(self._system.config.intelligence, "fallback_model", "")
+                        if getattr(self._system, "config", None) is not None
+                        else ""
+                    ),
                 )
                 instruction = config.get("instruction", "")
-                ctx = build_routing_context(instruction)
+                ctx = build_routing_context(instruction, model=model)
+                ctx.metadata["agent_type"] = agent_type
+                ctx.interactive = False
                 selected = policy.select_model(ctx)
                 if selected:
                     model = selected
+                route_decision = explain_route(
+                    ctx,
+                    available_models=available_models,
+                    default_model=self._system.model or model,
+                    fallback_model=(
+                        getattr(self._system.config.intelligence, "fallback_model", "")
+                        if getattr(self._system, "config", None) is not None
+                        else ""
+                    ),
+                )
+                emit_route_trace(
+                    self._bus,
+                    context=ctx,
+                    decision=route_decision,
+                    selected_model=model,
+                    selected_engine=type(engine).__name__,
+                )
             except Exception:
                 pass  # Fall back to configured model
 

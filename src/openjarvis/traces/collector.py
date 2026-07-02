@@ -43,6 +43,7 @@ class TraceCollector:
         self._current_steps: list[TraceStep] = []
         self._current_model: str = ""
         self._current_engine: str = ""
+        self._current_route: Dict[str, Any] = {}
         self._last_trace: Optional[Trace] = None
 
     def run(
@@ -55,6 +56,7 @@ class TraceCollector:
         self._current_steps = []
         self._current_model = ""
         self._current_engine = ""
+        self._current_route = {}
 
         # Subscribe to events for trace collection
         unsubs = self._subscribe()
@@ -91,6 +93,7 @@ class TraceCollector:
             messages=messages,
             started_at=started_at,
             ended_at=ended_at,
+            metadata={"routing": dict(self._current_route)} if self._current_route else {},
         )
         # Recompute totals from steps
         for step in trace.steps:
@@ -118,6 +121,7 @@ class TraceCollector:
         if self._bus is None:
             return []
         handlers = [
+            (EventType.TRACE_STEP, self._on_trace_step),
             (EventType.INFERENCE_START, self._on_inference_start),
             (EventType.INFERENCE_END, self._on_inference_end),
             (EventType.TOOL_CALL_START, self._on_tool_start),
@@ -138,6 +142,26 @@ class TraceCollector:
         self._current_model = event.data.get("model", self._current_model)
         self._current_engine = event.data.get("engine", self._current_engine)
         self._inference_start_time = event.timestamp
+
+    def _on_trace_step(self, event: Any) -> None:
+        data = event.data or {}
+        step_type = data.get("step_type")
+        if step_type != StepType.ROUTE.value:
+            return
+        step = TraceStep(
+            step_type=StepType.ROUTE,
+            timestamp=event.timestamp,
+            duration_seconds=float(data.get("duration_seconds", 0.0) or 0.0),
+            input=dict(data.get("input") or {}),
+            output=dict(data.get("output") or {}),
+            metadata=dict(data.get("metadata") or {}),
+        )
+        self._current_steps.append(step)
+        self._current_route = {
+            **step.input,
+            **step.output,
+            **step.metadata,
+        }
 
     def _on_inference_end(self, event: Any) -> None:
         start = getattr(self, "_inference_start_time", event.timestamp)

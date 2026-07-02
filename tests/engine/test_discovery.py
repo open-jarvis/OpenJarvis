@@ -12,6 +12,7 @@ from openjarvis.engine._discovery import (
     discover_models,
     get_engine,
 )
+from openjarvis.engine._stubs import is_cloud_only_model
 
 
 class _FakeEngine(InferenceEngine):
@@ -44,6 +45,28 @@ def _reg(key: str, eid: str) -> None:
     """Register a fake engine type under *key*."""
     cls = type(key.title(), (_FakeEngine,), {"engine_id": eid})
     EngineRegistry.register_value(key, cls)
+
+
+class TestCloudOnlyModelGuard:
+    """The base ``can_serve`` must decline unambiguously cloud-only ids."""
+
+    def test_is_cloud_only_model(self) -> None:
+        assert is_cloud_only_model("openrouter/free") is True
+        assert is_cloud_only_model("openrouter/anthropic/claude-sonnet-4") is True
+        assert is_cloud_only_model("codex/gpt-5") is True
+        # Ordinary local/cloud ids are NOT cloud-only namespaced.
+        assert is_cloud_only_model("qwen2.5:1.5b") is False
+        assert is_cloud_only_model("gpt-4o") is False
+        assert is_cloud_only_model("claude-sonnet-4") is False
+
+    def test_base_can_serve_declines_cloud_only(self) -> None:
+        engine = _FakeEngine(healthy=True)
+        # Local engines accept ordinary ids (install state is a separate concern)
+        assert engine.can_serve("qwen2.5:1.5b") is True
+        assert engine.can_serve("some-unknown-local-model") is True
+        # ...but never claim cloud-only namespaces.
+        assert engine.can_serve("openrouter/free") is False
+        assert engine.can_serve("codex/gpt-5") is False
 
 
 class TestDiscoverEngines:
@@ -203,6 +226,30 @@ class TestGetEngine:
             result = get_engine(cfg, model="other")
         assert result is not None
         assert result[0] == "local"
+
+    def test_local_engine_declines_cloud_only_model(self) -> None:
+        """A local engine must NOT be selected for a cloud-namespaced model.
+
+        Regression: when ``default_model`` is missing and the configured
+        ``fallback_model`` is ``openrouter/free``, model resolution falls back
+        to that cloud id. The base ``can_serve`` returns ``False`` for
+        ``openrouter/`` (and ``codex/``) ids, so a local-only engine declines
+        and ``get_engine`` returns ``None`` rather than handing the cloud model
+        to a local backend that would 404 at call time.
+        """
+        _reg("local", "local")
+        cfg = JarvisConfig()
+        cfg.engine.default = "local"
+
+        with mock.patch(
+            "openjarvis.engine._discovery._make_engine",
+            side_effect=lambda k, c: _FakeEngine(healthy=True),
+        ):
+            # Only a local engine is registered; it cannot serve openrouter/*.
+            assert get_engine(cfg, model="openrouter/free") is None
+            assert get_engine(cfg, model="codex/gpt-5") is None
+            # ...but ordinary ids are still served locally.
+            assert get_engine(cfg, model="qwen2.5:1.5b") is not None
 
     def test_dummy_openai_key_does_not_misroute_local_model(
         self, monkeypatch: object

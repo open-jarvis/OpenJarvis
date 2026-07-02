@@ -8,6 +8,8 @@ from openjarvis.learning._stubs import RoutingContext
 from openjarvis.learning.routing.router import (
     HeuristicRouter,
     build_routing_context,
+    escalation_chain_for_lane,
+    explain_route,
 )
 
 
@@ -40,6 +42,28 @@ def _register_models() -> None:
             context_length=131072,
         ),
     )
+    ModelRegistry.register_value(
+        "free",
+        ModelSpec(
+            model_id="openrouter/free",
+            name="OpenRouter Free",
+            parameter_count_b=0.0,
+            context_length=131072,
+            supported_engines=("cloud",),
+            provider="openrouter",
+        ),
+    )
+    ModelRegistry.register_value(
+        "vision",
+        ModelSpec(
+            model_id="qwen/qwen3-vl-32b-instruct",
+            name="Qwen Vision",
+            parameter_count_b=32.0,
+            context_length=131072,
+            supported_engines=("cloud",),
+            provider="openrouter",
+        ),
+    )
 
 
 class TestBuildRoutingContext:
@@ -60,6 +84,15 @@ class TestBuildRoutingContext:
     def test_urgency_default(self) -> None:
         ctx = build_routing_context("test")
         assert ctx.urgency == 0.5
+
+    def test_task_class_detection_for_code(self) -> None:
+        ctx = build_routing_context("please write a python function and tests")
+        assert ctx.task_class in {"code-simple", "test-generation"}
+        assert ctx.task_class_confidence > 0.0
+
+    def test_vision_detection(self) -> None:
+        ctx = build_routing_context("describe this screenshot")
+        assert ctx.vision_required is True
 
 
 class TestHeuristicRouter:
@@ -159,3 +192,83 @@ class TestHeuristicRouter:
             has_code=True,
         )
         assert router.select_model(ctx) == "large"
+
+    def test_router_lane_prefers_small_control_model(self) -> None:
+        _register_models()
+        router = HeuristicRouter(available_models=["small", "large"])
+        ctx = RoutingContext(
+            query="classify this ticket",
+            query_length=20,
+            task_class="classify",
+        )
+        assert router.select_model(ctx) == "small"
+
+    def test_code_lane_prefers_coder(self) -> None:
+        _register_models()
+        router = HeuristicRouter(available_models=["small", "large", "coder"])
+        ctx = RoutingContext(
+            query="write a patch",
+            query_length=20,
+            task_class="code-simple",
+        )
+        assert router.select_model(ctx) == "coder"
+
+    def test_free_fallback_lane_prefers_openrouter_free(self) -> None:
+        _register_models()
+        router = HeuristicRouter(available_models=["small", "openrouter/free", "large"])
+        ctx = RoutingContext(
+            query="cheap low-stakes fallback",
+            query_length=24,
+            task_class="summarize",
+            budget_sensitivity="high",
+            risk_level="low",
+        )
+        assert router.select_model(ctx) == "openrouter/free"
+
+    def test_long_context_lane_prefers_larger_model(self) -> None:
+        _register_models()
+        router = HeuristicRouter(available_models=["small", "large"])
+        ctx = RoutingContext(
+            query="synthesize these long documents",
+            query_length=2000,
+            task_class="synthesis",
+            complexity_score=0.7,
+            estimated_context_tokens=8000,
+        )
+        assert router.select_model(ctx) == "large"
+
+    def test_vision_lane_prefers_vision_model(self) -> None:
+        _register_models()
+        router = HeuristicRouter(
+            available_models=["small", "qwen/qwen3-vl-32b-instruct", "large"]
+        )
+        ctx = RoutingContext(
+            query="describe this screenshot",
+            query_length=24,
+            task_class="source-reading",
+            vision_required=True,
+        )
+        assert router.select_model(ctx) == "qwen/qwen3-vl-32b-instruct"
+
+    def test_escalation_chain_for_code_lane(self) -> None:
+        chain = escalation_chain_for_lane("code_specialist")
+        assert chain == [
+            "code_specialist",
+            "premium_workhorse",
+            "frontier_premium",
+        ]
+
+    def test_explain_route_exposes_candidates_and_escalation(self) -> None:
+        _register_models()
+        decision = explain_route(
+            RoutingContext(
+                query="write a patch",
+                query_length=20,
+                task_class="code-simple",
+            ),
+            available_models=["small", "coder", "large"],
+        )
+        assert decision.lane == "code_specialist"
+        assert decision.model == "coder"
+        assert "coder" in decision.candidate_models
+        assert decision.escalation_chain[0] == "code_specialist"

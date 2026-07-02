@@ -12,6 +12,11 @@ from openjarvis.core.config import JarvisConfig, load_config
 from openjarvis.core.events import EventBus
 from openjarvis.core.types import Message, Role
 from openjarvis.engine._discovery import get_engine
+from openjarvis.learning.routing.router import (
+    build_routing_context,
+    emit_route_trace,
+    explain_route,
+)
 from openjarvis.system import JarvisSystem, SystemBuilder
 from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
 from openjarvis.telemetry.store import TelemetryStore
@@ -312,18 +317,43 @@ class Jarvis:
 
         # Direct engine mode
         messages = [Message(role=Role.USER, content=query)]
+        routing_context = build_routing_context(query, model=model_name)
+        route_decision = explain_route(
+            routing_context,
+            available_models=self._engine.list_models(),
+            default_model=self._config.intelligence.default_model or "",
+            fallback_model=self._config.intelligence.fallback_model or "",
+        )
+        emit_route_trace(
+            self._bus,
+            context=routing_context,
+            decision=route_decision,
+            selected_model=model_name,
+            selected_engine=self._resolved_engine_key or "",
+        )
 
         # Memory context injection
         if context and self._config.agent.context_from_memory:
             messages = self._inject_context(query, messages)
 
         # InstrumentedEngine handles telemetry + energy recording
-        result = self._engine.generate(
-            messages,
-            model=model_name,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
+        try:
+            result = self._engine.generate(
+                messages,
+                model=model_name,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        except Exception as exc:
+            emit_route_trace(
+                self._bus,
+                context=routing_context,
+                decision=route_decision,
+                selected_model=model_name,
+                selected_engine=self._resolved_engine_key or "",
+                failure_reason=str(exc),
+            )
+            raise
 
         return {
             "content": result.get("content", ""),

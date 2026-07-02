@@ -42,6 +42,32 @@ def _make_trace(
     )
 
 
+def _make_routed_trace(
+    *,
+    query: str,
+    model: str,
+    task_class: str,
+    lane: str,
+    outcome: str | None = "success",
+    feedback: float | None = 0.8,
+    escalation_chain: list[str] | None = None,
+) -> Trace:
+    trace = _make_trace(
+        query=query,
+        model=model,
+        outcome=outcome,
+        feedback=feedback,
+    )
+    trace.metadata = {
+        "routing": {
+            "task_class": task_class,
+            "lane": lane,
+            "escalation_chain": escalation_chain or [lane],
+        }
+    }
+    return trace
+
+
 class TestLearnedRouterPolicy:
     def test_registered_as_learned(self) -> None:
         from openjarvis.core.registry import RouterPolicyRegistry
@@ -120,6 +146,50 @@ class TestLearnedRouterPolicy:
         assert pmap["short"] == "small-model"
         store.close()
 
+    def test_update_from_traces_learns_lane_by_task_class(self, tmp_path: Path) -> None:
+        store = TraceStore(tmp_path / "test.db")
+        for _ in range(5):
+            store.save(
+                _make_routed_trace(
+                    query="write a parser for csv files",
+                    model="qwen2.5-coder:7b",
+                    task_class="code_complex",
+                    lane="code_specialist",
+                    feedback=0.95,
+                )
+            )
+        for _ in range(5):
+            store.save(
+                _make_routed_trace(
+                    query="write a parser for json files",
+                    model="openrouter/deepseek/deepseek-v3.2",
+                    task_class="code_complex",
+                    lane="premium_workhorse",
+                    feedback=0.6,
+                    escalation_chain=["code_specialist", "premium_workhorse"],
+                )
+            )
+
+        analyzer = TraceAnalyzer(store)
+        policy = LearnedRouterPolicy(
+            analyzer=analyzer,
+            default_model="qwen2.5:1.5b",
+            available_models=[
+                "qwen2.5:1.5b",
+                "qwen2.5-coder:7b",
+                "openrouter/deepseek/deepseek-v3.2",
+            ],
+        )
+        policy.min_samples = 3
+
+        result = policy.update_from_traces()
+        assert result["updated"] is True
+        assert policy.lane_policy_map["code_complex"] == "code_specialist"
+
+        ctx = RoutingContext(query="implement a parser", task_class="code_complex")
+        assert policy.select_model(ctx) == "qwen2.5-coder:7b"
+        store.close()
+
     def test_observe_online(self) -> None:
         policy = LearnedRouterPolicy(default_model="default")
         policy.min_samples = 3
@@ -167,3 +237,25 @@ class TestLearnedRouterPolicy:
         result = policy.update(mock_store)
         assert isinstance(result, dict)
         assert "policy_map" in result
+
+    def test_batch_update_returns_lane_policy_map(self) -> None:
+        from unittest.mock import MagicMock
+
+        policy = LearnedRouterPolicy(
+            default_model="qwen2.5:1.5b",
+            available_models=["qwen2.5:1.5b", "qwen2.5-coder:7b"],
+        )
+        policy.min_samples = 3
+        mock_store = MagicMock()
+        mock_store.list_traces.return_value = [
+            _make_routed_trace(
+                query="write tests",
+                model="qwen2.5-coder:7b",
+                task_class="code_complex",
+                lane="code_specialist",
+                feedback=0.9,
+            )
+            for _ in range(4)
+        ]
+        result = policy.update(mock_store)
+        assert result["lane_policy_map"]["code_complex"] == "code_specialist"

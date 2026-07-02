@@ -13,6 +13,22 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from openjarvis.core.types import Message
 
+# Cloud-only model namespaces. A model id beginning with one of these prefixes
+# can only be served by the cloud engine (cf. ``cloud.py``'s
+# ``_is_openrouter_model`` / ``_is_codex_model``). Local engines must NOT claim
+# to serve them: otherwise engine selection can lock onto a local engine for a
+# cloud model and only discover the mismatch at call time, surfacing as a
+# confusing Ollama ``404 model not found`` (e.g. when ``default_model`` is
+# missing and the configured ``fallback_model`` is ``openrouter/free``). Kept
+# here in the low-level base module so every engine sees one source of truth
+# without importing ``cloud.py`` (which would be circular).
+_CLOUD_ONLY_PREFIXES = ("openrouter/", "codex/")
+
+
+def is_cloud_only_model(model: str) -> bool:
+    """Return ``True`` for unambiguously cloud-namespaced model ids."""
+    return model.startswith(_CLOUD_ONLY_PREFIXES)
+
 
 @dataclass(slots=True)
 class StreamChunk:
@@ -122,13 +138,19 @@ class InferenceEngine(ABC):
     def can_serve(self, model: str) -> bool:
         """Return ``True`` if this engine can serve *model*.
 
-        Defaults to ``True``: local engines accept any model id (whether a
-        specific model is *installed* is a separate concern from engine
-        selection). Engines that multiplex provider-specific clients (e.g.
-        the cloud engine) override this so selection can skip an engine whose
-        client for the model's provider isn't configured (see #532).
+        Defaults to ``True`` for ordinary ids: local engines accept any model
+        id (whether a specific model is *installed* is a separate concern from
+        engine selection). The one exception is unambiguously cloud-namespaced
+        ids (``openrouter/``, ``codex/``): a local backend can never serve
+        those, so it must decline here. Otherwise engine selection locks onto a
+        local engine for a cloud model and the mismatch only surfaces at call
+        time as a confusing ``404 model not found`` (see the
+        ``default_model`` missing + ``fallback_model = openrouter/free`` case).
+        Engines that multiplex provider-specific clients (e.g. the cloud
+        engine) override this entirely so selection can also skip an engine
+        whose client for the model's provider isn't configured (see #532).
         """
-        return True
+        return not is_cloud_only_model(model)
 
     def close(self) -> None:
         """Release resources (HTTP clients, connections, threads, etc.)."""
@@ -137,4 +159,9 @@ class InferenceEngine(ABC):
         """Optional warm-up hook called before the first request."""
 
 
-__all__ = ["InferenceEngine", "ResponseFormat", "StreamChunk"]
+__all__ = [
+    "InferenceEngine",
+    "ResponseFormat",
+    "StreamChunk",
+    "is_cloud_only_model",
+]

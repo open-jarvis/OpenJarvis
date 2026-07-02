@@ -51,6 +51,25 @@ def _clean_registries() -> None:
     reset_event_bus()
 
 
+@pytest.fixture(autouse=True)
+def _isolate_config_dir(
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Point ``OPENJARVIS_HOME`` at a per-test temp dir.
+
+    Without this, tests that assert "no cloud keys configured" (e.g.
+    ``CloudEngine().health() is False``) flakily fail on a developer machine
+    that has a real ``~/.openjarvis/vault.enc`` populated via ``jarvis vault
+    set``: ``_load_cloud_keys`` correctly reads that vault and the engine then
+    reports healthy. Isolating the config dir keeps the suite hermetic and
+    independent of the operator's real credentials. Tests that need a specific
+    config dir can still override ``OPENJARVIS_HOME`` locally.
+    """
+    home = tmp_path_factory.mktemp("openjarvis_home")
+    monkeypatch.setenv("OPENJARVIS_HOME", str(home))
+
+
 # ---------------------------------------------------------------------------
 # Hardware fixtures
 # ---------------------------------------------------------------------------

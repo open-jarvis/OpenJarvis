@@ -17,7 +17,7 @@ from openjarvis.cli._tool_names import resolve_tool_names
 from openjarvis.cli.hints import hint_no_engine
 from openjarvis.core.config import load_config
 from openjarvis.core.events import EventBus, EventType
-from openjarvis.core.types import Message, Role
+from openjarvis.core.types import Message, Role, StepType
 from openjarvis.engine import (
     EngineConnectionError,
     discover_engines,
@@ -27,6 +27,11 @@ from openjarvis.engine import (
 from openjarvis.intelligence import (
     merge_discovered_models,
     register_builtin_models,
+)
+from openjarvis.learning.routing.router import (
+    build_routing_context,
+    emit_route_trace,
+    explain_route,
 )
 from openjarvis.telemetry.instrumented_engine import InstrumentedEngine
 from openjarvis.telemetry.store import TelemetryStore
@@ -805,6 +810,79 @@ def ask(
         )
         return
 
+    # ------------------------------------------------------------------
+    # Resolve the concrete model BEFORE wrapping/securing the engine, so a
+    # fallback model can re-select a different engine (see below).
+    # ------------------------------------------------------------------
+    # Discover models and merge into registry
+    all_engines = discover_engines(config)
+    all_models = discover_models(all_engines)
+    for ek, model_ids in all_models.items():
+        merge_discovered_models(ek, model_ids)
+    engine_models = all_models.get(engine_name, [])
+
+    # Resolve model via config fallback chain
+    if model_name is None:
+        model_name = config.intelligence.default_model
+        if model_name and engine_models and model_name not in engine_models:
+            # If the configured default model is missing on the selected engine,
+            # prefer the configured fallback model before picking an arbitrary
+            # local model. This keeps the cloud fallback reachable when the
+            # local default disappears.
+            model_name = config.intelligence.fallback_model or model_name
+    if not model_name:
+        # Try first available from the active engine only after explicit
+        # defaults and configured fallback have been exhausted.
+        if engine_models:
+            model_name = engine_models[0]
+    if not model_name:
+        model_name = config.intelligence.fallback_model
+    if not model_name:
+        console.print("[red]No model available on engine.[/red]")
+        sys.exit(1)
+
+    routing_context = build_routing_context(
+        query_text,
+        urgency=0.5,
+        model=model_name,
+    )
+    routing_context.vision_required = bool(image_b64)
+    route_decision = explain_route(
+        routing_context,
+        available_models=engine_models,
+        default_model=config.intelligence.default_model or "",
+        fallback_model=config.intelligence.fallback_model or "",
+    )
+
+    # The engine above was selected against the *default* model (or the -m
+    # flag). If model resolution then fell back to a different model — e.g. the
+    # configured ``default_model`` disappeared and we fell back to
+    # ``openrouter/free`` — the originally-selected engine may not be able to
+    # serve it. Re-resolve so a cloud fallback model actually lands on the
+    # cloud engine instead of dying at call time with a local-engine 404. This
+    # is a no-op whenever the current engine can already serve the model.
+    # ``can_serve`` is part of the InferenceEngine ABC; guard with getattr so a
+    # minimal duck-typed engine (e.g. a test stub) is treated as "serves it".
+    can_serve = getattr(engine, "can_serve", None)
+    if callable(can_serve) and not can_serve(model_name):
+        reselected = get_engine(config, effective_engine_key, model=model_name)
+        if reselected is not None:
+            engine_name, engine = reselected
+            engine_models = all_models.get(engine_name, [])
+            logger.debug(
+                "Re-resolved engine to %r for fallback model %r",
+                engine_name,
+                model_name,
+            )
+
+    emit_route_trace(
+        bus,
+        context=routing_context,
+        decision=route_decision,
+        selected_model=model_name,
+        selected_engine=engine_name,
+    )
+
     # Apply security guardrails
     from openjarvis.security import setup_security
 
@@ -824,26 +902,6 @@ def ask(
         except Exception as exc:
             logger.debug("Failed to create energy monitor: %s", exc)
     engine = InstrumentedEngine(engine, bus, energy_monitor=energy_monitor)
-
-    # Discover models and merge into registry
-    all_engines = discover_engines(config)
-    all_models = discover_models(all_engines)
-    for ek, model_ids in all_models.items():
-        merge_discovered_models(ek, model_ids)
-
-    # Resolve model via config fallback chain
-    if model_name is None:
-        model_name = config.intelligence.default_model
-    if not model_name:
-        # Try first available from engine
-        engine_models = all_models.get(engine_name, [])
-        if engine_models:
-            model_name = engine_models[0]
-    if not model_name:
-        model_name = config.intelligence.fallback_model
-    if not model_name:
-        console.print("[red]No model available on engine.[/red]")
-        sys.exit(1)
 
     # Apply complexity-suggested token budget when user didn't override.
     # Use at least the config default so we never reduce tokens below what
@@ -882,6 +940,14 @@ def ask(
                 memory_files_config=effective_mf,
             )
         except EngineConnectionError as exc:
+            emit_route_trace(
+                bus,
+                context=routing_context,
+                decision=route_decision,
+                selected_model=model_name,
+                selected_engine=engine_name,
+                failure_reason=str(exc),
+            )
             console.print(f"[red]Engine error:[/red] {exc}")
             console.print(hint_no_engine())
             sys.exit(1)
@@ -991,6 +1057,14 @@ def ask(
                 max_tokens=max_tokens,
             )
     except EngineConnectionError as exc:
+        emit_route_trace(
+            bus,
+            context=routing_context,
+            decision=route_decision,
+            selected_model=model_name,
+            selected_engine=engine_name,
+            failure_reason=str(exc),
+        )
         console.print(f"[red]Engine error:[/red] {exc}")
         console.print(hint_no_engine())
         sys.exit(1)

@@ -139,6 +139,56 @@ class TestExecutorBasic:
         # Agent should still be running (first tick owns it)
         assert manager.get_agent(agent["id"])["status"] == "running"
 
+    def test_invoke_agent_emits_route_trace_for_router_policy(
+        self, executor, manager, event_bus
+    ):
+        from openjarvis.core.config import JarvisConfig
+        from openjarvis.core.registry import AgentRegistry, RouterPolicyRegistry
+
+        class FakeAgent:
+            agent_id = "fake-route-agent"
+
+            def __init__(self, eng, model, **kwargs):
+                self.model = model
+
+            def run(self, input, context=None, **kwargs):
+                return AgentResult(content=f"used:{self.model}")
+
+        class FakePolicy:
+            def __init__(self, **kwargs):
+                pass
+
+            def select_model(self, ctx):
+                return "qwen2.5-coder:7b"
+
+        AgentRegistry.register_value("fake-route-agent", FakeAgent)
+        RouterPolicyRegistry.register_value("fake-policy", FakePolicy)
+
+        system = MagicMock()
+        system.engine.list_models.return_value = ["qwen2.5:1.5b", "qwen2.5-coder:7b"]
+        system.model = "qwen2.5:1.5b"
+        system.config = JarvisConfig()
+        executor.set_system(system)
+
+        agent = manager.create_agent(
+            name="routed",
+            agent_type="fake-route-agent",
+            config={
+                "router_policy": "fake-policy",
+                "instruction": "write a parser",
+                "model": "qwen2.5:1.5b",
+            },
+        )
+
+        event_bus._record_history = True
+        result = executor._invoke_agent(agent)
+        route_events = [
+            e for e in event_bus.history if e.event_type == EventType.TRACE_STEP
+        ]
+        assert result.content == "used:qwen2.5-coder:7b"
+        assert route_events
+        assert route_events[-1].data["output"]["model"] == "qwen2.5-coder:7b"
+
 
 def test_finalize_tick_reads_agent_result_metadata(tmp_path):
     """_finalize_tick() accumulates cost/tokens from AgentResult.metadata."""

@@ -181,6 +181,42 @@ class TestTraceCollector:
         assert retrieve_steps[0].input["query"] == "meeting notes"
         store.close()
 
+    def test_records_route_steps_and_trace_metadata(self, tmp_path: Path) -> None:
+        bus = EventBus()
+        store = TraceStore(tmp_path / "test.db")
+        agent = _FakeAgent(bus=bus)
+        collector = TraceCollector(agent, store=store, bus=bus)
+
+        original_run = agent.run
+
+        def run_with_route(input, context=None, **kwargs):
+            bus.publish(EventType.TRACE_STEP, {
+                "step_type": StepType.ROUTE.value,
+                "input": {"query": input, "task_class": "code_complex"},
+                "output": {
+                    "lane": "code_specialist",
+                    "model": "qwen2.5-coder:7b",
+                    "candidate_models": ["qwen2.5-coder:7b"],
+                    "escalation_chain": [
+                        "code_specialist",
+                        "premium_workhorse",
+                    ],
+                },
+                "metadata": {"reason": "code task"},
+            })
+            return original_run(input, context=context, **kwargs)
+
+        agent.run = run_with_route
+        collector.run("write a parser")
+
+        trace = store.list_traces()[0]
+        route_steps = [s for s in trace.steps if s.step_type == StepType.ROUTE]
+        assert len(route_steps) == 1
+        assert route_steps[0].output["lane"] == "code_specialist"
+        assert trace.metadata["routing"]["task_class"] == "code_complex"
+        assert trace.metadata["routing"]["lane"] == "code_specialist"
+        store.close()
+
     def test_publishes_trace_complete(self, tmp_path: Path) -> None:
         bus = EventBus(record_history=True)
         store = TraceStore(tmp_path / "test.db")

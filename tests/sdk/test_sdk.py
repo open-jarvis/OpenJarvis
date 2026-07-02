@@ -8,6 +8,7 @@ import pytest
 
 import openjarvis
 from openjarvis.core.config import JarvisConfig
+from openjarvis.core.events import EventType
 from openjarvis.sdk import Jarvis, MemoryHandle
 
 
@@ -111,6 +112,19 @@ class TestJarvisAsk:
             assert "content" in result
             assert "usage" in result
             assert result["content"] == "Full response"
+            j.close()
+
+    def test_ask_full_emits_route_trace(self):
+        engine = _make_engine("Full response")
+        with patch("openjarvis.sdk.get_engine", return_value=("mock", engine)):
+            j = Jarvis(config=JarvisConfig(), model="qwen2.5-coder:7b")
+            j._bus = type(j._bus)(record_history=True)
+            j.ask_full("write a parser")
+            route_events = [
+                e for e in j._bus.history if e.event_type == EventType.TRACE_STEP
+            ]
+            assert route_events
+            assert route_events[-1].data["output"]["model"] == "qwen2.5-coder:7b"
             j.close()
 
 
