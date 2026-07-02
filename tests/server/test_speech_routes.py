@@ -1,6 +1,6 @@
 """Tests for speech API endpoints."""
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -54,6 +54,33 @@ def test_transcribe_endpoint(client, mock_speech_backend):
     assert data["language"] == "en"
     assert data["confidence"] == 0.95
     assert data["duration_seconds"] == 1.5
+
+
+def test_transcribe_endpoint_offloads_backend_work(client, mock_speech_backend):
+    expected = TranscriptionResult(
+        text="Offloaded",
+        language="en",
+        confidence=0.9,
+        duration_seconds=1.0,
+        segments=[],
+    )
+
+    with patch(
+        "openjarvis.server.api_routes.asyncio.to_thread",
+        new_callable=AsyncMock,
+    ) as mock_to_thread:
+        mock_to_thread.return_value = expected
+        response = client.post(
+            "/v1/speech/transcribe",
+            files={"file": ("test.wav", b"fake audio data", "audio/wav")},
+        )
+
+    assert response.status_code == 200
+    mock_to_thread.assert_awaited_once()
+    args, kwargs = mock_to_thread.await_args
+    assert args == (mock_speech_backend.transcribe, b"fake audio data")
+    assert kwargs == {"format": "wav", "language": None}
+    assert response.json()["text"] == "Offloaded"
 
 
 def test_transcribe_endpoint_surfaces_backend_error(client, mock_speech_backend):

@@ -60,6 +60,7 @@ export async function* streamChat(
 
 export async function* streamResearch(
   query: string,
+  model?: string,
   signal?: AbortSignal,
 ): AsyncGenerator<ResearchEvent> {
   // /api/research is mounted at the server root — strip any trailing /v1
@@ -68,7 +69,7 @@ export async function* streamResearch(
   const response = await fetch(`${base}/api/research`, {
     method: 'POST',
     headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ query }),
+    body: JSON.stringify({ query, ...(model ? { model } : {}) }),
     signal,
   });
 
@@ -106,4 +107,3 @@ export async function* streamResearch(
     reader.releaseLock();
   }
 }
-

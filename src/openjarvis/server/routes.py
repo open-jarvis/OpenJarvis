@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from typing import Any
@@ -835,7 +836,7 @@ async def list_models(request: Request) -> ModelListResponse:
     # Filter out any cloud model IDs that may appear via MultiEngine.
     # Fall back to direct Ollama query only when the engine returns nothing.
     engine = request.app.state.engine
-    all_ids = engine.list_models()
+    all_ids = await asyncio.to_thread(engine.list_models)
     model_ids = [m for m in all_ids if not is_cloud_model(m)]
     if not model_ids:
         model_ids = await list_local_models()
@@ -865,12 +866,12 @@ async def pull_model(request: Request):
     import httpx as _httpx
 
     host = getattr(engine, "_host", "http://localhost:11434")
-    client = _httpx.Client(base_url=host, timeout=600.0)
     try:
-        resp = client.post(
-            "/api/pull",
-            json={"name": model_name, "stream": False},
-        )
+        async with _httpx.AsyncClient(base_url=host, timeout=600.0) as client:
+            resp = await client.post(
+                "/api/pull",
+                json={"name": model_name, "stream": False},
+            )
         resp.raise_for_status()
     except (_httpx.ConnectError, _httpx.TimeoutException) as exc:
         raise HTTPException(status_code=502, detail=f"Ollama unreachable: {exc}")
@@ -879,8 +880,6 @@ async def pull_model(request: Request):
             status_code=exc.response.status_code,
             detail=f"Ollama error: {exc.response.text[:300]}",
         )
-    finally:
-        client.close()
 
     return {"status": "ok", "model": model_name}
 
@@ -896,13 +895,13 @@ async def delete_model(model_name: str, request: Request):
     import httpx as _httpx
 
     host = getattr(engine, "_host", "http://localhost:11434")
-    client = _httpx.Client(base_url=host, timeout=30.0)
     try:
-        resp = client.request(
-            "DELETE",
-            "/api/delete",
-            json={"name": model_name},
-        )
+        async with _httpx.AsyncClient(base_url=host, timeout=30.0) as client:
+            resp = await client.request(
+                "DELETE",
+                "/api/delete",
+                json={"name": model_name},
+            )
         resp.raise_for_status()
     except (_httpx.ConnectError, _httpx.TimeoutException) as exc:
         raise HTTPException(status_code=502, detail=f"Ollama unreachable: {exc}")
@@ -911,8 +910,6 @@ async def delete_model(model_name: str, request: Request):
             status_code=exc.response.status_code,
             detail=f"Ollama error: {exc.response.text[:300]}",
         )
-    finally:
-        client.close()
 
     return {"status": "deleted", "model": model_name}
 

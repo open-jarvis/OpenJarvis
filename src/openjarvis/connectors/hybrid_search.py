@@ -20,8 +20,9 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 # numpy imported lazily inside _vector_recall (see embeddings.py) so importing
@@ -30,6 +31,61 @@ from openjarvis.connectors.embeddings import OllamaEmbedder, decode_embedding
 from openjarvis.connectors.store import KnowledgeStore
 
 logger = logging.getLogger(__name__)
+
+
+_UPCOMING_TERMS = {
+    "next",
+    "upcoming",
+    "future",
+    "forthcoming",
+    "coming",
+    "soon",
+}
+_CALENDAR_TERMS = {
+    "calendar",
+    "calendars",
+    "event",
+    "events",
+}
+_CALENDAR_REQUEST_TERMS = _CALENDAR_TERMS | {
+    "appointment",
+    "appointments",
+    "meeting",
+    "meetings",
+    "schedule",
+}
+_GCALENDAR_GENERIC_TERMS = _UPCOMING_TERMS | _CALENDAR_TERMS | {
+    "appointment",
+    "appointments",
+    "meeting",
+    "meetings",
+    "schedule",
+}
+_QUERY_STOPWORDS = {
+    "a",
+    "all",
+    "am",
+    "are",
+    "do",
+    "for",
+    "have",
+    "i",
+    "in",
+    "is",
+    "list",
+    "me",
+    "my",
+    "on",
+    "s",
+    "show",
+    "tell",
+    "the",
+    "there",
+    "to",
+    "what",
+    "whats",
+    "when",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +174,101 @@ def _snippet(content: str, max_chars: int = 500) -> str:
     if len(flat) <= max_chars:
         return flat
     return flat[:max_chars].rstrip() + "…"
+
+
+def _query_tokens(query: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9_]+", query.lower()))
+
+
+def _sources_include_gcalendar(sources: Optional[Sequence[str]]) -> bool:
+    return any(str(source).lower() == "gcalendar" for source in sources or [])
+
+
+def _has_upcoming_calendar_intent(
+    query: str,
+    sources: Optional[Sequence[str]],
+) -> bool:
+    tokens = _query_tokens(query)
+    if not tokens or not (tokens & _UPCOMING_TERMS):
+        return False
+    if _sources_include_gcalendar(sources):
+        return True
+    if sources:
+        return False
+    return bool(tokens & _CALENDAR_REQUEST_TERMS)
+
+
+def _is_generic_calendar_timeline_query(query: str) -> bool:
+    tokens = _query_tokens(query)
+    if not tokens:
+        return True
+    topic_tokens = tokens - _GCALENDAR_GENERIC_TERMS - _QUERY_STOPWORDS
+    return not topic_tokens
+
+
+def _start_is_nowish_or_future(start: Optional[datetime]) -> bool:
+    if start is None:
+        return False
+    now = datetime.now(tz=start.tzinfo) if start.tzinfo else datetime.now()
+    return start >= now - timedelta(days=1)
+
+
+def _start_of_day(ts: datetime) -> datetime:
+    return ts.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _as_utc(ts: Optional[datetime]) -> Optional[datetime]:
+    if ts is None:
+        return None
+    if ts.tzinfo is None:
+        return ts.replace(tzinfo=timezone.utc)
+    return ts.astimezone(timezone.utc)
+
+
+def _parse_timestamp_for_timeline(
+    raw: Any,
+) -> Tuple[Optional[datetime], Optional[date]]:
+    if raw is None:
+        return None, None
+    text = str(raw).strip()
+    if not text:
+        return None, None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None, None
+    is_naive_midnight = (
+        parsed.tzinfo is None
+        and parsed.hour == 0
+        and parsed.minute == 0
+        and parsed.second == 0
+        and parsed.microsecond == 0
+    )
+    return _as_utc(parsed), parsed.date() if is_naive_midnight else None
+
+
+def _timestamp_in_range(
+    timestamp: Optional[datetime],
+    time_range: Optional[Tuple[Optional[datetime], Optional[datetime]]],
+    *,
+    all_day_date: Optional[date] = None,
+) -> bool:
+    if timestamp is None or time_range is None:
+        return timestamp is not None
+    start, end = time_range
+    if all_day_date is not None:
+        if start is not None and all_day_date < start.date():
+            return False
+        if end is not None and all_day_date > end.date():
+            return False
+        return True
+    start_utc = _as_utc(start)
+    end_utc = _as_utc(end)
+    if start_utc is not None and timestamp < start_utc:
+        return False
+    if end_utc is not None and timestamp > end_utc:
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -377,6 +528,128 @@ class HybridSearch:
             for r in rows
         ]
 
+    def _normalise_calendar_timeline_scope(
+        self,
+        query: str,
+        time_range: Optional[Tuple[Optional[datetime], Optional[datetime]]],
+        sources: Optional[Sequence[str]],
+    ) -> Tuple[
+        Optional[Tuple[Optional[datetime], Optional[datetime]]],
+        Optional[Sequence[str]],
+        bool,
+        bool,
+    ]:
+        """Fill in structured filters for generic upcoming-calendar requests.
+
+        Queries like "what are my next calendar events?" often have no useful
+        lexical terms in the stored event text, so BM25/vector ranking can miss
+        nearby events. Treat that shape as a source-filtered timeline request.
+        """
+        scoped_sources = list(sources) if sources else None
+        has_upcoming_intent = _has_upcoming_calendar_intent(query, scoped_sources)
+
+        if has_upcoming_intent and (
+            scoped_sources is None or _sources_include_gcalendar(scoped_sources)
+        ):
+            scoped_sources = ["gcalendar"]
+
+        if not _sources_include_gcalendar(scoped_sources):
+            return time_range, scoped_sources, False, False
+
+        if has_upcoming_intent:
+            if time_range is None:
+                time_range = (_start_of_day(datetime.now(timezone.utc)), None)
+            else:
+                start, end = time_range
+                if start is None:
+                    time_range = (_start_of_day(datetime.now(timezone.utc)), end)
+                else:
+                    time_range = (_start_of_day(start), end)
+
+        chronological = has_upcoming_intent or (
+            time_range is not None
+            and time_range[1] is None
+            and _start_is_nowish_or_future(time_range[0])
+        )
+        metadata_only = chronological and _is_generic_calendar_timeline_query(query)
+        return time_range, scoped_sources, chronological, metadata_only
+
+    def _calendar_timeline_ids(
+        self,
+        *,
+        person: Optional[str],
+        time_range: Optional[Tuple[Optional[datetime], Optional[datetime]]],
+        sources: Optional[Sequence[str]],
+        limit: int,
+    ) -> List[str]:
+        """Return gcalendar rows sorted by normalized event start time."""
+        filter_sql, filter_params = self._build_filters(
+            person=person,
+            time_range=None,
+            sources=sources,
+        )
+        rows = self._store._conn.execute(
+            f"""
+            SELECT id, timestamp, created_at
+            FROM knowledge_chunks
+            WHERE {filter_sql}
+            """,
+            filter_params,
+        ).fetchall()
+
+        candidates: List[Tuple[str, datetime, float]] = []
+        for row in rows:
+            timestamp, all_day_date = _parse_timestamp_for_timeline(row["timestamp"])
+            if not _timestamp_in_range(
+                timestamp,
+                time_range,
+                all_day_date=all_day_date,
+            ):
+                continue
+            candidates.append(
+                (
+                    row["id"],
+                    timestamp or datetime.max.replace(tzinfo=timezone.utc),
+                    float(row["created_at"] or 0.0),
+                )
+            )
+
+        candidates.sort(key=lambda item: (item[1], item[2]))
+        return [chunk_id for chunk_id, *_ in candidates[:limit]]
+
+    def _filter_calendar_timeline_fused(
+        self,
+        fused: List[Tuple[str, float, float, float]],
+        time_range: Optional[Tuple[Optional[datetime], Optional[datetime]]],
+    ) -> List[Tuple[str, float, float, float]]:
+        """Apply normalized timestamp filtering to ranked calendar candidates."""
+        if not fused:
+            return fused
+        ids = [chunk_id for chunk_id, *_ in fused]
+        placeholders = ",".join("?" for _ in ids)
+        rows = self._store._conn.execute(
+            f"""
+            SELECT id, timestamp
+            FROM knowledge_chunks
+            WHERE id IN ({placeholders})
+            """,
+            ids,
+        ).fetchall()
+        timestamps = {
+            row["id"]: _parse_timestamp_for_timeline(row["timestamp"])
+            for row in rows
+        }
+
+        def _keeps_item(item: Tuple[str, float, float, float]) -> bool:
+            timestamp, all_day_date = timestamps.get(item[0], (None, None))
+            return _timestamp_in_range(
+                timestamp,
+                time_range,
+                all_day_date=all_day_date,
+            )
+
+        return [item for item in fused if _keeps_item(item)]
+
     # ------------------------------------------------------------------
     # Public entry point
     # ------------------------------------------------------------------
@@ -396,42 +669,65 @@ class HybridSearch:
         when callers want a pure metadata filter (e.g. "all mail from X in
         May") — in that case only the vector leg runs (and only if an
         embedder is configured); if neither leg yields anything the
-        structured filter is applied directly and the most recent rows are
-        returned.
+        structured filter is applied directly. Upcoming calendar timelines are
+        returned nearest-first; other fallbacks return the most recent rows.
         """
+        time_range, sources, chronological_order, metadata_only = (
+            self._normalise_calendar_timeline_scope(query, time_range, sources)
+        )
+        rank_query = "" if metadata_only else query
+        calendar_timeline = chronological_order and _sources_include_gcalendar(sources)
+        recall_time_range = None if calendar_timeline else time_range
+
         bm25_filter_sql, bm25_filter_params = self._build_filters(
-            person=person, time_range=time_range, sources=sources, alias="kc"
+            person=person, time_range=recall_time_range, sources=sources, alias="kc"
         )
         unaliased_filter_sql, unaliased_filter_params = self._build_filters(
-            person=person, time_range=time_range, sources=sources
+            person=person, time_range=recall_time_range, sources=sources
         )
 
         bm25 = (
-            self._bm25_recall(query, bm25_filter_sql, bm25_filter_params)
-            if query.strip()
+            self._bm25_recall(rank_query, bm25_filter_sql, bm25_filter_params)
+            if rank_query.strip()
             else []
         )
         vector = (
-            self._vector_recall(query, unaliased_filter_sql, unaliased_filter_params)
-            if query.strip()
+            self._vector_recall(
+                rank_query,
+                unaliased_filter_sql,
+                unaliased_filter_params,
+            )
+            if rank_query.strip()
             else []
         )
         fused = self._fuse(bm25, vector)
+        if calendar_timeline:
+            fused = self._filter_calendar_timeline_fused(fused, time_range)
 
         # Metadata-only fallback: empty query, or both legs produced nothing
-        # despite a non-empty query. Return the most recent rows matching the
-        # filter so the agent still gets a useful corpus snapshot.
+        # despite a non-empty query. Calendar timeline requests use start-time
+        # ascending; other searches use recency so the agent still gets a
+        # useful corpus snapshot.
         if not fused:
-            sql = f"""
-                SELECT id FROM knowledge_chunks
-                WHERE {unaliased_filter_sql}
-                ORDER BY timestamp DESC, created_at DESC
-                LIMIT ?
-            """
-            rows = self._store._conn.execute(
-                sql, [*unaliased_filter_params, limit]
-            ).fetchall()
-            fused = [(row["id"], 0.0, 0.0, 0.0) for row in rows]
+            if calendar_timeline:
+                chunk_ids = self._calendar_timeline_ids(
+                    person=person,
+                    time_range=time_range,
+                    sources=sources,
+                    limit=limit,
+                )
+                fused = [(chunk_id, 0.0, 0.0, 0.0) for chunk_id in chunk_ids]
+            else:
+                sql = f"""
+                    SELECT id FROM knowledge_chunks
+                    WHERE {unaliased_filter_sql}
+                    ORDER BY timestamp DESC, created_at DESC
+                    LIMIT ?
+                """
+                rows = self._store._conn.execute(
+                    sql, [*unaliased_filter_params, limit]
+                ).fetchall()
+                fused = [(row["id"], 0.0, 0.0, 0.0) for row in rows]
 
         # Materialise the top-N rows in one IN-clause round trip.
         top = fused[:limit]

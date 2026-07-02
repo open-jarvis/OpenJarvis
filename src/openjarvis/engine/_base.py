@@ -13,6 +13,22 @@ class EngineConnectionError(Exception):
     """Raised when an engine is unreachable."""
 
 
+_REASONING_METADATA_KEYS = ("reasoning_content", "thinking")
+
+
+def _message_estimated_chars(message: Message) -> int:
+    parts = [message.text]
+    for key in _REASONING_METADATA_KEYS:
+        value = message.metadata.get(key)
+        if isinstance(value, str):
+            parts.append(value)
+    for tc in message.tool_calls or []:
+        parts.extend((tc.id, tc.name, tc.arguments))
+    if message.tool_call_id:
+        parts.append(message.tool_call_id)
+    return sum(len(part) for part in parts)
+
+
 def messages_to_dicts(messages: Sequence[Message]) -> List[Dict[str, Any]]:
     """Convert ``Message`` objects to OpenAI-format dicts."""
     out: List[Dict[str, Any]] = []
@@ -53,9 +69,11 @@ def estimate_prompt_tokens(messages: Sequence[Message]) -> int:
     provider would charge.
 
     Uses ~4 characters per token (standard BPE average for English) plus
-    a small per-message overhead for role markers and separators.
+    a small per-message overhead for role markers and separators. Counts
+    content, reasoning metadata, tool-call payloads, and tool result IDs
+    because all are replayed into later prompt turns when present.
     """
-    total_chars = sum(len(m.content) for m in messages)
+    total_chars = sum(_message_estimated_chars(m) for m in messages)
     # ~4 tokens overhead per message for role markers / separators
     overhead = len(messages) * 4
     return max(1, total_chars // 4 + overhead)

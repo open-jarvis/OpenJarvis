@@ -594,6 +594,14 @@ class IntelligenceConfig:
 
 
 @dataclass(slots=True)
+class DeepResearchConfig:
+    """Planner settings for the web Deep Research endpoint."""
+
+    engine: str = ""  # Empty means use the active chat engine.
+    model: str = ""  # Empty means use the active chat model.
+
+
+@dataclass(slots=True)
 class RoutingLearningConfig:
     """Routing sub-policy config within Learning."""
 
@@ -1578,6 +1586,7 @@ class JarvisConfig:
     hardware: HardwareInfo = field(default_factory=HardwareInfo)
     engine: EngineConfig = field(default_factory=EngineConfig)
     intelligence: IntelligenceConfig = field(default_factory=IntelligenceConfig)
+    deep_research: DeepResearchConfig = field(default_factory=DeepResearchConfig)
     learning: LearningConfig = field(default_factory=LearningConfig)
     tools: ToolsConfig = field(default_factory=ToolsConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)
@@ -1839,6 +1848,7 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
         top_sections = (
             "engine",
             "intelligence",
+            "deep_research",
             "learning",
             "agent",
             "server",
@@ -2006,6 +2016,10 @@ max_tokens = 1024
 # top_k = 40
 # repetition_penalty = 1.0
 # stop_sequences = ""
+
+# [deep_research]
+# engine = ""                  # empty = use [engine].default
+# model = ""                   # empty = use [intelligence].default_model
 
 [agent]
 default_agent = "simple"
@@ -2177,6 +2191,7 @@ __all__ = [
     "DEFAULT_CONFIG_DIR",
     "DEFAULT_CONFIG_PATH",
     "DiscordChannelConfig",
+    "DeepResearchConfig",
     "get_cache_dir",
     "get_config_dir",
     "get_config_path",

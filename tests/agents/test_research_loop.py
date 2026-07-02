@@ -395,6 +395,13 @@ def test_system_prompt_mandates_sources_extraction() -> None:
     assert "{available_sources}" in SYSTEM_PROMPT
 
 
+def test_system_prompt_routes_upcoming_calendar_as_structured_search() -> None:
+    """Upcoming calendar requests need source/time filters, not just keywords."""
+    assert 'sources=["gcalendar"]' in SYSTEM_PROMPT
+    assert 'time_range={{"start": "{today}"}}' in SYSTEM_PROMPT
+    assert 'query=""' in SYSTEM_PROMPT
+
+
 # ---------------------------------------------------------------------------
 # Dynamic available_sources — only list what the user actually has connected
 # ---------------------------------------------------------------------------

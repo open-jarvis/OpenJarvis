@@ -127,6 +127,7 @@ markdown_extensions:
   - pymdownx.tilde
 
 extra_javascript:
+  - javascripts/leaderboard-config.js
   - javascripts/leaderboard.js
   - https://cdn.jsdelivr.net/npm/@docsearch/js@3
   - javascripts/docsearch-init.js

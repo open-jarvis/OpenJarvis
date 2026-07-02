@@ -6,6 +6,7 @@ All Calendar API calls are mocked; no network access is required.
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import List
 from unittest.mock import patch
@@ -132,6 +133,15 @@ def test_sync_yields_events(
     # Verify the API was called correctly
     mock_calendars.assert_called_once()
     mock_events.assert_called_once()
+
+
+def test_parse_event_timestamp_handles_all_day_events() -> None:
+    """All-day events use their calendar date, not the current wall clock."""
+    from openjarvis.connectors.gcalendar import _parse_event_timestamp  # noqa: PLC0415
+
+    timestamp = _parse_event_timestamp({"start": {"date": "2024-05-26"}})
+
+    assert timestamp == datetime(2024, 5, 26)
 
 
 # ---------------------------------------------------------------------------

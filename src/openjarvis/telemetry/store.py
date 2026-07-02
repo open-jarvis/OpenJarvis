@@ -108,6 +108,13 @@ INSERT INTO telemetry (
 )
 """
 
+_INSERT_MINING = """\
+INSERT INTO mining_stats (
+    recorded_at, provider_id, shares_submitted, shares_accepted, blocks_found,
+    hashrate, uptime_seconds, last_share_at, last_error, payout_target, fees_owed
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
 _MIGRATE_COLUMNS = [
     ("gpu_utilization_pct", "REAL NOT NULL DEFAULT 0.0"),
     ("gpu_memory_used_gb", "REAL NOT NULL DEFAULT 0.0"),
@@ -149,14 +156,15 @@ class TelemetryStore:
     def __init__(self, db_path: str | Path, batch_size: int = 50) -> None:
         self._db_path = str(db_path)
         self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
+        self._lock = threading.Lock()
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
+        self._conn.execute("PRAGMA busy_timeout=5000")
         self._conn.execute(_CREATE_TABLE)
         self._conn.execute(_CREATE_MINING_STATS_TABLE)
         self._conn.commit()
         self._migrate_schema()
 
-        self._lock = threading.Lock()
         self._batch_size = batch_size
         self._telemetry_batch: list[tuple[Any, ...]] = []
         self._mining_batch: list[tuple[Any, ...]] = []
@@ -256,15 +264,7 @@ class TelemetryStore:
             self._conn.executemany(_INSERT, self._telemetry_batch)
             self._telemetry_batch.clear()
         if self._mining_batch:
-            self._conn.executemany(
-                """\
-INSERT INTO mining_stats (
-    recorded_at, provider_id, shares_submitted, shares_accepted, blocks_found,
-    hashrate, uptime_seconds, last_share_at, last_error, payout_target, fees_owed
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-""",
-                self._mining_batch,
-            )
+            self._conn.executemany(_INSERT_MINING, self._mining_batch)
             self._mining_batch.clear()
         self._conn.commit()
 
