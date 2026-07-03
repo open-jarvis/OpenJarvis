@@ -6,7 +6,7 @@ import json
 import logging
 import os
 from collections.abc import AsyncIterator, Sequence
-from typing import Any, Dict, List
+from typing import Any, Dict, List, NoReturn
 
 import httpx
 
@@ -122,6 +122,23 @@ class OllamaEngine(InferenceEngine):
             base_url=self._host,
             timeout=self._timeout,
             transport=self._async_transport,
+        )
+
+    def _raise_stream_http_error(self, status: int, detail: str) -> NoReturn:
+        """Map a non-success streaming HTTP response to a clean engine error.
+
+        Mirrors ``_OpenAICompatibleEngine._raise_stream_http_error`` so the
+        Ollama stream paths surface the same ``EngineConnectionError`` type and
+        message shape as the OpenAI-compat engine, instead of leaking a raw
+        ``httpx.HTTPStatusError`` from ``raise_for_status()``. Ollama has no
+        context-length overflow signal, so there is no
+        ``EngineContextLengthError`` branch here (unlike the compat helper).
+        """
+        detail = (detail or "").strip()
+        detail_suffix = f": {detail}" if detail else ""
+        raise EngineConnectionError(
+            f"{self.engine_id} engine at {self._host} returned HTTP "
+            f"{status}{detail_suffix}"
         )
 
     def generate(
@@ -294,7 +311,19 @@ class OllamaEngine(InferenceEngine):
                 async with client.stream(
                     "POST", "/api/chat", json=payload
                 ) as resp:
-                    resp.raise_for_status()
+                    # ``not is_success`` covers 3xx as well as 4xx/5xx and maps
+                    # to ``EngineConnectionError`` (matching the OpenAI-compat
+                    # path) instead of leaking a raw ``httpx.HTTPStatusError``.
+                    # With redirects off (the default) an unexpected 3xx would
+                    # otherwise fall through to ``aiter_lines`` and surface as a
+                    # silent EMPTY stream rather than a clean engine error.
+                    if not resp.is_success:
+                        # Read the (short) error body before touching ``.text``:
+                        # a streaming response is otherwise unread.
+                        await resp.aread()
+                        self._raise_stream_http_error(
+                            resp.status_code, resp.text
+                        )
                     async for line in resp.aiter_lines():
                         if not line.strip():
                             continue
@@ -406,13 +435,26 @@ class OllamaEngine(InferenceEngine):
                 ) as resp:
                     if resp.status_code == 400 and retry_without_tools:
                         # Model doesn't support tools — retry without them.
+                        # PRESERVED: this specific 400 path must still trigger the
+                        # tools-less retry; only OTHER non-2xx responses map to
+                        # EngineConnectionError below.
                         payload.pop("tools", None)
                         async for c in self._run_stream(
                             payload, messages, retry_without_tools=False
                         ):
                             yield c
                         return
-                    resp.raise_for_status()
+                    # ``not is_success`` covers 3xx as well as 4xx/5xx and maps
+                    # to ``EngineConnectionError`` (matching the OpenAI-compat
+                    # path) instead of leaking a raw ``httpx.HTTPStatusError``.
+                    # With redirects off (the default) an unexpected 3xx would
+                    # otherwise fall through to ``aiter_lines`` and surface as a
+                    # silent EMPTY stream rather than a clean engine error.
+                    if not resp.is_success:
+                        await resp.aread()
+                        self._raise_stream_http_error(
+                            resp.status_code, resp.text
+                        )
 
                     finish_reason: str | None = None
                     async for line in resp.aiter_lines():

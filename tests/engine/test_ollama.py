@@ -406,3 +406,104 @@ class TestOllamaStreamIsAsyncAndBounded:
                 tokens.append(tok)
         # The disconnect happened AFTER the first token was delivered (mid-stream).
         assert tokens == ["Hi"]
+
+
+class TestOllamaStreamHttpErrorMapping:
+    """Regression pins: Ollama streaming non-2xx responses map to the same
+    ``EngineConnectionError`` as the OpenAI-compat engine (via
+    ``_raise_stream_http_error``), instead of leaking a raw
+    ``httpx.HTTPStatusError`` from ``raise_for_status()``. A 3xx must NOT fall
+    through to a silent empty stream. Uses ``httpx.MockTransport`` directly, so
+    it runs without respx."""
+
+    @staticmethod
+    def _status_transport(
+        status: int, *, text: str = "", headers: dict | None = None
+    ) -> httpx.MockTransport:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(status, text=text, headers=headers or {})
+
+        return httpx.MockTransport(handler)
+
+    @pytest.mark.asyncio
+    async def test_stream_500_maps_to_connection_error(self) -> None:
+        # PIN: the old code called ``resp.raise_for_status()`` and leaked a raw
+        # httpx.HTTPStatusError on a streaming 500. It must now be a clean
+        # EngineConnectionError carrying the status + body, like the compat path.
+        engine = OllamaEngine(host="http://localhost:11434")
+        engine._async_transport = self._status_transport(500, text="internal boom")
+        tokens: list[str] = []
+        with pytest.raises(EngineConnectionError) as excinfo:
+            async for tok in engine.stream(
+                [Message(role=Role.USER, content="Hi")], model="qwen3:8b"
+            ):
+                tokens.append(tok)
+        assert not isinstance(excinfo.value, httpx.HTTPStatusError)
+        assert "500" in str(excinfo.value)
+        assert "internal boom" in str(excinfo.value)
+        assert tokens == []
+
+    @pytest.mark.asyncio
+    async def test_stream_full_500_maps_to_connection_error(self) -> None:
+        # Same pin for the rich (_run_stream-backed) path.
+        engine = OllamaEngine(host="http://localhost:11434")
+        engine._async_transport = self._status_transport(500, text="internal boom")
+        with pytest.raises(EngineConnectionError) as excinfo:
+            async for _ in engine.stream_full(
+                [Message(role=Role.USER, content="Hi")], model="qwen3:8b"
+            ):
+                pass
+        assert not isinstance(excinfo.value, httpx.HTTPStatusError)
+        assert "500" in str(excinfo.value)
+        assert "internal boom" in str(excinfo.value)
+
+    @pytest.mark.asyncio
+    async def test_stream_3xx_maps_to_connection_error_not_silent(self) -> None:
+        # PIN: with redirects off, a 3xx must map to EngineConnectionError, NOT
+        # fall through to ``aiter_lines`` as a silent empty stream.
+        engine = OllamaEngine(host="http://localhost:11434")
+        engine._async_transport = self._status_transport(
+            302, headers={"location": "http://elsewhere/api/chat"}
+        )
+        tokens: list[str] = []
+        with pytest.raises(EngineConnectionError) as excinfo:
+            async for tok in engine.stream(
+                [Message(role=Role.USER, content="Hi")], model="qwen3:8b"
+            ):
+                tokens.append(tok)
+        assert "302" in str(excinfo.value)
+        assert tokens == []
+
+    @pytest.mark.asyncio
+    async def test_400_tools_retry_still_fires(self) -> None:
+        # REGRESSION GUARD: the tools-retry (400 WITH tools -> retry WITHOUT
+        # tools) must keep working; only OTHER non-2xx map to
+        # EngineConnectionError. A 400 carrying tools must NOT be treated as a
+        # generic connection error.
+        calls: list[bool] = []  # whether each request carried "tools"
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            payload = json.loads(request.content)
+            had_tools = "tools" in payload
+            calls.append(had_tools)
+            if had_tools:
+                return httpx.Response(400, text="model does not support tools")
+            body = (
+                json.dumps({"message": {"content": "recovered"}, "done": True})
+                + "\n"
+            )
+            return httpx.Response(200, text=body)
+
+        engine = OllamaEngine(host="http://localhost:11434")
+        engine._async_transport = httpx.MockTransport(handler)
+        chunks = [
+            c
+            async for c in engine.stream_full(
+                [Message(role=Role.USER, content="Hi")],
+                model="qwen3:8b",
+                tools=[{"type": "function", "function": {"name": "shell_exec"}}],
+            )
+        ]
+        # First request had tools (400), second retried without them (200).
+        assert calls == [True, False]
+        assert any(c.content == "recovered" for c in chunks)
