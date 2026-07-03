@@ -222,6 +222,7 @@ class TestPhaseEnergyStorage:
             )
         )
 
+        store.flush()
         agg = TelemetryAggregator(tmp_path / "test.db")
         stats = agg.per_model_stats()
         assert len(stats) == 1

@@ -189,13 +189,11 @@ class TestTelemetryRecordFields:
         # Need a separate connection to check because store._fetchall() calls flush()!
         import sqlite3
 
-        conn = sqlite3.connect(db_path)
-        assert len(conn.execute("SELECT * FROM telemetry").fetchall()) == 0
-        conn.close()
+        with sqlite3.connect(db_path) as conn:
+            assert len(conn.execute("SELECT * FROM telemetry").fetchall()) == 0
 
         # Hit batch size
         store.record(rec)
-        conn = sqlite3.connect(db_path)
-        assert len(conn.execute("SELECT * FROM telemetry").fetchall()) == 2
-        conn.close()
+        with sqlite3.connect(db_path) as conn:
+            assert len(conn.execute("SELECT * FROM telemetry").fetchall()) == 2
         store.close()

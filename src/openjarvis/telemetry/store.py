@@ -153,8 +153,22 @@ _MIGRATE_COLUMNS = [
 class TelemetryStore:
     """Append-only SQLite store for inference telemetry records."""
 
-    def __init__(self, db_path: str | Path, batch_size: int = 50) -> None:
+    def __init__(
+        self,
+        db_path: str | Path,
+        batch_size: int = 50,
+        flush_interval_seconds: float = 5.0,
+    ) -> None:
+        if batch_size < 1:
+            raise ValueError("batch_size must be >= 1")
+        if flush_interval_seconds < 0:
+            raise ValueError("flush_interval_seconds must be >= 0")
+
         self._db_path = str(db_path)
+        if self._db_path != ":memory:":
+            from openjarvis.security.file_utils import secure_create
+
+            secure_create(Path(self._db_path))
         self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
         self._lock = threading.Lock()
         self._conn.execute("PRAGMA journal_mode=WAL")
@@ -166,6 +180,8 @@ class TelemetryStore:
         self._migrate_schema()
 
         self._batch_size = batch_size
+        self._flush_interval_seconds = flush_interval_seconds
+        self._last_flush_time = time.monotonic()
         self._telemetry_batch: list[tuple[Any, ...]] = []
         self._mining_batch: list[tuple[Any, ...]] = []
 
@@ -227,8 +243,7 @@ class TelemetryStore:
         )
         with self._lock:
             self._telemetry_batch.append(row)
-            if len(self._telemetry_batch) >= self._batch_size:
-                self._flush_unlocked()
+            self._maybe_flush_unlocked()
 
     def record_mining_stats(self, stats: Any) -> None:
         """Persist one mining stats snapshot.
@@ -251,8 +266,7 @@ class TelemetryStore:
         )
         with self._lock:
             self._mining_batch.append(row)
-            if len(self._mining_batch) >= self._batch_size:
-                self._flush_unlocked()
+            self._maybe_flush_unlocked()
 
     def flush(self) -> None:
         """Write all pending records to the database."""
@@ -267,24 +281,40 @@ class TelemetryStore:
             self._conn.executemany(_INSERT_MINING, self._mining_batch)
             self._mining_batch.clear()
         self._conn.commit()
+        self._last_flush_time = time.monotonic()
+
+    def _maybe_flush_unlocked(self) -> None:
+        """Flush when the batch is full or has been pending too long."""
+        if not self._telemetry_batch and not self._mining_batch:
+            return
+        batch_full = (
+            len(self._telemetry_batch) >= self._batch_size
+            or len(self._mining_batch) >= self._batch_size
+        )
+        stale = (
+            self._flush_interval_seconds > 0
+            and time.monotonic() - self._last_flush_time >= self._flush_interval_seconds
+        )
+        if batch_full or stale:
+            self._flush_unlocked()
 
     def list_recent(self, limit: int = 50) -> list[dict[str, Any]]:
         """Return recent telemetry rows as dictionaries."""
         with self._lock:
             self._flush_unlocked()
-        return self._select_dicts(
-            "SELECT * FROM telemetry ORDER BY timestamp DESC LIMIT ?",
-            (limit,),
-        )
+            return self._select_dicts_unlocked(
+                "SELECT * FROM telemetry ORDER BY timestamp DESC LIMIT ?",
+                (limit,),
+            )
 
     def list_recent_mining_stats(self, limit: int = 50) -> list[dict[str, Any]]:
         """Return recent mining stats snapshots as dictionaries."""
         with self._lock:
             self._flush_unlocked()
-        return self._select_dicts(
-            "SELECT * FROM mining_stats ORDER BY recorded_at DESC LIMIT ?",
-            (limit,),
-        )
+            return self._select_dicts_unlocked(
+                "SELECT * FROM mining_stats ORDER BY recorded_at DESC LIMIT ?",
+                (limit,),
+            )
 
     def subscribe_to_bus(self, bus: EventBus) -> None:
         """Subscribe to ``TELEMETRY_RECORD`` events on *bus*."""
@@ -300,16 +330,25 @@ class TelemetryStore:
 
     def close(self) -> None:
         """Close the underlying SQLite connection."""
-        self.flush()
-        self._conn.close()
+        with self._lock:
+            self._flush_unlocked()
+            self._conn.close()
 
     # -- helpers for querying (used by tests) --------------------------------
 
     def _fetchall(self, sql: str = "SELECT * FROM telemetry") -> list:
-        self.flush()
-        return self._conn.execute(sql).fetchall()
+        with self._lock:
+            self._flush_unlocked()
+            return self._conn.execute(sql).fetchall()
 
     def _select_dicts(self, sql: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
+        with self._lock:
+            self._flush_unlocked()
+            return self._select_dicts_unlocked(sql, params)
+
+    def _select_dicts_unlocked(
+        self, sql: str, params: tuple[Any, ...]
+    ) -> list[dict[str, Any]]:
         cur = self._conn.execute(sql, params)
         columns = [desc[0] for desc in cur.description]
         return [dict(zip(columns, row)) for row in cur.fetchall()]
