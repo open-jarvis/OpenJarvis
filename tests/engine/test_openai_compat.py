@@ -4,13 +4,27 @@ from __future__ import annotations
 
 import httpx
 import pytest
-import respx
+
+try:
+    import respx
+
+    _HAS_RESPX = True
+except ImportError:  # respx is an optional test-only dep; MockTransport tests
+    respx = None  # type: ignore[assignment]  # still run without it.
+    _HAS_RESPX = False
 
 from openjarvis.core.registry import EngineRegistry
 from openjarvis.core.types import Message, Role
 from openjarvis.engine._base import EngineConnectionError
 from openjarvis.engine._openai_compat import EngineContextLengthError
 from openjarvis.engine.openai_compat_engines import VLLMEngine
+
+# respx-backed tests exercise the SYNC client paths (generate/list_models/health)
+# and skip cleanly when respx is absent; the async stream/timeout/disconnect tests
+# below use httpx.MockTransport directly and never need respx.
+requires_respx = pytest.mark.skipif(
+    not _HAS_RESPX, reason="respx not installed (optional test-only dependency)"
+)
 
 
 def _sse_transport(sse_lines: list[str]) -> httpx.MockTransport:
@@ -28,6 +42,7 @@ def engine() -> VLLMEngine:
     return VLLMEngine(host="http://testhost:8000")
 
 
+@requires_respx
 class TestOpenAICompatGenerate:
     def test_generate_returns_content(self, engine: VLLMEngine) -> None:
         with respx.mock:
@@ -93,6 +108,7 @@ class TestOpenAICompatGenerate:
                 )
 
 
+@requires_respx
 class TestOpenAICompatListModels:
     def test_list_models(self, engine: VLLMEngine) -> None:
         with respx.mock:
@@ -105,6 +121,7 @@ class TestOpenAICompatListModels:
             assert engine.list_models() == ["model-a", "model-b"]
 
 
+@requires_respx
 class TestOpenAICompatHealth:
     def test_health_true(self, engine: VLLMEngine) -> None:
         with respx.mock:
@@ -121,6 +138,7 @@ class TestOpenAICompatHealth:
             assert engine.health() is False
 
 
+@requires_respx
 class TestOpenAICompatStream:
     @pytest.mark.asyncio
     async def test_stream_sse(self, engine: VLLMEngine) -> None:
@@ -146,11 +164,19 @@ class TestStreamIsAsyncAndBounded:
     loop on the SYNC httpx client) and a wedged/oversized upstream is bounded and
     mapped to a clean error instead of hanging or surfacing raw HTTP."""
 
-    def test_timeout_is_stored_for_streaming(self) -> None:
-        # The configured request timeout must be retained so the async stream path
-        # applies it (previously only the sync client carried it).
+    @pytest.mark.asyncio
+    async def test_timeout_is_applied_to_async_stream_client(self) -> None:
+        # HARDENED: assert the configured timeout is actually APPLIED to the async
+        # stream client, not merely stored on the engine. Deleting
+        # ``timeout=self._timeout`` from ``_make_async_client`` drops the client to
+        # httpx's 5s default and fails this (a stored-only assertion would not).
         engine = VLLMEngine(host="http://testhost:8000", timeout=180.0)
         assert engine._timeout == 180.0
+        client = engine._make_async_client()
+        try:
+            assert client.timeout == httpx.Timeout(180.0)
+        finally:
+            await client.aclose()
 
     @pytest.mark.asyncio
     async def test_stream_does_not_use_blocking_sync_client(self) -> None:
@@ -183,7 +209,13 @@ class TestStreamIsAsyncAndBounded:
     async def test_wedged_read_is_bounded_by_timeout(self) -> None:
         # A wedged upstream read trips the (small, honoured) timeout and maps to a
         # clean EngineConnectionError rather than hanging the caller.
+        seen: dict = {}
+
         def handler(request: httpx.Request) -> httpx.Response:
+            # httpx populates request.extensions["timeout"] with the per-op timeouts
+            # that were actually applied to THIS request; capturing it here proves
+            # the configured 0.05s reached the wire, not just the engine attribute.
+            seen["timeout"] = request.extensions["timeout"]
             raise httpx.ReadTimeout("wedged upstream", request=request)
 
         engine = VLLMEngine(host="http://localhost:8000", timeout=0.05)
@@ -193,6 +225,10 @@ class TestStreamIsAsyncAndBounded:
                 [Message(role=Role.USER, content="Hello")], model="m"
             ):
                 pass
+        # HARDENED: the configured timeout was APPLIED to the request. Deleting
+        # ``timeout=self._timeout`` from ``_make_async_client`` drops this to httpx's
+        # 5.0s default and fails the assertion.
+        assert seen["timeout"]["read"] == 0.05
 
     @pytest.mark.asyncio
     async def test_context_length_400_maps_to_context_error(self) -> None:
@@ -227,4 +263,38 @@ class TestStreamIsAsyncAndBounded:
             ):
                 pass
         # A generic upstream failure is NOT reported as a context-length problem.
+        assert not isinstance(excinfo.value, EngineContextLengthError)
+
+    @pytest.mark.asyncio
+    async def test_mid_stream_disconnect_maps_to_connection_error(self) -> None:
+        # PIN: a server dying MID-STREAM raises httpx.RemoteProtocolError from
+        # aiter_lines. Before the except tuple was widened it propagated raw; it
+        # must now surface as a clean EngineConnectionError.
+        class _MidStreamCrashStream(httpx.AsyncByteStream):
+            def __init__(self, request: httpx.Request) -> None:
+                self._request = request
+
+            async def __aiter__(self):
+                yield b'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n'
+                raise httpx.RemoteProtocolError(
+                    "peer closed connection mid-stream", request=self._request
+                )
+
+            async def aclose(self) -> None:  # pragma: no cover - trivial
+                pass
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, stream=_MidStreamCrashStream(request))
+
+        engine = VLLMEngine(host="http://localhost:8000")
+        engine._async_transport = httpx.MockTransport(handler)
+        tokens: list[str] = []
+        with pytest.raises(EngineConnectionError) as excinfo:
+            async for tok in engine.stream(
+                [Message(role=Role.USER, content="Hello")], model="m"
+            ):
+                tokens.append(tok)
+        # The disconnect happened AFTER the first token was delivered (mid-stream),
+        # and did not masquerade as a context-length error.
+        assert tokens == ["Hi"]
         assert not isinstance(excinfo.value, EngineContextLengthError)

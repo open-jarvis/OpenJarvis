@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import AsyncIterator, Sequence
-from typing import Any, Dict, List
+from typing import Any, Dict, List, NoReturn
 
 import httpx
 
@@ -112,7 +112,7 @@ class _OpenAICompatibleEngine(InferenceEngine):
             transport=self._async_transport,
         )
 
-    def _raise_stream_http_error(self, status: int, detail: str) -> None:
+    def _raise_stream_http_error(self, status: int, detail: str) -> NoReturn:
         """Map an upstream streaming HTTP error to a clean engine exception."""
         detail = (detail or "").strip()
         if status == 400 and _looks_like_context_length(detail):
@@ -249,7 +249,11 @@ class _OpenAICompatibleEngine(InferenceEngine):
             # concurrent chats and letting one wedged read freeze the whole API).
             async with self._make_async_client() as client:
                 async with client.stream("POST", url, json=payload) as resp:
-                    if resp.status_code >= 400:
+                    # ``not is_success`` covers 3xx as well as 4xx/5xx. With
+                    # ``follow_redirects`` off (the default) an unexpected redirect
+                    # would otherwise fall through to ``aiter_lines`` and surface as
+                    # a silent EMPTY stream instead of a clean engine error.
+                    if not resp.is_success:
                         # Load the (short) error body before touching ``.text``:
                         # a streaming response is otherwise unread.
                         await resp.aread()
@@ -268,10 +272,19 @@ class _OpenAICompatibleEngine(InferenceEngine):
                         content = delta.get("content")
                         if content:
                             yield content
-        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+        except (
+            httpx.ConnectError,
+            httpx.TimeoutException,
+            httpx.RemoteProtocolError,
+            httpx.ReadError,
+        ) as exc:
             # A wedged upstream read trips ``timeout`` (ReadTimeout) and is mapped
             # here, so the request fails cleanly at the configured bound instead of
-            # hanging indefinitely.
+            # hanging indefinitely. ``RemoteProtocolError``/``ReadError`` cover a
+            # server dying MID-STREAM (peer closed the connection between tokens);
+            # without them a mid-stream disconnect would propagate raw. Kept exactly
+            # this narrow on purpose: ``asyncio.CancelledError``/``GeneratorExit`` are
+            # NOT ``httpx.TransportError`` subclasses and must keep propagating.
             raise EngineConnectionError(
                 f"{self.engine_id} engine not reachable at {self._host}"
             ) from exc
@@ -303,7 +316,11 @@ class _OpenAICompatibleEngine(InferenceEngine):
             # rich streaming never stalls the event loop and honours ``timeout``.
             async with self._make_async_client() as client:
                 async with client.stream("POST", url, json=payload) as resp:
-                    if resp.status_code >= 400:
+                    # ``not is_success`` covers 3xx as well as 4xx/5xx. With
+                    # ``follow_redirects`` off (the default) an unexpected redirect
+                    # would otherwise fall through to ``aiter_lines`` and surface as
+                    # a silent EMPTY stream instead of a clean engine error.
+                    if not resp.is_success:
                         await resp.aread()
                         self._raise_stream_http_error(resp.status_code, resp.text)
                     async for line in resp.aiter_lines():
@@ -330,7 +347,15 @@ class _OpenAICompatibleEngine(InferenceEngine):
                                 finish_reason=finish,
                                 usage=usage,
                             )
-        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+        except (
+            httpx.ConnectError,
+            httpx.TimeoutException,
+            httpx.RemoteProtocolError,
+            httpx.ReadError,
+        ) as exc:
+            # See ``stream``: ``RemoteProtocolError``/``ReadError`` map a mid-stream
+            # server disconnect to a clean error; kept narrow so cancellation still
+            # propagates.
             raise EngineConnectionError(
                 f"{self.engine_id} engine not reachable at {self._host}"
             ) from exc
