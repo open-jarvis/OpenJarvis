@@ -53,17 +53,61 @@ def test_faster_whisper_transcribe():
         assert result.duration_seconds == 1.5
 
 
+def test_faster_whisper_falls_back_from_unsupported_float16():
+    mock_model = MagicMock()
+
+    with (
+        patch(
+            "openjarvis.speech.faster_whisper.WhisperModel",
+            return_value=mock_model,
+        ) as mock_whisper,
+        patch(
+            "openjarvis.speech.faster_whisper.ctranslate2",
+            MagicMock(
+                get_supported_compute_types=MagicMock(return_value={"float32", "int8"})
+            ),
+        ),
+    ):
+        backend = FasterWhisperBackend(
+            model_size="base",
+            device="cpu",
+            compute_type="float16",
+        )
+        assert backend._ensure_model() is mock_model
+
+    mock_whisper.assert_called_once_with("base", device="cpu", compute_type="int8")
+
+
+def test_faster_whisper_missing_dependency_hint_uses_desktop_extra():
+    with patch("openjarvis.speech.faster_whisper.WhisperModel", new=None):
+        backend = FasterWhisperBackend()
+
+        with pytest.raises(ImportError) as excinfo:
+            backend._ensure_model()
+
+    assert "uv sync --extra desktop" in str(excinfo.value)
+    assert "uv sync --extra speech" not in str(excinfo.value)
+
+
 def test_faster_whisper_health_no_model():
     """Health returns False before model is loaded."""
     with patch(
         "openjarvis.speech.faster_whisper.WhisperModel",
         new=None,
     ):
-        from openjarvis.speech.faster_whisper import FasterWhisperBackend
-
-        backend = FasterWhisperBackend.__new__(FasterWhisperBackend)
-        backend._model = None
+        backend = FasterWhisperBackend()
         assert backend.health() is False
+        assert "uv sync --extra desktop" in (backend.last_error() or "")
+
+
+def test_faster_whisper_health_captures_load_error():
+    with patch(
+        "openjarvis.speech.faster_whisper.WhisperModel",
+        side_effect=RuntimeError("missing cublas64_12.dll"),
+    ):
+        backend = FasterWhisperBackend()
+        assert backend.health() is False
+        assert "missing cublas64_12.dll" in (backend.last_error() or "")
 
 
 def test_faster_whisper_supported_formats():

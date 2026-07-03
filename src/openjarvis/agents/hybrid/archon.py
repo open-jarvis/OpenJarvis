@@ -73,6 +73,7 @@ ARCHON_SWE_RANKER_SYS = (
 
 # ---------- Stubs for Archon's eager-imported heavy deps we don't need ----------
 
+
 def _stub_archon_imports() -> None:
     """``utils.py`` imports groq/google/litellm/dotenv at module load. Stub
     the ones we don't use so the import chain doesn't fail when those
@@ -96,6 +97,7 @@ def _add_archon_to_path() -> None:
 
 
 # ---------- Anthropic patch for Opus 4.7 ----------
+
 
 def _patch_anthropic_for_opus() -> None:
     from anthropic.resources.messages import messages as _msgs_mod
@@ -129,8 +131,10 @@ def _tally() -> Dict[str, int]:
     counts = getattr(_TALLY_LOCAL, "counts", None)
     if counts is None:
         counts = {
-            "cloud_prompt": 0, "cloud_completion": 0,
-            "local_prompt": 0, "local_completion": 0,
+            "cloud_prompt": 0,
+            "cloud_completion": 0,
+            "local_prompt": 0,
+            "local_completion": 0,
             "n_web_searches": 0,
         }
         _TALLY_LOCAL.counts = counts
@@ -141,8 +145,10 @@ def _tally() -> Dict[str, int]:
 
 def _reset_tally() -> None:
     _TALLY_LOCAL.counts = {
-        "cloud_prompt": 0, "cloud_completion": 0,
-        "local_prompt": 0, "local_completion": 0,
+        "cloud_prompt": 0,
+        "cloud_completion": 0,
+        "local_prompt": 0,
+        "local_completion": 0,
         "n_web_searches": 0,
     }
 
@@ -169,6 +175,7 @@ def _make_local_generator(local_endpoint: str, local_model: str):
 
     def local_gen(model, messages, max_tokens=2048, temperature=0.7, **_kw):  # type: ignore[no-untyped-def]
         import time as _time
+
         t0 = _time.time()
         try:
             resp = client.chat.completions.create(
@@ -179,31 +186,35 @@ def _make_local_generator(local_endpoint: str, local_model: str):
             )
             _bump_local_calls()
         except Exception as e:
-            _record_event({
-                "kind": "archon_local_gen_error",
-                "model": local_model,
-                "messages": messages,
-                "error": f"{type(e).__name__}: {e}",
-                "ts": _time.time(),
-            })
+            _record_event(
+                {
+                    "kind": "archon_local_gen_error",
+                    "model": local_model,
+                    "messages": messages,
+                    "error": f"{type(e).__name__}: {e}",
+                    "ts": _time.time(),
+                }
+            )
             return f"[local-vllm error: {e!r}]"
         u = resp.usage
         if u:
             _tally()["local_prompt"] += getattr(u, "prompt_tokens", 0) or 0
             _tally()["local_completion"] += getattr(u, "completion_tokens", 0) or 0
         text = (resp.choices[0].message.content or "").strip()
-        _record_event({
-            "kind": "archon_local_gen",
-            "model": local_model,
-            "messages": messages,
-            "response": text,
-            "tokens_in": getattr(u, "prompt_tokens", 0) if u else 0,
-            "tokens_out": getattr(u, "completion_tokens", 0) if u else 0,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "latency_s": _time.time() - t0,
-            "ts": _time.time(),
-        })
+        _record_event(
+            {
+                "kind": "archon_local_gen",
+                "model": local_model,
+                "messages": messages,
+                "response": text,
+                "tokens_in": getattr(u, "prompt_tokens", 0) if u else 0,
+                "tokens_out": getattr(u, "completion_tokens", 0) if u else 0,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "latency_s": _time.time() - t0,
+                "ts": _time.time(),
+            }
+        )
         return text
 
     return local_gen
@@ -218,10 +229,13 @@ def _wrap_archon_cloud_generators() -> None:
 
     def gen_openai(model, messages, max_tokens=2048, temperature=0.7, **_kw):  # type: ignore[no-untyped-def]
         import time as _time
+
         client = _OAI()
         kwargs: Dict[str, Any] = dict(
-            model=model, messages=messages,
-            max_tokens=max_tokens, temperature=temperature,
+            model=model,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
         )
         # GPT-5/o1/o3 reject non-default temperature and use max_completion_tokens.
         if model.startswith(("gpt-5", "o1", "o3")):
@@ -236,20 +250,23 @@ def _wrap_archon_cloud_generators() -> None:
             _tally()["cloud_prompt"] += getattr(u, "prompt_tokens", 0) or 0
             _tally()["cloud_completion"] += getattr(u, "completion_tokens", 0) or 0
         text = (resp.choices[0].message.content or "").strip()
-        _record_event({
-            "kind": "archon_cloud_openai",
-            "model": model,
-            "messages": messages,
-            "response": text,
-            "tokens_in": getattr(u, "prompt_tokens", 0) if u else 0,
-            "tokens_out": getattr(u, "completion_tokens", 0) if u else 0,
-            "latency_s": _time.time() - t0,
-            "ts": _time.time(),
-        })
+        _record_event(
+            {
+                "kind": "archon_cloud_openai",
+                "model": model,
+                "messages": messages,
+                "response": text,
+                "tokens_in": getattr(u, "prompt_tokens", 0) if u else 0,
+                "tokens_out": getattr(u, "completion_tokens", 0) if u else 0,
+                "latency_s": _time.time() - t0,
+                "ts": _time.time(),
+            }
+        )
         return text
 
     def gen_anthropic(model, messages, max_tokens=2048, temperature=0.7, **_kw):  # type: ignore[no-untyped-def]
         import time as _time
+
         client = _anth.Anthropic(timeout=600.0)
         system = ""
         msgs = []
@@ -259,7 +276,10 @@ def _wrap_archon_cloud_generators() -> None:
             else:
                 msgs.append(m)
         kwargs: Dict[str, Any] = dict(
-            model=model, system=system, messages=msgs, max_tokens=max_tokens,
+            model=model,
+            system=system,
+            messages=msgs,
+            max_tokens=max_tokens,
         )
         if not model.startswith(NO_TEMP_PREFIXES):
             kwargs["temperature"] = temperature
@@ -277,24 +297,27 @@ def _wrap_archon_cloud_generators() -> None:
         srv = getattr(u, "server_tool_use", None) if u else None
         n_searches = getattr(srv, "web_search_requests", 0) if srv else 0
         _tally()["n_web_searches"] += int(n_searches)
-        _record_event({
-            "kind": "archon_cloud_anthropic",
-            "model": model,
-            "system": system,
-            "messages": msgs,
-            "response": text.strip(),
-            "tokens_in": getattr(u, "input_tokens", 0) if u else 0,
-            "tokens_out": getattr(u, "output_tokens", 0) if u else 0,
-            "n_web_searches": int(n_searches),
-            "tools_declared": kwargs.get("tools"),
-            "latency_s": _time.time() - t0,
-            "ts": _time.time(),
-        })
+        _record_event(
+            {
+                "kind": "archon_cloud_anthropic",
+                "model": model,
+                "system": system,
+                "messages": msgs,
+                "response": text.strip(),
+                "tokens_in": getattr(u, "input_tokens", 0) if u else 0,
+                "tokens_out": getattr(u, "output_tokens", 0) if u else 0,
+                "n_web_searches": int(n_searches),
+                "tools_declared": kwargs.get("tools"),
+                "latency_s": _time.time() - t0,
+                "ts": _time.time(),
+            }
+        )
         return text.strip()
 
     from archon.completions.components.Generator import (
         GENERATE_MAP as _GMAP,  # type: ignore[import-not-found]
     )
+
     _GMAP["OpenAI_API"] = gen_openai
     _GMAP["Anthropic_API"] = gen_anthropic
 
@@ -330,7 +353,9 @@ def _patch_archon_prompts() -> None:
     orig = _p.make_fuser_prompt
 
     def patched(conv, references, critiques=None, length_control=False):  # type: ignore[no-untyped-def]
-        base = orig(conv, references, critiques=critiques, length_control=length_control)
+        base = orig(
+            conv, references, critiques=critiques, length_control=length_control
+        )
         return base + _FUSER_FORMAT_REMINDER
 
     patched._hybrid_format_patched = True  # type: ignore[attr-defined]
@@ -339,6 +364,7 @@ def _patch_archon_prompts() -> None:
     from archon.completions.components import (
         Fuser as _F,  # type: ignore[import-not-found]
     )
+
     _F.make_fuser_prompt = patched
 
 
@@ -354,6 +380,7 @@ def _apply_patches_once() -> None:
     _patch_anthropic_for_opus()
     # Trigger Archon imports so GENERATE_MAP exists.
     import archon.completions.components.Generator  # type: ignore[import-not-found]  # noqa: F401
+
     _wrap_archon_cloud_generators()
     _patch_archon_prompts()
     _PATCHES_APPLIED = True
@@ -361,49 +388,62 @@ def _apply_patches_once() -> None:
 
 # ---------- Architecture presets ----------
 
+
 def _presets():
     return {
         "ensemble_rank_fuse": lambda K, local_model, ranker_model, fuser_model, max_tokens, temperature: [
-            [{
-                "type": "generator",
-                "model": local_model,
-                "model_type": "vllm_local",
-                "top_k": 1,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-                "samples": K,
-            }],
-            [{
-                "type": "ranker",
-                "model": ranker_model,
-                "model_type": "Anthropic_API" if ranker_model.startswith("claude") else "OpenAI_API",
-                "top_k": min(K, 5),
-                "temperature": 0.0,
-                "max_tokens": max_tokens,
-            }],
-            [{
-                "type": "fuser",
-                "model": fuser_model,
-                "model_type": "Anthropic_API" if fuser_model.startswith("claude") else "OpenAI_API",
-                "temperature": 0.0,
-                "max_tokens": max_tokens,
-                "samples": 1,
-            }],
+            [
+                {
+                    "type": "generator",
+                    "model": local_model,
+                    "model_type": "vllm_local",
+                    "top_k": 1,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "samples": K,
+                }
+            ],
+            [
+                {
+                    "type": "ranker",
+                    "model": ranker_model,
+                    "model_type": "Anthropic_API"
+                    if ranker_model.startswith("claude")
+                    else "OpenAI_API",
+                    "top_k": min(K, 5),
+                    "temperature": 0.0,
+                    "max_tokens": max_tokens,
+                }
+            ],
+            [
+                {
+                    "type": "fuser",
+                    "model": fuser_model,
+                    "model_type": "Anthropic_API"
+                    if fuser_model.startswith("claude")
+                    else "OpenAI_API",
+                    "temperature": 0.0,
+                    "max_tokens": max_tokens,
+                    "samples": 1,
+                }
+            ],
         ],
         # ``single_local`` honors the cfg ``max_tokens`` (passed positionally
         # like ``ensemble_rank_fuse``). Previously it hard-coded 2048, which
         # cut Qwen off mid-reasoning before it could emit the GAIA
         # ``FINAL ANSWER:`` line — the scorer then had nothing to extract.
         "single_local": lambda K, local_model, ranker_model, fuser_model, max_tokens, temperature: [
-            [{
-                "type": "generator",
-                "model": local_model,
-                "model_type": "vllm_local",
-                "top_k": 1,
-                "temperature": 0.0,
-                "max_tokens": max_tokens,
-                "samples": 1,
-            }],
+            [
+                {
+                    "type": "generator",
+                    "model": local_model,
+                    "model_type": "vllm_local",
+                    "top_k": 1,
+                    "temperature": 0.0,
+                    "max_tokens": max_tokens,
+                    "samples": 1,
+                }
+            ],
         ],
     }
 
@@ -464,7 +504,12 @@ class ArchonAgent(LocalCloudAgent):
         )
 
         layers = presets[arch](
-            K, self._local_model, ranker_model, fuser_model, max_tokens, temperature,
+            K,
+            self._local_model,
+            ranker_model,
+            fuser_model,
+            max_tokens,
+            temperature,
         )
         archon_cfg = {"name": f"hybrid-archon-{arch}", "layers": layers}
 
@@ -480,10 +525,12 @@ class ArchonAgent(LocalCloudAgent):
         archon = Archon(archon_cfg)
 
         try:
-            answer = archon.generate([
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": input},
-            ])
+            answer = archon.generate(
+                [
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": input},
+                ]
+            )
         except Exception:
             # Re-raise so the base ``run()`` / runner's ``_run_one_inner``
             # records this in the row's ``error`` field instead of stashing
@@ -518,10 +565,10 @@ class ArchonAgent(LocalCloudAgent):
             "tool_calls": int(n_searches),
             "traces": {
                 "architecture": arch,
-                "n_samples":    K,
+                "n_samples": K,
                 "ranker_model": ranker_model,
-                "fuser_model":  fuser_model,
-                "local_model":  self._local_model,
+                "fuser_model": fuser_model,
+                "local_model": self._local_model,
                 "tokens_breakdown": dict(_tally()),
                 "web_search_enabled": ws_enabled,
                 "n_web_searches": n_searches,
@@ -568,26 +615,30 @@ class ArchonAgent(LocalCloudAgent):
                 turn_max_tokens=turn_max_tokens,
                 trace_prefix=f"archon_gen{k}",
             )
-            candidates.append({
-                "idx": k,
-                "summary": out["final_summary"],
-                "patch": out["patch"],
-                "framed": out["answer"],
-                "tokens_in": out["tokens_in"],
-                "tokens_out": out["tokens_out"],
-                "turns": out["turns"],
-            })
+            candidates.append(
+                {
+                    "idx": k,
+                    "summary": out["final_summary"],
+                    "patch": out["patch"],
+                    "framed": out["answer"],
+                    "tokens_in": out["tokens_in"],
+                    "tokens_out": out["tokens_out"],
+                    "turns": out["turns"],
+                }
+            )
             total_tokens_local += out["tokens_in"] + out["tokens_out"]
-            self.record_trace_event({
-                "kind": "archon_swe_candidate",
-                "idx": k,
-                "patch_chars": len(out["patch"]),
-                "summary": out["final_summary"],
-            })
+            self.record_trace_event(
+                {
+                    "kind": "archon_swe_candidate",
+                    "idx": k,
+                    "patch_chars": len(out["patch"]),
+                    "summary": out["final_summary"],
+                }
+            )
 
         # Ranker: cloud picks the best candidate.
         ranker_user = (
-            f"Issue:\n{task.get('problem_statement','')}\n\n"
+            f"Issue:\n{task.get('problem_statement', '')}\n\n"
             f"K = {K} candidate patches:\n\n"
             + "\n\n".join(
                 f"=== Candidate {c['idx']} ===\nSummary: {c['summary']}\n"
@@ -615,13 +666,15 @@ class ArchonAgent(LocalCloudAgent):
             chosen_idx = 0
         chosen = candidates[chosen_idx]
 
-        self.record_trace_event({
-            "kind": "archon_swe_rank",
-            "chosen_idx": chosen_idx,
-            "ranker_raw": ranker_text,
-            "tokens_in": r_in,
-            "tokens_out": r_out,
-        })
+        self.record_trace_event(
+            {
+                "kind": "archon_swe_rank",
+                "chosen_idx": chosen_idx,
+                "ranker_raw": ranker_text,
+                "tokens_in": r_in,
+                "tokens_out": r_out,
+            }
+        )
 
         meta = {
             "tokens_local": total_tokens_local,
@@ -635,8 +688,12 @@ class ArchonAgent(LocalCloudAgent):
                 "swe_mode": True,
                 "K": K,
                 "candidates": [
-                    {"idx": c["idx"], "summary": c["summary"],
-                     "patch_chars": len(c["patch"]), "turns": c["turns"]}
+                    {
+                        "idx": c["idx"],
+                        "summary": c["summary"],
+                        "patch_chars": len(c["patch"]),
+                        "turns": c["turns"],
+                    }
                     for c in candidates
                 ],
                 "chosen_idx": chosen_idx,

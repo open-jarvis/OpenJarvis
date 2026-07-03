@@ -97,7 +97,13 @@ export function InputArea() {
   const setDeepResearch = useAppStore((s) => s.setDeepResearch);
   const corpusSync = useResearchCorpusSync(deepResearch);
 
-  const { state: speechState, available: speechAvailable, startRecording, stopRecording } = useSpeech();
+  const {
+    state: speechState,
+    error: speechError,
+    available: speechAvailable,
+    startRecording,
+    stopRecording,
+  } = useSpeech();
 
   // Abort in-flight stream when the user switches models mid-generation.
   // This prevents errors from trying to continue a stream with a stale model.
@@ -121,6 +127,12 @@ export function InputArea() {
     : !speechAvailable ? 'no-backend'
     : streamState.isStreaming ? 'streaming'
     : undefined;
+
+  useEffect(() => {
+    if (speechError) {
+      toast.error(speechError, { duration: 8000 });
+    }
+  }, [speechError]);
 
   const handleMicClick = useCallback(async () => {
     if (speechState === 'recording') {
@@ -231,7 +243,11 @@ export function InputArea() {
 
     try {
       if (deepResearch) {
-        for await (const ev of streamResearch(content, controller.signal)) {
+        for await (const ev of streamResearch(
+          content,
+          selectedModel,
+          controller.signal,
+        )) {
           if (ev.type === 'search_call') {
             const trace: ResearchSearchTrace = {
               id: generateId(),

@@ -15,6 +15,7 @@ from openjarvis.agents._stubs import (
 )
 from openjarvis.cli.chat_cmd import _read_input, chat
 from openjarvis.core.config import JarvisConfig
+from openjarvis.core.events import Event, EventBus, EventType
 from openjarvis.core.registry import AgentRegistry, ToolRegistry
 from openjarvis.core.types import ToolCall, ToolResult
 from openjarvis.tools._stubs import BaseTool, ToolSpec
@@ -119,6 +120,75 @@ class TestChatAgents:
         assert result.exit_code == 0
         assert "simple ok" in result.output
         assert "failed" not in result.output.lower()
+
+    def test_memory_service_started_fed_and_stopped(self) -> None:
+        """The REPL starts memory, publishes each turn, and stops it."""
+
+        class _SpyMemoryService:
+            def __init__(self, bus: EventBus) -> None:
+                self.bus = bus
+                self.started = False
+                self.stopped = False
+                self.submissions: list[tuple[str, str]] = []
+
+            def start(self) -> None:
+                self.started = True
+                self.bus.subscribe(
+                    EventType.CHAT_EXCHANGE_COMPLETED,
+                    self._on_completed_exchange,
+                )
+
+            def _on_completed_exchange(self, event: Event) -> None:
+                self.submissions.append(
+                    (
+                        event.data["user_text"],
+                        event.data.get("assistant_text", ""),
+                    )
+                )
+
+            def stop(self, timeout: float = 2.0) -> None:
+                self.stopped = True
+                self.bus.unsubscribe(
+                    EventType.CHAT_EXCHANGE_COMPLETED,
+                    self._on_completed_exchange,
+                )
+
+        spy: _SpyMemoryService | None = None
+
+        def _build_memory_service(*args, event_bus: EventBus | None = None, **kwargs):
+            nonlocal spy
+            assert event_bus is not None
+            spy = _SpyMemoryService(event_bus)
+            return spy
+
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        engine.generate.return_value = {"content": "engine fallback"}
+        config = JarvisConfig()
+        config.intelligence.default_model = "test-model"
+
+        AgentRegistry.register_value("simple_chat_agent", _SimpleChatAgent)
+
+        with (
+            patch("openjarvis.cli.chat_cmd.load_config", return_value=config),
+            patch("openjarvis.engine.get_engine", return_value=("mock", engine)),
+            patch("openjarvis.intelligence.register_builtin_models"),
+            patch(
+                "openjarvis.memory.build_memory_service",
+                side_effect=_build_memory_service,
+            ),
+        ):
+            result = CliRunner().invoke(
+                chat,
+                ["--agent", "simple_chat_agent", "--model", "test-model"],
+                input="hello\n/quit\n",
+            )
+
+        assert result.exit_code == 0
+        assert spy is not None
+        assert spy.started is True
+        assert spy.stopped is True
+        assert spy.submissions == [("hello", "simple ok")]
 
     def test_tool_agent_uses_legacy_agent_tools_and_prompts_confirmation(self) -> None:
         engine = MagicMock()

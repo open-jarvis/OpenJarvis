@@ -1,11 +1,9 @@
 import type { ModelInfo, SavingsData, ServerInfo } from '../types';
+import { SUPABASE_ANON_KEY, SUPABASE_URL } from './supabase';
 
 // ---------------------------------------------------------------------------
-// Supabase config — safe to embed (RLS protects writes)
+// Supabase config
 // ---------------------------------------------------------------------------
-
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://mtbtgpwzrbostweaanpr.supabase.co';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im10YnRncHd6cmJvc3R3ZWFhbnByIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxODk0OTQsImV4cCI6MjA4ODc2NTQ5NH0._xMlqCfljtXpwPj54H-ghxfLFO-jiq4W2WhpU8vVL1c';
 
 declare global {
   interface Window {
@@ -14,6 +12,31 @@ declare global {
 }
 
 export const isTauri = () => typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__;
+
+export type CloudKeyStatus = Record<string, boolean>;
+
+export async function getCloudKeyStatus(): Promise<CloudKeyStatus> {
+  if (!isTauri()) return {};
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const rows = await invoke<Array<{ key: string; set: boolean }>>('get_cloud_key_status');
+    return Object.fromEntries(rows.map((row) => [row.key, row.set]));
+  } catch (e: any) {
+    throw new Error(e?.message ?? e ?? 'Failed to read cloud key status');
+  }
+}
+
+export async function saveCloudKey(keyName: string, keyValue: string): Promise<void> {
+  if (!isTauri()) {
+    throw new Error('Cloud API keys can be saved in the desktop app only.');
+  }
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('save_cloud_key', { keyName, keyValue });
+  } catch (e: any) {
+    throw new Error(e?.message ?? e ?? 'Failed to save cloud key');
+  }
+}
 
 // Cached API base URL fetched from the Tauri backend at startup.
 // This avoids hardcoding the port — the Rust backend is the single
@@ -317,8 +340,9 @@ export async function transcribeAudio(audioBlob: Blob, filename = 'recording.web
         audioData: Array.from(new Uint8Array(buffer)),
         filename,
       });
-    } catch {
-      // Fall through to fetch
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(msg || 'Transcription failed');
     }
   }
   const formData = new FormData();
@@ -327,7 +351,16 @@ export async function transcribeAudio(audioBlob: Blob, filename = 'recording.web
     method: 'POST',
     body: formData,
   });
-  if (!res.ok) throw new Error(`Transcription failed: ${res.status}`);
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const body = await res.json();
+      detail = typeof body.detail === 'string' ? body.detail : "";
+    } catch {
+      // Keep the status-only message below when the body is not JSON.
+    }
+    throw new Error(detail || `Transcription failed: ${res.status}`);
+  }
   return res.json();
 }
 

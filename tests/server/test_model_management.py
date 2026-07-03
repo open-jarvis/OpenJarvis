@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -75,10 +75,9 @@ class TestModelPull:
         mock_resp.status_code = 200
         mock_resp.raise_for_status = MagicMock()
 
-        with patch("httpx.Client") as MockClient:
-            instance = MockClient.return_value
-            instance.post.return_value = mock_resp
-            instance.close = MagicMock()
+        with patch("httpx.AsyncClient") as MockClient:
+            instance = MockClient.return_value.__aenter__.return_value
+            instance.post = AsyncMock(return_value=mock_resp)
 
             resp = client.post("/v1/models/pull", json={"model": "qwen3.5:4b"})
 
@@ -86,6 +85,10 @@ class TestModelPull:
         data = resp.json()
         assert data["status"] == "ok"
         assert data["model"] == "qwen3.5:4b"
+        instance.post.assert_awaited_once_with(
+            "/api/pull",
+            json={"name": "qwen3.5:4b", "stream": False},
+        )
 
     def test_pull_ollama_unreachable(self):
         engine = _make_ollama_engine()
@@ -93,10 +96,9 @@ class TestModelPull:
 
         import httpx
 
-        with patch("httpx.Client") as MockClient:
-            instance = MockClient.return_value
-            instance.post.side_effect = httpx.ConnectError("refused")
-            instance.close = MagicMock()
+        with patch("httpx.AsyncClient") as MockClient:
+            instance = MockClient.return_value.__aenter__.return_value
+            instance.post = AsyncMock(side_effect=httpx.ConnectError("refused"))
 
             resp = client.post("/v1/models/pull", json={"model": "foo"})
 
@@ -123,10 +125,9 @@ class TestModelDelete:
         mock_resp.status_code = 200
         mock_resp.raise_for_status = MagicMock()
 
-        with patch("httpx.Client") as MockClient:
-            instance = MockClient.return_value
-            instance.request.return_value = mock_resp
-            instance.close = MagicMock()
+        with patch("httpx.AsyncClient") as MockClient:
+            instance = MockClient.return_value.__aenter__.return_value
+            instance.request = AsyncMock(return_value=mock_resp)
 
             resp = client.delete("/v1/models/qwen3:0.6b")
 
@@ -134,6 +135,11 @@ class TestModelDelete:
         data = resp.json()
         assert data["status"] == "deleted"
         assert data["model"] == "qwen3:0.6b"
+        instance.request.assert_awaited_once_with(
+            "DELETE",
+            "/api/delete",
+            json={"name": "qwen3:0.6b"},
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -268,3 +274,19 @@ class TestModelsEndpointExtended:
         assert resp.status_code == 200
         # The endpoint returns whatever list_models() gives
         assert resp.json()["object"] == "list"
+
+    def test_models_list_offloads_engine_list_models(self):
+        engine = _make_engine(models=["qwen3.5:4b"])
+        app = create_app(engine, "qwen3.5:4b")
+        client = TestClient(app)
+
+        with patch(
+            "openjarvis.server.routes.asyncio.to_thread",
+            new_callable=AsyncMock,
+        ) as mock_to_thread:
+            mock_to_thread.return_value = ["qwen3.5:4b"]
+            resp = client.get("/v1/models")
+
+        assert resp.status_code == 200
+        assert [m["id"] for m in resp.json()["data"]] == ["qwen3.5:4b"]
+        mock_to_thread.assert_awaited_once_with(engine.list_models)

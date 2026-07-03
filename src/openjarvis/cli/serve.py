@@ -493,6 +493,24 @@ def serve(
         except Exception as exc:
             logger.debug("Memory backend init failed: %s", exc)
 
+    # Automatic long-term memory service (background fact extraction).
+    memory_service = None
+    try:
+        from openjarvis.memory import build_memory_service
+
+        memory_service = build_memory_service(
+            config,
+            engine,
+            model_name,
+            event_bus=bus,
+        )
+        if memory_service is not None:
+            memory_service.start()
+            console.print("  Memory svc: [cyan]active[/cyan]")
+    except Exception as exc:
+        logger.debug("Memory service init failed: %s", exc)
+        memory_service = None
+
     # Set up agent manager
     agent_manager = None
     if config.agent_manager.enabled:
@@ -667,6 +685,7 @@ def serve(
         channel_bridge=channel_bridge,
         config=config,
         memory_backend=memory_backend,
+        memory_service=memory_service,
         speech_backend=speech_backend,
         agent_manager=agent_manager,
         agent_scheduler=agent_scheduler,

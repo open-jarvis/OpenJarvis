@@ -47,33 +47,33 @@ from openjarvis.core.registry import AgentRegistry
 # would seed before any oracle update.
 
 SKILL_CATALOG: Dict[str, str] = {
-    "factual_recall":     "Recall named entities, dates, places, well-known facts from training data without external lookup.",
+    "factual_recall": "Recall named entities, dates, places, well-known facts from training data without external lookup.",
     "multi_step_reasoning": "Chain several inference steps together (e.g. compose dates, traverse relationships, decompose then aggregate).",
-    "arithmetic":         "Exact numeric computation on values already given in the question.",
-    "web_grounding":      "Question needs information likely NOT in a small model's parametric memory (rare facts, recent events, niche sources).",
+    "arithmetic": "Exact numeric computation on values already given in the question.",
+    "web_grounding": "Question needs information likely NOT in a small model's parametric memory (rare facts, recent events, niche sources).",
     "long_text_extraction": "Read a long supplied document/context and extract a specific piece.",
-    "format_compliance":  "Strict output formatting (e.g. GAIA's `FINAL ANSWER: <answer>` rule, comma-separated lists with no units).",
-    "code_or_logic":      "Write or trace code, or apply logical/symbolic constraints precisely.",
+    "format_compliance": "Strict output formatting (e.g. GAIA's `FINAL ANSWER: <answer>` rule, comma-separated lists with no units).",
+    "code_or_logic": "Write or trace code, or apply logical/symbolic constraints precisely.",
 }
 
 DEFAULT_AGENT_COMPETENCE: Dict[str, Dict[str, float]] = {
     "local-qwen-27b": {
-        "factual_recall":       0.25,
+        "factual_recall": 0.25,
         "multi_step_reasoning": 0.30,
-        "arithmetic":           0.55,
-        "web_grounding":        0.10,
+        "arithmetic": 0.55,
+        "web_grounding": 0.10,
         "long_text_extraction": 0.55,
-        "format_compliance":    0.65,
-        "code_or_logic":        0.45,
+        "format_compliance": 0.65,
+        "code_or_logic": 0.45,
     },
     "cloud-opus-4-7": {
-        "factual_recall":       0.85,
+        "factual_recall": 0.85,
         "multi_step_reasoning": 0.88,
-        "arithmetic":           0.85,
-        "web_grounding":        0.70,
+        "arithmetic": 0.85,
+        "web_grounding": 0.70,
         "long_text_extraction": 0.90,
-        "format_compliance":    0.92,
-        "code_or_logic":        0.90,
+        "format_compliance": 0.92,
+        "code_or_logic": 0.90,
     },
 }
 
@@ -189,9 +189,7 @@ def _score_agents(
     lam = 0.5
     scores: Dict[str, Dict[str, float]] = {}
     for aid, comps in competence.items():
-        comp = sum(
-            skill_weights.get(sid, 0.0) * comps[sid] for sid in SKILL_CATALOG
-        )
+        comp = sum(skill_weights.get(sid, 0.0) * comps[sid] for sid in SKILL_CATALOG)
         cost_pen = lam * cost.get(aid, 0.0)
         scores[aid] = {
             "competence": comp,
@@ -313,14 +311,16 @@ class SkillOrchestraAgent(LocalCloudAgent):
         if chosen not in competence:
             chosen = max(scored, key=lambda a: scored[a]["final_score"])
 
-        self.record_trace_event({
-            "kind": "skillorchestra_route",
-            "chosen_agent": chosen,
-            "skill_weights": skill_weights,
-            "agent_scores": scored,
-            "reasoning": decision.get("reasoning", ""),
-            "router_raw": router_text,
-        })
+        self.record_trace_event(
+            {
+                "kind": "skillorchestra_route",
+                "chosen_agent": chosen,
+                "skill_weights": skill_weights,
+                "agent_scores": scored,
+                "reasoning": decision.get("reasoning", ""),
+                "router_raw": router_text,
+            }
+        )
 
         tokens_local = 0
         tokens_cloud = r_in + r_out

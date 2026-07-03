@@ -6,7 +6,7 @@ import json
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -47,6 +47,71 @@ class TestAgentManagerRoutes:
         resp = client.get("/v1/managed-agents")
         assert resp.status_code == 200
         assert resp.json()["agents"] == []
+
+    def test_sendblue_verify_uses_async_http_client(self, client):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = [
+            "+15551234567",
+            {"phone_number": "+15557654321"},
+            None,
+        ]
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            instance = mock_client_cls.return_value.__aenter__.return_value
+            instance.get = AsyncMock(return_value=mock_resp)
+            resp = client.post(
+                "/v1/channels/sendblue/verify",
+                json={"api_key_id": "key-id", "api_secret_key": "secret"},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["valid"] is True
+        assert resp.json()["numbers"] == ["+15551234567", "+15557654321"]
+        instance.get.assert_awaited_once()
+
+    def test_sendblue_register_webhook_uses_async_http_client(self, client):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"ok": True}
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            instance = mock_client_cls.return_value.__aenter__.return_value
+            instance.post = AsyncMock(return_value=mock_resp)
+            resp = client.post(
+                "/v1/channels/sendblue/register-webhook",
+                json={
+                    "api_key_id": "key-id",
+                    "api_secret_key": "secret",
+                    "webhook_url": "https://example.com/webhooks/sendblue",
+                },
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["registered"] is True
+        instance.post.assert_awaited_once()
+
+    def test_sendblue_test_message_uses_async_http_client(self, client):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"ok": True}
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            instance = mock_client_cls.return_value.__aenter__.return_value
+            instance.post = AsyncMock(return_value=mock_resp)
+            resp = client.post(
+                "/v1/channels/sendblue/test",
+                json={
+                    "api_key_id": "key-id",
+                    "api_secret_key": "secret",
+                    "from_number": "+15550000000",
+                    "to_number": "+15551234567",
+                },
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["sent"] is True
+        instance.post.assert_awaited_once()
 
     def test_create_agent(self, client):
         resp = client.post(

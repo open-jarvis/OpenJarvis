@@ -11,7 +11,9 @@ from rich.markdown import Markdown
 
 from openjarvis.cli._tool_names import resolve_tool_names
 from openjarvis.core.config import load_config
+from openjarvis.core.events import EventBus
 from openjarvis.core.types import Message, Role
+from openjarvis.memory import publish_completed_exchange
 
 
 def _read_input(prompt: str = "You> ") -> Optional[str]:
@@ -57,6 +59,7 @@ def chat(
     console = Console(stderr=True)
 
     config = load_config()
+    bus = EventBus(record_history=False)
 
     import dataclasses as _dc
 
@@ -97,12 +100,11 @@ def chat(
     if agent_key and agent_key != "none":
         try:
             import openjarvis.agents  # noqa: F401 — trigger registration
-            from openjarvis.core.events import EventBus
             from openjarvis.core.registry import AgentRegistry
 
             if AgentRegistry.contains(agent_key):
                 agent_cls = AgentRegistry.get(agent_key)
-                kwargs: dict = {"bus": EventBus()}
+                kwargs: dict = {"bus": bus}
 
                 if getattr(agent_cls, "accepts_tools", False):
                     tool_names_list = resolve_tool_names(
@@ -178,6 +180,19 @@ def chat(
     from openjarvis.cli._chat_notifications import NotificationDispatcher
 
     _notifications = NotificationDispatcher(get_status())
+
+    # Automatic long-term memory — extracts durable facts in the background.
+    memory_service = None
+    try:
+        from openjarvis.memory import build_memory_service
+
+        memory_service = build_memory_service(config, engine, model, event_bus=bus)
+        if memory_service is not None:
+            memory_service.start()
+            console.print("[dim]  Memory: active[/dim]")
+    except Exception as exc:
+        console.print(f"[yellow]Memory service unavailable: {exc}[/yellow]")
+        memory_service = None
 
     # Conversation state
     if not system_prompt:
@@ -266,10 +281,20 @@ def chat(
             console.print()
             console.print(Markdown(content))
             console.print()
+
+            publish_completed_exchange(
+                bus,
+                user_input,
+                content,
+                source="cli.chat",
+            )
         except KeyboardInterrupt:
             console.print("\n[dim]Generation interrupted.[/dim]")
         except Exception as exc:
             console.print(f"\n[red]Error: {exc}[/red]\n")
+
+    if memory_service is not None:
+        memory_service.stop()
 
 
 __all__ = ["chat"]

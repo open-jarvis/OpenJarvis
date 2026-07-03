@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from openjarvis.core.events import EventBus, EventType
@@ -15,6 +16,35 @@ class TestTelemetryStore:
         store = TelemetryStore(tmp_path / "test.db")
         rows = store._fetchall()
         assert rows == []
+        store.close()
+
+    def test_uses_wal_with_normal_synchronous(self, tmp_path: Path) -> None:
+        store = TelemetryStore(tmp_path / "test.db")
+        journal_mode = store._conn.execute("PRAGMA journal_mode").fetchone()[0]
+        synchronous = store._conn.execute("PRAGMA synchronous").fetchone()[0]
+        busy_timeout = store._conn.execute("PRAGMA busy_timeout").fetchone()[0]
+
+        assert journal_mode.lower() == "wal"
+        assert synchronous == 1
+        assert busy_timeout == 5000
+        store.close()
+
+    def test_concurrent_record_writes_are_serialized(self, tmp_path: Path) -> None:
+        store = TelemetryStore(tmp_path / "test.db")
+
+        def write_one(i: int) -> None:
+            store.record(
+                TelemetryRecord(
+                    timestamp=time.time(),
+                    model_id=f"model-{i}",
+                    engine="test",
+                )
+            )
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(write_one, range(32)))
+
+        assert len(store._fetchall()) == 32
         store.close()
 
     def test_record_values(self, tmp_path: Path) -> None:

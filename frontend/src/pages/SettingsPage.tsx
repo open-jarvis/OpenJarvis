@@ -19,8 +19,20 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { useAppStore, type ThemeMode } from '../lib/store';
-import { checkHealth, fetchSpeechHealth, getMemoryStats, getInferenceSource, setInferenceSource, type InferenceSource } from '../lib/api';
+import {
+  checkHealth,
+  fetchSpeechHealth,
+  getMemoryStats,
+  getInferenceSource,
+  setInferenceSource,
+  getCloudKeyStatus,
+  saveCloudKey,
+  isTauri,
+  type InferenceSource,
+} from '../lib/api';
 import { isAutoUpdateDisabled, setAutoUpdateDisabled } from '../components/Desktop/UpdateChecker';
+
+const CLOUD_KEY_STATUS_CHANGED = 'openjarvis-cloud-key-status-changed';
 
 function OllamaModelList() {
   const [models, setModels] = useState<Array<{ name: string; size: number }>>([]);
@@ -44,32 +56,111 @@ function OllamaModelList() {
   );
 }
 
-function ApiKeyInput({ storageKey, placeholder }: { storageKey: string; placeholder: string }) {
-  const [value, setValue] = useState(() => {
-    try { return localStorage.getItem(storageKey) || ''; } catch { return ''; }
-  });
+function ApiKeyInput({ keyName, placeholder }: { keyName: string; placeholder: string }) {
+  const [value, setValue] = useState('');
   const [saved, setSaved] = useState(false);
-  const save = (v: string) => {
-    setValue(v);
-    try { if (v) localStorage.setItem(storageKey, v); else localStorage.removeItem(storageKey); } catch {}
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  const [hasKey, setHasKey] = useState(false);
+  const [error, setError] = useState('');
+  const desktopKeyStorage = isTauri();
+
+  const refresh = useCallback(async () => {
+    if (!desktopKeyStorage) {
+      setHasKey(false);
+      return;
+    }
+    try {
+      const status = await getCloudKeyStatus();
+      setHasKey(!!status[keyName]);
+    } catch {
+      setHasKey(false);
+    }
+  }, [desktopKeyStorage, keyName]);
+
+  useEffect(() => {
+    void refresh();
+    window.addEventListener(CLOUD_KEY_STATUS_CHANGED, refresh);
+    return () => window.removeEventListener(CLOUD_KEY_STATUS_CHANGED, refresh);
+  }, [refresh]);
+
+  const save = async (v: string) => {
+    const next = v.trim();
+    if (!next) return;
+    setError('');
+    try {
+      await saveCloudKey(keyName, next);
+      setValue('');
+      setHasKey(true);
+      setSaved(true);
+      window.dispatchEvent(new Event(CLOUD_KEY_STATUS_CHANGED));
+      setTimeout(() => setSaved(false), 2000);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to save API key');
+    }
   };
+
+  const remove = async () => {
+    setError('');
+    try {
+      await saveCloudKey(keyName, '');
+      setValue('');
+      setHasKey(false);
+      setSaved(true);
+      window.dispatchEvent(new Event(CLOUD_KEY_STATUS_CHANGED));
+      setTimeout(() => setSaved(false), 2000);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to remove API key');
+    }
+  };
+
   return (
     <div className="flex items-center gap-2">
-      <input type="password" value={value} onChange={e => save(e.target.value)} placeholder={placeholder}
+      <input
+        type="password"
+        value={value}
+        onChange={e => setValue(e.target.value)}
+        onBlur={() => { if (value.trim()) void save(value); }}
+        placeholder={hasKey ? 'Saved in secure storage' : placeholder}
+        disabled={!desktopKeyStorage}
         className="w-48 px-2 py-1 rounded text-xs"
         style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }} />
+      {hasKey && (
+        <button
+          onClick={() => void remove()}
+          className="px-2 py-1 rounded text-[10px] cursor-pointer"
+          style={{ color: 'var(--color-error)', border: '1px solid var(--color-error)' }}
+        >
+          Remove
+        </button>
+      )}
       {saved && <span className="text-[10px]" style={{ color: 'var(--color-success)' }}>Saved</span>}
+      {error && <span className="text-[10px]" style={{ color: 'var(--color-error)' }}>{error}</span>}
     </div>
   );
 }
 
-function CloudProviderStatus({ label, storageKey }: { label: string; storageKey: string }) {
+function CloudProviderStatus({ label, keyName }: { label: string; keyName: string }) {
   const [hasKey, setHasKey] = useState(false);
+  const desktopKeyStorage = isTauri();
+
+  const refresh = useCallback(async () => {
+    if (!desktopKeyStorage) {
+      setHasKey(false);
+      return;
+    }
+    try {
+      const status = await getCloudKeyStatus();
+      setHasKey(!!status[keyName]);
+    } catch {
+      setHasKey(false);
+    }
+  }, [desktopKeyStorage, keyName]);
+
   useEffect(() => {
-    try { setHasKey(!!localStorage.getItem(storageKey)); } catch { setHasKey(false); }
-  }, [storageKey]);
+    void refresh();
+    window.addEventListener(CLOUD_KEY_STATUS_CHANGED, refresh);
+    return () => window.removeEventListener(CLOUD_KEY_STATUS_CHANGED, refresh);
+  }, [refresh]);
+
   return (
     <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
       <span style={{
@@ -424,10 +515,10 @@ export function SettingsPage() {
             </div>
             <SettingRow label="Cloud providers" description="Green dot means API key is configured">
               <div className="flex flex-wrap gap-3">
-                <CloudProviderStatus label="OpenAI" storageKey="openjarvis-openai-key" />
-                <CloudProviderStatus label="Anthropic" storageKey="openjarvis-anthropic-key" />
-                <CloudProviderStatus label="Google" storageKey="openjarvis-gemini-key" />
-                <CloudProviderStatus label="OpenRouter" storageKey="openjarvis-openrouter-key" />
+                <CloudProviderStatus label="OpenAI" keyName="OPENAI_API_KEY" />
+                <CloudProviderStatus label="Anthropic" keyName="ANTHROPIC_API_KEY" />
+                <CloudProviderStatus label="Google" keyName="GEMINI_API_KEY" />
+                <CloudProviderStatus label="OpenRouter" keyName="OPENROUTER_API_KEY" />
               </div>
             </SettingRow>
           </Section>
@@ -435,23 +526,23 @@ export function SettingsPage() {
           {/* API Keys */}
           <Section title="API Keys">
             <SettingRow label="OpenAI" description="GPT-4, GPT-3.5, etc.">
-              <ApiKeyInput storageKey="openjarvis-openai-key" placeholder="sk-..." />
+              <ApiKeyInput keyName="OPENAI_API_KEY" placeholder="sk-..." />
             </SettingRow>
             <SettingRow label="Anthropic" description="Claude models">
-              <ApiKeyInput storageKey="openjarvis-anthropic-key" placeholder="sk-ant-..." />
+              <ApiKeyInput keyName="ANTHROPIC_API_KEY" placeholder="sk-ant-..." />
             </SettingRow>
             <SettingRow label="Google" description="Gemini models">
-              <ApiKeyInput storageKey="openjarvis-gemini-key" placeholder="AI..." />
+              <ApiKeyInput keyName="GEMINI_API_KEY" placeholder="AI..." />
             </SettingRow>
             <SettingRow label="OpenRouter" description="Multi-provider routing">
-              <ApiKeyInput storageKey="openjarvis-openrouter-key" placeholder="sk-or-..." />
+              <ApiKeyInput keyName="OPENROUTER_API_KEY" placeholder="sk-or-..." />
             </SettingRow>
           </Section>
 
           {/* Tools */}
           <Section title="Tools">
-            <SettingRow label="Web Search" description="SerpAPI or Tavily key for web search tool">
-              <ApiKeyInput storageKey="openjarvis-search-key" placeholder="API key..." />
+            <SettingRow label="Web Search" description="Tavily key for web search tool">
+              <ApiKeyInput keyName="TAVILY_API_KEY" placeholder="tvly-..." />
             </SettingRow>
           </Section>
 

@@ -1,7 +1,15 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Search, Cpu, X, Download, Loader2, Trash2, Check, Cloud, Key, Eye, EyeOff } from 'lucide-react';
 import { useAppStore } from '../lib/store';
-import { pullModel, deleteModel, fetchModels, preloadModel, isTauri } from '../lib/api';
+import {
+  pullModel,
+  deleteModel,
+  fetchModels,
+  preloadModel,
+  isTauri,
+  getCloudKeyStatus,
+  saveCloudKey,
+} from '../lib/api';
 
 /** Popular models that users can download from the catalogue. */
 const CATALOGUE_MODELS = [
@@ -23,7 +31,6 @@ const CATALOGUE_MODELS = [
 interface CloudProvider {
   name: string;
   envKey: string;
-  storageKey: string;
   models: Array<{ id: string; desc: string }>;
 }
 
@@ -31,7 +38,6 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
   {
     name: 'OpenAI',
     envKey: 'OPENAI_API_KEY',
-    storageKey: 'openjarvis-openai-key',
     models: [
       { id: 'gpt-4o', desc: 'GPT-4o — fast, multimodal' },
       { id: 'gpt-4o-mini', desc: 'GPT-4o Mini — cheap, fast' },
@@ -41,7 +47,6 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
   {
     name: 'Anthropic',
     envKey: 'ANTHROPIC_API_KEY',
-    storageKey: 'openjarvis-anthropic-key',
     models: [
       { id: 'claude-sonnet-4-6', desc: 'Claude Sonnet 4.6 — balanced' },
       { id: 'claude-opus-4-6', desc: 'Claude Opus 4.6 — most capable' },
@@ -51,7 +56,6 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
   {
     name: 'Google',
     envKey: 'GEMINI_API_KEY',
-    storageKey: 'openjarvis-gemini-key',
     models: [
       { id: 'gemini-2.5-pro', desc: 'Gemini 2.5 Pro — flagship' },
       { id: 'gemini-2.5-flash', desc: 'Gemini 2.5 Flash — fast' },
@@ -61,7 +65,6 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
   {
     name: 'OpenRouter',
     envKey: 'OPENROUTER_API_KEY',
-    storageKey: 'openjarvis-openrouter-key',
     models: [
       { id: 'openrouter/auto', desc: 'Auto — best model for the task' },
       { id: 'openrouter/anthropic/claude-sonnet-4', desc: 'Claude Sonnet 4 via OpenRouter' },
@@ -69,16 +72,6 @@ const CLOUD_PROVIDERS: CloudProvider[] = [
     ],
   },
 ];
-
-function getStoredKey(storageKey: string): string {
-  try { return localStorage.getItem(storageKey) || ''; } catch { return ''; }
-}
-function setStoredKey(storageKey: string, value: string): void {
-  try {
-    if (value) localStorage.setItem(storageKey, value);
-    else localStorage.removeItem(storageKey);
-  } catch {}
-}
 
 type Tab = 'installed' | 'catalogue' | 'cloud';
 
@@ -92,11 +85,10 @@ export function CommandPalette() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [customModel, setCustomModel] = useState('');
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
-  const [apiKeys, setApiKeys] = useState<Record<string, string>>(() => {
-    const keys: Record<string, string> = {};
-    for (const p of CLOUD_PROVIDERS) keys[p.storageKey] = getStoredKey(p.storageKey);
-    return keys;
-  });
+  const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
+  const [cloudKeyStatus, setCloudKeyStatus] = useState<Record<string, boolean>>({});
+  const [cloudKeyError, setCloudKeyError] = useState<string | null>(null);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const models = useAppStore((s) => s.models);
@@ -106,6 +98,20 @@ export function CommandPalette() {
   const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen);
 
   const installedIds = new Set(models.map((m) => m.id));
+  const desktopKeyStorage = isTauri();
+
+  const refreshCloudKeyStatus = useCallback(async () => {
+    if (!desktopKeyStorage) {
+      setCloudKeyStatus({});
+      return;
+    }
+    try {
+      setCloudKeyStatus(await getCloudKeyStatus());
+      setCloudKeyError(null);
+    } catch (e: any) {
+      setCloudKeyError(e?.message || 'Failed to read cloud key status');
+    }
+  }, [desktopKeyStorage]);
 
   const filtered = tab === 'installed'
     ? (query
@@ -121,6 +127,10 @@ export function CommandPalette() {
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    void refreshCloudKeyStatus();
+  }, [refreshCloudKeyStatus]);
 
   useEffect(() => {
     setSelectedIdx(0);
@@ -210,24 +220,29 @@ export function CommandPalette() {
   };
 
   const handleSaveKey = async (provider: CloudProvider, value: string) => {
-    setStoredKey(provider.storageKey, value);
-    setApiKeys((prev) => ({ ...prev, [provider.storageKey]: value }));
+    const keyValue = value.trim();
+    setSavingKey(provider.envKey);
+    setCloudKeyError(null);
 
-    // Also save to Tauri backend so the server process picks up the key
-    if (isTauri()) {
-      try {
-        const { invoke } = await import('@tauri-apps/api/core');
-        await invoke('save_cloud_key', { keyName: provider.envKey, keyValue: value });
-      } catch {}
+    try {
+      await saveCloudKey(provider.envKey, keyValue);
+      setApiKeys((prev) => ({ ...prev, [provider.envKey]: '' }));
+      await refreshCloudKeyStatus();
+      useAppStore.getState().addLogEntry({
+        timestamp: Date.now(), level: 'info', category: 'model',
+        message: `${provider.name} API key ${keyValue ? 'saved' : 'removed'}. Refreshing model list...`,
+      });
+      await refreshModels();
+    } catch (e: any) {
+      setCloudKeyError(e?.message || `Failed to save ${provider.name} API key`);
+    } finally {
+      setSavingKey(null);
     }
+  };
 
-    useAppStore.getState().addLogEntry({
-      timestamp: Date.now(), level: 'info', category: 'model',
-      message: `${provider.name} API key ${value ? 'saved' : 'removed'}. Refreshing model list…`,
-    });
-
-    // Refresh the model list so cloud models appear immediately.
-    await refreshModels();
+  const handleKeyBlur = (provider: CloudProvider) => {
+    const draft = apiKeys[provider.envKey] || '';
+    if (draft.trim()) void handleSaveKey(provider, draft);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -321,6 +336,11 @@ export function CommandPalette() {
         {pullSuccess && (
           <div className="px-4 py-2 text-xs flex items-center gap-1.5" style={{ color: 'var(--color-success)', background: 'color-mix(in srgb, var(--color-success) 5%, transparent)' }}>
             <Check size={12} /> Downloaded {pullSuccess} successfully
+          </div>
+        )}
+        {tab === 'cloud' && cloudKeyError && (
+          <div className="px-4 py-2 text-xs" style={{ color: 'var(--color-error)', background: 'rgba(220,38,38,0.05)' }}>
+            {cloudKeyError}
           </div>
         )}
 
@@ -431,13 +451,17 @@ export function CommandPalette() {
             /* ── Cloud Models tab ── */
             <div className="px-4 py-2">
               <div className="text-[11px] mb-3" style={{ color: 'var(--color-text-tertiary)' }}>
-                Add your API keys to use cloud models. Keys are stored locally on your device only.
+                {desktopKeyStorage
+                  ? 'Add your API keys to use cloud models. Keys are stored in secure desktop storage.'
+                  : 'Configure cloud provider keys in the server environment to use cloud models.'}
               </div>
 
               {CLOUD_PROVIDERS.map((provider) => {
-                const key = apiKeys[provider.storageKey] || '';
-                const hasKey = !!key;
-                const isVisible = showKeys[provider.storageKey];
+                const key = apiKeys[provider.envKey] || '';
+                const hasSavedKey = !!cloudKeyStatus[provider.envKey];
+                const hasKey = hasSavedKey || !!key.trim();
+                const isVisible = showKeys[provider.envKey];
+                const isSaving = savingKey === provider.envKey;
 
                 return (
                   <div key={provider.name} className="mb-4">
@@ -458,26 +482,28 @@ export function CommandPalette() {
                         <input
                           type={isVisible ? 'text' : 'password'}
                           value={key}
-                          onChange={(e) => setApiKeys((prev) => ({ ...prev, [provider.storageKey]: e.target.value }))}
-                          onBlur={() => handleSaveKey(provider, apiKeys[provider.storageKey] || '')}
-                          placeholder={`${provider.envKey}`}
+                          onChange={(e) => setApiKeys((prev) => ({ ...prev, [provider.envKey]: e.target.value }))}
+                          onBlur={() => handleKeyBlur(provider)}
+                          placeholder={hasSavedKey ? 'Saved in secure storage' : provider.envKey}
+                          disabled={!desktopKeyStorage || isSaving}
                           className="flex-1 text-xs px-2 py-1.5 bg-transparent outline-none font-mono"
                           style={{ color: 'var(--color-text)' }}
                         />
                         <button
-                          onClick={() => setShowKeys((prev) => ({ ...prev, [provider.storageKey]: !prev[provider.storageKey] }))}
+                          onClick={() => setShowKeys((prev) => ({ ...prev, [provider.envKey]: !prev[provider.envKey] }))}
                           className="px-2 cursor-pointer" style={{ color: 'var(--color-text-tertiary)' }}
                         >
                           {isVisible ? <EyeOff size={12} /> : <Eye size={12} />}
                         </button>
                       </div>
-                      {hasKey && (
+                      {hasSavedKey && (
                         <button
                           onClick={() => handleSaveKey(provider, '')}
+                          disabled={isSaving}
                           className="px-2 py-1 rounded-lg text-[10px] cursor-pointer"
-                          style={{ color: 'var(--color-error)', border: '1px solid var(--color-error)' }}
+                          style={{ color: 'var(--color-error)', border: '1px solid var(--color-error)', opacity: isSaving ? 0.5 : 1 }}
                         >
-                          Remove
+                          {isSaving ? 'Saving' : 'Remove'}
                         </button>
                       )}
                     </div>

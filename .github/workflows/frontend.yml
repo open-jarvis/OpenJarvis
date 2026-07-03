@@ -35,3 +35,8 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npm run build
+        env:
+          # Optional: when the secret is unset the build still succeeds and the
+          # leaderboard is disabled (see src/lib/supabase.ts). No placeholder,
+          # so a keyless CI build doesn't bake in a bogus anon key.
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}

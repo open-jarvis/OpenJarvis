@@ -20,8 +20,8 @@ What it does:
 4. Installs `uv` (https://astral.sh/uv) if absent.
 5. Clones the OpenJarvis repository to `%LOCALAPPDATA%\OpenJarvis`
    (override with `$env:OPENJARVIS_HOME`).
-6. Runs `uv sync --extra server` so the FastAPI server entry point is
-   importable.
+6. Runs `uv sync --extra desktop --group desktop-native` so the FastAPI server,
+   speech backend, and native extension are importable.
 7. Optionally prompts to register a scheduled task that auto-starts the
    server at logon.
 
@@ -105,7 +105,7 @@ To pull the latest:
 ```powershell
 cd "$env:LOCALAPPDATA\OpenJarvis\src"
 git pull --ff-only
-uv sync --extra server
+uv sync --extra desktop --group desktop-native
 ```
 
 Or re-run the installer with `-Force`:

@@ -35,8 +35,14 @@ class TestMessage:
         msg = Message(role=Role.USER, content="hello")
         assert msg.role == Role.USER
         assert msg.content == "hello"
+        assert msg.text == "hello"
         assert msg.tool_calls is None
         assert msg.metadata == {}
+
+    def test_none_content_text_helper(self) -> None:
+        msg = Message(role=Role.ASSISTANT, content=None)
+        assert msg.content is None
+        assert msg.text == ""
 
     def test_tool_calls(self) -> None:
         tc = ToolCall(id="1", name="calc", arguments='{"x": 1}')

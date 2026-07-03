@@ -2,7 +2,8 @@
 
 A small, self-contained planner-executor loop:
 
-* the planner is a local Ollama chat model (default ``gemma4:31b``),
+* the planner is supplied by the caller (the web endpoint resolves it from
+  config, falling back to ``gemma4:31b`` on Ollama for legacy installs),
 * the only tool it can call is :meth:`HybridSearch.search`,
 * it gets up to ``max_iterations`` tool calls,
 * tool results are trimmed before re-entering the context window, and
@@ -105,8 +106,8 @@ SEARCH_TOOL_SPEC: Dict[str, Any] = {
                     "type": "array",
                     "description": (
                         "Restrict the search to one or more connectors. Use this "
-                        "whenever the user names a data source (e.g. \"in my "
-                        "Granola notes\" → ['granola']; \"check Slack and Gmail\" "
+                        'whenever the user names a data source (e.g. "in my '
+                        'Granola notes" → [\'granola\']; "check Slack and Gmail" '
                         "→ ['slack', 'gmail']). Valid IDs include: gmail, slack, "
                         "granola, notion, obsidian, gcalendar, gdrive, gmail_imap, "
                         "outlook, imessage, whatsapp, apple_notes, apple_contacts, "
@@ -142,10 +143,11 @@ Strategy:
   3. The `time_range` argument is a JSON object: `{{"start": "<ISO 8601>", "end": "<ISO 8601>"}}`. Either bound may be omitted, but pass at least one whenever the user gave you a temporal cue.
   4. When the user names a specific data source — "my Granola notes", "in Slack", "from my email" — you MUST pass `sources=[...]` with the matching connector ID. Only use IDs that appear in the connected-sources list above; do NOT invent or assume sources that are not connected. Common synonyms: "meeting notes"/"meetings"/"transcripts" → granola; "email"/"inbox" → gmail; "DMs"/"channels" → slack. Without this filter the search returns mail/messages ABOUT a tool instead of records FROM that tool.
   4a. Never apologize about sources that aren't in the connected-sources list — if the user asks about "Notion" but Notion isn't connected, just say "Notion isn't connected, but here's what I found in {available_sources}" and answer from what is available.
-  5. If the first structured search returns nothing useful, broaden with a semantic query and drop filters one at a time.
-  6. You have a clarify tool. Only use it AFTER at least one search attempt. Use it when: you found multiple ambiguous matches (e.g. 3 different people named John), search returned zero results and the query might need reframing, or the scope is too broad to synthesize meaningfully. Never use clarify before searching — always try first.
-  7. After receiving a clarify response, use the information to construct a precise search with the correct person, time_range, sources, and query parameters. Never send an empty query or a query with no parameters — extract every concrete signal from the user's reply (names, dates, topics, sources) and put it on the call.
-  8. Tool calls — search AND clarify — share a budget of 5 total. Spend wisely.
+  5. When the user asks for "next", "upcoming", "future", or "soon" calendar events/meetings/appointments, use `sources=["gcalendar"]` if gcalendar is connected, set `time_range={{"start": "{today}"}}`, and use `query=""` unless the user gave a specific topic such as "dentist" or "music lesson". This returns the nearest upcoming calendar items across calendars instead of keyword-matching only birthdays or event titles.
+  6. If the first structured search returns nothing useful, broaden with a semantic query and drop filters one at a time.
+  7. You have a clarify tool. Only use it AFTER at least one search attempt. Use it when: you found multiple ambiguous matches (e.g. 3 different people named John), search returned zero results and the query might need reframing, or the scope is too broad to synthesize meaningfully. Never use clarify before searching — always try first.
+  8. After receiving a clarify response, use the information to construct a precise search with the correct person, time_range, sources, and query parameters. Only use an empty query when structured filters carry the request; never send a search with no concrete parameters. Extract every concrete signal from the user's reply (names, dates, topics, sources) and put it on the call.
+  9. Tool calls — search AND clarify — share a budget of 5 total. Spend wisely.
 
 Synthesis rules:
   - Cite sources as individual numbers in square brackets. Always separate — write [4] [7] [20], never [4, 7, 20]. Never format citations as markdown links. Just the number in brackets: [1]. The `ref` field on each hit is the citation number.
@@ -204,7 +206,9 @@ def shape_results_for_model(
         if i < detailed_top:
             base["snippet"] = h.content_snippet
             if h.thread_context:
-                base["thread"] = _trim_thread_context(h.thread_context, thread_ctx_per_hit)
+                base["thread"] = _trim_thread_context(
+                    h.thread_context, thread_ctx_per_hit
+                )
         out_hits.append(base)
     return {
         "num_results": len(hits),
@@ -219,7 +223,9 @@ def _hit_date(timestamp: str) -> str:
     if not timestamp:
         return ""
     try:
-        return datetime.fromisoformat(timestamp.replace("Z", "+00:00")).date().isoformat()
+        return (
+            datetime.fromisoformat(timestamp.replace("Z", "+00:00")).date().isoformat()
+        )
     except (ValueError, AttributeError):
         return str(timestamp)[:10]
 
@@ -237,7 +243,7 @@ def _bare_doc_id(source: str, document_id: str) -> str:
         return ""
     prefix = f"{source}:"
     if source and document_id.startswith(prefix):
-        return document_id[len(prefix):]
+        return document_id[len(prefix) :]
     return document_id
 
 
@@ -518,6 +524,7 @@ class ResearchAgent:
     def _parse_time_range(raw: Any):
         if not raw or not isinstance(raw, dict):
             return None
+
         def _maybe(v):
             if not v:
                 return None
@@ -525,6 +532,7 @@ class ResearchAgent:
                 return datetime.fromisoformat(str(v).replace("Z", "+00:00"))
             except ValueError:
                 return None
+
         start = _maybe(raw.get("start"))
         end = _maybe(raw.get("end"))
         if start is None and end is None:
@@ -555,9 +563,16 @@ class ResearchAgent:
                 "query": query,
                 "person": person,
                 "time_range": (
-                    {"start": time_range[0].isoformat() if time_range and time_range[0] else None,
-                     "end": time_range[1].isoformat() if time_range and time_range[1] else None}
-                    if time_range else None
+                    {
+                        "start": time_range[0].isoformat()
+                        if time_range and time_range[0]
+                        else None,
+                        "end": time_range[1].isoformat()
+                        if time_range and time_range[1]
+                        else None,
+                    }
+                    if time_range
+                    else None
                 ),
                 "sources": sources,
                 "limit": limit,
@@ -688,9 +703,7 @@ class ResearchAgent:
                     )
                     continue
                 fallback = "(model returned no content and no tool calls)"
-                self._emit(
-                    {"type": "final_answer", "text": fallback, "sources": []}
-                )
+                self._emit({"type": "final_answer", "text": fallback, "sources": []})
                 return ResearchResult(
                     answer=fallback,
                     iterations=iterations,
@@ -716,7 +729,11 @@ class ResearchAgent:
                 name = tc.get("name", "")
                 raw_args = tc.get("arguments", "{}") or "{}"
                 try:
-                    args = json.loads(raw_args) if isinstance(raw_args, str) else dict(raw_args)
+                    args = (
+                        json.loads(raw_args)
+                        if isinstance(raw_args, str)
+                        else dict(raw_args)
+                    )
                 except json.JSONDecodeError:
                     args = {}
 
@@ -764,7 +781,10 @@ class ResearchAgent:
                         )
                     else:
                         self._emit(
-                            {"type": "clarify_call", "question": str(args.get("question", ""))}
+                            {
+                                "type": "clarify_call",
+                                "question": str(args.get("question", "")),
+                            }
                         )
                         inv = self._execute_clarify(args)
                         invocations.append(inv)
@@ -843,9 +863,7 @@ class ResearchAgent:
                 "and the model returned no text response)"
             )
         answer, final_sources = _finalize(answer)
-        self._emit(
-            {"type": "final_answer", "text": answer, "sources": final_sources}
-        )
+        self._emit({"type": "final_answer", "text": answer, "sources": final_sources})
         return ResearchResult(
             answer=answer,
             iterations=iterations,

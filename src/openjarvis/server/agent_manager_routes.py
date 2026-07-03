@@ -2263,14 +2263,13 @@ def create_agent_manager_router(
         import httpx
 
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=15.0) as client:
                 resp = await client.get(
                     "https://api.sendblue.co/api/lines",
                     headers={
                         "sb-api-key-id": api_key_id,
                         "sb-api-secret-key": api_secret_key,
                     },
-                    timeout=15.0,
                 )
             if resp.status_code == 401:
                 raise HTTPException(
@@ -2291,12 +2290,16 @@ def create_agent_manager_router(
             )
             numbers = []
             for line in lines:
-                num = (
-                    line.get("number")
-                    or line.get("phone_number")
-                    or line.get("from_number")
-                    or (line if isinstance(line, str) else "")
-                )
+                if isinstance(line, str):
+                    num = line
+                elif isinstance(line, dict):
+                    num = (
+                        line.get("number")
+                        or line.get("phone_number")
+                        or line.get("from_number")
+                    )
+                else:
+                    num = None
                 if num:
                     numbers.append(num)
             return {
@@ -2328,7 +2331,7 @@ def create_agent_manager_router(
         import httpx
 
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=15.0) as client:
                 resp = await client.post(
                     "https://api.sendblue.co/api/account/webhooks",
                     headers={
@@ -2339,7 +2342,6 @@ def create_agent_manager_router(
                     json={
                         "receive": webhook_url,
                     },
-                    timeout=15.0,
                 )
             return {
                 "registered": resp.status_code < 300,
@@ -2380,7 +2382,7 @@ def create_agent_manager_router(
             if from_number:
                 payload["from_number"] = from_number
 
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=15.0) as client:
                 resp = await client.post(
                     "https://api.sendblue.co/api/send-message",
                     headers={
@@ -2389,7 +2391,6 @@ def create_agent_manager_router(
                         "Content-Type": "application/json",
                     },
                     json=payload,
-                    timeout=15.0,
                 )
             return {
                 "sent": resp.status_code < 300,

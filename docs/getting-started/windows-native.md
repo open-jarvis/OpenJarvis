@@ -8,7 +8,7 @@ avoid a Linux VM; WSL2 remains the smoother experience for most users.
 ## What you get
 
 - A PowerShell installer that probes prerequisites, installs `uv`,
-  clones the repo, and runs `uv sync --extra server`.
+  clones the repo, and runs `uv sync --extra desktop --group desktop-native`.
 - An optional Windows scheduled-task service equivalent to the systemd
   unit and launchd plist.
 - Loopback default — the service binds `127.0.0.1` so no API key is
@@ -38,7 +38,7 @@ The installer will:
 4. Install `uv` if absent (via the official `astral.sh/uv` PowerShell
    installer).
 5. Clone the repo to `%LOCALAPPDATA%\OpenJarvis\src`.
-6. Run `uv sync --extra server`.
+6. Run `uv sync --extra desktop --group desktop-native`.
 7. Prompt to register the scheduled-task service (skip with
    `-SkipService`).
 

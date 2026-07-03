@@ -48,6 +48,7 @@ dev = [
     "pytest>=8",
     "pytest-asyncio>=0.24",
     "pytest-cov>=5",
+    "pytest-xdist>=3",
     "respx>=0.22",
     "ruff>=0.4",
     "pre-commit>=3.0",
@@ -83,6 +84,13 @@ server = [
     "uvicorn>=0.30",
     "pydantic>=2.0",
     "python-multipart>=0.0.9",
+]
+desktop = [
+    "fastapi>=0.110",
+    "uvicorn>=0.30",
+    "pydantic>=2.0",
+    "python-multipart>=0.0.9",
+    "faster-whisper>=1.0",
 ]
 openhands = ["openhands-sdk>=1.0; python_version >= '3.12'"]
 gpu-metrics = ["pynvml>=12.0"]
@@ -178,6 +186,9 @@ git_describe_command = [
 # Such builds can inject the real version via SETUPTOOLS_SCM_PRETEND_VERSION.
 fallback_version = "0.0.0+unknown"
 
+[tool.uv.sources]
+openjarvis-rust = { path = "rust/crates/openjarvis-python" }
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/openjarvis"]
 
@@ -226,4 +237,13 @@ select = ["E", "F", "I", "W"]
 [dependency-groups]
 dev = [
     "maturin>=1.12.6",
+]
+# openjarvis_rust is the native PyO3 extension, built from the local Rust
+# workspace. It lives in a uv dependency group (PEP 735) — not the published
+# `desktop` extra — so `uv sync --group desktop-native` builds it from source
+# for the desktop app, while `pip install openjarvis[desktop]` from PyPI does
+# NOT try to resolve openjarvis-rust from PyPI, where it isn't published
+# (dependency groups are excluded from wheel metadata). See #584 / #615.
+desktop-native = [
+    "openjarvis-rust",
 ]

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import type React from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { LEADERBOARD_ENABLED, SUPABASE_ANON_KEY, SUPABASE_URL } from '../../lib/supabase';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -279,9 +280,6 @@ function getOrCreateAnonId(): string {
   return id;
 }
 
-const SUPABASE_URL = 'https://mtbtgpwzrbostweaanpr.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im10YnRncHd6cmJvc3R3ZWFhbnByIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxODk0OTQsImV4cCI6MjA4ODc2NTQ5NH0._xMlqCfljtXpwPj54H-ghxfLFO-jiq4W2WhpU8vVL1c';
-
 const REFRESH_INTERVAL_MS = 5000;
 
 export function SavingsDashboard({ apiUrl }: { apiUrl: string }) {
@@ -318,15 +316,16 @@ export function SavingsDashboard({ apiUrl }: { apiUrl: string }) {
     return () => clearInterval(timer);
   }, [fetchData]);
 
-  // Share savings to Supabase when opted in and data changes
+  // Share savings to Supabase when opted in and data changes. Skipped entirely
+  // when no anon key was built in (leaderboard disabled).
   useEffect(() => {
-    if (!optInEnabled || !displayName || !data) return;
+    if (!LEADERBOARD_ENABLED || !optInEnabled || !displayName || !data) return;
     const dollarSavings = data.per_provider.reduce((s, p) => s + p.total_cost, 0);
     const energySaved = data.per_provider.reduce((s, p) => s + (p.energy_wh || 0), 0);
     const flopsSaved = data.per_provider.reduce((s, p) => s + (p.flops || 0), 0);
     invoke('submit_savings', {
       supabaseUrl: SUPABASE_URL,
-      supabaseKey: SUPABASE_KEY,
+      supabaseKey: SUPABASE_ANON_KEY,
       payload: {
         anon_id: anonId,
         display_name: displayName,

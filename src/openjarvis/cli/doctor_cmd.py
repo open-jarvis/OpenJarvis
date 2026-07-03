@@ -223,6 +223,47 @@ def _check_optional_deps() -> List[CheckResult]:
     return results
 
 
+def _check_speech_backend() -> CheckResult:
+    """Check whether the configured speech backend can load."""
+    try:
+        from openjarvis.speech._discovery import get_speech_backend
+
+        config = _get_config()
+        backend = get_speech_backend(config)
+        if backend is None:
+            return CheckResult(
+                "Speech backend",
+                "warn",
+                "Not configured",
+                details="Install desktop dependencies with `uv sync --extra desktop`.",
+            )
+
+        if backend.health():
+            return CheckResult(
+                "Speech backend",
+                "ok",
+                f"{backend.backend_id} ready",
+            )
+
+        details = None
+        last_error = getattr(backend, "last_error", None)
+        if callable(last_error):
+            details = last_error()
+        return CheckResult(
+            "Speech backend",
+            "warn",
+            f"{backend.backend_id} unavailable",
+            details=details
+            or "Install desktop dependencies with `uv sync --extra desktop`.",
+        )
+    except Exception as exc:
+        return CheckResult(
+            "Speech backend",
+            "warn",
+            f"Could not check: {exc}",
+        )
+
+
 def _check_security_profile() -> CheckResult:
     """Check if a security profile is configured."""
     try:
@@ -306,6 +347,7 @@ def _run_all_checks() -> List[CheckResult]:
     checks.extend(_check_models())
     checks.append(_check_default_model())
     checks.extend(_check_optional_deps())
+    checks.append(_check_speech_backend())
     checks.append(_check_nodejs())
     checks.append(_check_security_profile())
     return checks

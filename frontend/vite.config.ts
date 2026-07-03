@@ -4,6 +4,9 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
+// VITE_SUPABASE_ANON_KEY is intentionally NOT required here: a missing key
+// disables the savings leaderboard at runtime (see src/lib/supabase.ts) rather
+// than failing the build, so the package/app stays publishable without it.
 export default defineConfig({
   resolve: {
     alias: {

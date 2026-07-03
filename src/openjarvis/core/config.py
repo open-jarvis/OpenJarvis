@@ -594,6 +594,14 @@ class IntelligenceConfig:
 
 
 @dataclass(slots=True)
+class DeepResearchConfig:
+    """Planner settings for the web Deep Research endpoint."""
+
+    engine: str = ""  # Empty means use the active chat engine.
+    model: str = ""  # Empty means use the active chat model.
+
+
+@dataclass(slots=True)
 class RoutingLearningConfig:
     """Routing sub-policy config within Learning."""
 
@@ -910,7 +918,13 @@ class LearningConfig:
 
 @dataclass(slots=True)
 class StorageConfig:
-    """Storage (memory) backend settings."""
+    """Storage (memory) backend settings.
+
+    Covers both the retrieval/document store (``default_backend``, ``db_path``,
+    chunking, context injection) and the automatic long-term memory service
+    (``enabled``, ``backend``, ``extraction_model``, ``max_facts``,
+    ``facts_path``) configured under ``[memory]`` in ``config.toml``.
+    """
 
     default_backend: str = "sqlite"
     db_path: str = field(default_factory=lambda: str(get_config_dir() / "memory.db"))
@@ -919,6 +933,16 @@ class StorageConfig:
     context_max_tokens: int = 2048
     chunk_size: int = 512
     chunk_overlap: int = 64
+
+    # Automatic memory service — extracts durable facts from conversations in
+    # the background and persists them across sessions (see openjarvis.memory).
+    enabled: bool = False  # start the memory service with serve/chat
+    backend: str = "local"  # fact-store backend ("local" = on-disk JSONL)
+    extraction_model: str = ""  # model for fact extraction ("" = active model)
+    max_facts: int = 1000  # cap on stored facts (oldest evicted past the cap)
+    facts_path: str = field(
+        default_factory=lambda: str(get_config_dir() / "memory_facts.jsonl")
+    )
 
 
 # Backward-compatibility alias
@@ -1562,6 +1586,7 @@ class JarvisConfig:
     hardware: HardwareInfo = field(default_factory=HardwareInfo)
     engine: EngineConfig = field(default_factory=EngineConfig)
     intelligence: IntelligenceConfig = field(default_factory=IntelligenceConfig)
+    deep_research: DeepResearchConfig = field(default_factory=DeepResearchConfig)
     learning: LearningConfig = field(default_factory=LearningConfig)
     tools: ToolsConfig = field(default_factory=ToolsConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)
@@ -1823,6 +1848,7 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
         top_sections = (
             "engine",
             "intelligence",
+            "deep_research",
             "learning",
             "agent",
             "server",
@@ -1991,6 +2017,10 @@ max_tokens = 1024
 # repetition_penalty = 1.0
 # stop_sequences = ""
 
+# [deep_research]
+# engine = ""                  # empty = use [engine].default
+# model = ""                   # empty = use [intelligence].default_model
+
 [agent]
 default_agent = "simple"
 max_turns = 10
@@ -2002,6 +2032,15 @@ context_from_memory = true
 
 [tools.storage]
 default_backend = "sqlite"
+
+# Automatic long-term memory: extracts durable facts from conversations in the
+# background and persists them. Starts/stops with `jarvis serve` and
+# `jarvis chat`; manage stored facts with `jarvis memory list` / `clear`.
+[memory]
+enabled = false               # set true to enable the memory service
+backend = "local"             # fact-store backend (local = on-disk JSONL)
+extraction_model = ""         # model for fact extraction ("" = active model)
+max_facts = 1000              # cap on stored facts
 
 [tools.mcp]
 enabled = true
@@ -2152,6 +2191,7 @@ __all__ = [
     "DEFAULT_CONFIG_DIR",
     "DEFAULT_CONFIG_PATH",
     "DiscordChannelConfig",
+    "DeepResearchConfig",
     "get_cache_dir",
     "get_config_dir",
     "get_config_path",

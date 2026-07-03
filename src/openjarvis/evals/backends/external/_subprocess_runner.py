@@ -203,6 +203,7 @@ def _try_start_nvml() -> Optional[_Sampler]:
     try:
         # Suppress legacy pynvml deprecation FutureWarning (#389).
         import warnings as _warnings
+
         with _warnings.catch_warnings():
             _warnings.filterwarnings(
                 "ignore",
