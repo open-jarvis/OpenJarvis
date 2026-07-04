@@ -116,7 +116,7 @@ def _run_research(
         Rich's Markdown class doesn't expose any hook for styling
         arbitrary text spans, so we cheat: convert the citation tokens
         into inline-code markdown (`[1]` → `` `[1]` ``) and override
-        the ``markdown.code`` theme entry above to colour them. Trims
+        the `markdown.code` theme entry above to colour them. Trims
         the implicit monospace background that some terminal themes
         give inline code so the result reads as text, not as code.
         """
@@ -137,6 +137,38 @@ def _run_research(
                 extras.append(f"when: {bounds}")
         suffix = f" ({', '.join(extras)})" if extras else ""
         return f"'{q}'{suffix}"
+
+    def _pick_local_model_for_task(*, engine, model_name: str, query: str) -> str:
+        """Return a lighter local model when the query is a small return-to-head task."""
+        engine_name = getattr(engine, "engine_id", "") or getattr(engine, "__class__", type("X", (), {"__name__": ""})).__name__.lower()
+        if engine_name != "ollama":
+            return model_name
+
+        try:
+            available = engine.list_models()
+        except Exception:
+            return model_name
+        if not available:
+            return model_name
+
+        q = query.lower()
+        if any(t in q for t in ["king wen", "hexagram", "oracle", "consult", "emotion", "reflection"]):
+            candidates = [m for m in available if "gemma4" in m or "qwen3.6:27b" in m] or available
+            return next(iter(candidates))
+        if any(t in q for t in ["research", "paper", "arxiv", "search", "compare", "analysis", "evidence"]):
+            candidates = [m for m in available if "gemma4" in m or "qwen3.6:27b" in m] or available
+            return next(iter(candidates))
+        if any(t in q for t in ["image", "vision", "ocr", "diagram", "screenshot", "picture"]):
+            candidates = [m for m in available if "gemma4" in m] or available
+            return next(iter(candidates))
+        if any(t in q for t in ["code", "typescript", "python", "sql", "rust", "regex", "refactor", "debug"]):
+            candidates = [m for m in available if "qwen2.5-coder" in m] or available
+            return next(iter(candidates))
+
+        chat_small = [m for m in available if "7b-instruct" in m or "7b" in m]
+        if chat_small:
+            return chat_small[0]
+        return model_name
 
     def on_event(event: dict) -> None:
         etype = event.get("type")
@@ -432,7 +464,7 @@ def _run_agent(
         except Exception as exc:
             logger.warning("Failed to inject memory context for agent: %s", exc)
 
-    return agent.run(query_text, context=ctx)
+    return agent.run(query_text, context=ctx) + "\n\n" + getattr(agent, "_build_kingwen_response_block", lambda: "")()
 
 
 def _print_profile(
@@ -859,6 +891,21 @@ def ask(
             max_tokens,
             model_name,
         )
+
+    # Prefer a lighter local model when the engine is local and the query
+    # looks like a return-to-head / small-batch task. The goal is to match
+    # task fit without breaking fallback behavior.
+    try:
+        effective_model = _pick_local_model_for_task(
+            engine=engine,
+            model_name=model_name,
+            query=query_text,
+        )
+        if effective_model and effective_model != model_name:
+            logger.info("Routed query to local model %s", effective_model)
+            model_name = effective_model
+    except Exception as exc:
+        logger.debug("Local model routing skipped: %s", exc)
 
     # Agent mode (treat empty-string `--agent ""` as explicit opt-out)
     if agent_name:

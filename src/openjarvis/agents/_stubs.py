@@ -67,11 +67,20 @@ class BaseAgent(ABC):
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         prompt_builder: Optional[Any] = None,
+        capture_writer: Optional[Any] = None,
+        emotion_provider: Optional[Any] = None,
+        kingwen_session_id: str = "openjarvis",
     ) -> None:
         self._engine = engine
         self._model = model
         self._bus = bus
         self._prompt_builder = prompt_builder
+        if not hasattr(self, "_capture_writer"):
+            self._capture_writer = capture_writer
+        if not hasattr(self, "_emotion_provider"):
+            self._emotion_provider = emotion_provider
+        if not hasattr(self, "_kingwen_session_id"):
+            self._kingwen_session_id = kingwen_session_id
 
         # Three-tier resolution: explicit arg > config > class default > hardcoded
         if temperature is not None and max_tokens is not None:
@@ -200,6 +209,30 @@ class BaseAgent(ABC):
             **extra_kwargs,
         )
 
+        if self._capture_writer and hasattr(self._capture_writer, "write"):
+            try:
+                self._capture_writer.write(
+                    prompt=self._serialize_messages(messages),
+                    response=result.get("content", ""),
+                    model=self._model,
+                    engine=getattr(self._engine, "engine_id", ""),
+                    agent=getattr(self, "agent_id", ""),
+                    session_id=getattr(self, "_kingwen_session_id", "openjarvis"),
+                    tool_calls=result.get("tool_calls", []),
+                    tool_results=result.get("tool_results", []),
+                    messages=messages,
+                    emotion=self._build_capture_emotion(),
+                    prompt_tokens=result.get("usage", {}).get("prompt_tokens", 0),
+                    completion_tokens=result.get("usage", {}).get("completion_tokens", 0),
+                    total_tokens=result.get("usage", {}).get("total_tokens", 0),
+                    latency_seconds=result.get("_telemetry", {}).get("latency", 0.0),
+                    ttft=result.get("_telemetry", {}).get("ttft", 0.0),
+                    success=not result.get("error"),
+                    error=result.get("error"),
+                )
+            except Exception:
+                pass
+
         if self._bus and not getattr(self._engine, "_publishes_events", False):
             usage = result.get("usage", {})
             self._bus.publish(
@@ -214,6 +247,54 @@ class BaseAgent(ABC):
             )
 
         return result
+
+    def _build_capture_emotion(self) -> Any:
+        provider = getattr(self, "_emotion_provider", None)
+        if provider is None:
+            return None
+        try:
+            payload = provider.consult(
+                text=getattr(self, "_emotion_text", "") or "",
+                session_id=getattr(self, "_kingwen_session_id", "openjarvis"),
+            )
+            voice = provider.voice_preset(
+                tts_backend=getattr(self, "_tts_backend", None) or "cartesia",
+                voice_weight=payload.get("emotional_deltas", {}).get("voiceWeight", 0.0),
+            )
+            return type(
+                "KingWenEmotionPayload",
+                (),
+                {
+                    "hexagram_id": payload.get("hexagram_id"),
+                    "hexagram_name": payload.get("hexagram_name", ""),
+                    "binary": payload.get("binary", ""),
+                    "category": payload.get("category", ""),
+                    "action": payload.get("action", ""),
+                    "voice_weight": payload.get("emotional_deltas", {}).get("voiceWeight"),
+                    "voice_backend": voice.get("backend", "cartesia"),
+                    "voice_id": voice.get("voice_id", ""),
+                    "voice_speed": float(voice.get("speed", 1.0) or 1.0),
+                    "emotional_deltas": payload.get("emotional_deltas", {}),
+                    "reflections": payload.get("reflections", {}),
+                    "training_notes": payload.get("trainingNotes", ""),
+                },
+            )()
+        except Exception:
+            return None
+
+    def _build_kingwen_response_block(self) -> str:
+        provider = getattr(self, "_emotion_provider", None)
+        if provider is None:
+            return ""
+        try:
+            return provider.format_oracle_console(
+                payload=provider.consult(
+                    text=getattr(self, "_emotion_text", "") or "",
+                    session_id=getattr(self, "_kingwen_session_id", "openjarvis"),
+                )
+            )
+        except Exception:
+            return ""
 
     def _max_turns_result(
         self,

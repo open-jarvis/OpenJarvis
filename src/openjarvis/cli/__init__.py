@@ -31,6 +31,7 @@ from openjarvis.cli.operators_cmd import operators
 from openjarvis.cli.optimize_cmd import optimize_group
 from openjarvis.cli.pearl_cmd import pearl
 from openjarvis.cli.quickstart_cmd import quickstart
+from openjarvis.cli.ollama_launch_cmd import launch_group as ollama_launch
 from openjarvis.cli.registry_cmd import registry
 from openjarvis.cli.scan_cmd import scan
 from openjarvis.cli.scheduler_cmd import scheduler
@@ -128,7 +129,8 @@ cli.add_command(config, "config")
 cli.add_command(scan, "scan")
 cli.add_command(connect, "connect")
 cli.add_command(digest, "digest")
-# deep-research setup pulls the ingestion pipeline (embeddings/numpy). Guard it
+cli.add_command(ollama_launch, "ollama")
+# deep-research setup pulls the ingestion pipeline
 # so a broken or slow numpy on Windows — which can raise at IMPORT time, not
 # just ImportError (#404) — can never take down the whole CLI, including
 # `jarvis serve`. Invoking `jarvis deep-research-setup` without the deps still

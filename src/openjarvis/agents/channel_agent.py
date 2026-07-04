@@ -135,6 +135,10 @@ class ChannelAgent:
         else:
             reply = response_text
 
+        kingwen_block = getattr(self._agent, "_build_kingwen_response_block", lambda: "")()
+        if kingwen_block:
+            reply = f"{reply}\n\n{kingwen_block}"
+
         # Same field-mapping as the error path above (#459).
         self._channel.send(
             msg.conversation_id,

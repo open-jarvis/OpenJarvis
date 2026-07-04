@@ -277,6 +277,11 @@ def chat(
                     else str(result)
                 )
 
+            if agent is not None:
+                kingwen_block = agent._build_kingwen_response_block()
+                if kingwen_block:
+                    content = f"{content or ''}\n\n{kingwen_block}"
+
             history.append(Message(role=Role.ASSISTANT, content=content))
             console.print()
             console.print(Markdown(content))
