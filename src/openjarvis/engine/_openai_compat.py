@@ -5,58 +5,33 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import AsyncIterator, Sequence
-from typing import Any, Dict, List, NoReturn
+from typing import Any, Dict, List
 
 import httpx
 
 from openjarvis.core.types import Message
 from openjarvis.engine._base import (
     EngineConnectionError,
+    EngineContextLengthError,
     InferenceEngine,
     estimate_prompt_tokens,
     messages_to_dicts,
+)
+from openjarvis.engine._http_async import (
+    STREAM_TRANSPORT_ERRORS,
+    AsyncHTTPEngineMixin,
 )
 from openjarvis.engine._stubs import StreamChunk
 
 logger = logging.getLogger(__name__)
 
 
-class EngineContextLengthError(EngineConnectionError):
-    """The prompt exceeds the served model's maximum context window.
-
-    Subclasses ``EngineConnectionError`` so existing ``except
-    EngineConnectionError`` handlers keep catching it, while callers that want a
-    distinct, user-facing "conversation too long" message can branch on this type
-    (or the ``is_context_length_error`` marker) instead of surfacing a generic
-    engine failure.
-    """
-
-    is_context_length_error: bool = True
-
-
-# Substrings that identify an upstream 400 as a context-window overflow (vLLM,
-# SGLang, and OpenAI-compatible servers phrase this a few different ways).
-_CONTEXT_LENGTH_MARKERS = (
-    "context length",
-    "maximum context",
-    "context window",
-    "maximum_context",
-    "context_length_exceeded",
-    "reduce the length",
-    "please reduce",
-    "too many tokens",
-    "maximum number of tokens",
-)
-
-
-def _looks_like_context_length(detail: str) -> bool:
-    """True when an upstream error body reads like a context-window overflow."""
-    low = (detail or "").lower()
-    return any(marker in low for marker in _CONTEXT_LENGTH_MARKERS)
-
-
-class _OpenAICompatibleEngine(InferenceEngine):
+class _OpenAICompatibleEngine(AsyncHTTPEngineMixin, InferenceEngine):
     """Base for engines that serve the OpenAI ``/v1/chat/completions`` API."""
+
+    # vLLM/SGLang report context-window overflows in 400 bodies; the shared
+    # ``_raise_stream_http_error`` types those as ``EngineContextLengthError``.
+    _stream_400_signals_context_length = True
 
     engine_id: str = ""
     _default_host: str = "http://localhost:8000"
@@ -84,10 +59,10 @@ class _OpenAICompatibleEngine(InferenceEngine):
         headers = (
             {"Authorization": f"Bearer {self._api_key}"} if self._api_key else None
         )
-        # Retained for the async streaming path (built per-call below) and so the
-        # bounded request timeout is applied to streaming reads, not just the
-        # synchronous methods (a wedged token read now fails at ``timeout`` rather
-        # than hanging the caller for the httpx default).
+        # Used by the shared async streaming plumbing (AsyncHTTPEngineMixin) so
+        # the bounded request timeout is applied to streaming reads, not just
+        # the synchronous methods (a wedged token read fails at ``timeout``
+        # rather than hanging the caller for the httpx default).
         self._timeout = timeout
         self._headers = headers
         # Injection seam for tests: an ``httpx.MockTransport`` swapped in here lets
@@ -96,34 +71,6 @@ class _OpenAICompatibleEngine(InferenceEngine):
         self._async_transport: httpx.AsyncBaseTransport | None = None
         self._client = httpx.Client(
             base_url=self._host, timeout=timeout, headers=headers
-        )
-
-    def _make_async_client(self) -> httpx.AsyncClient:
-        """Build a per-call async client that honours the configured timeout.
-
-        A fresh client per stream keeps the async lifecycle fully self-contained
-        (opened and closed by ``async with``), so a wedged upstream read is bounded
-        by ``timeout`` and no async resource outlives the request.
-        """
-        return httpx.AsyncClient(
-            base_url=self._host,
-            timeout=self._timeout,
-            headers=self._headers,
-            transport=self._async_transport,
-        )
-
-    def _raise_stream_http_error(self, status: int, detail: str) -> NoReturn:
-        """Map an upstream streaming HTTP error to a clean engine exception."""
-        detail = (detail or "").strip()
-        if status == 400 and _looks_like_context_length(detail):
-            raise EngineContextLengthError(
-                "The conversation is too long for the model's context window. "
-                "Start a new chat or shorten the conversation, then try again."
-            )
-        detail_suffix = f": {detail}" if detail else ""
-        raise EngineConnectionError(
-            f"{self.engine_id} engine at {self._host} returned HTTP "
-            f"{status}{detail_suffix}"
         )
 
     # -- InferenceEngine interface ------------------------------------------
@@ -242,49 +189,42 @@ class _OpenAICompatibleEngine(InferenceEngine):
             payload["tool_choice"] = "auto"
         url = f"{self._api_prefix}/chat/completions"
         try:
-            # ASYNC streaming: a per-call ``httpx.AsyncClient`` + ``aiter_lines``
-            # never blocks the event loop between tokens (the previous SYNC
+            # ASYNC streaming: ``httpx.AsyncClient`` + ``aiter_lines`` never
+            # blocks the event loop between tokens (the previous SYNC
             # ``httpx.Client`` + ``iter_lines`` inside this ``async def`` blocked
             # the single uvicorn worker on every inter-token wait, serializing all
             # concurrent chats and letting one wedged read freeze the whole API).
-            async with self._make_async_client() as client:
-                async with client.stream("POST", url, json=payload) as resp:
-                    # ``not is_success`` covers 3xx as well as 4xx/5xx. With
-                    # ``follow_redirects`` off (the default) an unexpected redirect
-                    # would otherwise fall through to ``aiter_lines`` and surface as
-                    # a silent EMPTY stream instead of a clean engine error.
-                    if not resp.is_success:
-                        # Load the (short) error body before touching ``.text``:
-                        # a streaming response is otherwise unread.
-                        await resp.aread()
-                        self._raise_stream_http_error(resp.status_code, resp.text)
-                    async for line in resp.aiter_lines():
-                        if not line.startswith("data:"):
-                            continue
-                        data_str = line[len("data:") :].strip()
-                        if data_str == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(data_str)
-                        except json.JSONDecodeError:
-                            continue
-                        delta = chunk.get("choices", [{}])[0].get("delta", {})
-                        content = delta.get("content")
-                        if content:
-                            yield content
-        except (
-            httpx.ConnectError,
-            httpx.TimeoutException,
-            httpx.RemoteProtocolError,
-            httpx.ReadError,
-        ) as exc:
+            # The shared client keeps pooled connections across turns.
+            client = self._get_async_client()
+            async with client.stream("POST", url, json=payload) as resp:
+                # ``not is_success`` covers 3xx as well as 4xx/5xx. With
+                # ``follow_redirects`` off (the default) an unexpected redirect
+                # would otherwise fall through to ``aiter_lines`` and surface as
+                # a silent EMPTY stream instead of a clean engine error.
+                if not resp.is_success:
+                    # Load the (short) error body before touching ``.text``:
+                    # a streaming response is otherwise unread.
+                    await resp.aread()
+                    self._raise_stream_http_error(resp.status_code, resp.text)
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    data_str = line[len("data:") :].strip()
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    content = delta.get("content")
+                    if content:
+                        yield content
+        except STREAM_TRANSPORT_ERRORS as exc:
             # A wedged upstream read trips ``timeout`` (ReadTimeout) and is mapped
-            # here, so the request fails cleanly at the configured bound instead of
-            # hanging indefinitely. ``RemoteProtocolError``/``ReadError`` cover a
-            # server dying MID-STREAM (peer closed the connection between tokens);
-            # without them a mid-stream disconnect would propagate raw. Kept exactly
-            # this narrow on purpose: ``asyncio.CancelledError``/``GeneratorExit`` are
-            # NOT ``httpx.TransportError`` subclasses and must keep propagating.
+            # here, so the request fails cleanly at the configured bound instead
+            # of hanging indefinitely (see STREAM_TRANSPORT_ERRORS for why the
+            # set is exactly this narrow).
             raise EngineConnectionError(
                 f"{self.engine_id} engine not reachable at {self._host}"
             ) from exc
@@ -312,50 +252,45 @@ class _OpenAICompatibleEngine(InferenceEngine):
             payload["tool_choice"] = "auto"
         url = f"{self._api_prefix}/chat/completions"
         try:
-            # ASYNC streaming (see ``stream``): non-blocking per-call client so
+            # ASYNC streaming (see ``stream``): non-blocking shared client so
             # rich streaming never stalls the event loop and honours ``timeout``.
-            async with self._make_async_client() as client:
-                async with client.stream("POST", url, json=payload) as resp:
-                    # ``not is_success`` covers 3xx as well as 4xx/5xx. With
-                    # ``follow_redirects`` off (the default) an unexpected redirect
-                    # would otherwise fall through to ``aiter_lines`` and surface as
-                    # a silent EMPTY stream instead of a clean engine error.
-                    if not resp.is_success:
-                        await resp.aread()
-                        self._raise_stream_http_error(resp.status_code, resp.text)
-                    async for line in resp.aiter_lines():
-                        if not line.startswith("data:"):
-                            continue
-                        data_str = line[len("data:") :].strip()
-                        if data_str == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(data_str)
-                        except json.JSONDecodeError:
-                            continue
-                        choice = chunk.get("choices", [{}])[0]
-                        delta = choice.get("delta", {})
-                        finish = choice.get("finish_reason")
-                        content = delta.get("content")
-                        tool_calls = delta.get("tool_calls")
-                        usage = chunk.get("usage")
+            client = self._get_async_client()
+            async with client.stream("POST", url, json=payload) as resp:
+                # ``not is_success`` covers 3xx as well as 4xx/5xx. With
+                # ``follow_redirects`` off (the default) an unexpected redirect
+                # would otherwise fall through to ``aiter_lines`` and surface as
+                # a silent EMPTY stream instead of a clean engine error.
+                if not resp.is_success:
+                    await resp.aread()
+                    self._raise_stream_http_error(resp.status_code, resp.text)
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    data_str = line[len("data:") :].strip()
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+                    choice = chunk.get("choices", [{}])[0]
+                    delta = choice.get("delta", {})
+                    finish = choice.get("finish_reason")
+                    content = delta.get("content")
+                    tool_calls = delta.get("tool_calls")
+                    usage = chunk.get("usage")
 
-                        if content or tool_calls or finish or usage:
-                            yield StreamChunk(
-                                content=content,
-                                tool_calls=tool_calls,
-                                finish_reason=finish,
-                                usage=usage,
-                            )
-        except (
-            httpx.ConnectError,
-            httpx.TimeoutException,
-            httpx.RemoteProtocolError,
-            httpx.ReadError,
-        ) as exc:
-            # See ``stream``: ``RemoteProtocolError``/``ReadError`` map a mid-stream
-            # server disconnect to a clean error; kept narrow so cancellation still
-            # propagates.
+                    if content or tool_calls or finish or usage:
+                        yield StreamChunk(
+                            content=content,
+                            tool_calls=tool_calls,
+                            finish_reason=finish,
+                            usage=usage,
+                        )
+        except STREAM_TRANSPORT_ERRORS as exc:
+            # See ``stream``: transport failures (incl. a mid-stream server
+            # disconnect) map to a clean error; the set is kept narrow so
+            # cancellation still propagates.
             raise EngineConnectionError(
                 f"{self.engine_id} engine not reachable at {self._host}"
             ) from exc
@@ -394,6 +329,9 @@ class _OpenAICompatibleEngine(InferenceEngine):
 
     def close(self) -> None:
         self._client.close()
+        self._close_async_client()
 
 
+# ``EngineContextLengthError`` moved to ``openjarvis.engine._base``; re-exported
+# here for callers/tests that import it from this module.
 __all__ = ["_OpenAICompatibleEngine", "EngineContextLengthError"]

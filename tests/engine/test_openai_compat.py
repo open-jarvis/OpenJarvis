@@ -298,3 +298,58 @@ class TestStreamIsAsyncAndBounded:
         # and did not masquerade as a context-length error.
         assert tokens == ["Hi"]
         assert not isinstance(excinfo.value, EngineContextLengthError)
+
+    @pytest.mark.asyncio
+    async def test_unrelated_400_is_not_context_error(self) -> None:
+        # PIN: the context-length markers are anchored on "context" so generic
+        # 400 bodies containing phrases like "please reduce" (max_tokens
+        # validation, rate limiting, oversized images) are NOT misclassified
+        # as "conversation too long" — that message would send the user off to
+        # shorten a conversation that isn't the problem.
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                400,
+                text=(
+                    "Invalid max_tokens: the maximum number of tokens you can "
+                    "request is 4096; please reduce max_tokens and retry."
+                ),
+            )
+
+        engine = VLLMEngine(host="http://localhost:8000")
+        engine._async_transport = httpx.MockTransport(handler)
+        with pytest.raises(EngineConnectionError) as excinfo:
+            async for _ in engine.stream(
+                [Message(role=Role.USER, content="Hello")], model="m"
+            ):
+                pass
+        assert not isinstance(excinfo.value, EngineContextLengthError)
+
+    @pytest.mark.asyncio
+    async def test_async_client_is_reused_across_streams(self) -> None:
+        # PIN: consecutive streams on the same event loop share one AsyncClient
+        # (connection pooling). A per-call client would pay a fresh TCP/TLS
+        # handshake on every conversation turn.
+        engine = VLLMEngine(host="http://localhost:8000")
+        engine._async_transport = _sse_transport(
+            [
+                'data: {"choices":[{"delta":{"content":"Hi"}}]}',
+                "data: [DONE]",
+            ]
+        )
+
+        async def one_turn() -> list[str]:
+            return [
+                tok
+                async for tok in engine.stream(
+                    [Message(role=Role.USER, content="Hello")], model="m"
+                )
+            ]
+
+        assert await one_turn() == ["Hi"]
+        first_client = engine._async_client
+        assert first_client is not None and not first_client.is_closed
+        assert await one_turn() == ["Hi"]
+        assert engine._async_client is first_client
+        # close() tears the shared client down with the sync one.
+        engine.close()
+        assert engine._async_client is None

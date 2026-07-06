@@ -6,7 +6,7 @@ import json
 import logging
 import os
 from collections.abc import AsyncIterator, Sequence
-from typing import Any, Dict, List, NoReturn
+from typing import Any, Dict, List
 
 import httpx
 
@@ -17,6 +17,10 @@ from openjarvis.engine._base import (
     InferenceEngine,
     estimate_prompt_tokens,
     messages_to_dicts,
+)
+from openjarvis.engine._http_async import (
+    STREAM_TRANSPORT_ERRORS,
+    AsyncHTTPEngineMixin,
 )
 from openjarvis.engine._stubs import StreamChunk
 
@@ -80,10 +84,14 @@ def _default_num_ctx() -> int:
 
 
 @EngineRegistry.register("ollama")
-class OllamaEngine(InferenceEngine):
+class OllamaEngine(AsyncHTTPEngineMixin, InferenceEngine):
     """Ollama backend via its native HTTP API."""
 
     engine_id = "ollama"
+
+    # Ollama has no context-length overflow signal in its 400 bodies, so the
+    # shared ``_raise_stream_http_error`` keeps its default (no
+    # ``EngineContextLengthError`` branch, unlike the OpenAI-compat engines).
 
     _DEFAULT_HOST = "http://localhost:11434"
 
@@ -98,9 +106,9 @@ class OllamaEngine(InferenceEngine):
             env_host = os.environ.get("OLLAMA_HOST")
             host = env_host or self._DEFAULT_HOST
         self._host = host.rstrip("/")
-        # Retained for the async streaming paths (a per-call ``AsyncClient`` is built
-        # below) so a wedged token read is bounded by ``timeout`` instead of hanging
-        # the single event loop for the httpx default.
+        # Used by the shared async streaming plumbing (AsyncHTTPEngineMixin) so a
+        # wedged token read is bounded by ``timeout`` instead of hanging the
+        # single event loop for the httpx default.
         self._timeout = timeout
         # Injection seam for tests: an ``httpx.MockTransport`` swapped in here drives
         # the async stream path with no real Ollama server. ``None`` in production so
@@ -109,37 +117,6 @@ class OllamaEngine(InferenceEngine):
         self._client = httpx.Client(base_url=self._host, timeout=timeout)
         # Last stream usage — captured from Ollama's final chunk
         self._last_stream_usage: Dict[str, int] = {}
-
-    def _make_async_client(self) -> httpx.AsyncClient:
-        """Build a per-call async client that honours the configured timeout.
-
-        Mirrors ``_OpenAICompatibleEngine._make_async_client``: a fresh client per
-        stream keeps the async lifecycle fully self-contained (opened and closed by
-        ``async with``) so a wedged upstream read is bounded by ``timeout`` and never
-        blocks the event loop between tokens.
-        """
-        return httpx.AsyncClient(
-            base_url=self._host,
-            timeout=self._timeout,
-            transport=self._async_transport,
-        )
-
-    def _raise_stream_http_error(self, status: int, detail: str) -> NoReturn:
-        """Map a non-success streaming HTTP response to a clean engine error.
-
-        Mirrors ``_OpenAICompatibleEngine._raise_stream_http_error`` so the
-        Ollama stream paths surface the same ``EngineConnectionError`` type and
-        message shape as the OpenAI-compat engine, instead of leaking a raw
-        ``httpx.HTTPStatusError`` from ``raise_for_status()``. Ollama has no
-        context-length overflow signal, so there is no
-        ``EngineContextLengthError`` branch here (unlike the compat helper).
-        """
-        detail = (detail or "").strip()
-        detail_suffix = f": {detail}" if detail else ""
-        raise EngineConnectionError(
-            f"{self.engine_id} engine at {self._host} returned HTTP "
-            f"{status}{detail_suffix}"
-        )
 
     def generate(
         self,
@@ -302,65 +279,54 @@ class OllamaEngine(InferenceEngine):
         elif kwargs["think"] is not None:
             payload["think"] = kwargs["think"]
         try:
-            # ASYNC streaming: a per-call ``httpx.AsyncClient`` + ``aiter_lines``
-            # never blocks the event loop between tokens (the previous SYNC
-            # ``self._client`` + ``iter_lines`` inside this ``async def`` blocked the
-            # single uvicorn worker on every inter-token wait, serializing all
+            # ASYNC streaming: ``httpx.AsyncClient`` + ``aiter_lines`` never
+            # blocks the event loop between tokens (the previous SYNC
+            # ``self._client`` + ``iter_lines`` inside this ``async def`` blocked
+            # the single uvicorn worker on every inter-token wait, serializing all
             # concurrent chats and letting one wedged read freeze the whole API).
-            async with self._make_async_client() as client:
-                async with client.stream(
-                    "POST", "/api/chat", json=payload
-                ) as resp:
-                    # ``not is_success`` covers 3xx as well as 4xx/5xx and maps
-                    # to ``EngineConnectionError`` (matching the OpenAI-compat
-                    # path) instead of leaking a raw ``httpx.HTTPStatusError``.
-                    # With redirects off (the default) an unexpected 3xx would
-                    # otherwise fall through to ``aiter_lines`` and surface as a
-                    # silent EMPTY stream rather than a clean engine error.
-                    if not resp.is_success:
-                        # Read the (short) error body before touching ``.text``:
-                        # a streaming response is otherwise unread.
-                        await resp.aread()
-                        self._raise_stream_http_error(
-                            resp.status_code, resp.text
+            # The shared client keeps pooled connections across turns.
+            client = self._get_async_client()
+            async with client.stream("POST", "/api/chat", json=payload) as resp:
+                # ``not is_success`` covers 3xx as well as 4xx/5xx and maps
+                # to ``EngineConnectionError`` (matching the OpenAI-compat
+                # path) instead of leaking a raw ``httpx.HTTPStatusError``.
+                # With redirects off (the default) an unexpected 3xx would
+                # otherwise fall through to ``aiter_lines`` and surface as a
+                # silent EMPTY stream rather than a clean engine error.
+                if not resp.is_success:
+                    # Read the (short) error body before touching ``.text``:
+                    # a streaming response is otherwise unread.
+                    await resp.aread()
+                    self._raise_stream_http_error(resp.status_code, resp.text)
+                async for line in resp.aiter_lines():
+                    if not line.strip():
+                        continue
+                    try:
+                        chunk = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    content = chunk.get("message", {}).get("content", "")
+                    if content:
+                        yield content
+                    if chunk.get("done", False):
+                        reported_prompt = chunk.get("prompt_eval_count", 0)
+                        est_prompt = estimate_prompt_tokens(messages)
+                        full_prompt = max(reported_prompt, est_prompt)
+                        evaluated = (
+                            reported_prompt if reported_prompt > 0 else full_prompt
                         )
-                    async for line in resp.aiter_lines():
-                        if not line.strip():
-                            continue
-                        try:
-                            chunk = json.loads(line)
-                        except json.JSONDecodeError:
-                            continue
-                        content = chunk.get("message", {}).get("content", "")
-                        if content:
-                            yield content
-                        if chunk.get("done", False):
-                            reported_prompt = chunk.get("prompt_eval_count", 0)
-                            est_prompt = estimate_prompt_tokens(messages)
-                            full_prompt = max(reported_prompt, est_prompt)
-                            evaluated = (
-                                reported_prompt
-                                if reported_prompt > 0
-                                else full_prompt
-                            )
-                            comp = chunk.get("eval_count", 0)
-                            self._last_stream_usage = {
-                                "prompt_tokens": full_prompt,
-                                "prompt_tokens_evaluated": evaluated,
-                                "completion_tokens": comp,
-                                "total_tokens": full_prompt + comp,
-                            }
-                            break
-        except (
-            httpx.ConnectError,
-            httpx.TimeoutException,
-            httpx.RemoteProtocolError,
-            httpx.ReadError,
-        ) as exc:
-            # ``RemoteProtocolError``/``ReadError`` cover a server dying MID-STREAM
-            # (peer closed between tokens); kept exactly this narrow on purpose so
-            # ``asyncio.CancelledError``/``GeneratorExit`` (not TransportError
-            # subclasses) keep propagating for correct cancellation.
+                        comp = chunk.get("eval_count", 0)
+                        self._last_stream_usage = {
+                            "prompt_tokens": full_prompt,
+                            "prompt_tokens_evaluated": evaluated,
+                            "completion_tokens": comp,
+                            "total_tokens": full_prompt + comp,
+                        }
+                        break
+        except STREAM_TRANSPORT_ERRORS as exc:
+            # Transport failures (incl. a mid-stream server disconnect) map to a
+            # clean error; the set is kept narrow (see STREAM_TRANSPORT_ERRORS)
+            # so cancellation still propagates.
             raise EngineConnectionError(
                 f"Ollama not reachable at {self._host}"
             ) from exc
@@ -426,122 +392,110 @@ class OllamaEngine(InferenceEngine):
     ) -> AsyncIterator[StreamChunk]:
         """Execute the streaming request and yield parsed StreamChunks."""
         try:
-            # ASYNC streaming (see ``stream``): per-call ``AsyncClient`` +
+            # ASYNC streaming (see ``stream``): shared ``AsyncClient`` +
             # ``aiter_lines`` so rich streaming never stalls the event loop and
             # honours ``timeout``.
-            async with self._make_async_client() as client:
-                async with client.stream(
-                    "POST", "/api/chat", json=payload
-                ) as resp:
-                    if resp.status_code == 400 and retry_without_tools:
-                        # Model doesn't support tools — retry without them.
-                        # PRESERVED: this specific 400 path must still trigger the
-                        # tools-less retry; only OTHER non-2xx responses map to
-                        # EngineConnectionError below.
-                        payload.pop("tools", None)
-                        async for c in self._run_stream(
-                            payload, messages, retry_without_tools=False
-                        ):
-                            yield c
-                        return
-                    # ``not is_success`` covers 3xx as well as 4xx/5xx and maps
-                    # to ``EngineConnectionError`` (matching the OpenAI-compat
-                    # path) instead of leaking a raw ``httpx.HTTPStatusError``.
-                    # With redirects off (the default) an unexpected 3xx would
-                    # otherwise fall through to ``aiter_lines`` and surface as a
-                    # silent EMPTY stream rather than a clean engine error.
-                    if not resp.is_success:
-                        await resp.aread()
-                        self._raise_stream_http_error(
-                            resp.status_code, resp.text
+            client = self._get_async_client()
+            async with client.stream("POST", "/api/chat", json=payload) as resp:
+                if resp.status_code == 400 and retry_without_tools:
+                    # Model doesn't support tools — retry without them.
+                    # PRESERVED: this specific 400 path must still trigger the
+                    # tools-less retry; only OTHER non-2xx responses map to
+                    # EngineConnectionError below.
+                    payload.pop("tools", None)
+                    async for c in self._run_stream(
+                        payload, messages, retry_without_tools=False
+                    ):
+                        yield c
+                    return
+                # ``not is_success`` covers 3xx as well as 4xx/5xx and maps
+                # to ``EngineConnectionError`` (matching the OpenAI-compat
+                # path) instead of leaking a raw ``httpx.HTTPStatusError``.
+                # With redirects off (the default) an unexpected 3xx would
+                # otherwise fall through to ``aiter_lines`` and surface as a
+                # silent EMPTY stream rather than a clean engine error.
+                if not resp.is_success:
+                    await resp.aread()
+                    self._raise_stream_http_error(resp.status_code, resp.text)
+
+                finish_reason: str | None = None
+                async for line in resp.aiter_lines():
+                    if not line.strip():
+                        continue
+                    try:
+                        chunk = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+
+                    message = chunk.get("message", {}) or {}
+                    content = message.get("content", "")
+                    raw_tool_calls = message.get("tool_calls") or []
+
+                    if content:
+                        yield StreamChunk(content=content)
+
+                    if raw_tool_calls:
+                        # Ollama emits fully-formed tool_calls in a single
+                        # chunk (not fragmented). Convert to the
+                        # OpenAI-delta fragment shape that agent_manager_routes
+                        # expects in _merge_tool_call_fragments.
+                        fragments: List[Dict[str, Any]] = []
+                        for tc in raw_tool_calls:
+                            fn = tc.get("function", {}) or {}
+                            raw_args = fn.get("arguments", "{}")
+                            if _is_control_token_only_args(raw_args):
+                                logger.warning(
+                                    "Dropping Qwen3 control-token tool call %s(%r)",
+                                    fn.get("name", ""),
+                                    raw_args,
+                                )
+                                continue
+                            args_str = (
+                                json.dumps(raw_args)
+                                if isinstance(raw_args, dict)
+                                else str(raw_args)
+                            )
+                            i = len(fragments)
+                            fragments.append(
+                                {
+                                    "index": i,
+                                    "id": tc.get("id", f"call_{i}"),
+                                    "type": "function",
+                                    "function": {
+                                        "name": fn.get("name", ""),
+                                        "arguments": args_str,
+                                    },
+                                }
+                            )
+                        if fragments:
+                            yield StreamChunk(tool_calls=fragments)
+                            finish_reason = "tool_calls"
+
+                    if chunk.get("done", False):
+                        reported_prompt = chunk.get("prompt_eval_count", 0)
+                        est_prompt = estimate_prompt_tokens(messages)
+                        full_prompt = max(reported_prompt, est_prompt)
+                        evaluated = (
+                            reported_prompt if reported_prompt > 0 else full_prompt
                         )
-
-                    finish_reason: str | None = None
-                    async for line in resp.aiter_lines():
-                        if not line.strip():
-                            continue
-                        try:
-                            chunk = json.loads(line)
-                        except json.JSONDecodeError:
-                            continue
-
-                        message = chunk.get("message", {}) or {}
-                        content = message.get("content", "")
-                        raw_tool_calls = message.get("tool_calls") or []
-
-                        if content:
-                            yield StreamChunk(content=content)
-
-                        if raw_tool_calls:
-                            # Ollama emits fully-formed tool_calls in a single
-                            # chunk (not fragmented). Convert to the
-                            # OpenAI-delta fragment shape that agent_manager_routes
-                            # expects in _merge_tool_call_fragments.
-                            fragments: List[Dict[str, Any]] = []
-                            for tc in raw_tool_calls:
-                                fn = tc.get("function", {}) or {}
-                                raw_args = fn.get("arguments", "{}")
-                                if _is_control_token_only_args(raw_args):
-                                    logger.warning(
-                                        "Dropping Qwen3 control-token tool call "
-                                        "%s(%r)",
-                                        fn.get("name", ""),
-                                        raw_args,
-                                    )
-                                    continue
-                                args_str = (
-                                    json.dumps(raw_args)
-                                    if isinstance(raw_args, dict)
-                                    else str(raw_args)
-                                )
-                                i = len(fragments)
-                                fragments.append(
-                                    {
-                                        "index": i,
-                                        "id": tc.get("id", f"call_{i}"),
-                                        "type": "function",
-                                        "function": {
-                                            "name": fn.get("name", ""),
-                                            "arguments": args_str,
-                                        },
-                                    }
-                                )
-                            if fragments:
-                                yield StreamChunk(tool_calls=fragments)
-                                finish_reason = "tool_calls"
-
-                        if chunk.get("done", False):
-                            reported_prompt = chunk.get("prompt_eval_count", 0)
-                            est_prompt = estimate_prompt_tokens(messages)
-                            full_prompt = max(reported_prompt, est_prompt)
-                            evaluated = (
-                                reported_prompt
-                                if reported_prompt > 0
-                                else full_prompt
-                            )
-                            comp = chunk.get("eval_count", 0)
-                            self._last_stream_usage = {
-                                "prompt_tokens": full_prompt,
-                                "prompt_tokens_evaluated": evaluated,
-                                "completion_tokens": comp,
-                                "total_tokens": full_prompt + comp,
-                            }
-                            if finish_reason is None:
-                                finish_reason = chunk.get("done_reason") or "stop"
-                            yield StreamChunk(
-                                finish_reason=finish_reason,
-                                usage=dict(self._last_stream_usage),
-                            )
-                            break
-        except (
-            httpx.ConnectError,
-            httpx.TimeoutException,
-            httpx.RemoteProtocolError,
-            httpx.ReadError,
-        ) as exc:
-            # See ``stream``: ``RemoteProtocolError``/``ReadError`` map a mid-stream
-            # server disconnect to a clean error; kept narrow so cancellation still
-            # propagates.
+                        comp = chunk.get("eval_count", 0)
+                        self._last_stream_usage = {
+                            "prompt_tokens": full_prompt,
+                            "prompt_tokens_evaluated": evaluated,
+                            "completion_tokens": comp,
+                            "total_tokens": full_prompt + comp,
+                        }
+                        if finish_reason is None:
+                            finish_reason = chunk.get("done_reason") or "stop"
+                        yield StreamChunk(
+                            finish_reason=finish_reason,
+                            usage=dict(self._last_stream_usage),
+                        )
+                        break
+        except STREAM_TRANSPORT_ERRORS as exc:
+            # See ``stream``: transport failures (incl. a mid-stream server
+            # disconnect) map to a clean error; the set is kept narrow so
+            # cancellation still propagates.
             raise EngineConnectionError(
                 f"Ollama not reachable at {self._host}"
             ) from exc
@@ -574,6 +528,7 @@ class OllamaEngine(InferenceEngine):
 
     def close(self) -> None:
         self._client.close()
+        self._close_async_client()
 
 
 __all__ = ["OllamaEngine"]
