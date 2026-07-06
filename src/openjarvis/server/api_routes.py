@@ -306,9 +306,7 @@ async def memory_index(req: MemoryIndexRequest, request: Request):
                 for d in workspace.split(os.pathsep)
                 if d.strip()
             ]
-            if not any(
-                target == root or root in target.parents for root in roots
-            ):
+            if not any(target == root or root in target.parents for root in roots):
                 raise HTTPException(
                     status_code=403,
                     detail="Path is outside the allowed workspace directories.",
@@ -901,7 +899,12 @@ async def transcribe_speech(request: Request):
     ext = filename.rsplit(".", 1)[-1] if "." in filename else "wav"
 
     try:
-        result = backend.transcribe(audio_bytes, format=ext, language=language or None)
+        result = await asyncio.to_thread(
+            backend.transcribe,
+            audio_bytes,
+            format=ext,
+            language=language or None,
+        )
     except Exception as exc:
         logger.exception("Speech transcription failed")
         raise HTTPException(

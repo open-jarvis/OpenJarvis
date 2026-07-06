@@ -60,8 +60,7 @@ class TestChunkMarkdown:
 
     def test_single_section_without_splits(self):
         md = (
-            "# Title\n\n"
-            "Some body paragraph with a few sentences. Enough to be a chunk."
+            "# Title\n\nSome body paragraph with a few sentences. Enough to be a chunk."
         )
         chunks = chunk_markdown(md, source="t.md")
         assert len(chunks) == 1
@@ -203,8 +202,7 @@ class TestDedupeChunks:
         chunks = [_mk(a, "a.md"), _mk(b, "b.md"), _mk(c, "c.md")]
         survivors, report = dedupe_chunks(chunks)
         assert len(survivors) == 1, (
-            f"got {len(survivors)} survivors — "
-            "expected single cluster from boilerplate"
+            f"got {len(survivors)} survivors — expected single cluster from boilerplate"
         )
         assert report.removed_count == 2
 
@@ -340,7 +338,8 @@ def test_paraphrase_matches_semantically(indexed_backend):
     facts we need (CPU-only, llama.cpp).
     """
     results = indexed_backend.retrieve(
-        "can I run this on a laptop without a gpu?", top_k=3,
+        "can I run this on a laptop without a gpu?",
+        top_k=3,
     )
     assert results, "expected at least one hit"
     # Top-3 should all be from the topical docs (engines.md or hardware.md)
@@ -356,7 +355,8 @@ def test_paraphrase_matches_semantically(indexed_backend):
 def test_engine_query_finds_engines_doc(indexed_backend):
     """Semantic query about inference engines should find engines.md."""
     results = indexed_backend.retrieve(
-        "which backend is best for high throughput serving?", top_k=3,
+        "which backend is best for high throughput serving?",
+        top_k=3,
     )
     assert results
     assert results[0].source == "engines.md"

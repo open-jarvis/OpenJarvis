@@ -212,9 +212,7 @@ class TestAskAgentOption:
         )
         assert result.exit_code != 0
 
-    def test_no_agent_flag_falls_back_to_config_default_agent(
-        self, runner, mock_setup
-    ):
+    def test_no_agent_flag_falls_back_to_config_default_agent(self, runner, mock_setup):
         """When --agent is omitted, ``config.agent.default_agent`` is used.
 
         The default ``JarvisConfig`` sets ``default_agent = "simple"``, so
@@ -227,9 +225,7 @@ class TestAskAgentOption:
         assert result.exit_code == 0
         assert "Hello from engine" in result.output
 
-    def test_explicit_empty_agent_opts_out_of_agent_mode(
-        self, runner, mock_setup
-    ):
+    def test_explicit_empty_agent_opts_out_of_agent_mode(self, runner, mock_setup):
         """``--agent ""`` is the explicit opt-out: use direct-to-engine."""
         result = runner.invoke(cli, ["ask", "--agent", "", "Hello"])
         assert result.exit_code == 0
@@ -374,9 +370,7 @@ class TestPersonaFilesReachModel:
         _register_tools()
         with (
             patch.object(_ask_mod, "load_config", return_value=cfg),
-            patch.object(
-                _ask_mod, "get_engine", return_value=("mock", engine)
-            ),
+            patch.object(_ask_mod, "get_engine", return_value=("mock", engine)),
             patch.object(_ask_mod, "discover_engines", return_value=[("mock", engine)]),
             patch.object(
                 _ask_mod, "discover_models", return_value={"mock": ["test-model"]}
@@ -391,9 +385,7 @@ class TestPersonaFilesReachModel:
         engine.generate.assert_called()
         call_args = engine.generate.call_args
         messages = (
-            call_args.args[0]
-            if call_args.args
-            else call_args.kwargs.get("messages")
+            call_args.args[0] if call_args.args else call_args.kwargs.get("messages")
         )
         assert messages is not None and len(messages) >= 2
         system_messages = [m for m in messages if str(m.role).endswith("SYSTEM")]
@@ -423,9 +415,7 @@ class TestPersonaFilesReachModel:
         _register_tools()
         with (
             patch.object(_ask_mod, "load_config", return_value=cfg),
-            patch.object(
-                _ask_mod, "get_engine", return_value=("mock", engine)
-            ),
+            patch.object(_ask_mod, "get_engine", return_value=("mock", engine)),
             patch.object(_ask_mod, "discover_engines", return_value=[("mock", engine)]),
             patch.object(
                 _ask_mod, "discover_models", return_value={"mock": ["test-model"]}

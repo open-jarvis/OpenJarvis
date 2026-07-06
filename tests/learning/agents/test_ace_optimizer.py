@@ -114,9 +114,7 @@ class TestACEOptimizerOptimize:
 
         with patch.object(ace_optimizer, "HAS_ACE", False):
             cfg = ACEOptimizerConfig(min_traces=5)
-            result = ace_optimizer.ACEAgentOptimizer(cfg).optimize(
-                self._store_with(20)
-            )
+            result = ace_optimizer.ACEAgentOptimizer(cfg).optimize(self._store_with(20))
         assert result["status"] == "error"
         assert "learning-ace" in result["reason"]
 
@@ -152,17 +150,16 @@ class TestACEOptimizerOptimize:
                 save_dir = Path(kwargs["config"]["save_dir"])
                 (save_dir / "final_playbook.txt").write_text(playbook_text)
 
-        with patch.object(ace_optimizer, "HAS_ACE", True), patch.object(
-            ace_optimizer, "ace", MagicMock(ACE=_FakeACE)
+        with (
+            patch.object(ace_optimizer, "HAS_ACE", True),
+            patch.object(ace_optimizer, "ace", MagicMock(ACE=_FakeACE)),
         ):
             cfg = ACEOptimizerConfig(
                 min_traces=5,
                 save_dir=str(tmp_path),
                 task_name="unittest",
             )
-            result = ace_optimizer.ACEAgentOptimizer(cfg).optimize(
-                self._store_with(20)
-            )
+            result = ace_optimizer.ACEAgentOptimizer(cfg).optimize(self._store_with(20))
 
         assert result["status"] == "completed"
         assert result["traces_used"] == 20
@@ -184,16 +181,15 @@ class TestACEOptimizerOptimize:
             def run(self, **kwargs):  # writes nothing
                 pass
 
-        with patch.object(ace_optimizer, "HAS_ACE", True), patch.object(
-            ace_optimizer, "ace", MagicMock(ACE=_SilentACE)
+        with (
+            patch.object(ace_optimizer, "HAS_ACE", True),
+            patch.object(ace_optimizer, "ace", MagicMock(ACE=_SilentACE)),
         ):
             cfg = ACEOptimizerConfig(
                 min_traces=5,
                 save_dir=str(tmp_path),
             )
-            result = ace_optimizer.ACEAgentOptimizer(cfg).optimize(
-                self._store_with(20)
-            )
+            result = ace_optimizer.ACEAgentOptimizer(cfg).optimize(self._store_with(20))
 
         assert result["status"] == "error"
         assert "without writing" in result["reason"]
@@ -209,16 +205,15 @@ class TestACEOptimizerOptimize:
             def run(self, **kwargs):
                 raise RuntimeError("API key invalid")
 
-        with patch.object(ace_optimizer, "HAS_ACE", True), patch.object(
-            ace_optimizer, "ace", MagicMock(ACE=_BoomACE)
+        with (
+            patch.object(ace_optimizer, "HAS_ACE", True),
+            patch.object(ace_optimizer, "ace", MagicMock(ACE=_BoomACE)),
         ):
             cfg = ACEOptimizerConfig(
                 min_traces=5,
                 save_dir=str(tmp_path),
             )
-            result = ace_optimizer.ACEAgentOptimizer(cfg).optimize(
-                self._store_with(20)
-            )
+            result = ace_optimizer.ACEAgentOptimizer(cfg).optimize(self._store_with(20))
 
         assert result["status"] == "error"
         assert "API key invalid" in result["reason"]

@@ -82,9 +82,7 @@ def load_mcp_tools_from_config(
 
     for server_cfg in server_list:
         try:
-            cfg = (
-                json.loads(server_cfg) if isinstance(server_cfg, str) else server_cfg
-            )
+            cfg = json.loads(server_cfg) if isinstance(server_cfg, str) else server_cfg
             name = cfg.get("name", "<unnamed>")
             url = cfg.get("url")
             token = cfg.get("token")

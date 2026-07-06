@@ -41,8 +41,12 @@ from .orchestrator import run_orchestrator
 from .stage_router import StageSkillHandbook
 
 _VALID_STRATEGIES = {
-    "none", "router_decides", "analyze_model_decide",
-    "weighted_avg", "weakest_skill", "strongest_skill",
+    "none",
+    "router_decides",
+    "analyze_model_decide",
+    "weighted_avg",
+    "weakest_skill",
+    "strongest_skill",
 }
 
 
@@ -146,7 +150,11 @@ class SkillOrchestraAgent(LocalCloudAgent):
             strategy = "none"
 
         return run_orchestrator(
-            self, input, cfg=cfg, handbook=handbook, strategy=strategy,
+            self,
+            input,
+            cfg=cfg,
+            handbook=handbook,
+            strategy=strategy,
         )
 
 

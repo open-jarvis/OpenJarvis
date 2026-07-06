@@ -243,7 +243,11 @@ export function InputArea() {
 
     try {
       if (deepResearch) {
-        for await (const ev of streamResearch(content, controller.signal)) {
+        for await (const ev of streamResearch(
+          content,
+          selectedModel,
+          controller.signal,
+        )) {
           if (ev.type === 'search_call') {
             const trace: ResearchSearchTrace = {
               id: generateId(),

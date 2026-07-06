@@ -8,6 +8,8 @@ use tokio::sync::Mutex;
 
 const OLLAMA_PORT: u16 = 11434;
 const JARVIS_PORT: u16 = 8000;
+const DESKTOP_UV_SYNC_COMMAND: &str =
+    "uv sync --extra desktop --extra inference-cloud --extra inference-google --group desktop-native";
 
 /// Small, fast model used when startup needs a default Ollama tag.
 const STARTUP_MODEL: &str = "qwen3.5:4b";
@@ -731,13 +733,21 @@ fn format_uv_sync_failure(
     let code = exit_code
         .map(|c| c.to_string())
         .unwrap_or_else(|| "unknown".to_string());
+    let tail = uv_sync_stderr_tail(stderr, 800);
+    let rust_hint = if looks_like_rust_extension_build_error(stderr) {
+        format!("\n\n{}", rust_toolchain_install_hint())
+    } else {
+        String::new()
+    };
     format!(
         "`uv sync` failed in {} (exit {}). Last output:\n\n{}\n\n\
          Try opening a terminal in that directory and running \
-         `uv sync --extra desktop` manually for the full output.",
+         `{}` manually for the full output.{}",
         root.display(),
         code,
-        uv_sync_stderr_tail(stderr, 800),
+        tail,
+        DESKTOP_UV_SYNC_COMMAND,
+        rust_hint,
     )
 }
 
@@ -784,6 +794,122 @@ fn format_uv_sync_spawn_error(root: &std::path::Path, uv_bin: &str, err: &str) -
         uv_bin,
         root.display(),
     )
+}
+
+fn rust_toolchain_install_hint() -> &'static str {
+    "The desktop app needs the Rust toolchain to build `openjarvis_rust`. \
+     Install Rust from https://rustup.rs. On Windows, also install Visual Studio \
+     Build Tools with the C++ workload, then relaunch."
+}
+
+fn looks_like_rust_extension_build_error(stderr: &str) -> bool {
+    let lower = stderr.to_ascii_lowercase();
+    [
+        "openjarvis-rust",
+        "openjarvis_rust",
+        "maturin",
+        "cargo",
+        "rustc",
+        "link.exe",
+        "visual studio",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
+}
+
+fn format_missing_rust_toolchain() -> String {
+    format!(
+        "Could not find Rust's `cargo` command. {}\n\n\
+         If Rust is already installed, close and relaunch the desktop app so \
+         PATH includes `~/.cargo/bin`.",
+        rust_toolchain_install_hint(),
+    )
+}
+
+fn format_extension_import_failure(root: &std::path::Path, stderr: &str) -> String {
+    let tail = uv_sync_stderr_tail(stderr, 4000);
+    format!(
+        "`openjarvis_rust` is still not importable after building. Last output:\n\n{}\n\n\
+         Run these manually for the full build log:\n\n\
+           cd {}\n\
+           {}\n\
+           uv run python -c \"import openjarvis_rust\"",
+        if tail.is_empty() {
+            "(no stderr output)"
+        } else {
+            &tail
+        },
+        root.display(),
+        DESKTOP_UV_SYNC_COMMAND,
+    )
+}
+
+fn add_cargo_bin_to_path(cmd: &mut tokio::process::Command) {
+    let mut paths: Vec<std::path::PathBuf> = std::env::var_os("PATH")
+        .map(|path| std::env::split_paths(&path).collect())
+        .unwrap_or_default();
+    paths.insert(
+        0,
+        std::path::PathBuf::from(home_dir())
+            .join(".cargo")
+            .join("bin"),
+    );
+    if let Ok(joined) = std::env::join_paths(paths) {
+        cmd.env("PATH", joined);
+    }
+}
+
+async fn verify_openjarvis_rust_extension(
+    root: &std::path::Path,
+    uv_bin: &str,
+) -> Result<(), String> {
+    let mut cmd = tokio::process::Command::new(uv_bin);
+    cmd.args(["run", "python", "-c", "import openjarvis_rust"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .current_dir(root);
+    prepare_subprocess_for_appimage(&mut cmd);
+    add_cargo_bin_to_path(&mut cmd);
+
+    match cmd.output().await {
+        Ok(out) if out.status.success() => Ok(()),
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            Err(format_extension_import_failure(root, &stderr))
+        }
+        Err(e) => Err(format!(
+            "Could not verify `openjarvis_rust`: {}. Verify uv is installed at `{}`.",
+            e, uv_bin
+        )),
+    }
+}
+
+fn port_owner_hint() -> String {
+    if cfg!(target_os = "windows") {
+        format!("netstat -ano | findstr :{}", JARVIS_PORT)
+    } else {
+        format!("lsof -i :{}", JARVIS_PORT)
+    }
+}
+
+fn format_port_unavailable(port: u16, reason: &str) -> String {
+    format!(
+        "Port {} is not available: {}. Stop the process using that port or \
+         change the OpenJarvis port, then relaunch.\n\nTo identify it:\n  {}",
+        port,
+        reason,
+        port_owner_hint(),
+    )
+}
+
+fn check_jarvis_port_available() -> Result<(), String> {
+    match std::net::TcpListener::bind(("127.0.0.1", JARVIS_PORT)) {
+        Ok(listener) => {
+            drop(listener);
+            Ok(())
+        }
+        Err(err) => Err(format_port_unavailable(JARVIS_PORT, &err.to_string())),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1171,11 +1297,6 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
                 // Something else (a different web server, a stale process,
                 // a 4xx-returning instance) is on our port. Don't kill it —
                 // give the user actionable info instead.
-                let lsof_hint = if cfg!(target_os = "windows") {
-                    format!("netstat -ano | findstr :{}", JARVIS_PORT)
-                } else {
-                    format!("lsof -i :{}", JARVIS_PORT)
-                };
                 let mut s = status.lock().await;
                 s.error = Some(format!(
                     "Port {} is already in use by another service (it answered \
@@ -1183,7 +1304,7 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
                      OpenJarvis port, then relaunch.\n\nTo identify it:\n  {}",
                     JARVIS_PORT,
                     resp.status(),
-                    lsof_hint,
+                    port_owner_hint(),
                 ));
                 return;
             }
@@ -1193,7 +1314,20 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
         }
     }
 
+    if let Err(err) = check_jarvis_port_available() {
+        let mut s = status.lock().await;
+        s.error = Some(err);
+        return;
+    }
+
     let root = project_root.as_ref().unwrap();
+
+    let cargo_bin = resolve_bin("cargo");
+    if !std::path::Path::new(&cargo_bin).exists() && cargo_bin == "cargo" {
+        let mut s = status.lock().await;
+        s.error = Some(format_missing_rust_toolchain());
+        return;
+    }
 
     // Install dependencies automatically (handles fresh clones).
     //
@@ -1220,12 +1354,16 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
             "--extra", "desktop",
             "--extra", "inference-cloud",
             "--extra", "inference-google",
+            // openjarvis_rust lives in a uv dependency group (not the published
+            // `desktop` extra) so pip installs from PyPI don't require it (#584).
+            "--group", "desktop-native",
         ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
         .current_dir(root);
     // Avoid LD_LIBRARY_PATH leak when running inside an AppImage (#455).
     prepare_subprocess_for_appimage(&mut sync_cmd);
+    add_cargo_bin_to_path(&mut sync_cmd);
     let sync_output = sync_cmd.output().await;
     match sync_output {
         Ok(out) if !out.status.success() => {
@@ -1240,6 +1378,16 @@ async fn boot_backend(backend: SharedBackend, status: SharedStatus) {
             return;
         }
         Ok(_) => {} // success — fall through
+    }
+
+    {
+        let mut s = status.lock().await;
+        s.detail = "Verifying Rust extension (openjarvis_rust)...".into();
+    }
+    if let Err(err) = verify_openjarvis_rust_extension(root, &uv_bin).await {
+        let mut s = status.lock().await;
+        s.error = Some(err);
+        return;
     }
 
     {
@@ -2720,11 +2868,12 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        boot_plan, default_local_model, format_uv_sync_failure, format_uv_sync_spawn_error,
-        matching_installed_model, model_names_match, normalize_host, parse_inference_config,
-        parse_ollama_model_names, preferred_installed_model, should_persist_resolved_model,
-        startup_installed_model,
-        upsert_engine_host, uv_sync_stderr_tail, InferenceConfig, SourceKind,
+        boot_plan, default_local_model, format_extension_import_failure,
+        format_missing_rust_toolchain, format_port_unavailable, format_uv_sync_failure,
+        format_uv_sync_spawn_error, matching_installed_model, model_names_match, normalize_host,
+        parse_inference_config, parse_ollama_model_names, preferred_installed_model,
+        should_persist_resolved_model, startup_installed_model, upsert_engine_host,
+        uv_sync_stderr_tail, InferenceConfig, SourceKind, DESKTOP_UV_SYNC_COMMAND,
     };
     use std::path::Path;
 
@@ -2768,7 +2917,7 @@ mod tests {
         assert!(msg.contains("exit 2"));
         assert!(msg.contains("/home/u/.openjarvis/src"));
         assert!(msg.contains("failed to resolve numpy==2.1.3"));
-        assert!(msg.contains("uv sync --extra desktop")); // actionable next step
+        assert!(msg.contains(DESKTOP_UV_SYNC_COMMAND)); // actionable next step
     }
 
     #[test]
@@ -2789,6 +2938,49 @@ mod tests {
         assert!(msg.contains("C:\\Users\\me\\.local\\bin\\uv.exe"));
         assert!(msg.contains("/repo"));
         assert!(msg.contains("No such file or directory"));
+    }
+
+    #[test]
+    fn missing_rust_toolchain_message_names_cargo_and_installer() {
+        let msg = format_missing_rust_toolchain();
+        assert!(msg.contains("cargo"));
+        assert!(msg.contains("https://rustup.rs"));
+        assert!(msg.contains("openjarvis_rust"));
+        assert!(msg.contains("Visual Studio Build Tools"));
+    }
+
+    #[test]
+    fn uv_sync_rust_failure_mentions_toolchain() {
+        let msg = format_uv_sync_failure(
+            Path::new("C:\\Users\\me\\OpenJarvis"),
+            Some(1),
+            "maturin failed: linker `link.exe` not found while building openjarvis-rust",
+        );
+        assert!(msg.contains("exit 1"));
+        assert!(msg.contains("link.exe"));
+        assert!(msg.contains("https://rustup.rs"));
+        assert!(msg.contains("Visual Studio Build Tools"));
+    }
+
+    #[test]
+    fn extension_import_failure_names_verification_command() {
+        let msg = format_extension_import_failure(
+            Path::new("C:\\Users\\me\\OpenJarvis"),
+            "ModuleNotFoundError: No module named 'openjarvis_rust'",
+        );
+        assert!(msg.contains("openjarvis_rust"));
+        assert!(msg.contains(DESKTOP_UV_SYNC_COMMAND));
+        assert!(msg.contains("uv run python -c \"import openjarvis_rust\""));
+        assert!(msg.contains("ModuleNotFoundError"));
+    }
+
+    #[test]
+    fn port_unavailable_message_names_port_and_owner_hint() {
+        let msg = format_port_unavailable(8000, "address already in use");
+        assert!(msg.contains("Port 8000 is not available"));
+        assert!(msg.contains("address already in use"));
+        assert!(msg.contains("To identify it"));
+        assert!(msg.contains("8000"));
     }
 
     #[test]
