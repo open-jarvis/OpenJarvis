@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from typing import Any
@@ -230,8 +231,13 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
     # tools (e.g. injecting MCP tools through this endpoint and wanting
     # the agent to execute them), add an explicit opt-in header rather
     # than removing this guard — silent re-routing is what produced #414.
+    # ``_handle_agent`` (sync ``agent.run()``) and ``_handle_direct`` (sync
+    # ``engine.generate()``) both make blocking upstream calls; run them in a
+    # worker thread so a slow/wedged non-streaming request can't stall the
+    # event loop and every other concurrent request with it.
     if agent is not None and not request_body.tools:
-        response = _handle_agent(
+        response = await asyncio.to_thread(
+            _handle_agent,
             agent,
             model,
             request_body,
@@ -241,7 +247,8 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
         )
     else:
         bus = getattr(request.app.state, "bus", None)
-        response = _handle_direct(
+        response = await asyncio.to_thread(
+            _handle_direct,
             engine,
             model,
             request_body,

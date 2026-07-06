@@ -1268,11 +1268,10 @@ def _loop_local(
             # server walled the call. Compact aggressively (keep_last=1)
             # and retry once. Re-raise on anything else or on a second
             # failure — the runner records the row as errored.
+            from openjarvis.engine._base import looks_like_context_length_error
+
             msg = str(exc)
-            is_ctx = (
-                "maximum context length" in msg
-                or "context length" in msg.lower() and "exceed" in msg.lower()
-            )
+            is_ctx = looks_like_context_length_error(msg)
             if not is_ctx:
                 raise
             _record_event({
