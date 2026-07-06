@@ -489,8 +489,7 @@ class TestOllamaStreamHttpErrorMapping:
             if had_tools:
                 return httpx.Response(400, text="model does not support tools")
             body = (
-                json.dumps({"message": {"content": "recovered"}, "done": True})
-                + "\n"
+                json.dumps({"message": {"content": "recovered"}, "done": True}) + "\n"
             )
             return httpx.Response(200, text=body)
 

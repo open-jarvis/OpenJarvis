@@ -26,6 +26,7 @@ def _sse_transport(sse_lines: list[str]) -> httpx.MockTransport:
 
     return httpx.MockTransport(handler)
 
+
 # ---------------------------------------------------------------------------
 # StreamChunk dataclass tests
 # ---------------------------------------------------------------------------
