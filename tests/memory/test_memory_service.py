@@ -16,6 +16,20 @@ from openjarvis.memory.service import (
 from openjarvis.memory.store import LocalFactStore
 
 
+def _make_retrieval_backend(tmp_path):
+    """Real SQLiteMemory retrieval backend on a temp DB.
+
+    conftest wipes registries between tests, so register manually (mirrors
+    tests/memory/test_sqlite.py).
+    """
+    from openjarvis.core.registry import MemoryRegistry
+    from openjarvis.tools.storage.sqlite import SQLiteMemory
+
+    if not MemoryRegistry.contains("sqlite"):
+        MemoryRegistry.register_value("sqlite", SQLiteMemory)
+    return SQLiteMemory(db_path=tmp_path / "retrieval.db")
+
+
 def _wait_until(predicate, timeout=2.0, interval=0.01):
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -166,6 +180,89 @@ def test_submit_returns_false_when_queue_full(tmp_path):
     finally:
         gate.set()
         svc.stop()
+
+
+def test_process_indexes_new_facts_into_retrieval_backend(tmp_path):
+    """Extracted facts must land in the retrieval store so inference can recall
+    them — otherwise auto-memory is write-only (facts visible in `memory list`
+    but never surfaced by `ask`)."""
+    backend = _make_retrieval_backend(tmp_path)
+    extractor = FakeExtractor(["The user's dog is named Biscuit"])
+    store = LocalFactStore(tmp_path / "facts.jsonl")
+    svc = MemoryService(store, extractor, retrieval_backend=backend)
+
+    svc._process(("My dog is Biscuit", "Nice!"))
+
+    results = backend.retrieve("dog", top_k=5)
+    assert results, "new fact should be retrievable from the backend"
+    assert any("Biscuit" in r.content for r in results)
+
+
+def test_process_does_not_reindex_duplicate_facts(tmp_path):
+    """A fact already in the store must not be indexed again — re-indexing would
+    accumulate duplicate documents in the retrieval store on every restart."""
+    backend = _make_retrieval_backend(tmp_path)
+    extractor = FakeExtractor(["The user's dog is named Biscuit"])
+    store = LocalFactStore(tmp_path / "facts.jsonl")
+    svc = MemoryService(store, extractor, retrieval_backend=backend)
+
+    svc._process(("My dog is Biscuit", "Nice!"))
+    svc._process(("My dog is Biscuit", "Nice!"))
+
+    assert backend.count() == 1
+
+
+def test_process_without_retrieval_backend_still_stores(tmp_path):
+    """No retrieval backend wired → facts are still persisted, no crash."""
+    extractor = FakeExtractor(["User likes hiking"])
+    store = LocalFactStore(tmp_path / "facts.jsonl")
+    svc = MemoryService(store, extractor)  # retrieval_backend omitted
+
+    svc._process(("I love hiking", "Nice!"))
+
+    assert [f.text for f in store.list()] == ["User likes hiking"]
+
+
+def test_process_survives_retrieval_backend_failure(tmp_path):
+    """Indexing is best-effort: a backend that raises must not prevent the fact
+    from being stored, nor propagate out of the worker."""
+
+    class ExplodingBackend:
+        def store(self, *a, **k):
+            raise RuntimeError("backend down")
+
+    extractor = FakeExtractor(["User likes hiking"])
+    store = LocalFactStore(tmp_path / "facts.jsonl")
+    svc = MemoryService(store, extractor, retrieval_backend=ExplodingBackend())
+
+    svc._process(("I love hiking", "Nice!"))  # must not raise
+
+    assert [f.text for f in store.list()] == ["User likes hiking"]
+
+
+def test_build_memory_service_wires_retrieval_backend(tmp_path):
+    """When memory is enabled, the built service gets a retrieval backend so
+    the fact→retrieval bridge is active by default."""
+    # conftest wipes registries; re-register sqlite (as the module does at
+    # import time in real runtime) so the backend can be constructed.
+    from openjarvis.core.registry import MemoryRegistry
+    from openjarvis.tools.storage.sqlite import SQLiteMemory
+
+    if not MemoryRegistry.contains("sqlite"):
+        MemoryRegistry.register_value("sqlite", SQLiteMemory)
+    cfg = SimpleNamespace(
+        memory=StorageConfig(
+            enabled=True,
+            extraction_model="qwen3:14b",
+            facts_path=str(tmp_path / "facts.jsonl"),
+            db_path=str(tmp_path / "memory.db"),
+            default_backend="sqlite",
+            max_facts=10,
+        )
+    )
+    svc = build_memory_service(cfg, object(), "fallback-model")
+    assert isinstance(svc, MemoryService)
+    assert svc._retrieval_backend is not None
 
 
 def test_build_memory_service_disabled_returns_none(tmp_path):

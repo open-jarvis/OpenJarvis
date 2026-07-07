@@ -144,16 +144,21 @@ impl MemoryBackend for SQLiteMemory {
     ) -> Result<Vec<RetrievalResult>, OpenJarvisError> {
         let conn = self.conn.lock();
 
+        // Wrap every term as a quoted FTS5 string literal. FTS5 metacharacters
+        // (apostrophes, quotes, parens, etc.) are otherwise interpreted as
+        // query syntax — an interior apostrophe like "dog's" is a syntax error
+        // that iteration silently swallows into zero results. Quoting makes each
+        // term a phrase whose tokenizer ignores the punctuation, so natural-
+        // language questions match. Embedded double quotes are doubled per the
+        // FTS5 escaping rule; terms that tokenize to nothing are dropped.
         let words: Vec<String> = query
             .split_whitespace()
-            .map(|w| w.trim_matches(|c: char| "?.,!;:'\"()[]{}/ ".contains(c)).to_string())
-            .filter(|w| !w.is_empty())
+            .map(|w| format!("\"{}\"", w.replace('"', "\"\"")))
             .collect();
-        let fts_query = if words.len() == 1 {
-            words[0].clone()
-        } else {
-            words.join(" OR ")
-        };
+        if words.is_empty() {
+            return Ok(Vec::new());
+        }
+        let fts_query = words.join(" OR ");
 
         let mut stmt = conn
             .prepare(
@@ -280,6 +285,32 @@ mod tests {
         let results = mem.retrieve("What medications does Micah take?", 5).unwrap();
         assert!(!results.is_empty(), "query with punctuation should still return results");
         assert!(results[0].score > 0.0);
+    }
+
+    #[test]
+    fn test_sqlite_apostrophe_in_query() {
+        let mem = SQLiteMemory::in_memory().unwrap();
+        mem.store("My dog is named Biscuit", "auto", None).unwrap();
+
+        // An interior apostrophe (possessive) is an FTS5 metacharacter; the raw
+        // term must be quoted or it silently yields zero results (#recall).
+        let results = mem.retrieve("What is my dog's name?", 5).unwrap();
+        assert!(
+            !results.is_empty(),
+            "query containing an apostrophe should still return results"
+        );
+        assert!(results[0].content.contains("Biscuit"));
+    }
+
+    #[test]
+    fn test_sqlite_punctuation_only_query_is_empty_not_error() {
+        let mem = SQLiteMemory::in_memory().unwrap();
+        mem.store("My dog is named Biscuit", "auto", None).unwrap();
+
+        // A query that reduces to nothing but punctuation must return an empty
+        // result set rather than propagating an FTS5 syntax error.
+        let results = mem.retrieve("??? !!! ...", 5).unwrap();
+        assert!(results.is_empty());
     }
 
     #[test]

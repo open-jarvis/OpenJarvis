@@ -39,11 +39,16 @@ class MemoryService:
         extractor: FactExtractor,
         *,
         event_bus: EventBus | None = None,
+        retrieval_backend: Any | None = None,
         max_queue: int = 256,
     ) -> None:
         self._store = store
         self._extractor = extractor
         self._event_bus = event_bus
+        # Optional document/retrieval backend (e.g. SQLiteMemory). Newly stored
+        # facts are mirrored here so inference-time context injection can recall
+        # them — without this bridge the fact store is write-only.
+        self._retrieval_backend = retrieval_backend
         self._subscribed = False
         self._queue: "queue.Queue[Any]" = queue.Queue(maxsize=max(1, max_queue))
         self._thread: Optional[threading.Thread] = None
@@ -158,10 +163,31 @@ class MemoryService:
     def _process(self, job: Any) -> None:
         user_text, assistant_text = job
         facts = self._extractor.extract(user_text, assistant_text)
-        if facts:
-            stored = self._store.add_many(facts, source="auto")
-            if stored:
-                logger.debug("Memory service stored %d new fact(s)", stored)
+        if not facts:
+            return
+        stored = 0
+        for text in facts:
+            # add() dedupes by text, so True means "genuinely new" — index only
+            # those into the retrieval backend to avoid duplicate documents.
+            if self._store.add(text, source="auto"):
+                stored += 1
+                self._index_fact(text)
+        if stored:
+            logger.debug("Memory service stored %d new fact(s)", stored)
+
+    def _index_fact(self, text: str) -> None:
+        """Mirror a newly stored fact into the retrieval backend (best-effort).
+
+        Failures are swallowed: a flaky retrieval backend must never prevent a
+        fact from being persisted nor take down the extraction worker.
+        """
+        backend = self._retrieval_backend
+        if backend is None:
+            return
+        try:
+            backend.store(text, source="memory")
+        except Exception:  # noqa: BLE001 — indexing is best-effort
+            logger.debug("Failed to index fact into retrieval backend", exc_info=True)
 
     # -- store passthroughs -------------------------------------------------
 
@@ -210,7 +236,35 @@ def build_memory_service(
         max_facts=getattr(mem, "max_facts", 1000),
     )
     extractor = FactExtractor(engine, model)
-    return MemoryService(store, extractor, event_bus=event_bus)
+    retrieval_backend = _build_retrieval_backend(mem)
+    return MemoryService(
+        store,
+        extractor,
+        event_bus=event_bus,
+        retrieval_backend=retrieval_backend,
+    )
+
+
+def _build_retrieval_backend(mem: Any) -> Optional[Any]:
+    """Instantiate the document/retrieval backend for fact indexing.
+
+    Mirrors ``cli.ask._get_memory_backend``: returns ``None`` (logged at DEBUG)
+    when the backend is unavailable, so auto-memory degrades to write-only
+    rather than failing to start.
+    """
+    try:
+        import openjarvis.tools.storage  # noqa: F401 — registers backends
+        from openjarvis.core.registry import MemoryRegistry
+
+        key = getattr(mem, "default_backend", "sqlite")
+        if not MemoryRegistry.contains(key):
+            return None
+        if key == "sqlite":
+            return MemoryRegistry.create(key, db_path=getattr(mem, "db_path", ""))
+        return MemoryRegistry.create(key)
+    except Exception as exc:  # noqa: BLE001 — retrieval bridge is optional
+        logger.debug("Retrieval backend unavailable for memory service: %s", exc)
+        return None
 
 
 def publish_completed_exchange(
