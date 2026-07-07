@@ -805,7 +805,7 @@ export function SettingsPage() {
               </p>
               <div className="flex gap-3 mt-3 text-xs">
                 <a
-                  href="https://scalingintelligence.stanford.edu/blogs/openjarvis/"
+                  href="https://openjarvis.stanford.edu/"
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{ color: 'var(--color-accent)' }}

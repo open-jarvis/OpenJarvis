@@ -4,7 +4,7 @@
   <p><i>Personal AI, On Personal Devices.</i></p>
 
   <p>
-    <a href="https://scalingintelligence.stanford.edu/blogs/openjarvis/"><img src="https://img.shields.io/badge/project-OpenJarvis-blue" alt="Project"></a>
+    <a href="https://openjarvis.stanford.edu/"><img src="https://img.shields.io/badge/project-OpenJarvis-blue" alt="Project"></a>
     <a href="https://open-jarvis.github.io/OpenJarvis/"><img src="https://img.shields.io/badge/docs-mkdocs-blue" alt="Docs"></a>
     <img src="https://img.shields.io/badge/python-%3E%3D3.10-blue" alt="Python">
     <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="License">
@@ -23,7 +23,7 @@
 
 > **[Documentation](https://open-jarvis.github.io/OpenJarvis/)**
 >
-> **[Project Site](https://scalingintelligence.stanford.edu/blogs/openjarvis/)**
+> **[Project Site](https://openjarvis.stanford.edu/)**
 >
 > **[Paper](https://arxiv.org/abs/2605.17172)**
 >
