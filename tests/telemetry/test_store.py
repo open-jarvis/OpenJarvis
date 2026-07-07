@@ -181,19 +181,57 @@ class TestTelemetryRecordFields:
 
     def test_batching_delays_commit(self, tmp_path: Path) -> None:
         db_path = tmp_path / "test.db"
-        store = TelemetryStore(db_path, batch_size=2)
+        # flush_interval_seconds=0 disables the background flusher so the
+        # buffered/flushed states below are deterministic, not a race.
+        store = TelemetryStore(db_path, batch_size=2, flush_interval_seconds=0)
         rec = TelemetryRecord(timestamp=time.time(), model_id="m1", engine="e1")
 
         store.record(rec)
         # Should not be in DB yet because batch_size is 2 and we haven't flushed
         # Need a separate connection to check because store._fetchall() calls flush()!
-        import sqlite3
-
-        with sqlite3.connect(db_path) as conn:
-            assert len(conn.execute("SELECT * FROM telemetry").fetchall()) == 0
+        assert _count_rows_via_own_connection(db_path) == 0
 
         # Hit batch size
         store.record(rec)
-        with sqlite3.connect(db_path) as conn:
-            assert len(conn.execute("SELECT * FROM telemetry").fetchall()) == 2
+        assert _count_rows_via_own_connection(db_path) == 2
         store.close()
+
+    def test_background_flush_makes_records_visible(self, tmp_path: Path) -> None:
+        # A partial batch must become visible to OTHER connections within the
+        # flush interval even if no further write ever arrives — the background
+        # flusher covers the "traffic stopped mid-batch" case that per-record
+        # stale checks cannot.
+        db_path = tmp_path / "test.db"
+        store = TelemetryStore(db_path, batch_size=50, flush_interval_seconds=0.05)
+        rec = TelemetryRecord(timestamp=time.time(), model_id="m1", engine="e1")
+        store.record(rec)
+
+        deadline = time.time() + 5.0
+        rows = 0
+        while time.time() < deadline:
+            rows = _count_rows_via_own_connection(db_path)
+            if rows:
+                break
+            time.sleep(0.02)
+        assert rows == 1
+        store.close()
+
+    def test_close_flushes_and_is_idempotent(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        store = TelemetryStore(db_path, batch_size=50, flush_interval_seconds=0)
+        rec = TelemetryRecord(timestamp=time.time(), model_id="m1", engine="e1")
+        store.record(rec)
+        store.close()
+        assert _count_rows_via_own_connection(db_path) == 1
+        store.close()  # second close must be a no-op, not a ProgrammingError
+
+
+def _count_rows_via_own_connection(db_path: Path) -> int:
+    """Count telemetry rows through a separate connection (like the aggregator)."""
+    import contextlib
+    import sqlite3
+
+    # NB: sqlite3's ``with conn`` is a TRANSACTION context (it does not close);
+    # ``contextlib.closing`` actually closes the connection.
+    with contextlib.closing(sqlite3.connect(db_path)) as conn:
+        return len(conn.execute("SELECT * FROM telemetry").fetchall())

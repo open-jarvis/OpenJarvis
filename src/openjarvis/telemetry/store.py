@@ -151,7 +151,18 @@ _MIGRATE_COLUMNS = [
 
 
 class TelemetryStore:
-    """Append-only SQLite store for inference telemetry records."""
+    """Append-only SQLite store for inference telemetry records.
+
+    Writes are batched in memory and flushed to SQLite when a batch reaches
+    ``batch_size``, when ``flush_interval_seconds`` elapses (a background
+    flusher thread guarantees this even with no further writes), on any read
+    through this store, and on ``close()``. Readers that open their OWN
+    connection to the database file (e.g. ``TelemetryAggregator``) therefore
+    see new rows within ``flush_interval_seconds`` at the latest; call
+    ``flush()`` first for immediate visibility. Pass
+    ``flush_interval_seconds=0`` to disable time-based flushing (batch-size
+    and read/close flushes still apply).
+    """
 
     def __init__(
         self,
@@ -184,6 +195,32 @@ class TelemetryStore:
         self._last_flush_time = time.monotonic()
         self._telemetry_batch: list[tuple[Any, ...]] = []
         self._mining_batch: list[tuple[Any, ...]] = []
+        self._closed = False
+
+        # Background flusher: without it, a partial batch written just before
+        # traffic stops would stay invisible to other connections until the
+        # NEXT write arrived (the stale check in ``_maybe_flush_unlocked``
+        # only runs inside record calls). Daemon so it never blocks exit.
+        self._stop_flusher = threading.Event()
+        self._flusher: threading.Thread | None = None
+        if flush_interval_seconds > 0:
+            self._flusher = threading.Thread(
+                target=self._flush_loop,
+                name="telemetry-store-flusher",
+                daemon=True,
+            )
+            self._flusher.start()
+
+    def _flush_loop(self) -> None:
+        """Periodically flush pending batches until ``close()`` stops us."""
+        while not self._stop_flusher.wait(self._flush_interval_seconds):
+            with self._lock:
+                # ``close()`` sets the event BEFORE taking the lock, so seeing
+                # it unset here means the connection is still open.
+                if self._stop_flusher.is_set():
+                    break
+                if self._telemetry_batch or self._mining_batch:
+                    self._flush_unlocked()
 
     def _migrate_schema(self) -> None:
         """Add new columns to existing databases (idempotent)."""
@@ -329,10 +366,20 @@ class TelemetryStore:
                 logger.debug("Failed to record telemetry event: %s", exc)
 
     def close(self) -> None:
-        """Close the underlying SQLite connection."""
+        """Flush pending records and close the underlying SQLite connection."""
+        # Set the stop event BEFORE taking the lock: a flusher iteration
+        # already waiting on the lock re-checks the event after acquiring it
+        # and exits instead of touching the closed connection.
+        self._stop_flusher.set()
         with self._lock:
+            if self._closed:
+                return
             self._flush_unlocked()
             self._conn.close()
+            self._closed = True
+        if self._flusher is not None:
+            self._flusher.join(timeout=1.0)
+            self._flusher = None
 
     # -- helpers for querying (used by tests) --------------------------------
 
