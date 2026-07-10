@@ -159,8 +159,8 @@ class MemoryService:
 
     def _exchange_is_malicious(self, user_text: str, assistant_text: str) -> bool:
         """True if the injection scanner flags the exchange. Fails *open* (returns
-        False on any scanner error) — provenance + recall quarantine still apply,
-        so a scanner outage must not block legitimate memory."""
+        False on any scanner error) — the provenance tag still records untrusted
+        origin, so a scanner outage must not block legitimate memory."""
         if self._scanner is None:
             return False
         try:
@@ -175,12 +175,17 @@ class MemoryService:
         # Scan BEFORE extraction so an overt injection attempt never reaches the
         # extraction model or the store at all.
         if self._exchange_is_malicious(user_text, assistant_text):
-            logger.debug("Memory extraction skipped: injection detected in exchange")
+            # info, not debug: a silently-dropped exchange must be distinguishable
+            # from "nothing to extract" in the logs.
+            logger.info("Memory extraction skipped: injection detected in exchange")
             return
         facts = self._extractor.extract(user_text, assistant_text)
         if facts:
             # Auto-extracted from a raw exchange that may carry untrusted input →
-            # tag untrusted so recall/surfacing quarantines these facts.
+            # record untrusted provenance on every fact. NOTE: this tag is a
+            # provenance marker only; it is surfaced by the `memory list` CLI but
+            # is NOT yet enforced on the model-facing recall path (LocalFactStore
+            # does not feed inject_context). Recall-time filtering is a follow-up.
             stored = self._store.add_many(facts, source="auto", trust="untrusted")
             if stored:
                 logger.debug("Memory service stored %d new fact(s)", stored)
