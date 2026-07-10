@@ -421,6 +421,7 @@ def _run_agent(
                     top_k=config.memory.context_top_k,
                     min_score=config.memory.context_min_score,
                     max_context_tokens=config.memory.context_max_tokens,
+                    untrusted_policy=config.memory.context_untrusted_policy,
                 )
                 context_messages = inject_context(
                     query_text,
@@ -968,6 +969,7 @@ def ask(
                     top_k=config.memory.context_top_k,
                     min_score=config.memory.context_min_score,
                     max_context_tokens=(config.memory.context_max_tokens),
+                    untrusted_policy=config.memory.context_untrusted_policy,
                 )
                 messages = inject_context(
                     query_text,

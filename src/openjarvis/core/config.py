@@ -931,6 +931,10 @@ class StorageConfig:
     context_top_k: int = 5
     context_min_score: float = 0.0
     context_max_tokens: int = 2048
+    # How recall treats untrusted-origin results (auto-extracted facts mirrored
+    # from raw conversation text). "drop" hides them from the model, "annotate"
+    # surfaces them with an unverified-origin warning; see storage.context.
+    context_untrusted_policy: str = "drop"
     chunk_size: int = 512
     chunk_overlap: int = 64
 
