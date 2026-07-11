@@ -96,7 +96,7 @@ def recipe_to_eval_suite(
             max_tokens=2048,
         ),
         judge=JudgeConfig(
-            model=judge_model or recipe.eval_judge_model or "gpt-5-mini-2025-08-07",
+            model=judge_model or recipe.eval_judge_model or "claude-haiku-4-5-20251001",
         ),
         run=ExecutionConfig(),
         models=[model_cfg],

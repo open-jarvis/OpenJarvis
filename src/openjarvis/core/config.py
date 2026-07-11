@@ -1408,7 +1408,7 @@ class OptimizeConfig:
     optimizer_provider: str = "anthropic"
     benchmark: str = ""
     max_samples: int = 50
-    judge_model: str = "gpt-5-mini-2025-08-07"
+    judge_model: str = "claude-haiku-4-5-20251001"
     db_path: str = str(DEFAULT_CONFIG_DIR / "optimize.db")
 
 

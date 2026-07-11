@@ -98,7 +98,7 @@ BENCHMARKS: Dict[str, Dict[str, object]] = {
     },
 }
 
-DEFAULT_JUDGE_MODEL = "gpt-5-mini-2025-08-07"
+DEFAULT_JUDGE_MODEL = "claude-haiku-4-5-20251001"
 
 
 def _template_path() -> Path:

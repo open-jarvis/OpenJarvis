@@ -12,7 +12,7 @@ temperature = 0.6
 max_tokens = 8192
 
 [judge]
-model = "gpt-5-mini-2025-08-07"
+model = "claude-haiku-4-5-20251001"
 temperature = 0.0
 max_tokens = 4096
 

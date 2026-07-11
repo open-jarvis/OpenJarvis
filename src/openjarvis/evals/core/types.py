@@ -67,7 +67,7 @@ class RunConfig:
     max_workers: int = 4
     temperature: float = 0.0
     max_tokens: int = 2048
-    judge_model: str = "gpt-5-mini-2025-08-07"
+    judge_model: str = "claude-haiku-4-5-20251001"
     judge_engine: str = "cloud"
     engine_key: Optional[str] = None
     agent_name: Optional[str] = None
@@ -203,7 +203,7 @@ class DefaultsConfig:
 class JudgeConfig:
     """Configuration for the LLM judge."""
 
-    model: str = "gpt-5-mini-2025-08-07"
+    model: str = "claude-haiku-4-5-20251001"
     engine: Optional[str] = None
     provider: Optional[str] = None
     temperature: float = 0.0

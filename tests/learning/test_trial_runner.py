@@ -16,7 +16,7 @@ class TestTrialRunnerInit:
         runner = TrialRunner(benchmark="supergpqa")
         assert runner.benchmark == "supergpqa"
         assert runner.max_samples == 50
-        assert runner.judge_model == "gpt-5-mini-2025-08-07"
+        assert runner.judge_model == "claude-haiku-4-5-20251001"
         assert runner.output_dir == "results/optimize/"
 
     def test_custom_params(self) -> None:

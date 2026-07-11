@@ -264,7 +264,7 @@ class TauBenchTaskEnv:
         self._model = model or "claude-opus-4-6"
         self._temperature = temperature
         self._max_tokens = max_tokens
-        self._user_model = user_model or "gpt-5-mini-2025-08-07"
+        self._user_model = user_model or "claude-haiku-4-5-20251001"
         self._telemetry = telemetry
         self._gpu_metrics = gpu_metrics
         self._system = None

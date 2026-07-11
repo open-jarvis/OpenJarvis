@@ -39,7 +39,7 @@ class TrialRunner:
         self,
         benchmark: str,
         max_samples: int = 50,
-        judge_model: str = "gpt-5-mini-2025-08-07",
+        judge_model: str = "claude-haiku-4-5-20251001",
         output_dir: str = "results/optimize/",
     ) -> None:
         self.benchmark = benchmark
@@ -203,7 +203,7 @@ class MultiBenchTrialRunner:
     def __init__(
         self,
         benchmark_specs: List[BenchmarkSpec],
-        judge_model: str = "gpt-5-mini-2025-08-07",
+        judge_model: str = "claude-haiku-4-5-20251001",
         output_dir: str = "results/optimize/",
     ) -> None:
         self.benchmark_specs = benchmark_specs

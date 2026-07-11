@@ -118,7 +118,7 @@ def load_eval_config(path: str | Path) -> EvalSuiteConfig:
     # Parse [judge]
     judge_raw = raw.get("judge", {})
     judge = JudgeConfig(
-        model=judge_raw.get("model", "gpt-5-mini-2025-08-07"),
+        model=judge_raw.get("model", "claude-haiku-4-5-20251001"),
         engine=judge_raw.get("engine"),
         provider=judge_raw.get("provider"),
         temperature=float(judge_raw.get("temperature", 0.0)),

@@ -113,7 +113,7 @@ class TestOptimizeConfig:
         assert cfg.max_trials == 20
         assert cfg.early_stop_patience == 5
         assert cfg.optimizer_model == "claude-sonnet-4-6"
-        assert cfg.judge_model == "gpt-5-mini-2025-08-07"
+        assert cfg.judge_model == "claude-haiku-4-5-20251001"
 
 
 class TestNewEventTypes:

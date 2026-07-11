@@ -1141,7 +1141,7 @@ def main():
     "-n", "--max-samples", type=int, default=None, help="Maximum samples to evaluate"
 )
 @click.option("-w", "--max-workers", type=int, default=4, help="Parallel workers")
-@click.option("--judge-model", default="gpt-5-mini-2025-08-07", help="LLM judge model")
+@click.option("--judge-model", default="claude-haiku-4-5-20251001", help="LLM judge model")
 @click.option("-o", "--output", "output_path", default=None, help="Output JSONL path")
 @click.option("--seed", type=int, default=42, help="Random seed")
 @click.option("--split", "dataset_split", default=None, help="Dataset split override")
@@ -1387,7 +1387,7 @@ def run(
     "-n", "--max-samples", type=int, default=None, help="Max samples per benchmark"
 )
 @click.option("-w", "--max-workers", type=int, default=4, help="Parallel workers")
-@click.option("--judge-model", default="gpt-5-mini-2025-08-07", help="LLM judge model")
+@click.option("--judge-model", default="claude-haiku-4-5-20251001", help="LLM judge model")
 @click.option("--output-dir", default="results/", help="Output directory for results")
 @click.option("--seed", type=int, default=42, help="Random seed")
 @click.option("-v", "--verbose", is_flag=True, help="Verbose logging")
