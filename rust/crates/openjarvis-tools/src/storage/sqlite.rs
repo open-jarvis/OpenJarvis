@@ -144,16 +144,21 @@ impl MemoryBackend for SQLiteMemory {
     ) -> Result<Vec<RetrievalResult>, OpenJarvisError> {
         let conn = self.conn.lock();
 
+        // Split on any non-alphanumeric character (not just whitespace) so
+        // internal punctuation — apostrophes in particular ("user's") — never
+        // reaches the FTS5 MATCH string. FTS5's query grammar treats an
+        // unescaped `'` as a string delimiter, so passing a raw token like
+        // `user's` through silently fails to parse and yields zero rows with
+        // no visible error. Splitting fully avoids needing to escape anything.
         let words: Vec<String> = query
-            .split_whitespace()
-            .map(|w| w.trim_matches(|c: char| "?.,!;:'\"()[]{}/ ".contains(c)).to_string())
+            .split(|c: char| !c.is_alphanumeric())
+            .map(|w| w.to_string())
             .filter(|w| !w.is_empty())
             .collect();
-        let fts_query = if words.len() == 1 {
-            words[0].clone()
-        } else {
-            words.join(" OR ")
-        };
+        if words.is_empty() {
+            return Ok(Vec::new());
+        }
+        let fts_query = words.join(" OR ");
 
         let mut stmt = conn
             .prepare(

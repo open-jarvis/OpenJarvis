@@ -70,12 +70,20 @@ def _ensure_identity_prompt(messages: list[Message], app_config) -> list[Message
 
     prompt = ""
     try:
-        if app_config is not None:
-            prompt = app_config.agent.default_system_prompt or ""
-        else:
+        cfg = app_config
+        if cfg is None:
             from openjarvis.core.config import load_config
 
-            prompt = load_config().agent.default_system_prompt or ""
+            cfg = load_config()
+
+        from openjarvis.prompt.builder import SystemPromptBuilder
+
+        builder = SystemPromptBuilder(
+            agent_template=cfg.agent.default_system_prompt or "",
+            memory_files_config=getattr(cfg, "memory_files", None),
+            system_prompt_config=getattr(cfg, "system_prompt", None),
+        )
+        prompt = builder.build()
     except Exception:
         logging.getLogger("openjarvis.server").debug(
             "Identity system prompt resolution failed; "
