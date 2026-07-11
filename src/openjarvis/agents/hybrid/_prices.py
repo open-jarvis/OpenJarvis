@@ -38,8 +38,8 @@ PRICES: dict[str, tuple[float, float]] = {
     # OpenRouter instead of self-hosted vLLM. ESTIMATES — no public list price
     # exists yet for these Qwen3.5/3.6 builds; scaled by active-param size.
     # VERIFY against openrouter.ai before trusting the cost-aware reward numbers.
-    "qwen/qwen3.5-9b":        (0.05, 0.10),
-    "qwen/qwen3.6-27b":       (0.10, 0.30),
+    "qwen/qwen3.5-9b": (0.05, 0.10),
+    "qwen/qwen3.6-27b": (0.10, 0.30),
     "qwen/qwen3.5-122b-a10b": (0.20, 0.60),
     "qwen/qwen3.5-397b-a17b": (0.40, 1.20),
 }

@@ -60,7 +60,10 @@ OPENTHOUGHTS_ROWS = [
         "difficulty": 5,
         "conversations": [
             {"from": "human", "value": "What is 6 times 7?"},
-            {"from": "gpt", "value": "<think>6*7=42</think> The answer is \\boxed{42}."},
+            {
+                "from": "gpt",
+                "value": "<think>6*7=42</think> The answer is \\boxed{42}.",
+            },
         ],
     },
     {
@@ -99,9 +102,7 @@ def test_load_generalthought_respects_n():
 
 def test_load_openthoughts_fields_and_domains():
     tasks = list(
-        load_openthoughts(
-            n_code=5, n_math=5, n_science=5, source=OPENTHOUGHTS_ROWS
-        )
+        load_openthoughts(n_code=5, n_math=5, n_science=5, source=OPENTHOUGHTS_ROWS)
     )
     assert all(isinstance(t, Task) for t in tasks)
     assert len(tasks) == 3

@@ -76,19 +76,25 @@ def normalize_row(row: Dict[str, Any], *, index: int = 0) -> ToolScaleTask:
     gold: List[GoldAction] = []
     for a in _as_list(crit.get("actions")):
         if isinstance(a, dict) and a.get("name"):
-            gold.append(GoldAction(
-                name=str(a["name"]),
-                arguments=a.get("arguments") or a.get("args") or {},
-                action_id=a.get("action_id"),
-            ))
+            gold.append(
+                GoldAction(
+                    name=str(a["name"]),
+                    arguments=a.get("arguments") or a.get("args") or {},
+                    action_id=a.get("action_id"),
+                )
+            )
 
     required = _str_list(crit.get("communicate_info"))
     nl = _str_list(crit.get("nl_assertions"))
 
     task_id = str(row.get("id") or row.get("task_id") or f"toolscale-{index}")
     return ToolScaleTask(
-        task_id=task_id, domain=str(domain), instruction=str(instruction),
-        gold_actions=gold, required_info=required, nl_assertions=nl,
+        task_id=task_id,
+        domain=str(domain),
+        instruction=str(instruction),
+        gold_actions=gold,
+        required_info=required,
+        nl_assertions=nl,
     )
 
 

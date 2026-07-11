@@ -8,6 +8,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from openjarvis.agents.hybrid._base import (
     ANTHROPIC_WEB_SEARCH_TOOL,
+    GEMINI_SEARCH_COST_PER_CALL,
+    OPENAI_WEB_SEARCH_COST_PER_CALL,
     WEB_SEARCH_COST_PER_CALL,
     LocalCloudAgent,
 )
@@ -26,6 +28,7 @@ from openjarvis.agents.hybrid.toolorchestra.sandbox import (
     _call_tavily_search,
 )
 
+
 def _paper_pool(
     local_model: Optional[str],
     local_endpoint: Optional[str],
@@ -39,45 +42,72 @@ def _paper_pool(
     """
     pool: List[Dict[str, Any]] = []
     if local_model and local_endpoint:
-        pool.append({
+        pool.append(
+            {
+                "id": len(pool),
+                "name": "local-qwen",
+                "type": "vllm",
+                "model": local_model,
+                "base_url": local_endpoint,
+                "description": "Local Qwen vLLM (paper uses Qwen3-32B).",
+            }
+        )
+    pool.append(
+        {
             "id": len(pool),
-            "name": "local-qwen",
-            "type": "vllm",
-            "model": local_model,
-            "base_url": local_endpoint,
-            "description": "Local Qwen vLLM (paper uses Qwen3-32B).",
-        })
-    pool.append({
-        "id": len(pool), "name": "tavily-search",
-        "type": "tavily-search", "model": "tavily",
-        "description": "Tavily web search.",
-    })
-    pool.append({
-        "id": len(pool), "name": "modal-python",
-        "type": "modal-python", "model": "modal-python",
-        "description": "Modal Sandbox for one-shot Python exec.",
-    })
-    pool.append({
-        "id": len(pool), "name": "code-specialist",
-        "type": "openrouter", "model": _PAPER_CODER_OPENROUTER,
-        "description": "Qwen-2.5-Coder-32B via OpenRouter (paper).",
-    })
-    pool.append({
-        "id": len(pool), "name": "generalist-llama",
-        "type": "openrouter", "model": _PAPER_GENERALIST_TIER3_OPENROUTER,
-        "description": "Llama-3.3-70B-Instruct via OpenRouter (paper tier-3).",
-    })
-    pool.append({
-        "id": len(pool), "name": "generalist-gpt5",
-        "type": "openai", "model": "gpt-5",
-        "description": "GPT-5 frontier generalist.",
-    })
-    pool.append({
-        "id": len(pool), "name": "generalist-gpt5-mini",
-        "type": "openai", "model": "gpt-5-mini",
-        "description": "GPT-5-mini mid generalist.",
-    })
+            "name": "tavily-search",
+            "type": "tavily-search",
+            "model": "tavily",
+            "description": "Tavily web search.",
+        }
+    )
+    pool.append(
+        {
+            "id": len(pool),
+            "name": "modal-python",
+            "type": "modal-python",
+            "model": "modal-python",
+            "description": "Modal Sandbox for one-shot Python exec.",
+        }
+    )
+    pool.append(
+        {
+            "id": len(pool),
+            "name": "code-specialist",
+            "type": "openrouter",
+            "model": _PAPER_CODER_OPENROUTER,
+            "description": "Qwen-2.5-Coder-32B via OpenRouter (paper).",
+        }
+    )
+    pool.append(
+        {
+            "id": len(pool),
+            "name": "generalist-llama",
+            "type": "openrouter",
+            "model": _PAPER_GENERALIST_TIER3_OPENROUTER,
+            "description": "Llama-3.3-70B-Instruct via OpenRouter (paper tier-3).",
+        }
+    )
+    pool.append(
+        {
+            "id": len(pool),
+            "name": "generalist-gpt5",
+            "type": "openai",
+            "model": "gpt-5",
+            "description": "GPT-5 frontier generalist.",
+        }
+    )
+    pool.append(
+        {
+            "id": len(pool),
+            "name": "generalist-gpt5-mini",
+            "type": "openai",
+            "model": "gpt-5-mini",
+            "description": "GPT-5-mini mid generalist.",
+        }
+    )
     return pool
+
 
 def _default_pool(
     local_model: Optional[str],
@@ -96,47 +126,67 @@ def _default_pool(
         ep = "anthropic"
     pool: List[Dict[str, Any]] = []
     if local_model and local_endpoint:
-        pool.append({
+        pool.append(
+            {
+                "id": len(pool),
+                "name": "local-qwen",
+                "type": "vllm",
+                "model": local_model,
+                "base_url": local_endpoint,
+                "description": (
+                    "Open-weights Qwen3.5 served locally. Cheap and fast. Good at "
+                    "concise extraction, formatting, arithmetic on given data."
+                ),
+            }
+        )
+    if ep == "openai":
+        search_type = "openai-web-search"
+        search_model = cloud_model
+        search_desc = "OpenAI hosted web search on the configured frontier model."
+    elif ep == "gemini":
+        search_type = "gemini-web-search"
+        search_model = cloud_model
+        search_desc = "Gemini Google Search grounding on the configured frontier model."
+    else:
+        search_type = "anthropic-web-search"
+        search_model = _DEFAULT_WEB_SEARCH_MODEL
+        search_desc = "Anthropic server-side web_search."
+    pool.append(
+        {
             "id": len(pool),
-            "name": "local-qwen",
-            "type": "vllm",
-            "model": local_model,
-            "base_url": local_endpoint,
+            "name": "web-search",
+            "type": search_type,
+            "model": search_model,
             "description": (
-                "Open-weights Qwen3.5 served locally. Cheap and fast. Good at "
-                "concise extraction, formatting, arithmetic on given data."
+                f"{search_desc} Use for facts that need a lookup "
+                "(recent events, rare names/dates, niche sources). Returns a digest."
             ),
-        })
-    pool.append({
-        "id": len(pool),
-        "name": "web-search",
-        "type": "anthropic-web-search",
-        "model": "claude-haiku-4-5",
-        "description": (
-            "Anthropic server-side web_search. Use for facts that need a lookup "
-            "(recent events, rare names/dates, niche sources). Returns a digest."
-        ),
-    })
-    pool.append({
-        "id": len(pool),
-        "name": f"frontier-{ep}",
-        "type": ep,
-        "model": cloud_model,
-        "description": (
-            "Frontier reasoning model. Use for hard multi-step reasoning, "
-            "code review, or a final synthesis pass. Expensive — use sparingly."
-        ),
-    })
-    pool.append({
-        "id": len(pool),
-        "name": "frontier-openai-mini",
-        "type": "openai",
-        "model": "gpt-5-mini",
-        "description": (
-            "Mid-tier OpenAI model. Solid general knowledge and reasoning at a "
-            "fraction of frontier cost."
-        ),
-    })
+        }
+    )
+    pool.append(
+        {
+            "id": len(pool),
+            "name": f"frontier-{ep}",
+            "type": ep,
+            "model": cloud_model,
+            "description": (
+                "Frontier reasoning model. Use for hard multi-step reasoning, "
+                "code review, or a final synthesis pass. Expensive — use sparingly."
+            ),
+        }
+    )
+    pool.append(
+        {
+            "id": len(pool),
+            "name": "frontier-openai-mini",
+            "type": "openai",
+            "model": "gpt-5-mini",
+            "description": (
+                "Mid-tier OpenAI model. Solid general knowledge and reasoning at a "
+                "fraction of frontier cost."
+            ),
+        }
+    )
     return pool
 
 
@@ -150,8 +200,22 @@ def _default_pool(
 #   `modal-python`   — One-shot Python exec in a fresh Modal Sandbox (the
 #                      paper's "Python sandbox" inside `enhance_reasoning`).
 _TOOLORCH_VALID_TYPES = (
-    "vllm", "openai", "anthropic", "anthropic-web-search", "gemini",
-    "tavily-search", "openrouter", "modal-python",
+    "vllm",
+    "openai",
+    "anthropic",
+    "anthropic-web-search",
+    "openai-web-search",
+    "gemini",
+    "gemini-web-search",
+    "tavily-search",
+    "openrouter",
+    "modal-python",
+)
+_TOOLORCH_SEARCH_TYPES = (
+    "anthropic-web-search",
+    "openai-web-search",
+    "gemini-web-search",
+    "tavily-search",
 )
 
 # Default model used when an `anthropic-web-search` entry omits `model`.
@@ -172,10 +236,12 @@ def _resolve_worker_pool(
     the override is absent.
 
     Each user-supplied entry must be a dict with keys ``id``, ``name``,
-    ``type``, and (for non-search types) ``model``. ``type`` must be one
-    of ``vllm`` / ``openai`` / ``anthropic`` / ``anthropic-web-search``.
-    ``anthropic-web-search`` entries may omit ``model`` — it defaults to
-    ``claude-haiku-4-5``.
+    ``type``, and (for non-search types) ``model``. Search worker types are
+    ``anthropic-web-search``, ``openai-web-search``, ``gemini-web-search``,
+    and ``tavily-search``. ``anthropic-web-search`` entries may omit
+    ``model`` — it defaults to ``claude-haiku-4-5``. OpenAI and Gemini
+    search workers default to the configured cloud model. Tavily does not
+    require a model.
 
     Substitution: ``model = "$local"`` (or ``"<local>"``) resolves to
     ``local_model``; ``model = "$cloud"`` / ``"<cloud>"`` to ``cloud_model``.
@@ -208,9 +274,7 @@ def _resolve_worker_pool(
                 f"Invalid worker_pool entry [{wid_repr}]: 'id' must be an int"
             )
         if wid in seen_ids:
-            raise ValueError(
-                f"Invalid worker_pool entry [{wid}]: duplicate id"
-            )
+            raise ValueError(f"Invalid worker_pool entry [{wid}]: duplicate id")
         seen_ids.add(wid)
         if not entry.get("name") or not isinstance(entry["name"], str):
             raise ValueError(
@@ -237,13 +301,26 @@ def _resolve_worker_pool(
         elif isinstance(model, str) and model in ("$cloud", "<cloud>"):
             model = cloud_model
             entry["model"] = model
-        if wtype == "anthropic-web-search":
+        if wtype in _TOOLORCH_SEARCH_TYPES:
             if model in (None, ""):
-                model = _DEFAULT_WEB_SEARCH_MODEL
+                if wtype == "anthropic-web-search":
+                    model = _DEFAULT_WEB_SEARCH_MODEL
+                elif wtype in ("openai-web-search", "gemini-web-search"):
+                    model = cloud_model
+                else:
+                    model = wtype
                 entry["model"] = model
             elif not isinstance(model, str):
                 raise ValueError(
                     f"Invalid worker_pool entry [{wid}]: 'model' must be a string when set"
+                )
+            if (
+                wtype in ("openai-web-search", "gemini-web-search")
+                and model not in PRICES
+            ):
+                raise ValueError(
+                    f"Invalid worker_pool entry [{wid}]: model {model!r} "
+                    f"is not in PRICES (known: {sorted(PRICES)})"
                 )
             # Search workers don't satisfy the "needs a solver" requirement.
         else:
@@ -276,7 +353,7 @@ def _resolve_worker_pool(
     if not has_non_search:
         raise ValueError(
             "Invalid worker_pool entry [-]: worker_pool must contain at least "
-            "one non-search worker (vllm / openai / anthropic)"
+            "one non-search worker (vllm / openai / anthropic / gemini)"
         )
     return resolved
 
@@ -286,7 +363,9 @@ def _call_worker(
 ) -> Tuple[str, int, int, bool, float, int]:
     """Returns (text, p_tok, c_tok, is_local, extra_cost, n_web_searches)."""
     wtype = worker.get("type", "openai")
-    max_tok = int(cfg.get("worker_max_tokens") or os.environ.get("OJ_WORKER_MAX_TOKENS", "4096"))
+    max_tok = int(
+        cfg.get("worker_max_tokens") or os.environ.get("OJ_WORKER_MAX_TOKENS", "4096")
+    )
     temp = float(cfg.get("worker_temperature", 0.2))
 
     if wtype == "vllm":
@@ -343,6 +422,27 @@ def _call_worker(
         )
         extra = n_searches * WEB_SEARCH_COST_PER_CALL
         return text, p, c, False, extra, n_searches
+    if wtype == "openai-web-search":
+        eff_temp = 1.0 if is_gpt5_family(worker["model"]) else temp
+        text, p, c, n_searches, _ = LocalCloudAgent._call_openai_agent(
+            worker["model"],
+            user=prompt,
+            max_tokens=max(max_tok, 16384)
+            if is_gpt5_family(worker["model"])
+            else max_tok,
+            temperature=eff_temp,
+        )
+        extra = n_searches * OPENAI_WEB_SEARCH_COST_PER_CALL
+        return text, p, c, False, extra, n_searches
+    if wtype == "gemini-web-search":
+        text, p, c, n_searches, _ = LocalCloudAgent._call_gemini_agent(
+            worker["model"],
+            user=prompt,
+            max_tokens=max_tok,
+            temperature=temp,
+        )
+        extra = n_searches * GEMINI_SEARCH_COST_PER_CALL
+        return text, p, c, False, extra, n_searches
     if wtype == "tavily-search":
         # Tavily costs are flat per call; charge `WEB_SEARCH_COST_PER_CALL`
         # for parity with the Anthropic web-search worker. One call = one
@@ -384,7 +484,7 @@ def _swe_call_worker(
     caller can surface ``tool_calls`` per row. Fallbacks to one-shot
     workers return 0 bash turns (no agent loop ran)."""
     wtype = worker.get("type", "openai")
-    if wtype == "anthropic-web-search":
+    if wtype in _TOOLORCH_SEARCH_TYPES:
         # Search workers stay one-shot.
         text, p, c, is_local, extra, n_searches = _call_worker(worker, prompt, cfg)
         return text, p, c, is_local, extra, n_searches, 0
@@ -417,6 +517,10 @@ def _swe_call_worker(
     is_local = backbone == "local"
     return (
         out["final_summary"] or out["answer"],
-        out["tokens_in"], out["tokens_out"],
-        is_local, 0.0, 0, int(out["turns"]),
+        out["tokens_in"],
+        out["tokens_out"],
+        is_local,
+        0.0,
+        0,
+        int(out["turns"]),
     )

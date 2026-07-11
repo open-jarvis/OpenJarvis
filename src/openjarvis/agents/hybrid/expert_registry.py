@@ -26,7 +26,7 @@ from __future__ import annotations
 import os
 import random
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from openjarvis.agents.hybrid._prices import PRICES
@@ -57,8 +57,14 @@ CATEGORY_SPECIALIZED = "specialized_model"
 # ``openjarvis-tool`` bridge, dispatched in ``unified.make_dispatch`` via the
 # OpenJarvis ToolExecutor rather than ``_call_worker``).
 VALID_BACKENDS = (
-    "vllm", "openai", "anthropic", "gemini", "openrouter",
-    "anthropic-web-search", "tavily-search", "modal-python",
+    "vllm",
+    "openai",
+    "anthropic",
+    "gemini",
+    "openrouter",
+    "anthropic-web-search",
+    "tavily-search",
+    "modal-python",
     "openjarvis-tool",
 )
 
@@ -268,12 +274,22 @@ def anonymize_tools(tools, rng):
             while tag in anon_to_real:
                 tag = "model_" + "".join(rng.choice(_ANON_ALPHABET) for _ in range(4))
             anon_to_real[tag] = t.name
-            bits = [b for b in (_class_hint(t), _size_hint(t.model), _cost_tier_hint(t)) if b]
-            experts.append(replace(
-                t, name=tag,
-                summary="Another model — " + ", ".join(bits) + ". Send it a sub-question.",
-                category="model", hide_cost=True,
-            ))
+            bits = [
+                b
+                for b in (_class_hint(t), _size_hint(t.model), _cost_tier_hint(t))
+                if b
+            ]
+            experts.append(
+                replace(
+                    t,
+                    name=tag,
+                    summary="Another model — "
+                    + ", ".join(bits)
+                    + ". Send it a sub-question.",
+                    category="model",
+                    hide_cost=True,
+                )
+            )
         else:
             basics.append(t)
     # Shuffle WITHIN the experts to kill per-expert position bias, but keep all
@@ -300,70 +316,135 @@ def default_catalog(
 
     # ---- generalist / frontier models (one named tool per model VERSION) ----
     for model, summary, lat in [
-        ("gpt-5",
-         "Frontier generalist (GPT-5). Strongest reasoning across domains.", 30.0),
-        ("gpt-5-mini",
-         "Mid-tier generalist (GPT-5-mini). Solid reasoning, much cheaper.", 15.0),
-        ("gpt-4o",
-         "Fast generalist (GPT-4o). Good for simple steps and formatting.", 8.0),
-        ("claude-opus-4-7",
-         "Frontier generalist (Claude Opus 4.7). Strong long-horizon reasoning.", 26.0),
-        ("claude-sonnet-4-6",
-         "Strong generalist (Claude Sonnet 4.6). Balanced cost/capability.", 15.0),
-        ("gemini-2.5-pro",
-         "Frontier generalist (Gemini 2.5 Pro). Strong multimodal reasoning.", 20.0),
-        ("gemini-2.5-flash",
-         "Cheap fast generalist (Gemini 2.5 Flash).", 8.0),
-        ("meta-llama/llama-3.3-70b-instruct",
-         "Open generalist (Llama-3.3-70B). Decent general knowledge, low cost.", 10.0),
-        ("qwen/qwen3-32b",
-         "Open generalist (Qwen3-32B). Strong math/science reasoning, low cost.", 9.0),
+        (
+            "gpt-5",
+            "Frontier generalist (GPT-5). Strongest reasoning across domains.",
+            30.0,
+        ),
+        (
+            "gpt-5-mini",
+            "Mid-tier generalist (GPT-5-mini). Solid reasoning, much cheaper.",
+            15.0,
+        ),
+        (
+            "gpt-4o",
+            "Fast generalist (GPT-4o). Good for simple steps and formatting.",
+            8.0,
+        ),
+        (
+            "claude-opus-4-7",
+            "Frontier generalist (Claude Opus 4.7). Strong long-horizon reasoning.",
+            26.0,
+        ),
+        (
+            "claude-sonnet-4-6",
+            "Strong generalist (Claude Sonnet 4.6). Balanced cost/capability.",
+            15.0,
+        ),
+        (
+            "gemini-2.5-pro",
+            "Frontier generalist (Gemini 2.5 Pro). Strong multimodal reasoning.",
+            20.0,
+        ),
+        ("gemini-2.5-flash", "Cheap fast generalist (Gemini 2.5 Flash).", 8.0),
+        (
+            "meta-llama/llama-3.3-70b-instruct",
+            "Open generalist (Llama-3.3-70B). Decent general knowledge, low cost.",
+            10.0,
+        ),
+        (
+            "qwen/qwen3-32b",
+            "Open generalist (Qwen3-32B). Strong math/science reasoning, low cost.",
+            9.0,
+        ),
     ]:
-        ep = ("openai" if model.startswith("gpt") else
-              "anthropic" if model.startswith("claude") else
-              "gemini" if model.startswith("gemini") else "openrouter")
+        ep = (
+            "openai"
+            if model.startswith("gpt")
+            else "anthropic"
+            if model.startswith("claude")
+            else "gemini"
+            if model.startswith("gemini")
+            else "openrouter"
+        )
         pi, po = _price(model)
-        cat.append(ExpertTool(
-            name=_tool_name(model), kind=KIND_MODEL, backend_type=ep, summary=summary,
-            model=model, price_in=pi, price_out=po, latency_s=lat,
-            category=CATEGORY_GENERALIST,
-        ))
+        cat.append(
+            ExpertTool(
+                name=_tool_name(model),
+                kind=KIND_MODEL,
+                backend_type=ep,
+                summary=summary,
+                model=model,
+                price_in=pi,
+                price_out=po,
+                latency_s=lat,
+                category=CATEGORY_GENERALIST,
+            )
+        )
 
     # ---- specialized: code ----
     coder = "qwen/qwen-2.5-coder-32b-instruct"
     pi, po = _price(coder)
-    cat.append(ExpertTool(
-        name=_tool_name(coder), kind=KIND_MODEL, backend_type="openrouter",
-        summary="Specialized code model (Qwen2.5-Coder-32B). Writes/debugs code.",
-        model=coder, price_in=pi, price_out=po, latency_s=9.0,
-        category=CATEGORY_SPECIALIZED,
-    ))
+    cat.append(
+        ExpertTool(
+            name=_tool_name(coder),
+            kind=KIND_MODEL,
+            backend_type="openrouter",
+            summary="Specialized code model (Qwen2.5-Coder-32B). Writes/debugs code.",
+            model=coder,
+            price_in=pi,
+            price_out=po,
+            latency_s=9.0,
+            category=CATEGORY_SPECIALIZED,
+        )
+    )
 
     # ---- local backbone as a tool (on-device vLLM), if served ----
     # Named after the actual served model (faithful "one named tool per model"),
     # not a generic "local_model" — e.g. "qwen3-8b" -> tool "qwen3_8b".
     if local_model and local_endpoint:
-        cat.append(ExpertTool(
-            name=_tool_name(local_model), kind=KIND_MODEL, backend_type="vllm",
-            summary=(f"On-device open model ({local_model}) served locally. Cheap "
-                     "and private; good for extraction, formatting, arithmetic on "
-                     "given data."),
-            model=local_model, base_url=local_endpoint,
-            price_in=0.0, price_out=0.0, latency_s=2.0,
-            category=CATEGORY_GENERALIST,
-        ))
+        cat.append(
+            ExpertTool(
+                name=_tool_name(local_model),
+                kind=KIND_MODEL,
+                backend_type="vllm",
+                summary=(
+                    f"On-device open model ({local_model}) served locally. Cheap "
+                    "and private; good for extraction, formatting, arithmetic on "
+                    "given data."
+                ),
+                model=local_model,
+                base_url=local_endpoint,
+                price_in=0.0,
+                price_out=0.0,
+                latency_s=2.0,
+                category=CATEGORY_GENERALIST,
+            )
+        )
 
     # ---- basic tools ----
-    cat.append(ExpertTool(
-        name="web_search", kind=KIND_WEB_SEARCH, backend_type="tavily-search",
-        summary="Web search (Tavily). Use for facts that need a live lookup.",
-        model="tavily", latency_s=8.0, category=CATEGORY_BASIC,
-    ))
-    cat.append(ExpertTool(
-        name="code_interpreter", kind=KIND_CODE, backend_type="modal-python",
-        summary="Python sandbox. Execute code and return stdout/stderr.",
-        model="modal-python", latency_s=6.0, category=CATEGORY_BASIC,
-    ))
+    cat.append(
+        ExpertTool(
+            name="web_search",
+            kind=KIND_WEB_SEARCH,
+            backend_type="tavily-search",
+            summary="Web search (Tavily). Use for facts that need a live lookup.",
+            model="tavily",
+            latency_s=8.0,
+            category=CATEGORY_BASIC,
+        )
+    )
+    cat.append(
+        ExpertTool(
+            name="code_interpreter",
+            kind=KIND_CODE,
+            backend_type="modal-python",
+            summary="Python sandbox. Execute code and return stdout/stderr.",
+            model="modal-python",
+            latency_s=6.0,
+            category=CATEGORY_BASIC,
+        )
+    )
 
     return cat
 
@@ -407,19 +488,29 @@ def _openjarvis_basic_tools() -> List[ExpertTool]:
             "calculator",
             summary="Evaluate an arithmetic / math expression and return the result.",
             params=obj(
-                {"expression": {"type": "string",
-                                "description": "Math expression to evaluate."}},
+                {
+                    "expression": {
+                        "type": "string",
+                        "description": "Math expression to evaluate.",
+                    }
+                },
                 ["expression"],
             ),
             latency_s=1.0,
         ),
         openjarvis_tool(
             "shell_exec",
-            summary=("Run a shell command and return its stdout/stderr. Critical "
-                     "for terminal / TerminalBench-style tasks."),
+            summary=(
+                "Run a shell command and return its stdout/stderr. Critical "
+                "for terminal / TerminalBench-style tasks."
+            ),
             params=obj(
-                {"command": {"type": "string",
-                             "description": "Shell command to execute."}},
+                {
+                    "command": {
+                        "type": "string",
+                        "description": "Shell command to execute.",
+                    }
+                },
                 ["command"],
             ),
             latency_s=4.0,
@@ -428,7 +519,12 @@ def _openjarvis_basic_tools() -> List[ExpertTool]:
             "file_read",
             summary="Read the contents of a file at the given path.",
             params=obj(
-                {"path": {"type": "string", "description": "Path of the file to read."}},
+                {
+                    "path": {
+                        "type": "string",
+                        "description": "Path of the file to read.",
+                    }
+                },
                 ["path"],
             ),
             latency_s=1.0,
@@ -437,8 +533,13 @@ def _openjarvis_basic_tools() -> List[ExpertTool]:
             "file_write",
             summary="Write content to a file at the given path.",
             params=obj(
-                {"path": {"type": "string", "description": "Path of the file to write."},
-                 "content": {"type": "string", "description": "Content to write."}},
+                {
+                    "path": {
+                        "type": "string",
+                        "description": "Path of the file to write.",
+                    },
+                    "content": {"type": "string", "description": "Content to write."},
+                },
                 ["path", "content"],
             ),
             latency_s=1.0,
@@ -450,8 +551,10 @@ def _openjarvis_basic_tools() -> List[ExpertTool]:
                 "type": "object",
                 "properties": {
                     "url": {"type": "string", "description": "Request URL."},
-                    "method": {"type": "string",
-                               "description": "HTTP method (GET, POST, ...). Default GET."},
+                    "method": {
+                        "type": "string",
+                        "description": "HTTP method (GET, POST, ...). Default GET.",
+                    },
                 },
                 "required": ["url"],
             },
@@ -459,56 +562,85 @@ def _openjarvis_basic_tools() -> List[ExpertTool]:
         ),
         openjarvis_tool(
             "think",
-            summary=("Record a private reasoning step (scratchpad). No external "
-                     "effect; use to plan before acting on hard reasoning tasks."),
+            summary=(
+                "Record a private reasoning step (scratchpad). No external "
+                "effect; use to plan before acting on hard reasoning tasks."
+            ),
             params=obj(
-                {"thought": {"type": "string",
-                             "description": "Your reasoning or thought process."}},
+                {
+                    "thought": {
+                        "type": "string",
+                        "description": "Your reasoning or thought process.",
+                    }
+                },
                 ["thought"],
             ),
             latency_s=0.5,
         ),
         openjarvis_tool(
             "apply_patch",
-            summary=("Apply a unified-diff patch to a file. Use to edit code for "
-                     "terminal / SWE-style tasks."),
+            summary=(
+                "Apply a unified-diff patch to a file. Use to edit code for "
+                "terminal / SWE-style tasks."
+            ),
             params=obj(
-                {"patch": {"type": "string",
-                           "description": "The unified diff patch text to apply."},
-                 "path": {"type": "string",
-                          "description": "Target file path (auto-detected from the "
-                                         "patch header if omitted)."}},
+                {
+                    "patch": {
+                        "type": "string",
+                        "description": "The unified diff patch text to apply.",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Target file path (auto-detected from the "
+                        "patch header if omitted).",
+                    },
+                },
                 ["patch"],
             ),
             latency_s=2.0,
         ),
         openjarvis_tool(
             "pdf_extract",
-            summary=("Extract text from a PDF file. Use for GAIA-style tasks with "
-                     "PDF attachments."),
+            summary=(
+                "Extract text from a PDF file. Use for GAIA-style tasks with "
+                "PDF attachments."
+            ),
             params=obj(
-                {"file_path": {"type": "string",
-                               "description": "Path to the PDF file."},
-                 "pages": {"type": "string",
-                           "description": "Page range, e.g. '1-5' or '1,3,5'. "
-                                          "Omit for all pages."}},
+                {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the PDF file.",
+                    },
+                    "pages": {
+                        "type": "string",
+                        "description": "Page range, e.g. '1-5' or '1,3,5'. "
+                        "Omit for all pages.",
+                    },
+                },
                 ["file_path"],
             ),
             latency_s=3.0,
         ),
         openjarvis_tool(
             "db_query",
-            summary=("Run a SQL query against a SQLite/Postgres database and return "
-                     "rows. Read-only by default."),
+            summary=(
+                "Run a SQL query against a SQLite/Postgres database and return "
+                "rows. Read-only by default."
+            ),
             params=obj(
-                {"query": {"type": "string",
-                           "description": "SQL query to execute."},
-                 "db_path": {"type": "string",
-                             "description": "Path to a SQLite DB file. Defaults to "
-                                            "in-memory."},
-                 "read_only": {"type": "boolean",
-                               "description": "Restrict to SELECT/EXPLAIN/PRAGMA. "
-                                              "Default: true."}},
+                {
+                    "query": {"type": "string", "description": "SQL query to execute."},
+                    "db_path": {
+                        "type": "string",
+                        "description": "Path to a SQLite DB file. Defaults to "
+                        "in-memory.",
+                    },
+                    "read_only": {
+                        "type": "boolean",
+                        "description": "Restrict to SELECT/EXPLAIN/PRAGMA. "
+                        "Default: true.",
+                    },
+                },
                 ["query"],
             ),
             latency_s=3.0,
@@ -540,10 +672,14 @@ _CLOUD_FRONTIER_MODELS = (
     # Neutral, uniform summaries (no capability ranking) so the orchestrator
     # doesn't just pick whichever model is labelled "strongest" — routing should
     # be learned from the reward, not hand-labelled here.
-    ("gpt-5.5", "openai", "openai/gpt-5.5",
-     "Expert model (GPT-5.5).", 30.0),
-    ("claude-opus-4-8", "anthropic", "anthropic/claude-opus-4.8",
-     "Expert model (Claude Opus 4.8).", 26.0),
+    ("gpt-5.5", "openai", "openai/gpt-5.5", "Expert model (GPT-5.5).", 30.0),
+    (
+        "claude-opus-4-8",
+        "anthropic",
+        "anthropic/claude-opus-4.8",
+        "Expert model (Claude Opus 4.8).",
+        26.0,
+    ),
 )
 
 
@@ -570,16 +706,26 @@ def _model_tool(
     backend = (
         model_backends.get(canonical)
         or ("vllm" if canonical in local_endpoints else None)
-        or (native_backend if native_backend in ("openai", "anthropic", "gemini")
-            else "openrouter")
+        or (
+            native_backend
+            if native_backend in ("openai", "anthropic", "gemini")
+            else "openrouter"
+        )
     )
     name = _tool_name(canonical)
     if backend == "vllm":
         # Self-hosted: free per the cost model.
         return ExpertTool(
-            name=name, kind=KIND_MODEL, backend_type="vllm", summary=summary,
-            model=canonical, base_url=local_endpoints.get(canonical),
-            price_in=0.0, price_out=0.0, latency_s=lat, category=category,
+            name=name,
+            kind=KIND_MODEL,
+            backend_type="vllm",
+            summary=summary,
+            model=canonical,
+            base_url=local_endpoints.get(canonical),
+            price_in=0.0,
+            price_out=0.0,
+            latency_s=lat,
+            category=category,
         )
     if backend == "openrouter":
         slug = openrouter_slugs.get(canonical, or_slug)
@@ -587,15 +733,29 @@ def _model_tool(
         if (pi, po) == (0.0, 0.0):  # fall back to the canonical id's price
             pi, po = _price(canonical)
         return ExpertTool(
-            name=name, kind=KIND_MODEL, backend_type="openrouter", summary=summary,
-            model=slug, base_url=None, price_in=pi, price_out=po,
-            latency_s=lat, category=category,
+            name=name,
+            kind=KIND_MODEL,
+            backend_type="openrouter",
+            summary=summary,
+            model=slug,
+            base_url=None,
+            price_in=pi,
+            price_out=po,
+            latency_s=lat,
+            category=category,
         )
     # native provider API (openai / anthropic / gemini)
     pi, po = _price(canonical)
     return ExpertTool(
-        name=name, kind=KIND_MODEL, backend_type=backend, summary=summary,
-        model=canonical, price_in=pi, price_out=po, latency_s=lat, category=category,
+        name=name,
+        kind=KIND_MODEL,
+        backend_type=backend,
+        summary=summary,
+        model=canonical,
+        price_in=pi,
+        price_out=po,
+        latency_s=lat,
+        category=category,
     )
 
 
@@ -633,7 +793,12 @@ def orchestrator_catalog(
     # match is skipped from the catalog. Used to temporarily drop unreliable
     # experts (e.g. OpenRouter giants during a provider outage) without editing
     # the registry — unset the var to restore them.
-    _excl = {s.strip().lower() for s in os.environ.get("OJ_EXCLUDE_EXPERTS", "").split(",") if s.strip()}
+    _excl = {
+        s.strip().lower()
+        for s in os.environ.get("OJ_EXCLUDE_EXPERTS", "").split(",")
+        if s.strip()
+    }
+
     def _excluded(canonical: str) -> bool:
         c = canonical.lower()
         return any(x in c for x in _excl)
@@ -642,38 +807,63 @@ def orchestrator_catalog(
     for canonical, native_backend, or_slug, summary, lat in _CLOUD_FRONTIER_MODELS:
         if _excluded(canonical):
             continue
-        cat.append(_model_tool(
-            canonical, native_backend=native_backend, or_slug=or_slug,
-            summary=summary, lat=lat, category=CATEGORY_CLOUD_FRONTIER,
-            local_endpoints=local_endpoints, model_backends=model_backends,
-            openrouter_slugs=openrouter_slugs,
-        ))
+        cat.append(
+            _model_tool(
+                canonical,
+                native_backend=native_backend,
+                or_slug=or_slug,
+                summary=summary,
+                lat=lat,
+                category=CATEGORY_CLOUD_FRONTIER,
+                local_endpoints=local_endpoints,
+                model_backends=model_backends,
+                openrouter_slugs=openrouter_slugs,
+            )
+        )
 
     # ---- open-source models (OpenRouter by default; vLLM when an endpoint or
     #      a model_backends override is supplied) ----
     for canonical, or_slug in _LOCAL_OSS_MODELS:
         if _excluded(canonical):
             continue
-        cat.append(_model_tool(
-            canonical, native_backend="vllm", or_slug=or_slug,
-            summary=f"Expert model ({canonical}).",
-            lat=4.0, category=CATEGORY_LOCAL_OSS,
-            local_endpoints=local_endpoints, model_backends=model_backends,
-            openrouter_slugs=openrouter_slugs,
-        ))
+        cat.append(
+            _model_tool(
+                canonical,
+                native_backend="vllm",
+                or_slug=or_slug,
+                summary=f"Expert model ({canonical}).",
+                lat=4.0,
+                category=CATEGORY_LOCAL_OSS,
+                local_endpoints=local_endpoints,
+                model_backends=model_backends,
+                openrouter_slugs=openrouter_slugs,
+            )
+        )
 
     if include_tools:
         # ---- basic tools ----
-        cat.append(ExpertTool(
-            name="web_search", kind=KIND_WEB_SEARCH, backend_type="tavily-search",
-            summary="Web search (Tavily). Use for facts that need a live lookup.",
-            model="tavily", latency_s=8.0, category=CATEGORY_BASIC,
-        ))
-        cat.append(ExpertTool(
-            name="code_interpreter", kind=KIND_CODE, backend_type="modal-python",
-            summary="Python sandbox. Execute code and return stdout/stderr.",
-            model="modal-python", latency_s=6.0, category=CATEGORY_BASIC,
-        ))
+        cat.append(
+            ExpertTool(
+                name="web_search",
+                kind=KIND_WEB_SEARCH,
+                backend_type="tavily-search",
+                summary="Web search (Tavily). Use for facts that need a live lookup.",
+                model="tavily",
+                latency_s=8.0,
+                category=CATEGORY_BASIC,
+            )
+        )
+        cat.append(
+            ExpertTool(
+                name="code_interpreter",
+                kind=KIND_CODE,
+                backend_type="modal-python",
+                summary="Python sandbox. Execute code and return stdout/stderr.",
+                model="modal-python",
+                latency_s=6.0,
+                category=CATEGORY_BASIC,
+            )
+        )
         cat.extend(_openjarvis_basic_tools())
 
     return cat
@@ -736,13 +926,19 @@ def sample_tool_config(
         for t in chosen:
             if t.kind == KIND_MODEL and (t.price_in or t.price_out):
                 f = rng.uniform(1.0 - price_jitter, 1.0 + price_jitter)
-                jittered.append(ExpertTool(
-                    name=t.name, kind=t.kind, backend_type=t.backend_type,
-                    summary=t.summary, model=t.model, base_url=t.base_url,
-                    price_in=round(t.price_in * f, 4),
-                    price_out=round(t.price_out * f, 4),
-                    latency_s=t.latency_s,
-                ))
+                jittered.append(
+                    ExpertTool(
+                        name=t.name,
+                        kind=t.kind,
+                        backend_type=t.backend_type,
+                        summary=t.summary,
+                        model=t.model,
+                        base_url=t.base_url,
+                        price_in=round(t.price_in * f, 4),
+                        price_out=round(t.price_out * f, 4),
+                        latency_s=t.latency_s,
+                    )
+                )
             else:
                 jittered.append(t)
         return jittered

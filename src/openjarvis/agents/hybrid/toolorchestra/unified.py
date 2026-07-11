@@ -14,12 +14,6 @@ import json
 import threading
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-# Guards the lazy, one-time build of the shared ToolExecutor in
-# ``_dispatch_openjarvis_tool``: with concurrent rollouts (parallel rejection
-# sampling) several threads can reach the build at once and would each instantiate
-# the full tool registry. The lock makes it build-once.
-_EXECUTOR_BUILD_LOCK = threading.Lock()
-
 from openjarvis.agents.hybrid._prices import cost as _model_cost
 from openjarvis.agents.hybrid.expert_registry import ExpertTool, to_worker_dict
 from openjarvis.agents.hybrid.toolorchestra.parsing import _parse_rl_tool_call
@@ -28,8 +22,14 @@ from openjarvis.agents.hybrid.toolorchestra.rollout import (
     build_system_prompt,
     run_unified_rollout,
 )
-from openjarvis.agents.hybrid.toolorchestra.workers import _call_worker
 from openjarvis.agents.hybrid.toolorchestra.tracing import span
+from openjarvis.agents.hybrid.toolorchestra.workers import _call_worker
+
+# Guards the lazy, one-time build of the shared ToolExecutor in
+# ``_dispatch_openjarvis_tool``: with concurrent rollouts (parallel rejection
+# sampling) several threads can reach the build at once and would each instantiate
+# the full tool registry. The lock makes it build-once.
+_EXECUTOR_BUILD_LOCK = threading.Lock()
 
 
 def make_call_orchestrator(
@@ -73,7 +73,9 @@ def make_call_orchestrator(
 
     from openjarvis.agents.hybrid.toolorchestra.tracing import wrap_client
 
-    client = wrap_client(OpenAI(base_url=base_url, api_key=api_key or "EMPTY", timeout=timeout))
+    client = wrap_client(
+        OpenAI(base_url=base_url, api_key=api_key or "EMPTY", timeout=timeout)
+    )
 
     def call_orchestrator(messages: List[Dict[str, Any]], specs: List[Dict[str, Any]]):
         # ``messages`` is the full running conversation (system/user/assistant/tool)
@@ -93,7 +95,9 @@ def make_call_orchestrator(
         # repetition_penalty is a vLLM extra (not OpenAI-native); only send it to a
         # local vLLM endpoint (base_url set), never to the cloud frontier APIs.
         if base_url and repetition_penalty and repetition_penalty != 1.0:
-            kwargs.setdefault("extra_body", {})["repetition_penalty"] = repetition_penalty
+            kwargs.setdefault("extra_body", {})["repetition_penalty"] = (
+                repetition_penalty
+            )
         resp = client.chat.completions.create(
             model=model,
             messages=send,
@@ -204,10 +208,17 @@ def make_dispatch(
             # The orchestrator emitted a tool call with no/empty input. Don't hit
             # the API (it 400s on empty content) — return a usable error so the
             # rollout keeps going instead of dropping.
-            return (f"[{tool.name}: no input provided — supply a non-empty "
-                    "'input' to delegate]", 0.0, 0, True)
+            return (
+                f"[{tool.name}: no input provided — supply a non-empty "
+                "'input' to delegate]",
+                0.0,
+                0,
+                True,
+            )
         text, p, c, is_local, extra_cost, _n = _call_worker(worker, prompt, cfg)
-        usd = (0.0 if is_local else _model_cost(str(tool.model), p, c)) + float(extra_cost)
+        usd = (0.0 if is_local else _model_cost(str(tool.model), p, c)) + float(
+            extra_cost
+        )
         return text, usd, int(p) + int(c), bool(is_local)
 
     def dispatch(tool: ExpertTool, arguments: Dict[str, Any]):
@@ -218,12 +229,22 @@ def make_dispatch(
         # the trace reads clearly even under anonymization; ``anon_label`` in the
         # metadata records the opaque label the orchestrator actually saw/chose.
         real_model = str(tool.model)
-        with span(f"route:{real_model}", span_type="tool", input=arguments,
-                  metadata={"real_model": real_model, "anon_label": tool.name,
-                            "backend": tool.backend_type}) as s:
+        with span(
+            f"route:{real_model}",
+            span_type="tool",
+            input=arguments,
+            metadata={
+                "real_model": real_model,
+                "anon_label": tool.name,
+                "backend": tool.backend_type,
+            },
+        ) as s:
             obs, usd, toks, is_local = _dispatch_inner(tool, arguments)
-            s.log(output=obs, metrics={"cost_usd": usd, "tokens": toks},
-                  metadata={"is_local": is_local})
+            s.log(
+                output=obs,
+                metrics={"cost_usd": usd, "tokens": toks},
+                metadata={"is_local": is_local},
+            )
             return obs, usd, toks, is_local
 
     return dispatch
@@ -245,7 +266,10 @@ def teacher_rollout(
         question,
         tools,
         call_orchestrator=make_call_orchestrator(
-            teacher_model, base_url=base_url, api_key=api_key, temperature=temperature,
+            teacher_model,
+            base_url=base_url,
+            api_key=api_key,
+            temperature=temperature,
         ),
         dispatch=make_dispatch(cfg),
         max_turns=max_turns,

@@ -12,7 +12,6 @@ prompt), ``assistant`` (reasoning + a ``<tool_call>`` tag, or the final answer),
 
 from __future__ import annotations
 
-import json
 import re
 from typing import Any, Dict, List
 
@@ -79,23 +78,26 @@ def _debox(text: str) -> str:
 # reasoning about its own harness. Never a good target: drop the whole line.
 _LEAK_RE = re.compile(
     r"(?im)^.*\b(?:"
-    r"the user (?:is|was|wants|has|had|needs|'s|would|will|asked|'ve asked|has asked)\b|"
-    r"asked me to\b|"                                    # echoes of an injected nudge turn
+    r"the user (?:is|was|wants|has|had|needs|'s|would|will|asked"
+    r"|'ve asked|has asked)\b|"
+    r"asked me to\b|"  # echoes of an injected nudge turn
     r"make progress by delegat|"
     r"delegat\w+[^\n]*sub-?question|"
     r"(?:to |ask |send .{0,20}to )?one of the models\b|"
-    r"instructions?|"                                    # any self-reference to the rules
+    r"instructions?|"  # any self-reference to the rules
     r"requirement|"
-    r"at least one (?:model|tool|expert)|"               # "(call|invoke) at least one model"
+    r"at least one (?:model|tool|expert)|"  # "(call|invoke) at least one model"
     r"(?:call|invoke|route to|delegate to|use)\s+(?:a|one|at least one|the)\s+model\b|"
     r"route\s+(?:this|it|that)\b[^\n]{0,40}\bthrough\s+(?:a|one|the)\s+model\b|"
     r"without mentioning (?:any )?(?:tools?|reasoning|meta|steps)|"
     r"in the required format\b|"
-    r"based on the (?:model|response|analysis|expert)|"        # response-acknowledgment
-    r"the model (?:provided|confirmed|gave|returned|correctly|analy\w+|respon\w+|said|indicated|identified)|"
-    r"i (?:got|received|have) (?:a |the )?(?:comprehensive |clear |good |detailed )?answer\b|"
+    r"based on the (?:model|response|analysis|expert)|"  # response-acknowledgment
+    r"the model (?:provided|confirmed|gave|returned|correctly|analy\w+"
+    r"|respon\w+|said|indicated|identified)|"
+    r"i (?:got|received|have) (?:a |the )?"
+    r"(?:comprehensive |clear |good |detailed )?answer\b|"
     r"now i can (?:confidently )?(?:give|provide|state|answer)|"
-    r"perfect[!,]|great[!,]|excellent[!,]|"                    # narration exclamations
+    r"perfect[!,]|great[!,]|excellent[!,]|"  # narration exclamations
     r"as an orchestrator|"
     r"whose job is to (?:route|delegate|orchestrate)|"
     r"testing whether i (?:need|have|should|must)\b|"
@@ -121,7 +123,7 @@ def _scrub_meta(text: str) -> str:
     m = re.match(r"(?is)^\s*(<think>)\s*", body)
     if m:
         think = "<think>\n"
-        body = body[m.end():]
+        body = body[m.end() :]
     body = _LEAK_RE.sub("", body)
     body = _META_OPEN_RE.sub("", body).lstrip()
     return (think + body).strip() if think else body.strip()
@@ -139,9 +141,9 @@ def _scrub_meta(text: str) -> str:
 # match, so legitimate ``<``/``>`` in math/code (``x < 3 and y > 2``) is left
 # untouched.
 _CONTROL_TOKEN_RE = re.compile(
-    r"<\|[^>]*?\|>"                                                  # closed pipe token
-    r"|<\|[^|>]*>"                                                   # unclosed pipe token
-    r"|</?(?:start_of_turn|end_of_turn|eos|bos|pad|unk|s)>"         # named angle tokens
+    r"<\|[^>]*?\|>"  # closed pipe token
+    r"|<\|[^|>]*>"  # unclosed pipe token
+    r"|</?(?:start_of_turn|end_of_turn|eos|bos|pad|unk|s)>"  # named angle tokens
 )
 
 
@@ -173,7 +175,7 @@ def _final_answer_block(text: str) -> str:
     marks = list(re.finditer(r"(?im)FINAL[_\s]?ANSWER\s*:?", text))
     if marks:
         last = marks[-1]
-        answer = _strip_control_tokens(text[last.end():].strip())
+        answer = _strip_control_tokens(text[last.end() :].strip())
         # Final turn = the bare short answer only. Drop EVERYTHING before
         # FINAL_ANSWER — both the visible "Perfect! Based on the model's response…"
         # narration AND the final-turn <think>, which is just confirmatory
@@ -186,7 +188,11 @@ def _final_answer_block(text: str) -> str:
         # Drop the think block (same rationale as above) — keep only the answer.
         _, _, answer = text.rpartition("</think>")
         answer = _strip_control_tokens(answer.strip())
-        return f"FINAL_ANSWER: {answer}" if answer else f"FINAL_ANSWER: {_strip_control_tokens(_scrub_meta(text))}"
+        return (
+            f"FINAL_ANSWER: {answer}"
+            if answer
+            else f"FINAL_ANSWER: {_strip_control_tokens(_scrub_meta(text))}"
+        )
     return f"FINAL_ANSWER: {_strip_control_tokens(text)}"
 
 
@@ -209,29 +215,39 @@ def trajectory_to_record(
         if turn.tool_name is None:
             # Final-answer turn. turn.reasoning is the model's actual output for
             # this turn (which already contains the answer); render it once.
-            conversations.append({
-                "role": "assistant",
-                "content": _final_answer_block(turn.reasoning or rollout.final_answer),
-            })
+            conversations.append(
+                {
+                    "role": "assistant",
+                    "content": _final_answer_block(
+                        turn.reasoning or rollout.final_answer
+                    ),
+                }
+            )
             continue
         tag = tool_call_tag(turn.tool_name, turn.arguments)
         reasoning = _scrub_meta(_normalize_think((turn.reasoning or "").rstrip()))
-        conversations.append({
-            "role": "assistant",
-            "content": (reasoning + "\n" + tag).strip(),
-        })
-        conversations.append({
-            "role": "tool",
-            "name": turn.tool_name,
-            "content": turn.observation or "",
-        })
+        conversations.append(
+            {
+                "role": "assistant",
+                "content": (reasoning + "\n" + tag).strip(),
+            }
+        )
+        conversations.append(
+            {
+                "role": "tool",
+                "name": turn.tool_name,
+                "content": turn.observation or "",
+            }
+        )
 
     # If the rollout terminated on max_turns (no None turn), append the answer.
     if not rollout.turns or rollout.turns[-1].tool_name is not None:
-        conversations.append({
-            "role": "assistant",
-            "content": _final_answer_block(rollout.final_answer),
-        })
+        conversations.append(
+            {
+                "role": "assistant",
+                "content": _final_answer_block(rollout.final_answer),
+            }
+        )
 
     return {
         "conversations": conversations,

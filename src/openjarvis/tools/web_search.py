@@ -123,7 +123,7 @@ class WebSearchTool(BaseTool):
         request (DDGS timeout) AND wrap the call in a hard wall-clock deadline so
         a flaky search fast-fails instead of stalling data generation.
         """
-        from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FTO
+        from concurrent.futures import ThreadPoolExecutor
 
         from ddgs import DDGS
 

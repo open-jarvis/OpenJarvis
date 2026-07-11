@@ -93,13 +93,18 @@ class LLMJudgeScorer(Scorer):
                 )
             except Exception as exc:  # noqa: BLE001 - re-raised below
                 last_exc = exc
-                if attempt == _JUDGE_MAX_RETRIES - 1 or not _is_retryable_judge_error(exc):
+                if attempt == _JUDGE_MAX_RETRIES - 1 or not _is_retryable_judge_error(
+                    exc
+                ):
                     raise
-                delay = min(_JUDGE_BASE_DELAY_S * (2 ** attempt), _JUDGE_MAX_DELAY_S)
+                delay = min(_JUDGE_BASE_DELAY_S * (2**attempt), _JUDGE_MAX_DELAY_S)
                 delay += random.uniform(0.0, delay * 0.25)  # jitter
                 LOGGER.warning(
                     "judge call failed (attempt %d/%d): %s — retrying in %.1fs",
-                    attempt + 1, _JUDGE_MAX_RETRIES, exc, delay,
+                    attempt + 1,
+                    _JUDGE_MAX_RETRIES,
+                    exc,
+                    delay,
                 )
                 time.sleep(delay)
         # Unreachable (loop either returns or raises), but keeps type-checkers happy.

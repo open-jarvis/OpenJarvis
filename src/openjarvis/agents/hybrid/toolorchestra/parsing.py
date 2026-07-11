@@ -9,9 +9,7 @@ from typing import Any, Dict, List, Optional
 # Regex for ``<tool_call>{...}</tool_call>`` blocks emitted by Orchestrator-8B
 # when the vLLM tool parser doesn't catch them (e.g. `qwen3_xml` parser on a
 # hermes-style template). Captures the JSON payload.
-_TOOL_CALL_TAG_RE = re.compile(
-    r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL
-)
+_TOOL_CALL_TAG_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
 
 # Fallback for a known failure mode: the SFT'd orchestrator often emits its
 # delegation as ``\boxed{expert_ab12: <sub-question>}`` (math-data habit bleeding
@@ -28,8 +26,8 @@ _TOOL_CALL_TAG_RE = re.compile(
 # alone. ``group("key")`` is the explicit arg key when the model wrote ``, key:``.
 _BOXED_DELEGATION_RE = re.compile(
     r"\\boxed\{\s*([A-Za-z_][\w-]*)\s*"
-    r"(?:,\s*(?P<key>\w+)\s*)?"   # optional ", key" hint (e.g. file_read, path:)
-    r"(?:query\s*)?"             # optional literal "query" word before the colon
+    r"(?:,\s*(?P<key>\w+)\s*)?"  # optional ", key" hint (e.g. file_read, path:)
+    r"(?:query\s*)?"  # optional literal "query" word before the colon
     r":\s*(.+?)\s*\}\s*$",
     re.DOTALL,
 )
@@ -113,7 +111,7 @@ def _strip_fences(s: str) -> str:
     if s.startswith("```"):
         first_nl = s.find("\n")
         if first_nl != -1:
-            s = s[first_nl + 1:]
+            s = s[first_nl + 1 :]
         if s.endswith("```"):
             s = s[:-3]
         s = s.strip()

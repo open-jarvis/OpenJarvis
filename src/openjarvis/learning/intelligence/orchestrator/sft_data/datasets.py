@@ -38,10 +38,10 @@ class Task:
     task_id: str
     question: str
     answer: str
-    domain: str            # coarse area: math / code / science / medical / chat / misc
-    difficulty: str = ""   # OpenThoughts difficulty tier (GeneralThought has none)
-    dataset: str = ""      # source dataset: GeneralThought / OpenThoughts3
-    subsector: str = ""    # fine source: NuminaMath / NHSQA / TACO / glaive / ...
+    domain: str  # coarse area: math / code / science / medical / chat / misc
+    difficulty: str = ""  # OpenThoughts difficulty tier (GeneralThought has none)
+    dataset: str = ""  # source dataset: GeneralThought / OpenThoughts3
+    subsector: str = ""  # fine source: NuminaMath / NHSQA / TACO / glaive / ...
 
     @property
     def instruction(self) -> str:
@@ -194,7 +194,9 @@ def _normalize_openthoughts(row: Dict[str, Any], *, index: int = 0) -> Optional[
     if not question or not answer:
         return None
     domain = str(row.get("domain") or "unknown").strip().lower() or "unknown"
-    task_id = str(row.get("id") or row.get("source") or f"openthoughts-{index}") + f"-{index}"
+    task_id = (
+        str(row.get("id") or row.get("source") or f"openthoughts-{index}") + f"-{index}"
+    )
     return Task(
         task_id=task_id,
         question=question,
@@ -324,9 +326,7 @@ def load_grpo_prompts(*, n: int = 30000, seed: int = 42) -> List[Task]:
     per = max(n // 4 + 1, 1)
     pool: List[Task] = []
     pool.extend(load_generalthought(n=per, seed=seed))
-    pool.extend(
-        load_openthoughts(n_code=per, n_math=per, n_science=per, seed=seed)
-    )
+    pool.extend(load_openthoughts(n_code=per, n_math=per, n_science=per, seed=seed))
 
     rng = random.Random(seed)
     rng.shuffle(pool)

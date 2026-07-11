@@ -7,6 +7,7 @@ from typing import Optional, Tuple
 
 # ---- Tavily + Modal helpers -------------------------------------------------
 
+
 def _call_tavily_search(query: str, max_results: int = 5) -> Tuple[str, int, int]:
     """One-shot Tavily search. Returns (text, p_tok=0, c_tok=0).
 
@@ -43,7 +44,9 @@ def _call_modal_python(code: str, timeout_s: int = 60) -> Tuple[str, int]:
         # Python image too. We rely on stdlib only — no extra pip installs.
         image = modal.Image.debian_slim(python_version="3.12")
         sb = modal.Sandbox.create(
-            "python", "-c", code,
+            "python",
+            "-c",
+            code,
             app=app,
             image=image,
             timeout=int(timeout_s),

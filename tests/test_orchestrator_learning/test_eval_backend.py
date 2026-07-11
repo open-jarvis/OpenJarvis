@@ -32,8 +32,12 @@ class _CannedRollout:
         # arguments / observation), so turns must be real UnifiedTurn-shaped
         # objects, not bare object() placeholders.
         self.turns = [
-            UnifiedTurn(reasoning="let me search", tool_name="web_search",
-                        arguments={"query": "x"}, observation="result"),
+            UnifiedTurn(
+                reasoning="let me search",
+                tool_name="web_search",
+                arguments={"query": "x"},
+                observation="result",
+            ),
         ]
 
     def tool_calls(self):

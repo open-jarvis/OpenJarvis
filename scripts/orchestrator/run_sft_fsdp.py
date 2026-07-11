@@ -24,6 +24,7 @@ Reuses the conversation->tokens + assistant-only masking from sft_tokenize.py.
 On these no-NVLink L40S, the accelerate/FSDP NCCL env (NCCL_P2P_DISABLE=1 etc.)
 must be set by the launcher.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -39,8 +40,14 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sft_tokenize import build_example  # noqa: E402
 
-MODEL_EXPERTS = {"gpt_5_5", "claude_opus_4_8", "qwen3_5_9b", "qwen3_6_27b_fp8",
-                 "qwen3_5_122b_a10b_fp8", "qwen3_5_397b_a17b_fp8"}
+MODEL_EXPERTS = {
+    "gpt_5_5",
+    "claude_opus_4_8",
+    "qwen3_5_9b",
+    "qwen3_6_27b_fp8",
+    "qwen3_5_122b_a10b_fp8",
+    "qwen3_5_397b_a17b_fp8",
+}
 
 
 def record_is_correct(r: dict) -> bool:
@@ -53,7 +60,9 @@ def record_is_correct(r: dict) -> bool:
 def record_routed_to_expert(r: dict) -> bool:
     """True if the trajectory called a model expert (resolving anon labels)."""
     amap = r.get("metrics", {}).get("anon_map", {})
-    names = re.findall(r'"name"\s*:\s*"([a-z0-9_]+)"', json.dumps(r.get("conversations", [])))
+    names = re.findall(
+        r'"name"\s*:\s*"([a-z0-9_]+)"', json.dumps(r.get("conversations", []))
+    )
     for n in names:
         real = amap.get(n, n)
         if real in MODEL_EXPERTS:
@@ -84,7 +93,9 @@ def select(records, variant: str, require_clean: bool = True):
     elif variant == "correct":
         base = [r for r in records if record_is_correct(r)]
     elif variant == "correct_routed":
-        base = [r for r in records if record_is_correct(r) and record_routed_to_expert(r)]
+        base = [
+            r for r in records if record_is_correct(r) and record_routed_to_expert(r)
+        ]
     else:
         raise ValueError(f"unknown variant {variant}")
     if not require_clean:
@@ -94,14 +105,25 @@ def select(records, variant: str, require_clean: bool = True):
 
 def main() -> int:
     p = argparse.ArgumentParser()
-    p.add_argument("--data", action="append", required=True, help="JSONL(s) (repeatable)")
-    p.add_argument("--val-data", default=None,
-                   help="Held-out JSONL for val-loss (excluded from --data). Eval'd per epoch.")
-    p.add_argument("--variant", choices=["all", "correct", "correct_routed"], default="correct")
-    p.add_argument("--require-clean", action=argparse.BooleanOptionalAction, default=True,
-                   help="Drop records whose `clean` flag is False (bloated / garbled / "
-                        "unrouted). Rows missing the flag (legacy data) are kept. "
-                        "Use --no-require-clean to disable.")
+    p.add_argument(
+        "--data", action="append", required=True, help="JSONL(s) (repeatable)"
+    )
+    p.add_argument(
+        "--val-data",
+        default=None,
+        help="Held-out JSONL for val-loss (excluded from --data). Eval'd per epoch.",
+    )
+    p.add_argument(
+        "--variant", choices=["all", "correct", "correct_routed"], default="correct"
+    )
+    p.add_argument(
+        "--require-clean",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Drop records whose `clean` flag is False (bloated / garbled / "
+        "unrouted). Rows missing the flag (legacy data) are kept. "
+        "Use --no-require-clean to disable.",
+    )
     p.add_argument("--model", default="Qwen/Qwen3.5-9B")
     p.add_argument("--out", required=True)
     p.add_argument("--epochs", type=float, default=3.0)
@@ -109,9 +131,12 @@ def main() -> int:
     p.add_argument("--grad-accum", type=int, default=8)
     p.add_argument("--lr", type=float, default=1e-5)
     p.add_argument("--max-seq", type=int, default=8192)
-    p.add_argument("--supervise-last-only", action="store_true",
-                   help="Legacy: supervise ONLY the final assistant turn. Default "
-                        "(off) supervises every assistant turn incl. routing.")
+    p.add_argument(
+        "--supervise-last-only",
+        action="store_true",
+        help="Legacy: supervise ONLY the final assistant turn. Default "
+        "(off) supervises every assistant turn incl. routing.",
+    )
     p.add_argument("--warmup-ratio", type=float, default=0.03)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--wandb-project", default="orchestrator-sft")
@@ -120,10 +145,11 @@ def main() -> int:
 
     import random
     from datetime import timedelta
+
     import torch
-    from torch.utils.data import DataLoader
     from accelerate import Accelerator
-    from accelerate.utils import set_seed, InitProcessGroupKwargs
+    from accelerate.utils import InitProcessGroupKwargs, set_seed
+    from torch.utils.data import DataLoader
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     set_seed(args.seed)
@@ -133,7 +159,10 @@ def main() -> int:
     pg_timeout_min = int(os.environ.get("SFT_PG_TIMEOUT_MIN", "30"))
     accelerator = Accelerator(
         gradient_accumulation_steps=args.grad_accum,
-        kwargs_handlers=[InitProcessGroupKwargs(timeout=timedelta(minutes=pg_timeout_min))])
+        kwargs_handlers=[
+            InitProcessGroupKwargs(timeout=timedelta(minutes=pg_timeout_min))
+        ],
+    )
     is_main = accelerator.is_main_process
 
     def log(m):
@@ -153,14 +182,20 @@ def main() -> int:
     if args.require_clean:
         pre_clean = select(records, args.variant, require_clean=False)
         n_unclean = len(pre_clean) - len(sel)
-        log(f"require_clean=True: dropped {n_unclean} unclean rows "
-            f"({len(pre_clean)}->{len(sel)}); use --no-require-clean to keep them")
+        log(
+            f"require_clean=True: dropped {n_unclean} unclean rows "
+            f"({len(pre_clean)}->{len(sel)}); use --no-require-clean to keep them"
+        )
     else:
         log("require_clean=False: NOT filtering on `clean` flag")
     examples = []
     for r in sel:
-        ex = build_example(tok, r.get("conversations", []), args.max_seq,
-                           supervise_all_turns=not args.supervise_last_only)
+        ex = build_example(
+            tok,
+            r.get("conversations", []),
+            args.max_seq,
+            supervise_all_turns=not args.supervise_last_only,
+        )
         if ex:
             examples.append(ex)
     log(f"built {len(examples)} training examples")
@@ -179,7 +214,9 @@ def main() -> int:
             am.append([1] * len(b["input_ids"]) + [0] * pad)
         return (torch.tensor(ii), torch.tensor(lab), torch.tensor(am))
 
-    dl = DataLoader(examples, batch_size=args.batch_size, shuffle=True, collate_fn=collate)
+    dl = DataLoader(
+        examples, batch_size=args.batch_size, shuffle=True, collate_fn=collate
+    )
 
     # ---- held-out val set (leak-free; excluded from --data upstream) ----
     val_dl = None
@@ -187,21 +224,32 @@ def main() -> int:
         vrecs = [json.loads(l) for l in open(args.val_data) if l.strip()]
         vex = []
         for r in vrecs:
-            ex = build_example(tok, r.get("conversations", []), args.max_seq,
-                           supervise_all_turns=not args.supervise_last_only)
+            ex = build_example(
+                tok,
+                r.get("conversations", []),
+                args.max_seq,
+                supervise_all_turns=not args.supervise_last_only,
+            )
             if ex:
                 vex.append(ex)
         log(f"val: {len(vex)} examples from {args.val_data}")
         if vex:
-            val_dl = DataLoader(vex, batch_size=args.batch_size, shuffle=False, collate_fn=collate)
+            val_dl = DataLoader(
+                vex, batch_size=args.batch_size, shuffle=False, collate_fn=collate
+            )
 
     model = AutoModelForCausalLM.from_pretrained(
-        args.model, dtype=torch.bfloat16, trust_remote_code=True,
-        attn_implementation="sdpa")
+        args.model,
+        dtype=torch.bfloat16,
+        trust_remote_code=True,
+        attn_implementation="sdpa",
+    )
     if os.environ.get("SFT_NO_GRAD_CKPT") == "1":
         log("gradient checkpointing DISABLED (SFT_NO_GRAD_CKPT=1)")
     else:
-        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+        model.gradient_checkpointing_enable(
+            gradient_checkpointing_kwargs={"use_reentrant": False}
+        )
     model.config.use_cache = False
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.0)
 
@@ -234,17 +282,25 @@ def main() -> int:
     def lr_at(s):
         if s < warmup:
             return s / warmup
-        return 0.5 * (1 + math.cos(math.pi * (s - warmup) / max(1, total_steps - warmup)))
+        return 0.5 * (
+            1 + math.cos(math.pi * (s - warmup) / max(1, total_steps - warmup))
+        )
 
     use_wandb = False
     if is_main:
         try:
             import wandb
-            base_name = args.wandb_name or f"{Path(args.model).name}-{args.variant}-fsdp"
+
+            base_name = (
+                args.wandb_name or f"{Path(args.model).name}-{args.variant}-fsdp"
+            )
             run_name = f"{base_name}-{time.strftime('%m%d-%H%M', time.gmtime())}"
-            wandb.init(project=args.wandb_project,
-                       name=run_name,
-                       config=vars(args) | {"n_examples": len(examples), "total_steps": total_steps})
+            wandb.init(
+                project=args.wandb_project,
+                name=run_name,
+                config=vars(args)
+                | {"n_examples": len(examples), "total_steps": total_steps},
+            )
             use_wandb = True
         except Exception as e:
             log(f"wandb off ({e})")
@@ -262,9 +318,11 @@ def main() -> int:
             p.mkdir(parents=True, exist_ok=True)
             tok.save_pretrained(str(p))
         unwrapped.save_pretrained(
-            str(p), is_main_process=is_main,
+            str(p),
+            is_main_process=is_main,
             save_function=accelerator.save,
-            state_dict=accelerator.get_state_dict(model))
+            state_dict=accelerator.get_state_dict(model),
+        )
         if is_main:
             log(f"checkpoint saved -> {p}")
 
@@ -319,9 +377,11 @@ def main() -> int:
         out_dir.mkdir(parents=True, exist_ok=True)
         tok.save_pretrained(str(out_dir))
     unwrapped.save_pretrained(
-        str(out_dir), is_main_process=is_main,
+        str(out_dir),
+        is_main_process=is_main,
         save_function=accelerator.save,
-        state_dict=accelerator.get_state_dict(model))
+        state_dict=accelerator.get_state_dict(model),
+    )
     if is_main:
         log(f"saved -> {out_dir}")
         if use_wandb:
@@ -329,8 +389,17 @@ def main() -> int:
                 wandb.finish()
             except Exception:
                 pass
-        print("FSDP_SFT_DONE " + json.dumps({"variant": args.variant, "steps": gstep,
-              "wall_s": round(time.time() - t0, 1), "out": str(out_dir)}))
+        print(
+            "FSDP_SFT_DONE "
+            + json.dumps(
+                {
+                    "variant": args.variant,
+                    "steps": gstep,
+                    "wall_s": round(time.time() - t0, 1),
+                    "out": str(out_dir),
+                }
+            )
+        )
     return 0
 
 

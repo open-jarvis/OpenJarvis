@@ -98,8 +98,12 @@ RL_ALL_TOOLS: Dict[str, Dict[str, List[str]]] = {
     "enhance_reasoning": {"model": ["reasoner-1", "reasoner-2", "reasoner-3"]},
     "answer": {
         "model": [
-            "answer-1", "answer-2", "answer-3", "answer-4",
-            "answer-math-1", "answer-math-2",
+            "answer-1",
+            "answer-2",
+            "answer-3",
+            "answer-4",
+            "answer-math-1",
+            "answer-math-2",
         ],
     },
     "search": {"model": ["search-1", "search-2", "search-3"]},

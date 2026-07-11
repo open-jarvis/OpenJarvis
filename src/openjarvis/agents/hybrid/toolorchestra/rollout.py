@@ -80,6 +80,7 @@ def build_system_prompt(specs: List[Dict[str, object]]) -> str:
         "\n</tool_call>"
     )
 
+
 # Char-level cap on the accumulated conversation (mirrors the paper's ~24k-token
 # cap) and a per-observation cap so one giant tool dump can't blow it out.
 _CONTEXT_CAP = 24000
@@ -92,8 +93,10 @@ _SOFT_CALL_CAP = 6
 def _trim_history(messages: List[Dict[str, str]]) -> None:
     """Keep the message history under ``_CONTEXT_CAP`` chars by dropping the
     OLDEST assistant/tool exchange, never the system prompt or the problem."""
+
     def total() -> int:
         return sum(len(m.get("content") or "") for m in messages)
+
     # messages[0]=system, messages[1]=user problem — always keep those two.
     while total() > _CONTEXT_CAP and len(messages) > 4:
         del messages[2:4]
@@ -145,7 +148,9 @@ def _run_unified_rollout_inner(
     question: str,
     tools: List[ExpertTool],
     *,
-    call_orchestrator: Callable[..., Tuple[str, List[Tuple[str, Dict[str, object]]], int, int]],
+    call_orchestrator: Callable[
+        ..., Tuple[str, List[Tuple[str, Dict[str, object]]], int, int]
+    ],
     dispatch: Callable[[ExpertTool, Dict[str, object]], Tuple[str, float, int, bool]],
     max_turns: int = 50,
     system: str = RL_ORCHESTRATOR_SYS,
@@ -192,9 +197,15 @@ def _run_unified_rollout_inner(
             if n_tool_calls == 0 and nudges < 2:
                 nudges += 1
                 messages.append({"role": "assistant", "content": text or ""})
-                messages.append({"role": "user", "content": (
-                    "Make progress by delegating a concrete sub-question to one of the "
-                    "models now via a <tool_call>.")})
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "Make progress by delegating a concrete sub-question to one of the "
+                            "models now via a <tool_call>."
+                        ),
+                    }
+                )
                 continue
             # No tool call -> the orchestrator is answering. Terminate.
             final_answer = (text or "").strip()
@@ -206,8 +217,12 @@ def _run_unified_rollout_inner(
         if name not in by_name:
             parse_failures += 1
             messages.append({"role": "assistant", "content": text or ""})
-            messages.append({"role": "user",
-                             "content": f"[invalid tool {name!r} — choose one from the provided tool list]"})
+            messages.append(
+                {
+                    "role": "user",
+                    "content": f"[invalid tool {name!r} — choose one from the provided tool list]",
+                }
+            )
             if parse_failures >= 2:
                 final_answer = (text or "").strip()
                 break
@@ -228,43 +243,68 @@ def _run_unified_rollout_inner(
             if not _has_input and empty_input_nudges < 3:
                 empty_input_nudges += 1
                 messages.append({"role": "assistant", "content": text or ""})
-                messages.append({"role": "user", "content": (
-                    f"Your call to {name} had an empty 'input'. Resend the "
-                    "<tool_call> with a non-empty 'input' field containing the "
-                    "concrete sub-question to delegate.")})
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Your call to {name} had an empty 'input'. Resend the "
+                            "<tool_call> with a non-empty 'input' field containing the "
+                            "concrete sub-question to delegate."
+                        ),
+                    }
+                )
                 continue
         obs, dcost, dtok, _is_local = dispatch(tool, arguments)
         cost += float(dcost)
         tokens += int(dtok)
         n_tool_calls += 1
-        turns.append(UnifiedTurn(
-            reasoning=text or "", tool_name=name, arguments=dict(arguments),
-            observation=obs,
-        ))
+        turns.append(
+            UnifiedTurn(
+                reasoning=text or "",
+                tool_name=name,
+                arguments=dict(arguments),
+                observation=obs,
+            )
+        )
         # The model's own action as an assistant turn (the <tool_call> tag in
         # content, matching the SFT serialization), then the observation as a
         # distinct `tool` turn the model reads as a tool response.
         call_content = text or ""
         if "<tool_call>" not in call_content:
-            call_content = (call_content + "\n" + tool_call_tag(name, arguments)).strip()
+            call_content = (
+                call_content + "\n" + tool_call_tag(name, arguments)
+            ).strip()
         messages.append({"role": "assistant", "content": call_content})
         obs_text = obs or ""
         if len(obs_text) > _OBS_CAP:
             obs_text = obs_text[:_OBS_CAP] + "\n…[truncated]"
         messages.append({"role": "tool", "name": name, "content": obs_text})
         if n_tool_calls >= _SOFT_CALL_CAP:
-            messages.append({"role": "user", "content": (
-                "You now have enough information from the models. Do NOT call any "
-                "more tools — reply with your FINAL_ANSWER line only.")})
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "You now have enough information from the models. Do NOT call any "
+                        "more tools — reply with your FINAL_ANSWER line only."
+                    ),
+                }
+            )
         _trim_history(messages)
     else:
         # Hit max_turns with no explicit answer: use the last observation/text.
-        final_answer = (turns[-1].observation or turns[-1].reasoning).strip() if turns else ""
+        final_answer = (
+            (turns[-1].observation or turns[-1].reasoning).strip() if turns else ""
+        )
 
     return UnifiedRollout(
-        turns=turns, final_answer=final_answer, cost_usd=cost, tokens=tokens,
-        num_tool_calls=n_tool_calls, parse_failures=parse_failures,
-        anon_map=anon_map, tool_specs=specs,
+        turns=turns,
+        final_answer=final_answer,
+        cost_usd=cost,
+        tokens=tokens,
+        num_tool_calls=n_tool_calls,
+        parse_failures=parse_failures,
+        anon_map=anon_map,
+        tool_specs=specs,
     )
 
 
@@ -272,7 +312,9 @@ def run_unified_rollout(
     question: str,
     tools: List[ExpertTool],
     *,
-    call_orchestrator: Callable[..., Tuple[str, List[Tuple[str, Dict[str, object]]], int, int]],
+    call_orchestrator: Callable[
+        ..., Tuple[str, List[Tuple[str, Dict[str, object]]], int, int]
+    ],
     dispatch: Callable[[ExpertTool, Dict[str, object]], Tuple[str, float, int, bool]],
     max_turns: int = 50,
     system: str = RL_ORCHESTRATOR_SYS,
@@ -285,33 +327,49 @@ def run_unified_rollout(
     _run_meta, _run_tags = run_context()
     _fields = dict(
         input={"question": question},
-        metadata={"max_turns": max_turns, "anonymize": anonymize,
-                  "n_tools": len(tools), **_run_meta},
+        metadata={
+            "max_turns": max_turns,
+            "anonymize": anonymize,
+            "n_tools": len(tools),
+            **_run_meta,
+        },
     )
     if _run_tags:
         _fields["tags"] = _run_tags
     with span("toolorchestra.rollout", span_type="task", **_fields) as _s:
         roll = _run_unified_rollout_inner(
-            question, tools, call_orchestrator=call_orchestrator, dispatch=dispatch,
-            max_turns=max_turns, system=system, anonymize=anonymize,
+            question,
+            tools,
+            call_orchestrator=call_orchestrator,
+            dispatch=dispatch,
+            max_turns=max_turns,
+            system=system,
+            anonymize=anonymize,
         )
         _s.log(
             output=roll.final_answer,
-            metrics={"cost_usd": roll.cost_usd, "tokens": roll.tokens,
-                     "num_tool_calls": roll.num_tool_calls,
-                     "parse_failures": roll.parse_failures},
-            metadata={"n_experts_available": len(roll.anon_map or {}),
-                      "answered": bool(roll.final_answer),
-                      # label -> real model, so every anonymized route span in this
-                      # trace can be decoded back to the model that actually ran.
-                      "anon_map": roll.anon_map or {}},
+            metrics={
+                "cost_usd": roll.cost_usd,
+                "tokens": roll.tokens,
+                "num_tool_calls": roll.num_tool_calls,
+                "parse_failures": roll.parse_failures,
+            },
+            metadata={
+                "n_experts_available": len(roll.anon_map or {}),
+                "answered": bool(roll.final_answer),
+                # label -> real model, so every anonymized route span in this
+                # trace can be decoded back to the model that actually ran.
+                "anon_map": roll.anon_map or {},
+            },
         )
         return roll
 
 
 def tool_call_tag(name: str, arguments: Dict[str, object]) -> str:
     """Render a tool call as the ``<tool_call>{...}</tool_call>`` text the model emits."""
-    return f"<tool_call>{json.dumps({'name': name, 'arguments': arguments})}</tool_call>"
+    return (
+        f"<tool_call>{json.dumps({'name': name, 'arguments': arguments})}</tool_call>"
+    )
 
 
 __all__ = [

@@ -173,7 +173,9 @@ def _gemini_judge(task: Task, prediction: str) -> Optional[bool]:
         # caller falls back to string/f1.
         global _JUDGE_CLIENT
         if _JUDGE_CLIENT is None:
-            _JUDGE_CLIENT = anthropic.Anthropic(api_key=api_key, max_retries=0, timeout=15)
+            _JUDGE_CLIENT = anthropic.Anthropic(
+                api_key=api_key, max_retries=0, timeout=15
+            )
         client = _JUDGE_CLIENT
         prompt = (
             "You are grading a candidate answer against a gold reference.\n"
@@ -203,7 +205,7 @@ def _gemini_judge(task: Task, prediction: str) -> Optional[bool]:
 
 
 def verify_answer(task: Task, prediction: str) -> bool:
-    """Domain-dispatched correctness check for ``prediction`` against ``task.answer``."""
+    """Domain-dispatched correctness check for ``prediction`` vs ``task.answer``."""
     pred = (prediction or "").strip()
     if not pred or not (task.answer or "").strip():
         return False

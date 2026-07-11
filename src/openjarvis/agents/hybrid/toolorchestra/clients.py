@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
 
+
 def _call_orchestrator_with_tool_calls(
     model: str,
     endpoint: str,

@@ -30,11 +30,23 @@ def _canned_rollout(task: Task) -> UnifiedRollout:
     # One tool turn + a final-answer turn that echoes the gold answer.
     return UnifiedRollout(
         turns=[
-            UnifiedTurn(reasoning="let me compute", tool_name="code_interpreter",
-                        arguments={"code": "print(6*7)"}, observation="42"),
-            UnifiedTurn(reasoning=f"The tool returned {task.answer}. FINAL_ANSWER: {task.answer}", tool_name=None),
+            UnifiedTurn(
+                reasoning="let me compute",
+                tool_name="code_interpreter",
+                arguments={"code": "print(6*7)"},
+                observation="42",
+            ),
+            UnifiedTurn(
+                reasoning=(
+                    f"The tool returned {task.answer}. FINAL_ANSWER: {task.answer}"
+                ),
+                tool_name=None,
+            ),
         ],
-        final_answer=task.answer, cost_usd=0.01, tokens=20, num_tool_calls=1,
+        final_answer=task.answer,
+        cost_usd=0.01,
+        tokens=20,
+        num_tool_calls=1,
     )
 
 
@@ -44,7 +56,7 @@ def test_build_v1_writes_expected_conversations_shape(tmp_path, monkeypatch):
     # Accept-all verifier (the real make_verifier may hit Gemini / math checkers).
     monkeypatch.setattr(
         "openjarvis.learning.intelligence.orchestrator.sft_data.verify.make_verifier",
-        lambda: (lambda task, rollout: True),
+        lambda: lambda task, rollout: True,
     )
     from openjarvis.learning.intelligence.orchestrator.sft_data.verify import (
         make_verifier,
@@ -105,23 +117,36 @@ def test_driver_runs_end_to_end_with_fakes(tmp_path, monkeypatch):
     drv = _load_driver()
 
     monkeypatch.setattr(drv, "load_sft_tasks", _fake_tasks)
-    monkeypatch.setattr(drv, "run_unified_rollout",
-                        lambda question, tools, **kw: _canned_rollout(_fake_tasks()[0]))
-    monkeypatch.setattr(drv, "make_verifier", lambda: (lambda task, rollout: True))
+    monkeypatch.setattr(
+        drv,
+        "run_unified_rollout",
+        lambda question, tools, **kw: _canned_rollout(_fake_tasks()[0]),
+    )
+    monkeypatch.setattr(drv, "make_verifier", lambda: lambda task, rollout: True)
     # make_call_orchestrator builds an OpenAI client lazily, so it never connects
     # here (run_unified_rollout is stubbed out).
 
     # The driver treats --out as a TAG and always writes to
-    # data/orchestrator/raw/<label>_<MMDD>[_<tag>]/data.jsonl (relative to cwd).
-    # chdir into tmp_path so the run folder lands in the test's temp dir.
+    # <OJ_DATA_ROOT>/raw/<label>_<MMDD>[_<tag>]/data.jsonl, defaulting to a
+    # cwd-relative data/orchestrator. Drop OJ_DATA_ROOT (the repo .env exports
+    # it) so the run folder lands in the test's temp dir and not the real
+    # experiments tree, then chdir there.
+    monkeypatch.delenv("OJ_DATA_ROOT", raising=False)
     monkeypatch.chdir(tmp_path)
-    rc = drv.main([
-        "--out", "v1",
-        "--samples-per-task", "1",
-        "--max-tasks", "2",
-    ])
+    rc = drv.main(
+        [
+            "--out",
+            "v1",
+            "--samples-per-task",
+            "1",
+            "--max-tasks",
+            "2",
+        ]
+    )
     assert rc == 0
-    produced = list((tmp_path / "data" / "orchestrator" / "raw").glob("*_v1/data.jsonl"))
+    produced = list(
+        (tmp_path / "data" / "orchestrator" / "raw").glob("*_v1/data.jsonl")
+    )
     assert len(produced) == 1
     lines = produced[0].read_text().strip().splitlines()
     assert len(lines) == 2

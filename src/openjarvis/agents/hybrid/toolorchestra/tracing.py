@@ -17,7 +17,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,9 @@ def _resolve() -> bool:
     if not _truthy(os.getenv("OJ_BRAINTRUST", "1")):  # on by default
         return False
     if not os.getenv("BRAINTRUST_API_KEY"):
-        logger.info("braintrust on-by-default but BRAINTRUST_API_KEY unset — tracing disabled")
+        logger.info(
+            "braintrust on-by-default but BRAINTRUST_API_KEY unset — tracing disabled"
+        )
         return False
     try:
         import braintrust as _bt
@@ -48,9 +50,12 @@ def _resolve() -> bool:
             _bt.init_logger(project=os.getenv("OJ_BRAINTRUST_PROJECT", "toolorchestra"))
         _STATE["bt"] = _bt
         _STATE["enabled"] = True
-        logger.info("braintrust tracing ENABLED (%s)",
-                    f"project_id={proj_id}" if proj_id
-                    else f"project={os.getenv('OJ_BRAINTRUST_PROJECT', 'toolorchestra')}")
+        logger.info(
+            "braintrust tracing ENABLED (%s)",
+            f"project_id={proj_id}"
+            if proj_id
+            else f"project={os.getenv('OJ_BRAINTRUST_PROJECT', 'toolorchestra')}",
+        )
     except Exception as exc:  # missing pkg / bad key / init failure — never crash
         logger.warning("braintrust init failed (%s) — tracing disabled", exc)
     return _STATE["enabled"]
@@ -87,10 +92,12 @@ def run_context() -> tuple[dict, list]:
         if stage:
             meta["stage"] = stage
         cfg = {}
-        for env_key, key in (("OJ_CFG_TEMPERATURE", "temperature"),
-                             ("OJ_CFG_MAX_TURNS", "max_turns"),
-                             ("OJ_CFG_ANONYMIZE", "anonymize"),
-                             ("OJ_CFG_REJECTION_ONLY", "rejection_only")):
+        for env_key, key in (
+            ("OJ_CFG_TEMPERATURE", "temperature"),
+            ("OJ_CFG_MAX_TURNS", "max_turns"),
+            ("OJ_CFG_ANONYMIZE", "anonymize"),
+            ("OJ_CFG_REJECTION_ONLY", "rejection_only"),
+        ):
             v = os.getenv(env_key)
             if v not in (None, ""):
                 cfg[key] = v
@@ -154,7 +161,9 @@ def span(name: str, *, span_type: str = "task", **fields: Any):
     try:
         cm = _STATE["bt"].start_span(name=name, type=span_type, **fields)
     except Exception as exc:  # span creation failed — run trace-less, never break
-        logger.warning("braintrust start_span(%s) failed (%s) — continuing untraced", name, exc)
+        logger.warning(
+            "braintrust start_span(%s) failed (%s) — continuing untraced", name, exc
+        )
         yield _NullSpan()
         return
     with cm as s:

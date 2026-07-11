@@ -64,7 +64,11 @@ def _fmt_tool_calls(content: str, anon_map=None) -> str:
         lines = [f"-> {_call_label(name, anon_map)}"]
         if isinstance(args, dict):
             for k, v in args.items():
-                val = v if isinstance(v, str) else json.dumps(v, ensure_ascii=False, indent=2)
+                val = (
+                    v
+                    if isinstance(v, str)
+                    else json.dumps(v, ensure_ascii=False, indent=2)
+                )
                 indented = "\n".join("       " + ln for ln in val.splitlines())
                 lines.append(f"   {k}:\n{indented}")
         blocks.append("\n".join(lines))
@@ -136,7 +140,8 @@ def _system_header(records: List[dict]) -> str:
             if str(t.get("role", "")).lower() == "system":
                 return (
                     "=" * 80 + "\nSHARED SYSTEM PROMPT + TOOL CATALOG "
-                    "(identical for every record below)\n" + "=" * 80
+                    "(identical for every record below)\n"
+                    + "=" * 80
                     + f"\n{t.get('content', '').strip()}\n"
                 )
     return ""
@@ -186,27 +191,42 @@ def _html_turns(record: dict) -> str:
         if role == "system":
             continue
         if role == "user":
-            out.append(f'<div class="turn user"><div class="role">user</div>{_esc(content.strip())}</div>')
+            out.append(
+                f'<div class="turn user"><div class="role">user</div>{_esc(content.strip())}</div>'
+            )
         elif role in ("tool", "function"):
             name = _esc(t.get("name", "tool"))
             out.append(
                 f'<div class="tool"><details><summary>tool result · {name} '
-                f'({len(content)} chars)</summary><pre>{_esc(content.strip())}</pre></details></div>'
+                f"({len(content)} chars)</summary><pre>{_esc(content.strip())}</pre></details></div>"
             )
         elif role == "assistant":
             prose = _TOOL_CALL_RE.sub("", content).strip()
             if prose:
-                out.append(f'<div class="turn assistant"><div class="role">assistant</div>{_esc(prose)}</div>')
+                out.append(
+                    f'<div class="turn assistant"><div class="role">assistant</div>{_esc(prose)}</div>'
+                )
             for name, args in _parse_tool_calls(content):
                 real = anon_map.get(name)
-                label = (f'{_esc(str(name))} <span class="real">&rarr; {_esc(str(real))}</span>'
-                         if real else _esc(str(name)))
+                label = (
+                    f'{_esc(str(name))} <span class="real">&rarr; {_esc(str(real))}</span>'
+                    if real
+                    else _esc(str(name))
+                )
                 rows = [f'<div class="cname">&rarr; {label}</div>']
                 if isinstance(args, dict):
                     for k, v in args.items():
-                        val = v if isinstance(v, str) else json.dumps(v, ensure_ascii=False, indent=2)
-                        rows.append(f'<div class="arg"><b>{_esc(str(k))}</b><pre>{_esc(val)}</pre></div>')
-                out.append(f'<div class="turn call"><div class="role">tool call</div>{"".join(rows)}</div>')
+                        val = (
+                            v
+                            if isinstance(v, str)
+                            else json.dumps(v, ensure_ascii=False, indent=2)
+                        )
+                        rows.append(
+                            f'<div class="arg"><b>{_esc(str(k))}</b><pre>{_esc(val)}</pre></div>'
+                        )
+                out.append(
+                    f'<div class="turn call"><div class="role">tool call</div>{"".join(rows)}</div>'
+                )
     return "".join(out)
 
 
@@ -215,16 +235,26 @@ def _html_record(record: dict, index: int) -> str:
     pills = [f'<span class="pill dom">{_esc(str(record.get("domain")))}</span>']
     correct = record.get("correct")
     if correct is not None:
-        pills.append('<span class="pill ok">correct</span>' if correct
-                     else '<span class="pill wrong">wrong</span>')
+        pills.append(
+            '<span class="pill ok">correct</span>'
+            if correct
+            else '<span class="pill wrong">wrong</span>'
+        )
     if record.get("kept"):
         pills.append('<span class="pill kept">kept</span>')
-    meta = (f'<span class="meta">cost ${m.get("cost_usd")} · {m.get("tokens")} tok · '
-            f'{m.get("num_tool_calls")} calls · {m.get("num_turns")} turns</span>')
-    summary = (f'<span>#{index}</span><span>{_esc(str(record.get("task_id")))}</span>'
-               + "".join(pills) + meta)
-    return (f'<details class="rec"><summary>{summary}</summary>'
-            f'<div class="body">{_html_turns(record)}</div></details>')
+    meta = (
+        f'<span class="meta">cost ${m.get("cost_usd")} · {m.get("tokens")} tok · '
+        f"{m.get('num_tool_calls')} calls · {m.get('num_turns')} turns</span>"
+    )
+    summary = (
+        f"<span>#{index}</span><span>{_esc(str(record.get('task_id')))}</span>"
+        + "".join(pills)
+        + meta
+    )
+    return (
+        f'<details class="rec"><summary>{summary}</summary>'
+        f'<div class="body">{_html_turns(record)}</div></details>'
+    )
 
 
 def _html_doc(records: List[dict], title: str) -> str:
@@ -262,9 +292,7 @@ def render(jsonl_path: str) -> dict:
     pretty.write_text(json.dumps(records, indent=2, ensure_ascii=False))
 
     txt = src.with_suffix(".txt")
-    banner = (
-        f"ORCHESTRATOR SFT TRANSCRIPT — {src.name}\n{len(records)} records\n\n"
-    )
+    banner = f"ORCHESTRATOR SFT TRANSCRIPT — {src.name}\n{len(records)} records\n\n"
     sep = f"\n\n{_RULE}\n\n"
     parts = [banner + _system_header(records)]
     parts.append(sep.join(_transcript(r, i + 1) for i, r in enumerate(records)))
@@ -273,8 +301,12 @@ def render(jsonl_path: str) -> dict:
     htmlp = src.with_suffix(".html")
     htmlp.write_text(_html_doc(records, src.name))
 
-    return {"records": len(records), "pretty": str(pretty),
-            "txt": str(txt), "html": str(htmlp)}
+    return {
+        "records": len(records),
+        "pretty": str(pretty),
+        "txt": str(txt),
+        "html": str(htmlp),
+    }
 
 
 def main(argv: List[str]) -> int:

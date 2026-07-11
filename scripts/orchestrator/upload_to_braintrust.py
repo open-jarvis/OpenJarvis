@@ -34,6 +34,7 @@ Programmatic (used by the pipeline auto-upload hook in make_splits.py):
   autoupload(["data/orchestrator/sft/qwen_train_0707.jsonl=qwen_train_0707"],
              run_label="...")
 """
+
 import argparse
 import json
 import logging
@@ -82,6 +83,7 @@ def _dataset_desc(dataset):
         from openjarvis.learning.intelligence.orchestrator.sft_data.reject_sample import (
             dataset_description,
         )
+
         return dataset_description(dataset)
     except Exception:
         return ""
@@ -89,10 +91,16 @@ def _dataset_desc(dataset):
 
 def _git_sha():
     try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=Path(__file__).resolve().parent, stderr=subprocess.DEVNULL,
-        ).decode().strip() or None
+        return (
+            subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"],
+                cwd=Path(__file__).resolve().parent,
+                stderr=subprocess.DEVNULL,
+            )
+            .decode()
+            .strip()
+            or None
+        )
     except Exception:
         return None
 
@@ -113,7 +121,17 @@ def _model_short(rows, path):
 
 def _split_of(path):
     stem = Path(path).stem.lower()
-    for s in ("holdout", "train", "clean", "overfit", "partial", "8k", "4k", "2k", "1k"):
+    for s in (
+        "holdout",
+        "train",
+        "clean",
+        "overfit",
+        "partial",
+        "8k",
+        "4k",
+        "2k",
+        "1k",
+    ):
         if s in stem:
             return s
     return "data"
@@ -129,8 +147,16 @@ def _config_from_env():
     for env_key, meta_key, cast in [
         ("OJ_CFG_TEMPERATURE", "temperature", float),
         ("OJ_CFG_MAX_TURNS", "max_turns", int),
-        ("OJ_CFG_ANONYMIZE", "anonymize", lambda v: v.strip().lower() in ("1", "true", "yes")),
-        ("OJ_CFG_REJECTION_ONLY", "rejection_only", lambda v: v.strip().lower() in ("1", "true", "yes")),
+        (
+            "OJ_CFG_ANONYMIZE",
+            "anonymize",
+            lambda v: v.strip().lower() in ("1", "true", "yes"),
+        ),
+        (
+            "OJ_CFG_REJECTION_ONLY",
+            "rejection_only",
+            lambda v: v.strip().lower() in ("1", "true", "yes"),
+        ),
     ]:
         v = os.getenv(env_key)
         if v not in (None, ""):
@@ -148,7 +174,7 @@ def _row(rec):
     asst = [c["content"] for c in convs if c["role"] == "assistant"]
     fa = asst[-1] if asst else ""
     m = list(_FA.finditer(fa))
-    model_answer = fa[m[-1].end():].strip() if m else fa.strip()
+    model_answer = fa[m[-1].end() :].strip() if m else fa.strip()
     # Gold reference the verifier graded against (stamped at generation time as
     # `gold_answer`). `expected` in Braintrust is the GOLD so the UI shows
     # gold-vs-model; the model's own answer goes to metadata.model_answer.
@@ -158,7 +184,9 @@ def _row(rec):
     routed = []
     for c in convs:
         if c["role"] == "assistant":
-            for t in re.findall(r"<tool_call>(\{.*?\})</tool_call>", c["content"], re.DOTALL):
+            for t in re.findall(
+                r"<tool_call>(\{.*?\})</tool_call>", c["content"], re.DOTALL
+            ):
                 try:
                     real = am.get(json.loads(t).get("name"))
                     if real:
@@ -171,14 +199,18 @@ def _row(rec):
     correct = rec.get("correct")
     clean = rec.get("clean")
     kept = rec.get("kept")
-    tags = [t for t in [
-        gen_model,
-        f"domain:{domain}" if domain else None,
-        "correct" if correct else "incorrect",
-        "clean" if clean else "dirty",
-        "kept" if kept else "dropped",
-        "gold" if has_gold else "no_gold",
-    ] if t]
+    tags = [
+        t
+        for t in [
+            gen_model,
+            f"domain:{domain}" if domain else None,
+            "correct" if correct else "incorrect",
+            "clean" if clean else "dirty",
+            "kept" if kept else "dropped",
+            "gold" if has_gold else "no_gold",
+        ]
+        if t
+    ]
     return {
         "input": question,
         "expected": gold,
@@ -191,7 +223,8 @@ def _row(rec):
             "area": rec.get("area"),
             "difficulty": rec.get("difficulty") or None,
             "dataset": rec.get("dataset"),
-            "dataset_description": rec.get("dataset_description") or _dataset_desc(rec.get("dataset")),
+            "dataset_description": rec.get("dataset_description")
+            or _dataset_desc(rec.get("dataset")),
             "subsector": rec.get("subsector"),
             "task_id": rec.get("task_id"),
             "correct": correct,
@@ -222,7 +255,9 @@ def _routed_dist(rows):
         for cc in r.get("conversations", []):
             if cc.get("role") != "assistant":
                 continue
-            for t in re.findall(r"<tool_call>(\{.*?\})</tool_call>", cc.get("content", ""), re.DOTALL):
+            for t in re.findall(
+                r"<tool_call>(\{.*?\})</tool_call>", cc.get("content", ""), re.DOTALL
+            ):
                 try:
                     real = am.get(json.loads(t).get("name"))
                     if real:
@@ -257,7 +292,7 @@ def _dataset_metadata(rows, path, run_label, gen_model):
         "source_datasets": ["GeneralThought-430K-filtered", "OpenThoughts3-1.2M"],
         "task_mix": "balanced (GeneralThought + OpenThoughts code/math/science)",
         "filter": "correct + clean (rejects file-write echoes, garble, "
-                  "reasoning-degeneration, truncated tails, essays/markdown dumps)",
+        "reasoning-degeneration, truncated tails, essays/markdown dumps)",
         "leak_free": "train/holdout disjoint by task_id",
         "n_total": n,
         "n_correct": sum(1 for r in rows if r.get("correct")),
@@ -277,8 +312,16 @@ def _dataset_metadata(rows, path, run_label, gen_model):
     return {k: v for k, v in meta.items() if v is not None}
 
 
-def upload_dataset(path, name=None, *, project_id=None, project=None,
-                   run_label=None, gen_model=None, description=""):
+def upload_dataset(
+    path,
+    name=None,
+    *,
+    project_id=None,
+    project=None,
+    run_label=None,
+    gen_model=None,
+    description="",
+):
     """Upload one JSONL file as a Braintrust dataset. Returns (name, n_rows, url).
 
     Target project: ``project`` (name) if given, else ``project_id`` /
@@ -288,24 +331,33 @@ def upload_dataset(path, name=None, *, project_id=None, project=None,
 
     rows = [json.loads(l) for l in open(path) if l.strip()]
     name = name or _default_name(rows, path)
-    gen_model = gen_model or os.getenv("OJ_GEN_MODEL") or \
-        next((r.get("gen_model") for r in rows if r.get("gen_model")), None)
+    gen_model = (
+        gen_model
+        or os.getenv("OJ_GEN_MODEL")
+        or next((r.get("gen_model") for r in rows if r.get("gen_model")), None)
+    )
     run_label = run_label or os.getenv("OJ_RUN_LABEL") or name
 
-    init_kwargs = {"name": name, "description": description or None,
-                   "metadata": _dataset_metadata(rows, path, run_label, gen_model)}
+    init_kwargs = {
+        "name": name,
+        "description": description or None,
+        "metadata": _dataset_metadata(rows, path, run_label, gen_model),
+    }
     if project:
         init_kwargs["project"] = project
     else:
         init_kwargs["project_id"] = project_id or os.getenv(
-            "OJ_BRAINTRUST_PROJECT_ID", DEFAULT_PROJECT_ID)
+            "OJ_BRAINTRUST_PROJECT_ID", DEFAULT_PROJECT_ID
+        )
 
     ds = braintrust.init_dataset(**init_kwargs)
     for r in rows:
         ds.insert(**_row(r))
     ds.flush()
     summ = ds.summarize()
-    url = getattr(summ, "dataset_url", None) or (project or init_kwargs.get("project_id"))
+    url = getattr(summ, "dataset_url", None) or (
+        project or init_kwargs.get("project_id")
+    )
     return name, len(rows), url
 
 
@@ -313,7 +365,13 @@ def autoupload(specs, *, run_label=None, gen_model=None, description=""):
     """No-op-safe wrapper for pipeline hooks. Honors OJ_BRAINTRUST_AUTOUPLOAD
     (default ON) and never raises: any failure (missing key/pkg, network) is
     logged and swallowed so the data pipeline is never broken by telemetry."""
-    if os.getenv("OJ_BRAINTRUST_AUTOUPLOAD", "1").strip().lower() in ("0", "false", "no", "off", ""):
+    if os.getenv("OJ_BRAINTRUST_AUTOUPLOAD", "1").strip().lower() in (
+        "0",
+        "false",
+        "no",
+        "off",
+        "",
+    ):
         logger.info("[braintrust] autoupload disabled (OJ_BRAINTRUST_AUTOUPLOAD)")
         return
     if not os.getenv("BRAINTRUST_API_KEY"):
@@ -327,22 +385,37 @@ def autoupload(specs, *, run_label=None, gen_model=None, description=""):
     for spec in specs:
         path, _, name = spec.partition("=")
         try:
-            nm, n, url = upload_dataset(path, name or None, run_label=run_label,
-                                        gen_model=gen_model, description=description)
+            nm, n, url = upload_dataset(
+                path,
+                name or None,
+                run_label=run_label,
+                gen_model=gen_model,
+                description=description,
+            )
             logger.info("[braintrust] uploaded %s: %d rows -> %s", nm, n, url)
             print(f"[braintrust] uploaded {nm}: {n} rows -> {url}")
         except Exception as exc:
-            logger.warning("[braintrust] autoupload FAILED for %s (%s) — continuing", path, exc)
-            print(f"[braintrust] autoupload FAILED for {path} ({exc}) — pipeline unaffected")
+            logger.warning(
+                "[braintrust] autoupload FAILED for %s (%s) — continuing", path, exc
+            )
+            print(
+                f"[braintrust] autoupload FAILED for {path} ({exc}) — pipeline unaffected"
+            )
 
 
 def main():
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     p = argparse.ArgumentParser()
-    p.add_argument("--project", default=None,
-                   help="Target project by NAME (overrides OJ_BRAINTRUST_PROJECT_ID).")
-    p.add_argument("--project-id", default=None,
-                   help="Target project by id (default: OJ_BRAINTRUST_PROJECT_ID or research).")
+    p.add_argument(
+        "--project",
+        default=None,
+        help="Target project by NAME (overrides OJ_BRAINTRUST_PROJECT_ID).",
+    )
+    p.add_argument(
+        "--project-id",
+        default=None,
+        help="Target project by id (default: OJ_BRAINTRUST_PROJECT_ID or research).",
+    )
     p.add_argument("--run-label", default=None)
     p.add_argument("--gen-model", default=None, help="Specific gen model id override.")
     p.add_argument("--description", default="")
@@ -351,9 +424,14 @@ def main():
     for spec in args.specs:
         path, _, name = spec.partition("=")
         nm, n, url = upload_dataset(
-            path, name or None, project_id=args.project_id, project=args.project,
-            run_label=args.run_label, gen_model=args.gen_model,
-            description=args.description)
+            path,
+            name or None,
+            project_id=args.project_id,
+            project=args.project,
+            run_label=args.run_label,
+            gen_model=args.gen_model,
+            description=args.description,
+        )
         print(f"[braintrust] {nm}: {n} rows -> {url}")
 
 

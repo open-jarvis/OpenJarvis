@@ -258,9 +258,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     local_endpoints: Dict[str, str] = {}
     for pair in args.local_endpoint:
         if "=" not in pair:
-            raise SystemExit(
-                f"--local-endpoint expects MODEL_ID=URL, got: {pair!r}"
-            )
+            raise SystemExit(f"--local-endpoint expects MODEL_ID=URL, got: {pair!r}")
         model_id, url = pair.split("=", 1)
         local_endpoints[model_id.strip()] = url.strip()
 
@@ -307,6 +305,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     served_id, served_path = args.orchestrator_model, None
     try:
         import urllib.request
+
         req = urllib.request.Request(
             args.orchestrator_endpoint.rstrip("/") + "/models",
             headers={"Authorization": f"Bearer {args.orchestrator_api_key}"},

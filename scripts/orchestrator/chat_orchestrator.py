@@ -23,25 +23,43 @@ Usage:
   # point local expert tiers at their own vLLMs if you have them up (optional):
   #   --local-endpoint Qwen/Qwen3.6-27B=http://localhost:8002/v1
 """
+
 import argparse
 import sys
 import time
 
 
 def _parse_args(argv=None):
-    p = argparse.ArgumentParser(description=__doc__,
-                                formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--endpoint", default="http://localhost:8020/v1",
-                   help="vLLM endpoint serving the orchestrator checkpoint.")
-    p.add_argument("--model", default="sft-qwen-8k",
-                   help="Served-model-name of the checkpoint.")
-    p.add_argument("--api-key", default="EMPTY", help="API key for the endpoint (local vLLM = EMPTY).")
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    p.add_argument(
+        "--endpoint",
+        default="http://localhost:8020/v1",
+        help="vLLM endpoint serving the orchestrator checkpoint.",
+    )
+    p.add_argument(
+        "--model", default="sft-qwen-8k", help="Served-model-name of the checkpoint."
+    )
+    p.add_argument(
+        "--api-key",
+        default="EMPTY",
+        help="API key for the endpoint (local vLLM = EMPTY).",
+    )
     p.add_argument("--temperature", type=float, default=0.0)
     p.add_argument("--max-turns", type=int, default=8, help="Same default as the eval.")
-    p.add_argument("--max-tokens", type=int, default=3000,
-                   help="Keep high: the model reasons a lot before it emits the delegation.")
-    p.add_argument("--local-endpoint", action="append", default=[],
-                   help="MODEL_ID=URL for a local expert tier. Repeatable.")
+    p.add_argument(
+        "--max-tokens",
+        type=int,
+        default=3000,
+        help="Keep high: the model reasons a lot before it emits the delegation.",
+    )
+    p.add_argument(
+        "--local-endpoint",
+        action="append",
+        default=[],
+        help="MODEL_ID=URL for a local expert tier. Repeatable.",
+    )
     return p.parse_args(argv)
 
 
@@ -68,8 +86,10 @@ def main(argv=None):
         temperature=args.temperature,
     )
 
-    print(f"orchestrator: {args.model} @ {args.endpoint}  "
-          f"(temp={args.temperature}, max_turns={args.max_turns})")
+    print(
+        f"orchestrator: {args.model} @ {args.endpoint}  "
+        f"(temp={args.temperature}, max_turns={args.max_turns})"
+    )
     print("type a question and hit enter. Ctrl-D or 'quit' to exit.\n")
 
     try:
@@ -86,7 +106,9 @@ def main(argv=None):
 
             started = time.time()
             full = backend.generate_full(
-                prompt, model=args.model, temperature=args.temperature,
+                prompt,
+                model=args.model,
+                temperature=args.temperature,
                 max_tokens=args.max_tokens,
             )
             elapsed = time.time() - started
@@ -96,10 +118,12 @@ def main(argv=None):
                 continue
 
             print(f"\norch> {full.get('content', '').strip()}\n")
-            print(f"  [turns={full.get('turn_count', '?')} "
-                  f"tool_calls={full.get('tool_calls', '?')} "
-                  f"cost=${full.get('cost_usd', 0.0):.4f} "
-                  f"{elapsed:.1f}s]\n")
+            print(
+                f"  [turns={full.get('turn_count', '?')} "
+                f"tool_calls={full.get('tool_calls', '?')} "
+                f"cost=${full.get('cost_usd', 0.0):.4f} "
+                f"{elapsed:.1f}s]\n"
+            )
     finally:
         backend.close()
     return 0

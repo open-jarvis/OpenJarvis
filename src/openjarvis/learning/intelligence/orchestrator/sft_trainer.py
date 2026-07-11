@@ -296,12 +296,14 @@ class OrchestratorSFTTrainer:
             make_call_orchestrator,
             make_dispatch,
         )
+        from openjarvis.learning.intelligence.orchestrator.sft_data import (
+            reject_sample as _reject_sample,
+        )
         from openjarvis.learning.intelligence.orchestrator.sft_data.datasets import (
             load_sft_tasks,
         )
-        from openjarvis.learning.intelligence.orchestrator.sft_data.reject_sample import (
-            generate_sft_dataset,
-        )
+
+        generate_sft_dataset = _reject_sample.generate_sft_dataset
         from openjarvis.learning.intelligence.orchestrator.sft_data.verify import (
             make_verifier,
         )
@@ -321,8 +323,10 @@ class OrchestratorSFTTrainer:
         def rollout_fn(task: Any) -> Any:
             try:
                 return run_unified_rollout(
-                    task.instruction, tools,
-                    call_orchestrator=call_orch, dispatch=dispatch,
+                    task.instruction,
+                    tools,
+                    call_orchestrator=call_orch,
+                    dispatch=dispatch,
                     max_turns=self.config.max_rollout_turns,
                 )
             except Exception as exc:  # network/key failures shouldn't kill the run

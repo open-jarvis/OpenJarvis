@@ -52,7 +52,6 @@ _MATH_FUNCS = {
     "radians": math.radians,
     "degrees": math.degrees,
     "exp": math.exp,
-    "abs": abs,
     "fabs": math.fabs,
     "hypot": math.hypot,
     "factorial": math.factorial,

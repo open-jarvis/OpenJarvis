@@ -27,8 +27,8 @@ from openjarvis.learning.intelligence.orchestrator.sft_data.unified_serialize im
     _strip_control_tokens,
 )
 
-
 # --- serializer strips control tokens, leaving a clean FINAL_ANSWER line ------
+
 
 @pytest.mark.parametrize(
     "raw, expected_answer",
@@ -74,16 +74,24 @@ def test_strip_helper_handles_nested_and_whitespace() -> None:
 
 # --- clean gate: salvage vs reject -------------------------------------------
 
+
 def _roll(final_answer: str) -> UnifiedRollout:
     """A minimal well-formed rollout (one expert call, clean obs) whose only
     variable is the final answer."""
     return UnifiedRollout(
         turns=[
-            UnifiedTurn(reasoning="route it", tool_name="expert_a",
-                        arguments={"input": "q"}, observation="valid observation"),
+            UnifiedTurn(
+                reasoning="route it",
+                tool_name="expert_a",
+                arguments={"input": "q"},
+                observation="valid observation",
+            ),
             UnifiedTurn(reasoning=final_answer, tool_name=None),
         ],
-        final_answer=final_answer, cost_usd=0.01, tokens=10, num_tool_calls=1,
+        final_answer=final_answer,
+        cost_usd=0.01,
+        tokens=10,
+        num_tool_calls=1,
         anon_map={"expert_a": "gpt"},
     )
 

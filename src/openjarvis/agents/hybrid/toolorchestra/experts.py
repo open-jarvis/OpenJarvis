@@ -16,10 +16,14 @@ _DEFAULT_WEB_SEARCH_MODEL = "claude-haiku-4-5"
 # so the substitution is deferred until we know the cell's resolved local/cloud
 # pair. Worker dicts share the schema validated by `_resolve_worker_pool`.
 
-def _expert_for(slot: str, local_model: Optional[str],
-                local_endpoint: Optional[str],
-                cloud_model: str,
-                cloud_endpoint: str = "anthropic") -> Dict[str, Any]:
+
+def _expert_for(
+    slot: str,
+    local_model: Optional[str],
+    local_endpoint: Optional[str],
+    cloud_model: str,
+    cloud_endpoint: str = "anthropic",
+) -> Dict[str, Any]:
     """Map an upstream model slot (`answer-1`, `search-3`, …) to a worker spec.
 
     Routing policy:
@@ -29,10 +33,23 @@ def _expert_for(slot: str, local_model: Optional[str],
                                   cost tier for mid OpenAI calls)
       - `*-3` (local tier)     -> local vLLM (`local_model`)
       - `answer-math-*`        -> same tiers as the numeric suffix
-      - `search-*`             -> always the Anthropic web_search tool (the
-                                  upstream uses Tavily; we have web_search)
+      - `search-*`             -> provider-native web search when the cloud
+                                  endpoint supports it; otherwise Anthropic
     """
     if slot.startswith("search"):
+        ep = (cloud_endpoint or "anthropic").lower()
+        if ep == "openai":
+            return {
+                "name": f"search:{slot}",
+                "type": "openai-web-search",
+                "model": cloud_model,
+            }
+        if ep == "gemini":
+            return {
+                "name": f"search:{slot}",
+                "type": "gemini-web-search",
+                "model": cloud_model,
+            }
         return {
             "name": f"search:{slot}",
             "type": "anthropic-web-search",

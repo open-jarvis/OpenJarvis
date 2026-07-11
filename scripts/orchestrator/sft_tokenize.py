@@ -6,6 +6,7 @@ the path we actually use) doesn't depend on it. ``build_example`` tokenizes one
 ``conversations`` record and returns ``input_ids`` + ``labels`` with everything
 but the supervised assistant turns masked to -100.
 """
+
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
@@ -102,8 +103,9 @@ def build_example(
     if len(msgs) < 2 or msgs[-1]["role"] != "assistant":
         return None
     try:
-        full_text = tok.apply_chat_template(msgs, tokenize=False,
-                                            add_generation_prompt=False)
+        full_text = tok.apply_chat_template(
+            msgs, tokenize=False, add_generation_prompt=False
+        )
         full = tok(full_text, add_special_tokens=False)["input_ids"]
     except Exception:
         return None
@@ -114,7 +116,7 @@ def build_example(
     if spans:
         selected = spans if supervise_all_turns else spans[-1:]
         labels = [-100] * len(full)
-        for (s, e) in selected:
+        for s, e in selected:
             for k in range(s, e):
                 labels[k] = full[k]
         last_start = selected[-1][0]
@@ -122,8 +124,9 @@ def build_example(
         # Non-ChatML template: proven last-turn boundary via longest-common-prefix
         # (robust to templates whose add_generation_prompt emits extra preamble).
         try:
-            prompt_text = tok.apply_chat_template(msgs[:-1], tokenize=False,
-                                                  add_generation_prompt=True)
+            prompt_text = tok.apply_chat_template(
+                msgs[:-1], tokenize=False, add_generation_prompt=True
+            )
             prompt = tok(prompt_text, add_special_tokens=False)["input_ids"]
         except Exception:
             return None

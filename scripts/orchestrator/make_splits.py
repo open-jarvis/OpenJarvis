@@ -27,6 +27,7 @@ Deterministic (seed 42).
         --pool data/orchestrator/sft/qwen_clean_0711.jsonl \
         --pool data/orchestrator/sft/gemma_clean_0711.jsonl
 """
+
 import argparse
 import json
 import os
@@ -36,7 +37,12 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
-OUT = Path("data/orchestrator/sft")
+# Where the orchestrator data tree lives. Repo-relative by default so a fresh
+# clone works out of the box; set OJ_DATA_ROOT to keep the data OUT of the git
+# checkout (this workspace points it at ~/experiments/orchestrator/data, so a
+# stray `git reset` can't touch hundreds of GB of generations).
+DATA_ROOT = Path(os.getenv("OJ_DATA_ROOT", "data/orchestrator"))
+OUT = DATA_ROOT / "sft"
 SEED = 42
 OVERFIT_N = 100
 # Orchestrator that generated each pool — stamped onto every row so provenance
@@ -46,16 +52,32 @@ ORCH_MODEL = {"qwen": "qwen3.5-9b", "gemma": "gemma-4-26b"}
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--name", required=True,
-                    help="split family: qwen | gemma | pooled (drives the filename)")
-    ap.add_argument("--pool", action="append", required=True, metavar="PATH",
-                    help="clean pool jsonl; repeat to merge (use with --name pooled)")
-    ap.add_argument("--holdout-frac", type=float, default=0.15,
-                    help="fraction held out, domain-stratified (default 0.15)")
-    ap.add_argument("--date", default=datetime.now().strftime("%m%d"),
-                    help="date tag in the filename (default: today, MMDD)")
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument(
+        "--name",
+        required=True,
+        help="split family: qwen | gemma | pooled (drives the filename)",
+    )
+    ap.add_argument(
+        "--pool",
+        action="append",
+        required=True,
+        metavar="PATH",
+        help="clean pool jsonl; repeat to merge (use with --name pooled)",
+    )
+    ap.add_argument(
+        "--holdout-frac",
+        type=float,
+        default=0.15,
+        help="fraction held out, domain-stratified (default 0.15)",
+    )
+    ap.add_argument(
+        "--date",
+        default=datetime.now().strftime("%m%d"),
+        help="date tag in the filename (default: today, MMDD)",
+    )
     ap.add_argument("--out", type=Path, default=OUT)
     args = ap.parse_args()
 
@@ -94,8 +116,11 @@ def main() -> int:
 
     args.out.mkdir(parents=True, exist_ok=True)
     written = {}
-    for split, data in (("train", train), ("holdout", holdout),
-                        (f"overfit{OVERFIT_N}", overfit)):
+    for split, data in (
+        ("train", train),
+        ("holdout", holdout),
+        (f"overfit{OVERFIT_N}", overfit),
+    ):
         f = args.out / f"{args.name}_{split}_{args.date}.jsonl"
         f.write_text("".join(json.dumps(r) + "\n" for r in data))
         written[split] = f
@@ -109,8 +134,10 @@ def main() -> int:
         from upload_to_braintrust import autoupload
 
         autoupload(
-            [f"{written['train']}={args.name}_train_{args.date}",
-             f"{written['holdout']}={args.name}_holdout_{args.date}"],
+            [
+                f"{written['train']}={args.name}_train_{args.date}",
+                f"{written['holdout']}={args.name}_holdout_{args.date}",
+            ],
             run_label=os.getenv("OJ_RUN_LABEL", f"{args.name}_splits_{args.date}"),
             description=f"{args.name} orchestrator-SFT splits (make_splits.py)",
         )

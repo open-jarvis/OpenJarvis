@@ -22,9 +22,7 @@ import logging
 import re
 from collections import Counter
 from pathlib import Path
-from typing import Callable, Iterable, List, Optional
-
-from typing import Any
+from typing import Any, Callable, Iterable, List, Optional
 
 from openjarvis.agents.hybrid.expert_registry import ExpertTool
 from openjarvis.agents.hybrid.toolorchestra.rollout import UnifiedRollout
@@ -107,7 +105,9 @@ def _target_is_clean(roll: UnifiedRollout) -> bool:
         return False
     if any(m in fa for m in _ERR_MARKERS):
         return False
-    if fa.count("<think>") != fa.count("</think>"):  # unbalanced think tags (truncated OR stray </think>)
+    if fa.count("<think>") != fa.count(
+        "</think>"
+    ):  # unbalanced think tags (truncated OR stray </think>)
         return False
     if _TRUNCATED_TAIL_RE.search(fa):  # truncated mid-expression (e.g. "a=1, b=")
         return False
@@ -150,28 +150,36 @@ def _target_is_clean(roll: UnifiedRollout) -> bool:
     # the correct hard-task answers. Keep the STRUCTURAL essay signals (many
     # numbered sections, markdown headers, tables) which still catch real essays.
     _marks = list(re.finditer(r"(?im)FINAL[_\s]?ANSWER\s*:?", fa))
-    _ans = fa[_marks[-1].end():].strip() if _marks else fa
-    if len(_ans) > 2000:                                 # was 700 — too tight for code/math
+    _ans = fa[_marks[-1].end() :].strip() if _marks else fa
+    if len(_ans) > 2000:  # was 700 — too tight for code/math
         return False
     # Tool-status echo as the final answer: on code tasks the orchestrator
     # sometimes ends with a file_write/shell status line ("Successfully wrote to
     # /tmp/x.py") instead of the actual answer — a non-answer that slips the
     # length/format checks. Reject. (Audit: ~code/math trajectories where the
     # trace collapsed but the row was still scored correct.)
-    if re.search(r"(?i)\b(successfully (wrote|created|saved|executed|ran)|written to /|"
-                 r"file (written|saved|created)|no further actions?)\b", _ans):
+    if re.search(
+        r"(?i)\b(successfully (wrote|created|saved|executed|ran)|written to /|"
+        r"file (written|saved|created)|no further actions?)\b",
+        _ans,
+    ):
         return False
-    if len(re.findall(r"(?m)^\s*\d+\.\s", _ans)) >= 6:   # many numbered sections = essay (was 4)
+    if (
+        len(re.findall(r"(?m)^\s*\d+\.\s", _ans)) >= 6
+    ):  # many numbered sections = essay (was 4)
         return False
-    if re.search(r"(?m)^\s*#{1,6}\s", _ans):             # markdown headers = essay
+    if re.search(r"(?m)^\s*#{1,6}\s", _ans):  # markdown headers = essay
         return False
     # Garbled / shouty final: a multi-word answer that's mostly UPPERCASE, or has
     # an absurdly long merged all-letter token, is decode garble — the audit found
     # e.g. "RABES PEPTETANUS BOOSTERS" (for "rabies PEP, tetanus boosters") passing.
     if len(_ans) > 20:
         _alpha = [c for c in _ans if c.isalpha()]
-        if (_alpha and sum(c.isupper() for c in _alpha) / len(_alpha) > 0.7
-                and len(_ans.split()) >= 3):
+        if (
+            _alpha
+            and sum(c.isupper() for c in _alpha) / len(_alpha) > 0.7
+            and len(_ans.split()) >= 3
+        ):
             return False
         if any(len(w) > 25 and w.isalpha() for w in _ans.split()):
             return False
@@ -184,7 +192,9 @@ def _target_is_clean(roll: UnifiedRollout) -> bool:
     for t in roll.turns:
         if t.observation:
             obs_head = re.sub(r"\s+", " ", t.observation[:200]).strip()
-            if fa_head and fa_head == obs_head and len(fa) > 200:  # long final = copied tool dump (short relays are legit)
+            if (
+                fa_head and fa_head == obs_head and len(fa) > 200
+            ):  # long final = copied tool dump (short relays are legit)
                 return False
     # "routed" = delegated to a model EXPERT (not just a utility like web_search).
     # When anonymized, expert calls are the anon labels in anon_map; otherwise
@@ -310,8 +320,8 @@ def generate_sft_dataset(
     written = 0
     correct_written = 0
     incorrect_written = 0
-    dropped = 0          # tasks that produced no kept record
-    tasks_solved = 0     # tasks with >=1 correct sample
+    dropped = 0  # tasks that produced no kept record
+    tasks_solved = 0  # tasks with >=1 correct sample
     domain_counts: Counter[str] = Counter()
 
     def _work(task: TaskLike) -> tuple[TaskLike, List[tuple[UnifiedRollout, bool]]]:
@@ -329,8 +339,12 @@ def generate_sft_dataset(
         nonlocal written, correct_written, incorrect_written
         reward = reward_fn(roll) if reward_fn else 0.0
         record = trajectory_to_record(
-            task.task_id, task.instruction, tools, roll,
-            reward=reward, domain=task.domain,
+            task.task_id,
+            task.instruction,
+            tools,
+            roll,
+            reward=reward,
+            domain=task.domain,
         )
         record["correct"] = ok
         record["kept"] = kept
@@ -380,8 +394,9 @@ def generate_sft_dataset(
             if not correct:
                 dropped += 1
                 return
-            for roll in sorted((r for r, _ in correct),
-                               key=lambda r: r.cost_usd)[:max_keep_per_task]:
+            for roll in sorted((r for r, _ in correct), key=lambda r: r.cost_usd)[
+                :max_keep_per_task
+            ]:
                 _emit(fh, task, roll, True, kept=(roll is cheapest))
 
     with out.open("w") as fh:
@@ -400,15 +415,22 @@ def generate_sft_dataset(
                     try:
                         _, results = fut.result()
                     except Exception as exc:  # a task's worker died; count + skip
-                        logger.warning("task %s failed: %s",
-                                       getattr(task, "task_id", "?"), exc)
+                        logger.warning(
+                            "task %s failed: %s", getattr(task, "task_id", "?"), exc
+                        )
                         results = []
                     _write(fh, task, results)
                     done += 1
                     if done % 50 == 0 or done == seen:
-                        logger.info("rejection-sampling: %d/%d tasks done "
-                                    "(%d written, %d solved, %d dropped)",
-                                    done, seen, written, tasks_solved, dropped)
+                        logger.info(
+                            "rejection-sampling: %d/%d tasks done "
+                            "(%d written, %d solved, %d dropped)",
+                            done,
+                            seen,
+                            written,
+                            tasks_solved,
+                            dropped,
+                        )
 
     stats = {
         "out_path": str(out),
@@ -425,8 +447,13 @@ def generate_sft_dataset(
         "domain_distribution": dict(domain_counts),
     }
     out.with_suffix(out.suffix + ".stats.json").write_text(json.dumps(stats, indent=2))
-    logger.info("Wrote %d SFT records to %s (%d correct, %d incorrect)",
-                written, out, correct_written, incorrect_written)
+    logger.info(
+        "Wrote %d SFT records to %s (%d correct, %d incorrect)",
+        written,
+        out,
+        correct_written,
+        incorrect_written,
+    )
     return stats
 
 

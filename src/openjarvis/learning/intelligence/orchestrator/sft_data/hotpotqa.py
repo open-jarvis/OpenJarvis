@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 import string
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, Iterator, List, Optional
+from typing import Any, Dict, Iterable, Iterator, Optional
 
 DATASET_ID = "hotpotqa/hotpot_qa"
 CONFIG = "fullwiki"
@@ -32,8 +32,8 @@ class HotpotTask:
     task_id: str
     question: str
     answer: str
-    level: str = ""   # easy | medium | hard
-    qtype: str = ""   # comparison | bridge
+    level: str = ""  # easy | medium | hard
+    qtype: str = ""  # comparison | bridge
 
     # Parity with ToolScaleTask so the rejection-sampling loop is dataset-agnostic.
     @property

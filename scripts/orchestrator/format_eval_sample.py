@@ -30,6 +30,7 @@ Usage:
   ... --input <file> --all                    # one .txt per record
   ... --input <file> --all --only-wrong       # only incorrect samples
 """
+
 from __future__ import annotations
 
 import argparse
@@ -81,8 +82,10 @@ def build_question_map(benchmark: str, n: int, seed: int = 42) -> dict:
         ds.load(max_samples=n, seed=seed)
         return {r.record_id: r.problem for r in ds.iter_records()}
     except Exception as exc:  # noqa: BLE001 - never fail the render over this
-        print(f"  [warn] could not load dataset for {benchmark!r}: "
-              f"{type(exc).__name__}: {exc}")
+        print(
+            f"  [warn] could not load dataset for {benchmark!r}: "
+            f"{type(exc).__name__}: {exc}"
+        )
         return {}
 
 
@@ -134,7 +137,11 @@ def parse_scoring(meta: dict) -> dict:
 def format_record(rec: dict, question: str | None) -> str:
     parsed = parse_scoring(rec.get("scoring_metadata"))
     is_correct = rec.get("is_correct")
-    verdict = "CORRECT" if is_correct else ("INCORRECT" if is_correct is False else "UNSCORED")
+    verdict = (
+        "CORRECT"
+        if is_correct
+        else ("INCORRECT" if is_correct is False else "UNSCORED")
+    )
 
     def _fmt(v, fmt):
         try:
@@ -142,14 +149,16 @@ def format_record(rec: dict, question: str | None) -> str:
         except (ValueError, TypeError):
             return str(v)
 
-    top = "  ·  ".join([
-        str(rec.get("record_id", "?")),
-        str(rec.get("benchmark", "?")),
-        verdict,
-        f"score {_fmt(rec.get('score'), '{:.3f}')}",
-        f"lat {_fmt(rec.get('latency_seconds'), '{:.1f}')}s",
-        f"cost ${_fmt(rec.get('cost_usd'), '{:.4f}')}",
-    ])
+    top = "  ·  ".join(
+        [
+            str(rec.get("record_id", "?")),
+            str(rec.get("benchmark", "?")),
+            verdict,
+            f"score {_fmt(rec.get('score'), '{:.3f}')}",
+            f"lat {_fmt(rec.get('latency_seconds'), '{:.1f}')}s",
+            f"cost ${_fmt(rec.get('cost_usd'), '{:.4f}')}",
+        ]
+    )
     parts = [top]
 
     err = rec.get("error")
@@ -164,7 +173,13 @@ def format_record(rec: dict, question: str | None) -> str:
 
     parts.append(_banner("GOLD"))
     gold = parsed["gold"]
-    parts.append(_indent(str(gold) if gold not in (None, "") else "(gold unavailable — see SCORING below)"))
+    parts.append(
+        _indent(
+            str(gold)
+            if gold not in (None, "")
+            else "(gold unavailable — see SCORING below)"
+        )
+    )
 
     if parsed["kind"] == "judge" and parsed["judge"]:
         parts.append(_banner("JUDGE"))
@@ -172,7 +187,9 @@ def format_record(rec: dict, question: str | None) -> str:
 
     if not parsed["clean"]:
         parts.append(_banner("SCORING (raw)"))
-        parts.append(_indent(json.dumps(rec.get("scoring_metadata"), indent=2, default=str)))
+        parts.append(
+            _indent(json.dumps(rec.get("scoring_metadata"), indent=2, default=str))
+        )
 
     return "\n".join(parts).rstrip() + "\n"
 
@@ -182,10 +199,17 @@ def main(argv=None):
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     p.add_argument("--input", required=True, help="Graded *_orchestrator.jsonl file.")
-    p.add_argument("--out-dir", default="results/formatted", help="Where the .txt files go.")
-    p.add_argument("--seed", type=int, default=42, help="Subset seed used at eval time.")
-    p.add_argument("--only-wrong", action="store_true",
-                   help="Render only incorrect/unscored samples.")
+    p.add_argument(
+        "--out-dir", default="results/formatted", help="Where the .txt files go."
+    )
+    p.add_argument(
+        "--seed", type=int, default=42, help="Subset seed used at eval time."
+    )
+    p.add_argument(
+        "--only-wrong",
+        action="store_true",
+        help="Render only incorrect/unscored samples.",
+    )
     g = p.add_mutually_exclusive_group()
     g.add_argument("--n", type=int, default=1, help="Format the first N records.")
     g.add_argument("--lines", help="Comma-separated 1-indexed line numbers.")
@@ -213,7 +237,9 @@ def main(argv=None):
     if args.only_wrong:
         idxs = [i for i in idxs if not records[i].get("is_correct")]
 
-    benchmark = _normalize_benchmark(records[0].get("benchmark", src.stem.split("_")[0]))
+    benchmark = _normalize_benchmark(
+        records[0].get("benchmark", src.stem.split("_")[0])
+    )
     # Load the whole subset so any selected id resolves (the eval-time subset is
     # the first len(records) of seed=42).
     qmap = build_question_map(benchmark, n=len(records), seed=args.seed)
@@ -230,8 +256,10 @@ def main(argv=None):
 
     for w in written:
         print(w)
-    print(f"\nwrote {len(written)} file(s) to {out_dir}/"
-          + ("  (dataset unavailable — questions omitted)" if not qmap else ""))
+    print(
+        f"\nwrote {len(written)} file(s) to {out_dir}/"
+        + ("  (dataset unavailable — questions omitted)" if not qmap else "")
+    )
     return 0
 
 

@@ -22,6 +22,14 @@ import re
 import time
 from typing import Any, Dict, Optional
 
+from openjarvis.agents.hybrid.expert_registry import orchestrator_catalog
+from openjarvis.agents.hybrid.toolorchestra import rollout as _rollout_mod
+from openjarvis.agents.hybrid.toolorchestra.unified import (
+    make_call_orchestrator,
+    make_dispatch,
+)
+from openjarvis.evals.core.backend import InferenceBackend
+
 # The served fine-tuned model sometimes over-emits the answer marker, e.g.
 # "FINAL_ANSWER: FINAL_ANSWER: 42" — a doubled prefix that breaks answer
 # extraction and auto-scores the sample 0. Collapse any run of FINAL_ANSWER
@@ -34,19 +42,11 @@ def _clean_final_answer(text: str) -> str:
     marks = list(_FA_MARK.finditer(t))
     if not marks:
         return t
-    answer = t[marks[-1].end():].strip()
+    answer = t[marks[-1].end() :].strip()
     return f"FINAL_ANSWER: {answer}" if answer else t
 
 
 _OBS_CAP = 4000  # cap persisted observations so the eval JSONL stays readable
-
-from openjarvis.agents.hybrid.expert_registry import orchestrator_catalog
-from openjarvis.agents.hybrid.toolorchestra import rollout as _rollout_mod
-from openjarvis.agents.hybrid.toolorchestra.unified import (
-    make_call_orchestrator,
-    make_dispatch,
-)
-from openjarvis.evals.core.backend import InferenceBackend
 
 DEFAULT_ENDPOINT = "http://localhost:8001/v1"
 DEFAULT_MODEL = "qwen3-8b"
@@ -215,11 +215,17 @@ class OrchestratorBackend(InferenceBackend):
                     {
                         "reasoning": t.reasoning or "",
                         "tool_name": t.tool_name,
-                        "real_model": anon_map.get(t.tool_name) if t.tool_name else None,
+                        "real_model": anon_map.get(t.tool_name)
+                        if t.tool_name
+                        else None,
                         "arguments": t.arguments,
                         "observation": (
                             (t.observation or "")[:_OBS_CAP]
-                            + ("…[truncated]" if t.observation and len(t.observation) > _OBS_CAP else "")
+                            + (
+                                "…[truncated]"
+                                if t.observation and len(t.observation) > _OBS_CAP
+                                else ""
+                            )
                         ),
                     }
                     for t in (getattr(rollout, "turns", []) or [])
