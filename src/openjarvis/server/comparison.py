@@ -215,8 +215,8 @@ COMPARISON_HTML = """\
         <tr>
           <th></th>
           <th>OpenJarvis (Local)</th>
-          <th>GPT-5.3</th>
-          <th>Claude Opus 4.6</th>
+          <th>GPT-5.6 Sol</th>
+          <th>Claude Fable 5</th>
           <th>Gemini 3.1 Pro</th>
         </tr>
       </thead>
@@ -261,11 +261,11 @@ COMPARISON_HTML = """\
         <div class="cc-value">$0.00/mo</div>
       </div>
       <div class="calc-card cloud">
-        <div class="cc-label">GPT-5.3</div>
+        <div class="cc-label">GPT-5.6 Sol</div>
         <div class="cc-value" id="calc-gpt">--</div>
       </div>
       <div class="calc-card cloud">
-        <div class="cc-label">Claude Opus 4.6</div>
+        <div class="cc-label">Claude Fable 5</div>
         <div class="cc-value" id="calc-claude">--</div>
       </div>
       <div class="calc-card cloud">
@@ -292,13 +292,13 @@ COMPARISON_HTML = """\
 <script>
 // Embedded data -- avoids API calls, keeps the page static and fast.
 const CLOUD_PRICING = {
-  "gpt-5.3": {
-    input_per_1m: 2.00, output_per_1m: 10.00,
-    label: "GPT-5.3"
+  "gpt-5.6-sol": {
+    input_per_1m: 5.00, output_per_1m: 30.00,
+    label: "GPT-5.6 Sol"
   },
-  "claude-opus-4.6": {
-    input_per_1m: 5.00, output_per_1m: 25.00,
-    label: "Claude Opus 4.6"
+  "claude-fable-5": {
+    input_per_1m: 10.00, output_per_1m: 50.00,
+    label: "Claude Fable 5"
   },
   "gemini-3.1-pro": {
     input_per_1m: 2.00, output_per_1m: 12.00,
@@ -376,8 +376,8 @@ function updateTable() {
   const sc = SCENARIOS[activeScenario];
   const i = sc.avg_input_tokens, o = sc.avg_output_tokens;
   const c = sc.calls_per_month;
-  const gpt = calcMonthlyCost(c, i, o, 'gpt-5.3');
-  const claude = calcMonthlyCost(c, i, o, 'claude-opus-4.6');
+  const gpt = calcMonthlyCost(c, i, o, 'gpt-5.6-sol');
+  const claude = calcMonthlyCost(c, i, o, 'claude-fable-5');
   const gemini = calcMonthlyCost(c, i, o, 'gemini-3.1-pro');
 
   document.getElementById('t-gpt-m').textContent = fmtDollar(gpt);
@@ -410,8 +410,8 @@ function updateCalc() {
   const avgOut = tpc - avgIn;
   const callsPerMonth = cpd * 30;
 
-  const gpt = calcMonthlyCost(callsPerMonth, avgIn, avgOut, 'gpt-5.3');
-  const claude = calcMonthlyCost(callsPerMonth, avgIn, avgOut, 'claude-opus-4.6');
+  const gpt = calcMonthlyCost(callsPerMonth, avgIn, avgOut, 'gpt-5.6-sol');
+  const claude = calcMonthlyCost(callsPerMonth, avgIn, avgOut, 'claude-fable-5');
   const gemini = calcMonthlyCost(callsPerMonth, avgIn, avgOut, 'gemini-3.1-pro');
 
   document.getElementById('calc-gpt').textContent = fmtDollar(gpt) + '/mo';

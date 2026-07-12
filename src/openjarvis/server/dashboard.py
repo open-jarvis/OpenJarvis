@@ -184,7 +184,7 @@ DASHBOARD_HTML = """\
   <div class="providers">
     <div class="provider-card openai">
       <div class="pname">OpenAI</div>
-      <div class="pmodel">GPT-5.3 &mdash; $2.00 / $10.00 per 1M tokens</div>
+      <div class="pmodel">GPT-5.6 Sol &mdash; $5.00 / $30.00 per 1M tokens</div>
       <div class="savings-amount" id="save-openai">$0.00</div>
       <div class="breakdown">
         <div class="item">
@@ -199,7 +199,7 @@ DASHBOARD_HTML = """\
     </div>
     <div class="provider-card anthropic">
       <div class="pname">Anthropic</div>
-      <div class="pmodel">Claude Opus 4.6 &mdash; $5.00 / $25.00 per 1M tokens</div>
+      <div class="pmodel">Claude Fable 5 &mdash; $10.00 / $50.00 per 1M tokens</div>
       <div class="savings-amount" id="save-anthropic">$0.00</div>
       <div class="breakdown">
         <div class="item">
@@ -281,12 +281,12 @@ DASHBOARD_HTML = """\
   <div class="providers-heading">Energy &amp; Compute Avoided</div>
   <div class="metrics-row">
     <div class="metric-card">
-      <div class="mheading">Energy Saved (vs GPT-5.3)</div>
+      <div class="mheading">Energy Saved (vs GPT-5.6 Sol)</div>
       <div class="mvalue green" id="energy-joules">0 <span class="munit">J</span></div>
       <div class="msub" id="energy-kwh">0 kWh of cloud datacenter energy avoided</div>
     </div>
     <div class="metric-card">
-      <div class="mheading">FLOPs Avoided (vs GPT-5.3)</div>
+      <div class="mheading">FLOPs Avoided (vs GPT-5.6 Sol)</div>
       <div class="mvalue purple" id="flops-val">0 <span class="munit">FLOP</span></div>
       <div class="msub" id="flops-sub">cloud compute operations not needed</div>
     </div>
@@ -354,8 +354,8 @@ async function refresh() {
       providerMap[p.provider] = p;
     });
 
-    // OpenAI / GPT-5.3
-    const oa = providerMap['gpt-5.3'] || {};
+    // OpenAI / GPT-5.6 Sol
+    const oa = providerMap['gpt-5.6-sol'] || {};
     document.getElementById('save-openai')
       .textContent = fmtDollar(oa.total_cost || 0);
     document.getElementById('save-openai-in')
@@ -363,8 +363,8 @@ async function refresh() {
     document.getElementById('save-openai-out')
       .textContent = fmtDollar(oa.output_cost || 0);
 
-    // Anthropic / Claude Opus 4.6
-    const an = providerMap['claude-opus-4.6'] || {};
+    // Anthropic / Claude Fable 5
+    const an = providerMap['claude-fable-5'] || {};
     document.getElementById('save-anthropic')
       .textContent = fmtDollar(an.total_cost || 0);
     document.getElementById('save-anthropic-in')
@@ -384,13 +384,13 @@ async function refresh() {
     // Monthly projections
     const proj = d.monthly_projection || {};
     document.getElementById('proj-openai')
-      .textContent = fmtDollar(proj['gpt-5.3'] || 0);
+      .textContent = fmtDollar(proj['gpt-5.6-sol'] || 0);
     document.getElementById('proj-anthropic')
-      .textContent = fmtDollar(proj['claude-opus-4.6'] || 0);
+      .textContent = fmtDollar(proj['claude-fable-5'] || 0);
     document.getElementById('proj-google')
       .textContent = fmtDollar(proj['gemini-3.1-pro'] || 0);
 
-    // Energy / FLOPs (use GPT-5.3 as reference)
+    // Energy / FLOPs (use GPT-5.6 Sol as reference)
     const ej = oa.energy_joules || 0;
     const eWh = oa.energy_wh || 0;
     const fl = oa.flops || 0;
