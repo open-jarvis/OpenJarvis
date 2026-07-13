@@ -326,6 +326,27 @@ mod tests {
     }
 
     #[test]
+    fn test_sqlite_apostrophe_in_query() {
+        let mem = SQLiteMemory::in_memory().unwrap();
+        mem.store("The user's name is Trev.", "identity", None).unwrap();
+
+        // A query containing an internal apostrophe must not break FTS5's
+        // MATCH syntax (an unescaped `'` is a string delimiter in FTS5's
+        // query grammar), which previously caused this to silently return
+        // zero results instead of matching or erroring.
+        let multi_word = mem.retrieve("what is the user's name", 5).unwrap();
+        assert!(
+            !multi_word.is_empty(),
+            "query with an internal apostrophe should not silently return zero results"
+        );
+
+        // Bare single-word possessive: exercises the (former) single-word
+        // bypass path that skipped the OR-join entirely.
+        let bare = mem.retrieve("user's", 5).unwrap();
+        assert!(!bare.is_empty(), "single-word possessive query should still match");
+    }
+
+    #[test]
     fn test_sqlite_scores_are_positive() {
         let mem = SQLiteMemory::in_memory().unwrap();
         mem.store("Rust is a systems programming language", "docs", None).unwrap();
