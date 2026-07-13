@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import ToolCall, ToolResult
+from openjarvis.skills.security import validate_capabilities
 from openjarvis.skills.types import SkillManifest
 from openjarvis.tools._stubs import ToolExecutor
 
@@ -37,10 +38,12 @@ class SkillExecutor:
         tool_executor: ToolExecutor,
         *,
         bus: Optional[EventBus] = None,
+        allowed_capabilities: Optional[set] = None,
     ) -> None:
         self._tool_executor = tool_executor
         self._bus = bus
         self._skill_resolver: Optional[SkillResolver] = None
+        self._allowed_capabilities: set = allowed_capabilities or set()
 
     def set_skill_resolver(self, resolver: SkillResolver) -> None:
         """Register a callback used to delegate ``skill_name`` steps."""
@@ -53,6 +56,34 @@ class SkillExecutor:
         initial_context: Optional[Dict[str, Any]] = None,
     ) -> SkillResult:
         """Execute all steps in a skill manifest."""
+        missing = validate_capabilities(manifest, self._allowed_capabilities)
+        if missing:
+            if self._bus:
+                self._bus.publish(
+                    EventType.SKILL_EXECUTE_START,
+                    {"skill": manifest.name, "steps": len(manifest.steps)},
+                )
+                self._bus.publish(
+                    EventType.SKILL_EXECUTE_END,
+                    {"skill": manifest.name, "success": False},
+                )
+            return SkillResult(
+                skill_name=manifest.name,
+                success=False,
+                step_results=[
+                    ToolResult(
+                        tool_name=manifest.name,
+                        content=(
+                            f"Blocked: skill '{manifest.name}' requires "
+                            f"capabilities {missing} that were not granted "
+                            "for this session."
+                        ),
+                        success=False,
+                    )
+                ],
+                context=dict(initial_context or {}),
+            )
+
         ctx: Dict[str, Any] = dict(initial_context or {})
         all_results: List[ToolResult] = []
 
