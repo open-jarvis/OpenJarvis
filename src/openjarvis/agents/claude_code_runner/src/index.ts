@@ -13,7 +13,7 @@
  *   ---OPENJARVIS_OUTPUT_END---
  */
 
-import { query, type Tool } from "@anthropic-ai/claude-code";
+import { query } from "@anthropic-ai/claude-agent-sdk";
 
 const OUTPUT_START = "---OPENJARVIS_OUTPUT_START---";
 const OUTPUT_END = "---OPENJARVIS_OUTPUT_END---";
@@ -78,75 +78,91 @@ async function main(): Promise<void> {
   } catch (err) {
     emitError(`Failed to parse input: ${err}`);
     process.exit(1);
+    return;
   }
 
-  // Set the API key in the environment for the SDK
+  // Auth: forward an explicit API key only when one was actually given.
+  // Otherwise strip any ambient ANTHROPIC_API_KEY from the child's env so
+  // the SDK falls back to the stored `claude login` session (Pro/Max
+  // subscription billing) instead of silently billing metered API credits.
+  const env: Record<string, string | undefined> = { ...process.env };
   if (request.api_key) {
-    process.env.ANTHROPIC_API_KEY = request.api_key;
+    env.ANTHROPIC_API_KEY = request.api_key;
+  } else {
+    delete env.ANTHROPIC_API_KEY;
   }
+
+  let content = "";
+  const toolResults: ToolResultEntry[] = [];
+  const toolUseIdToIndex = new Map<string, number>();
+  let isError = false;
+  let resultMetadata: Record<string, unknown> = {};
 
   try {
-    // Build options for the claude-code SDK query
-    const options: Parameters<typeof query>[0] = {
+    const stream = query({
       prompt: request.prompt,
       options: {
+        cwd: request.workspace || undefined,
+        systemPrompt: request.system_prompt || undefined,
+        allowedTools: request.allowed_tools?.length
+          ? request.allowed_tools
+          : undefined,
+        resume: request.session_id || undefined,
         maxTurns: 30,
+        env,
       },
-    };
+    });
 
-    if (request.workspace) {
-      options.options!.cwd = request.workspace;
-    }
-
-    if (request.system_prompt) {
-      options.options!.systemPrompt = request.system_prompt;
-    }
-
-    if (request.allowed_tools && request.allowed_tools.length > 0) {
-      options.options!.allowedTools = request.allowed_tools as Tool[];
-    }
-
-    if (request.session_id) {
-      options.options!.sessionId = request.session_id;
-    }
-
-    // Execute the query
-    const messages = await query(options);
-
-    // Extract the final assistant text and any tool results
-    let content = "";
-    const toolResults: ToolResultEntry[] = [];
-
-    for (const msg of messages) {
-      if (msg.type === "text") {
-        content = msg.text;
-      } else if (msg.type === "tool_use") {
-        toolResults.push({
-          tool_name: msg.name,
-          content: JSON.stringify(msg.input),
-          success: true,
-        });
-      } else if (msg.type === "tool_result") {
-        // Update last tool result with actual output
-        if (toolResults.length > 0) {
-          const last = toolResults[toolResults.length - 1];
-          last.content =
-            typeof msg.content === "string"
-              ? msg.content
-              : JSON.stringify(msg.content);
-          last.success = !msg.is_error;
+    for await (const msg of stream) {
+      if (msg.type === "assistant") {
+        for (const block of msg.message.content) {
+          if (block.type === "text") {
+            content = block.text;
+          } else if (block.type === "tool_use") {
+            toolResults.push({
+              tool_name: block.name,
+              content: JSON.stringify(block.input),
+              success: true,
+            });
+            toolUseIdToIndex.set(block.id, toolResults.length - 1);
+          }
         }
+      } else if (msg.type === "user") {
+        const blocks = Array.isArray(msg.message.content)
+          ? msg.message.content
+          : [];
+        for (const block of blocks) {
+          if (block.type === "tool_result") {
+            const idx = toolUseIdToIndex.get(block.tool_use_id);
+            if (idx !== undefined) {
+              const entry = toolResults[idx];
+              entry.content =
+                typeof block.content === "string"
+                  ? block.content
+                  : JSON.stringify(block.content);
+              entry.success = !block.is_error;
+            }
+          }
+        }
+      } else if (msg.type === "result") {
+        isError = msg.is_error;
+        if (msg.subtype === "success") {
+          content = msg.result || content;
+        }
+        resultMetadata = {
+          session_id: msg.session_id,
+          num_turns: msg.num_turns,
+          total_cost_usd: msg.total_cost_usd,
+        };
       }
     }
 
     emitResult({
       content,
       tool_results: toolResults,
-      metadata: {
-        message_count: messages.length,
-        session_id: request.session_id || undefined,
-      },
+      metadata: { ...resultMetadata, error: isError || undefined },
     });
+    if (isError) process.exit(1);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     emitError(`Claude Code SDK error: ${message}`);

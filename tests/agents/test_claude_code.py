@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from unittest.mock import MagicMock, patch
 
@@ -100,9 +101,12 @@ class TestEnsureRunner:
             dest = home_dir / ".openjarvis" / "claude_code_runner"
             result = agent._ensure_runner()
             assert result == dest
-            mock_run.assert_called_once()
-            call_args = mock_run.call_args
-            assert "npm" in call_args[0][0][0]
+            # node_modules and dist/index.js are both missing, so this
+            # triggers both an install and a build.
+            assert mock_run.call_count == 2
+            install_args, build_args = (c[0][0] for c in mock_run.call_args_list)
+            assert install_args[:2] == ["npm", "install"]
+            assert build_args[:2] == ["npm", "run"]
 
     def test_skips_npm_install_when_node_modules_exists(self, tmp_path):
         engine = MagicMock()
@@ -113,6 +117,63 @@ class TestEnsureRunner:
         dest = home_dir / ".openjarvis" / "claude_code_runner"
         dest.mkdir(parents=True)
         (dest / "node_modules").mkdir()
+
+        with (
+            patch("shutil.which", return_value="/usr/bin/node"),
+            patch("pathlib.Path.home", return_value=home_dir),
+            patch("subprocess.run") as mock_run,
+        ):
+            agent._ensure_runner()
+            # node_modules exists (skip install) but dist/index.js still
+            # doesn't (skip-build condition not met) -- a build still runs.
+            mock_run.assert_called_once()
+            call_args = mock_run.call_args[0][0]
+            assert call_args[:2] == ["npm", "run"]
+
+    def test_reinstalls_when_node_modules_older_than_package_json(self, tmp_path):
+        """Regression test: a node_modules installed against an older
+        package.json (missing a since-added devDependency, e.g. typescript)
+        must not be treated as fresh just because the directory exists.
+        """
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        agent = ClaudeCodeAgent(engine, "test-model")
+
+        home_dir = tmp_path / "home"
+        dest = home_dir / ".openjarvis" / "claude_code_runner"
+        node_modules = dest / "node_modules"
+        node_modules.mkdir(parents=True)
+        # Force node_modules to look older than the package.json that's
+        # about to be copied in (copy2 preserves the real source's mtime).
+        past = node_modules.stat().st_mtime - 3600
+        os.utime(node_modules, (past, past))
+
+        with (
+            patch("shutil.which", return_value="/usr/bin/node"),
+            patch("pathlib.Path.home", return_value=home_dir),
+            patch("subprocess.run") as mock_run,
+        ):
+            agent._ensure_runner()
+            # Stale node_modules -> reinstall; dist also missing -> build.
+            assert mock_run.call_count == 2
+            install_args, build_args = (c[0][0] for c in mock_run.call_args_list)
+            assert install_args[:2] == ["npm", "install"]
+            assert build_args[:2] == ["npm", "run"]
+
+    def test_skips_everything_when_dist_is_up_to_date(self, tmp_path):
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        agent = ClaudeCodeAgent(engine, "test-model")
+
+        home_dir = tmp_path / "home"
+        dest = home_dir / ".openjarvis" / "claude_code_runner"
+        (dest / "node_modules").mkdir(parents=True)
+        (dest / "dist").mkdir()
+        dist_entry = dest / "dist" / "index.js"
+        dist_entry.write_text("// built")
+        # Make the built artifact newer than every copied source file.
+        future = dist_entry.stat().st_mtime + 3600
+        os.utime(dist_entry, (future, future))
 
         with (
             patch("shutil.which", return_value="/usr/bin/node"),
@@ -500,12 +561,18 @@ class TestParseOutput:
 
 
 class TestClaudeCodeDefaults:
-    def test_default_api_key_from_env(self, monkeypatch):
+    def test_default_api_key_ignores_ambient_env(self, monkeypatch):
+        """No api_key given -- must NOT pick up ambient ANTHROPIC_API_KEY.
+
+        Picking it up here would make the runner always authenticate with a
+        metered API key even when a Claude Pro/Max subscription session is
+        logged in, silently overriding subscription billing.
+        """
         monkeypatch.setenv("ANTHROPIC_API_KEY", "env-key-123")
         engine = MagicMock()
         engine.engine_id = "mock"
         agent = ClaudeCodeAgent(engine, "test-model")
-        assert agent._api_key == "env-key-123"
+        assert agent._api_key == ""
 
     def test_explicit_api_key_overrides_env(self, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "env-key")

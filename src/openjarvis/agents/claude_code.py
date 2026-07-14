@@ -1,6 +1,6 @@
 """ClaudeCodeAgent -- wraps the Claude Agent SDK via Node.js subprocess bridge.
 
-Spawns a Node.js runner process that calls the ``@anthropic-ai/claude-code``
+Spawns a Node.js runner process that calls the ``@anthropic-ai/claude-agent-sdk``
 SDK, communicating via JSON over stdin/stdout with sentinel-delimited output.
 
 The engine parameter is accepted for interface conformance with BaseAgent but
@@ -45,7 +45,7 @@ class ClaudeCodeAgent(BaseAgent):
     """Agent that wraps the Claude Agent SDK via a Node.js subprocess.
 
     Spawns a Node.js process running ``dist/index.js`` which imports
-    ``@anthropic-ai/claude-code`` and streams agentic responses.  Results
+    ``@anthropic-ai/claude-agent-sdk`` and streams agentic responses.  Results
     are communicated back via sentinel-delimited JSON on stdout.
 
     The ``engine`` parameter is accepted for BaseAgent interface conformance
@@ -79,7 +79,7 @@ class ClaudeCodeAgent(BaseAgent):
             temperature=temperature,
             max_tokens=max_tokens,
         )
-        self._api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+        self._api_key = api_key
         self._workspace = workspace or os.getcwd()
         self._session_id = session_id
         self._allowed_tools = allowed_tools
@@ -107,8 +107,10 @@ class ClaudeCodeAgent(BaseAgent):
         dest = get_config_dir() / "claude_code_runner"
         dest.mkdir(parents=True, exist_ok=True)
 
-        # Copy runner files if missing or outdated
-        for sub in ("package.json", "dist"):
+        # Copy runner source files if missing or outdated. The runner ships as
+        # TypeScript source (no prebuilt dist/) -- see the npm install/build
+        # steps below.
+        for sub in ("package.json", "tsconfig.json", "src"):
             src = _RUNNER_SRC / sub
             dst = dest / sub
             if src.is_file():
@@ -118,16 +120,43 @@ class ClaudeCodeAgent(BaseAgent):
                     shutil.rmtree(dst)
                 shutil.copytree(src, dst)
 
-        # Install npm dependencies if node_modules missing
+        # Install npm dependencies (including the typescript devDependency
+        # needed to build) if node_modules is missing or older than the
+        # package.json we just copied -- catches a stale node_modules left
+        # over from a previous version of this runner's dependency list
+        # (copy2 preserves package.json's source mtime, same trick used for
+        # the dist staleness check below).
         node_modules = dest / "node_modules"
-        if not node_modules.exists():
+        pkg_json = dest / "package.json"
+        if not node_modules.exists() or (
+            pkg_json.exists()
+            and pkg_json.stat().st_mtime > node_modules.stat().st_mtime
+        ):
             logger.info("Installing claude_code_runner dependencies...")
             subprocess.run(
-                ["npm", "install", "--production"],
+                ["npm", "install"],
                 cwd=str(dest),
                 check=True,
                 capture_output=True,
-                timeout=120,
+                timeout=180,
+            )
+
+        # Build if dist/index.js is missing or older than the source we just
+        # copied (copy2 preserves the source mtime, so an updated bundled
+        # runner naturally triggers a rebuild here).
+        dist_entry = dest / "dist" / "index.js"
+        src_entry = dest / "src" / "index.ts"
+        if not dist_entry.exists() or (
+            src_entry.exists()
+            and src_entry.stat().st_mtime > dist_entry.stat().st_mtime
+        ):
+            logger.info("Building claude_code_runner...")
+            subprocess.run(
+                ["npm", "run", "build"],
+                cwd=str(dest),
+                check=True,
+                capture_output=True,
+                timeout=60,
             )
 
         return dest
