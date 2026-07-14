@@ -64,6 +64,19 @@ def test_rejects_drop(store: KnowledgeStore) -> None:
     assert not result.success
 
 
+def test_allows_select_with_keyword_substring(store: KnowledgeStore) -> None:
+    """A read-only SELECT must not be rejected because a column/alias merely
+    contains a write keyword as a substring (e.g. 'created' -> CREATE)."""
+    from openjarvis.tools.knowledge_sql import KnowledgeSQLTool
+
+    tool = KnowledgeSQLTool(store=store)
+    result = tool.execute(
+        query="SELECT author AS created_author FROM knowledge_chunks"
+    )
+    assert result.success, result.content
+    assert "Alice" in result.content
+
+
 def test_handles_bad_sql(store: KnowledgeStore) -> None:
     from openjarvis.tools.knowledge_sql import KnowledgeSQLTool
 
