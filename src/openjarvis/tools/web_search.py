@@ -116,11 +116,31 @@ class WebSearchTool(BaseTool):
         return text
 
     def _duckduckgo_search(self, query: str, max_results: int) -> str:
-        """Search using DuckDuckGo as fallback."""
+        """Search using DuckDuckGo as fallback.
+
+        ddgs queries several engines (yandex/yahoo/brave/...) that frequently
+        hang; with no timeout this blocks the whole rollout. Cap each engine
+        request (DDGS timeout) AND wrap the call in a hard wall-clock deadline so
+        a flaky search fast-fails instead of stalling data generation.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+
         from ddgs import DDGS
 
-        ddgs = DDGS()
-        raw_results = list(ddgs.text(query, max_results=max_results))
+        def _run():
+            ddgs = DDGS(timeout=5)
+            return list(ddgs.text(query, max_results=max_results))
+
+        # Don't use `with` — its shutdown(wait=True) blocks on the hung thread,
+        # defeating the deadline. submit, wait up to 8s, then abandon the thread
+        # (it finishes in the background harmlessly) and fast-fail.
+        _ex = ThreadPoolExecutor(max_workers=1)
+        try:
+            raw_results = _ex.submit(_run).result(timeout=8)
+        except Exception:
+            _ex.shutdown(wait=False, cancel_futures=True)
+            return "[web_search: no results (search backend timed out)]"
+        _ex.shutdown(wait=False)
         results = []
         for r in raw_results:
             title = r.get("title", "Untitled")
