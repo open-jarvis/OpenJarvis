@@ -140,7 +140,14 @@ class GAIAScorer(LLMJudgeScorer):
             if structured_match:
                 is_correct = structured_match.group(1).lower() == "yes"
             else:
-                is_correct = "CORRECT" in raw.upper() and "INCORRECT" not in raw.upper()
+                up = raw.upper()
+                # "not correct" / "is not correct" contain "CORRECT" and lack
+                # "INCORRECT" — guard the negations explicitly or they read True.
+                is_correct = (
+                    "CORRECT" in up
+                    and "INCORRECT" not in up
+                    and "NOT CORRECT" not in up
+                )
 
             meta: Dict[str, Any] = {
                 "match_type": "llm_fallback",

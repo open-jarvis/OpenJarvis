@@ -52,7 +52,7 @@ class OrchestratorSFTConfig:
     """Configuration for orchestrator SFT training."""
 
     # Model
-    model_name: str = "Qwen/Qwen3-1.7B"
+    model_name: str = "Qwen/Qwen3.5-9B"
     max_seq_length: int = 4096
 
     # Training
@@ -63,16 +63,27 @@ class OrchestratorSFTConfig:
     warmup_ratio: float = 0.1
     max_grad_norm: float = 1.0
 
-    # Trace generation
-    teacher_engine_key: str = ""
-    teacher_model: str = ""
-    traces_per_query: int = 2
-    max_attempts_per_trace: int = 3
+    # Trace generation by base Qwen3-8B self-sampling (v1 cold-start). The
+    # orchestrator IS the local Qwen3-8B served over an OpenAI-compatible vLLM
+    # endpoint; we roll it out over load_sft_tasks() and keep correct trajectories.
+    # For v2, point orchestrator_endpoint/model at the v1 checkpoint's server.
+    orchestrator_endpoint: str = "http://localhost:8001/v1"
+    orchestrator_model: str = "qwen3-8b"
+    orchestrator_api_key: str = "EMPTY"
     generation_temperature: float = 0.7
 
     # Data source
-    trace_cache_path: str = "data/orchestrator_sft_traces.jsonl"
+    trace_cache_path: str = "data/orchestrator_sft_v1.jsonl"
     regenerate_traces: bool = False
+
+    # Rejection-sampling cold-start over load_sft_tasks (see sft_data/reject_sample.py).
+    distill_max_tasks: int = 0  # 0 / None -> all of load_sft_tasks()
+    samples_per_task: int = 8
+    max_keep_per_task: int = 1
+    max_rollout_turns: int = 8
+    # Optional local OSS model endpoints, mapping full model id (e.g.
+    # "Qwen/Qwen3.5-9B") -> vLLM base_url; omitted when unset.
+    local_endpoints: Dict[str, str] = field(default_factory=dict)
 
     # Checkpoint
     checkpoint_dir: str = "checkpoints/orchestrator_sft"
@@ -267,11 +278,81 @@ class OrchestratorSFTTrainer:
         )
 
     def _generate_traces(self) -> None:
-        """Generate SFT traces (placeholder — requires running engine)."""
+        """Generate SFT traces by base Qwen3-8B self-sampling (v1 cold-start).
+
+        The orchestrator IS the local Qwen3-8B served over an OpenAI-compatible
+        vLLM endpoint (``orchestrator_endpoint``/``orchestrator_model``). We roll
+        it out over ``load_sft_tasks()`` on the fixed orchestrator tool catalog,
+        verify each trajectory's final answer against the gold
+        (``verify.make_verifier``), keep the cheapest-correct trajectory per task,
+        and serialize them into the ``<tool_call>`` ``conversations`` JSONL the SFT
+        dataset consumes. For v2, point the endpoint/model at the v1 checkpoint's
+        server. See ``sft_data/reject_sample.py`` and the
+        ``scripts/orchestrator/build_orchestrator_sft.py`` driver.
+        """
+        from openjarvis.agents.hybrid.expert_registry import orchestrator_catalog
+        from openjarvis.agents.hybrid.toolorchestra.rollout import run_unified_rollout
+        from openjarvis.agents.hybrid.toolorchestra.unified import (
+            make_call_orchestrator,
+            make_dispatch,
+        )
+        from openjarvis.learning.intelligence.orchestrator.sft_data import (
+            reject_sample as _reject_sample,
+        )
+        from openjarvis.learning.intelligence.orchestrator.sft_data.datasets import (
+            load_sft_tasks,
+        )
+
+        generate_sft_dataset = _reject_sample.generate_sft_dataset
+        from openjarvis.learning.intelligence.orchestrator.sft_data.verify import (
+            make_verifier,
+        )
+
         trace_path = Path(self.config.trace_cache_path)
-        trace_path.parent.mkdir(parents=True, exist_ok=True)
-        if not trace_path.exists():
-            trace_path.touch()
+        tools = orchestrator_catalog(
+            local_endpoints=self.config.local_endpoints or None,
+        )
+        call_orch = make_call_orchestrator(
+            self.config.orchestrator_model,
+            base_url=self.config.orchestrator_endpoint,
+            api_key=self.config.orchestrator_api_key,
+            temperature=self.config.generation_temperature,
+        )
+        dispatch = make_dispatch({})
+
+        def rollout_fn(task: Any) -> Any:
+            try:
+                return run_unified_rollout(
+                    task.instruction,
+                    tools,
+                    call_orchestrator=call_orch,
+                    dispatch=dispatch,
+                    max_turns=self.config.max_rollout_turns,
+                )
+            except Exception as exc:  # network/key failures shouldn't kill the run
+                logger.warning("rollout failed for %s: %s", task.task_id, exc)
+                return None
+
+        try:
+            tasks = load_sft_tasks()
+            if self.config.distill_max_tasks:
+                tasks = tasks[: self.config.distill_max_tasks]
+            stats = generate_sft_dataset(
+                str(trace_path),
+                tasks=tasks,
+                tools=tools,
+                rollout_fn=rollout_fn,
+                verify_fn=make_verifier(),
+                samples_per_task=self.config.samples_per_task,
+                max_keep_per_task=self.config.max_keep_per_task,
+                reward_fn=lambda r: -r.cost_usd,  # cheapest-correct gets top reward
+            )
+            logger.info("Generated SFT traces: %s", stats)
+        except Exception as exc:  # network/datasets optional — fail soft to empty
+            logger.warning("trace generation failed (%s); writing empty set", exc)
+            trace_path.parent.mkdir(parents=True, exist_ok=True)
+            if not trace_path.exists():
+                trace_path.touch()
 
     def _init_optimizer(self) -> None:
         if not HAS_TORCH or self.policy.model is None:

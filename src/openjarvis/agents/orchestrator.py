@@ -13,6 +13,7 @@ Supports two modes:
 from __future__ import annotations
 
 import concurrent.futures
+import json
 import re
 from typing import Any, List, Optional
 
@@ -201,6 +202,70 @@ class OrchestratorAgent(ToolUsingAgent):
 
         return result
 
+    @staticmethod
+    def _boxed_tool_call(content, openai_tools, call_id):
+        r"""Salvage a tool call the model wrote as ``\boxed{tool: query}``.
+
+        Some SFT'd checkpoints (Qwen reasoning-mode habit) emit their action
+        as a boxed string instead of a real ``<tool_call>`` — e.g.
+        ``\boxed{web_search: latest news}`` or ``\boxed{web_search query: ...}``.
+        The engine's tool-call parser sees no structured call, so without this
+        the agent would grade the half-finished thought as its final answer and
+        never actually act. Here we recover ``(tool, args)`` and build a real
+        ``ToolCall`` keyed on the tool's primary parameter. Returns ``None`` when
+        the boxed content isn't a recognisable tool action (leaving genuine
+        boxed final answers untouched).
+        """
+        if not openai_tools or "\\boxed" not in content:
+            return None
+
+        # tool name -> primary parameter (first required, else first property)
+        param_of: dict[str, str] = {}
+        for t in openai_tools:
+            fn = t.get("function", t)
+            name = fn.get("name")
+            if not name:
+                continue
+            params = fn.get("parameters") or {}
+            props = list((params.get("properties") or {}).keys())
+            req = params.get("required") or []
+            param_of[name] = req[0] if req else (props[0] if props else "query")
+
+        # The action is the LAST boxed expression in the response.
+        boxed = re.findall(r"\\boxed\{([^{}]*)\}", content)
+        if not boxed:
+            return None
+        inner = boxed[-1].strip()
+
+        # Match a leading tool name (longest first to avoid prefix collisions),
+        # then strip the separator between name and args. Handles
+        # ``tool: q`` / ``tool query: q`` / ``tool q`` / ``tool(q)``.
+        for name in sorted(param_of, key=len, reverse=True):
+            m = re.match(
+                r"^\s*" + re.escape(name) + r"\b(.*)$",
+                inner,
+                re.DOTALL | re.IGNORECASE,
+            )
+            if not m:
+                continue
+            rest = m.group(1).strip()
+            if rest.startswith("(") and rest.endswith(")"):
+                rest = rest[1:-1]  # tool(args) wrapper -> drop matching parens
+            else:
+                # optional "query" word, then a ":" / "-" separator
+                rest = re.sub(
+                    r"^\s*(?:query\s*)?[:\-]\s*", "", rest, flags=re.IGNORECASE
+                )
+            arg = rest.strip().strip("\"'").strip()
+            if not arg:
+                return None
+            return ToolCall(
+                id=call_id,
+                name=name,
+                arguments=json.dumps({param_of[name]: arg}),
+            )
+        return None
+
     # ------------------------------------------------------------------
     # Function-calling mode (original behaviour)
     # ------------------------------------------------------------------
@@ -245,8 +310,31 @@ class OrchestratorAgent(ToolUsingAgent):
             content = result.get("content", "")
             raw_tool_calls = result.get("tool_calls", [])
 
-            # No tool calls -> check continuation, then final answer
+            # No tool calls -> try to salvage a \boxed{tool: query} action the
+            # model wrote instead of a real <tool_call>; else final answer.
             if not raw_tool_calls:
+                boxed_call = self._boxed_tool_call(
+                    content, openai_tools, f"boxed_{turns}"
+                )
+                if boxed_call is not None:
+                    messages.append(
+                        Message(
+                            role=Role.ASSISTANT,
+                            content=content,
+                            tool_calls=[boxed_call],
+                        )
+                    )
+                    tool_result = self._executor.execute(boxed_call)
+                    all_tool_results.append(tool_result)
+                    messages.append(
+                        Message(
+                            role=Role.TOOL,
+                            content=tool_result.content,
+                            tool_call_id=boxed_call.id,
+                            name=boxed_call.name,
+                        )
+                    )
+                    continue
                 content = self._check_continuation(result, messages)
                 content = self._strip_think_tags(content)
                 self._emit_turn_end(turns=turns, content_length=len(content))

@@ -27,6 +27,25 @@ class SuperGPQAScorer(LLMJudgeScorer):
             return "".join(chr(ord("A") + i) for i in range(n))
         return "ABCD"
 
+    def _extract_answer_direct(
+        self,
+        model_answer: str,
+        valid_letters: str,
+    ) -> Optional[str]:
+        """High-confidence, unambiguous letter straight from the output.
+
+        Only an explicit ``\\boxed{X}`` counts here. We deliberately do NOT regex
+        prose like "the answer is X": the letters "I" and "A" are real English
+        words, so "FINAL_ANSWER: I need ..." would grab "I" — the exact bug that
+        mislabels answers. Semantic extraction is left to the judge below.
+        """
+        if not model_answer:
+            return None
+        for cand in reversed(re.findall(r"\\boxed\{\s*([A-Za-z])\s*\}", model_answer)):
+            if cand.upper() in valid_letters:
+                return cand.upper()
+        return None
+
     def _extract_answer_with_llm(
         self,
         problem: str,
@@ -56,10 +75,13 @@ class SuperGPQAScorer(LLMJudgeScorer):
             )
 
             extracted = raw_response.strip().upper()
+            if "NONE" in extracted:
+                return None
 
-            # Handle "The answer is: A" etc.
+            # Accept only an ISOLATED letter — never the first cap of a word like
+            # "It"/"None". Prefer an explicit "the answer is X" phrasing.
             answer_match = re.search(
-                r"(?:THE ANSWER IS:?\s*)?([A-Z])",
+                r"(?:THE ANSWER IS:?\s*)?\b([A-Z])\b(?![A-Za-z'])",
                 extracted,
                 re.IGNORECASE,
             )
@@ -86,11 +108,17 @@ class SuperGPQAScorer(LLMJudgeScorer):
 
         valid_letters = self._valid_letters_from_options(record.metadata)
 
-        candidate = self._extract_answer_with_llm(
-            record.problem,
-            model_answer,
-            valid_letters,
-        )
+        # Parse straight from the output first (fast, deterministic, no "I" bug);
+        # only fall back to the judge when no isolated letter is present.
+        method = "direct"
+        candidate = self._extract_answer_direct(model_answer, valid_letters)
+        if not candidate:
+            method = "llm"
+            candidate = self._extract_answer_with_llm(
+                record.problem,
+                model_answer,
+                valid_letters,
+            )
         if not candidate:
             return None, {"reason": "no_choice_letter_extracted"}
 
@@ -99,6 +127,7 @@ class SuperGPQAScorer(LLMJudgeScorer):
             "reference_letter": ref,
             "candidate_letter": candidate,
             "valid_letters": valid_letters,
+            "extract_method": method,
         }
         return is_correct, meta
 
