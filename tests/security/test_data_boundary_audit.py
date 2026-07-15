@@ -11,6 +11,24 @@ from openjarvis.security.data_boundary_audit import (
     build_data_boundary_report,
 )
 
+EXPECTED_BROWSER_TOOLS = {
+    "browser_navigate",
+    "browser_click",
+    "browser_type",
+    "browser_screenshot",
+    "browser_extract",
+}
+
+EXPECTED_LOCAL_ACCESS_TOOLS = {
+    "file_write",
+    "apply_patch",
+    "docker_shell_exec",
+    "db_query",
+    "knowledge_sql",
+    "memory_manage",
+    "repl",
+}
+
 
 def _ids(report):
     return {finding.id for finding in report.findings}
@@ -565,6 +583,35 @@ def test_default_channel_value_is_always_redacted(tmp_path):
     assert "channel.default_channel is set; value redacted" in finding.evidence
     assert "telegram-secret-channel" not in finding.evidence
     assert "telegram-secret-channel" not in str(payload)
+
+
+def test_required_registered_tool_names_are_classified():
+    assert EXPECTED_BROWSER_TOOLS <= BROWSER_TOOLS
+    assert EXPECTED_LOCAL_ACCESS_TOOLS <= LOCAL_ACCESS_TOOLS
+
+
+@pytest.mark.parametrize("tool_name", sorted(EXPECTED_BROWSER_TOOLS))
+def test_required_browser_tools_are_detected(tmp_path, tool_name):
+    config = _low_noise_config()
+    config.tools.enabled = tool_name
+
+    report = build_data_boundary_report(config, tmp_path)
+
+    findings = {finding.id: finding for finding in report.findings}
+    assert findings["browser-tool-configured"].status == "warn"
+    assert tool_name in findings["browser-tool-configured"].evidence
+
+
+@pytest.mark.parametrize("tool_name", sorted(EXPECTED_LOCAL_ACCESS_TOOLS))
+def test_required_local_access_tools_are_detected(tmp_path, tool_name):
+    config = _low_noise_config()
+    config.tools.enabled = tool_name
+
+    report = build_data_boundary_report(config, tmp_path)
+
+    findings = {finding.id: finding for finding in report.findings}
+    assert findings["local-access-tools-configured"].status == "info"
+    assert tool_name in findings["local-access-tools-configured"].evidence
 
 
 @pytest.mark.parametrize("tool_name", sorted(BROWSER_TOOLS))
