@@ -2,8 +2,14 @@ from __future__ import annotations
 
 import os
 
+import pytest
+
 from openjarvis.core.config import JarvisConfig, load_config
-from openjarvis.security.data_boundary_audit import build_data_boundary_report
+from openjarvis.security.data_boundary_audit import (
+    BROWSER_TOOLS,
+    LOCAL_ACCESS_TOOLS,
+    build_data_boundary_report,
+)
 
 
 def _ids(report):
@@ -497,8 +503,8 @@ def test_symlink_local_store_permission_warns(tmp_path):
 
 def test_whatsapp_baileys_local_auth_dir_is_reported(tmp_path):
     config = _low_noise_config()
-    auth_dir = tmp_path / "whatsapp_auth"
-    auth_dir.mkdir()
+    auth_dir = tmp_path / "whatsapp_baileys_bridge" / "auth"
+    auth_dir.mkdir(parents=True)
 
     report = build_data_boundary_report(config, tmp_path)
 
@@ -509,12 +515,13 @@ def test_whatsapp_baileys_local_auth_dir_is_reported(tmp_path):
     ]
     assert len(whatsapp_findings) == 1
     assert whatsapp_findings[0].status == "info"
+    assert whatsapp_findings[0].location == "whatsapp_baileys_bridge/auth"
 
 
 def test_whatsapp_dual_auth_dirs_both_reported(tmp_path):
     config = _low_noise_config()
-    default_dir = tmp_path / "whatsapp_auth"
-    default_dir.mkdir()
+    default_dir = tmp_path / "whatsapp_baileys_bridge" / "auth"
+    default_dir.mkdir(parents=True)
     custom_dir = tmp_path / "custom_whatsapp_auth"
     custom_dir.mkdir()
     config.channel.whatsapp_baileys.auth_dir = str(custom_dir)
@@ -529,6 +536,9 @@ def test_whatsapp_dual_auth_dirs_both_reported(tmp_path):
     assert len(whatsapp_findings) == 2
     ids = {finding.id for finding in whatsapp_findings}
     assert len(ids) == 2
+    locations = {finding.location for finding in whatsapp_findings}
+    assert "whatsapp_baileys_bridge/auth" in locations
+    assert "<redacted>" in locations
 
 
 def test_channel_enabled_without_endpoint_is_info(tmp_path):
@@ -539,6 +549,61 @@ def test_channel_enabled_without_endpoint_is_info(tmp_path):
 
     findings = {finding.id: finding for finding in report.findings}
     assert findings["channels-enabled"].status == "info"
+
+
+def test_default_channel_value_is_always_redacted(tmp_path):
+    config = _low_noise_config()
+    config.channel.enabled = True
+    config.channel.default_channel = "telegram-secret-channel"
+
+    report = build_data_boundary_report(config, tmp_path)
+    payload = report.to_dict(show_paths=True)
+
+    findings = {finding.id: finding for finding in report.findings}
+    finding = findings["channels-enabled"]
+    assert finding.status == "warn"
+    assert "channel.default_channel is set; value redacted" in finding.evidence
+    assert "telegram-secret-channel" not in finding.evidence
+    assert "telegram-secret-channel" not in str(payload)
+
+
+@pytest.mark.parametrize("tool_name", sorted(BROWSER_TOOLS))
+def test_registered_browser_tools_are_detected(tmp_path, tool_name):
+    config = _low_noise_config()
+    config.tools.enabled = tool_name
+
+    report = build_data_boundary_report(config, tmp_path)
+
+    findings = {finding.id: finding for finding in report.findings}
+    assert findings["browser-tool-configured"].status == "warn"
+    assert tool_name in findings["browser-tool-configured"].evidence
+
+
+@pytest.mark.parametrize("tool_name", sorted(LOCAL_ACCESS_TOOLS))
+def test_registered_local_sensitive_tools_are_detected(tmp_path, tool_name):
+    config = _low_noise_config()
+    config.tools.enabled = tool_name
+
+    report = build_data_boundary_report(config, tmp_path)
+
+    findings = {finding.id: finding for finding in report.findings}
+    assert findings["local-access-tools-configured"].status == "info"
+    assert tool_name in findings["local-access-tools-configured"].evidence
+
+
+def test_gemini_api_key_is_detected_without_value_leak(tmp_path, monkeypatch):
+    config = _low_noise_config()
+    config.intelligence.provider = "gemini"
+    monkeypatch.setenv("GEMINI_API_KEY", "secret-gemini-key")
+
+    report = build_data_boundary_report(config, tmp_path)
+    payload = report.to_dict(show_paths=True)
+
+    findings = {finding.id: finding for finding in report.findings}
+    finding = findings["env-credential-gemini_api_key"]
+    assert finding.status == "warn"
+    assert "GEMINI_API_KEY is set" in finding.evidence
+    assert "secret-gemini-key" not in str(payload)
 
 
 def test_init_template_config_snapshot(tmp_path):

@@ -340,9 +340,7 @@ def test_data_boundary_loader_honors_openjarvis_config(
     monkeypatch.setenv("OPENJARVIS_HOME", str(tmp_path / "home"))
     load_config.cache_clear()
 
-    _config, _root, loaded, error, root_error = (
-        scan_cmd._load_data_boundary_config()
-    )
+    _config, _root, loaded, error, root_error = scan_cmd._load_data_boundary_config()
 
     assert loaded is True
     assert error == ""
@@ -357,9 +355,7 @@ def test_data_boundary_loader_reports_root_error(monkeypatch):
         lambda: (_ for _ in ()).throw(RuntimeError("bad home")),
     )
 
-    _config, root, loaded, error, root_error = (
-        scan_cmd._load_data_boundary_config()
-    )
+    _config, root, loaded, error, root_error = scan_cmd._load_data_boundary_config()
 
     assert root is None
     assert loaded is False

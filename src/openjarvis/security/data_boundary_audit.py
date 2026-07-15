@@ -48,6 +48,7 @@ LOCAL_ENGINE_KEYS = {
 API_KEY_ENV_VARS = {
     "ANTHROPIC_API_KEY": ("Anthropic cloud inference", {"anthropic", "claude"}),
     "DEEPSEEK_API_KEY": ("DeepSeek cloud inference", {"deepseek"}),
+    "GEMINI_API_KEY": ("Google/Gemini cloud inference", {"google", "gemini"}),
     "GOOGLE_API_KEY": ("Google/Gemini cloud inference", {"google", "gemini"}),
     "MINIMAX_API_KEY": ("MiniMax cloud inference", {"minimax"}),
     "OPENAI_API_KEY": ("OpenAI cloud inference", {"openai", "gpt"}),
@@ -168,8 +169,29 @@ PERSONAL_DIGEST_SOURCES = {
 }
 
 WEB_SEARCH_TOOLS = {"web_search", "search", "tavily_search"}
-BROWSER_TOOLS = {"browser", "browser_open", "browser_search", "web_browser"}
-LOCAL_ACCESS_TOOLS = {"code_interpreter", "file_read", "shell_exec"}
+BROWSER_TOOLS = {
+    "browser",
+    "browser_click",
+    "browser_extract",
+    "browser_navigate",
+    "browser_open",
+    "browser_screenshot",
+    "browser_search",
+    "browser_type",
+    "web_browser",
+}
+LOCAL_ACCESS_TOOLS = {
+    "apply_patch",
+    "code_interpreter",
+    "db_query",
+    "docker_shell_exec",
+    "file_read",
+    "file_write",
+    "knowledge_sql",
+    "memory_manage",
+    "repl",
+    "shell_exec",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,8 +256,7 @@ class DataBoundaryReport:
             "config_loaded": self.config_loaded,
             "summary": self.summary(),
             "findings": [
-                finding.to_dict(show_paths=show_paths)
-                for finding in self.findings
+                finding.to_dict(show_paths=show_paths) for finding in self.findings
             ],
         }
 
@@ -354,9 +375,7 @@ def build_data_boundary_report(
         )
 
     active_tools = (
-        _configured_tools(config)
-        if config_loaded and not config_error
-        else set()
+        _configured_tools(config) if config_loaded and not config_error else set()
     )
     active_config = config if config_loaded and not config_error else None
     if active_config is not None:
@@ -427,9 +446,7 @@ def _audit_outbound_settings(config: Any, builder: _FindingBuilder) -> None:
             title="Cloud default model configured",
             potential_data_path="model requests -> default cloud model",
             evidence=f"intelligence.default_model = {_quote(default_model)}",
-            recommendation=(
-                "Use a local default model for local-only operation."
-            ),
+            recommendation=("Use a local default model for local-only operation."),
         )
 
     preferred_engine = _get(config, "intelligence.preferred_engine", "")
@@ -601,9 +618,7 @@ def _audit_security_settings(
             potential_data_path=(
                 "cloud-bound tool arguments/results -> guardrails bypass"
             ),
-            evidence=(
-                "security.local_tool_bypass = true with cloud-capable settings"
-            ),
+            evidence=("security.local_tool_bypass = true with cloud-capable settings"),
             recommendation=(
                 "Disable local_tool_bypass unless the cloud surface is intentional "
                 "and reviewed."
@@ -982,7 +997,7 @@ def _audit_channel_settings(config: Any, builder: _FindingBuilder) -> None:
     if channel_enabled:
         evidence = "channel.enabled = true"
         if default_channel:
-            evidence += f"; default_channel = {_quote(default_channel)}"
+            evidence += "; channel.default_channel is set; value redacted"
         has_channel_surface = bool(
             default_channel or configured_secrets or configured_refs
         )
@@ -1078,21 +1093,25 @@ def _audit_local_channel_credential_dirs(
     auth_dir_value = str(
         _get(config, "channel.whatsapp_baileys.auth_dir", "") or ""
     ).strip()
-    candidates: list[Path] = []
+    candidates: list[tuple[Path, str]] = []
     if auth_dir_value:
-        candidates.append(Path(auth_dir_value).expanduser())
-    candidates.append(root / "whatsapp_auth")
+        candidates.append((Path(auth_dir_value).expanduser(), "<redacted>"))
+    candidates.append(
+        (root / "whatsapp_baileys_bridge" / "auth", "whatsapp_baileys_bridge/auth")
+    )
 
-    seen: set[Path] = set()
-    for path in candidates:
+    seen_resolved: set[str] = set()
+    for path, location in candidates:
         try:
             resolved = path.resolve()
+            resolved_key = str(resolved)
         except OSError:
             resolved = path
-        if resolved in seen or not path.exists():
+            resolved_key = str(path)
+        if resolved_key in seen_resolved or not path.exists():
             continue
-        seen.add(resolved)
-        path_digest = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()[:8]
+        seen_resolved.add(resolved_key)
+        path_digest = hashlib.sha256(resolved_key.encode("utf-8")).hexdigest()[:8]
         builder.add(
             finding_id=f"channel-local-credential-dir-whatsapp-baileys-{path_digest}",
             status="info",
@@ -1103,8 +1122,8 @@ def _audit_local_channel_credential_dirs(
                 "Review permissions and retention for local messaging session "
                 "credentials."
             ),
-            location="whatsapp_auth" if path.name == "whatsapp_auth" else "<redacted>",
-            absolute_location=str(resolved),
+            location=location,
+            absolute_location=resolved_key,
         )
 
 

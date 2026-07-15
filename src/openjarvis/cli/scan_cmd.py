@@ -557,9 +557,7 @@ def _render_data_boundary_report(
         details = [f"[{style}]{finding.title}[/{style}]"]
         details.append(f"[dim]{finding.potential_data_path}[/dim]")
         if finding.location:
-            location = (
-                finding.absolute_location if show_paths else finding.location
-            )
+            location = finding.absolute_location if show_paths else finding.location
             details.append(f"[dim]Location: {location}[/dim]")
         table.add_row(icon, "\n".join(details), finding.recommendation)
 
