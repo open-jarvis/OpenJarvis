@@ -25,10 +25,17 @@ _FORBIDDEN_RE = re.compile(
     re.IGNORECASE,
 )
 
+# String literals are stripped before the keyword scan so that data mentioning
+# a write keyword (e.g. WHERE content LIKE '%delete%') is not rejected. A write
+# "hidden" in a literal still cannot execute: the query must start with SELECT
+# and sqlite3 refuses multi-statement strings.
+_STRING_LITERAL_RE = re.compile(r"'[^']*'")
+
 _SCHEMA_DESCRIPTION = (
     "Table: knowledge_chunks\n"
     "Columns: id, content, source, doc_type, doc_id, title, author, "
-    "participants, timestamp, thread_id, url, metadata, chunk_index"
+    "participants, timestamp, thread_id, url, metadata, chunk_index, "
+    "created_at, deleted_at (NULL for active rows)"
 )
 
 
@@ -93,7 +100,7 @@ class KnowledgeSQLTool(BaseTool):
                 success=False,
             )
 
-        forbidden = _FORBIDDEN_RE.search(query)
+        forbidden = _FORBIDDEN_RE.search(_STRING_LITERAL_RE.sub("''", query))
         if forbidden:
             return ToolResult(
                 tool_name="knowledge_sql",
@@ -106,7 +113,7 @@ class KnowledgeSQLTool(BaseTool):
 
         try:
             rows = self._store._conn.execute(query).fetchmany(_MAX_ROWS)
-        except sqlite3.OperationalError as exc:
+        except sqlite3.Error as exc:
             return ToolResult(
                 tool_name="knowledge_sql",
                 content=f"SQL error: {exc}",
