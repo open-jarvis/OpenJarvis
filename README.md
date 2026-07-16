@@ -21,6 +21,12 @@
 
 ---
 
+> 🟦 **Fork pessoal — Flux.** Este repositório está personalizado como **Flux**,
+> um assistente local em português com jeito de mordomo. Comece por **[FLUX.md](FLUX.md)**.
+> O conteúdo abaixo é a documentação original do OpenJarvis (a base).
+
+---
+
 > **[Documentation](https://open-jarvis.github.io/OpenJarvis/)**
 >
 > **[Project Site](https://openjarvis.stanford.edu/)**

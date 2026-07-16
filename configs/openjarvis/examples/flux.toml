@@ -1,0 +1,55 @@
+# Flux — assistente pessoal do senhor (Ollama local)
+# Copie para ~/.openjarvis/config.toml
+#
+# Setup (uma vez):
+#   1. Instale o Ollama:            https://ollama.com
+#   2. Baixe um modelo:             ollama pull qwen3.5:9b
+#   3. Copie a persona do Flux:     configs/openjarvis/personas/flux/  ->  ~/.openjarvis/personas/flux/
+#      (o script scripts/setup_flux.sh faz isso para você)
+#
+# Uso:
+#   jarvis                          # conversa com o Flux
+#   jarvis ask "resuma este texto: ..."
+#   jarvis serve                    # sobe a API para o app/navegador
+
+# ─── Engine: roda os modelos localmente ─────────────────────
+[engine]
+default = "ollama"
+
+[engine.ollama]
+host = "http://localhost:11434"
+
+# ─── Inteligência: qual modelo o Flux usa ───────────────────
+[intelligence]
+default_model = "qwen3.5:9b"       # bom equilíbrio velocidade/qualidade (16GB+ RAM)
+# default_model = "qwen3.5:4b"     # mais rápido/leve (máquina modesta)
+# default_model = "qwen3.5:35b"    # melhor qualidade (32GB+ RAM)
+temperature = 0.7
+max_tokens = 2048
+
+# ─── Agente: multi-turno, escolhe ferramentas sozinho ───────
+[agent]
+default_agent = "orchestrator"     # troque por "simple" se quiser chat puro, sem ferramentas
+max_turns = 10
+
+[tools]
+enabled = ["web_search", "file_read", "file_write", "shell_exec", "think", "calculator"]
+
+# ─── Persona: a personalidade do Flux (mordomo, chama de "senhor") ──
+[memory_files]
+persona_name = "flux"              # carrega ~/.openjarvis/personas/flux/{SOUL,MEMORY,USER}.md
+
+# ─── API local (só loopback por segurança) ──────────────────
+[server]
+host = "127.0.0.1"
+port = 8000
+
+# ─── Opcional: briefing matinal falado (precisa de chaves de TTS) ──
+# [digest]
+# enabled = true
+# schedule = "0 7 * * *"            # 7h todo dia
+# timezone = "America/Sao_Paulo"
+# persona = "flux"
+# honorific = "senhor"
+# tts_backend = "openai"           # ou "cartesia"
+# sections = ["messages", "calendar", "world"]
