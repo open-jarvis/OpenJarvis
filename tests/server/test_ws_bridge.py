@@ -161,3 +161,27 @@ class TestWSBridge:
             ]
 
         asyncio.run(exercise())
+
+
+class TestIncludeAllRoutesBusWiring:
+    """Regression: the WS endpoint must subscribe on the same EventBus that
+    channels/agents actually publish to (app.state.bus), not the unrelated
+    get_event_bus() global singleton — publishing on the latter used to
+    silently never reach any connected browser client."""
+
+    def test_uses_app_state_bus_not_global_singleton(self):
+        from openjarvis.core.events import reset_event_bus
+        from openjarvis.server.api_routes import include_all_routes
+
+        reset_event_bus()  # isolate from other tests' global singleton state
+        app = FastAPI()
+        real_bus = EventBus()
+        app.state.bus = real_bus
+        include_all_routes(app)
+
+        client = TestClient(app)
+        with client.websocket_connect("/v1/agents/events") as ws:
+            real_bus.publish(EventType.AGENT_TICK_START, {"agent_id": "test-123"})
+            time.sleep(0.05)
+            data = ws.receive_json()
+            assert data["data"]["agent_id"] == "test-123"
