@@ -46,6 +46,12 @@ Ou use o agente de exemplo direto:
 python examples/flux/flux.py "resuma minha agenda ideal para focar hoje"
 ```
 
+## Deixar o Flux online
+
+Para acessar de fora (celular, outro PC), veja **[deploy/flux-online.md](deploy/flux-online.md)**.
+Resumo: rode o Flux na sua máquina (seus 64GB dão conta) e exponha por um túnel
+(Tailscale ou Cloudflare Tunnel) — sem abrir portas. Vercel/serverless não serve.
+
 ## Trocar o modelo
 
 Edite `~/.openjarvis/config.toml` (ou `configs/openjarvis/examples/flux.toml`

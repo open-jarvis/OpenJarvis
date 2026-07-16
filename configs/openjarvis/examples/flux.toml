@@ -21,9 +21,9 @@ host = "http://localhost:11434"
 
 # ─── Inteligência: qual modelo o Flux usa ───────────────────
 [intelligence]
-default_model = "qwen3.5:9b"       # bom equilíbrio velocidade/qualidade (16GB+ RAM)
-# default_model = "qwen3.5:4b"     # mais rápido/leve (máquina modesta)
-# default_model = "qwen3.5:35b"    # melhor qualidade (32GB+ RAM)
+default_model = "qwen3.5:35b"      # boa qualidade — cabe folgado nos seus 64GB de RAM
+# default_model = "qwen3.5:9b"     # mais rápido, se quiser respostas quase instantâneas
+# default_model = "qwen3.5:4b"     # ultraleve
 temperature = 0.7
 max_tokens = 2048
 
@@ -39,10 +39,13 @@ enabled = ["web_search", "file_read", "file_write", "shell_exec", "think", "calc
 [memory_files]
 persona_name = "flux"              # carrega ~/.openjarvis/personas/flux/{SOUL,MEMORY,USER}.md
 
-# ─── API local (só loopback por segurança) ──────────────────
+# ─── API (só loopback por segurança) ────────────────────────
+# Deixe em 127.0.0.1. Para acessar de fora, NÃO exponha a porta:
+# use um túnel apontando para localhost (veja deploy/flux-online.md).
 [server]
 host = "127.0.0.1"
 port = 8000
+agent = "orchestrator"
 
 # ─── Opcional: briefing matinal falado (precisa de chaves de TTS) ──
 # [digest]
