@@ -25,6 +25,11 @@ import yaml
 
 from openjarvis.core.paths import get_config_dir
 from openjarvis.skills.parser import SkillParser
+from openjarvis.skills.security import (
+    TrustTier,
+    classify_trust_tier,
+    has_dangerous_capabilities,
+)
 from openjarvis.skills.sources.base import ResolvedSkill
 from openjarvis.skills.tool_translator import ToolTranslator
 
@@ -43,6 +48,9 @@ class ImportResult:
     untranslated_tools: List[str] = field(default_factory=list)
     scripts_imported: bool = False
     warnings: List[str] = field(default_factory=list)
+    trust_tier: TrustTier = TrustTier.UNREVIEWED
+    dangerous_capabilities: List[str] = field(default_factory=list)
+    requires_confirmation: bool = False
 
 
 class SkillImporter:
@@ -66,6 +74,7 @@ class SkillImporter:
         *,
         with_scripts: bool = False,
         force: bool = False,
+        confirm_dangerous: bool = False,
     ) -> ImportResult:
         """Install *resolved* into ``<target_root>/<source>/<name>/``.
 
@@ -95,11 +104,42 @@ class SkillImporter:
 
         try:
             frontmatter, body = self._read_skill_md(source_md)
-            self._parser.parse_frontmatter(frontmatter, markdown_content=body)
+            manifest = self._parser.parse_frontmatter(frontmatter, markdown_content=body)
         except Exception as exc:
             result.success = False
             result.warnings.append(f"Parse error: {exc}")
             return result
+
+        # 1a. Classify trust and check for dangerous capabilities *before*
+        # writing anything to disk. Everything the importer handles comes from
+        # an external source (github/hermes/openclaw), so the BUNDLED and
+        # WORKSPACE tiers never apply here, and no resolver verifies index
+        # membership yet — a signature alone still classifies as UNREVIEWED.
+        # Community skills get no special treatment just because they came
+        # from a named source.
+        result.trust_tier = classify_trust_tier(
+            has_signature=bool(manifest.signature),
+        )
+        result.dangerous_capabilities = has_dangerous_capabilities(manifest)
+
+        if result.dangerous_capabilities and result.trust_tier == TrustTier.UNREVIEWED:
+            result.requires_confirmation = True
+            if not confirm_dangerous:
+                result.success = False
+                result.warnings.append(
+                    "Refusing to install: this unreviewed skill requests "
+                    f"dangerous capabilities {result.dangerous_capabilities}. "
+                    "Re-run with confirm_dangerous=True (or `--yes-dangerous` "
+                    "on the CLI) only if you trust the source and have "
+                    "reviewed what it does."
+                )
+                return result
+            result.warnings.append(
+                "Installed with dangerous capabilities "
+                f"{result.dangerous_capabilities} — confirmed by caller. "
+                "This skill can run shell commands, open network listeners, "
+                "and/or write to the filesystem."
+            )
 
         # 2. Translate tool references
         translated_body, untranslated = self._translator.translate_markdown(body)
@@ -180,6 +220,7 @@ class SkillImporter:
         translated_str = ", ".join(f'"{t}"' for t in result.translated_tools)
         missing_str = ", ".join(f'"{t}"' for t in result.untranslated_tools)
         scripts_lower = "true" if result.scripts_imported else "false"
+        dangerous_str = ", ".join(f'"{c}"' for c in result.dangerous_capabilities)
 
         content = (
             f'source = "{resolved.source}:{resolved.name}"\n'
@@ -189,6 +230,8 @@ class SkillImporter:
             f"translated_tools = [{translated_str}]\n"
             f"missing_tools = [{missing_str}]\n"
             f"scripts_imported = {scripts_lower}\n"
+            f'trust_tier = "{result.trust_tier.value}"\n'
+            f"dangerous_capabilities = [{dangerous_str}]\n"
         )
         (target_dir / ".source").write_text(content, encoding="utf-8")
 
