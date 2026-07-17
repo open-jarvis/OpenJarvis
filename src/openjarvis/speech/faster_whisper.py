@@ -113,8 +113,8 @@ class FasterWhisperBackend(SpeechBackend):
             suffix = f".{format}" if not format.startswith(".") else format
             tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
             try:
-                tmp.write(audio)
-                tmp.close()
+                with tmp:
+                    tmp.write(audio)
 
                 kwargs = {}
                 if language:
@@ -125,8 +125,12 @@ class FasterWhisperBackend(SpeechBackend):
             finally:
                 try:
                     os.unlink(tmp.name)
-                except OSError:
-                    pass
+                except OSError as unlink_exc:
+                    logger.debug(
+                        "Could not remove temp audio file %s: %s",
+                        tmp.name,
+                        unlink_exc,
+                    )
         except Exception as exc:
             self._last_error = str(exc)
             raise
