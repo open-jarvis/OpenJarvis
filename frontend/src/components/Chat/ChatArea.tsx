@@ -42,7 +42,7 @@ export function ChatArea() {
   const handleScroll = () => {
     if (!listRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = listRef.current;
-    shouldAutoScroll.current = scrollHeight - scrollTop - clientHeight < 100;
+    shouldAutoScroll.current = scrollHeight - scrollTop - clientHeight < 1;
   };
 
   const isEmpty = messages.length === 0 && !streamState.isStreaming;
