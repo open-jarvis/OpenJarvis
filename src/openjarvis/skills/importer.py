@@ -104,7 +104,9 @@ class SkillImporter:
 
         try:
             frontmatter, body = self._read_skill_md(source_md)
-            manifest = self._parser.parse_frontmatter(frontmatter, markdown_content=body)
+            manifest = self._parser.parse_frontmatter(
+                frontmatter, markdown_content=body
+            )
         except Exception as exc:
             result.success = False
             result.warnings.append(f"Parse error: {exc}")
