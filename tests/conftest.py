@@ -31,6 +31,19 @@ from openjarvis.core.registry import (
 
 
 @pytest.fixture(autouse=True)
+def _no_update_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Never let the CLI's PyPI update-check nag run during tests.
+
+    ``check_for_updates`` writes its banner to stderr, which ``CliRunner``
+    merges into ``result.output`` — polluting JSON/CSV output of any test
+    that invokes a CLI command. It already self-disables when ``CI`` is
+    set, but that only helps in CI; locally (e.g. a dev with a stale
+    version-check cache and network access) it fires for real.
+    """
+    monkeypatch.setenv("OPENJARVIS_NO_UPDATE_CHECK", "1")
+
+
+@pytest.fixture(autouse=True)
 def _clean_registries() -> None:
     """Ensure each test starts with empty registries and a fresh event bus."""
     ModelRegistry.clear()

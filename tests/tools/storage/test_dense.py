@@ -14,9 +14,9 @@ skipped if the server is unreachable.
 from __future__ import annotations
 
 import os
-import socket
 from pathlib import Path
 
+import httpx
 import pytest
 
 from openjarvis.tools.storage.dense import (
@@ -29,13 +29,22 @@ from openjarvis.tools.storage.dense import (
 _FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "docs"
 _OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "localhost")
 _OLLAMA_PORT = int(os.environ.get("OLLAMA_PORT", "11434"))
+_EMBED_MODEL = "nomic-embed-text"
 
 
 def _ollama_up() -> bool:
+    """True only if Ollama is reachable *and* the embed model is pulled.
+
+    A bare TCP connect isn't enough — a machine can run Ollama for chat
+    models without ever having pulled ``nomic-embed-text``, which makes
+    ``/api/embed`` 404 instead of the tests skipping as intended.
+    """
     try:
-        with socket.create_connection((_OLLAMA_HOST, _OLLAMA_PORT), timeout=1.0):
-            return True
-    except OSError:
+        resp = httpx.get(f"http://{_OLLAMA_HOST}:{_OLLAMA_PORT}/api/tags", timeout=1.0)
+        resp.raise_for_status()
+        models = {m.get("model", "") for m in resp.json().get("models", [])}
+        return any(m.startswith(_EMBED_MODEL) for m in models)
+    except (httpx.HTTPError, ValueError):
         return False
 
 
