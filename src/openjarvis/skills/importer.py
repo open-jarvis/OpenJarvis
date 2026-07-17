@@ -111,14 +111,14 @@ class SkillImporter:
             return result
 
         # 1a. Classify trust and check for dangerous capabilities *before*
-        # writing anything to disk. Community skills (Hermes, OpenClaw, or
-        # any arbitrary GitHub repo) are UNREVIEWED by default — they get no
-        # special treatment just because they came from a named source.
+        # writing anything to disk. Everything the importer handles comes from
+        # an external source (github/hermes/openclaw), so the BUNDLED and
+        # WORKSPACE tiers never apply here, and no resolver verifies index
+        # membership yet — a signature alone still classifies as UNREVIEWED.
+        # Community skills get no special treatment just because they came
+        # from a named source.
         result.trust_tier = classify_trust_tier(
-            is_bundled=resolved.source == "bundled",
-            is_workspace=resolved.source == "workspace",
             has_signature=bool(manifest.signature),
-            in_index=getattr(resolved, "in_index", False),
         )
         result.dangerous_capabilities = has_dangerous_capabilities(manifest)
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Set
 
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import ToolCall, ToolResult
@@ -38,12 +38,16 @@ class SkillExecutor:
         tool_executor: ToolExecutor,
         *,
         bus: Optional[EventBus] = None,
-        allowed_capabilities: Optional[set] = None,
+        allowed_capabilities: Optional[Set[str]] = None,
     ) -> None:
         self._tool_executor = tool_executor
         self._bus = bus
         self._skill_resolver: Optional[SkillResolver] = None
-        self._allowed_capabilities: set = allowed_capabilities or set()
+        # None means "no capability policy" — every skill runs, matching the
+        # behavior before capability enforcement existed. Pass a set (even an
+        # empty one) to enforce: skills whose required_capabilities are not a
+        # subset of it are blocked before any step runs.
+        self._allowed_capabilities: Optional[Set[str]] = allowed_capabilities
 
     def set_skill_resolver(self, resolver: SkillResolver) -> None:
         """Register a callback used to delegate ``skill_name`` steps."""
@@ -56,7 +60,11 @@ class SkillExecutor:
         initial_context: Optional[Dict[str, Any]] = None,
     ) -> SkillResult:
         """Execute all steps in a skill manifest."""
-        missing = validate_capabilities(manifest, self._allowed_capabilities)
+        missing = (
+            validate_capabilities(manifest, self._allowed_capabilities)
+            if self._allowed_capabilities is not None
+            else []
+        )
         if missing:
             if self._bus:
                 self._bus.publish(
