@@ -70,9 +70,7 @@ def test_allows_select_with_keyword_substring(store: KnowledgeStore) -> None:
     from openjarvis.tools.knowledge_sql import KnowledgeSQLTool
 
     tool = KnowledgeSQLTool(store=store)
-    result = tool.execute(
-        query="SELECT author AS created_author FROM knowledge_chunks"
-    )
+    result = tool.execute(query="SELECT author AS created_author FROM knowledge_chunks")
     assert result.success, result.content
     assert "Alice" in result.content
 

@@ -255,9 +255,7 @@ class TestDangerousCapabilityGate:
         assert result.success
         assert result.requires_confirmation
         assert any("confirmed by caller" in w for w in result.warnings)
-        content = (
-            tmp_path / "skills" / "hermes" / "my-skill" / ".source"
-        ).read_text()
+        content = (tmp_path / "skills" / "hermes" / "my-skill" / ".source").read_text()
         assert 'trust_tier = "unreviewed"' in content
         assert 'dangerous_capabilities = ["shell:execute"]' in content
 
@@ -269,8 +267,6 @@ class TestDangerousCapabilityGate:
         assert result.success
         assert not result.requires_confirmation
         assert result.dangerous_capabilities == []
-        content = (
-            tmp_path / "skills" / "hermes" / "my-skill" / ".source"
-        ).read_text()
+        content = (tmp_path / "skills" / "hermes" / "my-skill" / ".source").read_text()
         assert 'trust_tier = "unreviewed"' in content
         assert "dangerous_capabilities = []" in content

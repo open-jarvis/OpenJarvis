@@ -171,9 +171,7 @@ class TestSkillExecutorCapabilities:
         assert result.context.get("result") == "hello"
 
     def test_policy_blocks_missing_capability(self):
-        executor = SkillExecutor(
-            ToolExecutor([EchoTool()]), allowed_capabilities=set()
-        )
+        executor = SkillExecutor(ToolExecutor([EchoTool()]), allowed_capabilities=set())
         result = executor.run(self._manifest())
         assert not result.success
         assert len(result.step_results) == 1
