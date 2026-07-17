@@ -59,11 +59,14 @@ def _ensure_identity_prompt(messages: list[Message], app_config) -> list[Message
     If any message already carries a system role, the caller has supplied
     their own grounding and we leave the list untouched (no double-prompting).
 
-    Resolution of the identity text: ``app_config.agent.default_system_prompt``
-    when a config is wired onto ``app.state``; otherwise fall back to
-    ``load_config()``. Config resolution is wrapped so a broken/missing
-    config degrades to "no injection" rather than crashing the endpoint, but
-    the failure is logged (per REVIEW.md — never silently swallow).
+    Resolution of the identity text: the config comes from ``app.state`` when
+    wired, otherwise ``load_config()``; the prompt itself is assembled by
+    ``SystemPromptBuilder`` from ``agent.default_system_prompt`` plus the
+    persona files (SOUL.md/MEMORY.md/USER.md), matching
+    ``_build_managed_system_prompt`` in ``agent_manager_routes.py``. Config
+    resolution is wrapped so a broken/missing config degrades to "no
+    injection" rather than crashing the endpoint, but the failure is logged
+    (per REVIEW.md — never silently swallow).
     """
     if any(m.role == Role.SYSTEM for m in messages):
         return messages
