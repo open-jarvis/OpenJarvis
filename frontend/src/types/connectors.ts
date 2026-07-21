@@ -121,6 +121,29 @@ export const SOURCE_CATALOG: ConnectorMeta[] = [
     ],
   },
   {
+    connector_id: 'imap',
+    display_name: 'Email (IMAP)',
+    auth_type: 'oauth',
+    category: 'communication',
+    icon: 'Mail',
+    color: 'text-amber-400',
+    description: 'Any IMAP mailbox',
+    unitLabel: 'emails',
+    steps: [
+      {
+        label: 'Generate an app password with your email provider (IMAP must be enabled), then enter your email address and the app password below. The server is detected from your email domain.',
+      },
+    ],
+    troubleshooting: [
+      'Most providers require an app password rather than your normal password.',
+      'Connects over TLS on port 993; providers that only offer STARTTLS on port 143 are not supported yet.',
+    ],
+    inputFields: [
+      { name: 'email', placeholder: 'you@example.com', type: 'text' },
+      { name: 'password', placeholder: 'App password', type: 'password' },
+    ],
+  },
+  {
     connector_id: 'slack',
     display_name: 'Slack',
     auth_type: 'oauth',

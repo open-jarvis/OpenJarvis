@@ -14,6 +14,7 @@ import logging
 from datetime import datetime
 from email.header import decode_header
 from email.utils import parsedate_to_datetime
+from imaplib import IMAP4
 from typing import Iterator, List, Optional
 
 from openjarvis.connectors._stubs import BaseConnector, Document, SyncStatus
@@ -27,17 +28,26 @@ logger = logging.getLogger(__name__)
 _DEFAULT_CREDENTIALS_PATH = str(DEFAULT_CONFIG_DIR / "connectors" / "gmail_imap.json")
 
 
-def _decode_subject(raw: str) -> str:
-    """Decode a possibly-encoded email subject header."""
+def _decode_header(raw: object) -> str:
+    """Decode an email header (str or Header) to a safe plain string.
+
+    Real mail can carry raw 8-bit bytes in headers, which makes ``msg.get()``
+    return an ``email.header.Header`` (not JSON serializable) and yields bogus
+    charsets like ``unknown-8bit``. Coerce to a string, replacing what can't be
+    decoded.
+    """
     if not raw:
         return ""
-    decoded_parts = decode_header(raw)
-    return "".join(
-        part.decode(enc or "utf-8", errors="replace")
-        if isinstance(part, bytes)
-        else part
-        for part, enc in decoded_parts
-    )
+    out = []
+    for part, enc in decode_header(raw if isinstance(raw, str) else str(raw)):
+        if isinstance(part, bytes):
+            try:
+                out.append(part.decode(enc or "utf-8", errors="replace"))
+            except LookupError:
+                out.append(part.decode("utf-8", errors="replace"))
+        else:
+            out.append(part)
+    return "".join(out)
 
 
 def _extract_text_body(msg: email_lib.message.Message) -> str:
@@ -139,6 +149,14 @@ class GmailIMAPConnector(BaseConnector):
                 {"email": "", "password": code.strip()},
             )
 
+    def _open_imap(self) -> "imaplib.IMAP4_SSL":
+        """Open an authenticated, INBOX-selected IMAP connection."""
+        em, pw = self._resolve_credentials()
+        imap = imaplib.IMAP4_SSL(self._imap_host)
+        imap.login(em, pw)
+        imap.select("INBOX", readonly=True)
+        return imap
+
     def sync(
         self,
         *,
@@ -149,14 +167,11 @@ class GmailIMAPConnector(BaseConnector):
         if not em or not pw:
             return
 
-        imap = imaplib.IMAP4_SSL(self._imap_host)
         try:
-            imap.login(em, pw)
-        except imaplib.IMAP4.error as exc:
+            imap = self._open_imap()
+        except (IMAP4.error, OSError) as exc:
             logger.error("IMAP login failed: %s", exc)
             return
-
-        imap.select("INBOX", readonly=True)
 
         # Always SEARCH ALL. IMAP has no native cursor that survives a
         # server restart, so applying the SyncEngine's ``since`` filter
@@ -178,22 +193,59 @@ class GmailIMAPConnector(BaseConnector):
             ordered = ordered[: self._max_messages]
         synced = 0
 
-        for mid in ordered:
+        # A dropped TLS connection mid-backfill (e.g. "[SSL: BAD_LENGTH]") is
+        # transient. Reconnect and retry the message instead of aborting the
+        # whole sync, so a large inbox finishes without manual "Retry Sync".
+        # OSError covers ssl.SSLError and socket errors; IMAP4.abort is raised
+        # when the server drops the connection.
+        max_reconnects = 5
+        consecutive_reconnects = 0
+        index = 0
+        while index < len(ordered):
+            mid = ordered[index]
             try:
                 _, msg_data = imap.fetch(mid, "(RFC822)")
                 raw = msg_data[0][1]
                 msg = email_lib.message_from_bytes(raw)
+            except (IMAP4.abort, OSError) as exc:
+                if consecutive_reconnects >= max_reconnects:
+                    logger.error(
+                        "IMAP sync stopping after %d reconnect attempts: %s",
+                        consecutive_reconnects,
+                        exc,
+                    )
+                    break
+                consecutive_reconnects += 1
+                logger.warning(
+                    "IMAP connection dropped (%s); reconnecting %d/%d",
+                    exc,
+                    consecutive_reconnects,
+                    max_reconnects,
+                )
+                try:
+                    imap.logout()
+                except Exception:
+                    pass
+                try:
+                    imap = self._open_imap()
+                except (IMAP4.error, OSError) as reconnect_exc:
+                    logger.error("IMAP reconnect failed: %s", reconnect_exc)
+                    break
+                continue
             except Exception:
+                index += 1
                 continue
 
-            subject = _decode_subject(msg.get("Subject", ""))
-            sender = msg.get("From", "")
-            to = msg.get("To", "")
+            subject = _decode_header(msg.get("Subject", ""))
+            sender = _decode_header(msg.get("From", ""))
+            to = _decode_header(msg.get("To", ""))
             body = _extract_text_body(msg)
             timestamp = _parse_date(msg)
-            message_id = msg.get("Message-ID", mid.decode())
+            message_id = str(msg.get("Message-ID", mid.decode()))
 
             synced += 1
+            index += 1
+            consecutive_reconnects = 0
             yield Document(
                 doc_id=f"gmail:{message_id}",
                 source="gmail",
@@ -203,14 +255,17 @@ class GmailIMAPConnector(BaseConnector):
                 author=sender,
                 participants=[a.strip() for a in (to or "").split(",") if a.strip()],
                 timestamp=timestamp,
-                thread_id=msg.get("In-Reply-To", ""),
+                thread_id=_decode_header(msg.get("In-Reply-To", "")),
                 url="https://mail.google.com/mail/u/0/#inbox",
                 metadata={
                     "message_id": message_id,
                 },
             )
 
-        imap.logout()
+        try:
+            imap.logout()
+        except Exception:
+            pass
         self._items_synced = synced
 
     def sync_status(self) -> SyncStatus:

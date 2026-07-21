@@ -295,7 +295,12 @@ def serve(
                     from openjarvis.core.registry import ToolRegistry
                     from openjarvis.tools._stubs import BaseTool
 
-                    _DEFAULT_TOOLS = {"think", "calculator", "web_search"}
+                    _DEFAULT_TOOLS = {
+                        "think",
+                        "calculator",
+                        "web_search",
+                        "knowledge_search",
+                    }
                     configured = config.agent.tools
                     if configured:
                         if isinstance(configured, list):
@@ -319,7 +324,12 @@ def serve(
                         if isinstance(tool_cls, type) and issubclass(
                             tool_cls, BaseTool
                         ):
-                            tools.append(tool_cls())
+                            if name == "knowledge_search":
+                                from openjarvis.connectors.store import KnowledgeStore
+
+                                tools.append(tool_cls(store=KnowledgeStore()))
+                            else:
+                                tools.append(tool_cls())
                         elif isinstance(tool_cls, BaseTool):
                             tools.append(tool_cls)
 
@@ -399,7 +409,12 @@ def serve(
                         from openjarvis.core.registry import ToolRegistry
                         from openjarvis.tools._stubs import BaseTool
 
-                        _DEFAULT_TOOLS = {"think", "calculator", "web_search"}
+                        _DEFAULT_TOOLS = {
+                            "think",
+                            "calculator",
+                            "web_search",
+                            "knowledge_search",
+                        }
                         configured = config.agent.tools
                         if configured:
                             if isinstance(configured, list):
@@ -422,7 +437,14 @@ def serve(
                                 continue
                             _tcls = ToolRegistry.get(_tname)
                             if isinstance(_tcls, type) and issubclass(_tcls, BaseTool):
-                                _channel_tools.append(_tcls())
+                                if _tname == "knowledge_search":
+                                    from openjarvis.connectors.store import (
+                                        KnowledgeStore,
+                                    )
+
+                                    _channel_tools.append(_tcls(store=KnowledgeStore()))
+                                else:
+                                    _channel_tools.append(_tcls())
                             elif isinstance(_tcls, BaseTool):
                                 _channel_tools.append(_tcls)
 
