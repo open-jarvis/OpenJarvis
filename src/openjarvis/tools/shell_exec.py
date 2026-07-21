@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
-from typing import Any, List
+from typing import Any, List, Optional
 
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
@@ -22,6 +23,54 @@ _DEFAULT_TIMEOUT = 30
 
 # Environment variables always passed through
 _BASE_ENV_KEYS = ("PATH", "HOME", "USER", "LANG", "TERM")
+
+# Catastrophic, effectively irreversible shell patterns that are refused
+# outright. This is defence-in-depth layered on top of the ``code:execute``
+# capability gate and ``requires_confirmation`` — NOT a sandbox. It is kept
+# deliberately narrow so ordinary commands (``rm -rf build/``, ``git clean``)
+# still run; it only trips on whole-disk / root / home wipes, fork bombs,
+# raw-device writes, and piping a remote download straight into a shell.
+_DANGEROUS_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        # rm with -r and/or -f targeting root, home, or a root wildcard
+        re.compile(
+            r"(?i)\brm\s+(?:-\S+\s+)*-\S*[rf]\S*(?:\s+-\S+)*\s+"
+            r"(?:/|/\*|~/?|\$HOME|\$\{HOME\})(?:\s|;|&|\||$)"
+        ),
+        "recursive/forced delete of a root, home, or wildcard path",
+    ),
+    (
+        # classic fork bomb  :(){ :|:& };:
+        re.compile(r":\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:"),
+        "fork bomb",
+    ),
+    (
+        # writing a raw block device / making a filesystem on one
+        re.compile(
+            r"(?i)(?:\bdd\b[^\n]*\bof=|\bmkfs\S*\s+|>\s*)"
+            r"/dev/(?:sd|nvme|hd|vd|disk|mmcblk)"
+        ),
+        "raw write to a block device",
+    ),
+    (
+        # piping a remote download straight into a shell interpreter
+        re.compile(r"(?i)\b(?:curl|wget)\b[^\n|]*\|\s*(?:sudo\s+)?\S*sh\b"),
+        "piping a remote download into a shell",
+    ),
+    (
+        # recursive chmod/chown of the filesystem root
+        re.compile(r"(?i)\bch(?:mod|own)\s+(?:-\S+\s+)*-\S*R\S*\s+\S+\s+/(?:\s|;|&|\||$)"),
+        "recursive permission/ownership change of the filesystem root",
+    ),
+)
+
+
+def _find_dangerous(command: str) -> Optional[str]:
+    """Return a description if *command* matches a catastrophic pattern, else None."""
+    for pattern, description in _DANGEROUS_PATTERNS:
+        if pattern.search(command):
+            return description
+    return None
 
 
 @ToolRegistry.register("shell_exec")
@@ -80,6 +129,18 @@ class ShellExecTool(BaseTool):
                 tool_name="shell_exec",
                 content="No command provided.",
                 success=False,
+            )
+
+        # Refuse catastrophic commands up front, before either execution path
+        # (Rust or subprocess). Guarding here — not inside the subprocess
+        # fallback — ensures the Rust backend cannot bypass the check.
+        danger = _find_dangerous(command)
+        if danger is not None:
+            return ToolResult(
+                tool_name="shell_exec",
+                content=f"Blocked: command matches a prohibited pattern ({danger}).",
+                success=False,
+                metadata={"returncode": -1, "blocked": True},
             )
 
         # Resolve timeout (capped at _MAX_TIMEOUT)
