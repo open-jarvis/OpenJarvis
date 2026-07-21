@@ -808,16 +808,36 @@ class TestIdentityPromptInjection:
             json={
                 "model": "test-model",
                 "messages": [{"role": "user", "content": "who are you?"}],
-                "tools": [{"type": "function", "function": {"name": "calc"}}],
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "dummy",
+                            "description": "dummy",
+                            "parameters": {"type": "object", "properties": {}},
+                        },
+                    }
+                ],
                 "stream": True,
             },
         )
         assert resp.status_code == 200
         _ = resp.text
-        assert captured, "engine.stream_full was never called"
         msgs = captured[-1]
         assert msgs[0].role.value == "system"
         assert "OpenJarvis" in msgs[0].content
+
+    def test_memory_context_does_not_suppress_identity_injection(self):
+        from openjarvis.core.types import Message, Role
+        from openjarvis.server.routes import _ensure_identity_prompt
+        from openjarvis.tools.storage.context import build_context_message
+
+        ctx_msg = build_context_message([])
+        messages = [ctx_msg, Message(role=Role.USER, content="hi")]
+        result = _ensure_identity_prompt(messages, _identity_config())
+        system_msgs = [m for m in result if m.role == Role.SYSTEM]
+        assert len(system_msgs) == 2
+        assert any("OpenJarvis" in m.content for m in system_msgs)
 
 
 # ---------------------------------------------------------------------------
