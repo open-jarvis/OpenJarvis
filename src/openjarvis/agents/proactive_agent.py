@@ -37,6 +37,7 @@ called from your app startup:
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
@@ -46,6 +47,8 @@ from openjarvis.core.config import load_config
 from openjarvis.core.paths import get_config_dir
 from openjarvis.core.registry import AgentRegistry
 from openjarvis.core.types import Message, Role, ToolCall
+
+logger = logging.getLogger(__name__)
 from openjarvis.tools.approval_store import (
     DECISION_ALWAYS_APPROVE,
     DECISION_ALWAYS_DENY,
@@ -252,11 +255,25 @@ def _build_notification_channel(channel_spec: str) -> Optional[Any]:
 
         if ChannelRegistry.contains(channel_type):
             channel_cls = ChannelRegistry.get(channel_type)
-            instance = channel_cls()
+            # Load credentials from config so the channel uses bot_token from
+            # config.toml rather than falling back to a bare env var.
             try:
-                instance.connect()
+                from openjarvis.core.config import load_config
+                from openjarvis.system._channel_kwargs import build_channel_kwargs
+
+                _cfg = load_config()
+                _kwargs = build_channel_kwargs(_cfg.channel, channel_type)
             except Exception:
-                pass
+                _kwargs = {}
+            instance = channel_cls(**_kwargs)
+            # NOTE: do NOT call instance.connect() here.
+            # The notification channel only needs to *send* messages — it must
+            # NOT start a polling/getUpdates loop.  Starting a second poll loop
+            # (with the same bot token) inside the same process would cause a
+            # Telegram Conflict error that kills the main channel's listener.
+            # TelegramChannel.send() works fine without connect() because it
+            # opens a fresh HTTP connection per message rather than relying on
+            # the long-poll thread.
             return instance
     except Exception:
         pass
@@ -592,8 +609,27 @@ def register_cron(
         hours_back = hours_back or 24
         timezone = timezone or "America/Los_Angeles"
 
+    # Idempotent: jarvis serve calls this on every startup, and create_task
+    # persists to scheduler.db. Without this check each restart added one
+    # more copy of the daily cron -- 68 duplicates accumulated, and when due
+    # they all fired back-to-back, monopolizing the (single-slot) Ollama
+    # queue so real chat messages stalled behind them.
+    prompt = "Run the proactive agent: collect overnight data, execute approved actions, notify pending approvals."
+    existing = [
+        t for t in scheduler.list_tasks(status="active")
+        if t.agent == "proactive" and t.prompt == prompt
+    ]
+    if existing:
+        # Keep the first, cancel any extra duplicates from earlier restarts.
+        for dup in existing[1:]:
+            try:
+                scheduler.cancel_task(dup.id)
+            except Exception:
+                logger.warning("Failed to cancel duplicate proactive task %s", dup.id)
+        return existing[0]
+
     return scheduler.create_task(
-        prompt="Run the proactive agent: collect overnight data, execute approved actions, notify pending approvals.",
+        prompt=prompt,
         schedule_type="cron",
         schedule_value=cron_expr,
         agent="proactive",
