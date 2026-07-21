@@ -9,6 +9,7 @@ No email, no name, no hardware fingerprint — just an opaque UUID.
 
 from __future__ import annotations
 
+import os
 import uuid
 from pathlib import Path
 
@@ -44,6 +45,24 @@ def reset_anon_id(path: Path | str) -> str:
     return get_or_create_anon_id(p)
 
 
+def do_not_track() -> bool:
+    """Return True if the ``DO_NOT_TRACK`` environment kill-switch is set.
+
+    Honors the console ``DO_NOT_TRACK`` standard (https://consoledonottrack.com):
+    a value of ``1`` / ``true`` / ``yes`` (case-insensitive) signals that the
+    user does not want telemetry. Any other value — including unset or ``0`` —
+    leaves the decision to config.
+    """
+    return os.environ.get("DO_NOT_TRACK", "").strip().lower() in ("1", "true", "yes")
+
+
 def is_analytics_enabled(cfg: AnalyticsConfig) -> bool:
-    """Return True if analytics is enabled in config."""
+    """Return True if analytics is enabled.
+
+    ``DO_NOT_TRACK`` is an env-level override: when set, analytics is disabled
+    regardless of config, so privacy-conscious users have a kill-switch that
+    does not require editing config files. Otherwise the config value wins.
+    """
+    if do_not_track():
+        return False
     return cfg.enabled
