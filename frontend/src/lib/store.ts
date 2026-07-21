@@ -110,6 +110,7 @@ function saveSettings(settings: Settings): void {
 // ── Store ─────────────────────────────────────────────────────────────
 
 const INITIAL_STREAM: StreamState = {
+  conversationId: null,
   isStreaming: false,
   phase: '',
   elapsedMs: 0,
@@ -393,12 +394,14 @@ export const useAppStore = create<AppState>((set, get) => {
           (message.content.length > 50 ? '...' : '');
       }
       saveConversations(store);
-      set({
-        messages: [...conv.messages],
-        conversations: Object.values(store.conversations).sort(
-          (a, b) => b.updatedAt - a.updatedAt,
-        ),
-      });
+      const conversations = Object.values(store.conversations).sort(
+        (a, b) => b.updatedAt - a.updatedAt,
+      );
+      if (get().activeId === conversationId) {
+        set({ messages: [...conv.messages], conversations });
+      } else {
+        set({ conversations });
+      }
     },
 
     updateLastAssistant: (
@@ -425,7 +428,9 @@ export const useAppStore = create<AppState>((set, get) => {
         if (researchSources) lastMsg.researchSources = researchSources;
         conv.updatedAt = Date.now();
         saveConversations(store);
-        set({ messages: [...conv.messages] });
+        if (get().activeId === conversationId) {
+          set({ messages: [...conv.messages] });
+        }
       }
     },
 
