@@ -858,6 +858,17 @@ async def list_models(request: Request) -> ModelListResponse:
     if not model_ids:
         model_ids = await list_local_models()
 
+    # Keep embed-only models out of the chat model picker. They still work for
+    # memory/retrieval via the embedder path; putting them in /v1/models made
+    # the UI auto-select nomic-embed-text and fail every generation with 400.
+    def _is_embed_only(mid: str) -> bool:
+        name = (mid or "").lower()
+        return "embed" in name or name.startswith("nomic-embed")
+
+    chat_ids = [m for m in model_ids if not _is_embed_only(m)]
+    # Prefer chat models; only fall back to the raw list if somehow empty.
+    model_ids = chat_ids or model_ids
+
     return ModelListResponse(
         data=[ModelObject(id=mid) for mid in model_ids],
     )

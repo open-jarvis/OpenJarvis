@@ -172,19 +172,38 @@ def _parse_param_count(model_name: str) -> float:
 _CLOUD_PREFIXES = ("gpt-", "claude-", "gemini-", "o1-", "o3-", "o4-")
 
 
+def _is_embed_only_model(model_name: str) -> bool:
+    """True for embedding-only models that cannot serve chat completions."""
+    name = (model_name or "").lower()
+    return "embed" in name or name.startswith("nomic-embed")
+
+
 def _pick_recommended_model(
     model_ids: list[str],
 ) -> dict[str, str]:
-    """Pick the second-largest local model from a list."""
-    local = [m for m in model_ids if not any(m.startswith(p) for p in _CLOUD_PREFIXES)]
+    """Pick the second-largest local *chat* model from a list.
+
+    Embedding-only models (nomic-embed-text, etc.) are excluded — they return
+    HTTP 400 "does not support chat" when used as the generation model.
+    """
+    local = [
+        m
+        for m in model_ids
+        if not any(m.startswith(p) for p in _CLOUD_PREFIXES)
+        and not _is_embed_only_model(m)
+    ]
     if not local:
+        # Fall back to any non-cloud model, still skipping embedders.
+        local = [m for m in model_ids if not _is_embed_only_model(m)]
+    if not local:
+        # Never recommend an embed-only model — chat would 400.
         return {
-            "model": model_ids[0] if model_ids else "",
-            "reason": "Only model available",
+            "model": "",
+            "reason": "No local chat model available",
         }
     sized = sorted(local, key=_parse_param_count, reverse=True)
     if len(sized) == 1:
-        return {"model": sized[0], "reason": "Only local model available"}
+        return {"model": sized[0], "reason": "Only local chat model available"}
     pick = sized[1]  # second-largest
     params = _parse_param_count(pick)
     return {
