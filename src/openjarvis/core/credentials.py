@@ -10,6 +10,8 @@ import os
 import threading
 from pathlib import Path
 
+import tomlkit
+
 from openjarvis.core.paths import get_config_dir
 
 try:
@@ -90,13 +92,16 @@ def save_credential(
         creds[tool_name][key] = stripped
 
         p.parent.mkdir(parents=True, exist_ok=True)
-        lines: list[str] = []
+        # Serialize via tomlkit so that values containing quotes, backslashes,
+        # or newlines (e.g. passwords) are escaped correctly. Naive f-string
+        # formatting would corrupt the file and break the next load.
+        doc = tomlkit.document()
         for section, kvs in creds.items():
-            lines.append(f"[{section}]")
+            table = tomlkit.table()
             for k, v in kvs.items():
-                lines.append(f'{k} = "{v}"')
-            lines.append("")
-        p.write_text("\n".join(lines))
+                table[k] = v
+            doc[section] = table
+        p.write_text(tomlkit.dumps(doc))
         os.chmod(p, 0o600)
 
     os.environ[key] = stripped

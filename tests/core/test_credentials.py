@@ -54,3 +54,15 @@ def test_file_permissions(cred_path):
     save_credential("web_search", "TAVILY_API_KEY", "tvly-x", path=cred_path)
     mode = oct(cred_path.stat().st_mode & 0o777)
     assert mode == "0o600"
+
+
+def test_special_characters_round_trip(cred_path):
+    """Credentials with quotes, backslashes, or newlines (e.g. passwords) must
+    survive the write/read cycle. Naive TOML formatting would corrupt the file.
+    """
+    nasty = 'p@ss"w\\ord\twith\nnewline'
+    save_credential("email", "EMAIL_PASSWORD", nasty, path=cred_path)
+    save_credential("email", "EMAIL_USERNAME", "me@example.com", path=cred_path)
+    creds = load_credentials(path=cred_path)
+    assert creds["email"]["EMAIL_PASSWORD"] == nasty
+    assert creds["email"]["EMAIL_USERNAME"] == "me@example.com"

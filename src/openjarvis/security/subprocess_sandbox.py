@@ -6,10 +6,13 @@ import logging
 import os
 import signal
 import subprocess
+import sys
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+_IS_WINDOWS = sys.platform == "win32"
 
 # Safe environment variables to pass through
 _SAFE_ENV_VARS = frozenset(
@@ -60,7 +63,19 @@ def build_safe_env(
 
 
 def kill_process_tree(pid: int) -> None:
-    """Kill a process and all its children (best effort)."""
+    """Kill a process and all its children (best effort, cross-platform)."""
+    if _IS_WINDOWS:
+        # Windows has no process groups / SIGKILL. ``taskkill /T`` walks the
+        # child tree and ``/F`` forces termination.
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                capture_output=True,
+                check=False,
+            )
+        except OSError as exc:
+            logger.debug("Failed to taskkill process %d: %s", pid, exc)
+        return
     try:
         os.killpg(os.getpgid(pid), signal.SIGTERM)
     except (OSError, ProcessLookupError) as exc:
@@ -91,6 +106,15 @@ def run_sandboxed(
     env = build_safe_env(passthrough=env_passthrough, extra=env_extra)
     cwd = working_dir if working_dir and os.path.isdir(working_dir) else None
 
+    # Start the child in its own process group so the whole tree can be
+    # cleaned up on timeout. The mechanism differs per platform: POSIX uses
+    # ``setsid``; Windows uses the CREATE_NEW_PROCESS_GROUP creation flag.
+    popen_kwargs: Dict[str, object] = {}
+    if _IS_WINDOWS:
+        popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        popen_kwargs["preexec_fn"] = os.setsid  # New process group
+
     result = SandboxResult()
     try:
         proc = subprocess.Popen(
@@ -101,7 +125,7 @@ def run_sandboxed(
             text=True,
             env=env,
             cwd=cwd,
-            preexec_fn=os.setsid,  # New process group
+            **popen_kwargs,
         )
         try:
             stdout, stderr = proc.communicate(timeout=timeout)

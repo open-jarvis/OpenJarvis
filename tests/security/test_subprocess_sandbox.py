@@ -119,5 +119,22 @@ class TestRunSandboxed:
 
 class TestKillProcessTree:
     def test_no_crash_on_nonexistent_pid(self) -> None:
-        # Should not raise on a PID that doesn't exist
+        # Should not raise on a PID that doesn't exist (cross-platform)
         kill_process_tree(999999999)
+
+
+class TestCrossPlatform:
+    """The sandbox must run on Windows as well as POSIX. Previously ``run_sandboxed``
+    passed ``preexec_fn=os.setsid`` unconditionally, which raises on Windows.
+    """
+
+    def test_run_sandboxed_portable_command(self) -> None:
+        # ``python -c print(...)`` runs identically on every platform.
+        code = "print('portable-ok')"
+        result = run_sandboxed(
+            f"{shlex.quote(get_python_executable())} -c {shlex.quote(code)}",
+            timeout=15.0,
+        )
+        assert result.returncode == 0
+        assert "portable-ok" in result.stdout
+        assert not result.timed_out
