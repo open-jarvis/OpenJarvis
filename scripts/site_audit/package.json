@@ -1,0 +1,15 @@
+{
+  "name": "site-audit",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Headless crawl of the OpenJarvis frontend that reports console errors, network failures, broken nav, accessibility violations, and screenshots per page.",
+  "scripts": {
+    "audit": "node audit.mjs",
+    "postinstall": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.10.1",
+    "playwright": "^1.49.0"
+  }
+}
