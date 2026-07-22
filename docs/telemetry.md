@@ -14,6 +14,19 @@ collected, where the data goes, and how to opt out.
   data is not sold or shared with third parties.
 - **365-day retention**, after which events are deleted automatically.
 
+## How to opt out
+
+Analytics is on by default. Either of these turns it off — when either is
+active, no analytics client is initialised and no events are sent:
+
+- **Environment kill-switch (no config edit):** set `DO_NOT_TRACK=1` (or
+  `true`/`yes`). This honors the console
+  [`DO_NOT_TRACK` standard](https://consoledonottrack.com) and disables
+  analytics regardless of config — handy for CI, shared machines, or a global
+  shell default.
+- **Config:** set `enabled = false` under `[analytics]` in
+  `~/.openjarvis/config.toml`.
+
 ## What we collect
 
 ### Lifecycle events
