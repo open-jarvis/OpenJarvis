@@ -12,7 +12,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
+// Override lets this script (living in one checkout/worktree) spawn the
+// backend + frontend from a different checkout — e.g. running it against
+// your primary working copy's uncommitted changes without copying the tool
+// there first.
+const REPO_ROOT = process.env.AUDIT_REPO_ROOT
+  ? path.resolve(process.env.AUDIT_REPO_ROOT)
+  : path.resolve(__dirname, '..', '..');
 const REPORT_DIR = path.join(__dirname, 'report');
 const SHOT_DIR = path.join(REPORT_DIR, 'screenshots');
 
@@ -126,6 +132,17 @@ async function runAudit() {
     const issues = [];
 
     try {
+      // A previous route may have unmounted the whole app shell (e.g. an
+      // unregistered route rendering nothing) — reset to a known-good page
+      // so one broken link doesn't take down every item after it.
+      const sidebarReady = await page.locator('nav button').first().isVisible({ timeout: 2000 }).catch(() => false);
+      if (!sidebarReady) {
+        log(`  sidebar missing before "${label}" (previous page likely broke it) — resetting to app shell`);
+        await page.goto(FRONTEND_URL, { waitUntil: 'domcontentloaded' });
+        await page.locator('nav button').first().waitFor({ state: 'visible', timeout: 15_000 });
+        await dismissBlockingOverlay(page);
+      }
+
       // Client-side route change, not a real navigation — no load event to
       // wait for. Give React + its data fetch a moment to settle instead.
       await page.locator('nav button', { hasText: label }).first().click();
