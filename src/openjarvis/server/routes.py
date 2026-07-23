@@ -889,7 +889,7 @@ async def pull_model(request: Request):
                 "/api/pull",
                 json={"name": model_name, "stream": False},
             )
-        resp.raise_for_status()
+            resp.raise_for_status()
     except (_httpx.ConnectError, _httpx.TimeoutException) as exc:
         raise HTTPException(status_code=502, detail=f"Ollama unreachable: {exc}")
     except _httpx.HTTPStatusError as exc:
@@ -919,7 +919,7 @@ async def delete_model(model_name: str, request: Request):
                 "/api/delete",
                 json={"name": model_name},
             )
-        resp.raise_for_status()
+            resp.raise_for_status()
     except (_httpx.ConnectError, _httpx.TimeoutException) as exc:
         raise HTTPException(status_code=502, detail=f"Ollama unreachable: {exc}")
     except _httpx.HTTPStatusError as exc:
