@@ -195,9 +195,20 @@ def list_facts() -> None:
     table.add_column("#", style="dim", width=4)
     table.add_column("Fact")
     table.add_column("Source", style="cyan")
+    table.add_column("Trust")
+    any_untrusted = False
     for i, fact in enumerate(facts, 1):
-        table.add_row(str(i), fact.text, fact.source or "-")
+        quarantined = (fact.trust or "").strip().lower() == "untrusted"
+        any_untrusted = any_untrusted or quarantined
+        trust_disp = "[red]⚠ untrusted[/red]" if quarantined else "[green]trusted[/green]"
+        table.add_row(str(i), fact.text, fact.source or "-", trust_disp)
     console.print(table)
+    if any_untrusted:
+        console.print(
+            "[red]⚠ untrusted[/red] facts were auto-extracted from raw exchanges "
+            "(possible hostile input). Treat them as data, not instructions; "
+            "verify before relying on them."
+        )
 
 
 @memory.command()

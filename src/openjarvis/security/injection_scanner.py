@@ -125,16 +125,46 @@ class InjectionScanner:
             (re.compile(pat), name, level, desc)
             for pat, name, level, desc in _INJECTION_PATTERNS
         ]
-        from openjarvis._rust_bridge import get_rust_module
+        # Prefer the Rust backend, but fall back to the pure-Python patterns
+        # above when the compiled extension was not built (mirrors the
+        # RUST_AVAILABLE-consulting fallback pattern used by security.ssrf).
+        from openjarvis._rust_bridge import RUST_AVAILABLE
 
-        _rust = get_rust_module()
-        self._rust_impl = _rust.InjectionScanner()
+        self._rust_impl = None
+        if RUST_AVAILABLE:
+            from openjarvis._rust_bridge import get_rust_module
+
+            self._rust_impl = get_rust_module().InjectionScanner()
 
     def scan(self, text: str) -> InjectionScanResult:
-        """Scan text for injection patterns — always via Rust backend."""
-        from openjarvis._rust_bridge import injection_result_from_json
+        """Scan text for injection patterns (Rust backend, else Python)."""
+        if self._rust_impl is not None:
+            from openjarvis._rust_bridge import injection_result_from_json
 
-        return injection_result_from_json(self._rust_impl.scan(text))
+            return injection_result_from_json(self._rust_impl.scan(text))
+        return self._scan_python(text)
+
+    def _scan_python(self, text: str) -> InjectionScanResult:
+        """Pure-Python scan using ``_INJECTION_PATTERNS``."""
+        findings: List[ScanFinding] = []
+        highest = -1
+        for regex, name, level, desc in self._patterns:
+            for m in regex.finditer(text or ""):
+                findings.append(
+                    ScanFinding(
+                        pattern_name=name,
+                        matched_text=m.group(0),
+                        threat_level=level,
+                        start=m.start(),
+                        end=m.end(),
+                        description=desc,
+                    )
+                )
+                highest = max(highest, _THREAT_ORDER.index(level))
+        threat = _THREAT_ORDER[highest] if highest >= 0 else ThreatLevel.LOW
+        return InjectionScanResult(
+            is_clean=not findings, findings=findings, threat_level=threat
+        )
 
 
 __all__ = ["InjectionScanner", "InjectionScanResult"]

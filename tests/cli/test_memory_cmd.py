@@ -137,6 +137,16 @@ def test_memory_list_shows_facts(tmp_path: Path, monkeypatch):
     assert "Berlin" in result.output
 
 
+def test_memory_list_marks_untrusted_facts(tmp_path: Path, monkeypatch):
+    store = _patch_fact_store(monkeypatch, tmp_path)
+    store.add("trusted note")
+    store.add("auto note", source="auto", trust="untrusted")
+
+    result = CliRunner().invoke(cli, ["memory", "list"])
+    assert result.exit_code == 0
+    assert "untrusted" in result.output.lower()
+
+
 def test_memory_clear_with_confirmation(tmp_path: Path, monkeypatch):
     store = _patch_fact_store(monkeypatch, tmp_path)
     store.add("fact one")

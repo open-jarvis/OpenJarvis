@@ -127,14 +127,19 @@ class FactExtractor:
             except (json.JSONDecodeError, ValueError):
                 pass
 
-        # 2. Fall back to line-based parsing (markdown bullets / numbered).
+        # 2. Fall back to line-based parsing, but ONLY for genuine list items
+        #    (markdown bullets / numbered). Free-form prose is rejected so a
+        #    model can't be steered into minting arbitrary facts from narrative
+        #    or injected text.
         items: List[str] = []
+        marker = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+(.*)")
         for line in content.splitlines():
-            line = line.strip()
-            if not line:
+            m = marker.match(line)
+            if not m:
                 continue
-            line = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", line)
-            items.append(line)
+            text = m.group(1).strip()
+            if text:
+                items.append(text)
         return items
 
     def _clean_fact(self, item: str) -> str:
