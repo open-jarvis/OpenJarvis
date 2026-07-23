@@ -51,6 +51,7 @@ class QueryOrchestrator:
                     top_k=s.config.memory.context_top_k,
                     min_score=s.config.memory.context_min_score,
                     max_context_tokens=s.config.memory.context_max_tokens,
+                    untrusted_policy=s.config.memory.context_untrusted_policy,
                 )
                 messages = inject_context(
                     query,

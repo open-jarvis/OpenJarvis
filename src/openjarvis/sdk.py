@@ -534,6 +534,7 @@ class Jarvis:
                         top_k=self._config.memory.context_top_k,
                         min_score=self._config.memory.context_min_score,
                         max_context_tokens=self._config.memory.context_max_tokens,
+                        untrusted_policy=self._config.memory.context_untrusted_policy,
                     )
                     context_messages = inject_context(
                         query,
@@ -579,6 +580,7 @@ class Jarvis:
                     top_k=self._config.memory.context_top_k,
                     min_score=self._config.memory.context_min_score,
                     max_context_tokens=self._config.memory.context_max_tokens,
+                    untrusted_policy=self._config.memory.context_untrusted_policy,
                 )
                 return inject_context(query, messages, backend, config=ctx_cfg)
         except Exception as exc:

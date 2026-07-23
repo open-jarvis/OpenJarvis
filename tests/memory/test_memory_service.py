@@ -6,6 +6,8 @@ import threading
 import time
 from types import SimpleNamespace
 
+import pytest
+
 from openjarvis.core.config import StorageConfig
 from openjarvis.core.events import EventBus
 from openjarvis.memory.service import (
@@ -41,6 +43,22 @@ class FakeExtractor:
         if self._raises is not None:
             raise self._raises
         return list(self._facts)
+
+
+class CapturingBackend:
+    """MemoryBackend stub that records every store() call."""
+
+    backend_id = "capture"
+
+    def __init__(self, *, raises=None):
+        self.stored = []  # list of (content, source, metadata)
+        self._raises = raises
+
+    def store(self, content, *, source="", metadata=None):
+        if self._raises is not None:
+            raise self._raises
+        self.stored.append((content, source, metadata))
+        return "id-%d" % len(self.stored)
 
 
 def _service(tmp_path, extractor, **kwargs):
@@ -206,3 +224,110 @@ def test_build_memory_service_falls_back_to_default_model(tmp_path):
     )
     svc = build_memory_service(cfg, object(), "active-model")
     assert isinstance(svc, MemoryService)
+
+
+# -- Backend mirroring -------------------------------------------------------
+
+
+def test_mirror_tags_new_facts_untrusted(tmp_path):
+    """Newly-stored auto facts are mirrored to the backend as untrusted."""
+    backend = CapturingBackend()
+    extractor = FakeExtractor(["User lives in Berlin"])
+    svc = _service(tmp_path, extractor, backend=backend)
+    svc.start()
+    try:
+        svc.submit("Where do I live?", "Berlin.")
+        assert _wait_until(lambda: len(backend.stored) == 1)
+    finally:
+        svc.stop()
+    content, source, metadata = backend.stored[0]
+    assert content == "User lives in Berlin"
+    assert source == "auto"
+    assert metadata == {"trust": "untrusted"}
+
+
+def test_mirror_skips_duplicate_facts(tmp_path):
+    """Only newly-stored facts are mirrored — duplicates are not re-sent."""
+    backend = CapturingBackend()
+    extractor = FakeExtractor(["User likes tea"])
+    svc = _service(tmp_path, extractor, backend=backend)
+    svc.start()
+    try:
+        svc.submit("first", "a")
+        assert _wait_until(lambda: len(backend.stored) == 1)
+        # Same fact again: the store dedupes, so nothing new is mirrored.
+        svc.submit("second", "b")
+        assert _wait_until(lambda: len(extractor.calls) == 2)
+        # Give the worker a beat; the count must stay at 1.
+        assert not _wait_until(lambda: len(backend.stored) > 1, timeout=0.3)
+    finally:
+        svc.stop()
+    assert len(backend.stored) == 1
+
+
+def test_mirror_failure_does_not_break_extraction(tmp_path):
+    """A backend that raises on store must not stop facts being persisted."""
+    backend = CapturingBackend(raises=RuntimeError("backend down"))
+    extractor = FakeExtractor(["User has a cat"])
+    svc = _service(tmp_path, extractor, backend=backend)
+    svc.start()
+    try:
+        svc.submit("x", "y")
+        # The fact still lands in the local store despite the mirror failing.
+        assert _wait_until(lambda: svc.fact_count() == 1)
+        assert svc.is_running is True
+    finally:
+        svc.stop()
+
+
+def test_no_backend_is_a_noop(tmp_path):
+    """With no backend, extraction still works and nothing is mirrored."""
+    extractor = FakeExtractor(["User plays guitar"])
+    svc = _service(tmp_path, extractor)  # backend defaults to None
+    svc.start()
+    try:
+        svc.submit("x", "y")
+        assert _wait_until(lambda: svc.fact_count() == 1)
+    finally:
+        svc.stop()
+
+
+def test_mirror_to_sqlite_untrusted_fact_is_dropped_at_recall(tmp_path):
+    """End-to-end: an auto fact mirrored to a real sqlite backend is tagged
+    untrusted, so the recall path drops it before it reaches the model."""
+    try:
+        from openjarvis.tools.storage.sqlite import SQLiteMemory
+    except Exception as exc:  # pragma: no cover - import guard
+        pytest.skip(f"sqlite backend import failed: {exc}")
+
+    from openjarvis.core.types import Message, Role
+    from openjarvis.tools.storage.context import ContextConfig, inject_context
+
+    try:
+        backend = SQLiteMemory(str(tmp_path / "memory.db"))
+    except Exception as exc:
+        pytest.skip(f"sqlite backend unavailable: {exc}")
+
+    extractor = FakeExtractor(["User lives in Berlin"])
+    svc = _service(tmp_path, extractor, backend=backend)
+    svc.start()
+    try:
+        svc.submit("Where do I live?", "Berlin.")
+        assert _wait_until(lambda: backend.count() == 1)
+    finally:
+        svc.stop()
+
+    messages = [Message(role=Role.USER, content="where do I live?")]
+
+    # Default "drop" policy: the untrusted mirrored fact must NOT surface.
+    dropped = inject_context("Berlin", messages, backend)
+    assert dropped is messages
+
+    # "annotate" policy: it surfaces, but only behind the unverified caveat.
+    from openjarvis.tools.storage.context import _UNTRUSTED_ANNOTATION
+
+    cfg = ContextConfig(untrusted_policy="annotate")
+    annotated = inject_context("Berlin", messages, backend, config=cfg)
+    assert len(annotated) == 2
+    assert _UNTRUSTED_ANNOTATION in annotated[0].content
+    assert "Berlin" in annotated[0].content

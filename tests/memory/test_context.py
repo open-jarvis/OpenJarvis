@@ -9,7 +9,9 @@ from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import Message, Role
 from openjarvis.tools.storage._stubs import MemoryBackend, RetrievalResult
 from openjarvis.tools.storage.context import (
+    _UNTRUSTED_ANNOTATION,
     ContextConfig,
+    apply_trust_policy,
     build_context_message,
     format_context,
     inject_context,
@@ -198,3 +200,100 @@ def test_inject_context_does_not_mutate_original():
     augmented = inject_context("query", messages, backend)
     assert len(messages) == original_len
     assert len(augmented) == original_len + 1
+
+
+# -- Trust policy ------------------------------------------------------------
+
+
+def _trusted(content="trusted fact"):
+    return RetrievalResult(content=content, score=1.0, source="doc.md")
+
+
+def _untrusted(content="untrusted fact"):
+    return RetrievalResult(
+        content=content,
+        score=1.0,
+        source="auto",
+        metadata={"trust": "untrusted"},
+    )
+
+
+def test_apply_trust_policy_drop_removes_untrusted():
+    results = [_trusted("keep me"), _untrusted("drop me")]
+    filtered = apply_trust_policy(results, "drop")
+    assert [r.content for r in filtered] == ["keep me"]
+
+
+def test_apply_trust_policy_drop_is_default():
+    results = [_trusted(), _untrusted()]
+    # Default policy (no arg) must be the safe "drop".
+    assert apply_trust_policy(results) == apply_trust_policy(results, "drop")
+    assert len(apply_trust_policy(results)) == 1
+
+
+def test_apply_trust_policy_annotate_prefixes_untrusted_only():
+    results = [_trusted("clean"), _untrusted("suspicious")]
+    annotated = apply_trust_policy(results, "annotate")
+    assert len(annotated) == 2
+    # Trusted result untouched.
+    assert annotated[0].content == "clean"
+    # Untrusted result carries the warning prefix but keeps its payload.
+    assert annotated[1].content == f"{_UNTRUSTED_ANNOTATION} suspicious"
+
+
+def test_apply_trust_policy_annotate_does_not_mutate_original():
+    original = _untrusted("payload")
+    results = [original]
+    annotated = apply_trust_policy(results, "annotate")
+    # A fresh RetrievalResult is returned; the caller's object is unchanged.
+    assert original.content == "payload"
+    assert annotated[0] is not original
+    assert annotated[0].metadata == original.metadata
+
+
+def test_apply_trust_policy_unknown_passes_through_unchanged():
+    results = [_trusted(), _untrusted()]
+    passed = apply_trust_policy(results, "passthrough")
+    assert passed == results
+    # A new list is returned, not the caller's own.
+    assert passed is not results
+
+
+def test_apply_trust_policy_trust_tag_is_case_insensitive():
+    result = RetrievalResult(
+        content="x",
+        score=1.0,
+        metadata={"trust": "  UnTrusted  "},
+    )
+    assert apply_trust_policy([result], "drop") == []
+
+
+def test_inject_context_drops_untrusted_result():
+    # Only an untrusted result is available → nothing should reach the model.
+    backend = _FakeMemory([_untrusted("secret target output")])
+    messages = [Message(role=Role.USER, content="hello")]
+    augmented = inject_context("query", messages, backend)
+    # Fully dropped → original messages returned unchanged.
+    assert augmented is messages
+
+
+def test_inject_context_keeps_trusted_drops_untrusted():
+    backend = _FakeMemory([_trusted("verified fact"), _untrusted("injected")])
+    messages = [Message(role=Role.USER, content="hello")]
+    augmented = inject_context("query", messages, backend)
+    assert len(augmented) == 2
+    ctx = augmented[0].content
+    assert "verified fact" in ctx
+    assert "injected" not in ctx
+
+
+def test_inject_context_annotate_surfaces_untrusted_with_warning():
+    backend = _FakeMemory([_untrusted("captured from a scraped page")])
+    messages = [Message(role=Role.USER, content="hello")]
+    cfg = ContextConfig(untrusted_policy="annotate")
+    augmented = inject_context("query", messages, backend, config=cfg)
+    assert len(augmented) == 2
+    ctx = augmented[0].content
+    # The content surfaces, but only behind the unverified-origin caveat.
+    assert _UNTRUSTED_ANNOTATION in ctx
+    assert "captured from a scraped page" in ctx

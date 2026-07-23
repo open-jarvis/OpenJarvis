@@ -276,6 +276,7 @@ async def memory_config(request: Request):
             "context_top_k": config.memory.context_top_k,
             "context_min_score": config.memory.context_min_score,
             "context_max_tokens": config.memory.context_max_tokens,
+            "context_untrusted_policy": config.memory.context_untrusted_policy,
             "context_from_memory": config.agent.context_from_memory,
         }
     except Exception as exc:

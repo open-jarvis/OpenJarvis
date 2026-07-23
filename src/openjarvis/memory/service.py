@@ -23,6 +23,7 @@ from typing import Any, List, Optional
 from openjarvis.core.events import Event, EventBus, EventType
 from openjarvis.memory.extractor import FactExtractor
 from openjarvis.memory.store import Fact, FactStore, create_fact_store
+from openjarvis.tools.storage._stubs import MemoryBackend
 
 logger = logging.getLogger(__name__)
 
@@ -39,11 +40,13 @@ class MemoryService:
         extractor: FactExtractor,
         *,
         event_bus: EventBus | None = None,
+        backend: Optional[MemoryBackend] = None,
         max_queue: int = 256,
     ) -> None:
         self._store = store
         self._extractor = extractor
         self._event_bus = event_bus
+        self._backend = backend
         self._subscribed = False
         self._queue: "queue.Queue[Any]" = queue.Queue(maxsize=max(1, max_queue))
         self._thread: Optional[threading.Thread] = None
@@ -158,10 +161,49 @@ class MemoryService:
     def _process(self, job: Any) -> None:
         user_text, assistant_text = job
         facts = self._extractor.extract(user_text, assistant_text)
-        if facts:
-            stored = self._store.add_many(facts, source="auto")
-            if stored:
-                logger.debug("Memory service stored %d new fact(s)", stored)
+        if not facts:
+            return
+        # Add one at a time (semantically identical to add_many, which is a
+        # plain base-class loop over add()) so we learn *which* facts were
+        # newly stored — add() returns True only for a non-duplicate. That
+        # subset is exactly what we mirror into the model-facing backend, so
+        # duplicates never accumulate in the recall index.
+        new_facts = [f for f in facts if self._store.add(f, source="auto")]
+        if new_facts:
+            logger.debug("Memory service stored %d new fact(s)", len(new_facts))
+            self._mirror_to_backend(new_facts)
+
+    def _mirror_to_backend(self, facts: List[str]) -> None:
+        """Mirror newly-stored auto facts into the model-facing backend.
+
+        Auto-extracted facts originate from raw conversation text that may
+        contain untrusted target output, so every mirrored entry is tagged
+        ``trust="untrusted"`` in its metadata. The recall path
+        (``inject_context``) reads that tag and drops or annotates untrusted
+        results before they reach the model — that filter is what makes the
+        tag load-bearing.
+
+        Best-effort: a backend that is absent, unavailable, or that raises on
+        ``store`` must never take down extraction. Failures are swallowed at
+        debug level, exactly like the rest of this service.
+
+        Note: this only closes the loop for a *persistent* shared backend
+        (the default ``sqlite``, on disk at ``memory.db_path``). In-memory
+        per-instance backends (e.g. ``bm25``) do not share state with the
+        recall path's freshly-constructed backend, so mirrored facts will not
+        surface there — a known limitation, not a silent failure.
+        """
+        if self._backend is None:
+            return
+        for text in facts:
+            try:
+                self._backend.store(
+                    text,
+                    source="auto",
+                    metadata={"trust": "untrusted"},
+                )
+            except Exception:  # noqa: BLE001 — mirroring is best-effort
+                logger.debug("Memory backend mirror failed", exc_info=True)
 
     # -- store passthroughs -------------------------------------------------
 
@@ -210,7 +252,21 @@ def build_memory_service(
         max_facts=getattr(mem, "max_facts", 1000),
     )
     extractor = FactExtractor(engine, model)
-    return MemoryService(store, extractor, event_bus=event_bus)
+
+    # Model-facing recall backend to mirror auto facts into. Reuse the CLI's
+    # canonical constructor (lazy import: it lives in the heavy `cli.ask`
+    # module) so the mirror writes to exactly the same backend / sqlite
+    # db_path the recall path reads from. Best-effort — a None backend just
+    # disables mirroring, leaving extraction untouched.
+    backend = None
+    try:
+        from openjarvis.cli.ask import _get_memory_backend
+
+        backend = _get_memory_backend(config)
+    except Exception:  # noqa: BLE001 — mirroring is optional
+        logger.debug("Memory mirror backend unavailable", exc_info=True)
+
+    return MemoryService(store, extractor, event_bus=event_bus, backend=backend)
 
 
 def publish_completed_exchange(

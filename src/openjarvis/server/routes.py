@@ -133,6 +133,7 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
                     top_k=config.memory.context_top_k,
                     min_score=config.memory.context_min_score,
                     max_context_tokens=config.memory.context_max_tokens,
+                    untrusted_policy=config.memory.context_untrusted_policy,
                 )
                 enriched = inject_context(
                     query_text,
