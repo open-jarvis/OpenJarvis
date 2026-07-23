@@ -6,9 +6,12 @@ from ``openjarvis.core`` must not pull in heavy modules at package init).
 
 from __future__ import annotations
 
+import os
 import platform
 import shutil
+import signal
 import subprocess
+import time
 import webbrowser
 
 
@@ -49,4 +52,76 @@ def open_browser(url: str) -> None:
     webbrowser.open(url)
 
 
-__all__ = ["get_python_executable", "open_browser"]
+def process_alive(pid: int | None) -> bool:
+    """Return ``True`` if a process with *pid* is currently running.
+
+    Cross-platform and *non-destructive*. The common POSIX idiom
+    ``os.kill(pid, 0)`` must NOT be used on Windows: there ``os.kill`` maps any
+    signal to ``TerminateProcess``, so a "liveness probe" would actually kill
+    the process. On Windows we query ``tasklist`` instead.
+    """
+    if not pid or pid <= 0:
+        return False
+    if platform.system() == "Windows":
+        result = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        # A match prints a CSV row containing the quoted PID; "no tasks" does not.
+        return f'"{pid}"' in result.stdout
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def terminate_process(pid: int | None, *, grace_seconds: float = 3.0) -> None:
+    """Terminate *pid* gracefully, escalating to a forced kill (cross-platform).
+
+    POSIX sends ``SIGTERM`` then, after *grace_seconds*, ``SIGKILL``. Windows
+    has neither; it uses ``taskkill`` (graceful) then ``taskkill /F /T`` (force,
+    whole tree). ``signal.SIGKILL`` does not exist on Windows, so it is only
+    referenced inside the POSIX branch.
+    """
+    if not process_alive(pid):
+        return
+    is_windows = platform.system() == "Windows"
+
+    if is_windows:
+        subprocess.run(
+            ["taskkill", "/PID", str(pid)], capture_output=True, check=False
+        )
+    else:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            return
+
+    deadline = time.monotonic() + grace_seconds
+    while time.monotonic() < deadline:
+        if not process_alive(pid):
+            return
+        time.sleep(0.05)
+
+    if is_windows:
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(pid)],
+            capture_output=True,
+            check=False,
+        )
+    else:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+
+
+__all__ = [
+    "get_python_executable",
+    "open_browser",
+    "process_alive",
+    "terminate_process",
+]

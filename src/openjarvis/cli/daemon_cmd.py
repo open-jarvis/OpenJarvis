@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import signal
 import subprocess
 import sys
 import time
@@ -12,6 +10,7 @@ import click
 from rich.console import Console
 
 from openjarvis.core.config import DEFAULT_CONFIG_DIR, load_config
+from openjarvis.core.utils import process_alive, terminate_process
 
 _PID_FILE = DEFAULT_CONFIG_DIR / "server.pid"
 _LOG_FILE = DEFAULT_CONFIG_DIR / "server.log"
@@ -23,12 +22,14 @@ def _read_pid() -> int | None:
         return None
     try:
         pid = int(_PID_FILE.read_text().strip())
-        # Check if process is still running
-        os.kill(pid, 0)
-        return pid
-    except (ValueError, OSError):
+    except ValueError:
         _PID_FILE.unlink(missing_ok=True)
         return None
+    # Check if process is still running (non-destructive, cross-platform).
+    if not process_alive(pid):
+        _PID_FILE.unlink(missing_ok=True)
+        return None
+    return pid
 
 
 def _write_pid(pid: int) -> None:
@@ -108,23 +109,9 @@ def stop() -> None:
         console.print("[yellow]No running server found.[/yellow]")
         sys.exit(1)
 
-    try:
-        os.kill(pid, signal.SIGTERM)
-        # Wait up to 10 seconds for graceful shutdown
-        for _ in range(20):
-            time.sleep(0.5)
-            try:
-                os.kill(pid, 0)
-            except OSError:
-                break
-        else:
-            # Force kill if still running
-            try:
-                os.kill(pid, signal.SIGKILL)
-            except OSError:
-                pass
-    except OSError:
-        pass
+    # Graceful shutdown (SIGTERM / taskkill), escalating to a forced kill after
+    # 10s if still running. Cross-platform — no POSIX-only os.kill/SIGKILL.
+    terminate_process(pid, grace_seconds=10.0)
 
     _PID_FILE.unlink(missing_ok=True)
     console.print(f"[green]Server stopped[/green] (PID {pid}).")
