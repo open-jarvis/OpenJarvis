@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import re
-from typing import Any, List, Optional
+from typing import Any, Callable, List, Optional
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
 from openjarvis.core.events import EventBus
@@ -60,6 +60,7 @@ class OrchestratorAgent(ToolUsingAgent):
         parallel_tools: bool = True,
         interactive: bool = False,
         confirm_callback=None,
+        before_tool_call: Optional[Callable[[str, dict], bool]] = None,
     ) -> None:
         super().__init__(
             engine,
@@ -75,6 +76,7 @@ class OrchestratorAgent(ToolUsingAgent):
         self._mode = mode
         self._system_prompt = system_prompt
         self._parallel_tools = parallel_tools
+        self._before_tool_call = before_tool_call
 
     def run(
         self,
@@ -85,6 +87,36 @@ class OrchestratorAgent(ToolUsingAgent):
         if self._mode == "structured":
             return self._run_structured(input, context, **kwargs)
         return self._run_function_calling(input, context, **kwargs)
+
+    # ------------------------------------------------------------------
+    # Governance hook
+    # ------------------------------------------------------------------
+
+    def _check_tool_allowed(self, tc: "ToolCall") -> "Optional[ToolResult]":
+        """Call before_tool_call hook if set.
+
+        Returns None to allow execution, or a denial ToolResult to inject
+        instead of running the tool.
+        """
+        if self._before_tool_call is None:
+            return None
+        import json
+
+        try:
+            tool_args = json.loads(tc.arguments) if tc.arguments else {}
+        except (json.JSONDecodeError, TypeError):
+            tool_args = {}
+        allowed = self._before_tool_call(tc.name, tool_args)
+        if allowed:
+            return None
+        return ToolResult(
+            tool_name=tc.name,
+            content=(
+                f"[Governance] Tool '{tc.name}' was not approved. "
+                "Adjust your plan and try a different approach."
+            ),
+            success=False,
+        )
 
     # ------------------------------------------------------------------
     # Structured mode (THOUGHT/TOOL/INPUT/FINAL_ANSWER)
@@ -142,7 +174,11 @@ class OrchestratorAgent(ToolUsingAgent):
                     name=parsed["tool"],
                     arguments=parsed["input"] or "{}",
                 )
-                tool_result = self._executor.execute(tool_call)
+                denial = self._check_tool_allowed(tool_call)
+                if denial is not None:
+                    tool_result = denial
+                else:
+                    tool_result = self._executor.execute(tool_call)
                 all_tool_results.append(tool_result)
 
                 observation = f"Observation: {tool_result.content}"
@@ -284,6 +320,9 @@ class OrchestratorAgent(ToolUsingAgent):
             if self._parallel_tools and len(tool_calls) > 1:
                 # Parallel execution
                 def _exec_tool(tc: ToolCall) -> tuple:
+                    denial = self._check_tool_allowed(tc)
+                    if denial is not None:
+                        return tc, denial
                     if self._loop_guard:
                         verdict = self._loop_guard.check_call(
                             tc.name,
@@ -321,6 +360,20 @@ class OrchestratorAgent(ToolUsingAgent):
             else:
                 # Sequential execution
                 for tc in tool_calls:
+                    # Governance hook check before execution
+                    denial = self._check_tool_allowed(tc)
+                    if denial is not None:
+                        all_tool_results.append(denial)
+                        messages.append(
+                            Message(
+                                role=Role.TOOL,
+                                content=denial.content,
+                                tool_call_id=tc.id,
+                                name=tc.name,
+                            )
+                        )
+                        continue
+
                     # Loop guard check before execution
                     if self._loop_guard:
                         verdict = self._loop_guard.check_call(
