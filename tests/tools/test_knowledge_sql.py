@@ -64,6 +64,39 @@ def test_rejects_drop(store: KnowledgeStore) -> None:
     assert not result.success
 
 
+def test_allows_select_with_keyword_substring(store: KnowledgeStore) -> None:
+    """A read-only SELECT must not be rejected because a column/alias merely
+    contains a write keyword as a substring (e.g. 'created' -> CREATE)."""
+    from openjarvis.tools.knowledge_sql import KnowledgeSQLTool
+
+    tool = KnowledgeSQLTool(store=store)
+    result = tool.execute(query="SELECT author AS created_author FROM knowledge_chunks")
+    assert result.success, result.content
+    assert "Alice" in result.content
+
+
+def test_allows_keyword_inside_string_literal(store: KnowledgeStore) -> None:
+    """A write keyword appearing only inside a string literal must not be
+    treated as a forbidden statement."""
+    from openjarvis.tools.knowledge_sql import KnowledgeSQLTool
+
+    tool = KnowledgeSQLTool(store=store)
+    result = tool.execute(
+        query="SELECT content FROM knowledge_chunks WHERE content LIKE '%delete%'"
+    )
+    assert result.success, result.content
+
+
+def test_rejects_multi_statement(store: KnowledgeStore) -> None:
+    """Multi-statement strings fail with a ToolResult, not an exception."""
+    from openjarvis.tools.knowledge_sql import KnowledgeSQLTool
+
+    tool = KnowledgeSQLTool(store=store)
+    result = tool.execute(query="SELECT 1; VACUUM")
+    assert not result.success
+    assert "error" in result.content.lower()
+
+
 def test_handles_bad_sql(store: KnowledgeStore) -> None:
     from openjarvis.tools.knowledge_sql import KnowledgeSQLTool
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from openjarvis.engine._base import looks_like_context_length_error
+
 
 class AgentTickError(Exception):
     """Base class for agent tick errors."""
@@ -64,6 +66,14 @@ def classify_error(exc: Exception) -> AgentTickError:
 
     msg = str(exc).lower()
 
+    # A context-window overflow is deterministic: retrying the identical
+    # over-length request can never succeed, so fail fast instead of burning
+    # the retry budget on it.
+    if getattr(exc, "is_context_length_error", False) or (
+        looks_like_context_length_error(msg)
+    ):
+        return FatalError(str(exc))
+
     # Check fatal patterns first (more specific)
     if isinstance(exc, PermissionError):
         return FatalError(str(exc))
@@ -90,6 +100,11 @@ def retry_delay(attempt: int) -> int:
 def suggest_action(error: AgentTickError) -> str:
     """Return a human-readable suggested action for the given error."""
     msg = str(error).lower()
+    if looks_like_context_length_error(msg):
+        return (
+            "Conversation too long for the model's context window \u2014 "
+            "start a new chat or shorten the conversation"
+        )
     if any(p in msg for p in ("rate limit", "rate_limit", "429", "too many requests")):
         return "Rate limited \u2014 agent will auto-retry on next tick"
     if any(p in msg for p in ("timeout", "timed out", "connection", "unavailable")):

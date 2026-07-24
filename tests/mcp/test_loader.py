@@ -18,9 +18,7 @@ def _make_mcp_cfg(*, enabled=True, servers):
     """Build a duck-typed MCPConfig with enabled flag + servers JSON."""
     cfg = MagicMock()
     cfg.enabled = enabled
-    cfg.servers = (
-        json.dumps(servers) if not isinstance(servers, str) else servers
-    )
+    cfg.servers = json.dumps(servers) if not isinstance(servers, str) else servers
     return cfg
 
 
@@ -33,13 +31,12 @@ def _fake_tool(name):
 @pytest.fixture
 def _mock_mcp_stack():
     """Patch MCPClient / transports / MCPToolProvider so no real I/O happens."""
-    with patch("openjarvis.mcp.client.MCPClient") as MockClient, patch(
-        "openjarvis.mcp.transport.StreamableHTTPTransport"
-    ) as MockHttp, patch(
-        "openjarvis.mcp.transport.StdioTransport"
-    ) as MockStdio, patch(
-        "openjarvis.tools.mcp_adapter.MCPToolProvider"
-    ) as MockProvider:
+    with (
+        patch("openjarvis.mcp.client.MCPClient") as MockClient,
+        patch("openjarvis.mcp.transport.StreamableHTTPTransport") as MockHttp,
+        patch("openjarvis.mcp.transport.StdioTransport") as MockStdio,
+        patch("openjarvis.tools.mcp_adapter.MCPToolProvider") as MockProvider,
+    ):
         # Default: any provider discovers no tools (per-test overrides as needed)
         MockProvider.return_value.discover.return_value = []
         MockClient.return_value.initialize.return_value = None
@@ -161,9 +158,7 @@ class TestLoaderFiltering:
         ]
         cfg = _make_mcp_cfg(
             enabled=True,
-            servers=[
-                {"name": "x", "url": "http://x", "include_tools": ["alpha"]}
-            ],
+            servers=[{"name": "x", "url": "http://x", "include_tools": ["alpha"]}],
         )
         tools, _ = load_mcp_tools_from_config(cfg)
         assert [t.spec.name for t in tools] == ["alpha"]
@@ -178,9 +173,7 @@ class TestLoaderFiltering:
         ]
         cfg = _make_mcp_cfg(
             enabled=True,
-            servers=[
-                {"name": "x", "url": "http://x", "exclude_tools": ["alpha"]}
-            ],
+            servers=[{"name": "x", "url": "http://x", "exclude_tools": ["alpha"]}],
         )
         tools, _ = load_mcp_tools_from_config(cfg)
         assert [t.spec.name for t in tools] == ["beta"]

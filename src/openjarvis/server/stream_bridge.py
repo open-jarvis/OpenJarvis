@@ -16,6 +16,7 @@ from fastapi.responses import StreamingResponse
 
 from openjarvis.agents._stubs import AgentContext, BaseAgent
 from openjarvis.core.events import Event, EventBus, EventType
+from openjarvis.engine._base import looks_like_context_length_error
 from openjarvis.server.models import (
     ChatCompletionChunk,
     ChatCompletionRequest,
@@ -194,8 +195,10 @@ class AgentStreamBridge:
                 logger.error("Agent stream error: %s", exc, exc_info=True)
 
                 error_str = str(exc)
-                if "context length" in error_str.lower() or (
-                    "400" in error_str and "too long" in error_str.lower()
+                if (
+                    getattr(exc, "is_context_length_error", False)
+                    or looks_like_context_length_error(error_str)
+                    or ("400" in error_str and "too long" in error_str.lower())
                 ):
                     error_content = (
                         "The input is too long for the model's context window. "

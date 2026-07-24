@@ -124,7 +124,8 @@ class OllamaEmbedder:
         elif arr.shape[0] != self._dim:
             logger.warning(
                 "OllamaEmbedder.embed: dim drift (expected %d, got %d)",
-                self._dim, arr.shape[0],
+                self._dim,
+                arr.shape[0],
             )
             return None
         return arr.tobytes()
@@ -143,9 +144,7 @@ class OllamaEmbedder:
 # ---------------------------------------------------------------------------
 
 
-def decode_embedding(
-    blob: Optional[bytes], *, dtype=None
-) -> Optional[np.ndarray]:
+def decode_embedding(blob: Optional[bytes], *, dtype=None) -> Optional[np.ndarray]:
     """Reconstruct a 1-D vector from a BLOB written by ``OllamaEmbedder.embed``.
 
     Returns ``None`` when the input is missing or zero-length so callers can

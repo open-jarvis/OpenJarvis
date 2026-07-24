@@ -34,30 +34,55 @@ def _make_trace(trace_id: str, query: str, result: str, agent: str = "test") -> 
 
 class TestFTS5Search:
     def test_search_by_query(self, store):
-        store.save(_make_trace(
-            "t1", "find papers on reasoning", "found 3 papers", agent="researcher",
-        ))
-        store.save(_make_trace(
-            "t2", "calculate 2+2", "4", agent="calculator",
-        ))
+        store.save(
+            _make_trace(
+                "t1",
+                "find papers on reasoning",
+                "found 3 papers",
+                agent="researcher",
+            )
+        )
+        store.save(
+            _make_trace(
+                "t2",
+                "calculate 2+2",
+                "4",
+                agent="calculator",
+            )
+        )
         results = store.search("papers reasoning", agent="researcher")
         assert len(results) >= 1
         assert results[0]["trace_id"] == "t1"
 
     def test_search_by_result(self, store):
-        store.save(_make_trace(
-            "t1", "search", "discovered breakthrough in LLMs", agent="a",
-        ))
+        store.save(
+            _make_trace(
+                "t1",
+                "search",
+                "discovered breakthrough in LLMs",
+                agent="a",
+            )
+        )
         results = store.search("breakthrough LLMs")
         assert len(results) >= 1
 
     def test_search_agent_filter(self, store):
-        store.save(_make_trace(
-            "t1", "query about reasoning", "result", agent="agent_a",
-        ))
-        store.save(_make_trace(
-            "t2", "query about reasoning", "result", agent="agent_b",
-        ))
+        store.save(
+            _make_trace(
+                "t1",
+                "query about reasoning",
+                "result",
+                agent="agent_a",
+            )
+        )
+        store.save(
+            _make_trace(
+                "t2",
+                "query about reasoning",
+                "result",
+                agent="agent_b",
+            )
+        )
         results = store.search("reasoning", agent="agent_a")
         assert all(r["agent"] == "agent_a" for r in results)
 

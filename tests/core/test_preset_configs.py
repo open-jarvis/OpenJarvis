@@ -15,10 +15,7 @@ import pytest
 from openjarvis.core.config import JarvisConfig, load_config
 
 PRESETS_DIR = (
-    Path(__file__).resolve().parents[2]
-    / "configs"
-    / "openjarvis"
-    / "examples"
+    Path(__file__).resolve().parents[2] / "configs" / "openjarvis" / "examples"
 )
 
 
@@ -45,6 +42,4 @@ def test_preset_loads(preset_path: Path) -> None:
     # A preset must at least name an engine and an agent — those are the two
     # slots `jarvis init` expects to be populated for a working first run.
     assert cfg.engine.default, f"{preset_path.stem}: engine.default is empty"
-    assert cfg.agent.default_agent, (
-        f"{preset_path.stem}: agent.default_agent is empty"
-    )
+    assert cfg.agent.default_agent, f"{preset_path.stem}: agent.default_agent is empty"

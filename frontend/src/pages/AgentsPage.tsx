@@ -3740,8 +3740,8 @@ export function AgentsPage() {
               const paramsB = paramMatch ? parseFloat(paramMatch[1]) : 9;
               const flops = 2 * paramsB * 1e9 * (inTok + outTok);
               const providers = [
-                { label: 'GPT-5.3', inPer1M: 2.0, outPer1M: 10.0 },
-                { label: 'Claude Opus 4.6', inPer1M: 5.0, outPer1M: 25.0 },
+                { label: 'GPT-5.6 Sol', inPer1M: 5.0, outPer1M: 30.0 },
+                { label: 'Claude Fable 5', inPer1M: 10.0, outPer1M: 50.0 },
                 { label: 'Gemini 3.1 Pro', inPer1M: 2.0, outPer1M: 12.0 },
               ];
               const energyWh = (inTok + outTok) / 1000 * 0.4;

@@ -56,3 +56,30 @@ class TestErrorClassification:
         assert retry_delay(2) == 40
         # Capped at 300 seconds
         assert retry_delay(10) == 300
+
+    def test_classify_context_length_is_fatal(self):
+        # A context-window overflow is deterministic — retrying the identical
+        # over-length request can never succeed, so it must NOT be classified
+        # retryable (which would burn ~30s of backoff on guaranteed failures).
+        from openjarvis.agents.errors import classify_error
+        from openjarvis.engine._base import EngineContextLengthError
+
+        typed = classify_error(
+            EngineContextLengthError(
+                "The conversation is too long for the model's context window."
+            )
+        )
+        assert typed.retryable is False
+
+        # Same for untyped errors whose message reads like a context overflow
+        # (e.g. raw vendor errors from engines without the typed mapping).
+        untyped = classify_error(
+            Exception("This model's maximum context length is 4096 tokens.")
+        )
+        assert untyped.retryable is False
+
+    def test_suggest_action_context_length(self):
+        from openjarvis.agents.errors import FatalError, suggest_action
+
+        action = suggest_action(FatalError("prompt exceeds the model's context window"))
+        assert "context window" in action or "too long" in action.lower()

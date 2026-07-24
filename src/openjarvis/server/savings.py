@@ -23,19 +23,19 @@ from openjarvis.core.types import TOKEN_COUNTING_VERSION  # noqa: E402,F401
 # ---------------------------------------------------------------------------
 
 CLOUD_PRICING: Dict[str, Dict[str, float]] = {
-    "gpt-5.3": {
-        "input_per_1m": 2.00,
-        "output_per_1m": 10.00,
-        "label": "GPT-5.3",
+    "gpt-5.6-sol": {
+        "input_per_1m": 5.00,
+        "output_per_1m": 30.00,
+        "label": "GPT-5.6 Sol",
         "provider": "OpenAI",
         "params_b": 200.0,
         "energy_wh_per_1k_tokens": 0.4,
         "flops_per_token": 3.0e12,
     },
-    "claude-opus-4.6": {
-        "input_per_1m": 5.00,
-        "output_per_1m": 25.00,
-        "label": "Claude Opus 4.6",
+    "claude-fable-5": {
+        "input_per_1m": 10.00,
+        "output_per_1m": 50.00,
+        "label": "Claude Fable 5",
         "provider": "Anthropic",
         "params_b": 137.0,
         "energy_wh_per_1k_tokens": 0.5,

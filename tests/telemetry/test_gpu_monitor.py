@@ -14,6 +14,7 @@ import pytest
 # Helpers: build a fake pynvml module
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class _FakeUtilization:
     gpu: int = 80
@@ -58,6 +59,7 @@ def _snap(power=300, util=80, mem=12, temp=65, dev=0):
 # ---------------------------------------------------------------------------
 # Tests: GpuHardwareSpec lookup
 # ---------------------------------------------------------------------------
+
 
 class TestGpuHardwareSpec:
     def test_lookup_exact_key(self):
@@ -127,6 +129,7 @@ class TestGpuHardwareSpec:
 # Tests: energy integration math (trapezoidal rule)
 # ---------------------------------------------------------------------------
 
+
 class TestEnergyIntegration:
     def test_constant_power(self):
         """Constant 300W for 10 seconds = 3000 J."""
@@ -179,6 +182,7 @@ class TestEnergyIntegration:
 # Tests: GpuSample aggregation
 # ---------------------------------------------------------------------------
 
+
 class TestGpuSampleAggregation:
     def test_peak_values(self):
         from openjarvis.telemetry.gpu_monitor import GpuMonitor
@@ -214,6 +218,7 @@ class TestGpuSampleAggregation:
 # ---------------------------------------------------------------------------
 # Tests: Multi-GPU aggregation
 # ---------------------------------------------------------------------------
+
 
 class TestMultiGpu:
     def test_multi_device_power_sum(self):
@@ -257,6 +262,7 @@ class TestMultiGpu:
 # ---------------------------------------------------------------------------
 # Tests: context manager flow (with mocked pynvml)
 # ---------------------------------------------------------------------------
+
 
 class TestContextManager:
     def test_sample_context_manager(self):
@@ -303,6 +309,7 @@ class TestContextManager:
 # ---------------------------------------------------------------------------
 # Tests: available()
 # ---------------------------------------------------------------------------
+
 
 class TestAvailable:
     def test_available_false_when_pynvml_missing(self):
@@ -351,6 +358,7 @@ class TestAvailable:
 # ---------------------------------------------------------------------------
 # Tests: dataclass defaults
 # ---------------------------------------------------------------------------
+
 
 class TestDataclasses:
     def test_gpu_snapshot_defaults(self):

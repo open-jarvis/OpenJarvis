@@ -345,9 +345,7 @@ class GranolaConnector(BaseConnector):
 
                 attendees: List[Dict[str, Any]] = note.get("attendees") or []
                 participants: List[str] = [
-                    (a.get("email") or "").lower()
-                    for a in attendees
-                    if a.get("email")
+                    (a.get("email") or "").lower() for a in attendees if a.get("email")
                 ]
                 participants_raw: List[str] = [
                     a.get("name") or a.get("email") or ""

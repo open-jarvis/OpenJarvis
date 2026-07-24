@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import tempfile
 from typing import List, Optional
 
@@ -105,11 +106,15 @@ class FasterWhisperBackend(SpeechBackend):
         try:
             model = self._ensure_model()
 
-            # Write audio to a temp file (faster-whisper needs a file path)
+            # Write audio to a temp file (faster-whisper needs a file path).
+            # delete=False + manual unlink: on Windows an open
+            # NamedTemporaryFile holds an exclusive handle, so PyAV's reopen
+            # of tmp.name inside model.transcribe() fails with EACCES.
             suffix = f".{format}" if not format.startswith(".") else format
-            with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:
-                tmp.write(audio)
-                tmp.flush()
+            tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+            try:
+                with tmp:
+                    tmp.write(audio)
 
                 kwargs = {}
                 if language:
@@ -117,6 +122,15 @@ class FasterWhisperBackend(SpeechBackend):
 
                 segments_iter, info = model.transcribe(tmp.name, **kwargs)
                 segments_list = list(segments_iter)
+            finally:
+                try:
+                    os.unlink(tmp.name)
+                except OSError as unlink_exc:
+                    logger.debug(
+                        "Could not remove temp audio file %s: %s",
+                        tmp.name,
+                        unlink_exc,
+                    )
         except Exception as exc:
             self._last_error = str(exc)
             raise

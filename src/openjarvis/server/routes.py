@@ -59,10 +59,14 @@ def _ensure_identity_prompt(messages: list[Message], app_config) -> list[Message
     If any message already carries a system role, the caller has supplied
     their own grounding and we leave the list untouched (no double-prompting).
 
-    Resolution of the identity text: ``app_config.agent.default_system_prompt``
-    when a config is wired onto ``app.state``; otherwise fall back to
-    ``load_config()``. Config resolution is wrapped so a broken/missing
-    config degrades to "no injection" rather than crashing the endpoint, but
+    Resolution of the identity text: the config comes from ``app.state`` when
+    wired, otherwise ``load_config()``; the prompt itself is assembled by
+    ``SystemPromptBuilder`` from ``agent.default_system_prompt`` plus the
+    persona files (SOUL.md/MEMORY.md/USER.md), matching
+    ``_build_managed_system_prompt`` in ``agent_manager_routes.py``. Config
+    resolution is wrapped so a broken/missing config degrades to "no
+    injection" rather than crashing the endpoint, but the failure is logged
+    (per REVIEW.md — never silently swallow).
     """
 
     def _is_caller_system_prompt(m: Message) -> bool:
@@ -81,12 +85,20 @@ def _ensure_identity_prompt(messages: list[Message], app_config) -> list[Message
 
     prompt = ""
     try:
-        if app_config is not None:
-            prompt = app_config.agent.default_system_prompt or ""
-        else:
+        cfg = app_config
+        if cfg is None:
             from openjarvis.core.config import load_config
 
-            prompt = load_config().agent.default_system_prompt or ""
+            cfg = load_config()
+
+        from openjarvis.prompt.builder import SystemPromptBuilder
+
+        builder = SystemPromptBuilder(
+            agent_template=cfg.agent.default_system_prompt or "",
+            memory_files_config=getattr(cfg, "memory_files", None),
+            system_prompt_config=getattr(cfg, "system_prompt", None),
+        )
+        prompt = builder.build()
     except Exception:
         logging.getLogger("openjarvis.server").debug(
             "Identity system prompt resolution failed; "
@@ -242,8 +254,13 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
     # tools (e.g. injecting MCP tools through this endpoint and wanting
     # the agent to execute them), add an explicit opt-in header rather
     # than removing this guard — silent re-routing is what produced #414.
+    # ``_handle_agent`` (sync ``agent.run()``) and ``_handle_direct`` (sync
+    # ``engine.generate()``) both make blocking upstream calls; run them in a
+    # worker thread so a slow/wedged non-streaming request can't stall the
+    # event loop and every other concurrent request with it.
     if agent is not None and not request_body.tools:
-        response = _handle_agent(
+        response = await asyncio.to_thread(
+            _handle_agent,
             agent,
             model,
             request_body,
@@ -253,7 +270,8 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
         )
     else:
         bus = getattr(request.app.state, "bus", None)
-        response = _handle_direct(
+        response = await asyncio.to_thread(
+            _handle_direct,
             engine,
             model,
             request_body,

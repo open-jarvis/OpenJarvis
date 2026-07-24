@@ -20,6 +20,7 @@ from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import Message, Role
 from openjarvis.engine import (
     EngineConnectionError,
+    EngineContextLengthError,
     discover_engines,
     discover_models,
     get_engine,
@@ -881,6 +882,11 @@ def ask(
                 capability_policy=sec.capability_policy,
                 memory_files_config=effective_mf,
             )
+        except EngineContextLengthError as exc:
+            # Not a reachability problem — pointing the user at server/host
+            # config (hint_no_engine) would be misleading here.
+            console.print(f"[red]{exc}[/red]")
+            sys.exit(1)
         except EngineConnectionError as exc:
             console.print(f"[red]Engine error:[/red] {exc}")
             console.print(hint_no_engine())
@@ -990,6 +996,11 @@ def ask(
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
+    except EngineContextLengthError as exc:
+        # Not a reachability problem — pointing the user at server/host
+        # config (hint_no_engine) would be misleading here.
+        console.print(f"[red]{exc}[/red]")
+        sys.exit(1)
     except EngineConnectionError as exc:
         console.print(f"[red]Engine error:[/red] {exc}")
         console.print(hint_no_engine())

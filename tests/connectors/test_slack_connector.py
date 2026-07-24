@@ -176,9 +176,7 @@ def test_sync_yields_documents(
     assert doc_c001.participants == ["alice@co.com"]
     assert doc_c001.participants_raw == ["U001"]
     assert doc_c001.channel == "general"
-    assert doc_c001.url == (
-        "https://acme.slack.com/archives/C001/p1710500000000100"
-    )
+    assert doc_c001.url == ("https://acme.slack.com/archives/C001/p1710500000000100")
     assert doc_c001.metadata["channel_id"] == "C001"
     assert doc_c001.metadata["channel_name"] == "general"
     assert doc_c001.metadata["team_id"] == "T0ACME"
@@ -617,6 +615,5 @@ def test_handle_callback_xoxb_message_wording(connector) -> None:
         connector.handle_callback("xoxb-bot-token")
 
     assert str(excinfo.value) == (
-        "Bot tokens (xoxb-) can't read DMs. "
-        "Use a User OAuth Token (xoxp-) instead."
+        "Bot tokens (xoxb-) can't read DMs. Use a User OAuth Token (xoxp-) instead."
     )

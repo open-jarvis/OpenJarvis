@@ -89,7 +89,7 @@ export default function App() {
           setSavings(data);
           if (optInEnabled && optInDisplayName && data) {
             const claudeEntry = data.per_provider.find(
-              (p) => p.provider === 'claude-opus-4.6',
+              (p) => p.provider === 'claude-fable-5',
             );
             const dollarSavings = claudeEntry ? claudeEntry.total_cost : 0;
             const energySaved = data.per_provider.reduce(

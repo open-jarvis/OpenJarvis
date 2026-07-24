@@ -256,9 +256,7 @@ class ToolTemplate(BaseTool):
                 content=f"Invalid command template: {exc}",
                 success=False,
             )
-        argv = [
-            self._substitute(token, params) for token in tokens
-        ]
+        argv = [self._substitute(token, params) for token in tokens]
         if not argv:
             return ToolResult(
                 tool_name=self._name,

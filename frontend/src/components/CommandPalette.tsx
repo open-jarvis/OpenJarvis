@@ -149,8 +149,7 @@ export function CommandPalette() {
     setCommandPaletteOpen(false);
 
     if (modelId !== previousModel) {
-      const { createConversation, setModelLoading, addLogEntry } = useAppStore.getState();
-      createConversation(modelId);
+      const { setModelLoading, addLogEntry } = useAppStore.getState();
       setModelLoading(true);
       addLogEntry({ timestamp: Date.now(), level: 'info', category: 'model', message: `Switching to ${modelId}...` });
       try {

@@ -306,9 +306,7 @@ async def memory_index(req: MemoryIndexRequest, request: Request):
                 for d in workspace.split(os.pathsep)
                 if d.strip()
             ]
-            if not any(
-                target == root or root in target.parents for root in roots
-            ):
+            if not any(target == root or root in target.parents for root in roots):
                 raise HTTPException(
                     status_code=403,
                     detail="Path is outside the allowed workspace directories.",
@@ -743,8 +741,11 @@ async def websocket_chat_stream(websocket: WebSocket):
                                 )
                     except TypeError:
                         # stream() didn't return an iterable; fall back to
-                        # generate()
-                        result = engine.generate(messages, model=model)
+                        # generate(). It makes a blocking upstream call, so run
+                        # it in a worker thread to keep the event loop free.
+                        result = await asyncio.to_thread(
+                            engine.generate, messages, model=model
+                        )
                         content = (
                             result.get("content", "")
                             if isinstance(
@@ -769,8 +770,11 @@ async def websocket_chat_stream(websocket: WebSocket):
                         ended_at=_time.time(),
                     )
                 else:
-                    # No stream method — single-shot generate
-                    result = engine.generate(messages, model=model)
+                    # No stream method — single-shot generate. Blocking upstream
+                    # call, so run in a worker thread to keep the event loop free.
+                    result = await asyncio.to_thread(
+                        engine.generate, messages, model=model
+                    )
                     content = (
                         result.get("content", "")
                         if isinstance(

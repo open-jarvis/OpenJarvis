@@ -106,8 +106,8 @@ SEARCH_TOOL_SPEC: Dict[str, Any] = {
                     "type": "array",
                     "description": (
                         "Restrict the search to one or more connectors. Use this "
-                        "whenever the user names a data source (e.g. \"in my "
-                        "Granola notes\" → ['granola']; \"check Slack and Gmail\" "
+                        'whenever the user names a data source (e.g. "in my '
+                        'Granola notes" → [\'granola\']; "check Slack and Gmail" '
                         "→ ['slack', 'gmail']). Valid IDs include: gmail, slack, "
                         "granola, notion, obsidian, gcalendar, gdrive, gmail_imap, "
                         "outlook, imessage, whatsapp, apple_notes, apple_contacts, "
@@ -206,7 +206,9 @@ def shape_results_for_model(
         if i < detailed_top:
             base["snippet"] = h.content_snippet
             if h.thread_context:
-                base["thread"] = _trim_thread_context(h.thread_context, thread_ctx_per_hit)
+                base["thread"] = _trim_thread_context(
+                    h.thread_context, thread_ctx_per_hit
+                )
         out_hits.append(base)
     return {
         "num_results": len(hits),
@@ -221,7 +223,9 @@ def _hit_date(timestamp: str) -> str:
     if not timestamp:
         return ""
     try:
-        return datetime.fromisoformat(timestamp.replace("Z", "+00:00")).date().isoformat()
+        return (
+            datetime.fromisoformat(timestamp.replace("Z", "+00:00")).date().isoformat()
+        )
     except (ValueError, AttributeError):
         return str(timestamp)[:10]
 
@@ -239,7 +243,7 @@ def _bare_doc_id(source: str, document_id: str) -> str:
         return ""
     prefix = f"{source}:"
     if source and document_id.startswith(prefix):
-        return document_id[len(prefix):]
+        return document_id[len(prefix) :]
     return document_id
 
 
@@ -520,6 +524,7 @@ class ResearchAgent:
     def _parse_time_range(raw: Any):
         if not raw or not isinstance(raw, dict):
             return None
+
         def _maybe(v):
             if not v:
                 return None
@@ -527,6 +532,7 @@ class ResearchAgent:
                 return datetime.fromisoformat(str(v).replace("Z", "+00:00"))
             except ValueError:
                 return None
+
         start = _maybe(raw.get("start"))
         end = _maybe(raw.get("end"))
         if start is None and end is None:
@@ -557,9 +563,16 @@ class ResearchAgent:
                 "query": query,
                 "person": person,
                 "time_range": (
-                    {"start": time_range[0].isoformat() if time_range and time_range[0] else None,
-                     "end": time_range[1].isoformat() if time_range and time_range[1] else None}
-                    if time_range else None
+                    {
+                        "start": time_range[0].isoformat()
+                        if time_range and time_range[0]
+                        else None,
+                        "end": time_range[1].isoformat()
+                        if time_range and time_range[1]
+                        else None,
+                    }
+                    if time_range
+                    else None
                 ),
                 "sources": sources,
                 "limit": limit,
@@ -690,9 +703,7 @@ class ResearchAgent:
                     )
                     continue
                 fallback = "(model returned no content and no tool calls)"
-                self._emit(
-                    {"type": "final_answer", "text": fallback, "sources": []}
-                )
+                self._emit({"type": "final_answer", "text": fallback, "sources": []})
                 return ResearchResult(
                     answer=fallback,
                     iterations=iterations,
@@ -718,7 +729,11 @@ class ResearchAgent:
                 name = tc.get("name", "")
                 raw_args = tc.get("arguments", "{}") or "{}"
                 try:
-                    args = json.loads(raw_args) if isinstance(raw_args, str) else dict(raw_args)
+                    args = (
+                        json.loads(raw_args)
+                        if isinstance(raw_args, str)
+                        else dict(raw_args)
+                    )
                 except json.JSONDecodeError:
                     args = {}
 
@@ -766,7 +781,10 @@ class ResearchAgent:
                         )
                     else:
                         self._emit(
-                            {"type": "clarify_call", "question": str(args.get("question", ""))}
+                            {
+                                "type": "clarify_call",
+                                "question": str(args.get("question", "")),
+                            }
                         )
                         inv = self._execute_clarify(args)
                         invocations.append(inv)
@@ -845,9 +863,7 @@ class ResearchAgent:
                 "and the model returned no text response)"
             )
         answer, final_sources = _finalize(answer)
-        self._emit(
-            {"type": "final_answer", "text": answer, "sources": final_sources}
-        )
+        self._emit({"type": "final_answer", "text": answer, "sources": final_sources})
         return ResearchResult(
             answer=answer,
             iterations=iterations,

@@ -120,7 +120,6 @@ Be a rigorous evaluator. Reserve scores of 9-10 for genuinely excellent work.
 A score of 5 represents adequate but unremarkable quality."""
 
 
-
 # Optional permissive JSON parser (json5 if available; fallback otherwise).
 try:
     import json5 as _json5  # type: ignore[import-not-found]
@@ -147,7 +146,7 @@ def _escape_newlines_inside_strings(text: str) -> str:
                 out.append(ch)
                 escape_next = True
                 continue
-            if ch == "\"":
+            if ch == '"':
                 out.append(ch)
                 in_string = False
                 continue
@@ -162,7 +161,7 @@ def _escape_newlines_inside_strings(text: str) -> str:
                 continue
             out.append(ch)
         else:
-            if ch == "\"":
+            if ch == '"':
                 in_string = True
             out.append(ch)
     return "".join(out)
@@ -217,7 +216,7 @@ def _parse_judge_response(raw: str) -> Dict[str, Any]:
                 esc = False
             elif char == "\\":
                 esc = True
-            elif char == "\"":
+            elif char == '"':
                 in_str = False
             continue
         if char == "{":
@@ -226,7 +225,7 @@ def _parse_judge_response(raw: str) -> Dict[str, Any]:
             depth += 1
         if depth > 0:
             current.append(char)
-        if char == "\"" and depth > 0:
+        if char == '"' and depth > 0:
             in_str = True
         elif char == "}":
             depth -= 1

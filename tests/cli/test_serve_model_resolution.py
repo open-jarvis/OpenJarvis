@@ -41,9 +41,7 @@ def test_server_model_prefers_reachable_configured_model() -> None:
         None,
         config=cfg,
         engine_name="multi",
-        engine=_FakeEngine(
-            ["mlx-community/Qwen2.5-7B-Instruct-4bit", "qwen3.5:9b"]
-        ),
+        engine=_FakeEngine(["mlx-community/Qwen2.5-7B-Instruct-4bit", "qwen3.5:9b"]),
         all_models={"multi": ["mlx-community/Qwen2.5-7B-Instruct-4bit"]},
     )
 
@@ -64,4 +62,3 @@ def test_server_model_keeps_explicit_cli_model() -> None:
     )
 
     assert model == "explicit-model"
-

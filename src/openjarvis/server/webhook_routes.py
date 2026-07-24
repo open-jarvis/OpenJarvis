@@ -116,13 +116,9 @@ def create_webhook_router(
         # Fail closed: an unconfigured token means we cannot verify the sender,
         # so reject rather than trust unsigned input.
         if not twilio_auth_token:
-            logger.error(
-                "Twilio webhook rejected: TWILIO_AUTH_TOKEN not configured."
-            )
+            logger.error("Twilio webhook rejected: TWILIO_AUTH_TOKEN not configured.")
             return Response("Webhook signature verification not configured", 403)
-        if not _validate_twilio_signature(
-            twilio_auth_token, url, params, signature
-        ):
+        if not _validate_twilio_signature(twilio_auth_token, url, params, signature):
             return Response("Invalid signature", status_code=403)
 
         from_number = params.get("From", "")
@@ -266,9 +262,7 @@ def create_webhook_router(
         auth = request.headers.get("Authorization", "")
         # Fail closed when no password is configured.
         if not bluebubbles_password:
-            logger.error(
-                "BlueBubbles webhook rejected: password not configured."
-            )
+            logger.error("BlueBubbles webhook rejected: password not configured.")
             return Response("Webhook authentication not configured", 403)
         if not hmac.compare_digest(auth, bluebubbles_password):
             return Response("Invalid password", status_code=403)
@@ -321,9 +315,7 @@ def create_webhook_router(
 
         # Fail closed: reject when no app secret is configured to verify HMAC.
         if not whatsapp_app_secret:
-            logger.error(
-                "WhatsApp webhook rejected: app secret not configured."
-            )
+            logger.error("WhatsApp webhook rejected: app secret not configured.")
             return Response("Webhook signature verification not configured", 403)
         signature = request.headers.get("X-Hub-Signature-256", "")
         expected = (
@@ -373,9 +365,7 @@ def create_webhook_router(
         # Fail closed: require a configured channel + webhook secret to verify
         # the sender before processing any inbound message.
         if sb is None or not getattr(sb, "webhook_secret", ""):
-            logger.error(
-                "SendBlue webhook rejected: webhook_secret not configured."
-            )
+            logger.error("SendBlue webhook rejected: webhook_secret not configured.")
             return Response("Webhook secret not configured", status_code=403)
         header_secret = request.headers.get("x-sendblue-secret", "")
         if not hmac.compare_digest(header_secret, sb.webhook_secret):

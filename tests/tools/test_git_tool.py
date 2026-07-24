@@ -537,3 +537,51 @@ class TestGitLogTool:
         fn = tool.to_openai_function()
         assert fn["type"] == "function"
         assert fn["function"]["name"] == "git_log"
+
+
+# ---------------------------------------------------------------------------
+# CLI fallback when the Rust extension is missing
+# ---------------------------------------------------------------------------
+
+
+class TestCliFallbackWhenRustMissing:
+    """When ``get_rust_module`` raises ImportError (extension not built,
+    e.g. a plain pip install), the read-only git tools must fall back to
+    the git CLI instead of letting the ImportError escape ``execute()``."""
+
+    def _patch_no_rust(self):
+        return patch(
+            "openjarvis.tools.git_tool.get_rust_module",
+            side_effect=ImportError("No module named 'openjarvis_rust'"),
+        )
+
+    def test_git_status_falls_back_to_cli(self, tmp_path):
+        _init_repo(tmp_path)
+        (tmp_path / "new_file.txt").write_text("hello")
+        with self._patch_no_rust():
+            result = GitStatusTool().execute(repo_path=str(tmp_path))
+        assert result.success is True
+        assert "new_file.txt" in result.content
+
+    def test_git_diff_falls_back_to_cli(self, tmp_path):
+        _init_repo(tmp_path)
+        (tmp_path / "README.md").write_text("# Modified\n")
+        with self._patch_no_rust():
+            result = GitDiffTool().execute(repo_path=str(tmp_path))
+        assert result.success is True
+        assert "README.md" in result.content
+
+    def test_git_log_falls_back_to_cli(self, tmp_path):
+        _init_repo(tmp_path)
+        with self._patch_no_rust():
+            result = GitLogTool().execute(repo_path=str(tmp_path))
+        assert result.success is True
+        assert "Initial commit" in result.content
+
+    def test_fallback_failure_is_a_tool_result_not_an_exception(self, tmp_path):
+        # Even when the fallback itself fails (not a git repo), the tool
+        # must return a failed ToolResult rather than raising.
+        with self._patch_no_rust():
+            result = GitStatusTool().execute(repo_path=str(tmp_path))
+        assert result.success is False
+        assert "not a git repository" in result.content

@@ -254,7 +254,10 @@ class TestWebhooksFailClosed:
         c = self._client(mock_bridge)  # no whatsapp_verify_token
         resp = c.get(
             "/webhooks/whatsapp",
-            params={"hub.mode": "subscribe", "hub.verify_token": "",
-                    "hub.challenge": "x"},
+            params={
+                "hub.mode": "subscribe",
+                "hub.verify_token": "",
+                "hub.challenge": "x",
+            },
         )
         assert resp.status_code == 403

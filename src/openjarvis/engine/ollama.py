@@ -18,6 +18,10 @@ from openjarvis.engine._base import (
     estimate_prompt_tokens,
     messages_to_dicts,
 )
+from openjarvis.engine._http_async import (
+    STREAM_TRANSPORT_ERRORS,
+    AsyncHTTPEngineMixin,
+)
 from openjarvis.engine._stubs import StreamChunk
 
 logger = logging.getLogger(__name__)
@@ -80,10 +84,14 @@ def _default_num_ctx() -> int:
 
 
 @EngineRegistry.register("ollama")
-class OllamaEngine(InferenceEngine):
+class OllamaEngine(AsyncHTTPEngineMixin, InferenceEngine):
     """Ollama backend via its native HTTP API."""
 
     engine_id = "ollama"
+
+    # Ollama has no context-length overflow signal in its 400 bodies, so the
+    # shared ``_raise_stream_http_error`` keeps its default (no
+    # ``EngineContextLengthError`` branch, unlike the OpenAI-compat engines).
 
     _DEFAULT_HOST = "http://localhost:11434"
 
@@ -98,6 +106,14 @@ class OllamaEngine(InferenceEngine):
             env_host = os.environ.get("OLLAMA_HOST")
             host = env_host or self._DEFAULT_HOST
         self._host = host.rstrip("/")
+        # Used by the shared async streaming plumbing (AsyncHTTPEngineMixin) so a
+        # wedged token read is bounded by ``timeout`` instead of hanging the
+        # single event loop for the httpx default.
+        self._timeout = timeout
+        # Injection seam for tests: an ``httpx.MockTransport`` swapped in here drives
+        # the async stream path with no real Ollama server. ``None`` in production so
+        # httpx uses its default networking.
+        self._async_transport: httpx.AsyncBaseTransport | None = None
         self._client = httpx.Client(base_url=self._host, timeout=timeout)
         # Last stream usage — captured from Ollama's final chunk
         self._last_stream_usage: Dict[str, int] = {}
@@ -263,9 +279,26 @@ class OllamaEngine(InferenceEngine):
         elif kwargs["think"] is not None:
             payload["think"] = kwargs["think"]
         try:
-            with self._client.stream("POST", "/api/chat", json=payload) as resp:
-                resp.raise_for_status()
-                for line in resp.iter_lines():
+            # ASYNC streaming: ``httpx.AsyncClient`` + ``aiter_lines`` never
+            # blocks the event loop between tokens (the previous SYNC
+            # ``self._client`` + ``iter_lines`` inside this ``async def`` blocked
+            # the single uvicorn worker on every inter-token wait, serializing all
+            # concurrent chats and letting one wedged read freeze the whole API).
+            # The shared client keeps pooled connections across turns.
+            client = self._get_async_client()
+            async with client.stream("POST", "/api/chat", json=payload) as resp:
+                # ``not is_success`` covers 3xx as well as 4xx/5xx and maps
+                # to ``EngineConnectionError`` (matching the OpenAI-compat
+                # path) instead of leaking a raw ``httpx.HTTPStatusError``.
+                # With redirects off (the default) an unexpected 3xx would
+                # otherwise fall through to ``aiter_lines`` and surface as a
+                # silent EMPTY stream rather than a clean engine error.
+                if not resp.is_success:
+                    # Read the (short) error body before touching ``.text``:
+                    # a streaming response is otherwise unread.
+                    await resp.aread()
+                    self._raise_stream_http_error(resp.status_code, resp.text)
+                async for line in resp.aiter_lines():
                     if not line.strip():
                         continue
                     try:
@@ -290,7 +323,10 @@ class OllamaEngine(InferenceEngine):
                             "total_tokens": full_prompt + comp,
                         }
                         break
-        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+        except STREAM_TRANSPORT_ERRORS as exc:
+            # Transport failures (incl. a mid-stream server disconnect) map to a
+            # clean error; the set is kept narrow (see STREAM_TRANSPORT_ERRORS)
+            # so cancellation still propagates.
             raise EngineConnectionError(
                 f"Ollama not reachable at {self._host}"
             ) from exc
@@ -356,19 +392,34 @@ class OllamaEngine(InferenceEngine):
     ) -> AsyncIterator[StreamChunk]:
         """Execute the streaming request and yield parsed StreamChunks."""
         try:
-            with self._client.stream("POST", "/api/chat", json=payload) as resp:
+            # ASYNC streaming (see ``stream``): shared ``AsyncClient`` +
+            # ``aiter_lines`` so rich streaming never stalls the event loop and
+            # honours ``timeout``.
+            client = self._get_async_client()
+            async with client.stream("POST", "/api/chat", json=payload) as resp:
                 if resp.status_code == 400 and retry_without_tools:
                     # Model doesn't support tools — retry without them.
+                    # PRESERVED: this specific 400 path must still trigger the
+                    # tools-less retry; only OTHER non-2xx responses map to
+                    # EngineConnectionError below.
                     payload.pop("tools", None)
                     async for c in self._run_stream(
                         payload, messages, retry_without_tools=False
                     ):
                         yield c
                     return
-                resp.raise_for_status()
+                # ``not is_success`` covers 3xx as well as 4xx/5xx and maps
+                # to ``EngineConnectionError`` (matching the OpenAI-compat
+                # path) instead of leaking a raw ``httpx.HTTPStatusError``.
+                # With redirects off (the default) an unexpected 3xx would
+                # otherwise fall through to ``aiter_lines`` and surface as a
+                # silent EMPTY stream rather than a clean engine error.
+                if not resp.is_success:
+                    await resp.aread()
+                    self._raise_stream_http_error(resp.status_code, resp.text)
 
                 finish_reason: str | None = None
-                for line in resp.iter_lines():
+                async for line in resp.aiter_lines():
                     if not line.strip():
                         continue
                     try:
@@ -441,7 +492,10 @@ class OllamaEngine(InferenceEngine):
                             usage=dict(self._last_stream_usage),
                         )
                         break
-        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+        except STREAM_TRANSPORT_ERRORS as exc:
+            # See ``stream``: transport failures (incl. a mid-stream server
+            # disconnect) map to a clean error; the set is kept narrow so
+            # cancellation still propagates.
             raise EngineConnectionError(
                 f"Ollama not reachable at {self._host}"
             ) from exc
@@ -474,6 +528,7 @@ class OllamaEngine(InferenceEngine):
 
     def close(self) -> None:
         self._client.close()
+        self._close_async_client()
 
 
 __all__ = ["OllamaEngine"]

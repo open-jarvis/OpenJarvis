@@ -27,18 +27,26 @@ class _FakeAgent(BaseAgent):
         self._bus = bus
 
     def run(
-        self, input: str, context: Optional[AgentContext] = None,
+        self,
+        input: str,
+        context: Optional[AgentContext] = None,
         **kwargs: Any,
     ) -> AgentResult:
         # Simulate an inference step via event bus
         if self._bus:
-            self._bus.publish(EventType.INFERENCE_START, {
-                "model": "qwen3:8b",
-                "engine": "ollama",
-            })
-            self._bus.publish(EventType.INFERENCE_END, {
-                "total_tokens": 50,
-            })
+            self._bus.publish(
+                EventType.INFERENCE_START,
+                {
+                    "model": "qwen3:8b",
+                    "engine": "ollama",
+                },
+            )
+            self._bus.publish(
+                EventType.INFERENCE_END,
+                {
+                    "total_tokens": 50,
+                },
+            )
         return AgentResult(content=self._response, turns=1)
 
 
@@ -51,19 +59,30 @@ class _ToolAgent(BaseAgent):
         self._bus = bus
 
     def run(
-        self, input: str, context: Optional[AgentContext] = None,
+        self,
+        input: str,
+        context: Optional[AgentContext] = None,
         **kwargs: Any,
     ) -> AgentResult:
         # Simulate inference + tool call + inference
         inf = {"model": "qwen3:8b", "engine": "ollama"}
         self._bus.publish(EventType.INFERENCE_START, inf)
         self._bus.publish(EventType.INFERENCE_END, {"total_tokens": 30})
-        self._bus.publish(EventType.TOOL_CALL_START, {
-            "tool": "calculator", "arguments": {"expr": "2+2"},
-        })
-        self._bus.publish(EventType.TOOL_CALL_END, {
-            "tool": "calculator", "success": True, "latency": 0.01,
-        })
+        self._bus.publish(
+            EventType.TOOL_CALL_START,
+            {
+                "tool": "calculator",
+                "arguments": {"expr": "2+2"},
+            },
+        )
+        self._bus.publish(
+            EventType.TOOL_CALL_END,
+            {
+                "tool": "calculator",
+                "success": True,
+                "latency": 0.01,
+            },
+        )
         self._bus.publish(EventType.INFERENCE_START, inf)
         self._bus.publish(EventType.INFERENCE_END, {"total_tokens": 20})
         return AgentResult(content="4", turns=2)
@@ -143,11 +162,14 @@ class TestTraceCollector:
         original_run = agent.run
 
         def run_with_memory(input, context=None, **kwargs):
-            bus.publish(EventType.MEMORY_RETRIEVE, {
-                "query": "meeting notes",
-                "num_results": 3,
-                "latency": 0.2,
-            })
+            bus.publish(
+                EventType.MEMORY_RETRIEVE,
+                {
+                    "query": "meeting notes",
+                    "num_results": 3,
+                    "latency": 0.2,
+                },
+            )
             return original_run(input, context=context, **kwargs)
 
         agent.run = run_with_memory
@@ -168,8 +190,7 @@ class TestTraceCollector:
         collector.run("test")
 
         trace_events = [
-            e for e in bus.history
-            if e.event_type == EventType.TRACE_COMPLETE
+            e for e in bus.history if e.event_type == EventType.TRACE_COMPLETE
         ]
         assert len(trace_events) == 1
         assert trace_events[0].data["trace"].query == "test"
@@ -245,44 +266,72 @@ class _RichToolAgent(BaseAgent):
         self._bus = bus
 
     def run(
-        self, input: str, context: Optional[AgentContext] = None,
+        self,
+        input: str,
+        context: Optional[AgentContext] = None,
         **kwargs: Any,
     ) -> AgentResult:
         from openjarvis.core.types import ToolResult
 
         # Turn 1: inference with tool call request
-        self._bus.publish(EventType.INFERENCE_START, {
-            "model": "test-model", "engine": "test",
-        })
-        self._bus.publish(EventType.INFERENCE_END, {
-            "total_tokens": 30,
-            "usage": {"prompt_tokens": 20, "completion_tokens": 10},
-            "content": "I'll calculate that for you.",
-            "tool_calls": [
-                {"id": "call_1", "name": "calculator",
-                 "arguments": "{\"expr\": \"2+2\"}"},
-            ],
-            "finish_reason": "tool_calls",
-        })
+        self._bus.publish(
+            EventType.INFERENCE_START,
+            {
+                "model": "test-model",
+                "engine": "test",
+            },
+        )
+        self._bus.publish(
+            EventType.INFERENCE_END,
+            {
+                "total_tokens": 30,
+                "usage": {"prompt_tokens": 20, "completion_tokens": 10},
+                "content": "I'll calculate that for you.",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "name": "calculator",
+                        "arguments": '{"expr": "2+2"}',
+                    },
+                ],
+                "finish_reason": "tool_calls",
+            },
+        )
         # Tool execution
-        self._bus.publish(EventType.TOOL_CALL_START, {
-            "tool": "calculator", "arguments": {"expr": "2+2"},
-        })
-        self._bus.publish(EventType.TOOL_CALL_END, {
-            "tool": "calculator", "success": True, "latency": 0.01,
-            "result": "4",
-        })
+        self._bus.publish(
+            EventType.TOOL_CALL_START,
+            {
+                "tool": "calculator",
+                "arguments": {"expr": "2+2"},
+            },
+        )
+        self._bus.publish(
+            EventType.TOOL_CALL_END,
+            {
+                "tool": "calculator",
+                "success": True,
+                "latency": 0.01,
+                "result": "4",
+            },
+        )
         # Turn 2: final answer
-        self._bus.publish(EventType.INFERENCE_START, {
-            "model": "test-model", "engine": "test",
-        })
-        self._bus.publish(EventType.INFERENCE_END, {
-            "total_tokens": 15,
-            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
-            "content": "The answer is 4.",
-            "tool_calls": [],
-            "finish_reason": "stop",
-        })
+        self._bus.publish(
+            EventType.INFERENCE_START,
+            {
+                "model": "test-model",
+                "engine": "test",
+            },
+        )
+        self._bus.publish(
+            EventType.INFERENCE_END,
+            {
+                "total_tokens": 15,
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+                "content": "The answer is 4.",
+                "tool_calls": [],
+                "finish_reason": "stop",
+            },
+        )
 
         # Return result with messages in metadata
         messages = [
@@ -294,8 +343,7 @@ class _RichToolAgent(BaseAgent):
         return AgentResult(
             content="The answer is 4.",
             tool_results=[
-                ToolResult(tool_name="calculator", content="4",
-                           success=True),
+                ToolResult(tool_name="calculator", content="4", success=True),
             ],
             turns=2,
             metadata={"messages": messages},
@@ -316,8 +364,7 @@ class TestRichTraceCollector:
         assert len(gen_steps) == 2
         assert gen_steps[0].output["content"] == "I'll calculate that for you."
         expected_tc = [
-            {"id": "call_1", "name": "calculator",
-             "arguments": "{\"expr\": \"2+2\"}"},
+            {"id": "call_1", "name": "calculator", "arguments": '{"expr": "2+2"}'},
         ]
         assert gen_steps[0].output["tool_calls"] == expected_tc
         assert gen_steps[0].output["finish_reason"] == "tool_calls"

@@ -311,9 +311,7 @@ def test_thread_id_namespaced_at_pipeline(
     )
     pipeline.ingest([doc])
 
-    rows = store._conn.execute(
-        "SELECT thread_id FROM knowledge_chunks"
-    ).fetchall()
+    rows = store._conn.execute("SELECT thread_id FROM knowledge_chunks").fetchall()
     assert len(rows) == 1
     assert rows[0][0] == "gmail:raw-thread-id"
 
@@ -330,9 +328,7 @@ def test_thread_id_namespacing_is_idempotent(
     )
     pipeline.ingest([doc])
 
-    rows = store._conn.execute(
-        "SELECT thread_id FROM knowledge_chunks"
-    ).fetchall()
+    rows = store._conn.execute("SELECT thread_id FROM knowledge_chunks").fetchall()
     assert rows[0][0] == "gmail:already-prefixed"
 
 
@@ -348,9 +344,7 @@ def test_source_id_derived_from_doc_id_prefix(
     )
     pipeline.ingest([doc])
 
-    rows = store._conn.execute(
-        "SELECT source_id FROM knowledge_chunks"
-    ).fetchall()
+    rows = store._conn.execute("SELECT source_id FROM knowledge_chunks").fetchall()
     assert rows[0][0] == "msg42"
 
 
@@ -366,9 +360,7 @@ def test_source_id_uses_explicit_field_when_set(
     doc.source_id = "explicit-src-id"
     pipeline.ingest([doc])
 
-    rows = store._conn.execute(
-        "SELECT source_id FROM knowledge_chunks"
-    ).fetchall()
+    rows = store._conn.execute("SELECT source_id FROM knowledge_chunks").fetchall()
     assert rows[0][0] == "explicit-src-id"
 
 
@@ -399,9 +391,7 @@ def test_last_synced_set_at_ingest(
     pipeline.ingest([_make_doc(doc_id="doc:ls:1", content="Last synced check.")])
     after = _time.time()
 
-    rows = store._conn.execute(
-        "SELECT last_synced FROM knowledge_chunks"
-    ).fetchall()
+    rows = store._conn.execute("SELECT last_synced FROM knowledge_chunks").fetchall()
     assert len(rows) == 1
     assert before <= rows[0][0] <= after
 
@@ -421,6 +411,7 @@ class _StubEmbedder:
 
     def embed(self, text: str):  # type: ignore[no-untyped-def]
         import numpy as _np
+
         self.calls += 1
         # Map content to a stable 4-d float32 vector for assertion convenience.
         h = abs(hash(text)) % 10_000
@@ -450,7 +441,8 @@ def test_pipeline_populates_embedding_when_embedder_provided(
 
 
 def test_pipeline_skips_embedding_when_no_embedder(
-    pipeline: IngestionPipeline, store: KnowledgeStore,
+    pipeline: IngestionPipeline,
+    store: KnowledgeStore,
 ) -> None:
     """Default pipeline leaves embedding NULL and embedding_model_version empty."""
     pipeline.ingest(

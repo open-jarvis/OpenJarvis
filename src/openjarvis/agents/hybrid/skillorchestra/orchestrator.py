@@ -58,6 +58,7 @@ _STAGE_DEFAULT_ALIAS = {
 # Orchestrator decision step (raw SDK — needs tool_use blocks back)
 # ---------------------------------------------------------------------------
 
+
 def _orchestrate_step(
     agent: Any,
     *,
@@ -126,9 +127,7 @@ def _orchestrate_step(
         from google import genai
         from google.genai import types
 
-        client = genai.Client(
-            http_options=types.HttpOptions(timeout=600_000)
-        )
+        client = genai.Client(http_options=types.HttpOptions(timeout=600_000))
         cfg = types.GenerateContentConfig(
             temperature=1.0,
             max_output_tokens=max_tokens,
@@ -169,22 +168,25 @@ def _orchestrate_step(
         )
 
     cost = agent.cost_usd(model, p, c)
-    agent.record_trace_event({
-        "kind": "skillorchestra_orchestrate",
-        "model": model,
-        "endpoint": endpoint,
-        "prompt": user,
-        "response": text,
-        "tool_calls": tool_calls,
-        "tokens_in": p,
-        "tokens_out": c,
-    })
+    agent.record_trace_event(
+        {
+            "kind": "skillorchestra_orchestrate",
+            "model": model,
+            "endpoint": endpoint,
+            "prompt": user,
+            "response": text,
+            "tool_calls": tool_calls,
+            "tokens_in": p,
+            "tokens_out": c,
+        }
+    )
     return text, tool_calls, p, c, cost
 
 
 # ---------------------------------------------------------------------------
 # Context assembly  —  eval_frames.py:1305-1351
 # ---------------------------------------------------------------------------
+
 
 def _build_context(
     doc_list: List[Tuple[str, str]],
@@ -223,6 +225,7 @@ def _build_context(
 # Main loop  —  eval_frames.py:run_single
 # ---------------------------------------------------------------------------
 
+
 def run_orchestrator(
     agent: Any,
     problem: str,
@@ -245,12 +248,14 @@ def run_orchestrator(
     # MODEL_NAME). Defaults to the cell's cloud model when that endpoint
     # supports tool calls, else Opus. ``router_model`` / ``router_endpoint``
     # are accepted as back-compat aliases (pre-restructure cfg key names).
-    orch_endpoint = (cfg.get("orchestrator_endpoint")
-                     or cfg.get("router_endpoint")
-                     or agent._cloud_endpoint).lower()
-    orch_model = (cfg.get("orchestrator_model")
-                  or cfg.get("router_model")
-                  or agent._cloud_model)
+    orch_endpoint = (
+        cfg.get("orchestrator_endpoint")
+        or cfg.get("router_endpoint")
+        or agent._cloud_endpoint
+    ).lower()
+    orch_model = (
+        cfg.get("orchestrator_model") or cfg.get("router_model") or agent._cloud_model
+    )
     if orch_endpoint not in ("anthropic", "openai", "gemini"):
         orch_endpoint, orch_model = "anthropic", "claude-opus-4-7"
     orch_max_tokens = int(cfg.get("orchestrator_max_tokens", 4096))
@@ -281,7 +286,9 @@ def run_orchestrator(
         if handbook is not None and strategy != "none":
             sa = parse_skill_analysis(orch_text)
             rr = get_routing_strategy(strategy, handbook).select_model(
-                stage, sa, tool_call_model=tool_alias,
+                stage,
+                sa,
+                tool_call_model=tool_alias,
             )
             return rr.model_alias
         return tool_alias or _STAGE_DEFAULT_ALIAS[stage]
@@ -290,7 +297,10 @@ def run_orchestrator(
         used_rounds = step + 1
         is_last = step == max_rounds - 1
         context_str = _build_context(
-            doc_list, code_list, attempt_list, char_cap=char_cap,
+            doc_list,
+            code_list,
+            attempt_list,
+            char_cap=char_cap,
         )
 
         if handbook is not None and strategy != "none":
@@ -301,14 +311,14 @@ def run_orchestrator(
                 handbook=handbook,
             )
         else:
-            user = (
-                f"Problem: {problem}\n\n{context_str}\n\n"
-                "Choose an appropriate tool."
-            )
+            user = f"Problem: {problem}\n\n{context_str}\n\nChoose an appropriate tool."
 
         text, tcalls, p, c, ocost = _orchestrate_step(
-            agent, user=user, model=orch_model,
-            endpoint=orch_endpoint, max_tokens=orch_max_tokens,
+            agent,
+            user=user,
+            model=orch_model,
+            endpoint=orch_endpoint,
+            max_tokens=orch_max_tokens,
         )
         tokens_cloud += p + c
         cost_usd += ocost
@@ -337,23 +347,29 @@ def run_orchestrator(
             tool_alias = (tc.get("input") or {}).get("model")
             stage = _TOOL_STAGE.get(tool, "answer")
             chosen_alias = _route(stage, tool_alias, text)
-            spec: ModelSpec = pool.get(chosen_alias) or pool[
-                _STAGE_DEFAULT_ALIAS[stage]
-            ]
-            route_log.append({
-                "step": step,
-                "tool": tool,
-                "orchestrator_alias": tool_alias,
-                "routed_alias": chosen_alias,
-                "routed_model": spec.model,
-                "is_local": spec.is_local,
-            })
+            spec: ModelSpec = (
+                pool.get(chosen_alias) or pool[_STAGE_DEFAULT_ALIAS[stage]]
+            )
+            route_log.append(
+                {
+                    "step": step,
+                    "tool": tool,
+                    "orchestrator_alias": tool_alias,
+                    "routed_alias": chosen_alias,
+                    "routed_model": spec.model,
+                    "is_local": spec.is_local,
+                }
+            )
             tool_calls_n += 1
 
             if tool == "search":
                 res = run_search(
-                    agent, spec, context_str=context_str, problem=problem,
-                    retriever_url=retriever_url, web_search_max_uses=ws_max_uses,
+                    agent,
+                    spec,
+                    context_str=context_str,
+                    problem=problem,
+                    retriever_url=retriever_url,
+                    web_search_max_uses=ws_max_uses,
                     search_backend=search_backend,
                     tavily_max_results=tavily_max_results,
                 )
@@ -363,13 +379,19 @@ def run_orchestrator(
                 web_uses += res.get("web_search_uses", 0)
             elif tool in ("enhance_reasoning", "code"):
                 res = run_code(
-                    agent, spec, context_str=context_str, problem=problem,
+                    agent,
+                    spec,
+                    context_str=context_str,
+                    problem=problem,
                     bash_timeout_s=code_timeout,
                 )
                 code_list.append((res["generated_code"], res["exec_result"]))
             else:  # answer
                 res = run_answer(
-                    agent, spec, context_str=context_str, problem=problem,
+                    agent,
+                    spec,
+                    context_str=context_str,
+                    problem=problem,
                     max_tokens=answer_max_tokens,
                 )
                 final_pred = res["pred"]
@@ -385,12 +407,14 @@ def run_orchestrator(
         if finish:
             break
 
-    agent.record_trace_event({
-        "kind": "skillorchestra_route_log",
-        "strategy": strategy,
-        "rounds_used": used_rounds,
-        "routes": route_log,
-    })
+    agent.record_trace_event(
+        {
+            "kind": "skillorchestra_route_log",
+            "strategy": strategy,
+            "rounds_used": used_rounds,
+            "routes": route_log,
+        }
+    )
 
     meta = {
         "tokens_local": tokens_local,

@@ -49,8 +49,7 @@ class TerminalBenchV21TaskEnv:
         task_dir = self._metadata.get("task_dir")
         if not docker_image or not task_dir:
             raise ValueError(
-                "TerminalBenchV21TaskEnv missing 'docker_image' or 'task_dir' "
-                "metadata"
+                "TerminalBenchV21TaskEnv missing 'docker_image' or 'task_dir' metadata"
             )
 
         tests_dir = Path(task_dir) / "tests"
@@ -90,9 +89,7 @@ class TerminalBenchV21TaskEnv:
         )
         if start.returncode != 0:
             self._metadata["tbv21_env_error"] = start.stderr[:500]
-            raise RuntimeError(
-                f"docker run failed for {task_id}: {start.stderr[:300]}"
-            )
+            raise RuntimeError(f"docker run failed for {task_id}: {start.stderr[:300]}")
 
         self._started = True
         self._metadata["tbv21_container"] = name

@@ -5,12 +5,27 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 from typing import Any, Dict, List
-from unittest.mock import MagicMock
 
+import httpx
 import pytest
 
 from openjarvis.core.types import Message, Role
 from openjarvis.engine._stubs import InferenceEngine, StreamChunk
+from openjarvis.engine.openai_compat_engines import VLLMEngine
+
+
+def _sse_transport(sse_lines: list[str]) -> httpx.MockTransport:
+    """A MockTransport that replies to /v1/chat/completions with SSE ``sse_lines``.
+
+    Exercises the REAL async httpx streaming path (aiter_lines) with no server.
+    """
+    body = "\n".join(sse_lines) + "\n"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=body)
+
+    return httpx.MockTransport(handler)
+
 
 # ---------------------------------------------------------------------------
 # StreamChunk dataclass tests
@@ -147,8 +162,6 @@ class TestOpenAICompatStreamFull:
 
     @pytest.mark.asyncio
     async def test_parses_sse_with_content_and_finish(self):
-        from openjarvis.engine._openai_compat import _OpenAICompatibleEngine
-
         # Build mock SSE lines
         sse_lines = []
         for token in ["Hello", " world"]:
@@ -164,22 +177,8 @@ class TestOpenAICompatStreamFull:
         sse_lines.append(f"data: {json.dumps(final)}")
         sse_lines.append("data: [DONE]")
 
-        # Mock the httpx client stream context manager
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.iter_lines.return_value = iter(sse_lines)
-
-        engine = _OpenAICompatibleEngine.__new__(_OpenAICompatibleEngine)
-        engine.engine_id = "test"
-        engine._host = "http://localhost:8000"
-        engine._api_prefix = "/v1"
-
-        mock_client = MagicMock()
-        mock_stream_ctx = MagicMock()
-        mock_stream_ctx.__enter__ = MagicMock(return_value=mock_resp)
-        mock_stream_ctx.__exit__ = MagicMock(return_value=False)
-        mock_client.stream.return_value = mock_stream_ctx
-        engine._client = mock_client
+        engine = VLLMEngine(host="http://localhost:8000")
+        engine._async_transport = _sse_transport(sse_lines)
 
         chunks = []
         async for chunk in engine.stream_full(
@@ -198,8 +197,6 @@ class TestOpenAICompatStreamFull:
 
     @pytest.mark.asyncio
     async def test_parses_tool_call_fragments(self):
-        from openjarvis.engine._openai_compat import _OpenAICompatibleEngine
-
         # Simulate streamed tool_call fragments
         _tc1 = (
             '{"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_1",'
@@ -218,21 +215,8 @@ class TestOpenAICompatStreamFull:
             "data: [DONE]",
         ]
 
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.iter_lines.return_value = iter(sse_lines)
-
-        engine = _OpenAICompatibleEngine.__new__(_OpenAICompatibleEngine)
-        engine.engine_id = "test"
-        engine._host = "http://localhost:8000"
-        engine._api_prefix = "/v1"
-
-        mock_client = MagicMock()
-        mock_stream_ctx = MagicMock()
-        mock_stream_ctx.__enter__ = MagicMock(return_value=mock_resp)
-        mock_stream_ctx.__exit__ = MagicMock(return_value=False)
-        mock_client.stream.return_value = mock_stream_ctx
-        engine._client = mock_client
+        engine = VLLMEngine(host="http://localhost:8000")
+        engine._async_transport = _sse_transport(sse_lines)
 
         chunks = []
         async for chunk in engine.stream_full(
