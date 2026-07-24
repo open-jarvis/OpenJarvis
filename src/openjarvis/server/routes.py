@@ -68,7 +68,19 @@ def _ensure_identity_prompt(messages: list[Message], app_config) -> list[Message
     injection" rather than crashing the endpoint, but the failure is logged
     (per REVIEW.md — never silently swallow).
     """
-    if any(m.role == Role.SYSTEM for m in messages):
+
+    def _is_caller_system_prompt(m: Message) -> bool:
+        if m.role != Role.SYSTEM:
+            return False
+        if m.name == "memory_context":
+            return False
+        if m.content and m.content.startswith(
+            "The following context was retrieved from the knowledge base"
+        ):
+            return False
+        return True
+
+    if any(_is_caller_system_prompt(m) for m in messages):
         return messages
 
     prompt = ""

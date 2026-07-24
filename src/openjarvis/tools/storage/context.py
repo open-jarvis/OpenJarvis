@@ -54,7 +54,7 @@ def build_context_message(
         " base. Use it to inform your response, citing sources"
         " where applicable:\n\n" + context_text
     )
-    return Message(role=Role.SYSTEM, content=content)
+    return Message(role=Role.SYSTEM, content=content, name="memory_context")
 
 
 def inject_context(
