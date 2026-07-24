@@ -197,6 +197,7 @@ nav:
       - Evaluations: user-guide/evaluations.md
       - Benchmarks: user-guide/benchmarks.md
       - Security: user-guide/security.md
+      - Data Boundary Scan: user-guide/data-boundary-scan.md
       - LLM-guided spec search: user-guide/llm-guided-spec-search.md
   - Leaderboard: leaderboard.md
   - Roadmap: development/roadmap.md
