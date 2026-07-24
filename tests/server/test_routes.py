@@ -853,6 +853,31 @@ class TestIdentityPromptInjection:
         assert msgs[0].role.value == "system"
         assert "OpenJarvis" in msgs[0].content
 
+    def test_agent_mode_injects_identity_when_absent(self):
+        agent = _make_agent("hello")
+        agent._model = "test-model"
+
+        client = TestClient(
+            create_app(
+                MagicMock(), "test-model", agent=agent, config=_identity_config()
+            )
+        )
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "who are you?"}],
+            },
+        )
+        assert resp.status_code == 200
+        assert agent.run.called
+        context = agent.run.call_args.kwargs.get("context")
+        assert context is not None
+        msgs = context.conversation.messages
+        system_msgs = [m for m in msgs if m.role.value == "system"]
+        assert len(system_msgs) == 1
+        assert "OpenJarvis" in system_msgs[0].content
+
 
 # ---------------------------------------------------------------------------
 # Models endpoint tests
