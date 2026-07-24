@@ -12,7 +12,7 @@ from rich.markdown import Markdown
 from openjarvis.cli._tool_names import resolve_tool_names
 from openjarvis.core.config import load_config
 from openjarvis.core.events import EventBus
-from openjarvis.core.types import Message, Role
+from openjarvis.core.types import Conversation, Message, Role
 from openjarvis.memory import publish_completed_exchange
 
 
@@ -265,7 +265,15 @@ def chat(
         # Generate response
         try:
             if agent is not None:
-                response = agent.run(user_input)
+                # Pass prior conversation so the agent is multi-turn aware.
+                # history[:-1] excludes the user message just appended above;
+                # the agent re-adds it from `user_input` in _build_messages.
+                from openjarvis.agents._stubs import AgentContext
+
+                ctx = AgentContext(
+                    conversation=Conversation(messages=list(history[:-1]))
+                )
+                response = agent.run(user_input, context=ctx)
                 content = (
                     response.content if hasattr(response, "content") else str(response)
                 )
