@@ -255,6 +255,7 @@ async def chat_completions(request_body: ChatCompletionRequest, request: Request
             complexity_info,
             trace_store=getattr(request.app.state, "trace_store", None),
             bus=getattr(request.app.state, "bus", None),
+            app_config=config,
         )
     else:
         bus = getattr(request.app.state, "bus", None)
@@ -447,6 +448,7 @@ def _handle_agent(
     *,
     trace_store=None,
     bus=None,
+    app_config=None,
 ) -> ChatCompletionResponse:
     """Run through agent.
 
@@ -459,15 +461,18 @@ def _handle_agent(
     """
     from openjarvis.agents._stubs import AgentContext
 
+    messages = _to_messages(req.messages)
+    messages = _ensure_identity_prompt(messages, app_config)
+
     # Build context from prior messages
     ctx = AgentContext()
-    if len(req.messages) > 1:
-        prior = _to_messages(req.messages[:-1])
+    if len(messages) > 1:
+        prior = messages[:-1]
         for m in prior:
             ctx.conversation.add(m)
 
     # Last message is the input
-    input_text = req.messages[-1].content if req.messages else ""
+    input_text = messages[-1].content if messages else ""
 
     # Override agent model for this request if the caller specified one
     original_model = agent._model
