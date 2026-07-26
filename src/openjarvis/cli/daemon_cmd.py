@@ -17,18 +17,57 @@ _PID_FILE = DEFAULT_CONFIG_DIR / "server.pid"
 _LOG_FILE = DEFAULT_CONFIG_DIR / "server.log"
 
 
+def _pid_alive(pid: int) -> bool:
+    """Return True if a process with ``pid`` is currently running.
+
+    Cross-platform and side-effect free. ``os.kill(pid, 0)`` is NOT a valid
+    liveness probe on Windows: signal ``0`` equals ``CTRL_C_EVENT`` there, so
+    the call routes to ``GenerateConsoleCtrlEvent`` and raises
+    ``OSError`` (WinError 87, "The parameter is incorrect") for any pid that is
+    not a live console process-group leader — including dead pids and normally
+    detached daemons. On Windows we query the process handle directly; on POSIX
+    the standard signal-0 probe is correct.
+    """
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+
+        SYNCHRONIZE = 0x00100000
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        WAIT_TIMEOUT = 0x00000102
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(
+            SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, False, pid
+        )
+        if not handle:
+            return False  # no such process (or access denied)
+        try:
+            return kernel32.WaitForSingleObject(handle, 0) == WAIT_TIMEOUT
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # process exists, we just can't signal it
+    return True
+
+
 def _read_pid() -> int | None:
     """Read PID from pid file, return None if not found or stale."""
     if not _PID_FILE.exists():
         return None
     try:
         pid = int(_PID_FILE.read_text().strip())
-        # Check if process is still running
-        os.kill(pid, 0)
-        return pid
-    except (ValueError, OSError):
+    except ValueError:
         _PID_FILE.unlink(missing_ok=True)
         return None
+    if not _pid_alive(pid):
+        _PID_FILE.unlink(missing_ok=True)
+        return None
+    return pid
 
 
 def _write_pid(pid: int) -> None:
@@ -113,14 +152,13 @@ def stop() -> None:
         # Wait up to 10 seconds for graceful shutdown
         for _ in range(20):
             time.sleep(0.5)
-            try:
-                os.kill(pid, 0)
-            except OSError:
+            if not _pid_alive(pid):
                 break
         else:
-            # Force kill if still running
+            # Force kill if still running (SIGKILL is POSIX-only; on Windows
+            # SIGTERM already maps to TerminateProcess).
             try:
-                os.kill(pid, signal.SIGKILL)
+                os.kill(pid, getattr(signal, "SIGKILL", signal.SIGTERM))
             except OSError:
                 pass
     except OSError:
