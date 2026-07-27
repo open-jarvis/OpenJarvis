@@ -588,6 +588,78 @@ def _instantiate_managed_tool(
     return tool_cls()
 
 
+def _tool_instance_name(tool: Any) -> str:
+    """Best-effort name for a tool instance (empty string if unavailable)."""
+    try:
+        return tool.spec.name
+    except Exception:
+        return ""
+
+
+def _resolve_tool_instances(
+    tool_config: Any,
+    *,
+    engine: Any,
+    model: str,
+    app_state: Any,
+) -> List[Any]:
+    """Instantiate a managed agent's configured tools.
+
+    Mirrors :func:`_resolve_tool_specs` in how it interprets names (``browser``
+    meta-tool expansion, silently skipping channels, warning on unknown names)
+    but returns live tool *instances* rather than OpenAI-format specs.
+
+    Agent classes that run their own loop — ``DeepResearchAgent`` in particular
+    — take real instances, whereas the raw streaming path hands specs to the
+    engine. Without this, an agent's configured tools cannot reach it at all.
+    """
+    if not tool_config:
+        return []
+
+    from openjarvis.core.registry import ChannelRegistry, ToolRegistry
+
+    _ensure_registries_populated()
+
+    instances: List[Any] = []
+    seen: set = set()
+
+    def _add(name: str) -> None:
+        if name in seen or not ToolRegistry.contains(name):
+            return
+        try:
+            instances.append(
+                _instantiate_managed_tool(
+                    ToolRegistry.get(name),
+                    name,
+                    engine=engine,
+                    model=model,
+                    app_state=app_state,
+                )
+            )
+            seen.add(name)
+        except Exception as exc:
+            logger.warning("Could not instantiate tool '%s' (%s) — dropping", name, exc)
+
+    for entry in tool_config:
+        if not isinstance(entry, str):
+            continue
+        if entry == "browser":
+            for sub in _BROWSER_SUB_TOOLS:
+                _add(sub)
+            continue
+        if ChannelRegistry.contains(entry):
+            continue
+        if not ToolRegistry.contains(entry):
+            logger.warning(
+                "Tool '%s' referenced in agent config but not in ToolRegistry",
+                entry,
+            )
+            continue
+        _add(entry)
+
+    return instances
+
+
 def _build_deep_research_tools(
     engine: Any,
     model: str,
@@ -863,10 +935,41 @@ async def _stream_managed_agent(
     # Resolve agent type and class for DeepResearch tool wiring
     agent_type = agent_record.get("agent_type", "")
     if agent_type == "deep_research":
+        # Local knowledge-base tools (empty when no knowledge.db exists).
         dr_tools = _build_deep_research_tools(
             engine=engine,
             model=model,
         )
+        # …plus the agent's OWN configured tools. Binding only the knowledge
+        # tools above silently discarded config["tools"] on this path — the
+        # agent-creation wizard writes it for every agent type, so a
+        # deep_research agent configured for `web_search` was left holding
+        # none of it, with no warning. Merge rather than replace: the local
+        # knowledge base and the web are complementary.
+        seen_names = {_tool_instance_name(t) for t in dr_tools}
+        for tool in _resolve_tool_instances(
+            config.get("tools"),
+            engine=engine,
+            model=model,
+            app_state=app_state,
+        ):
+            name = _tool_instance_name(tool)
+            if name and name not in seen_names:
+                dr_tools.append(tool)
+                seen_names.add(name)
+
+        # …and MCP tools (e.g. the Playwright browser), which previously
+        # reached only the generic streaming path.
+        if app_state is not None:
+            try:
+                _, mcp_adapters = _get_mcp_tools(app_state)
+                for name, adapter in mcp_adapters.items():
+                    if name not in seen_names:
+                        dr_tools.append(adapter)
+                        seen_names.add(name)
+            except Exception as exc:
+                logger.warning("MCP tool discovery failed for %s: %s", agent_id, exc)
+
         # Store on app_state so streaming loop can access them
         if app_state is not None and dr_tools:
             app_state._dr_tools = dr_tools
@@ -991,6 +1094,19 @@ async def _stream_managed_agent(
                 def _run_agent():
                     agent_metadata = {}
                     try:
+                        # NOTE: prior turns are deliberately NOT replayed here.
+                        # Measured on qwen2.5:7b: replaying this agent's stored
+                        # history made it stop calling tools entirely (0 tool
+                        # calls, an identical canned "check the official source"
+                        # reply every time), whereas the same query with no
+                        # history called web_search and answered from the
+                        # result. Recorded assistant turns that answered
+                        # *without* tools read as demonstrations of not using
+                        # tools — the same imitation failure as a few-shot
+                        # exemplar that shows an answer without showing the
+                        # retrieval. Re-introducing memory here needs history
+                        # that models the desired behaviour, not just fewer
+                        # messages.
                         result = dr_agent.run(user_content)
                         content = result.content or "No results found."
                         agent_metadata = result.metadata or {}
