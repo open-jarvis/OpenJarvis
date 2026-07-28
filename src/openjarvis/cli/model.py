@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 
@@ -258,6 +259,14 @@ def pull(model_name: str, engine: str | None) -> None:
             f"[cyan]{model_name}[/cyan] will download automatically when "
             f"{engine} starts serving it."
         )
+    elif engine == "ovms":
+        spec = find_model_spec(model_name)
+        repo = spec.metadata.get("hf_repo", "") if spec else ""
+        if not repo:
+            repo = model_name  # Assume model_name is the HF repo ID
+        console.print(f"Downloading [cyan]{repo}[/cyan] from HuggingFace for OVMS...")
+        if not hf_download(repo, None, console):
+            sys.exit(1)
     else:
         console.print(
             f"Manual download required for engine [cyan]{engine}[/cyan].\n"

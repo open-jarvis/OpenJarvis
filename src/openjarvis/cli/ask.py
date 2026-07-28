@@ -941,6 +941,7 @@ def ask(
         "sglang",
         "exo",
         "nexa",
+        "ovms",
         "uzu",
         "apple_fm",
         "gemma_cpp",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import platform
 from pathlib import Path
 from typing import Optional
 
@@ -37,6 +38,7 @@ _SUPPORTED_ENGINES = [
     "lmstudio",
     "exo",
     "nexa",
+    "ovms",
 ]
 
 
@@ -53,6 +55,7 @@ def _detect_running_engines() -> list[str]:
         "lmstudio": "http://localhost:1234/v1/models",
         "exo": "http://localhost:52415/v1/models",
         "nexa": "http://localhost:18181/v1/models",
+        "ovms": "http://localhost:8001/v3/models",
     }
     running: list[str] = []
     for key, url in _PROBES.items():
@@ -63,6 +66,60 @@ def _detect_running_engines() -> list[str]:
         except Exception:
             pass
     return running
+
+
+def _ovms_next_steps() -> str:
+    """Return platform-specific OVMS installation instructions."""
+    _OVMS_VERSION = "2026.2.1"
+    _OVMS_BASE_URL = (
+        "https://storage.openvinotoolkit.org/repositories/"
+        f"openvino_model_server/packages/{_OVMS_VERSION}"
+    )
+    _OVMS_DOCS = (
+        "https://docs.openvino.ai/2026/model-server/"
+        "ovms_docs_deploying_server_baremetal.html"
+    )
+
+    if platform.system() == "Windows":
+        zip_name = f"ovms_windows_{_OVMS_VERSION}_python_off.zip"
+        install_cmd = (
+            "     Invoke-WebRequest -Uri"
+            f' "{_OVMS_BASE_URL}/{zip_name}"'
+            " -OutFile ovms.zip\n"
+            "     Expand-Archive ovms.zip"
+            " -DestinationPath $env:USERPROFILE -Force"
+        )
+        ovms_bin = '& "$env:USERPROFILE\\ovms\\ovms.exe"'
+    else:
+        tar_name = f"ovms_ubuntu24_{_OVMS_VERSION}_python_off.tar.gz"
+        install_cmd = f"     wget {_OVMS_BASE_URL}/{tar_name}\n     tar -xzf {tar_name}"
+        ovms_bin = "./ovms/ovms"
+
+    start_cmd = (
+        f"     {ovms_bin} --model_repository_path <model_path>"
+        " --source_model <model_name>"
+        " --task text_generation"
+        " --target_device GPU --rest_port 8001"
+    )
+    example_cmd = (
+        f"     {ovms_bin} --model_repository_path ./models"
+        " --source_model OpenVINO/gemma-4-26b-a4b-it-int4-ov"
+        " --task text_generation"
+        " --target_device GPU --rest_port 8001"
+    )
+    return (
+        "Next steps:\n\n"
+        "  1. Install OpenVINO Model Server binary:\n"
+        f"{install_cmd}\n"
+        f"     Docs: {_OVMS_DOCS}\n\n"
+        "  2. Start OVMS:\n"
+        f"{start_cmd}\n\n"
+        "     Example (pulls from HuggingFace if not cached):\n"
+        f"{example_cmd}\n\n"
+        "  3. Try it out:\n"
+        '     jarvis ask "Hello"\n\n'
+        "  Run `jarvis doctor` to verify your setup."
+    )
 
 
 def _next_steps_text(engine: str, model: str = "") -> str:
@@ -163,6 +220,7 @@ def _next_steps_text(engine: str, model: str = "") -> str:
             '     jarvis ask "Hello"\n\n'
             "  Run `jarvis doctor` to verify your setup."
         ),
+        "ovms": _ovms_next_steps(),
         "lemonade": (
             "Next steps:\n\n"
             "  1. Install Lemonade for your platform:\n"
@@ -220,6 +278,12 @@ def _do_download(engine: str, model: str, spec, console: Console) -> None:
             f"  [cyan]{model}[/cyan] will download automatically when "
             f"{engine} starts serving it."
         )
+    elif engine == "ovms":
+        repo = spec.metadata.get("hf_repo", "") if spec else ""
+        if not repo:
+            repo = model
+        console.print(f"  Downloading [cyan]{repo}[/cyan] from HuggingFace for OVMS...")
+        hf_download(repo, None, console)
     else:
         console.print(f"  Download {model} through the {engine} interface.")
 
@@ -556,5 +620,7 @@ sources = ["hackernews", "news_rss"]
             _next_steps_text(selected_engine, model),
             title="Getting Started",
             border_style="cyan",
-        )
+        ),
+        soft_wrap=True,
     )
+

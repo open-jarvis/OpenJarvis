@@ -23,6 +23,7 @@ from openjarvis.core.paths import (
     get_config_path,
     get_data_dir,
 )
+from openjarvis.core.types import Quantization
 
 if TYPE_CHECKING:
     # Only used by type-checkers (mypy/pyright) for the ``JarvisConfig.mining``
@@ -30,6 +31,7 @@ if TYPE_CHECKING:
     # ``_parse_mining_section()`` to break the import cycle:
     # ``mining/_stubs.py`` imports ``HardwareInfo`` from this module at its
     # top level.
+    from openjarvis.core.types import ModelSpec
     from openjarvis.mining._stubs import MiningConfig
 
 try:
@@ -167,6 +169,59 @@ def _detect_amd_gpu() -> Optional[GpuInfo]:
     return GpuInfo(vendor="amd", name=name, vram_gb=vram_gb, count=count)
 
 
+def _detect_intel_gpu() -> Optional[GpuInfo]:
+    """Detect Intel integrated/discrete GPU on Linux (sysfs) or Windows (WMI)."""
+    system = platform.system()
+
+    if system == "Linux":
+        drm_path = Path("/sys/class/drm")
+        if drm_path.exists():
+            for card_dir in sorted(drm_path.iterdir()):
+                device_vendor = card_dir / "device" / "vendor"
+                if device_vendor.exists():
+                    try:
+                        vendor_id = device_vendor.read_text().strip()
+                        if vendor_id == "0x8086":  # Intel vendor ID
+                            name = "Intel GPU"
+                            lspci_out = _run_cmd(["lspci"])
+                            for line in lspci_out.splitlines():
+                                if "VGA" in line and "Intel" in line:
+                                    name = line.split(":")[-1].strip()
+                                    break
+                                if "Display" in line and "Intel" in line:
+                                    name = line.split(":")[-1].strip()
+                                    break
+                            return GpuInfo(
+                                vendor="intel", name=name, vram_gb=0.0, count=1
+                            )
+                    except OSError:
+                        continue
+
+    elif system == "Windows":
+        raw = _run_cmd(
+            [
+                "powershell",
+                "-NoProfile",
+                "-Command",
+                "Get-CimInstance Win32_VideoController"
+                " | Select-Object -ExpandProperty Name",
+            ]
+        )
+        if raw:
+            import re
+
+            for line in raw.splitlines():
+                line = line.strip()
+                if line and "Intel" in line:
+                    vram_gb = 0.0
+                    vram_match = re.search(r"\((\d+)\s*GB\)", line)
+                    if vram_match:
+                        vram_gb = float(vram_match.group(1))
+                    return GpuInfo(vendor="intel", name=line, vram_gb=vram_gb, count=1)
+
+    return None
+
+
 def _detect_apple_gpu() -> Optional[GpuInfo]:
     if platform.system() != "Darwin":
         return None
@@ -239,7 +294,12 @@ def _total_ram_gb() -> float:
 
 def detect_hardware() -> HardwareInfo:
     """Auto-detect hardware capabilities with graceful fallbacks."""
-    gpu = _detect_nvidia_gpu() or _detect_amd_gpu() or _detect_apple_gpu()
+    gpu = (
+        _detect_nvidia_gpu()
+        or _detect_amd_gpu()
+        or _detect_intel_gpu()
+        or _detect_apple_gpu()
+    )
     return HardwareInfo(
         platform=platform.system().lower(),
         cpu_brand=_detect_cpu_brand(),
@@ -273,6 +333,8 @@ def recommend_engine(hw: HardwareInfo) -> str:
         if any(kw in gpu.name for kw in amd_datacenter_keywords):
             return "vllm"
         return "lemonade"
+    if gpu.vendor == "intel":
+        return "ovms"
     return "llamacpp"
 
 
@@ -284,6 +346,18 @@ def _available_memory_gb(hw: HardwareInfo) -> float:
     if hw.ram_gb > 0:
         return (hw.ram_gb - 4) * 0.8
     return 0.0
+
+
+def _estimate_model_memory_gb(spec: "ModelSpec") -> float:
+    """Estimate runtime memory for a model based on quantization.
+
+    INT4 OpenVINO models use memory-mapped loading with minimal overhead
+    (0.45 GB per billion params).  Other quantized/unquantized models use
+    the standard Q4 GGUF estimate (0.55 GB per billion params).
+    """
+    if spec.quantization == Quantization.INT4:
+        return spec.parameter_count_b * 0.45
+    return spec.parameter_count_b * 0.5 * 1.1
 
 
 # Explicit tier table: (max_ram_gb, model_id).
@@ -339,7 +413,15 @@ def recommend_model(hw: HardwareInfo, engine: str) -> str:
     ]
     candidates.sort(key=lambda s: s.parameter_count_b, reverse=True)
     for s in candidates:
-        estimated_gb = s.parameter_count_b * 0.5 * 1.1
+        estimated_gb = _estimate_model_memory_gb(s)
+        if estimated_gb <= available_gb:
+            return s.model_id
+
+    # Generic fallback: scan entire catalog for any model supporting this engine
+    candidates = [s for s in BUILTIN_MODELS if engine in s.supported_engines]
+    candidates.sort(key=lambda s: s.parameter_count_b, reverse=True)
+    for s in candidates:
+        estimated_gb = _estimate_model_memory_gb(s)
         if estimated_gb <= available_gb:
             return s.model_id
 
@@ -415,6 +497,13 @@ class NexaEngineConfig:
 
 
 @dataclass(slots=True)
+class OVMSEngineConfig:
+    """Per-engine config for OpenVINO Model Server (OVMS)."""
+
+    host: str = "http://localhost:8001"
+
+
+@dataclass(slots=True)
 class UzuEngineConfig:
     """Per-engine config for Uzu."""
 
@@ -458,6 +547,7 @@ class EngineConfig:
     lmstudio: LMStudioEngineConfig = field(default_factory=LMStudioEngineConfig)
     exo: ExoEngineConfig = field(default_factory=ExoEngineConfig)
     nexa: NexaEngineConfig = field(default_factory=NexaEngineConfig)
+    ovms: OVMSEngineConfig = field(default_factory=OVMSEngineConfig)
     uzu: UzuEngineConfig = field(default_factory=UzuEngineConfig)
     apple_fm: AppleFmEngineConfig = field(default_factory=AppleFmEngineConfig)
     gemma_cpp: GemmaCppEngineConfig = field(default_factory=GemmaCppEngineConfig)
@@ -544,6 +634,15 @@ class EngineConfig:
     @nexa_host.setter
     def nexa_host(self, value: str) -> None:
         self.nexa.host = value
+
+    @property
+    def ovms_host(self) -> str:
+        """Deprecated: use ``engine.ovms.host``."""
+        return self.ovms.host
+
+    @ovms_host.setter
+    def ovms_host(self, value: str) -> None:
+        self.ovms.host = value
 
     @property
     def uzu_host(self) -> str:
@@ -1919,12 +2018,26 @@ def generate_minimal_toml(
     if hw.gpu:
         mem_label = "unified memory" if hw.gpu.vendor == "apple" else "VRAM"
         gpu_comment = f"\n# GPU: {hw.gpu.name} ({hw.gpu.vram_gb} GB {mem_label})"
+    _ENGINE_DEFAULT_HOSTS = {
+        "ollama": "http://localhost:11434",
+        "ovms": "http://localhost:8001",
+        "vllm": "http://localhost:8000",
+        "sglang": "http://localhost:30000",
+        "llamacpp": "http://localhost:8080",
+        "mlx": "http://localhost:8080",
+        "lmstudio": "http://localhost:1234",
+        "exo": "http://localhost:52415",
+        "nexa": "http://localhost:18181",
+        "lemonade": "http://localhost:13305",
+    }
+    default_host = _ENGINE_DEFAULT_HOSTS.get(engine, "http://localhost:11434")
+
     if host:
         engine_host_section = f'\n[engine.{engine}]\nhost = "{host}"\n'
     else:
         engine_host_section = (
             f"\n[engine.{engine}]\n"
-            f'# host = "http://localhost:11434"  '
+            f'# host = "{default_host}"  '
             f"# set to remote URL if engine runs elsewhere\n"
         )
     return f"""\
@@ -1995,6 +2108,9 @@ host = "http://localhost:8080"
 # [engine.nexa]
 # host = "http://localhost:18181"
 # device = ""  # cpu, gpu, npu
+
+# [engine.ovms]
+# host = "http://localhost:8001"
 
 # [engine.uzu]
 # host = "http://localhost:8080"

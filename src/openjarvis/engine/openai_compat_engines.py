@@ -13,6 +13,7 @@ _ENGINES = {
     "lmstudio": ("LMStudioEngine", "http://localhost:1234", "/v1"),
     "exo": ("ExoEngine", "http://localhost:52415", "/v1"),
     "nexa": ("NexaEngine", "http://localhost:18181", "/v1"),
+    "ovms": ("OVMSEngine", "http://localhost:8001", "/v3"),
     "uzu": ("UzuEngine", "http://localhost:8000", ""),
     "apple_fm": ("AppleFmEngine", "http://localhost:8079", "/v1"),
     "lemonade": ("LemonadeEngine", "http://localhost:13305", "/v1"),

@@ -146,3 +146,44 @@ class TestAskModelResolution:
             cfg.agent.default_agent = ""
             result = CliRunner().invoke(cli, ["ask", "Hello"])
         assert result.exit_code == 0
+
+    def test_ovms_priority_list_picks_first_reachable_model(self) -> None:
+        """When engine is OVMS, prefer the configured OVMS model priority list."""
+        engine = _mock_engine()
+        engine.generate.return_value = {
+            "content": "Hello!",
+            "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8},
+            "model": "gemma-4-26b-a4b-it-int4-ov",
+            "finish_reason": "stop",
+        }
+        patches = _patch_engine(engine)
+        with (
+            mock.patch.object(
+                _ask_mod,
+                "get_engine",
+                return_value=("ovms", engine),
+            ),
+            patches[1],
+            mock.patch.object(
+                _ask_mod,
+                "discover_models",
+                return_value={"ovms": ["gemma-4-26b-a4b-it-int4-ov", "Qwen3.5-4B-int4-ov"]},
+            ),
+            patches[3],
+            patches[4],
+            patches[5],
+            mock.patch.object(_ask_mod, "load_config") as mock_config,
+        ):
+            cfg = mock_config.return_value
+            cfg.telemetry.enabled = False
+            cfg.intelligence.default_model = ""
+            cfg.intelligence.fallback_model = "gemma-4-26b-a4b-it-int4-ov"
+            cfg.intelligence.temperature = 0.7
+            cfg.intelligence.max_tokens = 1024
+            cfg.agent.context_from_memory = False
+            cfg.agent.default_agent = ""
+            result = CliRunner().invoke(cli, ["ask", "Hello"])
+
+        assert result.exit_code == 0
+        engine.generate.assert_called_once()
+        assert engine.generate.call_args.kwargs["model"] == "gemma-4-26b-a4b-it-int4-ov"

@@ -43,6 +43,8 @@ class TestDefaults:
         assert ec.ollama_host == ""
         assert ec.vllm_host == "http://localhost:8000"
         assert ec.lemonade_host == "http://localhost:13305"
+        assert ec.ovms.host == "http://localhost:8001"
+        assert ec.ovms_host == "http://localhost:8001"
 
 
 class TestRecommendEngine:
@@ -105,6 +107,17 @@ class TestTomlLoading:
         assert cfg.engine.default == "lemonade"
         assert cfg.engine.lemonade.host == "http://custom-lemonade:19000"
         assert cfg.engine.lemonade_host == "http://custom-lemonade:19000"
+
+    def test_loads_nested_ovms_host_override(self, tmp_path: Path) -> None:
+        toml_file = tmp_path / "config.toml"
+        toml_file.write_text(
+            '[engine]\ndefault = "ovms"\n\n'
+            '[engine.ovms]\nhost = "http://custom-ovms:8001"\n'
+        )
+        cfg = load_config(toml_file)
+        assert cfg.engine.default == "ovms"
+        assert cfg.engine.ovms.host == "http://custom-ovms:8001"
+        assert cfg.engine.ovms_host == "http://custom-ovms:8001"
 
     def test_system_prompt_block_parsed(self, tmp_path: Path) -> None:
         """Regression for #401: the [system_prompt] block (and its prefix)

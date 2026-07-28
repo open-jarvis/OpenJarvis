@@ -133,6 +133,7 @@ DEFAULT_SEARCH_SPACE = SearchSpace(
                 "lmstudio",
                 "exo",
                 "nexa",
+                "ovms",
                 "uzu",
                 "apple_fm",
             ],

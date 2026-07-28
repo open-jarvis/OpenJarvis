@@ -82,6 +82,16 @@ _BACKENDS = {
         "default_port": 8000,
         "binary": "uzu",
     },
+    "ovms": {
+        "display": "OpenVINO Model Server",
+        "package": "ovms",
+        "import_check": None,
+        "pip_spec": None,
+        "uv_extra": None,
+        "platform": None,
+        "default_port": 8001,
+        "binary": "ovms",
+    },
 }
 
 
@@ -205,6 +215,13 @@ def _install_binary_backend(backend: str, console: Console) -> bool:
             "    https://github.com/exo-explore/exo"
         ),
         "uzu": ("Install Uzu:\n\n  See https://uzu.ai for installation instructions."),
+        "ovms": (
+            "Install OpenVINO Model Server:\n\n"
+            "  pip install ovmsclient openvino\n"
+            "  optimum-cli export openvino --model <hf_model_id> ./model_dir\n"
+            "  ovms --model_path ./model_dir --model_name my_model --port 8001\n\n"
+            "  See: https://docs.openvino.ai/latest/ovms_what_is_openvino_model_server.html"
+        ),
     }
 
     console.print()
@@ -279,6 +296,14 @@ def _build_serve_command(backend: str, model: str, port: int) -> list[str]:
 
     if backend == "uzu":
         return ["uzu", "serve", "--port", str(port)]
+
+    if backend == "ovms":
+        return [
+            "ovms",
+            "--model_path", model,
+            "--model_name", model,
+            "--port", str(port),
+        ]
 
     raise ValueError(f"Unknown backend: {backend}")
 

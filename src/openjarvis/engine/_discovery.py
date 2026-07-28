@@ -22,6 +22,7 @@ _HOST_MAP: Dict[str, str | None] = {
     "lmstudio": "lmstudio_host",
     "exo": "exo_host",
     "nexa": "nexa_host",
+    "ovms": "ovms_host",
     "uzu": "uzu_host",
     "apple_fm": "apple_fm_host",
     "lemonade": "lemonade_host",
