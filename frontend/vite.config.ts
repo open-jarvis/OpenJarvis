@@ -54,7 +54,15 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/v1': process.env.VITE_API_URL || 'http://localhost:8000',
+      // ws: true is required for the /v1/agents/events WebSocket. Without it
+      // Vite proxies the HTTP request but not the upgrade, so the socket never
+      // opens — no error, no close event, just silence — and every live agent
+      // view sits empty in dev while working in a production build.
+      '/v1': {
+        target: process.env.VITE_API_URL || 'http://localhost:8000',
+        changeOrigin: true,
+        ws: true,
+      },
       '/health': process.env.VITE_API_URL || 'http://localhost:8000',
       '/api': process.env.VITE_API_URL || 'http://localhost:8000',
     },
