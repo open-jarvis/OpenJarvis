@@ -2,18 +2,30 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
+import time
 from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from importlib import metadata
+from pathlib import Path
 from typing import Any
 
+from openjarvis.codex.events import CodexEventAdapter
 from openjarvis.codex.redaction import (
     redact_data,
+    redact_text,
     safe_error_message,
     sanitized_codex_environment,
 )
+from openjarvis.codex.store import (
+    CodexStateStore,
+    CodexThreadRecord,
+    CodexTurnRecord,
+)
 from openjarvis.codex.types import (
+    ApprovalMode,
     BackendCapabilities,
     BackendThread,
     BackendTurn,
@@ -22,7 +34,13 @@ from openjarvis.codex.types import (
     CodexBackendKind,
     CodexCapabilityError,
     CodexEvent,
+    CodexEventType,
     CodexHealth,
+    CodexModelConfig,
+    CodexPolicyError,
+    CodexRunContext,
+    CodexTimeoutError,
+    SandboxMode,
     ThreadForkRequest,
     ThreadResumeRequest,
     ThreadStartRequest,
@@ -41,6 +59,13 @@ class _SdkLaunchSpec:
     client_title: str
     client_version: str
     experimental_api: bool
+
+
+@dataclass(slots=True)
+class _ActiveTurn:
+    handle: Any
+    context: CodexRunContext
+    started_monotonic: float
 
 
 class CodexPythonSdkBackend:
@@ -67,11 +92,22 @@ class CodexPythonSdkBackend:
         sdk_factory: Callable[[_SdkLaunchSpec], Any] | None = None,
         codex_bin: str | None = None,
         environment: dict[str, str] | None = None,
+        store: CodexStateStore | None = None,
+        state_db_path: str | Path | None = None,
     ) -> None:
         self._sdk_factory = sdk_factory
         self._codex_bin = codex_bin
         self._environment = sanitized_codex_environment(environment)
         self._client: Any | None = None
+        self._store = store
+        self._state_db_path = state_db_path
+        self._owns_store = store is None
+        self._event_adapter: CodexEventAdapter | None = (
+            CodexEventAdapter(store) if store is not None else None
+        )
+        self._threads: dict[str, Any] = {}
+        self._thread_contexts: dict[str, CodexRunContext] = {}
+        self._turns: dict[str, _ActiveTurn] = {}
 
     @property
     def capabilities(self) -> BackendCapabilities:
@@ -124,6 +160,23 @@ class CodexPythonSdkBackend:
         self._client = client
         return client
 
+    def _get_store(self) -> CodexStateStore:
+        if self._store is None:
+            if self._state_db_path is None:
+                from openjarvis.core.paths import get_config_dir
+
+                path: str | Path = get_config_dir() / "codex_state.db"
+            else:
+                path = self._state_db_path
+            self._store = CodexStateStore(path)
+            self._event_adapter = CodexEventAdapter(self._store)
+        return self._store
+
+    def _events(self) -> CodexEventAdapter:
+        self._get_store()
+        assert self._event_adapter is not None
+        return self._event_adapter
+
     @staticmethod
     def _model_dump(value: Any) -> dict[str, Any]:
         if hasattr(value, "model_dump"):
@@ -174,57 +227,548 @@ class CodexPythonSdkBackend:
             raise CodexAuthenticationError("An existing ChatGPT login is required")
 
     async def start_thread(self, request: ThreadStartRequest) -> BackendThread:
-        del request
-        raise CodexCapabilityError("SDK thread lifecycle is not initialized")
+        context = request.context.validated()
+        store = self._get_store()
+        existing = store.get_thread_by_correlation(context.correlation_id)
+        if existing is not None:
+            return self._backend_thread(existing)
+
+        await self._require_chatgpt()
+        client = await self._get_client()
+        try:
+            thread = await client.thread_start(
+                approval_mode=self._sdk_approval_mode(context.approval_mode),
+                cwd=str(context.cwd.resolve(strict=False)),
+                developer_instructions=redact_text(
+                    context.developer_instructions or ""
+                )
+                or None,
+                ephemeral=False,
+                model=context.model.model,
+                sandbox=self._sdk_sandbox(context.sandbox),
+                service_tier=context.model.service_tier,
+            )
+        except Exception as exc:
+            raise CodexBackendError(safe_error_message(exc)) from exc
+
+        thread_id = self._required_id(thread, "thread")
+        now = self._now()
+        record = store.save_thread(
+            CodexThreadRecord(
+                task_id=context.task_id,
+                session_id=context.session_id,
+                correlation_id=context.correlation_id,
+                thread_id=thread_id,
+                backend=CodexBackendKind.PYTHON_SDK,
+                sandbox=context.sandbox,
+                approval_mode=context.approval_mode,
+                cwd=str(context.cwd.resolve(strict=False)),
+                model_config=asdict(context.model),
+                status="started",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        self._threads[thread_id] = thread
+        self._thread_contexts[thread_id] = context
+        self._events().emit(
+            CodexEventType.THREAD_STARTED,
+            context=context,
+            backend=CodexBackendKind.PYTHON_SDK,
+            thread_id=thread_id,
+            payload={"status": "started"},
+            event_id=f"sdk:{thread_id}:started",
+        )
+        return self._backend_thread(record)
 
     async def resume_thread(self, request: ThreadResumeRequest) -> BackendThread:
-        del request
-        raise CodexCapabilityError("SDK thread lifecycle is not initialized")
+        context = request.context.validated()
+        store = self._get_store()
+        record = (
+            store.get_thread_by_id(request.thread_id)
+            if request.thread_id
+            else store.get_thread(context.task_id, context.session_id)
+        )
+        thread_id = request.thread_id or (record.thread_id if record else None)
+        if not thread_id:
+            raise CodexCapabilityError("No persisted Codex thread mapping exists")
+
+        await self._require_chatgpt()
+        client = await self._get_client()
+        try:
+            thread = await client.thread_resume(
+                thread_id,
+                approval_mode=self._sdk_approval_mode(context.approval_mode),
+                cwd=str(context.cwd.resolve(strict=False)),
+                developer_instructions=redact_text(
+                    context.developer_instructions or ""
+                )
+                or None,
+                model=context.model.model,
+                sandbox=self._sdk_sandbox(context.sandbox),
+                service_tier=context.model.service_tier,
+            )
+        except Exception as exc:
+            raise CodexBackendError(safe_error_message(exc)) from exc
+
+        actual_id = self._required_id(thread, "thread")
+        now = self._now()
+        persisted = store.save_thread(
+            CodexThreadRecord(
+                task_id=context.task_id,
+                session_id=context.session_id,
+                correlation_id=context.correlation_id,
+                thread_id=actual_id,
+                backend=CodexBackendKind.PYTHON_SDK,
+                sandbox=context.sandbox,
+                approval_mode=context.approval_mode,
+                cwd=str(context.cwd.resolve(strict=False)),
+                model_config=asdict(context.model),
+                status="resumed",
+                created_at=record.created_at if record else now,
+                updated_at=now,
+                last_event_sequence=record.last_event_sequence if record else 0,
+                resume_checkpoint=record.resume_checkpoint if record else None,
+            )
+        )
+        store.update_thread(actual_id, status="resumed", updated_at=now)
+        self._threads[actual_id] = thread
+        self._thread_contexts[actual_id] = context
+        self._events().emit(
+            CodexEventType.THREAD_RESUMED,
+            context=context,
+            backend=CodexBackendKind.PYTHON_SDK,
+            thread_id=actual_id,
+            payload={"status": "resumed"},
+        )
+        return self._backend_thread(persisted, status="resumed")
 
     async def fork_thread(self, request: ThreadForkRequest) -> BackendThread:
-        del request
-        raise CodexCapabilityError("SDK thread lifecycle is not initialized")
+        context = request.context.validated()
+        if not request.source_thread_id:
+            raise CodexPolicyError("source_thread_id must be explicit")
+        store = self._get_store()
+        existing = store.get_thread_by_correlation(context.correlation_id)
+        if existing is not None:
+            return self._backend_thread(existing)
+
+        await self._require_chatgpt()
+        client = await self._get_client()
+        try:
+            thread = await client.thread_fork(
+                request.source_thread_id,
+                approval_mode=self._sdk_approval_mode(context.approval_mode),
+                cwd=str(context.cwd.resolve(strict=False)),
+                developer_instructions=redact_text(
+                    context.developer_instructions or ""
+                )
+                or None,
+                ephemeral=False,
+                model=context.model.model,
+                sandbox=self._sdk_sandbox(context.sandbox),
+                service_tier=context.model.service_tier,
+            )
+        except Exception as exc:
+            raise CodexBackendError(safe_error_message(exc)) from exc
+
+        thread_id = self._required_id(thread, "thread")
+        now = self._now()
+        record = store.save_thread(
+            CodexThreadRecord(
+                task_id=context.task_id,
+                session_id=context.session_id,
+                correlation_id=context.correlation_id,
+                thread_id=thread_id,
+                backend=CodexBackendKind.PYTHON_SDK,
+                sandbox=context.sandbox,
+                approval_mode=context.approval_mode,
+                cwd=str(context.cwd.resolve(strict=False)),
+                model_config=asdict(context.model),
+                status="forked",
+                created_at=now,
+                updated_at=now,
+                resume_checkpoint=f"fork:{request.source_thread_id}",
+            )
+        )
+        self._threads[thread_id] = thread
+        self._thread_contexts[thread_id] = context
+        self._events().emit(
+            CodexEventType.THREAD_STARTED,
+            context=context,
+            backend=CodexBackendKind.PYTHON_SDK,
+            thread_id=thread_id,
+            payload={"forked_from": request.source_thread_id},
+        )
+        return self._backend_thread(record)
 
     async def list_threads(self, *, limit: int = 100) -> list[BackendThread]:
-        del limit
-        raise CodexCapabilityError("SDK thread lifecycle is not initialized")
+        if limit <= 0:
+            raise ValueError("limit must be positive")
+        return [
+            self._backend_thread(record)
+            for record in self._get_store().list_threads(limit=limit)
+        ]
 
     async def start_turn(self, request: TurnStartRequest) -> BackendTurn:
-        del request
-        raise CodexCapabilityError("SDK turn lifecycle is not initialized")
+        context = request.context.validated()
+        if not request.thread_id:
+            raise CodexPolicyError("thread_id must be explicit")
+        if not request.prompt.strip():
+            raise CodexPolicyError("turn prompt must be non-empty")
+        store = self._get_store()
+        existing = store.get_turn_by_correlation(context.correlation_id)
+        if existing is not None:
+            return self._backend_turn(existing)
+        thread_record = store.get_thread_by_id(request.thread_id)
+        if thread_record is None:
+            raise CodexCapabilityError("thread is not managed by OpenJarvis")
+        if (
+            thread_record.task_id != context.task_id
+            or thread_record.session_id != context.session_id
+        ):
+            raise CodexPolicyError("turn context does not own the requested thread")
+
+        await self._require_chatgpt()
+        thread = self._threads.get(request.thread_id)
+        if thread is None:
+            thread = await self._resume_handle(request.thread_id, context)
+        try:
+            handle = await thread.turn(
+                request.prompt,
+                approval_mode=self._sdk_approval_mode(context.approval_mode),
+                cwd=str(context.cwd.resolve(strict=False)),
+                effort=context.model.effort,
+                model=context.model.model,
+                sandbox=self._sdk_sandbox(context.sandbox),
+                service_tier=context.model.service_tier,
+            )
+        except Exception as exc:
+            raise CodexBackendError(safe_error_message(exc)) from exc
+
+        turn_id = self._required_id(handle, "turn")
+        now = self._now()
+        record = store.save_turn(
+            CodexTurnRecord(
+                turn_id=turn_id,
+                task_id=context.task_id,
+                session_id=context.session_id,
+                correlation_id=context.correlation_id,
+                thread_id=request.thread_id,
+                backend=CodexBackendKind.PYTHON_SDK,
+                sandbox=context.sandbox,
+                approval_mode=context.approval_mode,
+                cwd=str(context.cwd.resolve(strict=False)),
+                status="started",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        self._turns[turn_id] = _ActiveTurn(
+            handle=handle,
+            context=context,
+            started_monotonic=time.monotonic(),
+        )
+        return self._backend_turn(record)
 
     async def stream_events(self, turn_id: str) -> AsyncIterator[CodexEvent]:
-        del turn_id
-        raise CodexCapabilityError("SDK event streaming is not initialized")
-        yield  # pragma: no cover
+        active = self._turns.get(turn_id)
+        if active is None:
+            raise CodexCapabilityError(f"unknown active turn: {turn_id}")
+        turn_record = self._get_store().get_turn(turn_id)
+        if turn_record is None:
+            raise CodexCapabilityError(f"turn is not persisted: {turn_id}")
+
+        iterator = active.handle.stream().__aiter__()
+        step_count = 0
+        try:
+            while True:
+                elapsed = time.monotonic() - active.started_monotonic
+                remaining = active.context.timeout_seconds - elapsed
+                if remaining <= 0:
+                    async for event in self._limit_failure(
+                        active,
+                        turn_record,
+                        "turn timeout exceeded",
+                        timeout=True,
+                    ):
+                        yield event
+                    raise CodexTimeoutError("turn timeout exceeded")
+                try:
+                    raw = await asyncio.wait_for(iterator.__anext__(), remaining)
+                except StopAsyncIteration:
+                    break
+                except asyncio.TimeoutError as exc:
+                    async for event in self._limit_failure(
+                        active,
+                        turn_record,
+                        "turn timeout exceeded",
+                        timeout=True,
+                    ):
+                        yield event
+                    raise CodexTimeoutError("turn timeout exceeded") from exc
+
+                event = self._events().normalize(
+                    raw,
+                    context=active.context,
+                    backend=CodexBackendKind.PYTHON_SDK,
+                    thread_id=turn_record.thread_id,
+                    turn_id=turn_id,
+                )
+                if event is None:
+                    continue
+                step_count += 1
+                if step_count > active.context.step_limit:
+                    async for failure in self._limit_failure(
+                        active,
+                        turn_record,
+                        "turn step limit exceeded",
+                    ):
+                        yield failure
+                    raise CodexPolicyError("turn step limit exceeded")
+                if self._token_limit_exceeded(event, active.context.token_limit):
+                    async for failure in self._limit_failure(
+                        active,
+                        turn_record,
+                        "turn token limit exceeded",
+                    ):
+                        yield failure
+                    raise CodexPolicyError("turn token limit exceeded")
+
+                yield event
+                if event.event_type in {
+                    CodexEventType.TURN_COMPLETED,
+                    CodexEventType.TURN_FAILED,
+                    CodexEventType.TURN_INTERRUPTED,
+                }:
+                    status = event.event_type.value.rsplit(".", 1)[-1]
+                    now = self._now()
+                    self._get_store().update_turn(
+                        turn_id,
+                        status=status,
+                        updated_at=now,
+                    )
+                    self._get_store().update_thread(
+                        turn_record.thread_id,
+                        status="idle",
+                        updated_at=now,
+                        resume_checkpoint=turn_id,
+                    )
+        finally:
+            close = getattr(iterator, "aclose", None)
+            if close is not None:
+                result = close()
+                if inspect.isawaitable(result):
+                    await result
+            self._turns.pop(turn_id, None)
 
     async def steer(self, turn_id: str, prompt: str) -> None:
-        del turn_id, prompt
-        raise CodexCapabilityError("SDK steer is not initialized")
+        if not prompt.strip():
+            raise CodexPolicyError("steer prompt must be non-empty")
+        active = self._turns.get(turn_id)
+        if active is None:
+            raise CodexCapabilityError(f"unknown active turn: {turn_id}")
+        try:
+            await active.handle.steer(prompt)
+        except Exception as exc:
+            raise CodexBackendError(safe_error_message(exc)) from exc
 
     async def interrupt(self, turn_id: str) -> None:
-        del turn_id
-        raise CodexCapabilityError("SDK interrupt is not initialized")
+        active = self._turns.get(turn_id)
+        if active is None:
+            raise CodexCapabilityError(f"unknown active turn: {turn_id}")
+        try:
+            await active.handle.interrupt()
+        except Exception as exc:
+            raise CodexBackendError(safe_error_message(exc)) from exc
+        self._get_store().update_turn(
+            turn_id,
+            status="interrupted",
+            updated_at=self._now(),
+        )
 
     async def read_thread(self, thread_id: str) -> Any:
-        del thread_id
-        raise CodexCapabilityError("SDK thread read is not initialized")
+        record = self._get_store().get_thread_by_id(thread_id)
+        if record is None:
+            raise CodexCapabilityError("thread is not managed by OpenJarvis")
+        context = self._thread_contexts.get(thread_id) or self._context_from_record(
+            record
+        )
+        await self._require_chatgpt()
+        thread = self._threads.get(thread_id)
+        if thread is None:
+            thread = await self._resume_handle(thread_id, context)
+        try:
+            response = await thread.read(include_turns=True)
+        except Exception as exc:
+            raise CodexBackendError(safe_error_message(exc)) from exc
+        return redact_data(self._model_dump(response))
 
     async def close(self) -> None:
-        if self._client is None:
-            return
         try:
-            result = self._client.close()
-            if inspect.isawaitable(result):
-                await result
+            if self._client is not None:
+                result = self._client.close()
+                if inspect.isawaitable(result):
+                    await result
         finally:
             self._client = None
+            self._threads.clear()
+            self._thread_contexts.clear()
+            self._turns.clear()
+            if self._owns_store and self._store is not None:
+                self._store.close()
+                self._store = None
+                self._event_adapter = None
 
     @staticmethod
     def redact(value: Any) -> Any:
         """Expose the shared redactor for normalized diagnostic payloads."""
 
         return redact_data(value)
+
+    async def _resume_handle(self, thread_id: str, context: CodexRunContext) -> Any:
+        client = await self._get_client()
+        try:
+            thread = await client.thread_resume(
+                thread_id,
+                approval_mode=self._sdk_approval_mode(context.approval_mode),
+                cwd=str(context.cwd.resolve(strict=False)),
+                developer_instructions=redact_text(
+                    context.developer_instructions or ""
+                )
+                or None,
+                model=context.model.model,
+                sandbox=self._sdk_sandbox(context.sandbox),
+                service_tier=context.model.service_tier,
+            )
+        except Exception as exc:
+            raise CodexBackendError(safe_error_message(exc)) from exc
+        self._threads[thread_id] = thread
+        self._thread_contexts[thread_id] = context
+        return thread
+
+    async def _limit_failure(
+        self,
+        active: _ActiveTurn,
+        turn_record: CodexTurnRecord,
+        message: str,
+        *,
+        timeout: bool = False,
+    ) -> AsyncIterator[CodexEvent]:
+        try:
+            await active.handle.interrupt()
+        except Exception:
+            pass
+        now = self._now()
+        self._get_store().update_turn(
+            turn_record.turn_id,
+            status="failed",
+            updated_at=now,
+        )
+        event = self._events().emit(
+            CodexEventType.ERROR,
+            context=active.context,
+            backend=CodexBackendKind.PYTHON_SDK,
+            thread_id=turn_record.thread_id,
+            turn_id=turn_record.turn_id,
+            payload={"message": message, "timeout": timeout},
+        )
+        if event is not None:
+            yield event
+
+    @staticmethod
+    def _token_limit_exceeded(
+        event: CodexEvent,
+        limit: int | None,
+    ) -> bool:
+        if limit is None or event.event_type is not CodexEventType.USAGE_UPDATED:
+            return False
+        payload = event.payload
+        token_usage = payload.get("tokenUsage")
+        if not isinstance(token_usage, dict):
+            return False
+        total = token_usage.get("total")
+        if not isinstance(total, dict):
+            return False
+        value = total.get("totalTokens")
+        return isinstance(value, int) and value > limit
+
+    @staticmethod
+    def _sdk_approval_mode(mode: ApprovalMode) -> Any:
+        if mode is not ApprovalMode.DENY_ALL:
+            raise CodexPolicyError("Phase 2 requires ApprovalMode.deny_all")
+        from openai_codex import ApprovalMode as SdkApprovalMode
+
+        return SdkApprovalMode.deny_all
+
+    @staticmethod
+    def _sdk_sandbox(mode: SandboxMode) -> Any:
+        from openai_codex import Sandbox as SdkSandbox
+
+        if mode is SandboxMode.READ_ONLY:
+            return SdkSandbox.read_only
+        if mode is SandboxMode.WORKSPACE_WRITE:
+            return SdkSandbox.workspace_write
+        raise CodexPolicyError("full_access is prohibited")
+
+    @staticmethod
+    def _required_id(value: Any, kind: str) -> str:
+        identifier = getattr(value, "id", None)
+        if not identifier:
+            raise CodexBackendError(f"Codex {kind} response did not contain an id")
+        return str(identifier)
+
+    @staticmethod
+    def _backend_thread(
+        record: CodexThreadRecord,
+        *,
+        status: str | None = None,
+    ) -> BackendThread:
+        return BackendThread(
+            thread_id=record.thread_id,
+            backend=record.backend,
+            task_id=record.task_id,
+            session_id=record.session_id,
+            status=status or record.status,
+        )
+
+    @staticmethod
+    def _backend_turn(record: CodexTurnRecord) -> BackendTurn:
+        return BackendTurn(
+            turn_id=record.turn_id,
+            thread_id=record.thread_id,
+            backend=record.backend,
+            status=record.status,
+        )
+
+    @staticmethod
+    def _context_from_record(record: CodexThreadRecord) -> CodexRunContext:
+        model = record.model_config
+        return CodexRunContext(
+            task_id=record.task_id,
+            session_id=record.session_id,
+            correlation_id=record.correlation_id,
+            cwd=Path(record.cwd),
+            sandbox=record.sandbox,
+            approval_mode=record.approval_mode,
+            model=CodexModelConfig(
+                model=model.get("model"),
+                effort=model.get("effort"),
+                service_tier=model.get("service_tier"),
+            ),
+            timeout_seconds=300,
+            step_limit=100,
+            token_limit=None,
+            developer_instructions=None,
+            isolated_workspace=(
+                Path(record.cwd)
+                if record.sandbox is SandboxMode.WORKSPACE_WRITE
+                else None
+            ),
+        ).validated()
+
+    @staticmethod
+    def _now() -> str:
+        return datetime.now(timezone.utc).isoformat()
 
 
 __all__ = ["CodexPythonSdkBackend"]
