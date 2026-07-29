@@ -1,5 +1,12 @@
 """Secure Codex backend integration for OpenJarvis."""
 
+from openjarvis.codex.app_server import AppServerTransport, CodexAppServerBackend
+from openjarvis.codex.approval import (
+    ApprovalBroker,
+    ApprovalDecision,
+    ApprovalRequest,
+    DenyApprovalBroker,
+)
 from openjarvis.codex.events import CodexEventAdapter
 from openjarvis.codex.protocol import CodexBackend
 from openjarvis.codex.sdk_backend import CodexPythonSdkBackend
@@ -33,10 +40,15 @@ from openjarvis.codex.types import (
 
 __all__ = [
     "ApprovalMode",
+    "ApprovalBroker",
+    "ApprovalDecision",
+    "ApprovalRequest",
+    "AppServerTransport",
     "BackendCapabilities",
     "BackendThread",
     "BackendTurn",
     "CodexAuthenticationError",
+    "CodexAppServerBackend",
     "CodexBackend",
     "CodexBackendError",
     "CodexBackendKind",
@@ -53,6 +65,7 @@ __all__ = [
     "CodexThreadRecord",
     "CodexTimeoutError",
     "CodexTurnRecord",
+    "DenyApprovalBroker",
     "SandboxMode",
     "ThreadForkRequest",
     "ThreadResumeRequest",
