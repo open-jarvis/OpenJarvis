@@ -10,6 +10,7 @@ def test_codex_config_defaults_are_safe() -> None:
     assert config.primary_backend == "python_sdk"
     assert config.approval_mode == "deny_all"
     assert config.analysis_sandbox == "read_only"
+    assert config.allow_cli_fallback is False
     assert config.allow_global_cli_override is False
     assert not hasattr(config, "api_key")
     assert not hasattr(config, "full_access")

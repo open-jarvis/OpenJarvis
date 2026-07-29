@@ -7,8 +7,10 @@ from openjarvis.codex.approval import (
     ApprovalRequest,
     DenyApprovalBroker,
 )
+from openjarvis.codex.cli_backend import CliProcessResult, CodexCliFallbackBackend
 from openjarvis.codex.events import CodexEventAdapter
 from openjarvis.codex.protocol import CodexBackend
+from openjarvis.codex.router import CodexBackendRouter
 from openjarvis.codex.sdk_backend import CodexPythonSdkBackend
 from openjarvis.codex.store import (
     CodexStateStore,
@@ -52,7 +54,9 @@ __all__ = [
     "CodexBackend",
     "CodexBackendError",
     "CodexBackendKind",
+    "CodexBackendRouter",
     "CodexCapabilityError",
+    "CodexCliFallbackBackend",
     "CodexEvent",
     "CodexEventAdapter",
     "CodexEventType",
@@ -65,6 +69,7 @@ __all__ = [
     "CodexThreadRecord",
     "CodexTimeoutError",
     "CodexTurnRecord",
+    "CliProcessResult",
     "DenyApprovalBroker",
     "SandboxMode",
     "ThreadForkRequest",

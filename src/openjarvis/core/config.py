@@ -1585,6 +1585,7 @@ class CodexBackendConfig:
     )
     app_server_binary: str = ""
     cli_binary: str = ""
+    allow_cli_fallback: bool = False
     allow_global_cli_override: bool = False
 
 
