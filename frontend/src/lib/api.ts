@@ -885,6 +885,25 @@ export async function saveToolCredentials(
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
 }
 
+export async function fetchToolCredentialStatus(
+  toolName: string,
+): Promise<Record<string, boolean>> {
+  const res = await apiFetch(`/v1/tools/${toolName}/credentials/status`);
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return await res.json();
+}
+
+export async function deleteToolCredential(
+  toolName: string,
+  keyName: string,
+): Promise<void> {
+  const res = await apiFetch(
+    `/v1/tools/${encodeURIComponent(toolName)}/credentials/${encodeURIComponent(keyName)}`,
+    { method: 'DELETE' },
+  );
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+}
+
 export interface AgentTraceDetail {
   id: string;
   agent: string;

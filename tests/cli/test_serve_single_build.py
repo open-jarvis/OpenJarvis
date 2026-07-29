@@ -159,6 +159,8 @@ def test_serve_does_not_call_systembuilder_build(tmp_path, monkeypatch):
         )
     )
     set_system_spy = MagicMock()
+    inject_spy = MagicMock()
+    monkeypatch.setattr(serve_mod, "inject_credentials", inject_spy)
 
     result = _run_serve(
         tmp_path,
@@ -169,6 +171,7 @@ def test_serve_does_not_call_systembuilder_build(tmp_path, monkeypatch):
 
     assert result.exit_code == 0, result.output
     build_spy.assert_not_called()
+    inject_spy.assert_called_once_with()
 
 
 def test_executor_receives_required_system_attrs(tmp_path, monkeypatch):
