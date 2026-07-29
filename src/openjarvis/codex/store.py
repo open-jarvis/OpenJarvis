@@ -361,6 +361,13 @@ class CodexStateStore:
         except sqlite3.IntegrityError:
             return False
 
+    def has_event(self, event_id: str) -> bool:
+        row = self._conn.execute(
+            "SELECT 1 FROM codex_events WHERE event_id=?",
+            (event_id,),
+        ).fetchone()
+        return row is not None
+
     def list_events(self, thread_id: str) -> list[CodexEvent]:
         rows = self._conn.execute(
             "SELECT * FROM codex_events WHERE thread_id=? ORDER BY sequence",

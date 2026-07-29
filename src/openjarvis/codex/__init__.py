@@ -1,5 +1,6 @@
 """Secure Codex backend integration for OpenJarvis."""
 
+from openjarvis.codex.events import CodexEventAdapter
 from openjarvis.codex.protocol import CodexBackend
 from openjarvis.codex.sdk_backend import CodexPythonSdkBackend
 from openjarvis.codex.store import (
@@ -41,6 +42,7 @@ __all__ = [
     "CodexBackendKind",
     "CodexCapabilityError",
     "CodexEvent",
+    "CodexEventAdapter",
     "CodexEventType",
     "CodexHealth",
     "CodexModelConfig",
