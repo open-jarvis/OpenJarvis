@@ -7,7 +7,27 @@ export interface AgentEvent {
   data: Record<string, unknown>;
 }
 
-function buildWsUrl(agentId?: string): string {
+/**
+ * Subscribe to every agent's events rather than one agent's.
+ *
+ * The server has always supported this — ``/v1/agents/events`` treats
+ * ``agent_id`` as an optional filter and broadcasts everything without it
+ * (`server/ws_bridge.py`). Only this hook prevented it, by refusing to connect
+ * without an id, which left `buildWsUrl`'s no-filter branch unreachable.
+ *
+ * An explicit sentinel rather than reusing `undefined`: callers pass a
+ * possibly-undefined selected-agent id and rely on that meaning "do not
+ * subscribe", so redefining it would silently turn those into firehose
+ * subscriptions.
+ */
+export const ALL_AGENTS = '*';
+
+/** Whether the hook should open a socket at all. */
+export function shouldSubscribe(agentId?: string): boolean {
+  return Boolean(agentId);
+}
+
+export function buildWsUrl(agentId?: string): string {
   const base = getBase();
   let origin: string;
   if (base) {
@@ -17,13 +37,17 @@ function buildWsUrl(agentId?: string): string {
     origin = `${loc.protocol === 'https:' ? 'wss:' : 'ws:'}//${loc.host}`;
   }
   const path = '/v1/agents/events';
-  return agentId
+  // ALL_AGENTS means "no filter", which is the absence of the parameter —
+  // sending agent_id=* would filter for an agent literally named "*".
+  return agentId && agentId !== ALL_AGENTS
     ? `${origin}${path}?agent_id=${encodeURIComponent(agentId)}`
     : `${origin}${path}`;
 }
 
 /**
  * Subscribe to agent events over WebSocket.
+ *
+ * Pass a single agent id, or {@link ALL_AGENTS} for every agent.
  * Auto-reconnects with backoff when the socket drops.
  */
 export function useAgentEvents(
@@ -37,7 +61,7 @@ export function useAgentEvents(
   typesRef.current = eventTypes;
 
   useEffect(() => {
-    if (!agentId) return;
+    if (!shouldSubscribe(agentId)) return;
     let ws: WebSocket | null = null;
     let closed = false;
     let retry = 0;
