@@ -51,10 +51,9 @@ export default defineConfig({
       },
     },
   },
-          server: {
-            port: 5173,
-            allowedHosts: ['0.0.0.0', 'shodan.ehrendingen'],
-            proxy: {
+  server: {
+    port: 5173,
+    proxy: {
       '/v1': process.env.VITE_API_URL || 'http://localhost:8000',
       '/health': process.env.VITE_API_URL || 'http://localhost:8000',
       '/api': process.env.VITE_API_URL || 'http://localhost:8000',
