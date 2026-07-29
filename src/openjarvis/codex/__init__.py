@@ -1,6 +1,7 @@
 """Secure Codex backend integration for OpenJarvis."""
 
 from openjarvis.codex.protocol import CodexBackend
+from openjarvis.codex.sdk_backend import CodexPythonSdkBackend
 from openjarvis.codex.types import (
     ApprovalMode,
     BackendCapabilities,
@@ -39,6 +40,7 @@ __all__ = [
     "CodexHealth",
     "CodexModelConfig",
     "CodexPolicyError",
+    "CodexPythonSdkBackend",
     "CodexRunContext",
     "CodexTimeoutError",
     "SandboxMode",
