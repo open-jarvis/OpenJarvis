@@ -2,6 +2,11 @@
 
 from openjarvis.codex.protocol import CodexBackend
 from openjarvis.codex.sdk_backend import CodexPythonSdkBackend
+from openjarvis.codex.store import (
+    CodexStateStore,
+    CodexThreadRecord,
+    CodexTurnRecord,
+)
 from openjarvis.codex.types import (
     ApprovalMode,
     BackendCapabilities,
@@ -42,7 +47,10 @@ __all__ = [
     "CodexPolicyError",
     "CodexPythonSdkBackend",
     "CodexRunContext",
+    "CodexStateStore",
+    "CodexThreadRecord",
     "CodexTimeoutError",
+    "CodexTurnRecord",
     "SandboxMode",
     "ThreadForkRequest",
     "ThreadResumeRequest",
