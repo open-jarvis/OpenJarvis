@@ -92,6 +92,7 @@ desktop = [
     "python-multipart>=0.0.9",
     "faster-whisper>=1.0",
 ]
+codex = ["openai-codex==0.144.4"]
 openhands = ["openhands-sdk>=1.0; python_version >= '3.12'"]
 gpu-metrics = ["pynvml>=12.0"]
 energy-amd = ["amdsmi>=6.1"]
