@@ -1569,6 +1569,25 @@ class DigestConfig:
     )
 
 
+@dataclass(slots=True)
+class CodexBackendConfig:
+    """Safe defaults for the optional Codex backend integration."""
+
+    enabled: bool = False
+    primary_backend: str = "python_sdk"
+    approval_mode: str = "deny_all"
+    analysis_sandbox: str = "read_only"
+    default_timeout_seconds: float = 300.0
+    default_step_limit: int = 100
+    default_token_limit: int = 0
+    state_db_path: str = field(
+        default_factory=lambda: str(get_config_dir() / "codex_state.db")
+    )
+    app_server_binary: str = ""
+    cli_binary: str = ""
+    allow_global_cli_override: bool = False
+
+
 @dataclass
 class JarvisConfig:
     """Top-level configuration for OpenJarvis."""
@@ -1602,6 +1621,7 @@ class JarvisConfig:
     skills: SkillsConfig = field(default_factory=SkillsConfig)
     digest: DigestConfig = field(default_factory=DigestConfig)
     proactive: ProactiveConfig = field(default_factory=ProactiveConfig)
+    codex: CodexBackendConfig = field(default_factory=CodexBackendConfig)
     mining: Optional["MiningConfig"] = None
 
     @property
@@ -1863,6 +1883,7 @@ def load_config(path: Optional[Path] = None) -> JarvisConfig:
             "system_prompt",
             "compression",
             "skills",
+            "codex",
         )
         for section_name in top_sections:
             if section_name in data:
