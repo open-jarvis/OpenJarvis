@@ -29,6 +29,7 @@ from openjarvis.browser.process import (
     BrowserProfilePolicy,
 )
 from openjarvis.browser.recovery import BrowserRecoveryController
+from openjarvis.browser.service import BrowserSessionService
 
 __all__ = [
     "BrowserActionResult",
@@ -47,6 +48,7 @@ __all__ = [
     "BrowserRecoveryRecord",
     "BrowserSession",
     "BrowserSessionStatus",
+    "BrowserSessionService",
     "BrowserToolAdapter",
     "BrowserTransferPolicy",
     "CdpBrowserAdapter",

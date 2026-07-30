@@ -1043,9 +1043,13 @@ def include_all_routes(app) -> None:
         router as memory_vault_router,
     )
     from openjarvis.server.task_routes import router as task_router  # noqa: PLC0415
+    from openjarvis.server.tool_browser_routes import (  # noqa: PLC0415
+        router as tool_browser_router,
+    )
 
     app.include_router(approval_router)
     app.include_router(task_router)
+    app.include_router(tool_browser_router)
     app.include_router(memory_vault_router)
     app.include_router(agents_router)
     app.include_router(memory_router)

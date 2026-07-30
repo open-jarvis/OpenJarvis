@@ -87,6 +87,9 @@ class ToolActionService:
     def lanes(self) -> ExecutionLaneScheduler:
         return self._lanes
 
+    def runtime_available(self, tool_id: str) -> bool:
+        return tool_id in self._runtimes
+
     def create(self, proposal: ToolProposal) -> ToolAction:
         """Validate and persist a proposal without executing before approval."""
 

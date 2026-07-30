@@ -162,6 +162,8 @@ def create_app(
     approval_broker=None,
     codex_orchestrator=None,
     recovery_coordinator=None,
+    tool_action_service=None,
+    browser_session_service=None,
     owns_task_runtime: bool = False,
     api_key: str = "",
     webhook_config: dict | None = None,
@@ -240,6 +242,8 @@ def create_app(
     app.state.approval_broker = approval_broker
     app.state.codex_orchestrator = codex_orchestrator
     app.state.recovery_coordinator = recovery_coordinator
+    app.state.tool_action_service = tool_action_service
+    app.state.browser_session_service = browser_session_service
     app.state.session_start = time.time()
     # Exposed so WebSocket handlers can authenticate the handshake (the HTTP
     # AuthMiddleware never sees WS upgrade requests). Empty = auth disabled.
