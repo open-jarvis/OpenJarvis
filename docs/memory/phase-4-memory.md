@@ -325,7 +325,7 @@ test failed.
 Frontend:
 
 ```text
-MemoryVaultPanel: 2 passed
+Full Vitest suite: 8 passed (including MemoryVaultPanel: 2 passed)
 TypeScript/Vite production build: passed
 ```
 
