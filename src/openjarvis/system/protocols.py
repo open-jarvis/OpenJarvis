@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from openjarvis.engine._stubs import InferenceEngine
     from openjarvis.security.capabilities import CapabilityPolicy
     from openjarvis.sessions.session import SessionStore
+    from openjarvis.tasks.approval import PersistentApprovalBroker
     from openjarvis.tasks.orchestrator import CodexTaskOrchestrator
     from openjarvis.tasks.recovery import RecoveryCoordinator
     from openjarvis.tasks.service import TaskService
@@ -39,6 +40,7 @@ class OrchestratorDeps(Protocol):
     trace_store: Optional[TraceStore]
     trace_collector: Optional[TraceCollector]  # written by _run_agent
     task_service: Optional[TaskService]
+    approval_broker: Optional[PersistentApprovalBroker]
     codex_orchestrator: Optional[CodexTaskOrchestrator]
     recovery_coordinator: Optional[RecoveryCoordinator]
 

@@ -675,6 +675,26 @@ def serve(
         except Exception as exc:
             logger.debug("ChannelBridge init skipped: %s", exc)
 
+    codex_runtime = None
+    codex_trace_store = None
+    if config.codex.enabled:
+        try:
+            if config.traces.enabled:
+                from openjarvis.traces.store import TraceStore
+
+                codex_trace_store = TraceStore(config.traces.db_path)
+            from openjarvis.tasks.runtime import build_codex_task_runtime
+
+            codex_runtime = build_codex_task_runtime(
+                config.codex,
+                bus=bus,
+                trace_store=codex_trace_store,
+            )
+            console.print("  Codex: [cyan]task runtime active[/cyan]")
+        except Exception as exc:
+            logger.error("Codex task runtime failed to initialize: %s", exc)
+            raise
+
     app = create_app(
         engine,
         model_name,
@@ -689,6 +709,23 @@ def serve(
         speech_backend=speech_backend,
         agent_manager=agent_manager,
         agent_scheduler=agent_scheduler,
+        trace_store=codex_trace_store,
+        task_store=(codex_runtime.store if codex_runtime is not None else None),
+        task_service=(
+            codex_runtime.service if codex_runtime is not None else None
+        ),
+        approval_broker=(
+            codex_runtime.approval_broker
+            if codex_runtime is not None
+            else None
+        ),
+        codex_orchestrator=(
+            codex_runtime.orchestrator if codex_runtime is not None else None
+        ),
+        recovery_coordinator=(
+            codex_runtime.recovery if codex_runtime is not None else None
+        ),
+        owns_task_runtime=codex_runtime is not None,
         api_key=api_key,
         webhook_config=webhook_config,
         cors_origins=config.server.cors_origins,

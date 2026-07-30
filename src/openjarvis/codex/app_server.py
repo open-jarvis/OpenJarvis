@@ -395,13 +395,17 @@ class CodexAppServerBackend:
         approval_broker: ApprovalBroker | None = None,
         store: CodexStateStore | None = None,
         state_db_path: str | Path | None = None,
+        request_timeout: float = 30.0,
     ) -> None:
+        if request_timeout <= 0:
+            raise ValueError("request_timeout must be positive")
         self._transport = transport
         self._codex_bin = Path(codex_bin) if codex_bin else None
         self._environment = sanitized_codex_environment(environment)
         self._approval_broker = approval_broker
         self._store = store
         self._state_db_path = state_db_path
+        self._request_timeout = request_timeout
         self._owns_store = store is None
         self._event_adapter = CodexEventAdapter(store) if store else None
         self._turns: dict[str, _AppServerTurn] = {}
@@ -444,6 +448,7 @@ class CodexAppServerBackend:
                 (str(binary), "app-server", "--listen", "stdio://"),
                 environment=self._environment,
                 approval_broker=self._approval_broker,
+                request_timeout=self._request_timeout,
             )
         await self._transport.start()
         return self._transport

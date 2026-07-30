@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from pathlib import Path
@@ -420,5 +421,45 @@ async def test_late_hard_usage_does_not_invalidate_received_result(
         assert result.task.status is TaskStatus.DONE
         assert result.task.outcome is TaskOutcome.COMPLETED_WITH_BUDGET_WARNING
         assert fake.interrupt_count == 0
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_pause_interrupts_active_turn_before_state_change(
+    tmp_path: Path,
+) -> None:
+    store, service, fake, orchestrator = _runtime(tmp_path, [])
+    stream_started = asyncio.Event()
+    stream_released = asyncio.Event()
+
+    async def blocking_stream(turn_id: str) -> AsyncIterator[CodexEvent]:
+        for event in fake.turn_events[turn_id]:
+            yield event
+        stream_started.set()
+        await stream_released.wait()
+
+    async def interrupt(turn_id: str) -> None:
+        del turn_id
+        fake.interrupt_count += 1
+        stream_released.set()
+
+    fake.stream_events = blocking_stream  # type: ignore[method-assign]
+    fake.interrupt = interrupt  # type: ignore[method-assign]
+    try:
+        execution = asyncio.create_task(
+            orchestrator.execute("task", "question", cwd=tmp_path)
+        )
+        await asyncio.wait_for(stream_started.wait(), timeout=1)
+        paused = await orchestrator.pause(
+            "task",
+            cause="local_user_pause",
+            idempotency_key="pause-once",
+        )
+        result = await asyncio.wait_for(execution, timeout=1)
+        assert fake.interrupt_count == 1
+        assert paused.status is TaskStatus.PAUSED
+        assert result.task.status is TaskStatus.PAUSED
+        assert service.get("task").status is TaskStatus.PAUSED
     finally:
         store.close()

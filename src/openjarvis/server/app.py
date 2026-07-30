@@ -155,6 +155,13 @@ def create_app(
     speech_backend=None,
     agent_manager=None,
     agent_scheduler=None,
+    trace_store=None,
+    task_store=None,
+    task_service=None,
+    approval_broker=None,
+    codex_orchestrator=None,
+    recovery_coordinator=None,
+    owns_task_runtime: bool = False,
     api_key: str = "",
     webhook_config: dict | None = None,
     cors_origins: list[str] | None = None,
@@ -226,6 +233,11 @@ def create_app(
     app.state.speech_backend = speech_backend
     app.state.agent_manager = agent_manager
     app.state.agent_scheduler = agent_scheduler
+    app.state.task_store = task_store
+    app.state.task_service = task_service
+    app.state.approval_broker = approval_broker
+    app.state.codex_orchestrator = codex_orchestrator
+    app.state.recovery_coordinator = recovery_coordinator
     app.state.session_start = time.time()
     # Exposed so WebSocket handlers can authenticate the handshake (the HTTP
     # AuthMiddleware never sees WS upgrade requests). Empty = auth disabled.
@@ -241,16 +253,34 @@ def create_app(
     # UNIQUE constraint on trace_id (a 500 on every completion). Keeping the
     # collector the single writer is what makes the dual code path safe; only
     # the telemetry store is bus-subscribed (see system/builder.py).
-    app.state.trace_store = None
-    try:
-        from openjarvis.core.config import load_config
-        from openjarvis.traces.store import TraceStore
+    app.state.trace_store = trace_store
+    if trace_store is None:
+        try:
+            from openjarvis.core.config import load_config
+            from openjarvis.traces.store import TraceStore
 
-        cfg = config if config is not None else load_config()
-        if cfg.traces.enabled:
-            app.state.trace_store = TraceStore(db_path=cfg.traces.db_path)
-    except Exception:
-        pass  # traces are optional; don't block server startup
+            cfg = config if config is not None else load_config()
+            if cfg.traces.enabled:
+                app.state.trace_store = TraceStore(db_path=cfg.traces.db_path)
+        except Exception:
+            pass  # traces are optional; don't block server startup
+
+    if owns_task_runtime and codex_orchestrator is not None:
+
+        @app.on_event("shutdown")
+        async def _shutdown_task_runtime() -> None:
+            orchestrator = getattr(app.state, "codex_orchestrator", None)
+            if orchestrator is not None:
+                try:
+                    await orchestrator.close()
+                except Exception:
+                    logger.debug("Codex runtime shutdown failed", exc_info=True)
+            store = getattr(app.state, "task_store", None)
+            if store is not None:
+                try:
+                    store.close()
+                except Exception:
+                    logger.debug("Task store shutdown failed", exc_info=True)
 
     # Wire up external analytics if enabled (PostHog) — never block startup.
     # Note: we do NOT fire app_opened here. The frontend owns that event

@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from openjarvis.skills.manager import SkillManager
     from openjarvis.speech._stubs import SpeechBackend
     from openjarvis.system.orchestrator import QueryOrchestrator
+    from openjarvis.tasks.approval import PersistentApprovalBroker
     from openjarvis.tasks.orchestrator import CodexTaskOrchestrator
     from openjarvis.tasks.recovery import RecoveryCoordinator
     from openjarvis.tasks.service import TaskService
@@ -90,6 +91,7 @@ class JarvisSystem:
     skill_manager: Optional[SkillManager] = None
     task_store: Optional[TaskStore] = None
     task_service: Optional[TaskService] = None
+    approval_broker: Optional[PersistentApprovalBroker] = None
     codex_orchestrator: Optional[CodexTaskOrchestrator] = None
     recovery_coordinator: Optional[RecoveryCoordinator] = None
     _learning_orchestrator: Optional[LearningOrchestrator] = None

@@ -231,82 +231,21 @@ class SystemBuilder:
         task_service = None
         codex_orchestrator = None
         recovery_coordinator = None
+        approval_broker = None
         if config.codex.enabled:
             try:
-                from openjarvis.codex.app_server import CodexAppServerBackend
-                from openjarvis.codex.cli_backend import CodexCliFallbackBackend
-                from openjarvis.codex.router import CodexBackendRouter
-                from openjarvis.codex.sdk_backend import CodexPythonSdkBackend
-                from openjarvis.tasks.approval import PersistentApprovalBroker
-                from openjarvis.tasks.budget import BudgetLimits
-                from openjarvis.tasks.orchestrator import CodexTaskOrchestrator
-                from openjarvis.tasks.policy import CentralRiskPolicy
-                from openjarvis.tasks.projection import CodexTaskEventProjector
-                from openjarvis.tasks.recovery import RecoveryCoordinator
-                from openjarvis.tasks.service import TaskService
-                from openjarvis.tasks.store import TaskStore
+                from openjarvis.tasks.runtime import build_codex_task_runtime
 
-                task_store = TaskStore(config.codex.state_db_path)
-                task_service = TaskService(task_store, bus=bus)
-                risk_policy = CentralRiskPolicy()
-                approval_broker = PersistentApprovalBroker(
-                    task_store,
-                    task_service,
-                    risk_policy=risk_policy,
-                    timeout_seconds=config.codex.default_timeout_seconds,
-                )
-                sdk_backend = CodexPythonSdkBackend(store=task_store)
-                app_backend = CodexAppServerBackend(
-                    codex_bin=config.codex.app_server_binary or None,
-                    approval_broker=approval_broker,
-                    store=task_store,
-                )
-                cli_backend = None
-                if config.codex.allow_cli_fallback:
-                    cli_backend = CodexCliFallbackBackend(
-                        codex_bin=config.codex.cli_binary or None,
-                    )
-                codex_router = CodexBackendRouter(
-                    sdk_backend=sdk_backend,
-                    app_server_backend=app_backend,
-                    cli_fallback_backend=cli_backend,
-                    allow_cli_fallback=config.codex.allow_cli_fallback,
-                )
-                projector = CodexTaskEventProjector(
-                    task_store,
+                runtime = build_codex_task_runtime(
+                    config.codex,
                     bus=bus,
                     trace_store=trace_store,
                 )
-                codex_orchestrator = CodexTaskOrchestrator(
-                    codex_router,
-                    task_service,
-                    projector,
-                    risk_policy=risk_policy,
-                    default_timeout_seconds=config.codex.default_timeout_seconds,
-                    default_step_limit=config.codex.default_step_limit,
-                    default_token_limit=(
-                        config.codex.default_token_limit or None
-                    ),
-                    budget_limits=BudgetLimits(
-                        max_turn_duration=config.codex.max_turn_duration,
-                        max_steps=config.codex.max_steps,
-                        max_input_tokens=config.codex.max_input_tokens,
-                        max_output_tokens=config.codex.max_output_tokens,
-                        max_total_tokens_per_task=(
-                            config.codex.max_total_tokens_per_task
-                        ),
-                        warning_threshold=config.codex.warning_threshold,
-                        hard_limit_action=config.codex.hard_limit_action,
-                    ),
-                )
-                recovery_coordinator = RecoveryCoordinator(
-                    task_store,
-                    task_service,
-                )
-                # Startup recovery is deliberately conservative. It records
-                # safe read-only resumes as available and pauses them until a
-                # dispatcher explicitly supplies the continuation prompt.
-                recovery_coordinator.recover_all_sync()
+                task_store = runtime.store
+                task_service = runtime.service
+                approval_broker = runtime.approval_broker
+                codex_orchestrator = runtime.orchestrator
+                recovery_coordinator = runtime.recovery
             except Exception:
                 if task_store is not None:
                     task_store.close()
@@ -396,6 +335,7 @@ class SystemBuilder:
             skill_manager=skill_manager,
             task_store=task_store,
             task_service=task_service,
+            approval_broker=approval_broker,
             codex_orchestrator=codex_orchestrator,
             recovery_coordinator=recovery_coordinator,
         )

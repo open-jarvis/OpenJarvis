@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Coroutine, TypeVar
 
+from openjarvis.codex.protocol import CodexBackend
 from openjarvis.codex.router import CodexBackendRouter
 from openjarvis.codex.types import (
     CodexEvent,
@@ -96,6 +97,7 @@ class CodexTaskOrchestrator:
         self._token_limit = default_token_limit
         self._lanes = lane_scheduler or ExecutionLaneScheduler()
         self._budget = BudgetController(task_service.store, budget_limits)
+        self._active_turns: dict[str, tuple[str, CodexBackend, CodexRunContext]] = {}
 
     @property
     def lanes(self) -> ExecutionLaneScheduler:
@@ -223,20 +225,24 @@ class CodexTaskOrchestrator:
             )
 
         facts = _TerminalFacts()
-        async for event in backend.stream_events(turn.turn_id):
-            self._projector.project(event)
-            self._observe(facts, event)
-            if event.event_type is CodexEventType.USAGE_UPDATED:
-                decision = self._budget.observe(
-                    task_id=task.task_id,
-                    turn_id=turn.turn_id,
-                    event=event,
-                )
-                facts.budget_warning = facts.budget_warning or decision.warning
-                if decision.hard_exceeded and not facts.completed:
-                    await backend.interrupt(turn.turn_id)
-                    facts.budget_interrupted = True
-                    facts.interrupted = True
+        self._active_turns[task.task_id] = (turn.turn_id, backend, turn_context)
+        try:
+            async for event in backend.stream_events(turn.turn_id):
+                self._projector.project(event)
+                self._observe(facts, event)
+                if event.event_type is CodexEventType.USAGE_UPDATED:
+                    decision = self._budget.observe(
+                        task_id=task.task_id,
+                        turn_id=turn.turn_id,
+                        event=event,
+                    )
+                    facts.budget_warning = facts.budget_warning or decision.warning
+                    if decision.hard_exceeded and not facts.completed:
+                        await backend.interrupt(turn.turn_id)
+                        facts.budget_interrupted = True
+                        facts.interrupted = True
+        finally:
+            self._active_turns.pop(task.task_id, None)
         self._project_persisted_events(thread.thread_id)
 
         final_task = self._finish_task(
@@ -259,6 +265,61 @@ class CodexTaskOrchestrator:
 
     async def health(self):
         return await self._router.health()
+
+    def active_context(self, task_id: str) -> CodexRunContext | None:
+        """Return safe runtime policy metadata for local health reporting."""
+
+        active = self._active_turns.get(task_id)
+        return active[2] if active is not None else None
+
+    async def pause(
+        self,
+        task_id: str,
+        *,
+        cause: str,
+        idempotency_key: str,
+    ) -> TaskRecord:
+        """Interrupt an active turn before recording a paused task."""
+
+        task = self._tasks.get(task_id)
+        if task is None:
+            raise KeyError(f"unknown task: {task_id}")
+        active = self._active_turns.get(task_id)
+        if active is not None:
+            await active[1].interrupt(active[0])
+        return self._tasks.transition(
+            task_id,
+            TaskStatus.PAUSED,
+            component="task_api",
+            cause=cause,
+            idempotency_key=idempotency_key,
+            payload={"active_turn_interrupted": active is not None},
+        )
+
+    async def cancel(
+        self,
+        task_id: str,
+        *,
+        cause: str,
+        idempotency_key: str,
+    ) -> TaskRecord:
+        """Interrupt an active turn before recording terminal cancellation."""
+
+        task = self._tasks.get(task_id)
+        if task is None:
+            raise KeyError(f"unknown task: {task_id}")
+        active = self._active_turns.get(task_id)
+        if active is not None:
+            await active[1].interrupt(active[0])
+        return self._tasks.transition(
+            task_id,
+            TaskStatus.CANCELED,
+            component="task_api",
+            cause=cause,
+            idempotency_key=idempotency_key,
+            outcome=TaskOutcome.CANCELED,
+            payload={"active_turn_interrupted": active is not None},
+        )
 
     async def close(self) -> None:
         await self._router.close()
@@ -283,6 +344,8 @@ class CodexTaskOrchestrator:
         current = self._tasks.get(task_id)
         if current is None:
             raise RuntimeError("task disappeared after its Codex turn")
+        if current.status in {TaskStatus.PAUSED, TaskStatus.CANCELED}:
+            return current
         if current.status is TaskStatus.WAITING_APPROVAL:
             return self._tasks.transition(
                 task_id,
