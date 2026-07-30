@@ -96,6 +96,11 @@ async def list_agents(request: Request):
 @agents_router.post("")
 async def create_agent(req: AgentCreateRequest, request: Request):
     """Spawn a new agent."""
+    if getattr(request.app.state, "tool_action_service", None) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Direct agent mutation is disabled in canonical action mode.",
+        )
     try:
         from openjarvis.tools.agent_tools import AgentSpawnTool
 
@@ -120,6 +125,11 @@ async def create_agent(req: AgentCreateRequest, request: Request):
 @agents_router.delete("/{agent_id}")
 async def kill_agent(agent_id: str, request: Request):
     """Kill a running agent."""
+    if getattr(request.app.state, "tool_action_service", None) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Direct agent mutation is disabled in canonical action mode.",
+        )
     try:
         from openjarvis.tools.agent_tools import AgentKillTool
 
@@ -135,6 +145,11 @@ async def kill_agent(agent_id: str, request: Request):
 @agents_router.post("/{agent_id}/message")
 async def message_agent(agent_id: str, req: AgentMessageRequest, request: Request):
     """Send a message to a running agent."""
+    if getattr(request.app.state, "tool_action_service", None) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Direct agent mutation is disabled in canonical action mode.",
+        )
     try:
         from openjarvis.tools.agent_tools import AgentSendTool
 

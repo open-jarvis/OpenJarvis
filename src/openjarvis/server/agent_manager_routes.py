@@ -781,6 +781,98 @@ def _sse_chunk(chunk_id: str, model: str, content: str) -> str:
     return f"data: {_json.dumps(data)}\n\n"
 
 
+async def _execute_exposed_tool_via_action_service(
+    *,
+    app_state: Any,
+    agent_id: str,
+    message_id: str,
+    tool_call_id: str,
+    tool_name: str,
+    tool_arguments: str,
+):
+    """Route a model-reachable managed-agent tool through Phase 5 policy."""
+
+    import hashlib
+    import json
+
+    from openjarvis.core.types import ToolResult
+    from openjarvis.tasks.types import ExecutionLane
+    from openjarvis.tools.actions import ActionStatus, ParameterSource, ToolProposal
+
+    action_service = getattr(app_state, "tool_action_service", None)
+    task_service = getattr(app_state, "task_service", None)
+    if action_service is None or task_service is None:
+        return ToolResult(
+            tool_name=tool_name,
+            content="Tool execution is disabled outside the canonical action service.",
+            success=False,
+        )
+    try:
+        arguments = json.loads(tool_arguments) if tool_arguments else {}
+        if not isinstance(arguments, dict):
+            raise ValueError("tool arguments must be an object")
+        manifest = action_service.catalog.get(tool_name)
+        correlation_id = f"managed-{message_id}"
+        task_id = "managed_" + hashlib.sha256(message_id.encode()).hexdigest()[:24]
+        session_id = f"managed-agent-{agent_id}"
+        if task_service.get(task_id) is None:
+            task_service.create(
+                task_id=task_id,
+                session_id=session_id,
+                correlation_id=correlation_id,
+                description="Managed agent tool action",
+                execution_lane=ExecutionLane.MODEL,
+                backend="managed_agent",
+                risk_level=int(manifest.risk_level),
+                component="managed_agent",
+                cause="model_tool_proposal",
+                idempotency_key=f"managed-task:{message_id}",
+            )
+        proposal_key = f"managed:{message_id}:{tool_call_id}"
+        proposal = ToolProposal(
+            proposal_id="proposal_" + hashlib.sha256(proposal_key.encode()).hexdigest(),
+            task_id=task_id,
+            session_id=session_id,
+            correlation_id=correlation_id,
+            thread_id=f"managed-agent-{agent_id}",
+            turn_id=message_id,
+            item_id=tool_call_id,
+            tool_id=tool_name,
+            arguments=arguments,
+            expected_result=f"Verified result from {tool_name}",
+            expected_side_effect=manifest.side_effect_class,
+            risk_level=manifest.risk_level,
+            capability=manifest.capability,
+            target=str(
+                arguments.get("path")
+                or arguments.get("target")
+                or arguments.get("url")
+                or tool_name
+            )[:512],
+            verification_plan=manifest.verification_strategy,
+            undo_plan=manifest.undo_strategy,
+            idempotency_key=proposal_key,
+            timeout_seconds=manifest.timeout,
+            rationale="Model proposed this tool during a user-visible managed task.",
+            parameter_sources={key: ParameterSource.USER for key in arguments},
+        )
+        action = action_service.create(proposal)
+        if action.status is ActionStatus.VALIDATED:
+            action = await action_service.execute(action.action_id)
+        success = action.status is ActionStatus.COMPLETED
+        content = action.output_summary or (
+            f"Action {action.action_id} is {action.status.value}; "
+            "use the canonical approval UI when a decision is required."
+        )
+        return ToolResult(tool_name=tool_name, content=content, success=success)
+    except Exception as exc:
+        return ToolResult(
+            tool_name=tool_name,
+            content=f"Canonical tool action rejected ({type(exc).__name__}).",
+            success=False,
+        )
+
+
 def _tool_progress_label(tool_name: str, args: str) -> str:
     """Human-readable label for a tool call in progress."""
     labels = {
@@ -928,8 +1020,6 @@ async def _stream_managed_agent(
                 )
 
                 # Wrap the executor to capture tool calls
-                original_execute = dr_agent._executor.execute
-
                 def _tracked_execute(tc):
                     tool_name = tc.name
                     full_args = tc.arguments or ""
@@ -954,7 +1044,16 @@ async def _stream_managed_agent(
                         }
                     )
                     _tool_start = _dr_time.monotonic()
-                    result = original_execute(tc)
+                    result = asyncio.run(
+                        _execute_exposed_tool_via_action_service(
+                            app_state=app_state,
+                            agent_id=agent_id,
+                            message_id=message_id,
+                            tool_call_id=tc.id,
+                            tool_name=tool_name,
+                            tool_arguments=full_args,
+                        )
+                    )
                     _tool_latency_ms = (_dr_time.monotonic() - _tool_start) * 1000
 
                     # Log tool result
@@ -1368,8 +1467,17 @@ async def _stream_managed_agent(
                     tool_start_ms = _time.monotonic() * 1000
 
                     try:
+                        result = await _execute_exposed_tool_via_action_service(
+                            app_state=app_state,
+                            agent_id=agent_id,
+                            message_id=message_id,
+                            tool_call_id=tc["id"],
+                            tool_name=tool_name,
+                            tool_arguments=tool_args,
+                        )
+                        tool_result_content = result.content
                         # Try MCP adapter first (external tools)
-                        mcp_adapter = mcp_adapters.get(tool_name)
+                        mcp_adapter = None  # Direct execution is disabled in Phase 6.
                         if mcp_adapter is not None:
                             try:
                                 parsed_args = json.loads(tool_args) if tool_args else {}
@@ -1379,7 +1487,6 @@ async def _stream_managed_agent(
                             tool_result_content = result.content
                         else:
                             # Try to use ToolExecutor if tools are configured
-                            from openjarvis.core.registry import ToolRegistry
                             from openjarvis.tools._stubs import (
                                 ToolCall as StubToolCall,
                             )
@@ -1387,7 +1494,7 @@ async def _stream_managed_agent(
                                 ToolExecutor,
                             )
 
-                            tool_cls = ToolRegistry.get(tool_name)
+                            tool_cls = None  # Routed exclusively via ToolActionService.
                             if tool_cls is not None:
                                 # Inject backend / channel / engine the same
                                 # way cli/ask.py does, else memory_* / channel_*
@@ -1427,7 +1534,7 @@ async def _stream_managed_agent(
                                     "Tool '%s' not found in registry or MCP adapters",
                                     tool_name,
                                 )
-                        tool_succeeded = True
+                        tool_succeeded = result.success
                     except Exception as tool_exc:
                         logger.error(
                             "Tool execution error for %s: %s",
@@ -1730,6 +1837,14 @@ def create_agent_manager_router(
     ):
         if not manager.get_agent(agent_id):
             raise HTTPException(status_code=404, detail="Agent not found")
+        if getattr(request.app.state, "tool_action_service", None) is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "External channel activation is disabled in canonical "
+                    "action mode."
+                ),
+            )
         binding = manager.bind_channel(
             agent_id,
             channel_type=req.channel_type,
