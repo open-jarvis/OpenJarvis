@@ -172,6 +172,32 @@ def _create(client: TestClient, **body):
     return client.post("/v1/tasks", json=payload, headers=_HEADERS)
 
 
+def _chat(
+    client: TestClient,
+    *,
+    message: str = "Inspect the synthetic workspace",
+    session_id: str = "session-chat",
+    task_id: str = "task-chat",
+    correlation_id: str = "chat-correlation",
+    idempotency_key: str = "chat-message-once",
+    input_mode: str = "text",
+):
+    return client.post(
+        "/v1/chat",
+        json={
+            "message": message,
+            "session_id": session_id,
+            "task_id": task_id,
+            "input_mode": input_mode,
+            "use_memory": False,
+        },
+        headers={
+            "X-Correlation-ID": correlation_id,
+            "Idempotency-Key": idempotency_key,
+        },
+    )
+
+
 def test_mutations_require_correlation_and_idempotency(api_runtime) -> None:
     client, *_ = api_runtime
     response = client.post(
@@ -196,6 +222,76 @@ def test_create_read_list_and_timeline_are_correlated(api_runtime) -> None:
     timeline = client.get(f"/v1/tasks/{task['task_id']}/timeline").json()
     assert timeline["events"][0]["event_type"] == "task.created"
     assert timeline["events"][0]["correlation_id"] == "api-correlation"
+
+
+def test_chat_creates_canonical_task_and_persisted_messages(api_runtime) -> None:
+    client, _, _, _, orchestrator = api_runtime
+
+    response = _chat(client)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["task"]["task_id"] == "task-chat"
+    assert body["task"]["session_id"] == "session-chat"
+    assert body["content"] == "fake result"
+    assert orchestrator.execute_count == 1
+    timeline = client.get("/v1/tasks/task-chat/timeline").json()["events"]
+    assert [event["event_type"] for event in timeline] == [
+        "task.created",
+        "chat.user_message",
+        "task.state_changed",
+        "chat.assistant_message",
+    ]
+    assert timeline[1]["payload"]["input_mode"] == "text"
+
+
+def test_chat_idempotency_prevents_duplicate_turn(api_runtime) -> None:
+    client, _, _, _, orchestrator = api_runtime
+
+    first = _chat(client)
+    replay = _chat(client)
+
+    assert first.status_code == 200
+    assert replay.status_code == 200
+    assert replay.json()["idempotent_replay"] is True
+    assert replay.json()["content"] == "fake result"
+    assert orchestrator.execute_count == 1
+
+
+def test_text_and_voice_use_same_task_and_voice_cannot_approve(api_runtime) -> None:
+    client, store, _, _, orchestrator = api_runtime
+    first = _chat(client)
+    assert first.status_code == 200
+
+    second = _chat(
+        client,
+        message="ja",
+        correlation_id="voice-correlation",
+        idempotency_key="voice-message-once",
+        input_mode="voice",
+    )
+
+    assert second.status_code == 200
+    assert second.json()["task"]["task_id"] == "task-chat"
+    assert orchestrator.execute_count == 2
+    timeline = client.get("/v1/tasks/task-chat/timeline").json()["events"]
+    voice = [event for event in timeline if event["event_type"] == "chat.user_message"][-1]
+    assert voice["payload"]["input_mode"] == "voice"
+    assert store.list_pending_approvals(task_id="task-chat") == []
+
+
+def test_sessions_and_summary_are_canonical_projections(api_runtime) -> None:
+    client, *_ = api_runtime
+    assert _chat(client).status_code == 200
+
+    sessions = client.get("/v1/sessions").json()
+    assert sessions["count"] == 1
+    assert sessions["sessions"][0]["session_id"] == "session-chat"
+    detail = client.get("/v1/sessions/session-chat").json()
+    assert detail["tasks"][0]["task_id"] == "task-chat"
+    summary = client.get("/v1/tasks/task-chat/summary").json()
+    assert summary["last_sequence"] == 4
+    assert summary["safe_to_present_as_success"] is False
 
 
 def test_create_and_resume_are_idempotent(api_runtime, tmp_path: Path) -> None:
