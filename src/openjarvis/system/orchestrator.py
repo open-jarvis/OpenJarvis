@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from openjarvis.core.types import Message, Role
@@ -30,6 +32,14 @@ class QueryOrchestrator:
         system_prompt: Optional[str] = None,
         operator_id: Optional[str] = None,
         prior_messages: Optional[List[Message]] = None,
+        task_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        correlation_id: Optional[str] = None,
+        cwd: Optional[str] = None,
+        isolated_workspace: Optional[str] = None,
+        risk_level: int = 0,
+        turn_correlation_id: Optional[str] = None,
+        finalize_task: bool = True,
     ) -> Dict[str, Any]:
         """Execute a query through the system and return a result dict."""
         s = self._system
@@ -37,6 +47,19 @@ class QueryOrchestrator:
             temperature = s.config.intelligence.temperature
         if max_tokens is None:
             max_tokens = s.config.intelligence.max_tokens
+
+        if agent == "codex":
+            return self._run_codex(
+                query,
+                task_id=task_id,
+                session_id=session_id,
+                correlation_id=correlation_id,
+                cwd=cwd,
+                isolated_workspace=isolated_workspace,
+                risk_level=risk_level,
+                turn_correlation_id=turn_correlation_id,
+                finalize_task=finalize_task,
+            )
 
         messages = [Message(role=Role.USER, content=query)]
 
@@ -90,6 +113,74 @@ class QueryOrchestrator:
             "usage": result.get("usage", {}),
             "model": s.model,
             "engine": s.engine_key,
+        }
+
+    def _run_codex(
+        self,
+        query: str,
+        *,
+        task_id: str | None,
+        session_id: str | None,
+        correlation_id: str | None,
+        cwd: str | None,
+        isolated_workspace: str | None,
+        risk_level: int,
+        turn_correlation_id: str | None,
+        finalize_task: bool,
+    ) -> Dict[str, Any]:
+        """Delegate an explicit Codex request to the canonical task runtime."""
+
+        s = self._system
+        if s.task_service is None or s.codex_orchestrator is None:
+            return {
+                "content": "Codex backend is not enabled",
+                "error": True,
+                "error_category": "codex_disabled",
+            }
+        actual_task_id = task_id or uuid.uuid4().hex
+        actual_session_id = session_id or uuid.uuid4().hex
+        actual_correlation_id = correlation_id or uuid.uuid4().hex
+        task = s.task_service.get(actual_task_id)
+        if task is None:
+            task = s.task_service.create(
+                task_id=actual_task_id,
+                session_id=actual_session_id,
+                correlation_id=actual_correlation_id,
+                description=query,
+                backend="codex",
+                risk_level=risk_level,
+                component="query_orchestrator",
+                cause="user_request",
+                idempotency_key=f"query:{actual_correlation_id}:create",
+            )
+            s.task_service.store.add_source(
+                task.task_id,
+                source_kind="query_orchestrator",
+                external_id=actual_correlation_id,
+            )
+        result = s.codex_orchestrator.execute_sync(
+            task.task_id,
+            query,
+            cwd=Path(cwd).resolve(strict=False) if cwd else Path.cwd().resolve(),
+            isolated_workspace=(
+                Path(isolated_workspace).resolve(strict=False)
+                if isolated_workspace
+                else None
+            ),
+            turn_correlation_id=turn_correlation_id,
+            finalize_task=finalize_task,
+        )
+        return {
+            "content": result.content,
+            "task_id": result.task.task_id,
+            "session_id": result.task.session_id,
+            "correlation_id": result.task.correlation_id,
+            "thread_id": result.thread_id,
+            "turn_id": result.turn_id,
+            "status": result.task.status.value,
+            "outcome": result.task.outcome.value if result.task.outcome else None,
+            "model": "codex",
+            "engine": "codex",
         }
 
     def _detect_agent_intent(self, query: str) -> Optional[str]:

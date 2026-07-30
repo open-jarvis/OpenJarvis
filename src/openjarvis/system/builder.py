@@ -227,6 +227,69 @@ class SystemBuilder:
             except Exception:
                 logger.warning("Failed to initialize TraceStore", exc_info=True)
 
+        task_store = None
+        task_service = None
+        codex_orchestrator = None
+        if config.codex.enabled:
+            try:
+                from openjarvis.codex.app_server import CodexAppServerBackend
+                from openjarvis.codex.cli_backend import CodexCliFallbackBackend
+                from openjarvis.codex.router import CodexBackendRouter
+                from openjarvis.codex.sdk_backend import CodexPythonSdkBackend
+                from openjarvis.tasks.approval import PersistentApprovalBroker
+                from openjarvis.tasks.orchestrator import CodexTaskOrchestrator
+                from openjarvis.tasks.policy import CentralRiskPolicy
+                from openjarvis.tasks.projection import CodexTaskEventProjector
+                from openjarvis.tasks.service import TaskService
+                from openjarvis.tasks.store import TaskStore
+
+                task_store = TaskStore(config.codex.state_db_path)
+                task_service = TaskService(task_store, bus=bus)
+                risk_policy = CentralRiskPolicy()
+                approval_broker = PersistentApprovalBroker(
+                    task_store,
+                    task_service,
+                    risk_policy=risk_policy,
+                    timeout_seconds=config.codex.default_timeout_seconds,
+                )
+                sdk_backend = CodexPythonSdkBackend(store=task_store)
+                app_backend = CodexAppServerBackend(
+                    codex_bin=config.codex.app_server_binary or None,
+                    approval_broker=approval_broker,
+                    store=task_store,
+                )
+                cli_backend = None
+                if config.codex.allow_cli_fallback:
+                    cli_backend = CodexCliFallbackBackend(
+                        codex_bin=config.codex.cli_binary or None,
+                    )
+                codex_router = CodexBackendRouter(
+                    sdk_backend=sdk_backend,
+                    app_server_backend=app_backend,
+                    cli_fallback_backend=cli_backend,
+                    allow_cli_fallback=config.codex.allow_cli_fallback,
+                )
+                projector = CodexTaskEventProjector(
+                    task_store,
+                    bus=bus,
+                    trace_store=trace_store,
+                )
+                codex_orchestrator = CodexTaskOrchestrator(
+                    codex_router,
+                    task_service,
+                    projector,
+                    risk_policy=risk_policy,
+                    default_timeout_seconds=config.codex.default_timeout_seconds,
+                    default_step_limit=config.codex.default_step_limit,
+                    default_token_limit=(
+                        config.codex.default_token_limit or None
+                    ),
+                )
+            except Exception:
+                if task_store is not None:
+                    task_store.close()
+                raise
+
         capability_policy = sec.capability_policy
         learning_orchestrator = self._setup_learning_orchestrator(config)
 
@@ -309,6 +372,9 @@ class SystemBuilder:
             agent_executor=agent_executor,
             speech_backend=speech_backend,
             skill_manager=skill_manager,
+            task_store=task_store,
+            task_service=task_service,
+            codex_orchestrator=codex_orchestrator,
         )
         system._learning_orchestrator = learning_orchestrator
         system._skill_few_shot_examples = skill_few_shot_examples

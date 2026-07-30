@@ -39,6 +39,9 @@ if TYPE_CHECKING:
     from openjarvis.skills.manager import SkillManager
     from openjarvis.speech._stubs import SpeechBackend
     from openjarvis.system.orchestrator import QueryOrchestrator
+    from openjarvis.tasks.orchestrator import CodexTaskOrchestrator
+    from openjarvis.tasks.service import TaskService
+    from openjarvis.tasks.store import TaskStore
     from openjarvis.telemetry.gpu_monitor import GpuMonitor
     from openjarvis.telemetry.store import TelemetryStore
     from openjarvis.tools.storage._stubs import MemoryBackend
@@ -84,6 +87,9 @@ class JarvisSystem:
     agent_executor: Optional[AgentExecutor] = None
     speech_backend: Optional[SpeechBackend] = None
     skill_manager: Optional[SkillManager] = None
+    task_store: Optional[TaskStore] = None
+    task_service: Optional[TaskService] = None
+    codex_orchestrator: Optional[CodexTaskOrchestrator] = None
     _learning_orchestrator: Optional[LearningOrchestrator] = None
     _mcp_clients: List[MCPClient] = field(default_factory=list)
 
@@ -142,6 +148,14 @@ class JarvisSystem:
         system_prompt: Optional[str] = None,
         operator_id: Optional[str] = None,
         prior_messages: Optional[List[Message]] = None,
+        task_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        correlation_id: Optional[str] = None,
+        cwd: Optional[str] = None,
+        isolated_workspace: Optional[str] = None,
+        risk_level: int = 0,
+        turn_correlation_id: Optional[str] = None,
+        finalize_task: bool = True,
     ) -> Dict[str, Any]:
         return self._get_orchestrator().ask(
             query,
@@ -153,6 +167,14 @@ class JarvisSystem:
             system_prompt=system_prompt,
             operator_id=operator_id,
             prior_messages=prior_messages,
+            task_id=task_id,
+            session_id=session_id,
+            correlation_id=correlation_id,
+            cwd=cwd,
+            isolated_workspace=isolated_workspace,
+            risk_level=risk_level,
+            turn_correlation_id=turn_correlation_id,
+            finalize_task=finalize_task,
         )
 
     def _detect_agent_intent(self, query: str) -> Optional[str]:
@@ -298,6 +320,11 @@ class JarvisSystem:
 
     def close(self) -> None:
         """Release resources."""
+        if self.codex_orchestrator is not None:
+            try:
+                self.codex_orchestrator.close_sync()
+            except Exception:
+                logger.debug("Error closing Codex orchestrator", exc_info=True)
         if self.scheduler and hasattr(self.scheduler, "stop"):
             self.scheduler.stop()
         for resource in (
@@ -311,6 +338,7 @@ class JarvisSystem:
             self.channel_backend,
             self.workflow_engine,
             self.container_runner,
+            self.task_store,
         ):
             if resource and hasattr(resource, "close"):
                 resource.close()

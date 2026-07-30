@@ -10,6 +10,8 @@ if TYPE_CHECKING:
     from openjarvis.engine._stubs import InferenceEngine
     from openjarvis.security.capabilities import CapabilityPolicy
     from openjarvis.sessions.session import SessionStore
+    from openjarvis.tasks.orchestrator import CodexTaskOrchestrator
+    from openjarvis.tasks.service import TaskService
     from openjarvis.tools._stubs import BaseTool
     from openjarvis.tools.storage._stubs import MemoryBackend
     from openjarvis.traces.collector import TraceCollector
@@ -35,6 +37,8 @@ class OrchestratorDeps(Protocol):
     session_store: Optional[SessionStore]
     trace_store: Optional[TraceStore]
     trace_collector: Optional[TraceCollector]  # written by _run_agent
+    task_service: Optional[TaskService]
+    codex_orchestrator: Optional[CodexTaskOrchestrator]
 
     # Optional attribute (getattr with default) — declared for type clarity.
     _skill_few_shot_examples: Any

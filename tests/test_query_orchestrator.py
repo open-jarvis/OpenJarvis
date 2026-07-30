@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pytest
@@ -10,6 +11,7 @@ import pytest
 from openjarvis.core.config import JarvisConfig
 from openjarvis.core.events import EventBus
 from openjarvis.system import QueryOrchestrator
+from openjarvis.tasks import TaskExecutionResult, TaskService, TaskStore
 
 
 class _FakeEngine:
@@ -48,6 +50,8 @@ class _FakeSystem:
     session_store: Optional[Any] = None
     trace_store: Optional[Any] = None
     trace_collector: Optional[Any] = None
+    task_service: Optional[Any] = None
+    codex_orchestrator: Optional[Any] = None
     _skill_few_shot_examples: Optional[List[str]] = None
 
 
@@ -108,6 +112,48 @@ class TestAskAgentRouting:
 
         assert result.get("error") is True
         assert "does_not_exist" in result["content"]
+
+    def test_explicit_codex_route_uses_canonical_task_service(
+        self,
+        tmp_path: Path,
+    ):
+        store = TaskStore(tmp_path / "runtime.db")
+        task_service = TaskService(store)
+
+        class _FakeCodexOrchestrator:
+            def execute_sync(self, task_id, query, **kwargs):
+                task = task_service.get(task_id)
+                assert task is not None
+                assert query == "inspect workspace"
+                assert kwargs["cwd"] == tmp_path.resolve()
+                return TaskExecutionResult(
+                    task=task,
+                    content="codex answer",
+                    thread_id="thread",
+                    turn_id="turn",
+                )
+
+        system = _FakeSystem(
+            task_service=task_service,
+            codex_orchestrator=_FakeCodexOrchestrator(),
+        )
+        orchestrator = QueryOrchestrator(system)
+        try:
+            result = orchestrator.ask(
+                "inspect workspace",
+                context=False,
+                agent="codex",
+                task_id="task",
+                session_id="session",
+                correlation_id="correlation",
+                cwd=str(tmp_path),
+            )
+            assert result["content"] == "codex answer"
+            assert result["task_id"] == "task"
+            assert result["thread_id"] == "thread"
+            assert store.list_sources("task")[0].source_kind == "query_orchestrator"
+        finally:
+            store.close()
 
 
 class TestDetectAgentIntent:
