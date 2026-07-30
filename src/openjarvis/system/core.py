@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from openjarvis.speech._stubs import SpeechBackend
     from openjarvis.system.orchestrator import QueryOrchestrator
     from openjarvis.tasks.orchestrator import CodexTaskOrchestrator
+    from openjarvis.tasks.recovery import RecoveryCoordinator
     from openjarvis.tasks.service import TaskService
     from openjarvis.tasks.store import TaskStore
     from openjarvis.telemetry.gpu_monitor import GpuMonitor
@@ -90,6 +91,7 @@ class JarvisSystem:
     task_store: Optional[TaskStore] = None
     task_service: Optional[TaskService] = None
     codex_orchestrator: Optional[CodexTaskOrchestrator] = None
+    recovery_coordinator: Optional[RecoveryCoordinator] = None
     _learning_orchestrator: Optional[LearningOrchestrator] = None
     _mcp_clients: List[MCPClient] = field(default_factory=list)
 

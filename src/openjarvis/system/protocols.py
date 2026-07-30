@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from openjarvis.security.capabilities import CapabilityPolicy
     from openjarvis.sessions.session import SessionStore
     from openjarvis.tasks.orchestrator import CodexTaskOrchestrator
+    from openjarvis.tasks.recovery import RecoveryCoordinator
     from openjarvis.tasks.service import TaskService
     from openjarvis.tools._stubs import BaseTool
     from openjarvis.tools.storage._stubs import MemoryBackend
@@ -39,6 +40,7 @@ class OrchestratorDeps(Protocol):
     trace_collector: Optional[TraceCollector]  # written by _run_agent
     task_service: Optional[TaskService]
     codex_orchestrator: Optional[CodexTaskOrchestrator]
+    recovery_coordinator: Optional[RecoveryCoordinator]
 
     # Optional attribute (getattr with default) — declared for type clarity.
     _skill_few_shot_examples: Any

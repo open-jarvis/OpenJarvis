@@ -7,6 +7,11 @@ from openjarvis.tasks.lanes import ExecutionLaneScheduler
 from openjarvis.tasks.orchestrator import CodexTaskOrchestrator, TaskExecutionResult
 from openjarvis.tasks.policy import CentralRiskPolicy, RiskLevel, TurnPolicy
 from openjarvis.tasks.projection import CodexTaskEventProjector, ProjectionResult
+from openjarvis.tasks.recovery import (
+    RecoveryCoordinator,
+    RecoveryDecision,
+    RecoveryReport,
+)
 from openjarvis.tasks.service import TaskService
 from openjarvis.tasks.store import TaskStore
 from openjarvis.tasks.types import (
@@ -40,6 +45,9 @@ __all__ = [
     "InvalidTaskTransition",
     "PersistentApprovalBroker",
     "ProjectionResult",
+    "RecoveryCoordinator",
+    "RecoveryDecision",
+    "RecoveryReport",
     "RiskLevel",
     "TaskArtifact",
     "TaskEvent",

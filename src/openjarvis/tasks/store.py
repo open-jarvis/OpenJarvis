@@ -30,7 +30,7 @@ from openjarvis.tasks.types import (
     validate_transition,
 )
 
-_TASK_SCHEMA_VERSION = 5
+_TASK_SCHEMA_VERSION = 6
 
 _TASK_SCHEMA = """\
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -231,6 +231,28 @@ CREATE INDEX IF NOT EXISTS idx_task_usage_task
     ON task_usage(task_id, updated_at);
 """
 
+_RECOVERY_SCHEMA = """\
+CREATE TABLE IF NOT EXISTS task_recovery_checks (
+    check_id        TEXT PRIMARY KEY,
+    task_id         TEXT NOT NULL,
+    prior_status    TEXT NOT NULL,
+    decision        TEXT NOT NULL,
+    safe_to_resume  INTEGER NOT NULL,
+    ambiguous_effect INTEGER NOT NULL,
+    open_approval   INTEGER NOT NULL,
+    reason          TEXT NOT NULL,
+    thread_id       TEXT,
+    turn_id         TEXT,
+    started_at      TEXT NOT NULL,
+    completed_at    TEXT NOT NULL,
+    facts           TEXT NOT NULL DEFAULT '{}',
+    FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_recovery_checks_task
+    ON task_recovery_checks(task_id, completed_at);
+"""
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -283,6 +305,15 @@ class TaskStore(CodexStateStore):
                     INSERT OR IGNORE INTO schema_migrations
                         (component, version, name, applied_at)
                     VALUES ('task_runtime', 3, 'bounded task artifacts', ?)
+                    """,
+                    (_now(),),
+                )
+                self._conn.executescript(_RECOVERY_SCHEMA)
+                self._conn.execute(
+                    """
+                    INSERT OR IGNORE INTO schema_migrations
+                        (component, version, name, applied_at)
+                    VALUES ('task_runtime', 6, 'restart recovery decisions', ?)
                     """,
                     (_now(),),
                 )
@@ -608,6 +639,18 @@ class TaskStore(CodexStateStore):
             states,
         ).fetchall()
         return [self._task_from_row(row) for row in rows]
+
+    def get_latest_turn(self, thread_id: str):
+        """Return the most recently updated Phase 2 turn for recovery checks."""
+
+        row = self._conn.execute(
+            """
+            SELECT * FROM codex_turns
+            WHERE thread_id=? ORDER BY updated_at DESC LIMIT 1
+            """,
+            (thread_id,),
+        ).fetchone()
+        return self._turn_from_row(row) if row else None
 
     def add_source(
         self,
@@ -976,6 +1019,21 @@ class TaskStore(CodexStateStore):
             ).fetchall()
         return [self._approval_from_row(row) for row in rows]
 
+    def list_unanswered_approvals(self, task_id: str) -> list[ApprovalRecord]:
+        """Return approvals that still need a user or App Server response."""
+
+        rows = self._conn.execute(
+            """
+            SELECT * FROM task_approvals
+            WHERE task_id=? AND (
+                status=? OR response_id IS NULL
+            )
+            ORDER BY created_at
+            """,
+            (task_id, ApprovalStatus.PENDING.value),
+        ).fetchall()
+        return [self._approval_from_row(row) for row in rows]
+
     def decide_approval(
         self,
         approval_id: str,
@@ -1208,6 +1266,96 @@ class TaskStore(CodexStateStore):
             (task_id,),
         ).fetchone()
         return int(row[0] or 0)
+
+    def save_recovery_check(
+        self,
+        *,
+        task_id: str,
+        prior_status: TaskStatus,
+        decision: str,
+        safe_to_resume: bool,
+        ambiguous_effect: bool,
+        open_approval: bool,
+        reason: str,
+        thread_id: str | None,
+        turn_id: str | None,
+        started_at: str,
+        facts: dict[str, Any],
+        check_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Persist one bounded recovery audit record."""
+
+        actual_id = check_id or uuid.uuid4().hex
+        completed_at = _now()
+        safe_facts = redact_data(facts)
+        with self._lock, self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO task_recovery_checks (
+                    check_id, task_id, prior_status, decision,
+                    safe_to_resume, ambiguous_effect, open_approval,
+                    reason, thread_id, turn_id, started_at, completed_at,
+                    facts
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    actual_id,
+                    task_id,
+                    prior_status.value,
+                    decision,
+                    int(safe_to_resume),
+                    int(ambiguous_effect),
+                    int(open_approval),
+                    reason,
+                    thread_id,
+                    turn_id,
+                    started_at,
+                    completed_at,
+                    json.dumps(safe_facts, sort_keys=True),
+                ),
+            )
+        return {
+            "check_id": actual_id,
+            "task_id": task_id,
+            "prior_status": prior_status.value,
+            "decision": decision,
+            "safe_to_resume": safe_to_resume,
+            "ambiguous_effect": ambiguous_effect,
+            "open_approval": open_approval,
+            "reason": reason,
+            "thread_id": thread_id,
+            "turn_id": turn_id,
+            "started_at": started_at,
+            "completed_at": completed_at,
+            "facts": safe_facts,
+        }
+
+    def list_recovery_checks(self, task_id: str) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            """
+            SELECT * FROM task_recovery_checks
+            WHERE task_id=? ORDER BY completed_at, check_id
+            """,
+            (task_id,),
+        ).fetchall()
+        return [
+            {
+                "check_id": row["check_id"],
+                "task_id": row["task_id"],
+                "prior_status": row["prior_status"],
+                "decision": row["decision"],
+                "safe_to_resume": bool(row["safe_to_resume"]),
+                "ambiguous_effect": bool(row["ambiguous_effect"]),
+                "open_approval": bool(row["open_approval"]),
+                "reason": row["reason"],
+                "thread_id": row["thread_id"],
+                "turn_id": row["turn_id"],
+                "started_at": row["started_at"],
+                "completed_at": row["completed_at"],
+                "facts": json.loads(row["facts"]),
+            }
+            for row in rows
+        ]
 
     def append_event(
         self,

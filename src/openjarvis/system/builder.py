@@ -230,6 +230,7 @@ class SystemBuilder:
         task_store = None
         task_service = None
         codex_orchestrator = None
+        recovery_coordinator = None
         if config.codex.enabled:
             try:
                 from openjarvis.codex.app_server import CodexAppServerBackend
@@ -241,6 +242,7 @@ class SystemBuilder:
                 from openjarvis.tasks.orchestrator import CodexTaskOrchestrator
                 from openjarvis.tasks.policy import CentralRiskPolicy
                 from openjarvis.tasks.projection import CodexTaskEventProjector
+                from openjarvis.tasks.recovery import RecoveryCoordinator
                 from openjarvis.tasks.service import TaskService
                 from openjarvis.tasks.store import TaskStore
 
@@ -297,6 +299,14 @@ class SystemBuilder:
                         hard_limit_action=config.codex.hard_limit_action,
                     ),
                 )
+                recovery_coordinator = RecoveryCoordinator(
+                    task_store,
+                    task_service,
+                )
+                # Startup recovery is deliberately conservative. It records
+                # safe read-only resumes as available and pauses them until a
+                # dispatcher explicitly supplies the continuation prompt.
+                recovery_coordinator.recover_all_sync()
             except Exception:
                 if task_store is not None:
                     task_store.close()
@@ -387,6 +397,7 @@ class SystemBuilder:
             task_store=task_store,
             task_service=task_service,
             codex_orchestrator=codex_orchestrator,
+            recovery_coordinator=recovery_coordinator,
         )
         system._learning_orchestrator = learning_orchestrator
         system._skill_few_shot_examples = skill_few_shot_examples
