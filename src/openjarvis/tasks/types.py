@@ -138,6 +138,36 @@ class TaskEvent:
     payload: Mapping[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class TaskItem:
+    """Persisted Codex item correlated to a task, thread, and turn."""
+
+    item_id: str
+    task_id: str
+    session_id: str
+    thread_id: str
+    turn_id: str
+    item_type: str
+    status: str
+    sequence: int
+    source_event_id: str
+    created_at: str
+    updated_at: str
+    payload: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class TaskSource:
+    """External or legacy record that refers to a canonical task."""
+
+    source_id: str
+    task_id: str
+    source_kind: str
+    external_id: str
+    created_at: str
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+
 def validate_transition(current: TaskStatus, requested: TaskStatus) -> None:
     """Validate a canonical state transition."""
 
@@ -184,8 +214,10 @@ __all__ = [
     "ExecutionLane",
     "InvalidTaskTransition",
     "TaskEvent",
+    "TaskItem",
     "TaskOutcome",
     "TaskRecord",
+    "TaskSource",
     "TaskStatus",
     "validate_outcome",
     "validate_transition",

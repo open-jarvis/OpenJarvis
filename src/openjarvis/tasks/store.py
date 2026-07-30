@@ -15,14 +15,16 @@ from openjarvis.tasks.types import (
     ExecutionLane,
     InvalidTaskTransition,
     TaskEvent,
+    TaskItem,
     TaskOutcome,
     TaskRecord,
+    TaskSource,
     TaskStatus,
     validate_outcome,
     validate_transition,
 )
 
-_TASK_SCHEMA_VERSION = 1
+_TASK_SCHEMA_VERSION = 2
 
 _TASK_SCHEMA = """\
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -102,6 +104,51 @@ CREATE INDEX IF NOT EXISTS idx_task_events_task_sequence
     ON task_events(task_id, sequence);
 """
 
+_IDENTITY_SCHEMA = """\
+CREATE TABLE IF NOT EXISTS task_sources (
+    source_id       TEXT PRIMARY KEY,
+    task_id         TEXT NOT NULL,
+    source_kind     TEXT NOT NULL,
+    external_id     TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    metadata        TEXT NOT NULL DEFAULT '{}',
+    FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE,
+    UNIQUE (source_kind, external_id)
+);
+
+CREATE TABLE IF NOT EXISTS task_event_sources (
+    task_id         TEXT NOT NULL,
+    source_event_id TEXT NOT NULL,
+    event_id        TEXT NOT NULL UNIQUE,
+    PRIMARY KEY (task_id, source_event_id),
+    FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE,
+    FOREIGN KEY (event_id) REFERENCES task_events(event_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS codex_items (
+    item_id         TEXT PRIMARY KEY,
+    task_id         TEXT NOT NULL,
+    session_id      TEXT NOT NULL,
+    thread_id       TEXT NOT NULL,
+    turn_id         TEXT NOT NULL,
+    item_type       TEXT NOT NULL,
+    status          TEXT NOT NULL,
+    sequence        INTEGER NOT NULL,
+    source_event_id TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    payload         TEXT NOT NULL DEFAULT '{}',
+    FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE,
+    UNIQUE (turn_id, sequence),
+    UNIQUE (turn_id, source_event_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_sources_task
+    ON task_sources(task_id, source_kind);
+CREATE INDEX IF NOT EXISTS idx_codex_items_task_turn
+    ON codex_items(task_id, turn_id, sequence);
+"""
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -136,6 +183,15 @@ class TaskStore(CodexStateStore):
                     INSERT OR IGNORE INTO schema_migrations
                         (component, version, name, applied_at)
                     VALUES ('task_runtime', ?, 'canonical tasks and events', ?)
+                    """,
+                    (1, _now()),
+                )
+                self._conn.executescript(_IDENTITY_SCHEMA)
+                self._conn.execute(
+                    """
+                    INSERT OR IGNORE INTO schema_migrations
+                        (component, version, name, applied_at)
+                    VALUES ('task_runtime', ?, 'task identity sources and items', ?)
                     """,
                     (_TASK_SCHEMA_VERSION, _now()),
                 )
@@ -444,6 +500,267 @@ class TaskStore(CodexStateStore):
         ).fetchall()
         return [self._task_from_row(row) for row in rows]
 
+    def add_source(
+        self,
+        task_id: str,
+        *,
+        source_kind: str,
+        external_id: str,
+        metadata: dict[str, Any] | None = None,
+        source_id: str | None = None,
+    ) -> TaskSource:
+        """Attach one idempotent legacy/API source to a canonical task."""
+
+        for field_name, value in {
+            "task_id": task_id,
+            "source_kind": source_kind,
+            "external_id": external_id,
+        }.items():
+            if not value.strip():
+                raise ValueError(f"{field_name} must be non-empty")
+        safe_metadata = redact_data(metadata or {})
+        actual_source_id = source_id or uuid.uuid4().hex
+        timestamp = _now()
+        with self._lock, self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO task_sources (
+                    source_id, task_id, source_kind, external_id,
+                    created_at, metadata
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(source_kind, external_id) DO NOTHING
+                """,
+                (
+                    actual_source_id,
+                    task_id,
+                    source_kind,
+                    external_id,
+                    timestamp,
+                    json.dumps(safe_metadata, sort_keys=True),
+                ),
+            )
+        row = self._conn.execute(
+            """
+            SELECT * FROM task_sources
+            WHERE source_kind=? AND external_id=?
+            """,
+            (source_kind, external_id),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("task source could not be read back")
+        if row["task_id"] != task_id:
+            raise ValueError("source already belongs to another canonical task")
+        return self._source_from_row(row)
+
+    def list_sources(self, task_id: str) -> list[TaskSource]:
+        rows = self._conn.execute(
+            """
+            SELECT * FROM task_sources
+            WHERE task_id=? ORDER BY created_at, source_id
+            """,
+            (task_id,),
+        ).fetchall()
+        return [self._source_from_row(row) for row in rows]
+
+    def save_item(
+        self,
+        *,
+        item_id: str,
+        task_id: str,
+        session_id: str,
+        thread_id: str,
+        turn_id: str,
+        item_type: str,
+        status: str,
+        sequence: int,
+        source_event_id: str,
+        payload: dict[str, Any] | None = None,
+        occurred_at: str | None = None,
+    ) -> TaskItem:
+        """Insert or update one correlated Codex item idempotently."""
+
+        for field_name, value in {
+            "item_id": item_id,
+            "task_id": task_id,
+            "session_id": session_id,
+            "thread_id": thread_id,
+            "turn_id": turn_id,
+            "item_type": item_type,
+            "status": status,
+            "source_event_id": source_event_id,
+        }.items():
+            if not value.strip():
+                raise ValueError(f"{field_name} must be non-empty")
+        if sequence <= 0:
+            raise ValueError("sequence must be positive")
+        timestamp = occurred_at or _now()
+        safe_payload = redact_data(payload or {})
+        with self._lock, self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO codex_items (
+                    item_id, task_id, session_id, thread_id, turn_id,
+                    item_type, status, sequence, source_event_id,
+                    created_at, updated_at, payload
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(item_id) DO UPDATE SET
+                    status=excluded.status,
+                    updated_at=excluded.updated_at,
+                    payload=excluded.payload
+                """,
+                (
+                    item_id,
+                    task_id,
+                    session_id,
+                    thread_id,
+                    turn_id,
+                    item_type,
+                    status,
+                    sequence,
+                    source_event_id,
+                    timestamp,
+                    timestamp,
+                    json.dumps(safe_payload, sort_keys=True),
+                ),
+            )
+        row = self._conn.execute(
+            "SELECT * FROM codex_items WHERE item_id=?",
+            (item_id,),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("Codex item could not be read back")
+        return self._item_from_row(row)
+
+    def list_items(
+        self,
+        task_id: str,
+        *,
+        turn_id: str | None = None,
+    ) -> list[TaskItem]:
+        if turn_id is None:
+            rows = self._conn.execute(
+                """
+                SELECT * FROM codex_items
+                WHERE task_id=? ORDER BY turn_id, sequence
+                """,
+                (task_id,),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                """
+                SELECT * FROM codex_items
+                WHERE task_id=? AND turn_id=? ORDER BY sequence
+                """,
+                (task_id, turn_id),
+            ).fetchall()
+        return [self._item_from_row(row) for row in rows]
+
+    def append_event(
+        self,
+        *,
+        task_id: str,
+        source_event_id: str,
+        event_type: str,
+        occurred_at: str,
+        cause: str,
+        component: str,
+        thread_id: str | None = None,
+        turn_id: str | None = None,
+        item_id: str | None = None,
+        approval_id: str | None = None,
+        action_id: str | None = None,
+        artifact_id: str | None = None,
+        schema_version: str = "1.0",
+        payload: dict[str, Any] | None = None,
+    ) -> tuple[TaskEvent, bool]:
+        """Append a non-state event once and preserve task-wide order."""
+
+        for field_name, value in {
+            "task_id": task_id,
+            "source_event_id": source_event_id,
+            "event_type": event_type,
+            "occurred_at": occurred_at,
+            "cause": cause,
+            "component": component,
+            "schema_version": schema_version,
+        }.items():
+            if not value.strip():
+                raise ValueError(f"{field_name} must be non-empty")
+
+        existing = self._event_by_source(task_id, source_event_id)
+        if existing is not None:
+            return existing, False
+
+        event_id = uuid.uuid4().hex
+        safe_payload = redact_data(payload or {})
+        with self._lock:
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                row = self._conn.execute(
+                    "SELECT * FROM tasks WHERE task_id=?",
+                    (task_id,),
+                ).fetchone()
+                if row is None:
+                    raise KeyError(f"unknown task: {task_id}")
+                duplicate = self._event_by_source(task_id, source_event_id)
+                if duplicate is not None:
+                    self._conn.rollback()
+                    return duplicate, False
+                sequence = int(row["last_event_sequence"]) + 1
+                self._conn.execute(
+                    """
+                    UPDATE tasks
+                    SET last_event_sequence=?, updated_at=?, version=version+1
+                    WHERE task_id=?
+                    """,
+                    (sequence, occurred_at, task_id),
+                )
+                self._conn.execute(
+                    """
+                    INSERT INTO task_events (
+                        event_id, task_id, sequence, event_type, occurred_at,
+                        cause, component, correlation_id, session_id,
+                        thread_id, turn_id, item_id, approval_id, action_id,
+                        artifact_id, schema_version, payload
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        event_id,
+                        task_id,
+                        sequence,
+                        event_type,
+                        occurred_at,
+                        cause,
+                        component,
+                        row["correlation_id"],
+                        row["session_id"],
+                        thread_id,
+                        turn_id,
+                        item_id,
+                        approval_id,
+                        action_id,
+                        artifact_id,
+                        schema_version,
+                        json.dumps(safe_payload, sort_keys=True),
+                    ),
+                )
+                self._conn.execute(
+                    """
+                    INSERT INTO task_event_sources
+                        (task_id, source_event_id, event_id)
+                    VALUES (?, ?, ?)
+                    """,
+                    (task_id, source_event_id, event_id),
+                )
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+        event = self.get_event(event_id)
+        if event is None:
+            raise RuntimeError("task event could not be read back")
+        return event, True
+
     def get_event(self, event_id: str) -> TaskEvent | None:
         row = self._conn.execute(
             "SELECT * FROM task_events WHERE event_id=?",
@@ -462,6 +779,21 @@ class TaskStore(CodexStateStore):
             WHERE task_id=? AND idempotency_key=?
             """,
             (task_id, idempotency_key),
+        ).fetchone()
+        return self._event_from_task_row(row) if row else None
+
+    def _event_by_source(
+        self,
+        task_id: str,
+        source_event_id: str,
+    ) -> TaskEvent | None:
+        row = self._conn.execute(
+            """
+            SELECT e.* FROM task_event_sources s
+            JOIN task_events e ON e.event_id=s.event_id
+            WHERE s.task_id=? AND s.source_event_id=?
+            """,
+            (task_id, source_event_id),
         ).fetchone()
         return self._event_from_task_row(row) if row else None
 
@@ -529,6 +861,34 @@ class TaskStore(CodexStateStore):
             action_id=row["action_id"],
             artifact_id=row["artifact_id"],
             schema_version=row["schema_version"],
+            payload=json.loads(row["payload"]),
+        )
+
+    @staticmethod
+    def _source_from_row(row: sqlite3.Row) -> TaskSource:
+        return TaskSource(
+            source_id=row["source_id"],
+            task_id=row["task_id"],
+            source_kind=row["source_kind"],
+            external_id=row["external_id"],
+            created_at=row["created_at"],
+            metadata=json.loads(row["metadata"]),
+        )
+
+    @staticmethod
+    def _item_from_row(row: sqlite3.Row) -> TaskItem:
+        return TaskItem(
+            item_id=row["item_id"],
+            task_id=row["task_id"],
+            session_id=row["session_id"],
+            thread_id=row["thread_id"],
+            turn_id=row["turn_id"],
+            item_type=row["item_type"],
+            status=row["status"],
+            sequence=int(row["sequence"]),
+            source_event_id=row["source_event_id"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
             payload=json.loads(row["payload"]),
         )
 

@@ -6,6 +6,7 @@ import uuid
 from typing import Any
 
 from openjarvis.core.events import EventBus, EventType
+from openjarvis.tasks.identity import TaskIdentity
 from openjarvis.tasks.store import TaskStore
 from openjarvis.tasks.types import (
     ExecutionLane,
@@ -112,6 +113,18 @@ class TaskService:
             after_sequence=after_sequence,
             limit=limit,
         )
+
+    def identity(self, task_id: str) -> TaskIdentity:
+        task = self.get(task_id)
+        if task is None:
+            raise KeyError(f"unknown task: {task_id}")
+        return TaskIdentity(
+            task_id=task.task_id,
+            session_id=task.session_id,
+            correlation_id=task.correlation_id,
+            thread_id=task.active_thread_id,
+            turn_id=task.active_turn_id,
+        ).validated()
 
     def _project(self, event: TaskEvent) -> None:
         if self._bus is None:

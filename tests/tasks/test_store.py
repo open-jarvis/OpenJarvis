@@ -41,7 +41,7 @@ def _create(service: TaskService, *, correlation_id: str = "corr-create"):
 def test_store_enables_wal_foreign_keys_and_schema_version(store: TaskStore) -> None:
     assert store.journal_mode == "wal"
     assert store.foreign_keys_enabled is True
-    assert store.schema_version == 1
+    assert store.schema_version == 2
 
 
 def test_create_and_transition_are_atomic_and_ordered(store: TaskStore) -> None:
