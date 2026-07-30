@@ -35,6 +35,7 @@ import {
   fetchPendingApprovals,
   fetchRegisteredTools,
   fetchSessions,
+  fetchSystemHealth,
   fetchTaskActions,
   fetchTaskArtifacts,
   fetchTaskSources,
@@ -267,6 +268,7 @@ export function JarvisPage() {
       fetchRegisteredTools(),
       fetchToolHealth(),
       fetchBrowserHealth(),
+      fetchSystemHealth(signal),
     ]);
     if (results[0].status === 'fulfilled') state.setTasks(results[0].value);
     if (results[1].status === 'fulfilled') state.setSessions(results[1].value);
@@ -275,6 +277,7 @@ export function JarvisPage() {
     if (results[4].status === 'fulfilled') state.setTools(results[4].value);
     if (results[5].status === 'fulfilled') state.setHealth({ toolHealth: results[5].value });
     if (results[6].status === 'fulfilled') state.setHealth({ browserHealth: results[6].value });
+    if (results[7].status === 'fulfilled') state.setHealth({ systemHealth: results[7].value });
     if (results.every((item) => item.status === 'rejected')) {
       state.setError('OpenJarvis server is not reachable. Check the local server and retry.');
     }
@@ -713,12 +716,15 @@ export function JarvisPage() {
             <section className="hud-panel p-4" aria-labelledby="health-heading">
               <h2 id="health-heading" className="font-semibold"><Activity size={15} className="inline mr-2" />System health</h2>
               <ul className="mt-3 space-y-2 text-xs" aria-live="polite">
-                <li><CheckCircle2 size={13} className="inline mr-2" />Server {state.loading ? 'checking' : state.error ? 'degraded' : 'reachable'}</li>
+                <li><CheckCircle2 size={13} className="inline mr-2" />System {state.loading ? 'checking' : state.systemHealth?.status || 'unavailable'} · {state.systemHealth?.version || 'unknown version'}</li>
                 <li><Bot size={13} className="inline mr-2" />Codex {state.codexHealth?.active_backend || 'unavailable'} · ChatGPT {state.codexHealth?.chatgpt_authenticated ? 'signed in' : 'not signed in'}</li>
                 <li><ShieldAlert size={13} className="inline mr-2" />{state.codexHealth?.sandbox || 'unknown sandbox'} · {state.codexHealth?.approval_mode || 'unknown approval mode'}</li>
                 <li><Wrench size={13} className="inline mr-2" />Tools {state.toolHealth ? `${state.toolHealth.available}/${state.toolHealth.registered}` : 'unavailable'}</li>
                 <li><Globe2 size={13} className="inline mr-2" />Browser {state.browserHealth.length ? state.browserHealth.every((item) => item.healthy) ? 'healthy' : 'degraded' : 'not running'}</li>
                 <li><Mic size={13} className="inline mr-2" />STT {speech.providerId} · TTS {tts.providerId}</li>
+                <li><Database size={13} className="inline mr-2" />Memory {state.systemHealth?.components.memory?.status || 'unavailable'} · FTS5 {state.systemHealth?.components.memory?.fts5_available === true ? 'ready' : 'unavailable'}</li>
+                <li><Activity size={13} className="inline mr-2" />Task store {state.systemHealth?.components.task_store?.status || 'unavailable'} · Trace store {state.systemHealth?.components.trace_store?.status || 'unavailable'}</li>
+                <li><ShieldAlert size={13} className="inline mr-2" />{state.systemHealth?.pending_approvals ?? activeApprovals.length} approval(s) waiting</li>
               </ul>
             </section>
           </aside>

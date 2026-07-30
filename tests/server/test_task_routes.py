@@ -275,7 +275,9 @@ def test_text_and_voice_use_same_task_and_voice_cannot_approve(api_runtime) -> N
     assert second.json()["task"]["task_id"] == "task-chat"
     assert orchestrator.execute_count == 2
     timeline = client.get("/v1/tasks/task-chat/timeline").json()["events"]
-    voice = [event for event in timeline if event["event_type"] == "chat.user_message"][-1]
+    voice = [
+        event for event in timeline if event["event_type"] == "chat.user_message"
+    ][-1]
     assert voice["payload"]["input_mode"] == "voice"
     assert store.list_pending_approvals(task_id="task-chat") == []
 
@@ -536,3 +538,43 @@ def test_owned_task_runtime_and_trace_store_close_on_server_shutdown() -> None:
     assert orchestrator.closed is True
     assert store.closed is True
     assert traces.closed is True
+
+
+def test_lifespan_shutdown_is_idempotent_after_partial_cleanup_failure() -> None:
+    class FlakyMemory:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def stop(self) -> None:
+            self.calls += 1
+            raise RuntimeError("synthetic cleanup failure")
+
+    class ClosableVault:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def close(self) -> None:
+            self.calls += 1
+
+    engine = MagicMock()
+    engine.engine_id = "fake"
+    engine.health.return_value = True
+    engine.list_models.return_value = ["fake"]
+    config = JarvisConfig()
+    config.analytics.enabled = False
+    config.traces.enabled = False
+    memory = FlakyMemory()
+    vault = ClosableVault()
+    app = create_app(
+        engine,
+        "fake",
+        bus=EventBus(),
+        config=config,
+        memory_service=memory,
+        vault_memory_service=vault,
+    )
+    with TestClient(app) as client:
+        assert client.get("/health").status_code == 200
+    assert memory.calls == 1
+    assert vault.calls == 1
+    assert app.state.shutdown_complete is True

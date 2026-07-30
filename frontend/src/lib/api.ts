@@ -1592,6 +1592,21 @@ export interface BrowserHealthInfo {
   cause: string;
 }
 
+export interface SystemHealthComponent {
+  status: 'healthy' | 'unavailable';
+  available: boolean;
+  [key: string]: unknown;
+}
+
+export interface SystemHealth {
+  status: 'healthy' | 'degraded';
+  version: string;
+  components: Record<string, SystemHealthComponent>;
+  pending_approvals: number;
+  unavailable: string[];
+  credential_safe: boolean;
+}
+
 export async function fetchCanonicalTasks(limit = 50): Promise<CanonicalTask[]> {
   const data = await apiJson<{ tasks: CanonicalTask[] }>(`/v1/tasks?limit=${limit}`);
   return data.tasks || [];
@@ -1777,6 +1792,10 @@ export async function fetchBrowserHealth(): Promise<BrowserHealthInfo[]> {
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   const data = await res.json();
   return data.sessions || [];
+}
+
+export async function fetchSystemHealth(signal?: AbortSignal): Promise<SystemHealth> {
+  return apiJson<SystemHealth>('/v1/system/health', {}, { signal });
 }
 
 export async function approveToolAction(actionId: string): Promise<ToolActionInfo> {

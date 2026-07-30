@@ -7,6 +7,7 @@ import type {
   CodexRuntimeHealth,
   PendingApproval,
   SessionSummary,
+  SystemHealth,
   TaskArtifactInfo,
   TaskSummary,
   ToolActionInfo,
@@ -44,6 +45,7 @@ interface JarvisWorkspaceState {
   browserHealth: BrowserHealthInfo[];
   toolHealth: ToolHealth | null;
   codexHealth: CodexRuntimeHealth | null;
+  systemHealth: SystemHealth | null;
   taskSummary: TaskSummary | null;
   loading: boolean;
   sending: boolean;
@@ -68,6 +70,7 @@ interface JarvisWorkspaceState {
     browserHealth?: BrowserHealthInfo[];
     toolHealth?: ToolHealth | null;
     codexHealth?: CodexRuntimeHealth | null;
+    systemHealth?: SystemHealth | null;
     taskSummary?: TaskSummary | null;
   }) => void;
   setLoading: (loading: boolean) => void;
@@ -122,6 +125,7 @@ export const useJarvisStore = create<JarvisWorkspaceState>((set) => ({
   browserHealth: [],
   toolHealth: null,
   codexHealth: null,
+  systemHealth: null,
   taskSummary: null,
   loading: true,
   sending: false,

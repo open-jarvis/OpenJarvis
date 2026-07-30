@@ -1093,6 +1093,9 @@ def include_all_routes(app) -> None:
     from openjarvis.server.memory_vault_routes import (  # noqa: PLC0415
         router as memory_vault_router,
     )
+    from openjarvis.server.system_health_routes import (  # noqa: PLC0415
+        router as system_health_router,
+    )
     from openjarvis.server.task_routes import router as task_router  # noqa: PLC0415
     from openjarvis.server.tool_browser_routes import (  # noqa: PLC0415
         router as tool_browser_router,
@@ -1100,6 +1103,7 @@ def include_all_routes(app) -> None:
 
     app.include_router(approval_router)
     app.include_router(task_router)
+    app.include_router(system_health_router)
     app.include_router(tool_browser_router)
     app.include_router(memory_vault_router)
     app.include_router(agents_router)
@@ -1146,6 +1150,11 @@ def include_all_routes(app) -> None:
         ws_router = create_ws_router(
             app.state.bus or get_event_bus(),
             task_service=getattr(app.state, "task_service", None),
+        )
+        app.state.websocket_shutdown = getattr(
+            ws_router,
+            "openjarvis_shutdown",
+            None,
         )
         app.include_router(ws_router)
     except Exception:

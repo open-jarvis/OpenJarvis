@@ -142,6 +142,21 @@ def create_ws_router(event_bus: EventBus, *, task_service: Any = None) -> Any:
         finally:
             clients.pop(websocket, None)
 
+    async def _shutdown() -> None:
+        """Unsubscribe and close only sockets owned by this bridge."""
+
+        for event_type in _AGENT_EVENTS:
+            event_bus.unsubscribe(event_type, _on_event)
+        open_clients = list(clients)
+        clients.clear()
+        for websocket in open_clients:
+            try:
+                await websocket.close(code=1012, reason="server shutdown")
+            except Exception:
+                logger.debug("WebSocket close during shutdown failed", exc_info=True)
+
+    router.openjarvis_shutdown = _shutdown
+
     return router
 
 
