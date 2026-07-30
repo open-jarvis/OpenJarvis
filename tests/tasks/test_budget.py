@@ -132,3 +132,49 @@ def test_usage_updates_are_monotonic_not_double_counted(tmp_path: Path) -> None:
         assert store.task_token_total("task") == 60
     finally:
         store.close()
+
+
+def test_live_sdk_token_usage_shape_is_parsed(tmp_path: Path) -> None:
+    store, controller = _controller(tmp_path)
+    try:
+        event = _event("live-shape", turn_input=0, turn_output=0)
+        live_event = CodexEvent(
+            event_id=event.event_id,
+            sequence=event.sequence,
+            occurred_at=event.occurred_at,
+            task_id=event.task_id,
+            session_id=event.session_id,
+            thread_id=event.thread_id,
+            turn_id=event.turn_id,
+            item_id=event.item_id,
+            backend=event.backend,
+            event_type=event.event_type,
+            payload={
+                "tokenUsage": {
+                    "last": {
+                        "cachedInputTokens": 12,
+                        "inputTokens": 40,
+                        "outputTokens": 10,
+                        "totalTokens": 50,
+                    },
+                    "total": {
+                        "cachedInputTokens": 12,
+                        "inputTokens": 140,
+                        "outputTokens": 20,
+                        "totalTokens": 160,
+                    },
+                    "modelContextWindow": 258_400,
+                }
+            },
+        )
+        decision = controller.observe(
+            task_id="task",
+            turn_id="turn",
+            event=live_event,
+        )
+        assert decision.usage.turn_input_tokens == 40
+        assert decision.usage.turn_output_tokens == 10
+        assert decision.usage.thread_input_tokens == 140
+        assert decision.usage.thread_output_tokens == 20
+    finally:
+        store.close()

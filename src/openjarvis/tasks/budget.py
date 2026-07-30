@@ -130,7 +130,15 @@ class BudgetController:
 
     @classmethod
     def _extract(cls, payload: dict[str, Any]) -> tuple[int, int, int, int]:
+        token_usage = cls._dict_value(payload, "tokenUsage", "token_usage")
         turn_block = cls._dict_value(payload, "turn", "last", "turn_usage")
+        if turn_block is None and token_usage is not None:
+            turn_block = cls._dict_value(
+                token_usage,
+                "turn",
+                "last",
+                "turn_usage",
+            )
         thread_block = cls._dict_value(
             payload,
             "total",
@@ -138,6 +146,14 @@ class BudgetController:
             "thread",
             "thread_usage",
         )
+        if thread_block is None and token_usage is not None:
+            thread_block = cls._dict_value(
+                token_usage,
+                "total",
+                "cumulative",
+                "thread",
+                "thread_usage",
+            )
         if turn_block is None:
             usage = payload.get("usage")
             turn_block = usage if isinstance(usage, dict) else payload
