@@ -247,11 +247,16 @@ class CdpBrowserAdapter:
         object_id = evaluated.get("result", {}).get("objectId")
         if not object_id:
             raise BrowserControlError("upload input not found")
-        node = self._command("DOM.requestNode", {"objectId": object_id})
-        node_id = node.get("nodeId")
+        node = self._command("DOM.describeNode", {"objectId": object_id})
+        backend_node_id = node.get("node", {}).get("backendNodeId")
+        if not backend_node_id:
+            raise BrowserControlError("upload input has no stable backend node")
         self._command(
             "DOM.setFileInputFiles",
-            {"files": [str(file_path)], "nodeId": node_id},
+            {
+                "files": [str(file_path)],
+                "backendNodeId": backend_node_id,
+            },
         )
         value = self.value(selector) or ""
         return value.rsplit("\\", 1)[-1].rsplit("/", 1)[-1]

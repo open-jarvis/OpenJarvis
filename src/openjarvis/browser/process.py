@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import socket
 import subprocess
 import tempfile
@@ -65,7 +66,19 @@ class BrowserProfilePolicy:
 
     def remove(self, profile: str | Path, session_id: str) -> None:
         path = self.validate_owned(profile, session_id)
-        shutil.rmtree(path)
+        last_error: OSError | None = None
+        for _attempt in range(20):
+            try:
+                shutil.rmtree(path)
+                return
+            except FileNotFoundError:
+                return
+            except OSError as exc:
+                last_error = exc
+                time.sleep(0.1)
+        raise BrowserOpenError(
+            f"owned browser profile remained locked: {type(last_error).__name__}"
+        ) from last_error
 
 
 def _reserve_loopback_port() -> int:
@@ -257,6 +270,7 @@ class BrowserProcessManager:
             stderr=subprocess.DEVNULL,
             shell=False,
             creationflags=creationflags,
+            start_new_session=os.name != "nt",
         )
         self._processes[session.session_id] = process
         session.browser_pid = process.pid
@@ -346,12 +360,7 @@ class BrowserProcessManager:
     def close(self, session: BrowserSession, *, remove_profile: bool = True) -> None:
         process = self._processes.pop(session.session_id, None)
         if process is not None and process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5)
+            _terminate_owned_tree(process)
         session.status = BrowserSessionStatus.CLOSED
         session.browser_pid = None
         session.control_service_pid = None
@@ -390,6 +399,102 @@ class BrowserProcessManager:
         if not visible:
             command.insert(1, "--headless=new")
         return command
+
+
+def _terminate_owned_tree(process: subprocess.Popen[bytes]) -> None:
+    """Terminate only a process launched by this manager and its descendants."""
+
+    if process.poll() is not None:
+        return
+    if os.name == "nt":
+        _terminate_windows_tree(process.pid)
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        if os.name != "nt":
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        else:
+            process.kill()
+        process.wait(timeout=5)
+
+
+def _terminate_windows_tree(root_pid: int) -> None:
+    """Snapshot ownership first, then terminate descendants before their root."""
+
+    import ctypes
+    from ctypes import wintypes
+
+    class ProcessEntry32W(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", wintypes.DWORD),
+            ("cntUsage", wintypes.DWORD),
+            ("th32ProcessID", wintypes.DWORD),
+            ("th32DefaultHeapID", ctypes.c_size_t),
+            ("th32ModuleID", wintypes.DWORD),
+            ("cntThreads", wintypes.DWORD),
+            ("th32ParentProcessID", wintypes.DWORD),
+            ("pcPriClassBase", wintypes.LONG),
+            ("dwFlags", wintypes.DWORD),
+            ("szExeFile", wintypes.WCHAR * 260),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel32.Process32FirstW.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(ProcessEntry32W),
+    ]
+    kernel32.Process32NextW.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(ProcessEntry32W),
+    ]
+    kernel32.OpenProcess.argtypes = [
+        wintypes.DWORD,
+        wintypes.BOOL,
+        wintypes.DWORD,
+    ]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    snapshot = kernel32.CreateToolhelp32Snapshot(0x00000002, 0)
+    invalid_handle = ctypes.c_void_p(-1).value
+    parents: dict[int, list[int]] = {}
+    if snapshot != invalid_handle:
+        try:
+            entry = ProcessEntry32W()
+            entry.dwSize = ctypes.sizeof(entry)
+            found = kernel32.Process32FirstW(snapshot, ctypes.byref(entry))
+            while found:
+                parents.setdefault(int(entry.th32ParentProcessID), []).append(
+                    int(entry.th32ProcessID)
+                )
+                found = kernel32.Process32NextW(snapshot, ctypes.byref(entry))
+        finally:
+            kernel32.CloseHandle(snapshot)
+
+    owned: list[int] = []
+
+    def collect(process_id: int) -> None:
+        for child in parents.get(process_id, ()):
+            collect(child)
+        owned.append(process_id)
+
+    collect(root_pid)
+    for process_id in owned:
+        handle = kernel32.OpenProcess(0x0001 | 0x00100000, False, process_id)
+        if not handle:
+            continue
+        try:
+            kernel32.TerminateProcess(handle, 1)
+            kernel32.WaitForSingleObject(handle, 5000)
+        finally:
+            kernel32.CloseHandle(handle)
 
 
 __all__ = [
