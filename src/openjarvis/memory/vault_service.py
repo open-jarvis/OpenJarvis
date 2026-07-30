@@ -5,10 +5,12 @@ from __future__ import annotations
 import uuid
 from typing import Any, Mapping
 
+from openjarvis.memory.candidates import MemoryCandidateWorkflow
 from openjarvis.memory.task_bridge import MemoryTaskBridge, MemoryTaskContext
 from openjarvis.memory.vault_index import VaultIndex
 from openjarvis.memory.vault_models import (
     IndexReport,
+    MemoryCandidate,
     MemoryHealth,
     MemoryRetrievalResult,
 )
@@ -24,10 +26,12 @@ class VaultMemoryService:
         *,
         retriever: VaultRetriever | None = None,
         task_bridge: MemoryTaskBridge | None = None,
+        candidate_workflow: MemoryCandidateWorkflow | None = None,
     ) -> None:
         self.index = index
         self.retriever = retriever or VaultRetriever(index)
         self.task_bridge = task_bridge
+        self.candidate_workflow = candidate_workflow
 
     def search(
         self,
@@ -109,6 +113,30 @@ class VaultMemoryService:
 
     def health(self) -> MemoryHealth:
         return self.index.health()
+
+    def create_candidate(
+        self,
+        context: MemoryTaskContext,
+        **kwargs: Any,
+    ) -> MemoryCandidate:
+        if self.candidate_workflow is None:
+            raise RuntimeError("memory candidate workflow is not configured")
+        return self.candidate_workflow.create(context, **kwargs)
+
+    def decide_candidate(
+        self,
+        candidate_id: str,
+        *,
+        allow: bool,
+        decision_id: str,
+    ) -> MemoryCandidate:
+        if self.candidate_workflow is None:
+            raise RuntimeError("memory candidate workflow is not configured")
+        return self.candidate_workflow.decide(
+            candidate_id,
+            allow=allow,
+            decision_id=decision_id,
+        )
 
     def close(self) -> None:
         self.index.close()
