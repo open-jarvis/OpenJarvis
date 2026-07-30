@@ -26,6 +26,7 @@ from openjarvis.memory.store import (
     LocalFactStore,
     create_fact_store,
 )
+from openjarvis.memory.task_bridge import MemoryTaskBridge, MemoryTaskContext
 from openjarvis.memory.vault_index import VaultIndex
 from openjarvis.memory.vault_models import (
     CandidateStatus,
@@ -42,6 +43,7 @@ from openjarvis.memory.vault_models import (
     RetrievalCandidate,
 )
 from openjarvis.memory.vault_retrieval import VaultRetriever, normalize_query
+from openjarvis.memory.vault_service import VaultMemoryService
 
 __all__ = [
     "Fact",
@@ -61,9 +63,12 @@ __all__ = [
     "MemoryRetrievalResult",
     "MemoryService",
     "MemorySource",
+    "MemoryTaskBridge",
+    "MemoryTaskContext",
     "ParsedMarkdown",
     "RetrievalCandidate",
     "VaultIndex",
+    "VaultMemoryService",
     "VaultRetriever",
     "build_memory_service",
     "create_fact_store",
