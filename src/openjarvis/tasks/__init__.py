@@ -2,6 +2,7 @@
 
 from openjarvis.tasks.approval import PersistentApprovalBroker
 from openjarvis.tasks.identity import TaskIdentity
+from openjarvis.tasks.lanes import ExecutionLaneScheduler
 from openjarvis.tasks.orchestrator import CodexTaskOrchestrator, TaskExecutionResult
 from openjarvis.tasks.policy import CentralRiskPolicy, RiskLevel, TurnPolicy
 from openjarvis.tasks.projection import CodexTaskEventProjector, ProjectionResult
@@ -29,6 +30,7 @@ __all__ = [
     "CentralRiskPolicy",
     "CodexTaskOrchestrator",
     "ExecutionLane",
+    "ExecutionLaneScheduler",
     "CodexTaskEventProjector",
     "InvalidTaskTransition",
     "PersistentApprovalBroker",

@@ -19,6 +19,7 @@ from openjarvis.codex.types import (
     ThreadStartRequest,
     TurnStartRequest,
 )
+from openjarvis.tasks.lanes import ExecutionLaneScheduler
 from openjarvis.tasks.policy import CentralRiskPolicy
 from openjarvis.tasks.projection import CodexTaskEventProjector
 from openjarvis.tasks.service import TaskService
@@ -76,6 +77,7 @@ class CodexTaskOrchestrator:
         default_timeout_seconds: float = 300.0,
         default_step_limit: int = 100,
         default_token_limit: int | None = None,
+        lane_scheduler: ExecutionLaneScheduler | None = None,
     ) -> None:
         if default_timeout_seconds <= 0:
             raise ValueError("default_timeout_seconds must be positive")
@@ -88,6 +90,11 @@ class CodexTaskOrchestrator:
         self._timeout_seconds = default_timeout_seconds
         self._step_limit = default_step_limit
         self._token_limit = default_token_limit
+        self._lanes = lane_scheduler or ExecutionLaneScheduler()
+
+    @property
+    def lanes(self) -> ExecutionLaneScheduler:
+        return self._lanes
 
     async def execute(
         self,
@@ -100,6 +107,7 @@ class CodexTaskOrchestrator:
         developer_instructions: str | None = None,
         turn_correlation_id: str | None = None,
         finalize_task: bool = True,
+        _lane_acquired: bool = False,
     ) -> TaskExecutionResult:
         """Execute one turn and apply terminal state only after safety checks."""
 
@@ -113,6 +121,21 @@ class CodexTaskOrchestrator:
             cwd=cwd,
             isolated_workspace=isolated_workspace,
         )
+        if not _lane_acquired:
+            return await self._lanes.run(
+                policy.execution_lane,
+                lambda: self.execute(
+                    task_id,
+                    prompt,
+                    cwd=cwd,
+                    isolated_workspace=isolated_workspace,
+                    model=model,
+                    developer_instructions=developer_instructions,
+                    turn_correlation_id=turn_correlation_id,
+                    finalize_task=finalize_task,
+                    _lane_acquired=True,
+                ),
+            )
         backend = await self._router.select(
             require_interactive_approvals=(
                 policy.approval_mode.value == "brokered"
