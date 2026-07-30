@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 
@@ -38,6 +39,39 @@ def _get_backend(backend_key: str | None = None):
 @click.group()
 def memory() -> None:
     """Manage the memory store."""
+
+
+@memory.command()
+@click.option(
+    "--vault",
+    type=click.Path(
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        path_type=Path,
+        resolve_path=True,
+    ),
+    required=True,
+    help="Explicit vault directory to inspect without modifying it.",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=True,
+    help="Analyze only (the only supported migration mode in Phase 4).",
+)
+def migration(vault: Path, dry_run: bool) -> None:
+    """Analyze a future Markdown migration; never write vault files."""
+
+    if not dry_run:
+        raise click.ClickException("Phase 4 supports dry-run analysis only")
+    from openjarvis.memory.migration import analyze_vault_migration
+
+    try:
+        report = analyze_vault_migration(vault)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(json.dumps(report.as_dict(), ensure_ascii=False, indent=2))
 
 
 @memory.command()

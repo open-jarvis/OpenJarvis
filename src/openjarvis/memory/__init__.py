@@ -20,6 +20,12 @@ from openjarvis.memory.frontmatter import (
     load_memory_note,
     parse_markdown,
 )
+from openjarvis.memory.migration import (
+    MigrationDryRunReport,
+    MigrationFinding,
+    PlannedMigrationChange,
+    analyze_vault_migration,
+)
 from openjarvis.memory.safe_write import (
     AtomicMarkdownWriter,
     AtomicWriteResult,
@@ -77,6 +83,8 @@ __all__ = [
     "MemoryCandidate",
     "MemoryCandidateWorkflow",
     "MemoryConflict",
+    "MigrationDryRunReport",
+    "MigrationFinding",
     "MemoryHealth",
     "MemoryNote",
     "MemoryRetrievalResult",
@@ -85,6 +93,7 @@ __all__ = [
     "MemoryTaskBridge",
     "MemoryTaskContext",
     "ParsedMarkdown",
+    "PlannedMigrationChange",
     "RetrievalCandidate",
     "VaultIndex",
     "VaultMemoryService",
@@ -93,6 +102,7 @@ __all__ = [
     "UnsafeMemoryPath",
     "build_memory_service",
     "build_vault_memory_service",
+    "analyze_vault_migration",
     "candidate_to_dict",
     "create_fact_store",
     "load_memory_note",
