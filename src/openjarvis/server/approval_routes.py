@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from openjarvis.tools.approval_store import (
@@ -13,7 +14,7 @@ from openjarvis.tools.approval_store import (
 )
 
 try:
-    from fastapi import APIRouter, HTTPException
+    from fastapi import APIRouter, Header, HTTPException, Request
 except ImportError:
     raise ImportError("fastapi is required for approval routes")
 
@@ -47,15 +48,46 @@ def _serialize(action: PendingAction) -> Dict[str, Any]:
 
 
 @router.get("/v1/approvals/pending")
-async def list_pending_approvals() -> Dict[str, Any]:
+async def list_pending_approvals(request: Request) -> Dict[str, Any]:
     store = _get_store()
     store.expire_stale()
-    actions = store.list_pending()
-    return {"actions": [_serialize(a) for a in actions], "count": len(actions)}
+    actions = [_serialize(action) for action in store.list_pending()]
+    task_store = getattr(request.app.state, "task_store", None)
+    if task_store is not None:
+        from openjarvis.server.task_routes import serialize_approval
+
+        actions.extend(
+            serialize_approval(record)
+            for record in task_store.list_pending_approvals()
+        )
+    return {"actions": actions, "count": len(actions)}
 
 
 @router.post("/v1/approvals/{action_id}/approve")
-async def approve_action(action_id: str) -> Dict[str, Any]:
+async def approve_action(
+    action_id: str,
+    request: Request,
+    correlation_id: str | None = Header(
+        default=None,
+        alias="X-Correlation-ID",
+    ),
+    idempotency_key: str | None = Header(
+        default=None,
+        alias="Idempotency-Key",
+    ),
+) -> Dict[str, Any]:
+    task_store = getattr(request.app.state, "task_store", None)
+    task_approval = (
+        task_store.get_approval(action_id) if task_store is not None else None
+    )
+    if task_approval is not None:
+        return await _decide_task_approval(
+            request,
+            task_approval,
+            allow=True,
+            correlation_id=correlation_id,
+            idempotency_key=idempotency_key,
+        )
     store = _get_store()
     action = store.get_action(action_id)
     if action is None:
@@ -66,7 +98,30 @@ async def approve_action(action_id: str) -> Dict[str, Any]:
 
 
 @router.post("/v1/approvals/{action_id}/deny")
-async def deny_action(action_id: str) -> Dict[str, Any]:
+async def deny_action(
+    action_id: str,
+    request: Request,
+    correlation_id: str | None = Header(
+        default=None,
+        alias="X-Correlation-ID",
+    ),
+    idempotency_key: str | None = Header(
+        default=None,
+        alias="Idempotency-Key",
+    ),
+) -> Dict[str, Any]:
+    task_store = getattr(request.app.state, "task_store", None)
+    task_approval = (
+        task_store.get_approval(action_id) if task_store is not None else None
+    )
+    if task_approval is not None:
+        return await _decide_task_approval(
+            request,
+            task_approval,
+            allow=False,
+            correlation_id=correlation_id,
+            idempotency_key=idempotency_key,
+        )
     store = _get_store()
     action = store.get_action(action_id)
     if action is None:
@@ -74,6 +129,72 @@ async def deny_action(action_id: str) -> Dict[str, Any]:
     store.update_status(action_id, STATUS_DENIED)
     logger.info("Action %s denied via UI", action_id)
     return {"status": "denied", "id": action_id}
+
+
+async def _decide_task_approval(
+    request: Request,
+    approval,
+    *,
+    allow: bool,
+    correlation_id: str | None,
+    idempotency_key: str | None,
+) -> Dict[str, Any]:
+    """Apply one authenticated local decision to the Phase 3 broker."""
+
+    from openjarvis.server.task_routes import (
+        _require_local,
+        _validated_header,
+    )
+
+    _require_local(request)
+    if correlation_id is None or idempotency_key is None:
+        raise HTTPException(
+            status_code=422,
+            detail="X-Correlation-ID and Idempotency-Key are required",
+        )
+    correlation_id = _validated_header(correlation_id, "X-Correlation-ID")
+    idempotency_key = _validated_header(idempotency_key, "Idempotency-Key")
+    broker = getattr(request.app.state, "approval_broker", None)
+    service = getattr(request.app.state, "task_service", None)
+    if broker is None or service is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Codex approval capability is disabled",
+        )
+    try:
+        record = await broker.decide(
+            approval.approval_id,
+            allow=allow,
+            decision_id=idempotency_key,
+            actor="local_user",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    event, created = service.store.append_event(
+        task_id=approval.task_id,
+        source_event_id=f"api-approval:{idempotency_key}",
+        event_type="approval.user_decided",
+        occurred_at=datetime.now(timezone.utc).isoformat(),
+        cause="local_user_approval_decision",
+        component="approval_api",
+        thread_id=approval.thread_id,
+        turn_id=approval.turn_id,
+        item_id=approval.item_id,
+        approval_id=approval.approval_id,
+        action_id=approval.action_id,
+        payload={
+            "decision": "allow" if allow else "deny",
+            "request_correlation_id": correlation_id,
+        },
+    )
+    if created:
+        service.project_committed(event)
+    logger.info(
+        "Codex approval %s decided via local UI: %s",
+        approval.approval_id,
+        record.status.value,
+    )
+    return {"status": record.status.value, "id": record.approval_id}
 
 
 __all__ = ["router"]

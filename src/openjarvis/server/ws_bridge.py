@@ -28,10 +28,12 @@ _AGENT_EVENTS = {
     EventType.TOOL_CALL_END,
     EventType.INFERENCE_START,
     EventType.INFERENCE_END,
+    EventType.TASK_EVENT,
+    EventType.CODEX_EVENT,
 }
 
 
-def create_ws_router(event_bus: EventBus) -> Any:
+def create_ws_router(event_bus: EventBus, *, task_service: Any = None) -> Any:
     """Create a FastAPI router with a WebSocket endpoint for agent events."""
     router = APIRouter()
     # Each connected client gets a queue + loop ref for thread-safe event delivery
@@ -46,6 +48,7 @@ def create_ws_router(event_bus: EventBus) -> Any:
         }
         for ws, (queue, loop) in list(clients.items()):
             agent_filter = getattr(ws, "_agent_filter", None)
+            task_filter = getattr(ws, "_task_filter", None)
             # Tick events carry "agent_id"; tool-call events carry "agent".
             # Match either so a per-agent subscriber actually receives the
             # tool calls that make up its live trace (without this, only
@@ -53,6 +56,8 @@ def create_ws_router(event_bus: EventBus) -> Any:
             data = event.data or {}
             event_agent = data.get("agent_id") or data.get("agent")
             if agent_filter and event_agent != agent_filter:
+                continue
+            if task_filter and data.get("task_id") != task_filter:
                 continue
             try:
                 loop.call_soon_threadsafe(queue.put_nowait, payload)
@@ -64,6 +69,7 @@ def create_ws_router(event_bus: EventBus) -> Any:
         event_bus.subscribe(event_type, _on_event)
 
     @router.websocket("/v1/agents/events")
+    @router.websocket("/v1/tasks/events")
     async def agent_events(websocket: WebSocket) -> None:
         from openjarvis.server.auth_middleware import websocket_authorized
 
@@ -72,16 +78,64 @@ def create_ws_router(event_bus: EventBus) -> Any:
             # 1008 = policy violation; reject before accepting the connection.
             await websocket.close(code=1008)
             return
-        await websocket.accept()
-        # Parse agent_id filter from query string
+        # Parse agent/task filters from query string.
         agent_id = websocket.query_params.get("agent_id")
+        task_id = websocket.query_params.get("task_id")
+        if task_id:
+            from openjarvis.server.task_routes import _require_local
+
+            class _RequestAdapter:
+                client = websocket.client
+
+            try:
+                _require_local(_RequestAdapter())  # type: ignore[arg-type]
+            except Exception:
+                await websocket.close(code=1008)
+                return
+        try:
+            after_sequence = int(websocket.query_params.get("after_sequence", "0"))
+        except ValueError:
+            await websocket.close(code=1008)
+            return
+        if after_sequence < 0:
+            await websocket.close(code=1008)
+            return
+
+        await websocket.accept()
         websocket._agent_filter = agent_id  # type: ignore[attr-defined]
+        websocket._task_filter = task_id  # type: ignore[attr-defined]
         queue: asyncio.Queue = asyncio.Queue(maxsize=100)
         loop = asyncio.get_running_loop()
         clients[websocket] = (queue, loop)
+        last_task_sequence = after_sequence
         try:
+            if task_id and task_service is not None:
+                from openjarvis.server.task_routes import serialize_event
+
+                for event in task_service.timeline(
+                    task_id,
+                    after_sequence=after_sequence,
+                    limit=5000,
+                ):
+                    await websocket.send_json(
+                        {
+                            "type": EventType.TASK_EVENT.value,
+                            "timestamp": event.occurred_at,
+                            "data": serialize_event(event),
+                        }
+                    )
+                    last_task_sequence = max(
+                        last_task_sequence,
+                        event.sequence,
+                    )
             while True:
                 payload = await queue.get()
+                if task_id:
+                    sequence = payload.get("data", {}).get("sequence")
+                    if isinstance(sequence, int):
+                        if sequence <= last_task_sequence:
+                            continue
+                        last_task_sequence = sequence
                 await websocket.send_json(payload)
         except WebSocketDisconnect:
             pass

@@ -1039,8 +1039,10 @@ def include_all_routes(app) -> None:
     from openjarvis.server.approval_routes import (
         router as approval_router,  # noqa: PLC0415
     )
+    from openjarvis.server.task_routes import router as task_router  # noqa: PLC0415
 
     app.include_router(approval_router)
+    app.include_router(task_router)
     app.include_router(agents_router)
     app.include_router(memory_router)
     app.include_router(traces_router)
@@ -1082,7 +1084,10 @@ def include_all_routes(app) -> None:
         from openjarvis.core.events import get_event_bus
         from openjarvis.server.ws_bridge import create_ws_router
 
-        ws_router = create_ws_router(get_event_bus())
+        ws_router = create_ws_router(
+            app.state.bus or get_event_bus(),
+            task_service=getattr(app.state, "task_service", None),
+        )
         app.include_router(ws_router)
     except Exception:
         logger.debug("WebSocket bridge not available", exc_info=True)
