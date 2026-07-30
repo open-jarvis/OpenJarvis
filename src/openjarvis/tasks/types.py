@@ -229,6 +229,23 @@ class ApprovalRecord:
     payload: Mapping[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class TaskUsage:
+    """Persisted usage with turn and cumulative thread values kept separate."""
+
+    task_id: str
+    turn_id: str
+    turn_input_tokens: int
+    turn_output_tokens: int
+    thread_input_tokens: int
+    thread_output_tokens: int
+    warning: bool
+    hard_exceeded: bool
+    reason: str | None
+    source_event_id: str
+    updated_at: str
+
+
 def validate_transition(current: TaskStatus, requested: TaskStatus) -> None:
     """Validate a canonical state transition."""
 
@@ -284,6 +301,7 @@ __all__ = [
     "TaskRecord",
     "TaskSource",
     "TaskStatus",
+    "TaskUsage",
     "validate_outcome",
     "validate_transition",
 ]

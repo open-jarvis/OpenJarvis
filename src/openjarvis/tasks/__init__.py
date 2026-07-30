@@ -1,6 +1,7 @@
 """Canonical OpenJarvis task runtime."""
 
 from openjarvis.tasks.approval import PersistentApprovalBroker
+from openjarvis.tasks.budget import BudgetController, BudgetDecision, BudgetLimits
 from openjarvis.tasks.identity import TaskIdentity
 from openjarvis.tasks.lanes import ExecutionLaneScheduler
 from openjarvis.tasks.orchestrator import CodexTaskOrchestrator, TaskExecutionResult
@@ -21,12 +22,16 @@ from openjarvis.tasks.types import (
     TaskRecord,
     TaskSource,
     TaskStatus,
+    TaskUsage,
 )
 
 __all__ = [
     "ApprovalKind",
     "ApprovalRecord",
     "ApprovalStatus",
+    "BudgetController",
+    "BudgetDecision",
+    "BudgetLimits",
     "CentralRiskPolicy",
     "CodexTaskOrchestrator",
     "ExecutionLane",
@@ -47,5 +52,6 @@ __all__ = [
     "TaskSource",
     "TaskStatus",
     "TaskStore",
+    "TaskUsage",
     "TurnPolicy",
 ]

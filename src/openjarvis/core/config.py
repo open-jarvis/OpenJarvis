@@ -1580,6 +1580,13 @@ class CodexBackendConfig:
     default_timeout_seconds: float = 300.0
     default_step_limit: int = 100
     default_token_limit: int = 0
+    max_turn_duration: float = 300.0
+    max_steps: int = 100
+    max_input_tokens: int = 200_000
+    max_output_tokens: int = 32_000
+    max_total_tokens_per_task: int = 500_000
+    warning_threshold: float = 0.8
+    hard_limit_action: str = "interrupt"
     state_db_path: str = field(
         default_factory=lambda: str(get_config_dir() / "codex_state.db")
     )

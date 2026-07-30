@@ -237,6 +237,7 @@ class SystemBuilder:
                 from openjarvis.codex.router import CodexBackendRouter
                 from openjarvis.codex.sdk_backend import CodexPythonSdkBackend
                 from openjarvis.tasks.approval import PersistentApprovalBroker
+                from openjarvis.tasks.budget import BudgetLimits
                 from openjarvis.tasks.orchestrator import CodexTaskOrchestrator
                 from openjarvis.tasks.policy import CentralRiskPolicy
                 from openjarvis.tasks.projection import CodexTaskEventProjector
@@ -283,6 +284,17 @@ class SystemBuilder:
                     default_step_limit=config.codex.default_step_limit,
                     default_token_limit=(
                         config.codex.default_token_limit or None
+                    ),
+                    budget_limits=BudgetLimits(
+                        max_turn_duration=config.codex.max_turn_duration,
+                        max_steps=config.codex.max_steps,
+                        max_input_tokens=config.codex.max_input_tokens,
+                        max_output_tokens=config.codex.max_output_tokens,
+                        max_total_tokens_per_task=(
+                            config.codex.max_total_tokens_per_task
+                        ),
+                        warning_threshold=config.codex.warning_threshold,
+                        hard_limit_action=config.codex.hard_limit_action,
                     ),
                 )
             except Exception:

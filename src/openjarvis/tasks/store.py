@@ -25,11 +25,12 @@ from openjarvis.tasks.types import (
     TaskRecord,
     TaskSource,
     TaskStatus,
+    TaskUsage,
     validate_outcome,
     validate_transition,
 )
 
-_TASK_SCHEMA_VERSION = 4
+_TASK_SCHEMA_VERSION = 5
 
 _TASK_SCHEMA = """\
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -209,6 +210,27 @@ CREATE INDEX IF NOT EXISTS idx_task_approvals_task
     ON task_approvals(task_id, created_at);
 """
 
+_USAGE_SCHEMA = """\
+CREATE TABLE IF NOT EXISTS task_usage (
+    task_id             TEXT NOT NULL,
+    turn_id             TEXT NOT NULL,
+    turn_input_tokens   INTEGER NOT NULL DEFAULT 0,
+    turn_output_tokens  INTEGER NOT NULL DEFAULT 0,
+    thread_input_tokens INTEGER NOT NULL DEFAULT 0,
+    thread_output_tokens INTEGER NOT NULL DEFAULT 0,
+    warning             INTEGER NOT NULL DEFAULT 0,
+    hard_exceeded       INTEGER NOT NULL DEFAULT 0,
+    reason              TEXT,
+    source_event_id     TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
+    PRIMARY KEY (task_id, turn_id),
+    FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_usage_task
+    ON task_usage(task_id, updated_at);
+"""
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -261,6 +283,15 @@ class TaskStore(CodexStateStore):
                     INSERT OR IGNORE INTO schema_migrations
                         (component, version, name, applied_at)
                     VALUES ('task_runtime', 3, 'bounded task artifacts', ?)
+                    """,
+                    (_now(),),
+                )
+                self._conn.executescript(_USAGE_SCHEMA)
+                self._conn.execute(
+                    """
+                    INSERT OR IGNORE INTO schema_migrations
+                        (component, version, name, applied_at)
+                    VALUES ('task_runtime', 5, 'separate turn and task usage', ?)
                     """,
                     (_now(),),
                 )
@@ -1069,6 +1100,115 @@ class TaskStore(CodexStateStore):
             raise RuntimeError("approval response could not be read back")
         return record
 
+    def save_usage(
+        self,
+        *,
+        task_id: str,
+        turn_id: str,
+        turn_input_tokens: int,
+        turn_output_tokens: int,
+        thread_input_tokens: int,
+        thread_output_tokens: int,
+        warning: bool,
+        hard_exceeded: bool,
+        reason: str | None,
+        source_event_id: str,
+    ) -> TaskUsage:
+        """Upsert the latest usage snapshot for a turn."""
+
+        for field_name, value in {
+            "task_id": task_id,
+            "turn_id": turn_id,
+            "source_event_id": source_event_id,
+        }.items():
+            if not value.strip():
+                raise ValueError(f"{field_name} must be non-empty")
+        values = (
+            turn_input_tokens,
+            turn_output_tokens,
+            thread_input_tokens,
+            thread_output_tokens,
+        )
+        if any(value < 0 for value in values):
+            raise ValueError("token usage cannot be negative")
+        timestamp = _now()
+        with self._lock, self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO task_usage (
+                    task_id, turn_id, turn_input_tokens, turn_output_tokens,
+                    thread_input_tokens, thread_output_tokens, warning,
+                    hard_exceeded, reason, source_event_id, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(task_id, turn_id) DO UPDATE SET
+                    turn_input_tokens=MAX(
+                        task_usage.turn_input_tokens,
+                        excluded.turn_input_tokens
+                    ),
+                    turn_output_tokens=MAX(
+                        task_usage.turn_output_tokens,
+                        excluded.turn_output_tokens
+                    ),
+                    thread_input_tokens=MAX(
+                        task_usage.thread_input_tokens,
+                        excluded.thread_input_tokens
+                    ),
+                    thread_output_tokens=MAX(
+                        task_usage.thread_output_tokens,
+                        excluded.thread_output_tokens
+                    ),
+                    warning=MAX(task_usage.warning, excluded.warning),
+                    hard_exceeded=MAX(
+                        task_usage.hard_exceeded,
+                        excluded.hard_exceeded
+                    ),
+                    reason=COALESCE(excluded.reason, task_usage.reason),
+                    source_event_id=excluded.source_event_id,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    task_id,
+                    turn_id,
+                    *values,
+                    int(warning),
+                    int(hard_exceeded),
+                    reason,
+                    source_event_id,
+                    timestamp,
+                ),
+            )
+        record = self.get_usage(task_id, turn_id)
+        if record is None:
+            raise RuntimeError("usage snapshot could not be read back")
+        return record
+
+    def get_usage(self, task_id: str, turn_id: str) -> TaskUsage | None:
+        row = self._conn.execute(
+            "SELECT * FROM task_usage WHERE task_id=? AND turn_id=?",
+            (task_id, turn_id),
+        ).fetchone()
+        return self._usage_from_row(row) if row else None
+
+    def list_usage(self, task_id: str) -> list[TaskUsage]:
+        rows = self._conn.execute(
+            """
+            SELECT * FROM task_usage
+            WHERE task_id=? ORDER BY updated_at, turn_id
+            """,
+            (task_id,),
+        ).fetchall()
+        return [self._usage_from_row(row) for row in rows]
+
+    def task_token_total(self, task_id: str) -> int:
+        row = self._conn.execute(
+            """
+            SELECT COALESCE(SUM(turn_input_tokens + turn_output_tokens), 0)
+            FROM task_usage WHERE task_id=?
+            """,
+            (task_id,),
+        ).fetchone()
+        return int(row[0] or 0)
+
     def append_event(
         self,
         *,
@@ -1347,6 +1487,22 @@ class TaskStore(CodexStateStore):
             response_id=row["response_id"],
             responded_at=row["responded_at"],
             payload=json.loads(row["payload"]),
+        )
+
+    @staticmethod
+    def _usage_from_row(row: sqlite3.Row) -> TaskUsage:
+        return TaskUsage(
+            task_id=row["task_id"],
+            turn_id=row["turn_id"],
+            turn_input_tokens=int(row["turn_input_tokens"]),
+            turn_output_tokens=int(row["turn_output_tokens"]),
+            thread_input_tokens=int(row["thread_input_tokens"]),
+            thread_output_tokens=int(row["thread_output_tokens"]),
+            warning=bool(row["warning"]),
+            hard_exceeded=bool(row["hard_exceeded"]),
+            reason=row["reason"],
+            source_event_id=row["source_event_id"],
+            updated_at=row["updated_at"],
         )
 
 

@@ -24,6 +24,7 @@ from openjarvis.codex.types import (
     TurnStartRequest,
 )
 from openjarvis.tasks import (
+    BudgetLimits,
     CodexTaskEventProjector,
     CodexTaskOrchestrator,
     TaskOutcome,
@@ -60,6 +61,7 @@ class FakeCodexBackend:
         self.resume_count = 0
         self.turn_count = 0
         self.turn_events: dict[str, list[CodexEvent]] = {}
+        self.interrupt_count = 0
 
     async def health(self) -> CodexHealth:
         return CodexHealth(
@@ -190,6 +192,7 @@ class FakeCodexBackend:
 
     async def interrupt(self, turn_id: str) -> None:
         del turn_id
+        self.interrupt_count += 1
 
     async def read_thread(self, thread_id: str) -> Any:
         return {"id": thread_id}
@@ -201,6 +204,8 @@ class FakeCodexBackend:
 def _runtime(
     tmp_path: Path,
     specs: list[tuple[CodexEventType, str | None, dict[str, Any]]],
+    *,
+    budget_limits: BudgetLimits | None = None,
 ) -> tuple[TaskStore, TaskService, FakeCodexBackend, CodexTaskOrchestrator]:
     store = TaskStore(tmp_path / "runtime.db")
     service = TaskService(store)
@@ -222,6 +227,7 @@ def _runtime(
         router,
         service,
         CodexTaskEventProjector(store),
+        budget_limits=budget_limits,
     )
     return store, service, fake, orchestrator
 
@@ -317,5 +323,102 @@ async def test_two_turns_resume_same_persistent_thread(tmp_path: Path) -> None:
         assert first.thread_id == second.thread_id == "thread"
         assert fake.resume_count == 1
         assert fake.turn_count == 2
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_budget_warning_qualifies_successful_outcome(tmp_path: Path) -> None:
+    limits = BudgetLimits(
+        max_input_tokens=100,
+        max_output_tokens=100,
+        max_total_tokens_per_task=1_000,
+        warning_threshold=0.8,
+    )
+    store, _, fake, orchestrator = _runtime(
+        tmp_path,
+        [
+            (
+                CodexEventType.USAGE_UPDATED,
+                None,
+                {"turn": {"inputTokens": 85, "outputTokens": 1}},
+            ),
+            (CodexEventType.TURN_COMPLETED, None, {}),
+        ],
+        budget_limits=limits,
+    )
+    try:
+        result = await orchestrator.execute("task", "question", cwd=tmp_path)
+        assert result.task.status is TaskStatus.DONE
+        assert result.task.outcome is TaskOutcome.COMPLETED_WITH_BUDGET_WARNING
+        assert result.task.budget_warning is True
+        assert fake.interrupt_count == 0
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_hard_budget_interrupt_before_result_is_interrupted(
+    tmp_path: Path,
+) -> None:
+    limits = BudgetLimits(
+        max_input_tokens=100,
+        max_output_tokens=100,
+        max_total_tokens_per_task=1_000,
+    )
+    store, _, fake, orchestrator = _runtime(
+        tmp_path,
+        [
+            (
+                CodexEventType.USAGE_UPDATED,
+                None,
+                {"turn": {"inputTokens": 101, "outputTokens": 1}},
+            ),
+            (CodexEventType.TURN_COMPLETED, None, {}),
+        ],
+        budget_limits=limits,
+    )
+    try:
+        result = await orchestrator.execute("task", "question", cwd=tmp_path)
+        assert result.task.status is TaskStatus.FAILED
+        assert result.task.outcome is TaskOutcome.INTERRUPTED
+        assert result.task.error_category == "budget_limit"
+        assert fake.interrupt_count == 1
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_late_hard_usage_does_not_invalidate_received_result(
+    tmp_path: Path,
+) -> None:
+    limits = BudgetLimits(
+        max_input_tokens=100,
+        max_output_tokens=100,
+        max_total_tokens_per_task=1_000,
+    )
+    store, _, fake, orchestrator = _runtime(
+        tmp_path,
+        [
+            (
+                CodexEventType.ITEM_COMPLETED,
+                "message",
+                {"item": {"type": "agentMessage", "text": "correct"}},
+            ),
+            (CodexEventType.TURN_COMPLETED, None, {}),
+            (
+                CodexEventType.USAGE_UPDATED,
+                None,
+                {"turn": {"inputTokens": 101, "outputTokens": 1}},
+            ),
+        ],
+        budget_limits=limits,
+    )
+    try:
+        result = await orchestrator.execute("task", "question", cwd=tmp_path)
+        assert result.content == "correct"
+        assert result.task.status is TaskStatus.DONE
+        assert result.task.outcome is TaskOutcome.COMPLETED_WITH_BUDGET_WARNING
+        assert fake.interrupt_count == 0
     finally:
         store.close()

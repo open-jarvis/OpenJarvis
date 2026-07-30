@@ -19,6 +19,7 @@ from openjarvis.codex.types import (
     ThreadStartRequest,
     TurnStartRequest,
 )
+from openjarvis.tasks.budget import BudgetController, BudgetLimits
 from openjarvis.tasks.lanes import ExecutionLaneScheduler
 from openjarvis.tasks.policy import CentralRiskPolicy
 from openjarvis.tasks.projection import CodexTaskEventProjector
@@ -51,6 +52,8 @@ class _TerminalFacts:
     active_commands: set[str] = field(default_factory=set)
     open_file_changes: set[str] = field(default_factory=set)
     pending_approvals: set[str] = field(default_factory=set)
+    budget_warning: bool = False
+    budget_interrupted: bool = False
 
     @property
     def safe_to_finish(self) -> bool:
@@ -78,6 +81,7 @@ class CodexTaskOrchestrator:
         default_step_limit: int = 100,
         default_token_limit: int | None = None,
         lane_scheduler: ExecutionLaneScheduler | None = None,
+        budget_limits: BudgetLimits | None = None,
     ) -> None:
         if default_timeout_seconds <= 0:
             raise ValueError("default_timeout_seconds must be positive")
@@ -91,6 +95,7 @@ class CodexTaskOrchestrator:
         self._step_limit = default_step_limit
         self._token_limit = default_token_limit
         self._lanes = lane_scheduler or ExecutionLaneScheduler()
+        self._budget = BudgetController(task_service.store, budget_limits)
 
     @property
     def lanes(self) -> ExecutionLaneScheduler:
@@ -221,6 +226,17 @@ class CodexTaskOrchestrator:
         async for event in backend.stream_events(turn.turn_id):
             self._projector.project(event)
             self._observe(facts, event)
+            if event.event_type is CodexEventType.USAGE_UPDATED:
+                decision = self._budget.observe(
+                    task_id=task.task_id,
+                    turn_id=turn.turn_id,
+                    event=event,
+                )
+                facts.budget_warning = facts.budget_warning or decision.warning
+                if decision.hard_exceeded and not facts.completed:
+                    await backend.interrupt(turn.turn_id)
+                    facts.budget_interrupted = True
+                    facts.interrupted = True
         self._project_persisted_events(thread.thread_id)
 
         final_task = self._finish_task(
@@ -281,11 +297,18 @@ class CodexTaskOrchestrator:
                 task_id,
                 TaskStatus.FAILED,
                 component="codex_task_orchestrator",
-                cause="codex_turn_interrupted",
+                cause=(
+                    "usage_budget_hard_limit"
+                    if facts.budget_interrupted
+                    else "codex_turn_interrupted"
+                ),
                 idempotency_key=f"{transition_key}:interrupted",
                 outcome=TaskOutcome.INTERRUPTED,
                 result=facts.content,
-                error_category="interrupted",
+                error_category=(
+                    "budget_limit" if facts.budget_interrupted else "interrupted"
+                ),
+                budget_warning=facts.budget_warning,
             )
         if facts.failed:
             return self._tasks.transition(
@@ -307,8 +330,13 @@ class CodexTaskOrchestrator:
                 component="codex_task_orchestrator",
                 cause="terminal_safety_checks_passed",
                 idempotency_key=f"{transition_key}:done",
-                outcome=TaskOutcome.COMPLETED,
+                outcome=(
+                    TaskOutcome.COMPLETED_WITH_BUDGET_WARNING
+                    if facts.budget_warning
+                    else TaskOutcome.COMPLETED
+                ),
                 result=facts.content,
+                budget_warning=facts.budget_warning,
             )
         return self._tasks.transition(
             task_id,
