@@ -127,6 +127,11 @@ except ImportError:
     pass
 
 try:
+    import openjarvis.tools.git_secure  # noqa: F401
+except ImportError:
+    pass
+
+try:
     import openjarvis.tools.db_query  # noqa: F401
 except ImportError:
     pass
