@@ -1049,6 +1049,172 @@ export async function getMemoryConfig(): Promise<MemoryConfig> {
 }
 
 // ---------------------------------------------------------------------------
+// Evidence-bound Markdown vault memory
+// ---------------------------------------------------------------------------
+
+export interface VaultMemoryHealth {
+  vault_configured: boolean;
+  vault_reachable: boolean;
+  mode: 'read-only' | 'writable-test' | 'unconfigured';
+  index_available: boolean;
+  fts5_available: boolean;
+  note_count: number;
+  parser_error_count: number;
+  last_successful_index: string | null;
+  last_error: string | null;
+  embeddings_enabled: boolean;
+  retrieval_mode: string;
+  open_candidates: number;
+  open_conflicts: number;
+}
+
+export interface VaultMemorySource {
+  source_id: string;
+  retrieval_id: string;
+  note_id: string;
+  path: string;
+  title: string;
+  relevant_text: string;
+  line_start: number | null;
+  line_end: number | null;
+  section: string | null;
+  score: number;
+  selection_reason: string;
+  content_hash: string;
+  indexed_at: string;
+}
+
+export interface VaultMemoryCandidateResult {
+  note_id: string;
+  path: string;
+  title: string;
+  score: number;
+  reason: string;
+  content_hash: string;
+  conflict_state: string;
+  source_priority: number;
+}
+
+export interface VaultMemoryRetrieval {
+  retrieval_id: string;
+  query: string;
+  normalized_query: string;
+  candidates: VaultMemoryCandidateResult[];
+  selected_sources: VaultMemorySource[];
+  confidence: number;
+  evidence_status: 'sufficient' | 'partial' | 'insufficient' | 'conflicting' | 'unavailable';
+  evidence_code: string;
+  retrieval_method: string;
+  filters: Record<string, unknown>;
+  warnings: string[];
+}
+
+export interface VaultMemoryCandidate {
+  candidate_id: string;
+  task_id: string;
+  note_id: string;
+  proposed_path: string;
+  note_type: string;
+  scope: string;
+  source: string;
+  planned_diff: string;
+  risk_level: number;
+  status: string;
+  approval_id: string | null;
+  conflict_state: string;
+  created_at: string;
+}
+
+export interface VaultMemoryConflict {
+  conflict_id: string;
+  conflict_type: string;
+  state: string;
+  note_ids: string[];
+  candidate_id: string | null;
+  summary: string;
+  winner_note_id: string | null;
+  resolution: string | null;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+export interface VaultMemoryNote {
+  note_id: string;
+  path: string;
+  title: string;
+  note_type: string;
+  status: string;
+  body: string;
+  content_hash: string;
+  conflict_state: string;
+  identity_kind: string;
+}
+
+export interface VaultMemoryLinks {
+  outgoing: Array<Record<string, unknown>>;
+  backlinks: Array<Record<string, unknown>>;
+}
+
+export interface MemoryTaskContext {
+  task_id: string;
+  session_id: string;
+  correlation_id: string;
+}
+
+function memoryTaskHeaders(context: MemoryTaskContext): Record<string, string> {
+  return {
+    'X-Task-ID': context.task_id,
+    'X-Session-ID': context.session_id,
+    'X-Correlation-ID': context.correlation_id,
+  };
+}
+
+export async function fetchVaultMemoryHealth(): Promise<VaultMemoryHealth> {
+  const res = await apiFetch('/v1/memory/health');
+  if (!res.ok) throw new Error(await memoryErrorDetail(res, 'Failed to fetch vault memory health'));
+  return res.json();
+}
+
+export async function searchVaultMemory(
+  query: string,
+  context: MemoryTaskContext,
+  topK = 5,
+): Promise<VaultMemoryRetrieval> {
+  const params = new URLSearchParams({ query, top_k: String(topK) });
+  const res = await apiFetch(`/v1/memory/search?${params}`, {
+    headers: memoryTaskHeaders(context),
+  });
+  if (!res.ok) throw new Error(await memoryErrorDetail(res, 'Failed to search vault memory'));
+  return res.json();
+}
+
+export async function fetchVaultMemoryCandidates(): Promise<VaultMemoryCandidate[]> {
+  const res = await apiFetch('/v1/memory/candidates?open_only=false');
+  if (!res.ok) throw new Error(await memoryErrorDetail(res, 'Failed to fetch memory candidates'));
+  const data = await res.json();
+  return data.candidates || [];
+}
+
+export async function fetchVaultMemoryConflicts(): Promise<VaultMemoryConflict[]> {
+  const res = await apiFetch('/v1/memory/conflicts?open_only=true');
+  if (!res.ok) throw new Error(await memoryErrorDetail(res, 'Failed to fetch memory conflicts'));
+  const data = await res.json();
+  return data.conflicts || [];
+}
+
+export async function fetchVaultMemoryNote(noteId: string): Promise<VaultMemoryNote> {
+  const res = await apiFetch(`/v1/memory/notes/${encodeURIComponent(noteId)}`);
+  if (!res.ok) throw new Error(await memoryErrorDetail(res, 'Failed to fetch memory note'));
+  return res.json();
+}
+
+export async function fetchVaultMemoryLinks(noteId: string): Promise<VaultMemoryLinks> {
+  const res = await apiFetch(`/v1/memory/notes/${encodeURIComponent(noteId)}/links`);
+  if (!res.ok) throw new Error(await memoryErrorDetail(res, 'Failed to fetch note links'));
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
 // Approvals
 // ---------------------------------------------------------------------------
 
