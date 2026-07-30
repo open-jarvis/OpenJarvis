@@ -32,6 +32,31 @@ class TurnPolicy:
     isolated_workspace: Path | None
 
 
+@dataclass(frozen=True, slots=True)
+class ToolPolicyContext:
+    """Trusted runtime grants supplied by OpenJarvis, never by the model."""
+
+    granted_capabilities: frozenset[str]
+    execution_lane: ExecutionLane
+    requested_risk: RiskLevel
+    proposal_capability: str
+    approved_once: bool = False
+    untrusted_risk: RiskLevel = RiskLevel.READ_ONLY
+    allowed_roots: tuple[Path, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ToolPolicyDecision:
+    """Auditable decision returned before a tool may execute."""
+
+    allowed: bool
+    status: str
+    effective_risk: RiskLevel
+    capability: str
+    reason: str
+    allowed_roots: tuple[Path, ...]
+
+
 class CentralRiskPolicy:
     """Only authority allowed to derive Codex sandbox and approval mode."""
 
@@ -133,10 +158,7 @@ class CentralRiskPolicy:
             or kind
         )
         target = str(
-            payload.get("path")
-            or payload.get("target")
-            or payload.get("cwd")
-            or ""
+            payload.get("path") or payload.get("target") or payload.get("cwd") or ""
         )
         base = 1 if kind == "file_change" else 2
         return self.classify(
@@ -145,5 +167,66 @@ class CentralRiskPolicy:
             target=target,
         )
 
+    def authorize_tool(
+        self,
+        manifest: Any,
+        context: ToolPolicyContext,
+    ) -> ToolPolicyDecision:
+        """Apply the canonical Level 0-4 policy to one trusted manifest.
 
-__all__ = ["CentralRiskPolicy", "RiskLevel", "TurnPolicy"]
+        ``manifest`` is intentionally duck-typed to avoid a dependency cycle:
+        manifests import :class:`RiskLevel` from this module.  All authority
+        comes from the code-owned manifest and ``ToolPolicyContext``.  A
+        proposal may repeat those values for audit, but cannot grant them.
+        """
+
+        effective = RiskLevel(
+            max(
+                int(manifest.risk_level),
+                int(context.requested_risk),
+                int(context.untrusted_risk),
+            )
+        )
+        roots = tuple(root.resolve(strict=False) for root in context.allowed_roots)
+
+        def decision(allowed: bool, status: str, reason: str) -> ToolPolicyDecision:
+            return ToolPolicyDecision(
+                allowed=allowed,
+                status=status,
+                effective_risk=effective,
+                capability=str(manifest.capability),
+                reason=reason,
+                allowed_roots=roots,
+            )
+
+        if not manifest.enabled:
+            return decision(False, "denied", manifest.degraded_reason or "disabled")
+        if not manifest.supports_current_platform():
+            return decision(False, "denied", "unsupported platform")
+        if context.proposal_capability != manifest.capability:
+            return decision(
+                False,
+                "denied",
+                "proposal capability does not match the trusted manifest",
+            )
+        if manifest.capability not in context.granted_capabilities:
+            return decision(False, "denied", "capability is not granted")
+        if context.execution_lane not in manifest.allowed_lanes:
+            return decision(False, "denied", "tool is not allowed in this lane")
+        if effective is RiskLevel.FINANCIAL_OR_SECURITY_CRITICAL:
+            return decision(False, "denied", "level-4 execution is disabled")
+        if (
+            manifest.required_approval
+            or effective >= RiskLevel.DESTRUCTIVE_OR_SENSITIVE
+        ) and not context.approved_once:
+            return decision(False, "waiting_approval", "allow-once is required")
+        return decision(True, "allowed", "trusted policy requirements satisfied")
+
+
+__all__ = [
+    "CentralRiskPolicy",
+    "RiskLevel",
+    "ToolPolicyContext",
+    "ToolPolicyDecision",
+    "TurnPolicy",
+]

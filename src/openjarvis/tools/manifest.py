@@ -197,6 +197,21 @@ _SENSITIVE_NAMES = {
     "schedule_task",
     "shell_exec",
 }
+_CAPABILITY_BY_NAME = {
+    "apply_patch": "file:write",
+    "browser_axtree": "network:fetch",
+    "browser_click": "network:fetch",
+    "browser_extract": "network:fetch",
+    "browser_navigate": "network:fetch",
+    "browser_screenshot": "network:fetch",
+    "browser_type": "network:fetch",
+    "file_read": "file:read",
+    "file_write": "file:write",
+    "git_commit": "file:write",
+    "git_diff": "file:read",
+    "git_log": "file:read",
+    "git_status": "file:read",
+}
 
 
 def manifest_from_spec(tool_id: str, spec: Any) -> ToolManifest:
@@ -204,7 +219,11 @@ def manifest_from_spec(tool_id: str, spec: Any) -> ToolManifest:
 
     name = str(spec.name)
     capabilities = tuple(str(value) for value in spec.required_capabilities)
-    capability = capabilities[0] if capabilities else "tool:invoke"
+    capability = (
+        capabilities[0]
+        if capabilities
+        else _CAPABILITY_BY_NAME.get(name, "tool:invoke")
+    )
 
     if name in _READ_ONLY_NAMES:
         risk = RiskLevel.READ_ONLY
