@@ -1603,7 +1603,9 @@ export interface SystemHealth {
   version: string;
   components: Record<string, SystemHealthComponent>;
   pending_approvals: number;
+  open_tasks: number;
   unavailable: string[];
+  last_error_category: string | null;
   credential_safe: boolean;
 }
 

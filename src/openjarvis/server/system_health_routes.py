@@ -139,6 +139,11 @@ async def system_health(request: Request) -> dict[str, Any]:
 
     codex = await _codex_health(getattr(state, "codex_orchestrator", None))
     memory = _memory_health(getattr(state, "vault_memory_service", None))
+    open_tasks = sum(
+        count
+        for status, count in task_counts.items()
+        if status not in {"done", "failed", "canceled"}
+    )
     components = {
         "server": _component(True),
         "codex": codex,
@@ -171,7 +176,16 @@ async def system_health(request: Request) -> dict[str, Any]:
         "version": _version(),
         "components": components,
         "pending_approvals": pending_approvals,
+        "open_tasks": open_tasks,
         "unavailable": unavailable,
+        "last_error_category": next(
+            (
+                str(value.get("last_error"))
+                for value in components.values()
+                if value.get("last_error") not in {None, False, ""}
+            ),
+            None,
+        ),
         "credential_safe": True,
     }
 

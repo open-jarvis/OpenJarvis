@@ -753,6 +753,24 @@ export function JarvisPage() {
                 )}
               </section>
             )}
+
+            {focus === 'browser' && (
+              <section className="hud-panel p-4" aria-labelledby="browser-heading">
+                <h2 id="browser-heading" className="font-semibold mb-3"><Globe2 size={15} className="inline mr-2" />Owned browser sessions</h2>
+                {state.browserHealth.length === 0 ? (
+                  <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>No temporary OpenJarvis browser session is running.</p>
+                ) : state.browserHealth.map((session) => (
+                  <article key={session.session_id} className="rounded-xl p-3 mb-3 text-sm" style={{ background: 'var(--color-bg-secondary)' }}>
+                    <strong>{session.healthy ? 'Healthy' : 'Degraded'} owned session</strong>
+                    <dl className="grid sm:grid-cols-[10rem_1fr] gap-x-3 gap-y-1 mt-2 text-xs">
+                      <dt>Control</dt><dd>{session.connection_ok ? 'connected' : 'unavailable'}</dd>
+                      <dt>Port ownership</dt><dd>{session.port_owner_matches ? 'verified' : 'not verified'}</dd>
+                      <dt>Recovery cause</dt><dd>{session.cause || 'none'}</dd>
+                    </dl>
+                  </article>
+                ))}
+              </section>
+            )}
           </main>
 
           <aside className="space-y-4 min-w-0" aria-label="Task context and system health">
@@ -809,6 +827,7 @@ export function JarvisPage() {
                 <li><Database size={13} className="inline mr-2" />Memory {state.systemHealth?.components.memory?.status || 'unavailable'} · FTS5 {state.systemHealth?.components.memory?.fts5_available === true ? 'ready' : 'unavailable'}</li>
                 <li><Activity size={13} className="inline mr-2" />Task store {state.systemHealth?.components.task_store?.status || 'unavailable'} · Trace store {state.systemHealth?.components.trace_store?.status || 'unavailable'}</li>
                 <li><ShieldAlert size={13} className="inline mr-2" />{state.systemHealth?.pending_approvals ?? activeApprovals.length} approval(s) waiting</li>
+                <li><Activity size={13} className="inline mr-2" />{state.systemHealth?.open_tasks ?? 0} open task(s) · last error {state.systemHealth?.last_error_category || 'none'}</li>
               </ul>
             </section>
           </aside>

@@ -43,6 +43,8 @@ def test_system_health_is_unified_and_credential_safe() -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["credential_safe"] is True
+    assert body["open_tasks"] == 0
+    assert body["last_error_category"] is None
     assert body["components"]["codex"]["authenticated"] is True
     assert set(body["components"]) == {
         "server",
