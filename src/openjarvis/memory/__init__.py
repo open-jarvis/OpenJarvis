@@ -26,6 +26,7 @@ from openjarvis.memory.store import (
     LocalFactStore,
     create_fact_store,
 )
+from openjarvis.memory.vault_index import VaultIndex
 from openjarvis.memory.vault_models import (
     CandidateStatus,
     ConflictState,
@@ -61,6 +62,7 @@ __all__ = [
     "MemorySource",
     "ParsedMarkdown",
     "RetrievalCandidate",
+    "VaultIndex",
     "build_memory_service",
     "create_fact_store",
     "load_memory_note",
