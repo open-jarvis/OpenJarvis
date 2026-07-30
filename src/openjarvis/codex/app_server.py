@@ -36,6 +36,7 @@ from openjarvis.codex.store import (
     CodexTurnRecord,
 )
 from openjarvis.codex.types import (
+    ApprovalMode,
     BackendCapabilities,
     BackendThread,
     BackendTurn,
@@ -657,7 +658,7 @@ class CodexAppServerBackend:
             {
                 "threadId": request.thread_id,
                 "input": [{"type": "text", "text": request.prompt}],
-                "approvalPolicy": "never",
+                "approvalPolicy": self._approval_policy(context.approval_mode),
                 "cwd": str(context.cwd.resolve(strict=False)),
                 "effort": context.model.effort,
                 "model": context.model.model,
@@ -840,7 +841,9 @@ class CodexAppServerBackend:
         ephemeral: bool | None = None,
     ) -> dict[str, Any]:
         params: dict[str, Any] = {
-            "approvalPolicy": "never",
+            "approvalPolicy": CodexAppServerBackend._approval_policy(
+                context.approval_mode
+            ),
             "approvalsReviewer": "user",
             "cwd": str(context.cwd.resolve(strict=False)),
             "developerInstructions": redact_text(
@@ -862,6 +865,14 @@ class CodexAppServerBackend:
         if mode is SandboxMode.WORKSPACE_WRITE:
             return "workspace-write"
         raise CodexPolicyError("full_access is prohibited")
+
+    @staticmethod
+    def _approval_policy(mode: ApprovalMode) -> str:
+        if mode is ApprovalMode.DENY_ALL:
+            return "never"
+        if mode is ApprovalMode.BROKERED:
+            return "on-request"
+        raise CodexPolicyError("automatic approval review is prohibited")
 
     @staticmethod
     def _turn_sandbox(context: CodexRunContext) -> dict[str, Any]:

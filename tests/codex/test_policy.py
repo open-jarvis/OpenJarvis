@@ -44,12 +44,22 @@ def test_read_only_is_safe_analysis_policy(tmp_path: Path) -> None:
     assert context.sandbox is SandboxMode.READ_ONLY
 
 
-def test_non_deny_all_approval_mode_is_rejected(tmp_path: Path) -> None:
-    with pytest.raises(CodexPolicyError, match="deny_all"):
+def test_automatic_review_approval_mode_is_rejected(tmp_path: Path) -> None:
+    with pytest.raises(CodexPolicyError, match="automatic"):
         _context(
             tmp_path,
             approval_mode=ApprovalMode.AUTO_REVIEW,
         ).validated()
+
+
+def test_brokered_approval_mode_is_validated(tmp_path: Path) -> None:
+    assert (
+        _context(
+            tmp_path,
+            approval_mode=ApprovalMode.BROKERED,
+        ).validated().approval_mode
+        is ApprovalMode.BROKERED
+    )
 
 
 def test_full_access_is_rejected(tmp_path: Path) -> None:

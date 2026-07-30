@@ -6,13 +6,16 @@ import hashlib
 import json
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from openjarvis.codex.redaction import redact_data
 from openjarvis.codex.store import CodexStateStore
 from openjarvis.tasks.types import (
+    ApprovalKind,
+    ApprovalRecord,
+    ApprovalStatus,
     ExecutionLane,
     InvalidTaskTransition,
     TaskArtifact,
@@ -26,7 +29,7 @@ from openjarvis.tasks.types import (
     validate_transition,
 )
 
-_TASK_SCHEMA_VERSION = 3
+_TASK_SCHEMA_VERSION = 4
 
 _TASK_SCHEMA = """\
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -170,6 +173,42 @@ CREATE INDEX IF NOT EXISTS idx_task_artifacts_task
     ON task_artifacts(task_id, created_at);
 """
 
+_APPROVAL_SCHEMA = """\
+CREATE TABLE IF NOT EXISTS task_approvals (
+    approval_id     TEXT PRIMARY KEY,
+    request_id      TEXT NOT NULL UNIQUE,
+    task_id         TEXT NOT NULL,
+    thread_id       TEXT NOT NULL,
+    turn_id         TEXT,
+    item_id         TEXT,
+    action_id       TEXT,
+    kind            TEXT NOT NULL,
+    action          TEXT NOT NULL,
+    target          TEXT NOT NULL,
+    effect          TEXT NOT NULL,
+    risk_level      INTEGER NOT NULL,
+    sandbox         TEXT NOT NULL,
+    cwd             TEXT NOT NULL,
+    undo            TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    expires_at      TEXT NOT NULL,
+    status          TEXT NOT NULL,
+    user_decision   TEXT,
+    decision_at     TEXT,
+    decision_id     TEXT UNIQUE,
+    response_id     TEXT UNIQUE,
+    responded_at    TEXT,
+    payload         TEXT NOT NULL DEFAULT '{}',
+    FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE,
+    CHECK (risk_level BETWEEN 0 AND 4)
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_approvals_pending
+    ON task_approvals(status, expires_at);
+CREATE INDEX IF NOT EXISTS idx_task_approvals_task
+    ON task_approvals(task_id, created_at);
+"""
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -222,6 +261,15 @@ class TaskStore(CodexStateStore):
                     INSERT OR IGNORE INTO schema_migrations
                         (component, version, name, applied_at)
                     VALUES ('task_runtime', 3, 'bounded task artifacts', ?)
+                    """,
+                    (_now(),),
+                )
+                self._conn.executescript(_APPROVAL_SCHEMA)
+                self._conn.execute(
+                    """
+                    INSERT OR IGNORE INTO schema_migrations
+                        (component, version, name, applied_at)
+                    VALUES ('task_runtime', 4, 'persistent exact-once approvals', ?)
                     """,
                     (_now(),),
                 )
@@ -770,6 +818,257 @@ class TaskStore(CodexStateStore):
         ).fetchall()
         return [self._artifact_from_row(row) for row in rows]
 
+    def queue_approval(
+        self,
+        *,
+        request_id: str,
+        task_id: str,
+        thread_id: str,
+        turn_id: str | None,
+        item_id: str | None,
+        action_id: str | None,
+        kind: ApprovalKind,
+        action: str,
+        target: str,
+        effect: str,
+        risk_level: int,
+        sandbox: str,
+        cwd: str,
+        undo: str,
+        payload: dict[str, Any] | None = None,
+        ttl_seconds: float = 300.0,
+        approval_id: str | None = None,
+    ) -> ApprovalRecord:
+        """Persist one approval request before any component waits for it."""
+
+        for field_name, value in {
+            "request_id": request_id,
+            "task_id": task_id,
+            "thread_id": thread_id,
+            "action": action,
+            "effect": effect,
+            "sandbox": sandbox,
+            "cwd": cwd,
+        }.items():
+            if not value.strip():
+                raise ValueError(f"{field_name} must be non-empty")
+        if not 0 <= risk_level <= 4:
+            raise ValueError("risk_level must be between 0 and 4")
+        if ttl_seconds <= 0:
+            raise ValueError("ttl_seconds must be positive")
+        existing = self.get_approval_by_request(request_id)
+        if existing is not None:
+            if (
+                existing.task_id != task_id
+                or existing.thread_id != thread_id
+                or existing.kind is not kind
+            ):
+                raise ValueError("approval request_id belongs to another action")
+            return existing
+
+        now = datetime.now(timezone.utc)
+        actual_id = approval_id or uuid.uuid4().hex
+        safe_payload = redact_data(payload or {})
+        with self._lock, self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO task_approvals (
+                    approval_id, request_id, task_id, thread_id, turn_id,
+                    item_id, action_id, kind, action, target, effect,
+                    risk_level, sandbox, cwd, undo, created_at, expires_at,
+                    status, payload
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                          ?, ?)
+                ON CONFLICT(request_id) DO NOTHING
+                """,
+                (
+                    actual_id,
+                    request_id,
+                    task_id,
+                    thread_id,
+                    turn_id,
+                    item_id,
+                    action_id,
+                    kind.value,
+                    action,
+                    target,
+                    effect,
+                    risk_level,
+                    sandbox,
+                    cwd,
+                    undo,
+                    now.isoformat(),
+                    (now + timedelta(seconds=ttl_seconds)).isoformat(),
+                    ApprovalStatus.PENDING.value,
+                    json.dumps(safe_payload, sort_keys=True),
+                ),
+            )
+        record = self.get_approval_by_request(request_id)
+        if record is None:
+            raise RuntimeError("approval request could not be read back")
+        return record
+
+    def get_approval(self, approval_id: str) -> ApprovalRecord | None:
+        row = self._conn.execute(
+            "SELECT * FROM task_approvals WHERE approval_id=?",
+            (approval_id,),
+        ).fetchone()
+        return self._approval_from_row(row) if row else None
+
+    def get_approval_by_request(self, request_id: str) -> ApprovalRecord | None:
+        row = self._conn.execute(
+            "SELECT * FROM task_approvals WHERE request_id=?",
+            (request_id,),
+        ).fetchone()
+        return self._approval_from_row(row) if row else None
+
+    def list_pending_approvals(
+        self,
+        *,
+        task_id: str | None = None,
+    ) -> list[ApprovalRecord]:
+        if task_id is None:
+            rows = self._conn.execute(
+                """
+                SELECT * FROM task_approvals
+                WHERE status=? ORDER BY created_at
+                """,
+                (ApprovalStatus.PENDING.value,),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                """
+                SELECT * FROM task_approvals
+                WHERE status=? AND task_id=? ORDER BY created_at
+                """,
+                (ApprovalStatus.PENDING.value, task_id),
+            ).fetchall()
+        return [self._approval_from_row(row) for row in rows]
+
+    def decide_approval(
+        self,
+        approval_id: str,
+        *,
+        allow: bool,
+        decision_id: str,
+        decided_at: str | None = None,
+    ) -> ApprovalRecord:
+        """Apply one exact user decision with compare-and-set semantics."""
+
+        if not decision_id.strip():
+            raise ValueError("decision_id must be non-empty")
+        target_status = (
+            ApprovalStatus.APPROVED if allow else ApprovalStatus.DENIED
+        )
+        user_decision = "allow" if allow else "deny"
+        timestamp = decided_at or _now()
+        with self._lock:
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                row = self._conn.execute(
+                    "SELECT * FROM task_approvals WHERE approval_id=?",
+                    (approval_id,),
+                ).fetchone()
+                if row is None:
+                    raise KeyError(f"unknown approval: {approval_id}")
+                current = ApprovalStatus(row["status"])
+                if current is ApprovalStatus.PENDING:
+                    self._conn.execute(
+                        """
+                        UPDATE task_approvals
+                        SET status=?, user_decision=?, decision_at=?,
+                            decision_id=?
+                        WHERE approval_id=? AND status=?
+                        """,
+                        (
+                            target_status.value,
+                            user_decision,
+                            timestamp,
+                            decision_id,
+                            approval_id,
+                            ApprovalStatus.PENDING.value,
+                        ),
+                    )
+                elif row["user_decision"] != user_decision:
+                    raise ValueError("approval already has a conflicting decision")
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+        record = self.get_approval(approval_id)
+        if record is None:
+            raise RuntimeError("approval decision could not be read back")
+        return record
+
+    def expire_approval(
+        self,
+        approval_id: str,
+        *,
+        decision_id: str,
+    ) -> ApprovalRecord:
+        """Deny one still-pending request after its bounded wait expires."""
+
+        timestamp = _now()
+        with self._lock, self._conn:
+            self._conn.execute(
+                """
+                UPDATE task_approvals
+                SET status=?, user_decision='deny', decision_at=?,
+                    decision_id=?
+                WHERE approval_id=? AND status=?
+                """,
+                (
+                    ApprovalStatus.EXPIRED.value,
+                    timestamp,
+                    decision_id,
+                    approval_id,
+                    ApprovalStatus.PENDING.value,
+                ),
+            )
+        record = self.get_approval(approval_id)
+        if record is None:
+            raise KeyError(f"unknown approval: {approval_id}")
+        return record
+
+    def claim_approval_response(
+        self,
+        approval_id: str,
+        *,
+        response_id: str,
+    ) -> ApprovalRecord:
+        """Persist exactly one response identity for the App Server."""
+
+        if not response_id.strip():
+            raise ValueError("response_id must be non-empty")
+        with self._lock:
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                row = self._conn.execute(
+                    "SELECT * FROM task_approvals WHERE approval_id=?",
+                    (approval_id,),
+                ).fetchone()
+                if row is None:
+                    raise KeyError(f"unknown approval: {approval_id}")
+                if ApprovalStatus(row["status"]) is ApprovalStatus.PENDING:
+                    raise ValueError("pending approval cannot produce a response")
+                if row["response_id"] is None:
+                    self._conn.execute(
+                        """
+                        UPDATE task_approvals
+                        SET response_id=?, responded_at=?
+                        WHERE approval_id=? AND response_id IS NULL
+                        """,
+                        (response_id, _now(), approval_id),
+                    )
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+        record = self.get_approval(approval_id)
+        if record is None:
+            raise RuntimeError("approval response could not be read back")
+        return record
+
     def append_event(
         self,
         *,
@@ -1019,6 +1318,35 @@ class TaskStore(CodexStateStore):
             storage_ref=row["storage_ref"],
             created_at=row["created_at"],
             metadata=json.loads(row["metadata"]),
+        )
+
+    @staticmethod
+    def _approval_from_row(row: sqlite3.Row) -> ApprovalRecord:
+        return ApprovalRecord(
+            approval_id=row["approval_id"],
+            request_id=row["request_id"],
+            task_id=row["task_id"],
+            thread_id=row["thread_id"],
+            turn_id=row["turn_id"],
+            item_id=row["item_id"],
+            action_id=row["action_id"],
+            kind=ApprovalKind(row["kind"]),
+            action=row["action"],
+            target=row["target"],
+            effect=row["effect"],
+            risk_level=int(row["risk_level"]),
+            sandbox=row["sandbox"],
+            cwd=row["cwd"],
+            undo=row["undo"],
+            created_at=row["created_at"],
+            expires_at=row["expires_at"],
+            status=ApprovalStatus(row["status"]),
+            user_decision=row["user_decision"],
+            decision_at=row["decision_at"],
+            decision_id=row["decision_id"],
+            response_id=row["response_id"],
+            responded_at=row["responded_at"],
+            payload=json.loads(row["payload"]),
         )
 
 

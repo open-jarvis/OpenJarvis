@@ -126,6 +126,11 @@ class TaskService:
             turn_id=task.active_turn_id,
         ).validated()
 
+    def project_committed(self, event: TaskEvent) -> None:
+        """Publish one already-committed event without creating another write."""
+
+        self._project(event)
+
     def _project(self, event: TaskEvent) -> None:
         if self._bus is None:
             return

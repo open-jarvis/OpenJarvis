@@ -37,6 +37,22 @@ class ExecutionLane(str, Enum):
     INTERACTIVE = "interactive_lane"
 
 
+class ApprovalKind(str, Enum):
+    """Codex actions that can require a user decision."""
+
+    COMMAND = "command"
+    FILE_CHANGE = "file_change"
+
+
+class ApprovalStatus(str, Enum):
+    """Persistent broker decision state."""
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    DENIED = "denied"
+    EXPIRED = "expired"
+
+
 ALLOWED_TRANSITIONS: Mapping[TaskStatus, frozenset[TaskStatus]] = {
     TaskStatus.PENDING: frozenset(
         {
@@ -183,6 +199,36 @@ class TaskArtifact:
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class ApprovalRecord:
+    """Persistent exact-once Codex approval request."""
+
+    approval_id: str
+    request_id: str
+    task_id: str
+    thread_id: str
+    turn_id: str | None
+    item_id: str | None
+    action_id: str | None
+    kind: ApprovalKind
+    action: str
+    target: str
+    effect: str
+    risk_level: int
+    sandbox: str
+    cwd: str
+    undo: str
+    created_at: str
+    expires_at: str
+    status: ApprovalStatus
+    user_decision: str | None
+    decision_at: str | None
+    decision_id: str | None
+    response_id: str | None
+    responded_at: str | None
+    payload: Mapping[str, Any] = field(default_factory=dict)
+
+
 def validate_transition(current: TaskStatus, requested: TaskStatus) -> None:
     """Validate a canonical state transition."""
 
@@ -226,6 +272,9 @@ def validate_outcome(status: TaskStatus, outcome: TaskOutcome | None) -> None:
 
 __all__ = [
     "ALLOWED_TRANSITIONS",
+    "ApprovalKind",
+    "ApprovalRecord",
+    "ApprovalStatus",
     "ExecutionLane",
     "InvalidTaskTransition",
     "TaskEvent",

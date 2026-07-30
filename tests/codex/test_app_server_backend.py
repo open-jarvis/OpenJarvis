@@ -243,6 +243,22 @@ async def test_workspace_write_turn_is_isolated_and_networkless(
     store.close()
 
 
+def test_brokered_policy_uses_on_request_with_user_reviewer(tmp_path: Path) -> None:
+    context = replace(
+        _context(
+            tmp_path,
+            "brokered-correlation",
+            sandbox=SandboxMode.WORKSPACE_WRITE,
+        ),
+        approval_mode=ApprovalMode.BROKERED,
+    )
+
+    params = CodexAppServerBackend._thread_params(context)
+
+    assert params["approvalPolicy"] == "on-request"
+    assert params["approvalsReviewer"] == "user"
+
+
 @pytest.mark.asyncio
 async def test_events_are_streamed_and_read_is_redacted(tmp_path: Path) -> None:
     transport = FakeTransport()

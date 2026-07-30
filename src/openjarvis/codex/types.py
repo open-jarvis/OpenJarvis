@@ -20,6 +20,9 @@ class ApprovalMode(str, Enum):
     """Approval policies understood by the OpenJarvis Codex layer."""
 
     DENY_ALL = "deny_all"
+    BROKERED = "brokered"
+    # Retained for configuration compatibility only. Phase 3 never permits
+    # model-based auto review to authorize a Codex action.
     AUTO_REVIEW = "auto_review"
 
 
@@ -133,8 +136,8 @@ class CodexRunContext:
         if not cwd.exists() or not cwd.is_dir():
             raise CodexPolicyError("cwd must be an existing directory")
 
-        if self.approval_mode is not ApprovalMode.DENY_ALL:
-            raise CodexPolicyError("Phase 2 requires ApprovalMode.deny_all")
+        if self.approval_mode is ApprovalMode.AUTO_REVIEW:
+            raise CodexPolicyError("automatic approval review is prohibited")
         if self.sandbox is SandboxMode.FULL_ACCESS:
             raise CodexPolicyError("full_access is prohibited")
 
