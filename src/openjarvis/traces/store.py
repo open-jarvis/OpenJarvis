@@ -5,10 +5,13 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
 from openjarvis.core.events import Event, EventBus, EventType
 from openjarvis.core.types import StepType, Trace, TraceStep
+
+if TYPE_CHECKING:
+    from openjarvis.tasks.types import TaskEvent
 
 _CREATE_TRACES = """\
 CREATE TABLE IF NOT EXISTS traces (
@@ -42,6 +45,20 @@ CREATE TABLE IF NOT EXISTS trace_steps (
     output           TEXT    NOT NULL DEFAULT '{}',
     metadata         TEXT    NOT NULL DEFAULT '{}',
     FOREIGN KEY (trace_id) REFERENCES traces(trace_id)
+);
+"""
+
+_CREATE_TASK_EVENTS = """\
+CREATE TABLE IF NOT EXISTS task_trace_events (
+    event_id       TEXT PRIMARY KEY,
+    task_id        TEXT NOT NULL,
+    sequence       INTEGER NOT NULL,
+    event_type     TEXT NOT NULL,
+    occurred_at    TEXT NOT NULL,
+    schema_version TEXT NOT NULL,
+    artifact_id    TEXT,
+    payload        TEXT NOT NULL DEFAULT '{}',
+    UNIQUE (task_id, sequence)
 );
 """
 
@@ -92,8 +109,10 @@ class TraceStore:
         # a different thread than the one that opened the connection.
         self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.execute(_CREATE_TRACES)
         self._conn.execute(_CREATE_STEPS)
+        self._conn.execute(_CREATE_TASK_EVENTS)
         self._conn.execute(_CREATE_FTS)
         self._conn.execute(_FTS_SYNC_INSERT)
         # Migrate: add messages column if missing (pre-existing databases)
@@ -249,6 +268,65 @@ class TraceStore:
         )
         self._conn.commit()
         return cursor.rowcount > 0
+
+    def save_task_event(self, event: TaskEvent) -> bool:
+        """Idempotently append a bounded canonical task-event projection."""
+
+        try:
+            with self._conn:
+                self._conn.execute(
+                    """
+                    INSERT INTO task_trace_events (
+                        event_id, task_id, sequence, event_type, occurred_at,
+                        schema_version, artifact_id, payload
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        event.event_id,
+                        event.task_id,
+                        event.sequence,
+                        event.event_type,
+                        event.occurred_at,
+                        event.schema_version,
+                        event.artifact_id,
+                        json.dumps(event.payload, sort_keys=True),
+                    ),
+                )
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+    def list_task_events(
+        self,
+        task_id: str,
+        *,
+        after_sequence: int = 0,
+    ) -> list[dict[str, Any]]:
+        """Read task-event projections in canonical order."""
+
+        rows = self._conn.execute(
+            """
+            SELECT event_id, task_id, sequence, event_type, occurred_at,
+                   schema_version, artifact_id, payload
+            FROM task_trace_events
+            WHERE task_id=? AND sequence>?
+            ORDER BY sequence
+            """,
+            (task_id, after_sequence),
+        ).fetchall()
+        return [
+            {
+                "event_id": row[0],
+                "task_id": row[1],
+                "sequence": row[2],
+                "event_type": row[3],
+                "occurred_at": row[4],
+                "schema_version": row[5],
+                "artifact_id": row[6],
+                "payload": json.loads(row[7]),
+            }
+            for row in rows
+        ]
 
     def close(self) -> None:
         """Close the underlying SQLite connection."""

@@ -80,6 +80,7 @@ class EventType(str, Enum):
     FEEDBACK_RECEIVED = "feedback_received"
     # Canonical task runtime
     TASK_EVENT = "task_event"
+    CODEX_EVENT = "codex_event"
 
 
 @dataclass(slots=True)

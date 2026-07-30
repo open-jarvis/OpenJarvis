@@ -168,6 +168,21 @@ class TaskSource:
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class TaskArtifact:
+    """Bounded binary/text payload referenced by task events and traces."""
+
+    artifact_id: str
+    task_id: str
+    kind: str
+    media_type: str
+    byte_size: int
+    sha256: str
+    storage_ref: str
+    created_at: str
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+
 def validate_transition(current: TaskStatus, requested: TaskStatus) -> None:
     """Validate a canonical state transition."""
 
@@ -214,6 +229,7 @@ __all__ = [
     "ExecutionLane",
     "InvalidTaskTransition",
     "TaskEvent",
+    "TaskArtifact",
     "TaskItem",
     "TaskOutcome",
     "TaskRecord",

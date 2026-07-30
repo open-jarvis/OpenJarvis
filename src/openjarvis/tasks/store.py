@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import uuid
@@ -14,6 +15,7 @@ from openjarvis.codex.store import CodexStateStore
 from openjarvis.tasks.types import (
     ExecutionLane,
     InvalidTaskTransition,
+    TaskArtifact,
     TaskEvent,
     TaskItem,
     TaskOutcome,
@@ -24,7 +26,7 @@ from openjarvis.tasks.types import (
     validate_transition,
 )
 
-_TASK_SCHEMA_VERSION = 2
+_TASK_SCHEMA_VERSION = 3
 
 _TASK_SCHEMA = """\
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -149,6 +151,25 @@ CREATE INDEX IF NOT EXISTS idx_codex_items_task_turn
     ON codex_items(task_id, turn_id, sequence);
 """
 
+_ARTIFACT_SCHEMA = """\
+CREATE TABLE IF NOT EXISTS task_artifacts (
+    artifact_id     TEXT PRIMARY KEY,
+    task_id         TEXT NOT NULL,
+    kind            TEXT NOT NULL,
+    media_type      TEXT NOT NULL,
+    byte_size       INTEGER NOT NULL,
+    sha256          TEXT NOT NULL,
+    storage_ref     TEXT NOT NULL,
+    content         BLOB NOT NULL,
+    created_at      TEXT NOT NULL,
+    metadata        TEXT NOT NULL DEFAULT '{}',
+    FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_artifacts_task
+    ON task_artifacts(task_id, created_at);
+"""
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -193,7 +214,16 @@ class TaskStore(CodexStateStore):
                         (component, version, name, applied_at)
                     VALUES ('task_runtime', ?, 'task identity sources and items', ?)
                     """,
-                    (_TASK_SCHEMA_VERSION, _now()),
+                    (2, _now()),
+                )
+                self._conn.executescript(_ARTIFACT_SCHEMA)
+                self._conn.execute(
+                    """
+                    INSERT OR IGNORE INTO schema_migrations
+                        (component, version, name, applied_at)
+                    VALUES ('task_runtime', 3, 'bounded task artifacts', ?)
+                    """,
+                    (_now(),),
                 )
                 self._conn.commit()
             except Exception:
@@ -655,6 +685,91 @@ class TaskStore(CodexStateStore):
             ).fetchall()
         return [self._item_from_row(row) for row in rows]
 
+    def save_artifact(
+        self,
+        *,
+        task_id: str,
+        kind: str,
+        media_type: str,
+        content: bytes,
+        metadata: dict[str, Any] | None = None,
+        artifact_id: str | None = None,
+    ) -> TaskArtifact:
+        """Persist a redacted bounded payload and return its immutable record."""
+
+        for field_name, value in {
+            "task_id": task_id,
+            "kind": kind,
+            "media_type": media_type,
+        }.items():
+            if not value.strip():
+                raise ValueError(f"{field_name} must be non-empty")
+        if not isinstance(content, bytes):
+            raise TypeError("artifact content must be bytes")
+        actual_id = artifact_id or uuid.uuid4().hex
+        digest = hashlib.sha256(content).hexdigest()
+        timestamp = _now()
+        storage_ref = f"sqlite:task_artifacts/{actual_id}"
+        safe_metadata = redact_data(metadata or {})
+        with self._lock, self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO task_artifacts (
+                    artifact_id, task_id, kind, media_type, byte_size,
+                    sha256, storage_ref, content, created_at, metadata
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(artifact_id) DO NOTHING
+                """,
+                (
+                    actual_id,
+                    task_id,
+                    kind,
+                    media_type,
+                    len(content),
+                    digest,
+                    storage_ref,
+                    content,
+                    timestamp,
+                    json.dumps(safe_metadata, sort_keys=True),
+                ),
+            )
+        row = self._conn.execute(
+            "SELECT * FROM task_artifacts WHERE artifact_id=?",
+            (actual_id,),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("task artifact could not be read back")
+        record = self._artifact_from_row(row)
+        if record.task_id != task_id or record.sha256 != digest:
+            raise ValueError("artifact_id already belongs to different content")
+        return record
+
+    def get_artifact(self, artifact_id: str) -> TaskArtifact | None:
+        row = self._conn.execute(
+            "SELECT * FROM task_artifacts WHERE artifact_id=?",
+            (artifact_id,),
+        ).fetchone()
+        return self._artifact_from_row(row) if row else None
+
+    def read_artifact(self, artifact_id: str) -> bytes:
+        row = self._conn.execute(
+            "SELECT content FROM task_artifacts WHERE artifact_id=?",
+            (artifact_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"unknown artifact: {artifact_id}")
+        return bytes(row["content"])
+
+    def list_artifacts(self, task_id: str) -> list[TaskArtifact]:
+        rows = self._conn.execute(
+            """
+            SELECT * FROM task_artifacts
+            WHERE task_id=? ORDER BY created_at, artifact_id
+            """,
+            (task_id,),
+        ).fetchall()
+        return [self._artifact_from_row(row) for row in rows]
+
     def append_event(
         self,
         *,
@@ -890,6 +1005,20 @@ class TaskStore(CodexStateStore):
             created_at=row["created_at"],
             updated_at=row["updated_at"],
             payload=json.loads(row["payload"]),
+        )
+
+    @staticmethod
+    def _artifact_from_row(row: sqlite3.Row) -> TaskArtifact:
+        return TaskArtifact(
+            artifact_id=row["artifact_id"],
+            task_id=row["task_id"],
+            kind=row["kind"],
+            media_type=row["media_type"],
+            byte_size=int(row["byte_size"]),
+            sha256=row["sha256"],
+            storage_ref=row["storage_ref"],
+            created_at=row["created_at"],
+            metadata=json.loads(row["metadata"]),
         )
 
 
