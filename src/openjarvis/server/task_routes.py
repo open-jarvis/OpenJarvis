@@ -66,7 +66,7 @@ class ResumeTaskRequest(BaseModel):
     """One explicit continuation turn for a pending or paused task."""
 
     prompt: str | None = Field(default=None, max_length=20_000)
-    cwd: str = Field(min_length=1, max_length=4096)
+    cwd: str | None = Field(default=None, max_length=4096)
     isolated_workspace: str | None = Field(default=None, max_length=4096)
     finalize_task: bool = True
 
@@ -809,20 +809,16 @@ async def resume_task(
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     prompt = (body.prompt or task.description).strip()
-    cwd = Path(body.cwd)
-    isolated = Path(body.isolated_workspace) if body.isolated_workspace else None
-    if not cwd.is_absolute() or not cwd.is_dir():
-        raise HTTPException(
-            status_code=422,
-            detail="cwd must be an existing absolute directory",
-        )
-    if isolated is not None and (
-        not isolated.is_absolute() or not isolated.is_dir()
-    ):
-        raise HTTPException(
-            status_code=422,
-            detail="isolated_workspace must be an existing absolute directory",
-        )
+    config = getattr(request.app.state, "config", None)
+    sandbox_config = getattr(config, "sandbox", None)
+    configured_workspace = str(getattr(sandbox_config, "workspace", "") or "")
+    fallback = Path(configured_workspace) if configured_workspace else Path.cwd()
+    cwd = _workspace_path(body.cwd, fallback=fallback)
+    isolated = (
+        _workspace_path(body.isolated_workspace)
+        if body.isolated_workspace
+        else None
+    )
     event, created = service.store.append_event(
         task_id=task_id,
         source_event_id=f"api-resume:{idempotency_key}",

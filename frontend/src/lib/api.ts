@@ -119,6 +119,97 @@ export const apiFetch = (
   return fetch(`${getBase()}${path}`, { ...init, headers });
 };
 
+export type ApiErrorCategory =
+  | 'aborted'
+  | 'timeout'
+  | 'unauthorized'
+  | 'conflict'
+  | 'unavailable'
+  | 'server'
+  | 'network'
+  | 'invalid_response';
+
+export class JarvisApiError extends Error {
+  constructor(
+    message: string,
+    public readonly category: ApiErrorCategory,
+    public readonly status: number | null = null,
+    public readonly retryable = false,
+  ) {
+    super(message);
+    this.name = 'JarvisApiError';
+  }
+}
+
+export interface MutationContext {
+  correlationId: string;
+  idempotencyKey: string;
+}
+
+export function createMutationContext(prefix: string): MutationContext {
+  const safePrefix = prefix.replace(/[^A-Za-z0-9._:-]/g, '-').slice(0, 40) || 'ui';
+  return {
+    correlationId: `${safePrefix}-${crypto.randomUUID()}`,
+    idempotencyKey: `${safePrefix}-${crypto.randomUUID()}`,
+  };
+}
+
+async function apiJson<T>(
+  path: string,
+  init: RequestInit = {},
+  { timeoutMs = 15_000, signal }: { timeoutMs?: number; signal?: AbortSignal } = {},
+): Promise<T> {
+  const controller = new AbortController();
+  const onAbort = () => controller.abort(signal?.reason);
+  signal?.addEventListener('abort', onAbort, { once: true });
+  const timeout = window.setTimeout(() => controller.abort('timeout'), timeoutMs);
+  try {
+    const response = await apiFetch(path, { ...init, signal: controller.signal });
+    if (!response.ok) {
+      let detail = '';
+      try {
+        const payload = await response.json();
+        detail = typeof payload?.detail === 'string' ? payload.detail : '';
+      } catch {
+        // A normalized status message is safer than reflecting arbitrary HTML.
+      }
+      const category: ApiErrorCategory = response.status === 401
+        ? 'unauthorized'
+        : response.status === 409
+          ? 'conflict'
+          : response.status === 502 || response.status === 503
+            ? 'unavailable'
+            : 'server';
+      throw new JarvisApiError(
+        detail || `OpenJarvis request failed (${response.status})`,
+        category,
+        response.status,
+        response.status >= 500,
+      );
+    }
+    try {
+      return await response.json() as T;
+    } catch {
+      throw new JarvisApiError('OpenJarvis returned an invalid response.', 'invalid_response');
+    }
+  } catch (error) {
+    if (error instanceof JarvisApiError) throw error;
+    if (controller.signal.aborted) {
+      const timedOut = !signal?.aborted;
+      throw new JarvisApiError(
+        timedOut ? 'OpenJarvis request timed out.' : 'Request canceled.',
+        timedOut ? 'timeout' : 'aborted',
+        null,
+        timedOut,
+      );
+    }
+    throw new JarvisApiError('OpenJarvis server is not reachable.', 'network', null, true);
+  } finally {
+    window.clearTimeout(timeout);
+    signal?.removeEventListener('abort', onAbort);
+  }
+}
+
 async function tauriInvoke<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
   const { invoke } = await import('@tauri-apps/api/core');
   const apiUrl = getBase();
@@ -1307,6 +1398,64 @@ export interface CanonicalTaskEvent {
   payload: Record<string, unknown>;
 }
 
+export interface CanonicalTaskSource {
+  source_id: string;
+  task_id: string;
+  source_kind: string;
+  external_id: string;
+  created_at: string;
+  metadata: {
+    title?: string;
+    path?: string;
+    line_start?: number;
+    line_end?: number;
+    section?: string;
+    relevant_preview?: string;
+    selection_reason?: string;
+    score?: number;
+    [key: string]: unknown;
+  };
+}
+
+export interface TaskSummary {
+  task: CanonicalTask;
+  current_step: string | null;
+  last_sequence: number;
+  source_count: number;
+  open_approvals: number;
+  tool_action_count: number;
+  effect_known: boolean;
+  safe_to_present_as_success: boolean;
+  can_resume: boolean;
+}
+
+export interface CanonicalChatResponse {
+  task: CanonicalTask;
+  content: string;
+  idempotent_replay: boolean;
+  pending: boolean;
+}
+
+export interface SessionSummary {
+  session_id: string;
+  active_task_id: string | null;
+  task_count: number;
+  updated_at: string;
+  last_status: CanonicalTask['status'];
+  title: string;
+}
+
+export interface TaskArtifactInfo {
+  artifact_id: string;
+  task_id: string;
+  kind: string;
+  media_type: string;
+  byte_size: number;
+  sha256: string;
+  created_at: string;
+  metadata: Record<string, unknown>;
+}
+
 export interface CodexRuntimeHealth {
   active_backend: string | null;
   chatgpt_authenticated: boolean;
@@ -1434,18 +1583,138 @@ export interface BrowserHealthInfo {
 }
 
 export async function fetchCanonicalTasks(limit = 50): Promise<CanonicalTask[]> {
-  const res = await apiFetch(`/v1/tasks?limit=${limit}`);
-  if (!res.ok) throw new Error(`Failed: ${res.status}`);
-  const data = await res.json();
+  const data = await apiJson<{ tasks: CanonicalTask[] }>(`/v1/tasks?limit=${limit}`);
   return data.tasks || [];
 }
 
-export async function fetchTaskTimeline(taskId: string): Promise<CanonicalTaskEvent[]> {
-  const res = await apiFetch(`/v1/tasks/${encodeURIComponent(taskId)}/timeline`);
-  if (!res.ok) throw new Error(`Failed: ${res.status}`);
-  const data = await res.json();
+export async function fetchTaskTimeline(
+  taskId: string,
+  afterSequence = 0,
+  signal?: AbortSignal,
+): Promise<CanonicalTaskEvent[]> {
+  const data = await apiJson<{ events: CanonicalTaskEvent[] }>(
+    `/v1/tasks/${encodeURIComponent(taskId)}/timeline?after_sequence=${afterSequence}`,
+    {},
+    { signal },
+  );
   return data.events || [];
 }
+
+export async function fetchTaskSources(
+  taskId: string,
+  signal?: AbortSignal,
+): Promise<CanonicalTaskSource[]> {
+  const data = await apiJson<{ sources: CanonicalTaskSource[] }>(
+    `/v1/tasks/${encodeURIComponent(taskId)}/sources`,
+    {},
+    { signal },
+  );
+  return data.sources || [];
+}
+
+export async function fetchTaskSummary(
+  taskId: string,
+  signal?: AbortSignal,
+): Promise<TaskSummary> {
+  return apiJson<TaskSummary>(
+    `/v1/tasks/${encodeURIComponent(taskId)}/summary`,
+    {},
+    { signal },
+  );
+}
+
+export async function fetchTaskArtifacts(
+  taskId: string,
+  signal?: AbortSignal,
+): Promise<TaskArtifactInfo[]> {
+  const data = await apiJson<{ artifacts: TaskArtifactInfo[] }>(
+    `/v1/tasks/${encodeURIComponent(taskId)}/artifacts`,
+    {},
+    { signal },
+  );
+  return data.artifacts || [];
+}
+
+export async function fetchSessions(signal?: AbortSignal): Promise<SessionSummary[]> {
+  const data = await apiJson<{ sessions: SessionSummary[] }>(
+    '/v1/sessions',
+    {},
+    { signal },
+  );
+  return data.sessions || [];
+}
+
+export async function sendCanonicalChat(
+  body: {
+    message: string;
+    session_id: string;
+    task_id: string;
+    input_mode: 'text' | 'voice';
+    use_memory?: boolean;
+  },
+  mutation: MutationContext,
+  signal?: AbortSignal,
+): Promise<CanonicalChatResponse> {
+  return apiJson<CanonicalChatResponse>(
+    '/v1/chat',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Correlation-ID': mutation.correlationId,
+        'Idempotency-Key': mutation.idempotencyKey,
+      },
+      body: JSON.stringify(body),
+    },
+    { timeoutMs: 310_000, signal },
+  );
+}
+
+async function mutateTask(
+  taskId: string,
+  action: 'pause' | 'resume' | 'interrupt' | 'cancel',
+  mutation: MutationContext,
+  signal?: AbortSignal,
+): Promise<CanonicalTask> {
+  const result = await apiJson<CanonicalTask | { task: CanonicalTask }>(
+    `/v1/tasks/${encodeURIComponent(taskId)}/${action}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Correlation-ID': mutation.correlationId,
+        'Idempotency-Key': mutation.idempotencyKey,
+      },
+      body: action === 'resume' ? JSON.stringify({ finalize_task: false }) : undefined,
+    },
+    { timeoutMs: action === 'resume' ? 310_000 : 15_000, signal },
+  );
+  return 'task' in result ? result.task : result;
+}
+
+export const pauseCanonicalTask = (
+  taskId: string,
+  mutation: MutationContext,
+  signal?: AbortSignal,
+) => mutateTask(taskId, 'pause', mutation, signal);
+
+export const resumeCanonicalTask = (
+  taskId: string,
+  mutation: MutationContext,
+  signal?: AbortSignal,
+) => mutateTask(taskId, 'resume', mutation, signal);
+
+export const interruptCanonicalTask = (
+  taskId: string,
+  mutation: MutationContext,
+  signal?: AbortSignal,
+) => mutateTask(taskId, 'interrupt', mutation, signal);
+
+export const cancelCanonicalTask = (
+  taskId: string,
+  mutation: MutationContext,
+  signal?: AbortSignal,
+) => mutateTask(taskId, 'cancel', mutation, signal);
 
 export async function fetchTaskUsage(taskId: string): Promise<CanonicalTaskUsage> {
   const res = await apiFetch(`/v1/tasks/${encodeURIComponent(taskId)}/usage`);

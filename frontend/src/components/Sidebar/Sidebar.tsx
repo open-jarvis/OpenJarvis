@@ -18,9 +18,15 @@ import {
   ScrollText,
   Database,
   Brain,
+  Home,
+  ListChecks,
+  ShieldCheck,
+  Wrench,
+  Globe2,
 } from 'lucide-react';
 import { ConversationList } from './ConversationList';
 import { useAppStore } from '../../lib/store';
+import { useJarvisStore } from '../../lib/jarvisStore';
 
 export function Sidebar() {
   const navigate = useNavigate();
@@ -43,18 +49,20 @@ export function Sidebar() {
   const nextTheme = settings.theme === 'light' ? 'dark' : settings.theme === 'dark' ? 'system' : 'light';
 
   const messages = useAppStore((s) => s.messages);
+  const newCanonicalSession = useJarvisStore((s) => s.newSession);
   const handleNewChat = () => {
-    // Don't create a new chat if the current one is empty
-    if (messages.length === 0) {
-      navigate('/');
-      return;
-    }
-    createConversation(selectedModel);
+    newCanonicalSession();
+    if (messages.length > 0) createConversation(selectedModel);
     navigate('/');
   };
 
   const navItems = [
-    { path: '/', icon: MessageSquare, label: 'Chat' },
+    { path: '/', icon: Home, label: 'Jarvis' },
+    { path: '/chat', icon: MessageSquare, label: 'Chat' },
+    { path: '/tasks', icon: ListChecks, label: 'Tasks' },
+    { path: '/approvals', icon: ShieldCheck, label: 'Approvals' },
+    { path: '/tools', icon: Wrench, label: 'Tools & Actions' },
+    { path: '/browser', icon: Globe2, label: 'Browser' },
     { path: '/dashboard', icon: BarChart3, label: 'Dashboard' },
     { path: '/data-sources', icon: Database, label: 'Data Sources' },
     { path: '/memory', icon: Brain, label: 'Memory' },
@@ -188,7 +196,7 @@ export function Sidebar() {
             </div>
           </div>
 
-          {/* Conversation list */}
+          {/* Legacy conversations remain available during the transition. */}
           <div className="flex-1 overflow-y-auto px-2">
             <ConversationList searchQuery={searchQuery} />
           </div>
