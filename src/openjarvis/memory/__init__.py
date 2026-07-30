@@ -54,7 +54,11 @@ from openjarvis.memory.vault_models import (
     RetrievalCandidate,
 )
 from openjarvis.memory.vault_retrieval import VaultRetriever, normalize_query
-from openjarvis.memory.vault_service import VaultMemoryService
+from openjarvis.memory.vault_service import (
+    VaultMemoryService,
+    build_vault_memory_service,
+)
+from openjarvis.memory.vault_watcher import PollingVaultWatcher
 
 __all__ = [
     "Fact",
@@ -85,8 +89,10 @@ __all__ = [
     "VaultIndex",
     "VaultMemoryService",
     "VaultRetriever",
+    "PollingVaultWatcher",
     "UnsafeMemoryPath",
     "build_memory_service",
+    "build_vault_memory_service",
     "candidate_to_dict",
     "create_fact_store",
     "load_memory_note",

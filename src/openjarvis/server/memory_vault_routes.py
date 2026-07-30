@@ -335,6 +335,11 @@ async def approve_memory_candidate(
         raise HTTPException(status_code=404, detail="Memory candidate not found")
     if candidate.task_id != context.task_id:
         raise HTTPException(status_code=409, detail="Candidate belongs to another task")
+    if _service(request).index.mode != "writable-test":
+        raise HTTPException(
+            status_code=403,
+            detail="Memory writes are disabled outside writable-test mode",
+        )
     try:
         applied = workflow.decide(candidate_id, allow=True, decision_id=key)
     except PermissionError as exc:

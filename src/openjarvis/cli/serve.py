@@ -695,6 +695,21 @@ def serve(
             logger.error("Codex task runtime failed to initialize: %s", exc)
             raise
 
+    vault_memory_service = None
+    try:
+        from openjarvis.memory import build_vault_memory_service
+
+        vault_memory_service = build_vault_memory_service(
+            config,
+            task_store=(codex_runtime.store if codex_runtime is not None else None),
+            trace_store=codex_trace_store,
+        )
+        if vault_memory_service is not None:
+            console.print("  Vault memory: [cyan]active[/cyan]")
+    except Exception as exc:
+        logger.error("Vault memory failed to initialize: %s", exc)
+        raise
+
     app = create_app(
         engine,
         model_name,
@@ -706,6 +721,7 @@ def serve(
         config=config,
         memory_backend=memory_backend,
         memory_service=memory_service,
+        vault_memory_service=vault_memory_service,
         speech_backend=speech_backend,
         agent_manager=agent_manager,
         agent_scheduler=agent_scheduler,

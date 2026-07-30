@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from typing import Any, Mapping
 
 from openjarvis.memory.candidates import MemoryCandidateWorkflow
+from openjarvis.memory.safe_write import AtomicMarkdownWriter
 from openjarvis.memory.task_bridge import MemoryTaskBridge, MemoryTaskContext
 from openjarvis.memory.vault_index import VaultIndex
 from openjarvis.memory.vault_models import (
@@ -15,6 +17,9 @@ from openjarvis.memory.vault_models import (
     MemoryRetrievalResult,
 )
 from openjarvis.memory.vault_retrieval import VaultRetriever
+from openjarvis.memory.vault_watcher import PollingVaultWatcher
+from openjarvis.tasks.store import TaskStore
+from openjarvis.traces.store import TraceStore
 
 
 class VaultMemoryService:
@@ -27,11 +32,13 @@ class VaultMemoryService:
         retriever: VaultRetriever | None = None,
         task_bridge: MemoryTaskBridge | None = None,
         candidate_workflow: MemoryCandidateWorkflow | None = None,
+        watcher: PollingVaultWatcher | None = None,
     ) -> None:
         self.index = index
         self.retriever = retriever or VaultRetriever(index)
         self.task_bridge = task_bridge
         self.candidate_workflow = candidate_workflow
+        self.watcher = watcher
 
     def search(
         self,
@@ -139,7 +146,85 @@ class VaultMemoryService:
         )
 
     def close(self) -> None:
+        if self.watcher is not None:
+            self.watcher.stop()
         self.index.close()
 
 
-__all__ = ["VaultMemoryService"]
+def build_vault_memory_service(
+    config: Any,
+    *,
+    task_store: TaskStore | None,
+    trace_store: TraceStore | None = None,
+    initial_index: bool = True,
+) -> VaultMemoryService | None:
+    """Build configured vault memory without inventing or creating a vault.
+
+    Task persistence is mandatory because every retrieval and candidate must be
+    correlated with the canonical Phase-3 task authority.
+    """
+
+    memory_config = getattr(config, "memory", None)
+    configured_path = str(getattr(memory_config, "vault_path", "") or "").strip()
+    if not configured_path:
+        return None
+    if task_store is None:
+        raise RuntimeError(
+            "vault memory requires the canonical task runtime to be enabled"
+        )
+    vault_root = Path(configured_path).expanduser().resolve(strict=True)
+    if not vault_root.is_dir():
+        raise ValueError("configured vault_path must be an existing directory")
+    mode = str(getattr(memory_config, "vault_mode", "read-only"))
+    index_path = Path(
+        str(getattr(memory_config, "vault_index_path", "") or "")
+    ).expanduser()
+    restore_path = Path(
+        str(getattr(memory_config, "vault_restore_path", "") or "")
+    ).expanduser()
+    if not str(index_path):
+        raise ValueError("vault_index_path must be configured outside the vault")
+    if not str(restore_path):
+        raise ValueError("vault_restore_path must be configured outside the vault")
+
+    index = VaultIndex(
+        vault_root,
+        index_path,
+        mode=mode,
+        embeddings_enabled=bool(
+            getattr(memory_config, "vault_embeddings_enabled", False)
+        ),
+    )
+    try:
+        retriever = VaultRetriever(index)
+        bridge = MemoryTaskBridge(task_store, trace_store=trace_store)
+        writer = AtomicMarkdownWriter(vault_root, restore_path)
+        workflow = MemoryCandidateWorkflow(index, retriever, bridge, writer)
+        service = VaultMemoryService(
+            index,
+            retriever=retriever,
+            task_bridge=bridge,
+            candidate_workflow=workflow,
+        )
+        if initial_index:
+            service.rebuild()
+        if bool(getattr(memory_config, "vault_watch_enabled", False)):
+            watcher = PollingVaultWatcher(
+                service,
+                interval_seconds=float(
+                    getattr(
+                        memory_config,
+                        "vault_poll_interval_seconds",
+                        2.0,
+                    )
+                ),
+            )
+            service.watcher = watcher
+            watcher.start()
+        return service
+    except Exception:
+        index.close()
+        raise
+
+
+__all__ = ["VaultMemoryService", "build_vault_memory_service"]

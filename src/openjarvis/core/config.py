@@ -936,6 +936,20 @@ class StorageConfig:
         default_factory=lambda: str(get_config_dir() / "memory_facts.jsonl")
     )
 
+    # Human-readable Markdown vault memory. An empty path keeps the subsystem
+    # disabled and, importantly, never creates or probes a default vault.
+    vault_path: str = ""
+    vault_index_path: str = field(
+        default_factory=lambda: str(get_config_dir() / "vault-memory.sqlite3")
+    )
+    vault_restore_path: str = field(
+        default_factory=lambda: str(get_config_dir() / "vault-memory-restore")
+    )
+    vault_mode: str = "read-only"
+    vault_embeddings_enabled: bool = False
+    vault_watch_enabled: bool = False
+    vault_poll_interval_seconds: float = 2.0
+
 
 # Backward-compatibility alias
 MemoryConfig = StorageConfig
