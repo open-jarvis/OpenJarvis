@@ -296,6 +296,32 @@ async def get_task_timeline(
     }
 
 
+@router.get("/tasks/{task_id}/sources")
+async def get_task_sources(
+    task_id: str,
+    request: Request,
+) -> dict[str, Any]:
+    _require_local(request)
+    service = _task_service(request)
+    if service.get(task_id) is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    sources = service.store.list_sources(task_id)
+    return {
+        "sources": [
+            {
+                "source_id": source.source_id,
+                "task_id": source.task_id,
+                "source_kind": source.source_kind,
+                "external_id": source.external_id,
+                "created_at": source.created_at,
+                "metadata": redact_data(dict(source.metadata)),
+            }
+            for source in sources
+        ],
+        "count": len(sources),
+    }
+
+
 @router.get("/tasks/{task_id}/usage")
 async def get_task_usage(
     task_id: str,
