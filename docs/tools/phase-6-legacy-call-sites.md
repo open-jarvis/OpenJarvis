@@ -1,6 +1,6 @@
 # Phase 6 legacy tool-call inventory
 
-Date: 2026-07-30  
+Date: 2026-07-30
 Scope: `openjarvis-codex` at the Phase 6 feature branch
 
 ## Enforcement boundary

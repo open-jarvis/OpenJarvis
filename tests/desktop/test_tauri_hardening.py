@@ -28,7 +28,9 @@ def test_arbitrary_jarvis_command_is_not_registered() -> None:
 
 
 def test_desktop_close_dialog_offers_explicit_task_choices() -> None:
-    source = (ROOT / "frontend/src/pages/JarvisPage.tsx").read_text(encoding="utf-8")
+    source = (
+        ROOT / "frontend/src/components/Desktop/DesktopCloseGuard.tsx"
+    ).read_text(encoding="utf-8")
     for label in (
         "Continue in background",
         "Pause active task, then hide",
