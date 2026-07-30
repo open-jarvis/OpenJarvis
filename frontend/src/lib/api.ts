@@ -1337,6 +1337,102 @@ export interface CanonicalTaskUsage {
   task_total_tokens: number;
 }
 
+export interface ToolManifestInfo {
+  tool_id: string;
+  name: string;
+  version: string;
+  description: string;
+  capability: string;
+  risk_level: number;
+  allowed_lanes: Array<'model_lane' | 'interactive_lane'>;
+  supported_platforms: string[];
+  timeout: number;
+  max_retries: number;
+  idempotency_policy: string;
+  side_effect_class: string;
+  verification_strategy: string;
+  undo_strategy: string;
+  required_approval: boolean;
+  allowed_roots: string[];
+  network_policy: string;
+  enabled: boolean;
+  degraded_reason: string;
+  runtime_available: boolean;
+  healthy: boolean;
+}
+
+export interface ToolHealth {
+  healthy: boolean;
+  registered: number;
+  available: number;
+  degraded: number;
+  lanes: Record<string, { limit: number; active: number }>;
+}
+
+export interface ToolActionInfo {
+  action_id: string;
+  proposal_id: string;
+  task_id: string;
+  approval_id: string | null;
+  tool_run_id: string | null;
+  tool_id: string;
+  capability: string;
+  risk_level: number;
+  target: string;
+  expected_side_effect: string;
+  verification_plan: string;
+  undo_plan: string;
+  status: string;
+  verification_status: string;
+  output_summary: string;
+  error: string;
+  retry_count: number;
+  effect_known: boolean;
+  parameter_summary: Record<string, unknown>;
+  expected_result: string;
+  updated_at: string;
+}
+
+export interface ToolArtifactInfo {
+  artifact_id: string;
+  action_id: string;
+  kind: string;
+  path: string;
+  sha256: string;
+  size_bytes: number;
+  media_type: string;
+  redacted: boolean;
+  restore_of: string | null;
+}
+
+export interface BrowserSessionInfo {
+  session_id: string;
+  status: string;
+  profile_path: string;
+  control_port: number;
+  browser_pid: number | null;
+  control_service_pid: number | null;
+  recovery_attempts: number;
+  maximum_recovery_attempts: number;
+  safe_checkpoint: string;
+  effect_known: boolean;
+  owned_process: boolean;
+}
+
+export interface BrowserHealthInfo {
+  session_id: string;
+  healthy: boolean;
+  browser_process_present: boolean;
+  browser_pid: number | null;
+  control_service_present: boolean;
+  control_service_pid: number | null;
+  control_port: number;
+  port_open: boolean;
+  port_owner_matches: boolean;
+  connection_ok: boolean;
+  cause: string;
+}
+
 export async function fetchCanonicalTasks(limit = 50): Promise<CanonicalTask[]> {
   const res = await apiFetch(`/v1/tasks?limit=${limit}`);
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
@@ -1359,6 +1455,71 @@ export async function fetchTaskUsage(taskId: string): Promise<CanonicalTaskUsage
 
 export async function fetchCodexRuntimeHealth(): Promise<CodexRuntimeHealth> {
   const res = await apiFetch(`/v1/codex/health`);
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchRegisteredTools(): Promise<ToolManifestInfo[]> {
+  const res = await apiFetch('/v1/tools');
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  const data = await res.json();
+  return data.tools || [];
+}
+
+export async function fetchToolHealth(): Promise<ToolHealth> {
+  const res = await apiFetch('/v1/tools/health');
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchTaskActions(taskId: string): Promise<ToolActionInfo[]> {
+  const res = await apiFetch(`/v1/tasks/${encodeURIComponent(taskId)}/actions`);
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  const data = await res.json();
+  return data.actions || [];
+}
+
+export async function fetchActionArtifacts(actionId: string): Promise<ToolArtifactInfo[]> {
+  const res = await apiFetch(`/v1/actions/${encodeURIComponent(actionId)}/artifacts`);
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  const data = await res.json();
+  return data.artifacts || [];
+}
+
+export async function fetchBrowserSessions(): Promise<BrowserSessionInfo[]> {
+  const res = await apiFetch('/v1/browser/sessions');
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  const data = await res.json();
+  return data.sessions || [];
+}
+
+export async function fetchBrowserHealth(): Promise<BrowserHealthInfo[]> {
+  const res = await apiFetch('/v1/browser/health');
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  const data = await res.json();
+  return data.sessions || [];
+}
+
+export async function approveToolAction(actionId: string): Promise<ToolActionInfo> {
+  const res = await apiFetch(`/v1/actions/${encodeURIComponent(actionId)}/approve`, {
+    method: 'POST',
+    headers: {
+      'X-Correlation-ID': `ui-tool-${actionId}`,
+      'Idempotency-Key': `ui-tool-${actionId}-allow-once`,
+    },
+  });
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return res.json();
+}
+
+export async function denyToolAction(actionId: string): Promise<ToolActionInfo> {
+  const res = await apiFetch(`/v1/actions/${encodeURIComponent(actionId)}/deny`, {
+    method: 'POST',
+    headers: {
+      'X-Correlation-ID': `ui-tool-${actionId}`,
+      'Idempotency-Key': `ui-tool-${actionId}-deny`,
+    },
+  });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   return res.json();
 }

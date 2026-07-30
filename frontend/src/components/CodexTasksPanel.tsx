@@ -1,16 +1,40 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Activity, AlertTriangle, CheckCircle, ChevronRight, Clock, Shield } from 'lucide-react';
 import {
+  Activity,
+  AlertTriangle,
+  CheckCircle,
+  ChevronRight,
+  Clock,
+  FileCheck2,
+  Globe2,
+  Shield,
+  Wrench,
+} from 'lucide-react';
+import {
+  approveToolAction,
+  denyToolAction,
+  fetchActionArtifacts,
+  fetchBrowserHealth,
+  fetchBrowserSessions,
   fetchCanonicalTasks,
   fetchCodexRuntimeHealth,
+  fetchRegisteredTools,
+  fetchTaskActions,
   fetchTaskTimeline,
   fetchTaskUsage,
+  fetchToolHealth,
 } from '../lib/api';
 import type {
+  BrowserHealthInfo,
+  BrowserSessionInfo,
   CanonicalTask,
   CanonicalTaskEvent,
   CanonicalTaskUsage,
   CodexRuntimeHealth,
+  ToolActionInfo,
+  ToolArtifactInfo,
+  ToolHealth,
+  ToolManifestInfo,
 } from '../lib/api';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -31,6 +55,95 @@ function shortTime(value: string): string {
     : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
+export function ToolActionDetails({
+  action,
+  tool,
+  artifacts,
+  decisionPending = false,
+  onApprove,
+  onDeny,
+}: {
+  action: ToolActionInfo;
+  tool: ToolManifestInfo | null;
+  artifacts: ToolArtifactInfo[];
+  decisionPending?: boolean;
+  onApprove?: () => void;
+  onDeny?: () => void;
+}) {
+  return (
+    <div
+      className="mb-3 rounded-lg p-3 text-[11px]"
+      style={{ background: 'var(--color-bg-tertiary)', border: '1px solid var(--color-border)' }}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+        <span className="font-mono" style={{ color: 'var(--color-text)' }}>
+          {action.tool_id} · {action.status.replace('_', ' ')}
+        </span>
+        <span style={{ color: action.risk_level >= 3 ? 'var(--color-error)' : 'var(--color-warning)' }}>
+          Risk {action.risk_level} · {action.capability}
+        </span>
+      </div>
+      <div className="grid sm:grid-cols-2 gap-x-4 gap-y-1" style={{ color: 'var(--color-text-secondary)' }}>
+        <span>Target: {action.target}</span>
+        <span>Expected effect: {action.expected_side_effect}</span>
+        <span>Verification: {action.verification_status}</span>
+        <span>Approval: {action.approval_id || 'not required'}</span>
+        <span>Root: {tool?.allowed_roots.join(', ') || 'runtime-scoped'}</span>
+        <span>Undo: {action.undo_plan}</span>
+      </div>
+      <div className="mt-2" style={{ color: 'var(--color-text-secondary)' }}>
+        Parameters: <code>{JSON.stringify(action.parameter_summary)}</code>
+      </div>
+      <div className="mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+        Expected result: {action.expected_result}
+      </div>
+      {action.error && (
+        <div className="mt-2" style={{ color: 'var(--color-error)' }}>Error: {action.error}</div>
+      )}
+      {action.status === 'waiting_approval' && (
+        <div className="mt-3 rounded-md p-2" style={{ border: '1px solid var(--color-warning)' }}>
+          <div style={{ color: 'var(--color-warning)' }}>
+            Review this exact action. Approval applies once; there is no “always allow”.
+          </div>
+          <div className="flex gap-2 mt-2">
+            <button
+              type="button"
+              disabled={decisionPending}
+              onClick={onApprove}
+              className="px-2 py-1 rounded cursor-pointer disabled:opacity-50"
+              style={{ background: 'var(--color-accent)', color: 'white' }}
+            >
+              Allow once
+            </button>
+            <button
+              type="button"
+              disabled={decisionPending}
+              onClick={onDeny}
+              className="px-2 py-1 rounded cursor-pointer disabled:opacity-50"
+              style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+            >
+              Deny
+            </button>
+          </div>
+        </div>
+      )}
+      {artifacts.length > 0 && (
+        <div className="mt-3 space-y-1">
+          {artifacts.map(artifact => (
+            <div key={artifact.artifact_id} className="flex items-center gap-2">
+              <FileCheck2 size={11} />
+              <span>{artifact.kind}</span>
+              <span>{artifact.size_bytes.toLocaleString()} bytes</span>
+              <span className="font-mono">sha256:{artifact.sha256.slice(0, 12)}…</span>
+              {artifact.restore_of && <span>restore of {artifact.restore_of}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function CodexTasksPanel() {
   const [tasks, setTasks] = useState<CanonicalTask[]>([]);
   const [health, setHealth] = useState<CodexRuntimeHealth | null>(null);
@@ -38,6 +151,13 @@ export function CodexTasksPanel() {
   const [events, setEvents] = useState<CanonicalTaskEvent[]>([]);
   const [usage, setUsage] = useState<CanonicalTaskUsage | null>(null);
   const [available, setAvailable] = useState<boolean | null>(null);
+  const [tools, setTools] = useState<ToolManifestInfo[]>([]);
+  const [toolHealth, setToolHealth] = useState<ToolHealth | null>(null);
+  const [browserHealth, setBrowserHealth] = useState<BrowserHealthInfo[]>([]);
+  const [browserSessions, setBrowserSessions] = useState<BrowserSessionInfo[]>([]);
+  const [actions, setActions] = useState<ToolActionInfo[]>([]);
+  const [artifacts, setArtifacts] = useState<ToolArtifactInfo[]>([]);
+  const [decisionPending, setDecisionPending] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -53,6 +173,16 @@ export function CodexTasksPanel() {
           ? current
           : nextTasks[0]?.task_id ?? null,
       );
+      const phase5 = await Promise.allSettled([
+        fetchRegisteredTools(),
+        fetchToolHealth(),
+        fetchBrowserHealth(),
+        fetchBrowserSessions(),
+      ]);
+      if (phase5[0].status === 'fulfilled') setTools(phase5[0].value);
+      if (phase5[1].status === 'fulfilled') setToolHealth(phase5[1].value);
+      if (phase5[2].status === 'fulfilled') setBrowserHealth(phase5[2].value);
+      if (phase5[3].status === 'fulfilled') setBrowserSessions(phase5[3].value);
     } catch {
       setAvailable(false);
     }
@@ -68,23 +198,31 @@ export function CodexTasksPanel() {
     if (!selectedId) {
       setEvents([]);
       setUsage(null);
+      setActions([]);
+      setArtifacts([]);
       return;
     }
     let active = true;
     const load = async () => {
       try {
-        const [nextEvents, nextUsage] = await Promise.all([
+        const [nextEvents, nextUsage, nextActions] = await Promise.all([
           fetchTaskTimeline(selectedId),
           fetchTaskUsage(selectedId),
+          fetchTaskActions(selectedId),
         ]);
         if (active) {
           setEvents(nextEvents);
           setUsage(nextUsage);
+          setActions(nextActions);
+          const latest = nextActions[nextActions.length - 1];
+          setArtifacts(latest ? await fetchActionArtifacts(latest.action_id) : []);
         }
       } catch {
         if (active) {
           setEvents([]);
           setUsage(null);
+          setActions([]);
+          setArtifacts([]);
         }
       }
     };
@@ -100,6 +238,30 @@ export function CodexTasksPanel() {
 
   const selected = tasks.find(task => task.task_id === selectedId) ?? null;
   const latestUsage = usage?.turns[usage.turns.length - 1];
+  const currentAction = actions[actions.length - 1] ?? null;
+  const currentTool = currentAction
+    ? tools.find(tool => tool.tool_id === currentAction.tool_id) ?? null
+    : null;
+  const currentBrowser = browserSessions[0] ?? null;
+  const currentBrowserHealth = currentBrowser
+    ? browserHealth.find(item => item.session_id === currentBrowser.session_id) ?? null
+    : null;
+  const currentStep = [...events]
+    .reverse()
+    .find(event => event.event_type.startsWith('tool.') || event.event_type.startsWith('browser.'));
+
+  const decide = async (allow: boolean) => {
+    if (!currentAction) return;
+    setDecisionPending(true);
+    try {
+      const updated = allow
+        ? await approveToolAction(currentAction.action_id)
+        : await denyToolAction(currentAction.action_id);
+      setActions(current => current.map(action => action.action_id === updated.action_id ? updated : action));
+    } finally {
+      setDecisionPending(false);
+    }
+  };
 
   return (
     <section
@@ -139,6 +301,18 @@ export function CodexTasksPanel() {
           {health.open_approvals > 0 && (
             <span style={{ color: 'var(--color-warning)' }}>
               {health.open_approvals} approval{health.open_approvals === 1 ? '' : 's'}
+            </span>
+          )}
+          {toolHealth && (
+            <span className="flex items-center gap-1" style={{ color: toolHealth.healthy ? 'var(--color-success)' : 'var(--color-warning)' }}>
+              <Wrench size={11} />
+              {toolHealth.available}/{toolHealth.registered} tools
+            </span>
+          )}
+          {currentBrowser && (
+            <span className="flex items-center gap-1" style={{ color: currentBrowserHealth?.healthy ? 'var(--color-success)' : 'var(--color-warning)' }}>
+              <Globe2 size={11} />
+              PID {currentBrowser.browser_pid || 'stopped'} · port {currentBrowser.control_port}
             </span>
           )}
         </div>
@@ -184,6 +358,7 @@ export function CodexTasksPanel() {
                 <span>{selected.execution_lane}</span>
                 <span>Thread {selected.active_thread_id || 'not started'}</span>
                 {selected.outcome && <span>Outcome {selected.outcome}</span>}
+                {currentStep && <span>Current step {currentStep.event_type}</span>}
                 {usage && (
                   <>
                     <span>
@@ -200,6 +375,31 @@ export function CodexTasksPanel() {
                     </span>
                   </>
                 )}
+              </div>
+            )}
+            {currentAction && (
+              <ToolActionDetails
+                action={currentAction}
+                tool={currentTool}
+                artifacts={artifacts}
+                decisionPending={decisionPending}
+                onApprove={() => void decide(true)}
+                onDeny={() => void decide(false)}
+              />
+            )}
+            {currentBrowser && (
+              <div className="mb-3 rounded-lg p-3 text-[11px]" style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }}>
+                <div className="flex items-center gap-2 mb-1" style={{ color: 'var(--color-text)' }}>
+                  <Globe2 size={12} /> Browser control
+                </div>
+                <div className="grid sm:grid-cols-2 gap-1">
+                  <span>Browser process: {currentBrowser.browser_pid || 'not running'}</span>
+                  <span>Control service: {currentBrowser.control_service_pid || 'not running'}</span>
+                  <span>Port: {currentBrowser.control_port} ({currentBrowserHealth?.port_open ? 'open' : 'closed'})</span>
+                  <span>Recovery: {currentBrowser.recovery_attempts}/{currentBrowser.maximum_recovery_attempts}</span>
+                  <span>Checkpoint: {currentBrowser.safe_checkpoint}</span>
+                  <span>Health: {currentBrowserHealth?.cause || currentBrowser.status}</span>
+                </div>
               </div>
             )}
             <div className="space-y-2">

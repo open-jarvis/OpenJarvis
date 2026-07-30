@@ -68,6 +68,17 @@ def _browser(request: Request):
 
 def _manifest_payload(manifest: ToolManifest, *, runtime: bool) -> dict[str, Any]:
     payload = manifest.model_dump(mode="json")
+    # Preserve the existing tool-list UI contract while adding the Phase-5
+    # security fields to the same endpoint.
+    payload.update(
+        {
+            "category": manifest.capability.split(":", 1)[0],
+            "source": "tool",
+            "requires_credentials": False,
+            "credential_keys": [],
+            "configured": runtime,
+        }
+    )
     payload["runtime_available"] = runtime
     payload["healthy"] = bool(
         manifest.enabled and manifest.supports_current_platform() and runtime
@@ -75,8 +86,16 @@ def _manifest_payload(manifest: ToolManifest, *, runtime: bool) -> dict[str, Any
     return payload
 
 
-def _action_payload(action: ToolAction) -> dict[str, Any]:
-    return redact_data(action.model_dump(mode="json"))
+def _action_payload(action: ToolAction, service=None) -> dict[str, Any]:
+    payload = action.model_dump(mode="json")
+    proposal = (
+        service.store.get_proposal(action.proposal_id)
+        if service is not None
+        else None
+    )
+    payload["parameter_summary"] = proposal.arguments if proposal else {}
+    payload["expected_result"] = proposal.expected_result if proposal else ""
+    return redact_data(payload)
 
 
 def _artifact_payload(artifact: ToolArtifact) -> dict[str, Any]:
@@ -156,9 +175,10 @@ async def get_tool(tool_id: str, request: Request) -> dict[str, Any]:
 @router.get("/tasks/{task_id}/actions")
 async def list_task_actions(task_id: str, request: Request) -> dict[str, Any]:
     _require_local(request)
-    actions = _actions(request).store.list_actions(task_id)
+    service = _actions(request)
+    actions = service.store.list_actions(task_id)
     return {
-        "actions": [_action_payload(action) for action in actions],
+        "actions": [_action_payload(action, service) for action in actions],
         "count": len(actions),
     }
 
@@ -185,16 +205,17 @@ async def create_task_action(
             action = await service.execute(action.action_id)
     except ToolActionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return _action_payload(action)
+    return _action_payload(action, service)
 
 
 @router.get("/actions/{action_id}")
 async def get_action(action_id: str, request: Request) -> dict[str, Any]:
     _require_local(request)
-    action = _actions(request).store.get_action(action_id)
+    service = _actions(request)
+    action = service.store.get_action(action_id)
     if action is None:
         raise HTTPException(status_code=404, detail="Action not found")
-    return _action_payload(action)
+    return _action_payload(action, service)
 
 
 @router.get("/actions/{action_id}/artifacts")
@@ -228,7 +249,7 @@ async def _approval_action(
             action = _actions(request).deny(action_id, decision_id=decision_id)
     except ToolActionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return _action_payload(action)
+    return _action_payload(action, _actions(request))
 
 
 @router.post("/actions/{action_id}/approve")
@@ -256,7 +277,8 @@ async def cancel_action(
     _mutation: Annotated[tuple[str, str], Depends(_mutation_context)],
 ) -> dict[str, Any]:
     try:
-        return _action_payload(_actions(request).cancel(action_id))
+        service = _actions(request)
+        return _action_payload(service.cancel(action_id), service)
     except ToolActionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -268,7 +290,8 @@ async def retry_action(
     _mutation: Annotated[tuple[str, str], Depends(_mutation_context)],
 ) -> dict[str, Any]:
     try:
-        return _action_payload(await _actions(request).retry(action_id))
+        service = _actions(request)
+        return _action_payload(await service.retry(action_id), service)
     except ToolActionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
