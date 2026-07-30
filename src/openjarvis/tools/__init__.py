@@ -3,6 +3,15 @@
 from __future__ import annotations
 
 from openjarvis.tools._stubs import BaseTool, ToolExecutor, ToolSpec
+from openjarvis.tools.manifest import (
+    IdempotencyPolicy,
+    ManifestValidationError,
+    NetworkPolicy,
+    SecretPolicy,
+    SideEffectClass,
+    ToolManifest,
+    ToolManifestCatalog,
+)
 
 # Import built-in tools to trigger @ToolRegistry.register() decorators.
 # Each is wrapped in try/except so the package loads even before the
@@ -142,4 +151,15 @@ try:
 except ImportError:
     pass
 
-__all__ = ["BaseTool", "ToolExecutor", "ToolSpec"]
+__all__ = [
+    "BaseTool",
+    "IdempotencyPolicy",
+    "ManifestValidationError",
+    "NetworkPolicy",
+    "SecretPolicy",
+    "SideEffectClass",
+    "ToolExecutor",
+    "ToolManifest",
+    "ToolManifestCatalog",
+    "ToolSpec",
+]

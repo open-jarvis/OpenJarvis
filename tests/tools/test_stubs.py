@@ -138,8 +138,8 @@ class TestToolExecutor:
         executor = ToolExecutor([_EchoTool()])
         call = ToolCall(id="1", name="echo", arguments="")
         result = executor.execute(call)
-        assert result.success is True
-        assert result.content == ""
+        assert result.success is False
+        assert "required" in result.content
 
     def test_execute_tool_error(self):
         executor = ToolExecutor([_ErrorTool()])

@@ -62,6 +62,19 @@ class BaseTool(ABC):
     def execute(self, **params: Any) -> ToolResult:
         """Execute the tool with the given parameters."""
 
+    @property
+    def manifest(self) -> Any:
+        """Return the trusted Phase-5 manifest for this tool.
+
+        Legacy tools inherit a conservative manifest derived only from their
+        code-owned ``ToolSpec``.  New security-sensitive tools may override
+        this property with a more specific manifest.
+        """
+
+        from openjarvis.tools.manifest import manifest_from_spec
+
+        return manifest_from_spec(self.tool_id, self.spec)
+
     def to_openai_function(self) -> Dict[str, Any]:
         """Convert to OpenAI function-calling format."""
         from openjarvis.tools.description_loader import (
@@ -109,6 +122,9 @@ class ToolExecutor:
         boundary_guard: Optional[Any] = None,
     ) -> None:
         self._tools: Dict[str, BaseTool] = {t.spec.name: t for t in tools}
+        from openjarvis.tools.manifest import ToolManifestCatalog
+
+        self._manifest_catalog = ToolManifestCatalog.from_tools(tools)
         self._bus = bus
         self._interactive = interactive
         self._confirm_callback = confirm_callback
@@ -137,12 +153,33 @@ class ToolExecutor:
                 success=False,
             )
 
+        # Strict manifest validation is always enforced.  The model-facing
+        # schema is not merely documentation and unknown parameters fail
+        # closed.  ``_taint`` is an internal OpenJarvis label, never a model
+        # capability, and is removed before schema validation.
+        taint_set = params.pop("_taint", None) if isinstance(params, dict) else None
+        try:
+            manifest = self._manifest_catalog.get(tool.tool_id)
+            if not manifest.enabled:
+                raise ValueError(manifest.degraded_reason or "tool is disabled")
+            if not manifest.supports_current_platform():
+                raise ValueError("tool is not supported on this platform")
+            params = manifest.validate_arguments(params)
+        except (TypeError, ValueError) as exc:
+            return ToolResult(
+                tool_name=tool_call.name,
+                content=f"Manifest validation failed: {exc}",
+                success=False,
+            )
+
         # Boundary guard: scan external tool arguments
         if self._boundary_guard is not None and not getattr(tool, "is_local", True):
             try:
                 tool_call = self._boundary_guard.check_outbound(tool_call)
                 # Re-parse arguments after potential redaction
                 params = json.loads(tool_call.arguments) if tool_call.arguments else {}
+                params.pop("_taint", None)
+                params = manifest.validate_arguments(params)
             except Exception as exc:
                 return ToolResult(
                     tool_name=tool_call.name,
@@ -178,7 +215,6 @@ class ToolExecutor:
                     )
 
         # Taint checking (sink policy)
-        taint_set = params.get("_taint") if isinstance(params, dict) else None
         if taint_set is not None:
             try:
                 from openjarvis.security.taint import TaintSet, check_taint
@@ -201,9 +237,6 @@ class ToolExecutor:
                         )
             except ImportError:
                 pass
-            # Remove internal taint key before passing to tool
-            if isinstance(params, dict):
-                params.pop("_taint", None)
 
         # Confirmation check for sensitive tools
         if tool.spec.requires_confirmation:

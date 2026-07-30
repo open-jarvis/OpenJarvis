@@ -41,6 +41,10 @@ class FastTool(BaseTool):
             name="fast_tool",
             description="A fast tool.",
             timeout_seconds=10.0,
+            parameters={
+                "type": "object",
+                "properties": {"input": {"type": "string"}},
+            },
         )
 
     def execute(self, **params) -> ToolResult:
