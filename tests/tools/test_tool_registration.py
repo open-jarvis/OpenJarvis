@@ -71,6 +71,22 @@ EXPECTED_TOOLS = {
 }
 
 
+# These Phase 5 modules define persistent policy, action, and exception types.
+# Reloading them after pytest has collected consumers creates two live copies of
+# the same Enum/exception classes and makes later tests order-dependent.  The
+# registration smoke below only verifies the legacy EXPECTED_TOOLS set, so it
+# must not reload unrelated stateful infrastructure.
+_STATEFUL_TOOL_INFRASTRUCTURE = {
+    "openjarvis.tools.action_service",
+    "openjarvis.tools.action_store",
+    "openjarvis.tools.actions",
+    "openjarvis.tools.git_secure",
+    "openjarvis.tools.manifest",
+    "openjarvis.tools.safe_filesystem",
+    "openjarvis.tools.safe_shell",
+}
+
+
 def _reload_tool_modules() -> None:
     """Reload all openjarvis.tools.* submodules to re-trigger @register decorators.
 
@@ -85,6 +101,7 @@ def _reload_tool_modules() -> None:
             mod_name.startswith("openjarvis.tools.")
             and not mod_name.endswith("_stubs")
             and not mod_name.endswith("agent_tools")
+            and mod_name not in _STATEFUL_TOOL_INFRASTRUCTURE
         ):
             try:
                 importlib.reload(sys.modules[mod_name])
