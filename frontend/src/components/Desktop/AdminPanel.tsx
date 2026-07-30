@@ -272,10 +272,8 @@ export function AdminPanel({ apiUrl }: { apiUrl: string }) {
     setCommandRunning(true);
     setCommandOutput(null);
     try {
-      const output = await invoke<string>('run_jarvis_command', {
-        args: ['serve', '--port', '8000'],
-      });
-      setCommandOutput(output);
+      await invoke<void>('start_backend');
+      setCommandOutput('OpenJarvis backend startup requested.');
       // Wait a moment then refresh health
       setTimeout(refresh, 2000);
     } catch (err) {
@@ -289,10 +287,8 @@ export function AdminPanel({ apiUrl }: { apiUrl: string }) {
     setCommandRunning(true);
     setCommandOutput(null);
     try {
-      const output = await invoke<string>('run_jarvis_command', {
-        args: ['stop'],
-      });
-      setCommandOutput(output);
+      await invoke<void>('stop_backend');
+      setCommandOutput('OpenJarvis-owned backend processes stopped.');
       setTimeout(refresh, 2000);
     } catch (err) {
       setCommandOutput(err instanceof Error ? err.message : String(err));

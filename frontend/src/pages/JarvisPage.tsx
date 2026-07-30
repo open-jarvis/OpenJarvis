@@ -245,9 +245,12 @@ export function JarvisPage() {
   const [draft, setDraft] = useState('');
   const [inputMode, setInputMode] = useState<'text' | 'voice'>('text');
   const [decisionBusy, setDecisionBusy] = useState<string | null>(null);
+  const [desktopCloseRequested, setDesktopCloseRequested] = useState(false);
   const sendGuard = useRef(false);
   const sendController = useRef<AbortController | null>(null);
   const listEndRef = useRef<HTMLDivElement>(null);
+  const closeDialogRef = useRef<HTMLDivElement>(null);
+  const closePrimaryRef = useRef<HTMLButtonElement>(null);
   const speech = useSpeech();
   const tts = useTextToSpeech();
 
@@ -383,6 +386,55 @@ export function JarvisPage() {
     }
   };
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void import('@tauri-apps/api/window').then(async ({ getCurrentWindow }) => {
+      const release = await getCurrentWindow().onCloseRequested((event) => {
+        event.preventDefault();
+        setDesktopCloseRequested(true);
+      });
+      if (disposed) release();
+      else unlisten = release;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (desktopCloseRequested) closePrimaryRef.current?.focus();
+  }, [desktopCloseRequested]);
+
+  const finishDesktopClose = async (choice: 'background' | 'pause' | 'cancel') => {
+    if (choice === 'pause' && activeTask?.status === 'running') await controlTask('pause');
+    if (choice === 'cancel' && activeTask && !TERMINAL.has(activeTask.status)) {
+      await controlTask('cancel');
+    }
+    setDesktopCloseRequested(false);
+    const { getCurrentWindow } = await import('@tauri-apps/api/window');
+    await getCurrentWindow().hide();
+  };
+
+  const trapCloseDialog = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setDesktopCloseRequested(false);
+      return;
+    }
+    if (event.key !== 'Tab' || !closeDialogRef.current) return;
+    const buttons = [...closeDialogRef.current.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
+    if (buttons.length === 0) return;
+    const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    const next = event.shiftKey
+      ? (current <= 0 ? buttons.length - 1 : current - 1)
+      : (current === buttons.length - 1 ? 0 : current + 1);
+    event.preventDefault();
+    buttons[next].focus();
+  };
+
   const decide = async (approval: PendingApproval, allow: boolean) => {
     if (decisionBusy) return;
     setDecisionBusy(approval.id);
@@ -449,6 +501,38 @@ export function JarvisPage() {
 
   return (
     <div className="h-full overflow-y-auto" style={{ color: 'var(--color-text)' }}>
+      {desktopCloseRequested && (
+        <div className="fixed inset-0 z-50 grid place-items-center p-4" style={{ background: 'rgba(0,0,0,0.65)' }}>
+          <div
+            ref={closeDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="desktop-close-title"
+            aria-describedby="desktop-close-description"
+            onKeyDown={trapCloseDialog}
+            className="hud-panel w-full max-w-lg p-5"
+          >
+            <h2 id="desktop-close-title" className="text-lg font-semibold">Close OpenJarvis</h2>
+            <p id="desktop-close-description" className="mt-2 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+              Choose what happens to the active task. No task is silently canceled.
+            </p>
+            <div className="mt-5 grid gap-3">
+              <button ref={closePrimaryRef} type="button" onClick={() => void finishDesktopClose('background')} className="rounded-lg px-4 py-3 text-left font-semibold" style={{ background: 'var(--color-accent)', color: 'var(--color-on-accent)' }}>
+                Continue in background
+              </button>
+              <button type="button" disabled={activeTask?.status !== 'running'} onClick={() => void finishDesktopClose('pause')} className="rounded-lg px-4 py-3 text-left disabled:opacity-40" style={{ border: '1px solid var(--color-border)' }}>
+                Pause active task, then hide
+              </button>
+              <button type="button" disabled={!activeTask || TERMINAL.has(activeTask.status)} onClick={() => void finishDesktopClose('cancel')} className="rounded-lg px-4 py-3 text-left disabled:opacity-40" style={{ border: '2px solid var(--color-error)', color: 'var(--color-error)' }}>
+                Cancel active task, then hide
+              </button>
+              <button type="button" onClick={() => setDesktopCloseRequested(false)} className="rounded-lg px-4 py-2 text-sm" style={{ border: '1px solid var(--color-border)' }}>
+                Keep window open
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="mx-auto w-full max-w-[1500px] p-3 sm:p-5 lg:p-6">
         <header className="hud-panel p-4 sm:p-5 mb-4">
           <div className="flex flex-wrap items-start justify-between gap-4">
@@ -494,7 +578,7 @@ export function JarvisPage() {
           </nav>
         </header>
 
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,0.8fr)]">
+        <div className="jarvis-workspace-grid grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,0.8fr)]">
           <main className="min-w-0 space-y-4">
             {state.error && (
               <div

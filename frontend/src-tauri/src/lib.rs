@@ -1538,7 +1538,7 @@ async fn fetch_models(api_url: String) -> Result<serde_json::Value, String> {
         .map_err(|e| format!("Invalid response: {}", e))
 }
 
-#[tauri::command]
+#[cfg(any())]
 async fn run_jarvis_command(args: Vec<String>) -> Result<String, String> {
     let uv_bin = resolve_bin("uv");
 
@@ -2515,7 +2515,6 @@ pub fn run() {
         .manage(backend.clone())
         .manage(status.clone())
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
@@ -2612,7 +2611,6 @@ pub fn run() {
             search_memory,
             fetch_agents,
             fetch_models,
-            run_jarvis_command,
             fetch_savings,
             submit_savings,
             transcribe_audio,
