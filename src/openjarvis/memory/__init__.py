@@ -9,6 +9,12 @@ and configured via the ``[memory]`` section of ``config.toml``.
 from __future__ import annotations
 
 from openjarvis.memory.extractor import FactExtractor
+from openjarvis.memory.frontmatter import (
+    FrontmatterError,
+    ParsedMarkdown,
+    load_memory_note,
+    parse_markdown,
+)
 from openjarvis.memory.service import (
     MemoryService,
     build_memory_service,
@@ -39,6 +45,7 @@ __all__ = [
     "Fact",
     "FactStore",
     "FactExtractor",
+    "FrontmatterError",
     "CandidateStatus",
     "ConflictState",
     "EvidenceStatus",
@@ -52,8 +59,11 @@ __all__ = [
     "MemoryRetrievalResult",
     "MemoryService",
     "MemorySource",
+    "ParsedMarkdown",
     "RetrievalCandidate",
     "build_memory_service",
     "create_fact_store",
+    "load_memory_note",
+    "parse_markdown",
     "publish_completed_exchange",
 ]

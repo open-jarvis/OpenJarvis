@@ -107,6 +107,7 @@ class MemoryNote:
     indexed_at: str | None = None
     modified_ns: int = 0
     size_bytes: int = 0
+    body_start_line: int = 1
     raw_frontmatter: Mapping[str, Any] = field(default_factory=dict)
     parser_error: str | None = None
 
