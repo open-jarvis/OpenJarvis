@@ -31,7 +31,7 @@ def test_state_machine_contains_only_the_canonical_states() -> None:
     [
         (current, requested)
         for current, requested_states in ALLOWED_TRANSITIONS.items()
-        for requested in requested_states
+        for requested in sorted(requested_states, key=lambda state: state.value)
     ],
 )
 def test_every_declared_transition_is_accepted(
