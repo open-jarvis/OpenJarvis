@@ -184,6 +184,14 @@ class ActionStore:
             ).fetchone()
         return ToolAction.model_validate_json(row[0]) if row else None
 
+    def get_action_by_proposal(self, proposal_id: str) -> ToolAction | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT payload_json FROM tool_actions WHERE proposal_id = ?",
+                (proposal_id,),
+            ).fetchone()
+        return ToolAction.model_validate_json(row[0]) if row else None
+
     def list_actions(self, task_id: str) -> tuple[ToolAction, ...]:
         with self._lock:
             rows = self._conn.execute(

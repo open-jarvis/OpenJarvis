@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 from openjarvis.tools._stubs import BaseTool, ToolExecutor, ToolSpec
+from openjarvis.tools.action_service import (
+    RegisteredToolRuntime,
+    ToolActionError,
+    ToolActionService,
+)
 from openjarvis.tools.manifest import (
     IdempotencyPolicy,
     ManifestValidationError,
@@ -174,6 +179,9 @@ __all__ = [
     "SecretPolicy",
     "SideEffectClass",
     "ToolExecutor",
+    "RegisteredToolRuntime",
+    "ToolActionError",
+    "ToolActionService",
     "ToolManifest",
     "ToolManifestCatalog",
     "ToolSpec",
