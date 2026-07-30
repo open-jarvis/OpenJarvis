@@ -15,6 +15,12 @@ from openjarvis.memory.frontmatter import (
     load_memory_note,
     parse_markdown,
 )
+from openjarvis.memory.safe_write import (
+    AtomicMarkdownWriter,
+    AtomicWriteResult,
+    ConcurrentMemoryWrite,
+    UnsafeMemoryPath,
+)
 from openjarvis.memory.service import (
     MemoryService,
     build_memory_service,
@@ -51,7 +57,10 @@ __all__ = [
     "FactExtractor",
     "FrontmatterError",
     "CandidateStatus",
+    "AtomicMarkdownWriter",
+    "AtomicWriteResult",
     "ConflictState",
+    "ConcurrentMemoryWrite",
     "EvidenceStatus",
     "IdentityKind",
     "IndexReport",
@@ -70,6 +79,7 @@ __all__ = [
     "VaultIndex",
     "VaultMemoryService",
     "VaultRetriever",
+    "UnsafeMemoryPath",
     "build_memory_service",
     "create_fact_store",
     "load_memory_note",
