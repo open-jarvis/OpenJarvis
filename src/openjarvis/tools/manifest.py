@@ -206,6 +206,7 @@ _SENSITIVE_NAMES = {
     "repl",
     "schedule_task",
     "shell_exec",
+    "shell.exec",
 }
 _CAPABILITY_BY_NAME = {
     "apply_patch": "file:write",
