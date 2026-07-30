@@ -40,9 +40,12 @@ def test_get_speech_backend_returns_none_if_nothing_available():
 
 
 def test_auto_discovery_priority():
-    """Auto mode tries backends in priority order."""
-    from openjarvis.speech._discovery import DISCOVERY_ORDER
+    """Auto mode keeps cloud providers out of its safe local order."""
+    from openjarvis.speech._discovery import DISCOVERY_ORDER, LOCAL_DISCOVERY_ORDER
 
     assert DISCOVERY_ORDER[0] == "faster-whisper"
     assert "openai" in DISCOVERY_ORDER
     assert "deepgram" in DISCOVERY_ORDER
+    assert LOCAL_DISCOVERY_ORDER == ["faster-whisper"]
+    assert "openai" not in LOCAL_DISCOVERY_ORDER
+    assert "deepgram" not in LOCAL_DISCOVERY_ORDER

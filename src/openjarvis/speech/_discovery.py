@@ -16,6 +16,10 @@ DISCOVERY_ORDER = [
     "deepgram",
 ]
 
+# Safe automatic selection never crosses a network/provider boundary. Cloud
+# providers remain available only when explicitly named in configuration.
+LOCAL_DISCOVERY_ORDER = ["faster-whisper"]
+
 
 def _create_backend(
     key: str,
@@ -66,8 +70,9 @@ def get_speech_backend(config: "JarvisConfig") -> Optional["SpeechBackend"]:
     if backend_key != "auto":
         return _create_backend(backend_key, config)
 
-    # Auto-discovery: try each in priority order
-    for key in DISCOVERY_ORDER:
+    # Auto-discovery is local-only. Merely finding an API key in the process
+    # environment must never activate an external speech service.
+    for key in LOCAL_DISCOVERY_ORDER:
         backend = _create_backend(key, config)
         if backend is not None:
             return backend

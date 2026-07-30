@@ -51,6 +51,7 @@ import type { CanonicalTaskEvent, PendingApproval } from '../lib/api';
 import { ensureActiveTaskId, useJarvisStore } from '../lib/jarvisStore';
 import { useCanonicalTaskStream } from '../lib/useCanonicalTaskStream';
 import { useSpeech } from '../hooks/useSpeech';
+import { useTextToSpeech } from '../hooks/useTextToSpeech';
 
 type WorkspaceFocus = 'chat' | 'tasks' | 'approvals' | 'tools' | 'browser' | 'overview';
 
@@ -247,6 +248,7 @@ export function JarvisPage() {
   const sendController = useRef<AbortController | null>(null);
   const listEndRef = useRef<HTMLDivElement>(null);
   const speech = useSpeech();
+  const tts = useTextToSpeech();
 
   useCanonicalTaskStream(state.activeTaskId);
 
@@ -394,8 +396,7 @@ export function JarvisPage() {
   };
 
   const toggleRecording = async () => {
-    window.speechSynthesis?.cancel();
-    state.setSpeech({ speaking: false });
+    tts.stop();
     if (speech.isRecording) {
       try {
         const transcript = await speech.stopRecording();
@@ -415,20 +416,10 @@ export function JarvisPage() {
         && typeof event.payload.content === 'string',
     );
     const content = latest?.payload.content;
-    if (typeof content !== 'string' || !window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(content);
-    utterance.lang = state.speech.language;
-    utterance.onend = () => state.setSpeech({ speaking: false });
-    utterance.onerror = () => state.setSpeech({ speaking: false, lastError: 'Text-to-speech failed.' });
-    state.setSpeech({ speaking: true, ttsAvailable: true, ttsProvider: 'browser' });
-    window.speechSynthesis.speak(utterance);
+    if (typeof content === 'string') tts.speak(content);
   };
 
-  const stopSpeaking = () => {
-    window.speechSynthesis?.cancel();
-    state.setSpeech({ speaking: false });
-  };
+  const stopSpeaking = tts.stop;
 
   const statusText = activeTask
     ? activeTask.status.replace(/_/g, ' ')
@@ -593,6 +584,18 @@ export function JarvisPage() {
                       <span className="text-xs" aria-live="polite" style={{ color: 'var(--color-text-secondary)' }}>
                         {speech.isRecording ? 'Microphone active' : inputMode === 'voice' ? 'Editable voice transcript' : 'Text input'}
                       </span>
+                      <label className="sr-only" htmlFor="speech-language">Speech language</label>
+                      <select
+                        id="speech-language"
+                        value={state.speech.language}
+                        onChange={(event) => state.setSpeech({ language: event.target.value })}
+                        className="rounded-lg px-2 py-2 text-xs focus-visible:outline-2"
+                        style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
+                      >
+                        <option value="de-DE">Deutsch</option>
+                        <option value="ar-SA">العربية</option>
+                        <option value="en-US">English</option>
+                      </select>
                     </div>
                     <button
                       type="button"
@@ -715,7 +718,7 @@ export function JarvisPage() {
                 <li><ShieldAlert size={13} className="inline mr-2" />{state.codexHealth?.sandbox || 'unknown sandbox'} · {state.codexHealth?.approval_mode || 'unknown approval mode'}</li>
                 <li><Wrench size={13} className="inline mr-2" />Tools {state.toolHealth ? `${state.toolHealth.available}/${state.toolHealth.registered}` : 'unavailable'}</li>
                 <li><Globe2 size={13} className="inline mr-2" />Browser {state.browserHealth.length ? state.browserHealth.every((item) => item.healthy) ? 'healthy' : 'degraded' : 'not running'}</li>
-                <li><Mic size={13} className="inline mr-2" />STT {speech.available ? 'local' : 'browser/disabled'} · TTS {typeof window !== 'undefined' && 'speechSynthesis' in window ? 'browser' : 'disabled'}</li>
+                <li><Mic size={13} className="inline mr-2" />STT {speech.providerId} · TTS {tts.providerId}</li>
               </ul>
             </section>
           </aside>

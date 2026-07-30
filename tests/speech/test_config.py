@@ -7,7 +7,7 @@ def test_speech_config_defaults():
     cfg = SpeechConfig()
     assert cfg.backend == "auto"
     assert cfg.model == "base"
-    assert cfg.language == ""
+    assert cfg.language == "de"
     assert cfg.device == "auto"
     assert cfg.compute_type == "float16"
 

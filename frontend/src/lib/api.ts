@@ -421,6 +421,16 @@ export interface SpeechHealth {
   available: boolean;
   backend?: string;
   reason?: string;
+  stt_available?: boolean;
+  tts_available?: boolean;
+  stt_provider?: string;
+  tts_provider?: string;
+  stt_location?: 'local' | 'external' | 'disabled';
+  tts_location?: 'local' | 'external' | 'disabled';
+  language?: string;
+  microphone_permission?: 'client';
+  degraded?: boolean;
+  last_error?: string | null;
 }
 
 export async function transcribeAudio(audioBlob: Blob, filename = 'recording.webm'): Promise<TranscriptionResult> {

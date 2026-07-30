@@ -154,6 +154,7 @@ def create_app(
     memory_service=None,
     vault_memory_service=None,
     speech_backend=None,
+    tts_backend=None,
     agent_manager=None,
     agent_scheduler=None,
     trace_store=None,
@@ -235,6 +236,7 @@ def create_app(
     app.state.memory_service = memory_service
     app.state.vault_memory_service = vault_memory_service
     app.state.speech_backend = speech_backend
+    app.state.tts_backend = tts_backend
     app.state.agent_manager = agent_manager
     app.state.agent_scheduler = agent_scheduler
     app.state.task_store = task_store

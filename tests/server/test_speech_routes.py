@@ -56,7 +56,7 @@ def test_transcribe_endpoint(client, mock_speech_backend):
     assert data["duration_seconds"] == 1.5
 
 
-def test_transcribe_endpoint_surfaces_backend_error(client, mock_speech_backend):
+def test_transcribe_endpoint_redacts_backend_error(client, mock_speech_backend):
     mock_speech_backend.transcribe.side_effect = RuntimeError("missing cublas64_12.dll")
 
     response = client.post(
@@ -65,7 +65,22 @@ def test_transcribe_endpoint_surfaces_backend_error(client, mock_speech_backend)
     )
 
     assert response.status_code == 500
-    assert "missing cublas64_12.dll" in response.json()["detail"]
+    assert response.json()["detail"] == "Speech transcription failed (RuntimeError)"
+    assert "cublas" not in response.text
+
+
+def test_transcribe_rejects_non_audio_and_oversized_upload(client):
+    invalid = client.post(
+        "/v1/speech/transcribe",
+        files={"file": ("test.txt", b"not audio", "text/plain")},
+    )
+    assert invalid.status_code == 415
+
+    oversized = client.post(
+        "/v1/speech/transcribe",
+        files={"file": ("test.wav", b"x" * (10 * 1024 * 1024 + 1), "audio/wav")},
+    )
+    assert oversized.status_code == 413
 
 
 def test_transcribe_no_file(client):
@@ -79,6 +94,10 @@ def test_health_endpoint(client):
     data = response.json()
     assert data["available"] is True
     assert data["backend"] == "mock"
+    assert data["stt_available"] is True
+    assert data["tts_available"] is False
+    assert data["language"] == "de"
+    assert data["microphone_permission"] == "client"
 
 
 def test_health_endpoint_includes_unavailable_reason(client, mock_speech_backend):
@@ -92,6 +111,7 @@ def test_health_endpoint_includes_unavailable_reason(client, mock_speech_backend
     assert response.status_code == 200
     data = response.json()
     assert data["available"] is False
+    assert data["stt_provider"] == "mock"
     assert data["reason"] == "Install with: uv sync --extra desktop"
 
 
@@ -110,3 +130,5 @@ def test_health_no_backend():
     assert response.status_code == 200
     data = response.json()
     assert data["available"] is False
+    assert data["stt_provider"] == "disabled"
+    assert data["tts_provider"] == "disabled"

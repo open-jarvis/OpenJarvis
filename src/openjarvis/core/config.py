@@ -1448,9 +1448,11 @@ class OperatorsConfig:
 class SpeechConfig:
     """Speech-to-text settings."""
 
+    # "auto" is deliberately local-only. Cloud backends require an explicit
+    # provider name and are never selected merely because an env key exists.
     backend: str = "auto"  # "auto", "faster-whisper", "openai", "deepgram"
     model: str = "base"  # Whisper model size: tiny, base, small, medium, large-v3
-    language: str = ""  # Empty = auto-detect
+    language: str = "de"  # Phase-6 default; callers may explicitly override.
     device: str = "auto"  # "auto", "cpu", "cuda"
     compute_type: str = "float16"  # "float16", "int8", "float32"
 

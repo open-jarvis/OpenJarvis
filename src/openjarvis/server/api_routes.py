@@ -873,6 +873,9 @@ async def learning_policy(request: Request):
 
 speech_router = APIRouter(prefix="/v1/speech", tags=["speech"])
 
+_MAX_SPEECH_UPLOAD_BYTES = 10 * 1024 * 1024
+_SPEECH_FORMATS = {"wav", "webm", "mp3", "m4a", "ogg", "flac", "mp4"}
+
 
 @speech_router.post("/transcribe")
 async def transcribe_speech(request: Request):
@@ -886,21 +889,42 @@ async def transcribe_speech(request: Request):
     if audio_file is None:
         raise HTTPException(status_code=400, detail="Missing 'file' field")
 
-    audio_bytes = await audio_file.read()
-    language = form.get("language")
-
-    # Detect format from filename
-    filename = getattr(audio_file, "filename", "audio.wav")
-    ext = filename.rsplit(".", 1)[-1] if "." in filename else "wav"
-
     try:
-        result = backend.transcribe(audio_bytes, format=ext, language=language or None)
+        content_type = str(getattr(audio_file, "content_type", "") or "")
+        if content_type and not (
+            content_type.startswith("audio/")
+            or content_type == "application/octet-stream"
+        ):
+            raise HTTPException(status_code=415, detail="Unsupported audio media type")
+        audio_bytes = await audio_file.read(_MAX_SPEECH_UPLOAD_BYTES + 1)
+        if not audio_bytes:
+            raise HTTPException(status_code=400, detail="Audio upload is empty")
+        if len(audio_bytes) > _MAX_SPEECH_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="Audio upload exceeds 10 MiB")
+        language_value = form.get("language")
+        language = str(language_value or "de")
+        if len(language) > 16:
+            raise HTTPException(status_code=422, detail="Invalid speech language")
+
+        filename = str(getattr(audio_file, "filename", "audio.wav") or "audio.wav")
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "wav"
+        if ext not in _SPEECH_FORMATS:
+            raise HTTPException(status_code=415, detail="Unsupported audio format")
+        result = backend.transcribe(audio_bytes, format=ext, language=language)
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("Speech transcription failed")
         raise HTTPException(
             status_code=500,
-            detail=f"Speech transcription failed: {exc}",
+            detail=f"Speech transcription failed ({type(exc).__name__})",
         ) from exc
+    finally:
+        close = getattr(audio_file, "close", None)
+        if close is not None:
+            result_or_awaitable = close()
+            if inspect.isawaitable(result_or_awaitable):
+                await result_or_awaitable
 
     return {
         "text": result.text,
@@ -912,26 +936,53 @@ async def transcribe_speech(request: Request):
 
 @speech_router.get("/health")
 async def speech_health(request: Request):
-    """Check if a speech backend is available."""
+    """Return credential-free STT/TTS provider capabilities."""
     backend = getattr(request.app.state, "speech_backend", None)
-    if backend is None:
-        return {"available": False, "reason": "No speech backend configured"}
+    tts_backend = getattr(request.app.state, "tts_backend", None)
+    config = getattr(request.app.state, "config", None)
+    speech_config = getattr(config, "speech", None)
+    language = str(getattr(speech_config, "language", "de") or "de")
+    available = False
+    reason = None
     try:
-        available = backend.health()
-        reason = None
+        available = bool(backend is not None and backend.health())
     except Exception as exc:
         logger.exception("Speech health check failed")
         available = False
-        reason = str(exc)
+        reason = type(exc).__name__
 
-    if not available and reason is None:
+    if backend is not None and not available and reason is None:
         last_error = getattr(backend, "last_error", None)
         if callable(last_error):
-            reason = last_error()
+            raw_reason = str(last_error() or "")
+            reason = raw_reason[:160] if raw_reason else None
+
+    try:
+        tts_available = bool(tts_backend is not None and tts_backend.health())
+        tts_error = None
+    except Exception as exc:
+        logger.exception("TTS health check failed")
+        tts_available = False
+        tts_error = type(exc).__name__
+
+    backend_id = str(getattr(backend, "backend_id", "disabled"))
+    tts_backend_id = str(getattr(tts_backend, "backend_id", "disabled"))
+    cloud_ids = {"openai", "deepgram", "openai_tts", "cartesia"}
+    degraded = bool(reason or tts_error)
 
     return {
         "available": available,
-        "backend": backend.backend_id,
+        "backend": backend_id,
+        "stt_available": available,
+        "tts_available": tts_available,
+        "stt_provider": backend_id,
+        "tts_provider": tts_backend_id,
+        "stt_location": "external" if backend_id in cloud_ids else "local",
+        "tts_location": "external" if tts_backend_id in cloud_ids else "local",
+        "language": language,
+        "microphone_permission": "client",
+        "degraded": degraded,
+        "last_error": reason or tts_error,
         **({"reason": reason} if reason else {}),
     }
 
