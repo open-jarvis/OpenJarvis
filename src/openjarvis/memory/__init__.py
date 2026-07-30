@@ -41,6 +41,7 @@ from openjarvis.memory.vault_models import (
     MemorySource,
     RetrievalCandidate,
 )
+from openjarvis.memory.vault_retrieval import VaultRetriever, normalize_query
 
 __all__ = [
     "Fact",
@@ -63,9 +64,11 @@ __all__ = [
     "ParsedMarkdown",
     "RetrievalCandidate",
     "VaultIndex",
+    "VaultRetriever",
     "build_memory_service",
     "create_fact_store",
     "load_memory_note",
     "parse_markdown",
+    "normalize_query",
     "publish_completed_exchange",
 ]
