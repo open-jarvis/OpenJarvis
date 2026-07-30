@@ -1054,8 +1054,17 @@ export async function getMemoryConfig(): Promise<MemoryConfig> {
 
 export interface PendingApproval {
   id: string;
+  source?: 'codex_task';
+  task_id?: string;
   action_type: string;
   description: string;
+  action?: string;
+  target?: string;
+  effect?: string;
+  risk_level?: number;
+  sandbox?: string;
+  cwd?: string;
+  undo?: string;
   payload: Record<string, unknown>;
   permission_key: string;
   tier: 'trivial' | 'low' | 'medium' | 'high';
@@ -1072,13 +1081,98 @@ export async function fetchPendingApprovals(): Promise<PendingApproval[]> {
 }
 
 export async function approveAction(actionId: string): Promise<void> {
-  const res = await apiFetch(`/v1/approvals/${actionId}/approve`, { method: 'POST' });
+  const res = await apiFetch(`/v1/approvals/${actionId}/approve`, {
+    method: 'POST',
+    headers: {
+      'X-Correlation-ID': `ui-approval-${actionId}`,
+      'Idempotency-Key': `ui-approval-${actionId}-allow`,
+    },
+  });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
 }
 
 export async function denyAction(actionId: string): Promise<void> {
-  const res = await apiFetch(`/v1/approvals/${actionId}/deny`, { method: 'POST' });
+  const res = await apiFetch(`/v1/approvals/${actionId}/deny`, {
+    method: 'POST',
+    headers: {
+      'X-Correlation-ID': `ui-approval-${actionId}`,
+      'Idempotency-Key': `ui-approval-${actionId}-deny`,
+    },
+  });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
+}
+
+// ---------------------------------------------------------------------------
+// Canonical Codex tasks
+// ---------------------------------------------------------------------------
+
+export interface CanonicalTask {
+  task_id: string;
+  session_id: string;
+  correlation_id: string;
+  description: string;
+  status: 'pending' | 'running' | 'waiting_approval' | 'paused' | 'recovering' | 'failed' | 'done' | 'canceled';
+  outcome: string | null;
+  execution_lane: 'model_lane' | 'interactive_lane';
+  backend: string;
+  risk_level: number;
+  created_at: string;
+  updated_at: string;
+  result: string;
+  error_category: string | null;
+  active_thread_id: string | null;
+  budget_warning: boolean;
+}
+
+export interface CanonicalTaskEvent {
+  event_id: string;
+  task_id: string;
+  sequence: number;
+  event_type: string;
+  occurred_at: string;
+  cause: string;
+  component: string;
+  status_from: string | null;
+  status_to: string | null;
+  thread_id: string | null;
+  item_id: string | null;
+  approval_id: string | null;
+  artifact_id: string | null;
+  payload: Record<string, unknown>;
+}
+
+export interface CodexRuntimeHealth {
+  active_backend: string | null;
+  chatgpt_authenticated: boolean;
+  runtime_version: string | null;
+  sandbox: string;
+  approval_mode: string;
+  persistent_threads: boolean;
+  app_server_available: boolean;
+  cli_fallback_enabled: boolean;
+  degraded: boolean;
+  open_approvals: number;
+  last_error_category: string | null;
+}
+
+export async function fetchCanonicalTasks(limit = 50): Promise<CanonicalTask[]> {
+  const res = await apiFetch(`/v1/tasks?limit=${limit}`);
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  const data = await res.json();
+  return data.tasks || [];
+}
+
+export async function fetchTaskTimeline(taskId: string): Promise<CanonicalTaskEvent[]> {
+  const res = await apiFetch(`/v1/tasks/${encodeURIComponent(taskId)}/timeline`);
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  const data = await res.json();
+  return data.events || [];
+}
+
+export async function fetchCodexRuntimeHealth(): Promise<CodexRuntimeHealth> {
+  const res = await apiFetch(`/v1/codex/health`);
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return res.json();
 }
 
 // ---------------------------------------------------------------------------

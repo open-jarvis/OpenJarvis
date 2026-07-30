@@ -68,6 +68,7 @@ import type { ConnectRequest } from '../types/connectors';
 import { listConnectors, connectSource } from '../lib/connectors-api';
 import type { ToolCallInfo } from '../types';
 import { ToolCallCard } from '../components/Chat/ToolCallCard';
+import { CodexTasksPanel } from '../components/CodexTasksPanel';
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -3953,6 +3954,8 @@ export function AgentsPage() {
           <span>Agent manager is not enabled. Set <code className="font-mono text-xs">agent_manager.enabled = true</code> in your config.</span>
         </div>
       )}
+
+      <CodexTasksPanel />
 
       {/* Agent cards grid */}
       <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>

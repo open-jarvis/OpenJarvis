@@ -151,6 +151,7 @@ export function ApprovalBell() {
                 const isExpanded = !!expanded[action.id];
                 const isLoading = !!processing[action.id];
                 const hasPayload = Object.keys(action.payload ?? {}).length > 0;
+                const isCodex = action.source === 'codex_task';
 
                 return (
                   <div
@@ -166,7 +167,7 @@ export function ApprovalBell() {
                         className="text-[11px] font-mono font-semibold"
                         style={{ color: 'var(--color-accent)' }}
                       >
-                        {action.action_type}
+                        {isCodex ? action.action || action.action_type : action.action_type}
                       </span>
                       <div className="flex items-center gap-2">
                         <span
@@ -190,8 +191,35 @@ export function ApprovalBell() {
                       className="text-[13px] mb-2.5 leading-snug"
                       style={{ color: 'var(--color-text)' }}
                     >
-                      {action.description}
+                      {action.effect || action.description}
                     </p>
+
+                    {isCodex && (
+                      <div
+                        className="grid grid-cols-[72px_1fr] gap-x-2 gap-y-1 text-[11px] rounded-lg p-2.5 mb-2.5"
+                        style={{
+                          background: 'var(--color-bg-tertiary)',
+                          color: 'var(--color-text-secondary)',
+                        }}
+                      >
+                        <span>Target</span>
+                        <span className="font-mono break-all" style={{ color: 'var(--color-text)' }}>
+                          {action.target || 'Not specified'}
+                        </span>
+                        <span>Risk</span>
+                        <span style={{ color: tier.color }}>
+                          Level {action.risk_level ?? 0} · {tier.label}
+                        </span>
+                        <span>Sandbox</span>
+                        <span className="font-mono" style={{ color: 'var(--color-text)' }}>
+                          {action.sandbox || 'unknown'}
+                        </span>
+                        <span>Undo</span>
+                        <span style={{ color: 'var(--color-text)' }}>
+                          {action.undo || 'No automatic undo available'}
+                        </span>
+                      </div>
+                    )}
 
                     {/* Expandable payload */}
                     {hasPayload && (
@@ -236,7 +264,7 @@ export function ApprovalBell() {
                         }}
                       >
                         <CheckCircle size={12} />
-                        Approve
+                        Allow once
                       </button>
                       <button
                         onClick={() => handleDeny(action.id)}
