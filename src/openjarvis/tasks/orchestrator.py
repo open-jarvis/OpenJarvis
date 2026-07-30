@@ -92,11 +92,17 @@ class CodexTaskOrchestrator:
         self._tasks = task_service
         self._projector = projector
         self._risk_policy = risk_policy or CentralRiskPolicy()
-        self._timeout_seconds = default_timeout_seconds
-        self._step_limit = default_step_limit
         self._token_limit = default_token_limit
         self._lanes = lane_scheduler or ExecutionLaneScheduler()
         self._budget = BudgetController(task_service.store, budget_limits)
+        self._timeout_seconds = min(
+            default_timeout_seconds,
+            self._budget.limits.max_turn_duration,
+        )
+        self._step_limit = min(
+            default_step_limit,
+            self._budget.limits.max_steps,
+        )
         self._active_turns: dict[str, tuple[str, CodexBackend, CodexRunContext]] = {}
 
     @property

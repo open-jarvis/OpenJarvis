@@ -4,10 +4,12 @@ import {
   fetchCanonicalTasks,
   fetchCodexRuntimeHealth,
   fetchTaskTimeline,
+  fetchTaskUsage,
 } from '../lib/api';
 import type {
   CanonicalTask,
   CanonicalTaskEvent,
+  CanonicalTaskUsage,
   CodexRuntimeHealth,
 } from '../lib/api';
 
@@ -34,6 +36,7 @@ export function CodexTasksPanel() {
   const [health, setHealth] = useState<CodexRuntimeHealth | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [events, setEvents] = useState<CanonicalTaskEvent[]>([]);
+  const [usage, setUsage] = useState<CanonicalTaskUsage | null>(null);
   const [available, setAvailable] = useState<boolean | null>(null);
 
   const refresh = useCallback(async () => {
@@ -64,15 +67,25 @@ export function CodexTasksPanel() {
   useEffect(() => {
     if (!selectedId) {
       setEvents([]);
+      setUsage(null);
       return;
     }
     let active = true;
     const load = async () => {
       try {
-        const next = await fetchTaskTimeline(selectedId);
-        if (active) setEvents(next);
+        const [nextEvents, nextUsage] = await Promise.all([
+          fetchTaskTimeline(selectedId),
+          fetchTaskUsage(selectedId),
+        ]);
+        if (active) {
+          setEvents(nextEvents);
+          setUsage(nextUsage);
+        }
       } catch {
-        if (active) setEvents([]);
+        if (active) {
+          setEvents([]);
+          setUsage(null);
+        }
       }
     };
     load();
@@ -86,6 +99,7 @@ export function CodexTasksPanel() {
   if (available !== true || !health) return null;
 
   const selected = tasks.find(task => task.task_id === selectedId) ?? null;
+  const latestUsage = usage?.turns[usage.turns.length - 1];
 
   return (
     <section
@@ -170,6 +184,22 @@ export function CodexTasksPanel() {
                 <span>{selected.execution_lane}</span>
                 <span>Thread {selected.active_thread_id || 'not started'}</span>
                 {selected.outcome && <span>Outcome {selected.outcome}</span>}
+                {usage && (
+                  <>
+                    <span>
+                      Turn input {latestUsage?.input_tokens.toLocaleString() ?? 0}
+                    </span>
+                    <span>
+                      Turn output {latestUsage?.output_tokens.toLocaleString() ?? 0}
+                    </span>
+                    <span>
+                      Thread input {usage.cumulative_thread.input_tokens.toLocaleString()}
+                    </span>
+                    <span>
+                      Thread output {usage.cumulative_thread.output_tokens.toLocaleString()}
+                    </span>
+                  </>
+                )}
               </div>
             )}
             <div className="space-y-2">

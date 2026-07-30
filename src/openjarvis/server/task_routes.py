@@ -296,6 +296,38 @@ async def get_task_timeline(
     }
 
 
+@router.get("/tasks/{task_id}/usage")
+async def get_task_usage(
+    task_id: str,
+    request: Request,
+    developer: bool = False,
+) -> dict[str, Any]:
+    _require_local(request)
+    service = _task_service(request)
+    if service.get(task_id) is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    usage = service.store.list_usage(task_id)
+    latest = usage[-1] if usage else None
+    return {
+        "turns": [
+            {
+                "turn_id": item.turn_id if developer else None,
+                "input_tokens": item.turn_input_tokens,
+                "output_tokens": item.turn_output_tokens,
+                "warning": item.warning,
+                "hard_exceeded": item.hard_exceeded,
+                "reason": item.reason,
+            }
+            for item in usage
+        ],
+        "cumulative_thread": {
+            "input_tokens": latest.thread_input_tokens if latest else 0,
+            "output_tokens": latest.thread_output_tokens if latest else 0,
+        },
+        "task_total_tokens": service.store.task_token_total(task_id),
+    }
+
+
 @router.post("/tasks/{task_id}/pause")
 async def pause_task(
     task_id: str,

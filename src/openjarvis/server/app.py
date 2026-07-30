@@ -281,6 +281,12 @@ def create_app(
                     store.close()
                 except Exception:
                     logger.debug("Task store shutdown failed", exc_info=True)
+            traces = getattr(app.state, "trace_store", None)
+            if traces is not None:
+                try:
+                    traces.close()
+                except Exception:
+                    logger.debug("Trace store shutdown failed", exc_info=True)
 
     # Wire up external analytics if enabled (PostHog) — never block startup.
     # Note: we do NOT fire app_opened here. The frontend owns that event

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -19,6 +20,9 @@ from openjarvis.codex.types import (  # noqa: E402
     CodexHealth,
     SandboxMode,
 )
+from openjarvis.core.config import JarvisConfig  # noqa: E402
+from openjarvis.core.events import EventBus  # noqa: E402
+from openjarvis.server.app import create_app  # noqa: E402
 from openjarvis.server.approval_routes import router as approval_router  # noqa: E402
 from openjarvis.server.task_routes import router as task_router  # noqa: E402
 from openjarvis.tasks.approval import PersistentApprovalBroker  # noqa: E402
@@ -368,3 +372,71 @@ def test_health_is_credential_safe_and_redacts_thread_by_default(api_runtime) ->
     assert body["active_task"]["active_thread_id"] == "…et-value"
     assert "super-secret" not in serialized
     assert "[REDACTED]" in serialized
+
+
+def test_usage_endpoint_keeps_turn_and_thread_values_separate(api_runtime) -> None:
+    client, store, service, _, _ = api_runtime
+    task_id = _create(client).json()["task_id"]
+    store.save_usage(
+        task_id=task_id,
+        turn_id="turn",
+        turn_input_tokens=40,
+        turn_output_tokens=10,
+        thread_input_tokens=140,
+        thread_output_tokens=20,
+        warning=False,
+        hard_exceeded=False,
+        reason=None,
+        source_event_id="usage-event",
+    )
+    response = client.get(f"/v1/tasks/{task_id}/usage")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["turns"][0]["input_tokens"] == 40
+    assert body["turns"][0]["output_tokens"] == 10
+    assert body["turns"][0]["turn_id"] is None
+    assert body["cumulative_thread"]["input_tokens"] == 140
+    assert body["cumulative_thread"]["output_tokens"] == 20
+    assert body["task_total_tokens"] == 50
+
+
+def test_owned_task_runtime_and_trace_store_close_on_server_shutdown() -> None:
+    class Closable:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    class ClosableOrchestrator:
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+
+    engine = MagicMock()
+    engine.engine_id = "fake"
+    engine.health.return_value = True
+    engine.list_models.return_value = ["fake"]
+    store = Closable()
+    traces = Closable()
+    orchestrator = ClosableOrchestrator()
+    config = JarvisConfig()
+    config.analytics.enabled = False
+    config.traces.enabled = False
+    app = create_app(
+        engine,
+        "fake",
+        bus=EventBus(),
+        config=config,
+        trace_store=traces,
+        task_store=store,
+        codex_orchestrator=orchestrator,
+        owns_task_runtime=True,
+    )
+    with TestClient(app) as client:
+        assert client.get("/health").status_code == 200
+    assert orchestrator.closed is True
+    assert store.closed is True
+    assert traces.closed is True

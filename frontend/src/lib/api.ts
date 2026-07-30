@@ -1155,6 +1155,22 @@ export interface CodexRuntimeHealth {
   last_error_category: string | null;
 }
 
+export interface CanonicalTaskUsage {
+  turns: Array<{
+    turn_id: string | null;
+    input_tokens: number;
+    output_tokens: number;
+    warning: boolean;
+    hard_exceeded: boolean;
+    reason: string | null;
+  }>;
+  cumulative_thread: {
+    input_tokens: number;
+    output_tokens: number;
+  };
+  task_total_tokens: number;
+}
+
 export async function fetchCanonicalTasks(limit = 50): Promise<CanonicalTask[]> {
   const res = await apiFetch(`/v1/tasks?limit=${limit}`);
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
@@ -1167,6 +1183,12 @@ export async function fetchTaskTimeline(taskId: string): Promise<CanonicalTaskEv
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   const data = await res.json();
   return data.events || [];
+}
+
+export async function fetchTaskUsage(taskId: string): Promise<CanonicalTaskUsage> {
+  const res = await apiFetch(`/v1/tasks/${encodeURIComponent(taskId)}/usage`);
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return res.json();
 }
 
 export async function fetchCodexRuntimeHealth(): Promise<CodexRuntimeHealth> {
